@@ -17,7 +17,7 @@ set -uo pipefail
 input="$(cat)"
 
 real="$(python3 - "$input" <<'PY'
-import json, sys
+import json, os, sys
 
 try:
     data = json.loads(sys.argv[1])

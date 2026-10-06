@@ -171,13 +171,18 @@ if tool in ("terminal", "Bash"):
     uncertain = False  # a `cd` we could not resolve; the next push fails closed
     for segment in re.split(r"[;&|\n]+", cmd):
         s = segment.strip()
-        # drop leading env-var assignments (FOO=bar git push ...)
-        while re.match(r"^\w+=\S*\s+", s):
-            s = s.split(None, 1)[1] if " " in s else ""
         try:
             words = shlex.split(s)
         except ValueError:
             continue
+        if words and words[0] == "export":
+            words = words[1:]
+        # A leading assignment only sets the command's environment; strip it
+        # after tokenizing so a quoted value (`FOO="a b" git push`) still yields
+        # the command. The `s`-based `main` regex below still sees the whole
+        # segment, so an explicit destination is never hidden by an assignment.
+        while words and re.fullmatch(r"[A-Za-z_]\w*=.*", words[0]):
+            words.pop(0)
         if not words:
             continue
         if words[0] == "cd":
