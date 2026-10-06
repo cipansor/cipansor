@@ -107,8 +107,8 @@ if tool in ("terminal", "Bash"):
     # origin main`, `… HEAD:main`) or implicitly, when the current branch (or
     # its upstream) is main and the push names no destination (`git push`,
     # `git push origin` while on main). The repo is resolved from the
-    # terminal's working directory and any `git -C DIR`, so a push run from a
-    # worktree is judged in that worktree.
+    # terminal's working directory, any `git -C DIR`, and a `cd` earlier in the
+    # command, so a push run from a worktree is judged in that worktree.
     import os, shlex, subprocess
 
     cwd = str(data.get("working_dir") or data.get("cwd") or os.getcwd())
@@ -131,12 +131,31 @@ if tool in ("terminal", "Bash"):
                 i += 1
         return repo, i
 
+    def resolve_refspec(repo, refspec):
+        """Where a `push` refspec lands on the remote, or None if unknowable.
+
+        An explicit `HEAD` / `HEAD:HEAD` pushes the current branch to the
+        same-named remote branch — the branch's upstream does NOT choose that
+        destination, so `git push -u origin HEAD` on a branch that tracks main
+        must be allowed. An explicit `src:dst` names its destination; a bare
+        refspec names a same-named branch.
+        """
+        if refspec in ("HEAD", "HEAD:HEAD"):
+            return git_in(repo, "rev-parse", "--abbrev-ref", "HEAD")
+        if ":" in refspec:
+            dst = refspec.split(":", 1)[1]
+            if dst.startswith("refs/heads/"):
+                dst = dst[len("refs/heads/"):]
+            return dst or None
+        return refspec
+
     def refuse_push(why):
         block(
             "Refusing to push to main: " + why + " Push to the feature branch "
             "instead and open a PR; main is not a direct-push target."
         )
 
+    here = cwd  # follows `cd` across segments, like the shell does
     for segment in re.split(r"[;&|\n]+", cmd):
         s = segment.strip()
         # drop leading env-var assignments (FOO=bar git push ...)
@@ -146,9 +165,15 @@ if tool in ("terminal", "Bash"):
             words = shlex.split(s)
         except ValueError:
             continue
-        if not words or words[0] != "git":
+        if not words:
             continue
-        repo, i = push_repo_dir(words, cwd)
+        if words[0] == "cd" and len(words) >= 2:
+            d = words[1]
+            here = d if os.path.isabs(d) else os.path.normpath(os.path.join(here, d))
+            continue
+        if words[0] != "git":
+            continue
+        repo, i = push_repo_dir(words, here)
         if i >= len(words) or words[i] != "push":
             continue
         if re.search(r"(?:^|\s|:)(?:HEAD:)?(?:refs/heads/)?main(?:\s|$)", s):
@@ -156,8 +181,12 @@ if tool in ("terminal", "Bash"):
         # Positional args after `push` are [remote] [refspec ...]; flags are not.
         positional = [w for w in words[i + 1:] if not w.startswith("-")]
         refspecs = positional[1:]
-        if refspecs and not any(r in ("HEAD", "HEAD:HEAD") for r in refspecs):
-            continue  # an explicit non-main refspec was judged above
+        if refspecs:
+            if any(resolve_refspec(repo, r) == "main" for r in refspecs):
+                refuse_push("the refspec resolves to main.")
+            continue  # an explicit refspec sets its own destination
+        # No refspec: Git picks the destination, and the branch's upstream
+        # decides it. Only now does branch.<name>.merge matter.
         branch = git_in(repo, "rev-parse", "--abbrev-ref", "HEAD")
         merge = git_in(repo, "config", "--get", "branch.%s.merge" % branch) if branch else ""
         if branch == "main":

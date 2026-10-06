@@ -11,7 +11,8 @@ task. Nothing sensitive in either folder (the repo is public until release).
 ## What OpenHands reads in this repo
 
 - **`.openhands/setup.sh`** — runs at the start of every conversation; installs
-  deps, generates Prisma, builds `@cipansor/shared`, Playwright Chromium, and
+  deps, generates Prisma, builds `@cipansor/shared`, installs the Playwright
+  engines the e2e suite launches (Chromium, Firefox, WebKit), and installs
   Postgres+Redis. It does not seed or start the stack (that is the `stack` skill).
 - **`.openhands/hooks.json`** — `pre_tool_use` guards via `.openhands/hooks/`:
   block a wholesale `prisma/schema.prisma` rewrite, a `git push` to `main`,

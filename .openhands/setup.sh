@@ -44,9 +44,10 @@ log "pnpm install"
 # --frozen-lockfile only. A failed frozen install used to fall back to a bare
 # `pnpm install`, which can silently rewrite pnpm-lock.yaml; a routine session
 # start must never leave unrelated dependency changes in the worktree. Warn
-# instead and let the caller fix the lockfile on purpose.
+# instead. The failure is not necessarily a stale lockfile — a network or
+# registry outage reaches here too — so name both and let the caller diagnose.
 if ! pnpm install --frozen-lockfile; then
-  warn "pnpm install --frozen-lockfile failed — the lockfile is out of sync with package.json. Fix it on a branch (pnpm install, review pnpm-lock.yaml), then re-run; leaving the worktree untouched."
+  warn "pnpm install --frozen-lockfile failed. This is a network/registry problem or a lockfile out of sync with package.json — check which before touching anything. Not retrying with a bare \`pnpm install\` (it could rewrite pnpm-lock.yaml); if the lockfile is genuinely stale, fix it on a branch and commit it."
 fi
 
 log "build @cipansor/shared"

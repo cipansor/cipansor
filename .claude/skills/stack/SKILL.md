@@ -59,7 +59,9 @@ instead, with two things the old recipe got wrong:
 ```bash
 sudo useradd -m pgrunner 2>/dev/null || true
 sudo install -d -o pgrunner -g pgrunner /tmp/pgsock
-printf '%s\n' "${PGPASSWORD:?set PGPASSWORD first}" > /tmp/pgpass.txt
+# 0600: a `printf >` under the default 022 umask is world-readable, so another
+# local user could copy the password before it is deleted (CWE-732).
+( umask 077; printf '%s\n' "${PGPASSWORD:?set PGPASSWORD first}" > /tmp/pgpass.txt )
 sudo chown pgrunner /tmp/pgpass.txt
 sudo -u pgrunner "$PGBIN/initdb" -D /tmp/pgdata -U postgres -A scram-sha-256 --pwfile=/tmp/pgpass.txt
 sudo rm -f /tmp/pgpass.txt
