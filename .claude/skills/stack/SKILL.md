@@ -45,14 +45,33 @@ node apps/api/dist/main.js &                        # :3001
 ```
 
 `scripts/dev-stack.sh` hardcodes `/usr/lib/postgresql/16/bin` and fails on an
-image without 16 — prefer discovering the version dir as above, or run the
-cluster as an unprivileged owner when `su postgres` is unavailable:
+image without 16 — prefer discovering the version dir as above. When
+`su postgres` is unavailable, run the cluster as an unprivileged owner
+instead, with two things the old recipe got wrong:
+
+- **Create the socket directory first.** `pg_ctl -k` aborts if the directory
+  does not exist; `scripts/dev-stack.sh` makes `/tmp/pgsock` and chowns it to
+  the database user before starting, and this path must do the same.
+- **Never `--auth=trust`.** A trust cluster on `127.0.0.1` lets any process on
+  the box in as `postgres` and alter the database (CWE-306). Set the superuser
+  password at `initdb` and authenticate every connection.
 
 ```bash
 sudo useradd -m pgrunner 2>/dev/null || true
-sudo -u pgrunner "$PGBIN/initdb" -D /tmp/pgdata --auth=trust -U postgres
-sudo -u pgrunner "$PGBIN/pg_ctl" -D /tmp/pgdata -o "-k /tmp/pgsock -p 5432" -l /tmp/pg.log start
+sudo install -d -o pgrunner -g pgrunner /tmp/pgsock
+printf '%s\n' "${PGPASSWORD:?set PGPASSWORD first}" > /tmp/pgpass.txt
+sudo chown pgrunner /tmp/pgpass.txt
+sudo -u pgrunner "$PGBIN/initdb" -D /tmp/pgdata -U postgres -A scram-sha-256 --pwfile=/tmp/pgpass.txt
+sudo rm -f /tmp/pgpass.txt
+sudo -u pgrunner "$PGBIN/pg_ctl" -D /tmp/pgdata -o "-k /tmp/pgsock -p 5432 -c listen_addresses=127.0.0.1" -l /tmp/pg.log start
+
+# Wait for the listener before touching the database (pg_isready needs no auth):
+until sudo -u pgrunner "$PGBIN/pg_isready" -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1; do sleep 1; done
+sudo -u pgrunner env PGPASSWORD="$PGPASSWORD" "$PGBIN/createdb" -h 127.0.0.1 -U postgres cipansor
 ```
+
+Use the same `PGPASSWORD` in the `DATABASE_URL` above; do not commit it if the
+box is shared.
 
 On an OpenHands sandbox (no Docker daemon, no preinstalled Postgres), run
 `.openhands/setup.sh` first: it installs Postgres and Redis, so only the cluster

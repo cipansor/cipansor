@@ -34,7 +34,15 @@ if "push" not in cmd:
     print("")
     sys.exit(0)
 
-print(json.dumps({"tool_name": "Bash", "tool_input": {"command": cmd}}))
+# The shared check resolves `git -C` and `cd` from the event's working
+# directory. Dropping it made it start from this script's own directory, so a
+# push run from another worktree was checked against the wrong commit range
+# (and a `cd` inside the command resolved against the wrong base).
+print(json.dumps({
+    "tool_name": "Bash",
+    "tool_input": {"command": cmd},
+    "cwd": data.get("working_dir") or data.get("cwd") or os.getcwd(),
+}))
 PY
 )"
 

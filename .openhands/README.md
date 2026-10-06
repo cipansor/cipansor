@@ -6,9 +6,9 @@ rather than copying them.
 
 | File | When it runs | What it does |
 |---|---|---|
-| `setup.sh` | once, at the start of every conversation | installs deps, generates the Prisma client, builds `@cipansor/shared`, installs the Playwright Chromium, and installs Postgres + Redis (Docker if a daemon exists, else apt). Does **not** seed or start the stack — that is the `stack` skill's job. |
+| `setup.sh` | once, at the start of every conversation | installs deps (`pnpm install --frozen-lockfile` only), generates the Prisma client, builds `@cipansor/shared`, installs the Playwright engines the e2e projects use (Chromium, Firefox, WebKit), and installs Postgres + Redis (Docker if a daemon exists, else apt). Does **not** seed or start the stack — that is the `stack` skill's job. |
 | `hooks.json` | registers the hooks below | `pre_tool_use` for `terminal` + `file_editor` |
-| `hooks/guard.sh` | before a `terminal` or `file_editor` call | blocks the three mechanical mistakes: a wholesale rewrite of `prisma/schema.prisma`, a `git push` to `main`, and sensitive text written into a repository Markdown file |
+| `hooks/guard.sh` | before a `terminal` or `file_editor` call | blocks the three mechanical mistakes: a wholesale rewrite of `prisma/schema.prisma`, a `git push` that would land on `main` (named or implicit), and sensitive text written into a repository Markdown file |
 | `hooks/format-before-push.sh` | before a `terminal` call | refuses a `git push` whose commits carry `.ts`/`.tsx` files Prettier would change |
 
 ## Why these three
@@ -25,7 +25,10 @@ so the same script can be dropped into either tool's hook config.
 `hooks/format-before-push.sh` is a thin adapter: the Prettier check itself is
 still `.claude/hooks/format-before-push.sh` (one definition, shared). The
 adapter rewrites the OpenHands `terminal` event into the `Bash` shape that
-script expects and forwards its exit code.
+script expects and forwards its exit code. It also carries the event's
+**working directory** across as `cwd` — the shared check resolves `cd` / `git -C`
+against it, and without it a push run from another worktree was checked against
+the wrong commit range.
 
 ## What is deliberately not ported
 

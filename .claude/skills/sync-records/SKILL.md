@@ -22,14 +22,19 @@ trusts it.
 ## OpenHands
 
 This skill runs under OpenHands too (the folder is symlinked at `.agents/skills/`).
-Two differences:
+The differences below change steps 4, 6 and 7:
 
 - The **machine-local memory is `~/.openhands/memory/`** (user tier) — the
   equivalent of `~/.claude/projects/<slug>/memory/`. It is not committed.
-- There is **no stamp step and no `/compact` gate** on OpenHands: skip step 6
-  below. OpenHands loads `<repo>/.openhands/memory/MEMORY.md` (a thin pointer
-  index, budget 6000 chars, truncated from the top) plus the user-tier index;
-  keep both indexes level with what the pass wrote.
+- The **repo-tier index is `.openhands/memory/MEMORY.md`** (loaded every
+  conversation, 6000-char budget, truncated from the top), **not** Claude's
+  `.claude/memory/INDEX.md`. Keep it level with what the pass wrote, and put the
+  detail in the daily log `.openhands/memory/YYYY-MM-DD.md`. Repo findings still
+  go to the `.claude/memory/` files in the table below — that is the shared full
+  record — and the OpenHands index just points at them.
+- There is **no stamp step and no `/compact` gate** on OpenHands: **skip step 6**,
+  and in step 7 give the closing summary without the "`/compact` will now go
+  straight through" sentence (nothing holds compaction here).
 
 The two committed OpenHands hooks do not ask for this pass (the user chose
 2026-10-06 not to port the Claude records hooks) — run it from the signals below.
@@ -77,14 +82,16 @@ the user's approval, file by file, until the repository is private.
    changed the password it described.
 3. **Update in place, don't duplicate.** Look for the existing file that already
    covers the ground; a second file on the same subject splits the truth.
-4. **Update the indexes** — the machine-local `MEMORY.md`, and
-   `.claude/memory/INDEX.md` when a repo memory file is added or removed. One
-   line per memory, hook only, never content. If a
-   memory's headline changed, its index line changed too.
+4. **Update the indexes.** Claude: the machine-local `MEMORY.md` under
+   `~/.claude/projects/<slug>/memory/`, and `.claude/memory/INDEX.md` when a repo
+   memory file is added or removed. OpenHands: `.openhands/memory/MEMORY.md`
+   (repo tier, 6000-char budget, truncated from the top) and the user tier
+   `~/.openhands/memory/MEMORY.md`. One line per memory, hook only, never
+   content. If a memory's headline changed, its index line changed too.
 5. **The repo's records are code.** `.claude/memory/`, the plans in `docs/`
    and the guides go on a branch and through a PR like anything else; never
    commit them straight to `main`. The machine-local memory is written in place.
-6. **Stamp it, so the pass counts.** Last step, always:
+6. **Claude only — stamp it, so the pass counts.** Last step, always:
 
    ```
    python3 "$CLAUDE_PROJECT_DIR/.claude/hooks/sync_stamp.py"
@@ -102,11 +109,14 @@ the user's approval, file by file, until the repository is private.
    pass is what it is asking for: run it at the nearest stopping point, before
    carrying on with the task.
 
-   Skip it only when the pass found nothing AND wrote nothing.
+   Skip it only when the pass found nothing AND wrote nothing. **OpenHands has
+   no `sync_stamp.py` and no compaction gate — skip this step entirely.**
 
 7. **Say what you did**, briefly, so the user can disagree before the transcript
-   is gone. Then tell them plainly that `/compact` will now go straight
-   through — that sentence is the notification they were promised.
+   is gone. Claude: then tell them plainly that `/compact` will now go straight
+   through — that sentence is the notification they were promised. OpenHands has
+   no `/compact` gate, so state that the pass is done and what it wrote, without
+   that sentence.
 
 ## What earns a memory
 

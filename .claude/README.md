@@ -11,7 +11,7 @@ When you change a hook, update its paragraph here in the same PR.
 
 | Hook | What it does |
 |---|---|
-| `hooks/guard.sh` | PreToolUse — blocks a full-file Write to `schema.prisma`, a push to `main`, and a Write/Edit of a repo Markdown file that `check-sensitive.py` flags |
+| `hooks/guard.sh` | PreToolUse — blocks a full-file Write to `schema.prisma`, a push that would land on `main` (named or implicit), and a Write/Edit of a repo Markdown file that `check-sensitive.py` flags |
 | `hooks/format-before-push.sh` | PreToolUse — refuses a `git push` whose commits carry `.ts`/`.tsx` files Prettier would change, and prints the command that fixes them |
 | `hooks/session-bootstrap.sh` | SessionStart — installs deps, generates the Prisma client, builds shared |
 | `hooks/pre-compact-sync.sh` | PreCompact — pauses a manual `/compact` when there is new work the durable records do not yet reflect; *holds* an auto-compaction until this session has run `sync-records` |

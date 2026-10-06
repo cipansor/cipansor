@@ -48,25 +48,67 @@ if tool == "Write":
             "`pnpm --filter api db:generate`."
         )
 
-# 2. Never git push to main. Only a command *segment* that actually invokes
-# `git push` targeting main is blocked — not a segment that merely mentions the
-# string (an echo, a grep, a heredoc, a commit message), which starts with some
-# other command. Feature branches with "main" inside a longer name
-# (e.g. `maintenance-x`) are not matched.
+# 2. Never git push to main. Refuse a push that would land on main — named
+# explicitly (`git push origin main`, `… HEAD:main`) or implicitly, when the
+# current branch (or its upstream) is main and the push names no destination
+# (`git push`, `git push origin` while on main). The repo is resolved from the
+# event's cwd and any `git -C DIR`, so a push from a worktree is judged there.
 if tool == "Bash":
+    import os, shlex, subprocess
+
     cmd = str(ti.get("command", ""))
+    cwd = str(data.get("cwd") or os.getcwd())
+
+    def git_in(repo, *args):
+        try:
+            r = subprocess.run(["git", "-C", repo, *args], capture_output=True, text=True, timeout=15)
+            return r.stdout.strip()
+        except Exception:
+            return ""
+
+    def push_repo_dir(words, base):
+        i, repo = 1, base
+        while i < len(words) and words[i].startswith("-"):
+            if words[i] == "-C" and i + 1 < len(words):
+                d = words[i + 1]
+                repo = d if os.path.isabs(d) else os.path.normpath(os.path.join(repo, d))
+                i += 2
+            else:
+                i += 1
+        return repo, i
+
+    def refuse_push(why):
+        block(
+            "Refusing to push to main: " + why + " Push to the feature branch "
+            "instead and open a PR; main is not a direct-push target."
+        )
+
     for segment in re.split(r"[;&|\n]+", cmd):
         s = segment.strip()
         # drop leading env-var assignments (FOO=bar git push ...)
         while re.match(r"^\w+=\S*\s+", s):
             s = s.split(None, 1)[1] if " " in s else ""
-        if not re.match(r"^git\s+(-\S+\s+|--\S+(=\S+)?\s+)*push\b", s):
+        try:
+            words = shlex.split(s)
+        except ValueError:
             continue
-        if re.search(r"(\s|:)(HEAD:)?main(\s|$)", s):
-            block(
-                "Refusing to push to main. Push to the feature branch instead "
-                "and open a PR; main is not a direct-push target."
-            )
+        if not words or words[0] != "git":
+            continue
+        repo, i = push_repo_dir(words, cwd)
+        if i >= len(words) or words[i] != "push":
+            continue
+        if re.search(r"(?:^|\s|:)(?:HEAD:)?(?:refs/heads/)?main(?:\s|$)", s):
+            refuse_push("the command names main as its destination.")
+        positional = [w for w in words[i + 1:] if not w.startswith("-")]
+        refspecs = positional[1:]
+        if refspecs and not any(r in ("HEAD", "HEAD:HEAD") for r in refspecs):
+            continue  # an explicit non-main refspec was judged above
+        branch = git_in(repo, "rev-parse", "--abbrev-ref", "HEAD")
+        merge = git_in(repo, "config", "--get", "branch.%s.merge" % branch) if branch else ""
+        if branch == "main":
+            refuse_push("the current branch is `main` and the push names no other destination.")
+        if merge in ("main", "refs/heads/main"):
+            refuse_push("the current branch's upstream is main and the push names no other destination.")
 
 # 3. Sensitive text into a Markdown file of a checkout of this repository.
 if tool in ("Write", "Edit", "MultiEdit"):

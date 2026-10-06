@@ -41,9 +41,12 @@ echo "pnpm $(pnpm --version)"
 
 # --- node dependencies -----------------------------------------------------
 log "pnpm install"
+# --frozen-lockfile only. A failed frozen install used to fall back to a bare
+# `pnpm install`, which can silently rewrite pnpm-lock.yaml; a routine session
+# start must never leave unrelated dependency changes in the worktree. Warn
+# instead and let the caller fix the lockfile on purpose.
 if ! pnpm install --frozen-lockfile; then
-  warn "frozen-lockfile install failed; retrying without the lock check"
-  pnpm install || warn "pnpm install failed"
+  warn "pnpm install --frozen-lockfile failed — the lockfile is out of sync with package.json. Fix it on a branch (pnpm install, review pnpm-lock.yaml), then re-run; leaving the worktree untouched."
 fi
 
 log "build @cipansor/shared"
@@ -54,11 +57,15 @@ log "prisma generate"
 pnpm --filter api db:generate || warn "prisma generate failed"
 
 # --- playwright browsers ---------------------------------------------------
-# Chromium is the primary e2e target (apps/web/playwright.config.ts).
-log "playwright chromium"
-pnpm --filter web exec playwright install --with-deps chromium \
-  || pnpm --filter web exec playwright install chromium \
-  || warn "playwright install failed"
+# Install every engine the e2e projects use (apps/web/playwright.config.ts:
+# chromium, firefox, webkit, mobile-chrome, mobile-safari) with their OS
+# dependencies. Chromium alone is not enough — a full `pnpm --filter web
+# test:e2e` launches Firefox and WebKit too, and fails without them. The image
+# tag Playwright downloads must match `@playwright/test` in apps/web/package.json.
+log "playwright browsers (chromium, firefox, webkit)"
+pnpm --filter web exec playwright install --with-deps chromium firefox webkit \
+  || pnpm --filter web exec playwright install chromium firefox webkit \
+  || warn "playwright install failed — run it by hand before e2e"
 
 # --- Postgres + Redis (e2e / stack) ---------------------------------------
 # The gate's e2e step needs a real Postgres + Redis. With a Docker daemon that
