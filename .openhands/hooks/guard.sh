@@ -125,11 +125,23 @@ if tool in ("terminal", "Bash"):
         while i < len(words) and words[i].startswith("-"):
             if words[i] == "-C" and i + 1 < len(words):
                 d = words[i + 1]
+                if "$" in d or "`" in d:
+                    return None, i + 2  # unmodeled shell expansion
                 repo = d if os.path.isabs(d) else os.path.normpath(os.path.join(repo, d))
                 i += 2
             else:
                 i += 1
         return repo, i
+
+    def resolve_dir(word, base):
+        """The directory a `cd` moves to, or None when the target is a shell
+        expansion we cannot model (the push then fails closed). A plain target
+        that does not exist leaves the shell put, so the result is `base`."""
+        if word in ("-",) or "$" in word or "`" in word:
+            return None
+        word = os.path.expanduser(word)
+        d = word if os.path.isabs(word) else os.path.normpath(os.path.join(base, word))
+        return d if os.path.isdir(d) else base
 
     def resolve_refspec(repo, refspec):
         """Where a `push` refspec lands on the remote, or None if unknowable.
@@ -156,6 +168,7 @@ if tool in ("terminal", "Bash"):
         )
 
     here = cwd  # follows `cd` across segments, like the shell does
+    uncertain = False  # a `cd` we could not resolve; the next push fails closed
     for segment in re.split(r"[;&|\n]+", cmd):
         s = segment.strip()
         # drop leading env-var assignments (FOO=bar git push ...)
@@ -167,15 +180,21 @@ if tool in ("terminal", "Bash"):
             continue
         if not words:
             continue
-        if words[0] == "cd" and len(words) >= 2:
-            d = words[1]
-            here = d if os.path.isabs(d) else os.path.normpath(os.path.join(here, d))
+        if words[0] == "cd":
+            target = words[1] if len(words) >= 2 else "~"
+            nd = resolve_dir(target, here)
+            if nd is None:
+                uncertain = True  # a shell expansion moved us somewhere we cannot see
+            else:
+                here, uncertain = nd, False
             continue
         if words[0] != "git":
             continue
         repo, i = push_repo_dir(words, here)
         if i >= len(words) or words[i] != "push":
             continue
+        if repo is None or uncertain:
+            refuse_push("the working directory is set by a shell expansion this guard cannot resolve; run the push from a plain path.")
         if re.search(r"(?:^|\s|:)(?:HEAD:)?(?:refs/heads/)?main(?:\s|$)", s):
             refuse_push("the command names main as its destination.")
         # Positional args after `push` are [remote] [refspec ...]; flags are not.
