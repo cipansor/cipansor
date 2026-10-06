@@ -175,12 +175,13 @@ if tool in ("terminal", "Bash"):
             words = shlex.split(s)
         except ValueError:
             continue
+        # `export NAME=value ...` only sets shell variables; it never runs a
+        # command, so the segment is not a push.
         if words and words[0] == "export":
-            words = words[1:]
+            continue
         # A leading assignment only sets the command's environment; strip it
         # after tokenizing so a quoted value (`FOO="a b" git push`) still yields
-        # the command. The `s`-based `main` regex below still sees the whole
-        # segment, so an explicit destination is never hidden by an assignment.
+        # the command.
         while words and re.fullmatch(r"[A-Za-z_]\w*=.*", words[0]):
             words.pop(0)
         if not words:
@@ -200,10 +201,14 @@ if tool in ("terminal", "Bash"):
             continue
         if repo is None or uncertain:
             refuse_push("the working directory is set by a shell expansion this guard cannot resolve; run the push from a plain path.")
-        if re.search(r"(?:^|\s|:)(?:HEAD:)?(?:refs/heads/)?main(?:\s|$)", s):
-            refuse_push("the command names main as its destination.")
         # Positional args after `push` are [remote] [refspec ...]; flags are not.
         positional = [w for w in words[i + 1:] if not w.startswith("-")]
+        # A destination named as a token (`git push origin main`,
+        # `git push origin HEAD:refs/heads/main`). Checking the tokens — not the
+        # raw segment — keeps `main` inside an assignment value (`FOO="x main
+        # y" git push origin feat`) from looking like a destination.
+        if any(re.search(r"(?:^|:)(?:HEAD:)?(?:refs/heads/)?main$", a) for a in positional):
+            refuse_push("the command names main as its destination.")
         refspecs = positional[1:]
         if refspecs:
             if any(resolve_refspec(repo, r) == "main" for r in refspecs):
