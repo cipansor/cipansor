@@ -25,8 +25,9 @@ Install and run PostgreSQL directly, then point the API at it. This is the path
 that works in the web/remote sandboxes where the Docker socket is absent.
 
 ```bash
-apt-get install -y postgresql-16        # if not already present
-pg_ctlcluster 16 main start
+apt-get install -y postgresql          # version follows the distro (Debian 13 → 17)
+PGBIN="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+pg_ctlcluster "$(basename "$(dirname "$PGBIN")")" main start   # or run the cluster as an unprivileged owner; see below
 su postgres -c "psql -c \"ALTER USER postgres PASSWORD 'postgres';\""
 su postgres -c "createdb cipansor"
 
@@ -42,6 +43,20 @@ pnpm --filter api build && pnpm --filter web build
 node apps/api/dist/main.js &                        # :3001
 ( cd apps/web && node_modules/.bin/next start -p 3000 ) &
 ```
+
+`scripts/dev-stack.sh` hardcodes `/usr/lib/postgresql/16/bin` and fails on an
+image without 16 — prefer discovering the version dir as above, or run the
+cluster as an unprivileged owner when `su postgres` is unavailable:
+
+```bash
+sudo useradd -m pgrunner 2>/dev/null || true
+sudo -u pgrunner "$PGBIN/initdb" -D /tmp/pgdata --auth=trust -U postgres
+sudo -u pgrunner "$PGBIN/pg_ctl" -D /tmp/pgdata -o "-k /tmp/pgsock -p 5432" -l /tmp/pg.log start
+```
+
+On an OpenHands sandbox (no Docker daemon, no preinstalled Postgres), run
+`.openhands/setup.sh` first: it installs Postgres and Redis, so only the cluster
+start + seed steps below are left. Redis is optional there too.
 
 ## Gotchas
 

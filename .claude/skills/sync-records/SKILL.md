@@ -19,6 +19,21 @@ this pass genuinely finds nothing worth writing, say that in one line — an
 invented edit to satisfy a hook is worse than no edit, because the next reader
 trusts it.
 
+## OpenHands
+
+This skill runs under OpenHands too (the folder is symlinked at `.agents/skills/`).
+Two differences:
+
+- The **machine-local memory is `~/.openhands/memory/`** (user tier) — the
+  equivalent of `~/.claude/projects/<slug>/memory/`. It is not committed.
+- There is **no stamp step and no `/compact` gate** on OpenHands: skip step 6
+  below. OpenHands loads `<repo>/.openhands/memory/MEMORY.md` (a thin pointer
+  index, budget 6000 chars, truncated from the top) plus the user-tier index;
+  keep both indexes level with what the pass wrote.
+
+The two committed OpenHands hooks do not ask for this pass (the user chose
+2026-10-06 not to port the Claude records hooks) — run it from the signals below.
+
 ## What to write, and where
 
 Two memories, and the line between them is `AGENTS.md` → "Where things live":
