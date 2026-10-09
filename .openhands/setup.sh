@@ -87,11 +87,5 @@ else
   fi
 fi
 
-# --- repo scripts ----------------------------------------------------------
-# OpenHands runs a hook's `command` through a shell, so the hook scripts (and
-# setup.sh itself) must be executable. They are committed that way; this only
-# repairs a checkout that lost the bit.
-chmod +x .openhands/hooks/*.sh .openhands/setup.sh 2>/dev/null || true
-
 log "done — next: create apps/api/.env, bring the stack up, then seed (see the 'stack' skill)"
 echo "  apps/api/.env is gitignored and recreated per sandbox; copy keys from .env.example"

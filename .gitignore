@@ -144,6 +144,7 @@ apps/api/private/
 __pycache__/
 *.pyc
 
+
 # Hasil bangun/ukur dokumen aplikasi — bukan sumber.
 #
 # `fakta/` dan `diagrams/` dihasilkan skrip (`collect_facts.py`, `build_docs.py`)
@@ -167,8 +168,10 @@ docs/*.build.json
 docs/*.docx
 docs/*.pdf
 
-# Agent working notes (session memory), never part of the repo
-.openhands/
+# OpenHands' daily memory logs are sandbox scratch. Its index MEMORY.md is a
+# committed pointer to .claude/memory/, the one project memory (2026-10-09).
+.openhands/memory/*
+!.openhands/memory/MEMORY.md
 
 # Visual-QA galleries, built by scripts/build-page-gallery.py and
 # scripts/build-role-gallery.py from a local sweep. Thousands of images that

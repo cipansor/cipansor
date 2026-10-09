@@ -5,7 +5,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": ".openhands/hooks/guard.sh",
+          "command": "bash \"${OPENHANDS_PROJECT_DIR:-.}/.claude/hooks/guard.sh\"",
           "timeout": 30
         }
       ]
@@ -15,7 +15,7 @@
       "hooks": [
         {
           "type": "command",
-          "command": ".openhands/hooks/format-before-push.sh",
+          "command": "bash \"${OPENHANDS_PROJECT_DIR:-.}/.openhands/hooks/format-before-push.sh\"",
           "timeout": 150
         }
       ]

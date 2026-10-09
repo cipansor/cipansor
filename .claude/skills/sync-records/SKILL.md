@@ -26,12 +26,11 @@ The differences below change steps 4, 6 and 7:
 
 - The **machine-local memory is `~/.openhands/memory/`** (user tier) — the
   equivalent of `~/.claude/projects/<slug>/memory/`. It is not committed.
-- The **repo-tier index is `.openhands/memory/MEMORY.md`** (loaded every
-  conversation, 6000-char budget, truncated from the top), **not** Claude's
-  `.claude/memory/INDEX.md`. Keep it level with what the pass wrote, and put the
-  detail in the daily log `.openhands/memory/YYYY-MM-DD.md`. Repo findings still
-  go to the `.claude/memory/` files in the table below — that is the shared full
-  record — and the OpenHands index just points at them.
+- The **project memory is the same `.claude/memory/`**, index `INDEX.md`.
+  OpenHands' own index, `.openhands/memory/MEMORY.md`, is a committed pointer
+  here, and the guard refuses a write to it (decided 2026-10-09); its daily
+  logs are scratch that git ignores. Write findings to the table below exactly
+  as Claude does.
 - There is **no stamp step and no `/compact` gate** on OpenHands: **skip step 6**,
   and in step 7 give the closing summary without the "`/compact` will now go
   straight through" sentence (nothing holds compaction here).
@@ -84,10 +83,9 @@ the user's approval, file by file, until the repository is private.
    covers the ground; a second file on the same subject splits the truth.
 4. **Update the indexes.** Claude: the machine-local `MEMORY.md` under
    `~/.claude/projects/<slug>/memory/`, and `.claude/memory/INDEX.md` when a repo
-   memory file is added or removed. OpenHands: `.openhands/memory/MEMORY.md`
-   (repo tier, 6000-char budget, truncated from the top) and the user tier
-   `~/.openhands/memory/MEMORY.md`. One line per memory, hook only, never
-   content. If a memory's headline changed, its index line changed too.
+   memory file is added or removed. OpenHands: the same `INDEX.md`, and its
+   user tier `~/.openhands/memory/MEMORY.md`; never `.openhands/memory/MEMORY.md`,
+   which is a pointer. One line per memory, hook only, never content. If a memory's headline changed, its index line changed too.
 5. **The repo's records are code.** `.claude/memory/`, the plans in `docs/`
    and the guides go on a branch and through a PR like anything else; never
    commit them straight to `main`. The machine-local memory is written in place.

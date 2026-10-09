@@ -215,15 +215,18 @@ file you are changing applies on top of this one.
 ## Where things live
 
 Every agent (Claude, OpenHands, Jules, Copilot) loads this file; Claude also
-loads `.claude/memory/INDEX.md`. Each kind of knowledge has exactly one home —
-two copies drift, and a stale one actively misleads.
+loads `.claude/memory/INDEX.md`, and OpenHands is pointed at it by
+`.openhands/memory/MEMORY.md`. Each kind of knowledge has exactly one home —
+two copies drift, and a stale one actively misleads. What an agent learned goes
+to its home below, never into this file, even when the agent's own default is
+to keep its learnings here (OpenHands' is, while its memory is off).
 
 | Kind | Home | Changes |
 |---|---|---|
 | Rules every change follows: architecture, build/test/deploy, style, guardrails | this file + the nested `AGENTS.md` | rarely, by PR |
 | Procedures and domain knowledge, loaded when relevant ([index](#skills)) | `.claude/skills/<name>/SKILL.md` | when a standard or a rule changes, by PR |
-| Enforcement | CI and the `main` ruleset (every agent); `.claude/hooks/` (Claude only) | rarely, by PR |
-| Project memory: progress, backlog, known issues (`.claude/memory/*.md`); decisions not yet in a skill (`decisions/`); traps that cost time (`lessons/`) — indexed in `INDEX.md` | `.claude/memory/` | as work happens, by PR |
+| Enforcement | CI and the `main` ruleset (every agent); `.claude/hooks/` (Claude; `guard.sh` also runs for OpenHands through `.openhands/hooks.json`) | rarely, by PR |
+| Project memory: progress, backlog, known issues (`.claude/memory/*.md`); decisions not yet in a skill (`decisions/`); traps that cost time (`lessons/`) — indexed in `INDEX.md` | `.claude/memory/` (OpenHands' `.openhands/memory/MEMORY.md` is only a pointer here; its daily logs are not committed) | as work happens, by PR |
 | Documentation for people: architecture, deployment, setup, user manuals | `docs/` | with the code it describes |
 | Anything **sensitive**, personal, or specific to one machine | the machine-local memory (`~/.claude/projects/…/memory/`), never the repo | — |
 
@@ -253,8 +256,9 @@ to `main`.
 
 ### Skills
 
-Claude loads a skill by its description; any other agent opens the file when
-its "use when" matches the task.
+Claude, and OpenHands through the symlink `.agents/skills`, load a skill by its
+description; any other agent opens the file when its "use when" matches the
+task.
 
 | Skill | Use when |
 |---|---|

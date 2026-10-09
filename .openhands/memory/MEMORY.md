@@ -1,36 +1,20 @@
-# Project memory — OpenHands index
+# Project memory — a pointer, not a memory
 
-Short on purpose: OpenHands loads this file every conversation with a **6000-char
-budget, truncated from the top**, so a long index loses its head. Keep one line
-per entry and put detail in the daily logs.
+This repository keeps one project memory: **`.claude/memory/`**. Read its index,
+`.claude/memory/INDEX.md`, before starting, and open a file when its line
+matches the task.
 
-The full project memory is Claude's and lives in **`.claude/memory/`** — read
-`INDEX.md` there for where the work stands; open a file when its line matches the
-task. Nothing sensitive in either folder (the repo is public until release).
+**Do not write here.** With "Persistent Agent Memory" on, OpenHands is told to
+fold what it learned into this file; in this repository the guard refuses that
+(`.claude/hooks/guard.sh`, decided 2026-10-09). Instead:
 
-## What OpenHands reads in this repo
+- a finding about the work → the matching file in `.claude/memory/`
+  (`progress.md`, `roadmap.md`, `known-issues.md`, `decisions/`, `lessons/`) and
+  its line in `INDEX.md`, as the `sync-records` skill says, on a branch and
+  through a PR;
+- anything sensitive, personal or specific to this sandbox → the user tier,
+  `~/.openhands/memory/`, never the repository (it is public until release);
+- working notes → today's daily log in this folder (`YYYY-MM-DD.md`), which git
+  ignores.
 
-- **`.openhands/setup.sh`** — runs at the start of every conversation; installs
-  deps, generates Prisma, builds `@cipansor/shared`, installs the Playwright
-  engines the e2e suite launches (Chromium, Firefox, WebKit), and installs
-  Postgres+Redis. It does not seed or start the stack (that is the `stack` skill).
-- **`.openhands/hooks.json`** — `pre_tool_use` guards via `.openhands/hooks/`:
-  block a wholesale `prisma/schema.prisma` rewrite, a `git push` to `main`,
-  sensitive text into a repo `.md`, and an unformatted push. Reasons and the
-  tool-name mapping are in `.openhands/README.md`.
-- **`.agents/skills -> ../.claude/skills`** — a symlink. OpenHands loads project
-  skills from `.agents/skills/`, **never** `.claude/skills/`; Claude Code is the
-  reverse (hard-coded to `.claude/skills/`, no setting adds `.agents/`). The
-  symlink is the one-source bridge; keep the real files in `.claude/skills/`.
-- **`AGENTS.md`** (root + the nested per-area files) — always-on repo rules.
-
-## Traps that cost time
-
-- **The two tools disagree on skill and memory paths.** OpenHands: skills
-  `.agents/skills/`, memory `.openhands/memory/`. Claude: skills `.claude/skills/`,
-  memory `.claude/memory/` (via `CLAUDE.md` imports). Do not "move" a folder to
-  the other tool's path — symlink it.
-- **OpenHands truncates memory from the top**, so the index must stay under
-  6000 chars or the earliest entries silently vanish.
-- **Machine-specific facts do not belong here.** They live in the user-tier
-  memory (`~/.openhands/memory/`) — versions, host paths, this box's setup.
+What goes where, and why: `AGENTS.md` → "Where things live".

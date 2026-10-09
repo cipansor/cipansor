@@ -53,6 +53,7 @@ describe('change-scope.sh', () => {
       '.github/scripts/change-scope.sh',
       'deploy/azure/nginx/nginx.conf',
       'docs/DEPLOYMENT.md', // a test reads it
+      '.claude/hooks/guard.sh', // agent-guard.guard.test.ts runs it
     ];
     expect(codeAmong(notCode)).toEqual([]);
     expect(codeAmong(code)).toEqual(code);
