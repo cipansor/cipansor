@@ -11,7 +11,7 @@ When you change a hook, update its paragraph here in the same PR.
 
 | Hook | What it does |
 |---|---|
-| `hooks/guard.sh` | PreToolUse, **shared with OpenHands** (`.openhands/hooks.json`; it reads both tools' vocabularies) — blocks a wholesale rewrite of `schema.prisma` (a Write, or a terminal redirect/`tee`/`cp`/`mv` onto it), a push that would land on `main` (named, `+main`, implicit, `--all`/`--mirror`), a write of a repo Markdown file that `check-sensitive.py` flags, and a write to `.openhands/memory/MEMORY.md` (a pointer to `.claude/memory/`). Cases: `apps/api/src/utils/agent-guard.guard.test.ts` |
+| `hooks/guard.sh` | PreToolUse, **shared with OpenHands** (`.openhands/hooks.json`; it reads both tools' vocabularies) — blocks a wholesale rewrite of `schema.prisma` (a Write, or a terminal redirect/`tee`/`cp`/`mv`/`install` onto it, wrapped or not), a push that would land on `main` (named, `+main`, implicit, `--all`/`--mirror`, also through `sudo`/`env`/`timeout`/…, a subshell, `sh -c`, `eval` or `$( )`; refused outright under `xargs` or with a `$VAR` destination), a write of a repo Markdown file that `check-sensitive.py` flags, and a write to `.openhands/memory/MEMORY.md` (a pointer to `.claude/memory/`). Cases: `apps/api/src/utils/agent-guard.guard.test.ts` |
 | `hooks/format-before-push.sh` | PreToolUse — refuses a `git push` whose commits carry `.ts`/`.tsx` files Prettier would change, and prints the command that fixes them |
 | `hooks/session-bootstrap.sh` | SessionStart — installs deps, generates the Prisma client, builds shared |
 | `hooks/pre-compact-sync.sh` | PreCompact — pauses a manual `/compact` when there is new work the durable records do not yet reflect; *holds* an auto-compaction until this session has run `sync-records` |
@@ -35,6 +35,24 @@ old finding is not blocked. Placeholders pass on purpose — `user:pass@host`, a
 key cut short, `1.2.3.4`, the RFC 5737 ranges — because every example in the
 docs is written that way. `<app>.azurewebsites.net` passes too: the app names
 are in the deploy workflows, and both apps admit only Cloudflare's ranges.
+
+**Why the push check reads the command like a shell** (2026-10-10, the #660
+review). The wall is the `main` ruleset: a pull request is required and the
+ruleset lists no bypass actor, so GitHub refuses a direct push to `main` from
+anyone, agent or person. `guard.sh` is the tripwire in front of it — it answers
+before the push leaves the machine and says what to do instead. An earlier
+version split the command on `; & | newline` and judged a segment only when its
+first word was `git`, so `sudo git push origin main`, `(git push origin main)`,
+`sh -c '…'`, `if git push …; then` and `$(git push …)` all passed. It now
+tokenizes with the shell's punctuation (quotes kept, so `echo "git push origin
+main"` stays a mention), walks past keywords, assignments and the wrappers that
+run the rest of their words, and reads the script of `sh -c`/`bash -c`/`eval`
+and of every `$( )` and backtick. What it cannot see it does not guess at:
+`xargs` adds words from its input and a `$VAR` destination is known only at
+run time, so both are refused. Still out of its sight: a script file
+(`./push.sh`), a git alias, and a quoted backtick it reads as a substitution
+(over-refusing, which is the safe side). Cases:
+`apps/api/src/utils/agent-guard.guard.test.ts`.
 
 **Why the compaction hook exists.** Compaction discards the transcript, and only
 files survive it. Findings were reaching `memory/`, the plan and the ROADMAP

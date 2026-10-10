@@ -44,8 +44,8 @@ node apps/api/dist/main.js &                        # :3001
 ( cd apps/web && node_modules/.bin/next start -p 3000 ) &
 ```
 
-`scripts/dev-stack.sh` hardcodes `/usr/lib/postgresql/16/bin` and fails on an
-image without 16 — prefer discovering the version dir as above. When
+`scripts/dev-stack.sh` discovers the version dir the same way (`PGBIN`
+overrides it) and stops with a clear message when no server is installed. When
 `su postgres` is unavailable, run the cluster as an unprivileged owner
 instead, with two things the old recipe got wrong:
 

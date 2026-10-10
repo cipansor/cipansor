@@ -8,7 +8,7 @@ copying them: one guard, one Prettier check, one project memory.
 |---|---|---|
 | `setup.sh` | at the start of every conversation | installs deps (`pnpm install --frozen-lockfile` only), generates the Prisma client, builds `@cipansor/shared`, installs the Playwright engines the e2e projects use (Chromium, Firefox, WebKit), and installs Postgres + Redis (Docker if a daemon exists, else apt). Does **not** seed or start the stack — that is the `stack` skill's job. |
 | `hooks.json` | registers the hooks below | `pre_tool_use` for `terminal` + `file_editor` |
-| `../.claude/hooks/guard.sh` | before a `terminal` or `file_editor` call | the guard both agents share: refuses a wholesale rewrite of `prisma/schema.prisma`, a `git push` that would land on `main`, sensitive text in a repository Markdown file, and a write to `memory/MEMORY.md` (below) |
+| `../.claude/hooks/guard.sh` | before a `terminal` or `file_editor` call | the guard both agents share: refuses a wholesale rewrite of `prisma/schema.prisma`, a `git push` that would land on `main` (through wrappers, subshells and `sh -c` too — the `main` ruleset is the wall, this is the early warning), sensitive text in a repository Markdown file, and a write to `memory/MEMORY.md` (below) |
 | `hooks/format-before-push.sh` | before a `terminal` call | refuses a `git push` whose commits carry `.ts`/`.tsx` files Prettier would change |
 | `memory/MEMORY.md` | loaded into every conversation when Persistent Agent Memory is on | a pointer to `.claude/memory/`, not a memory |
 

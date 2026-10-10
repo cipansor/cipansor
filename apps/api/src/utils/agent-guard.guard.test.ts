@@ -96,12 +96,55 @@ describe('a push that lands on main is refused', () => {
     expect(shell(command)).toBe(REFUSED);
   });
 
+  // A wrapper that runs the rest of its words, a subshell or a nested shell
+  // still runs the push (#660 review). The guard reads the command as the
+  // shell would split it, so none of these is a way around it.
+  it.each([
+    'env git push origin main',
+    'env -i PATH=/usr/bin git push origin main',
+    'command git push origin main',
+    'sudo git push origin main',
+    'sudo -u bob -E git push origin main',
+    'time git push origin main',
+    'nice -n 10 git push origin main',
+    'nohup git push origin main',
+    'setsid git push origin main',
+    'timeout 30 git push origin main',
+    '/usr/bin/git push origin main',
+    '(git push origin main)',
+    '{ git push origin main; }',
+    'if git push origin main; then echo ok; fi',
+    "sh -c 'git push origin main'",
+    'bash -lc "cd /tmp && git push origin main"',
+    "eval 'git push origin main'",
+    'echo $(git push origin main)',
+    'echo "$(git push origin main)"',
+    'echo `git push origin main`',
+    'git push origin main 2>&1 | tail -3',
+    "sudo git push origin main '",
+  ])('%s', (command) => {
+    expect(shell(command)).toBe(REFUSED);
+  });
+
+  // What the guard cannot see, it does not guess at: xargs adds words from
+  // its input, and a variable names the destination only at run time.
+  it.each([
+    'echo x | xargs git push origin main',
+    'echo main | xargs git push origin',
+    'B=main; git push origin "$B"',
+  ])('%s', (command) => {
+    expect(shell(command)).toBe(REFUSED);
+  });
+
   it('a push naming no destination, on main or tracking it', () => {
     expect(shell('git push', onMain)).toBe(REFUSED);
     expect(shell('git push origin', onMain)).toBe(REFUSED);
     expect(shell('git push -o ci.skip origin', onMain)).toBe(REFUSED);
     expect(shell('git push', tracksMain)).toBe(REFUSED);
     expect(shell(`git -C ${onMain} push`)).toBe(REFUSED);
+    expect(shell('sudo git push', onMain)).toBe(REFUSED);
+    expect(shell("sh -c 'git push'", onMain)).toBe(REFUSED);
+    expect(shell('(git push)', onMain)).toBe(REFUSED);
   });
 });
 
@@ -114,6 +157,11 @@ describe('ordinary pushes and mere mentions pass', () => {
     'echo "git push origin main"',
     'git commit -m "push to main after review"',
     'git log --oneline origin/main',
+    'sudo git push origin feat-x',
+    "sh -c 'git push origin feat-x'",
+    'git commit -m "fix (scope); push to main later"',
+    'git push origin feat-x 2>&1 | tail -3',
+    'docker run --rm -v "$PWD:/w" node:22-alpine sh -c \'cd /w && pnpm test\'',
   ])('%s', (command) => {
     expect(shell(command)).toBe(ALLOWED);
   });
@@ -153,6 +201,9 @@ describe('the Prisma schema is never rewritten wholesale', () => {
   it.each([
     ['cat /tmp/s > apps/api/prisma/schema.prisma', REFUSED],
     ['cp /tmp/s apps/api/prisma/schema.prisma', REFUSED],
+    ['sudo cp /tmp/s apps/api/prisma/schema.prisma', REFUSED],
+    ['sudo mv /tmp/s apps/api/prisma/schema.prisma', REFUSED],
+    ['install -m 644 /tmp/s apps/api/prisma/schema.prisma', REFUSED],
     ['generate | tee apps/api/prisma/schema.prisma', REFUSED],
     ['cat /tmp/model >> apps/api/prisma/schema.prisma', ALLOWED],
     ['cp apps/api/prisma/schema.prisma /tmp/s', ALLOWED],
@@ -165,7 +216,7 @@ describe('the Prisma schema is never rewritten wholesale', () => {
 
 describe('sensitive text never reaches a markdown file of the repository', () => {
   // Assembled at run time, so no scanner reads this file as a leak.
-  const leak = 'see postgres' + 'ql://app:Tr0ub4dor-' + 'x9@db.internal.example/app';
+  const leak = ['see ', 'postgresql://app:Tr0ub4dor-', 'x9@db.internal.example/app'].join('');
   const note = join(REPO_ROOT, 'docs', 'guard-test-note' + '.md');
 
   it('refused in either tool, allowed outside a checkout', () => {
