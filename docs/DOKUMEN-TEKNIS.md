@@ -567,6 +567,8 @@ satu kalimat; buka berkasnya untuk alasannya.
 | Lisensi | Apache License 2.0 selama repositori publik, kembali proprietary begitu privat; nama, logo, foto, dan data pribadi di luar lisensi. | `lisensi.md` |
 | Pengumuman SPMB di situs publik | Banner selama ada unit yang membuka pendaftaran, ditambah dialog tertunda sekali per kunjungan; keduanya diturunkan dari `GET /admissions/public/intakes`. | `spmb-announcement-publik.md` |
 | Akses data pegawai | Data pribadi lengkap pegawai hanya untuk dirinya, admin unit, TU unit, organ, dan Super Admin; rekan melihat kolom direktori. | `akses-data-pegawai.md` |
+| Armada otomasi dan rilis | Pemantauan dipicu event, bukan cron; uji beban k6 manual sebelum tiap rilis; persetujuan rilis lewat label pada issue rilis mingguan; tanpa berkas CHANGELOG; temuan keamanan ke advisory privat; catatan `## HUMAN` hanya pada PR berisiko. | `otomasi-armada.md` |
+| Showcase portofolio santri | Tetap terbatas cakupan santri (`studentScope`); rancangan bertingkat baru dibangun saat ada kebutuhan nyata. | `showcase-portofolio.md` |
 
 # 10. Persyaratan Kualitas
 
