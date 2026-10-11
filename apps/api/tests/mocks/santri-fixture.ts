@@ -42,13 +42,23 @@ export const ACTORS = {
 
 type Where = Record<string, unknown>;
 
-function matches(s: (typeof SANTRI)[number], where: Where | undefined): boolean {
+/** A santri as the rule reads one. */
+export interface SantriLike {
+  id: string;
+  unitId: string;
+  userId: string;
+  parentIds: string[];
+  deletedAt: null;
+}
+
+/** Whether `where` (a `StudentWhereInput` of the shapes above) matches `s`. */
+export function studentMatches(s: SantriLike, where: Where | undefined): boolean {
   if (!where) return true;
   return Object.entries(where).every(([key, value]) => {
     const v = value as Where | string | null | undefined;
     switch (key) {
       case 'AND':
-        return (value as Where[]).every((w) => matches(s, w));
+        return (value as Where[]).every((w) => studentMatches(s, w));
       case 'id':
         if (v && typeof v === 'object' && Array.isArray((v as Where).in)) {
           return ((v as Where).in as string[]).includes(s.id);
@@ -72,6 +82,6 @@ function matches(s: (typeof SANTRI)[number], where: Where | undefined): boolean 
 
 /** `prisma.student.findFirst`, over the fixture. */
 export async function findStudentLike(args: { where?: Where }) {
-  const found = SANTRI.find((s) => matches(s, args.where));
+  const found = SANTRI.find((s) => studentMatches(s, args.where));
   return found ? { id: found.id, unitId: found.unitId } : null;
 }

@@ -6,6 +6,7 @@ import { Request, Response, NextFunction } from 'express';
 import { verifyToken } from '@/lib/jwt';
 import { tokenFromRequest } from './auth';
 import { Errors } from './error';
+import { prisma } from '@/lib/prisma';
 
 // Ensure upload directory exists
 const uploadDir = path.join(process.cwd(), 'public/uploads');
@@ -173,6 +174,60 @@ export async function verifyStoredFile(file: Express.Multer.File): Promise<boole
   return false;
 }
 
+/**
+ * Catat pemilik berkas unggahan, dan hapus berkasnya bila pencatatannya gagal.
+ *
+ * `Letter.fileUrl` dapat menunjuk URL unggahan siapa pun, jadi penandatanganan
+ * memeriksa `LetterUpload` (`assertLetterUploadOwnedBy`). Baris tanpa catatan
+ * pasti ditolak di sana — sehingga unggahan yang pencatatannya gagal adalah
+ * unggahan yang tidak dapat ditandatangani. Mengembalikan sukses untuk berkas
+ * seperti itu berarti pengguna menyimpan surat yang baru ketahuan tak dapat
+ * ditandatangani di langkah terakhir.
+ *
+ * Karena itu kegagalannya disampaikan, dan berkasnya dihapus supaya tidak ada
+ * unggahan yatim yang menempati ruang tanpa pernah dapat dipakai.
+ *
+ * @returns `true` bila tercatat; `false` bila gagal — berkasnya sudah dihapus.
+ */
+export async function recordUploadOwnership(
+  file: { filename: string; path: string },
+  userId: string
+): Promise<boolean> {
+  try {
+    await prisma.letterUpload.upsert({
+      where: { filename: file.filename },
+      create: { filename: file.filename, userId },
+      update: {},
+    });
+    return true;
+  } catch (e) {
+    console.error('[upload] gagal mencatat kepemilikan berkas:', e);
+    // Hapus berkasnya, tetapi **hanya** bila ia benar-benar berada di direktori
+    // unggahan.
+    //
+    // `path.basename` saja tidak cukup, dan justru berbahaya: sebuah `path` di
+    // luar direktori (atau path buatan pemanggil) yang kebetulan berbagi nama
+    // dasar dengan unggahan milik permintaan lain akan menunjuk berkas orang
+    // lain itu, sehingga kegagalan pencatatan di sini menghapus unggahan yang
+    // tidak ada hubungannya (CWE-73). Karena itu kecocokannya diperiksa lebih
+    // dahulu, dan bila tidak cocok tidak ada yang dihapus.
+    //
+    // Pemeriksaan ini sekaligus yang memenuhi CodeQL `js/path-injection`: nilai
+    // dari permintaan tidak pernah sampai ke `unlink`, karena `safePath`
+    // disusun dari nama berkas yang sudah dipastikan berada di dalam direktori.
+    const resolved = path.resolve(file.path);
+    // Susun ulang dari nama berkas, lalu pastikan hasilnya memang berkas yang
+    // sama. Bila `path` menunjuk ke luar direktori — atau sekadar berbagi nama
+    // dasar dengan unggahan permintaan lain — keduanya tidak sama dan tidak ada
+    // yang dihapus.
+    const safePath = path.join(uploadDir, path.basename(file.path));
+    if (resolved === path.resolve(safePath)) {
+      await fs.promises.unlink(safePath).catch(() => undefined);
+    }
+    return false;
+  }
+}
+
 // Middleware to map uploaded file to body.fileUrl
 export const handleSingleUpload = (fieldName: string) => {
   return (req: Request, res: Response, next: NextFunction) => {
@@ -210,6 +265,38 @@ export const handleSingleUpload = (fieldName: string) => {
                 message: 'File content does not match its declared type',
               },
             });
+          }
+
+          /**
+           * Catat pemilik berkas ini (CWE-639).
+           *
+           * Sebuah URL unggahan dapat disalin dan dipakai sebagai `fileUrl`
+           * surat orang lain, lalu ditandatangani sebagai naskah penanda
+           * tangan. Baris ini memberi penandatanganan sesuatu untuk diperiksa.
+           * Tanpa `req.user` (mis. unggahan anonim) tidak ada yang dicatat —
+           * dan berkas tanpa catatan akan ditolak saat ditandatangani, bukan
+           * diterima diam-diam.
+           *
+           * Bila pencatatannya gagal, unggahan itu gagal: berkasnya dihapus
+           * dan galatnya dikembalikan, bukan URL yang pasti ditolak saat
+           * ditandatangani. Lihat `recordUploadOwnership`.
+           */
+          if (req.user?.id) {
+            const recorded = await recordUploadOwnership(
+              { filename: req.file.filename, path: req.file.path },
+              req.user.id
+            );
+            if (!recorded) {
+              return res.status(500).json({
+                success: false,
+                error: {
+                  code: 'UPLOAD_ERROR',
+                  message:
+                    'Berkas berhasil diunggah tetapi kepemilikannya gagal dicatat. ' +
+                    'Coba unggah lagi sebentar lagi.',
+                },
+              });
+            }
           }
 
           // Construct public URL

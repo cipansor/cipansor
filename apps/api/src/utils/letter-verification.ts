@@ -1,10 +1,50 @@
 import { prisma } from '@/lib/prisma';
-import { verifyRevocation, verifySignature } from '@/utils/esign';
+import {
+  canonicalVersionOf,
+  publicKeyFingerprint,
+  verifyRevocation,
+  verifySignature,
+} from '@/utils/esign';
 
 export async function verifyLetterByToken(token: string) {
   const signature = await prisma.letterSignature.findUnique({
     where: { verificationToken: token },
-    include: {
+    select: {
+      // Kunci publik dibaca agar sidik jarinya dapat ditampilkan — bukan untuk
+      // mengirim kuncinya sendiri.
+      publicKey: true,
+      signerId: true,
+      signedAt: true,
+      revokedAt: true,
+      revokedReason: true,
+      revokedById: true,
+      revokedByRoleCode: true,
+      /**
+       * Nama pencabut saat mencabut, supaya halaman ini menyebut nama yang sama
+       * dengan yang tercetak pada salinan bercap DICABUT — bukan nama akun
+       * pencabut hari ini, yang bisa sudah berganti.
+       */
+      revokedByName: true,
+      revocationSignature: true,
+      revocationPublicKey: true,
+      signature: true,
+      algorithm: true,
+      digest: true,
+      id: true,
+      /**
+       * Garis kewenangan penandatanganan. Ikut dibaca karena ia bagian dari
+       * payload yang ditandatangani: verifier yang tidak meneruskannya akan
+       * melaporkan setiap naskah a.n./u.b./Plt./Plh. sebagai berubah.
+       */
+      signingAuthorityForm: true,
+      representedOffice: true,
+      /**
+       * Bentuk kanonik yang dipakai saat menandatangani. Wajib dibaca: sebuah
+       * tanda tangan lama dibuat atas byte `v1` (tanpa ruas garis kewenangan),
+       * dan memverifikasinya dengan `v2` menolak tanda tangan yang sah. Baris
+       * yang belum memilikinya berarti `v1`.
+       */
+      canonicalVersion: true,
       /**
        * Nama dan jabatan saja — NIP tidak diambil, apalagi dikirim.
        *
@@ -45,18 +85,25 @@ export async function verifyLetterByToken(token: string) {
   }
 
   const l = signature.letter;
-  const intact = verifySignature(signature.publicKey, signature.signature, {
-    letterId: l.id,
-    letterNumber: l.letterNumber,
-    date: l.date,
-    type: l.type,
-    nature: l.nature,
-    subject: l.subject,
-    content: l.content,
-    unitId: l.unitId,
-    signerId: signature.signerId,
-    signedAt: signature.signedAt,
-  });
+  const intact = verifySignature(
+    signature.publicKey,
+    signature.signature,
+    {
+      letterId: l.id,
+      letterNumber: l.letterNumber,
+      date: l.date,
+      type: l.type,
+      nature: l.nature,
+      subject: l.subject,
+      content: l.content,
+      unitId: l.unitId,
+      signerId: signature.signerId,
+      signedAt: signature.signedAt,
+      signingAuthorityForm: signature.signingAuthorityForm,
+      representedOffice: signature.representedOffice,
+    },
+    canonicalVersionOf(signature.canonicalVersion)
+  );
 
   const isPublicNature = l.nature === 'PUBLIC';
   const isValid = intact && !signature.revokedAt;
@@ -111,7 +158,7 @@ export async function verifyLetterByToken(token: string) {
     isRevoked: !!signature.revokedAt,
     revokedAt: signature.revokedAt,
     revokedReason: signature.revokedReason,
-    revokedByName: signature.revokedBy?.name ?? null,
+    revokedByName: signature.revokedByName ?? signature.revokedBy?.name ?? null,
     revocationVerified,
     letterNumber: l.letterNumber || l.agendaNumber || '-',
     letterType: l.type,
@@ -125,6 +172,13 @@ export async function verifyLetterByToken(token: string) {
       name: signature.signer.name,
       position: signature.signer.staff?.position || 'Pejabat / Guru Yayasan',
     },
+    /**
+     * Garis kewenangan yang dinyatakan penanda tangan, dibaca dari rekaman
+     * tanda tangannya — bukan dari kolom surat, karena inilah nilai yang ikut
+     * ditandatangani dan yang tercetak pada naskahnya.
+     */
+    signingAuthorityForm: signature.signingAuthorityForm,
+    representedOffice: signature.representedOffice,
     letter: {
       letterNumber: l.letterNumber || l.agendaNumber || '-',
       subject: isPublicNature ? l.subject : null,
@@ -148,6 +202,14 @@ export async function verifyLetterByToken(token: string) {
     signedAt: signature.signedAt,
     algorithm: signature.algorithm,
     digest: signature.digest,
+    /**
+     * Sidik jari kunci yang menandatangani naskah ini — bukan kunci hari ini,
+     * melainkan kunci yang tersalin pada rekaman tanda tangannya. Sama seperti
+     * sidik jari sertifikat (RFC 5280 §4.2.1.2): pembaca dapat mencatatnya
+     * sekali dan membandingkannya pada setiap naskah berikutnya dari orang
+     * yang sama.
+     */
+    signerKeyFingerprint: publicKeyFingerprint(signature.publicKey),
     reason,
   };
 }

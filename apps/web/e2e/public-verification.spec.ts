@@ -53,3 +53,96 @@ test("an already-printed QR path lands on the upload form, not a dead end", asyn
   await expect(page.locator("input[type='file']")).toBeVisible();
   await expect(page.getByRole("textbox", { name: /email/i })).toHaveCount(0);
 });
+
+/**
+ * The key-status surface (AATL ICA7).
+ *
+ * It answers a question the document-upload page cannot: a recipient holding
+ * an old archive can ask whether the *key* that signed it is still valid,
+ * without the PDF in hand. It must be reachable with no session — that is the
+ * only state the person asking is ever in.
+ */
+test("the key-status page is reachable without a session", async ({ page }) => {
+  const response = await page.goto("/public/verify-key");
+
+  expect(new URL(page.url()).pathname).toBe("/public/verify-key");
+  expect(response?.status()).toBeLessThan(400);
+});
+
+test("it asks for a fingerprint, not for who you are", async ({ page }) => {
+  await page.goto("/public/verify-key");
+
+  await expect(
+    page.getByRole("textbox", { name: /sidik jari kunci/i }),
+  ).toBeVisible();
+  await expect(page.locator("body")).not.toContainText(/kata sandi|password/i);
+  await expect(page.getByRole("textbox", { name: /email/i })).toHaveCount(0);
+});
+
+test("an unknown fingerprint is reported as unknown, not as an error", async ({
+  page,
+}) => {
+  // A fingerprint that is not registered is a legitimate answer — a mistyped
+  // value must not be dressed up as "broken system".
+  await page.route("**/api/esign/public/key-status**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: { found: false, status: "UNKNOWN" },
+      }),
+    });
+  });
+
+  await page.goto("/public/verify-key");
+  await page
+    .getByRole("textbox", { name: /sidik jari kunci/i })
+    .fill("AB:CD:EF:00");
+  await page.getByRole("button", { name: /periksa status kunci/i }).click();
+
+  await expect(page.getByText(/sidik jari tidak dikenal/i)).toBeVisible();
+});
+
+test("a revoked key shows its reason code and whether old letters are affected", async ({
+  page,
+}) => {
+  await page.route("**/api/esign/public/key-status**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: {
+          found: true,
+          status: "REVOKED",
+          algorithm: "Ed25519",
+          revocationCode: "KEY_COMPROMISE",
+          // An internal note an older API still sent; the page must not print it.
+          revokedReason: "Catatan internal: laptop bendahara.",
+          revokedAt: "2026-08-02T10:00:00Z",
+          expiresAt: "2027-08-01T00:00:00Z",
+        },
+      }),
+    });
+  });
+
+  await page.goto("/public/verify-key");
+  await page
+    .getByRole("textbox", { name: /sidik jari kunci/i })
+    .fill("AB:CD:EF:00");
+  await page.getByRole("button", { name: /periksa status kunci/i }).click();
+
+  await expect(page.getByText(/kunci dicabut/i)).toBeVisible();
+  // The distinction that matters: a key compromise, unlike an office change,
+  // puts letters already signed in doubt. Assert the compromise-specific
+  // sentence — "kebocoran kunci" alone also appears in the standing note that
+  // is shown for every revocation, so matching it would not prove the point.
+  await expect(
+    page.getByText(
+      /keaslian naskah yang ditandatangani dengan kunci ini perlu diverifikasi ulang/i,
+    ),
+  ).toBeVisible();
+  // The public page shows the RFC 5280 code, never the admin's free-text note.
+  await expect(page.getByText(/laptop bendahara/i)).toHaveCount(0);
+});

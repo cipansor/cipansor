@@ -325,7 +325,10 @@ psql -U postgres cipansor < backup_20240101.sql
 
 ### Health Check Endpoints
 
-- **API**: `GET /health`
+- **API**: `GET /health` — readiness check. It probes the database
+  (`SELECT 1` via Prisma) and answers **503** (`status: "unavailable"`) when
+  Postgres is unreachable, otherwise **200** (`status: "ok"`) with the
+  `GIT_COMMIT_SHA` the release workflow polls.
 - **Web**: Available at root `/`
 
 ### Recommended Monitoring Tools
@@ -430,6 +433,10 @@ kill -9 <PID>
 
 ## Support
 
-- Documentation: https://docs.cipansor.or.id
-- Email: support@cipansor.or.id
-- Issues: https://github.com/ypcipansor/cipansor/issues
+- Repositori: <https://github.com/ypcipansor/cipansor>
+- Isu & permintaan: <https://github.com/ypcipansor/cipansor/issues>
+- Konvensi pengembangan: [`AGENTS.md`](../AGENTS.md)
+
+Untuk catatan insiden produksi dan langkah pemulihannya, lihat
+[`.claude/memory/known-issues.md`](../.claude/memory/known-issues.md); untuk
+konteks dua-host (apex vs portal) lihat [`ARCHITECTURE.md`](./ARCHITECTURE.md).

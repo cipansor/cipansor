@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { SigningKeyRevocationCode } from '@prisma/client';
+import { SigningKeyRevocationCode, SigningAuthorityForm } from '@prisma/client';
 import { MIN_PASSPHRASE_LENGTH } from '@/utils/esign';
 import { MAX_VALIDITY_DAYS, MIN_VALIDITY_DAYS } from '@/utils/esign-lifecycle';
 import {
@@ -8,6 +8,18 @@ import {
 } from '@/utils/esign-revocation';
 
 const passphrase = z.string().min(MIN_PASSPHRASE_LENGTH);
+
+/**
+ * Sidik jari kunci untuk layanan status publik.
+ *
+ * Diterima dalam bentuk apa pun yang wajar (huruf besar/kecil, dengan atau
+ * tanpa titik dua) dan dinormalkan di layanan. Panjangnya dibatasi agar
+ * masukan asal-asalan tidak masuk ke pencarian basis data; batas atas yang
+ * longgar cukup, karena bentuk kanonik satu kunci selalu 95 karakter.
+ */
+export const keyStatusQuerySchema = z.object({
+  fingerprint: z.string().min(1).max(200),
+});
 
 export const requestKeySchema = z.object({
   reason: z.string().max(1000).optional(),
@@ -124,4 +136,16 @@ export const decideRevocationSchema = z.object({
 
 export const signLetterSchema = z.object({
   passphrase: z.string().min(1),
+  /**
+   * Garis kewenangan penandatanganan (a.n./u.b./Plt./Plh.).
+   *
+   * Opsional dan berdefault NONE, sehingga pemanggil lama (dan tanda tangan
+   * yang sudah ada) tidak terpengaruh. Yang memeriksa konsistensinya adalah
+   * layanan, bukan skema ini: aturan seperti "bentuk selain NONE menuntut
+   * jabatan yang diwakili" bergantung pada nilai yang masuk, bukan pada
+   * bentuk permintaannya.
+   */
+  signingAuthorityForm: z.nativeEnum(SigningAuthorityForm).optional(),
+  /** Jabatan pejabat yang diwakili; wajib bila bentuknya bukan NONE. */
+  representedOffice: z.string().trim().min(3).max(200).optional(),
 });

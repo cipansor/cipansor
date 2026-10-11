@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { employmentHistoryService } from './employment-history.service';
+import { requireUser } from '../../middleware/auth';
+import { assertMayReadEmployeeRecord } from './hr.service';
 import { z } from 'zod';
 import { EmploymentAction } from '@prisma/client';
 
@@ -28,6 +30,7 @@ export const employmentHistoryController = {
   async findAll(req: Request, res: Response, next: NextFunction) {
     try {
       const { userId } = req.params;
+      await assertMayReadEmployeeRecord(requireUser(req), userId);
       const result = await employmentHistoryService.findAll(userId);
       res.json({ success: true, data: result });
     } catch (error) {

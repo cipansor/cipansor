@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { leaveBalanceService } from './leave-balances.service';
+import { requireUser } from '../../middleware/auth';
+import { assertMayReadEmployeeRecord } from './hr.service';
 import { sendResponse } from '@/utils/response';
 import { Errors } from '@/middleware/error';
 
@@ -15,6 +17,7 @@ export const leaveBalanceController = {
         if (!academicYearId) throw Errors.badRequest('Academic Year ID is required');
       }
 
+      await assertMayReadEmployeeRecord(requireUser(req), userId);
       const result = await leaveBalanceService.getAllBalances(userId, academicYearId as string);
       sendResponse(res, result, 'Leave balances retrieved successfully');
     } catch (error) {

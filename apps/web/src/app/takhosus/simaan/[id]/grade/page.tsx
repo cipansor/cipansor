@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
+import { use, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
@@ -349,12 +349,15 @@ function GradeSimaanPageContent({ params }: { params: { id: string } }) {
   );
 }
 
-export default function GradeSimaanPage(
-  props: Parameters<typeof GradeSimaanPageContent>[0],
-) {
+export default function GradeSimaanPage({
+  params,
+}: {
+  params: Promise<Parameters<typeof GradeSimaanPageContent>[0]["params"]>;
+}) {
+  const resolved = use(params);
   return (
     <MainLayout>
-      <GradeSimaanPageContent {...props} />
+      <GradeSimaanPageContent params={resolved} />
     </MainLayout>
   );
 }

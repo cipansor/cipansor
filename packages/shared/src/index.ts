@@ -30,6 +30,7 @@ export * from "./types/reception";
 export * from "./types/correspondence";
 export * from "./types/letter-naskah";
 export * from "./types/letter-revocation-authority";
+export * from "./types/letter-signing-authority";
 export * from "./types/letter-template";
 export * from "./types/chatbot";
 export * from "./public-site";

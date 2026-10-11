@@ -6,6 +6,7 @@ import {
   SigningKeyRequestStatus,
 } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
+import type { Db } from '@/lib/prisma';
 import { comparePassword } from '@/lib/password';
 import { Errors } from '@/middleware/error';
 import { eventBus } from '@/lib/event-bus';
@@ -29,12 +30,12 @@ import {
   createKeyMaterial,
   lockoutUntil,
   newVerificationToken,
+  normaliseFingerprint,
   rewrapKeyMaterial,
   signPayload,
   signPdfHash,
   signRevocation,
   verifyPdfHashSignature,
-  verifySignature,
   type EncryptedKeyMaterial,
   type ScryptParams,
   type SignablePayload,
@@ -43,13 +44,27 @@ import {
 } from '@/utils/esign';
 import {
   generateLetterPdfBuffer,
+  stampSignatureVisualisation,
+  stampRevoked,
   LetterPdfError,
   LETTER_PDF_GENERATOR,
   LETTER_PDF_RELATIONS,
 } from '@/utils/generate-letter-pdf';
 import { verifyLetterByToken } from '@/utils/letter-verification';
+import { matchRevokedCopy } from '@/utils/letter-revoked-copy';
+import { readUploadedPdfBytes } from '@/utils/letter-uploaded-file';
+import { assertLetterUploadOwnedBy } from '@/utils/letter-upload-ownership';
 import { assertLetterAccess, type LetterActor } from '@/utils/letter-access';
-import { LetterRevocationRequestStatus, SigningKeyRevocationCode } from '@prisma/client';
+import {
+  LetterRevocationRequestStatus,
+  SigningKeyRevocationCode,
+  SigningAuthorityForm,
+  LetterAuthoringTrack,
+} from '@prisma/client';
+import {
+  requiresRepresentedOffice,
+  type SigningAuthorityForm as SharedSigningAuthorityForm,
+} from '@cipansor/shared';
 import {
   RevocationError,
   actorMayRevoke,
@@ -116,6 +131,53 @@ async function clearFailedAttempts(keyId: string) {
     where: { id: keyId },
     data: { failedAttempts: 0, lockedUntil: null, lastUsedAt: new Date() },
   });
+}
+
+/**
+ * Arsipkan status kunci aktif sebelum dihapus, lalu hapus.
+ *
+ * Penerbitan ulang kunci menghapus baris `UserSigningKey` (satu kunci aktif per
+ * pengguna). Tanpa langkah ini, sidik jari yang tercetak pada surat-surat lama
+ * kehilangan sumbernya: layanan status publik (AATL ICA7) menjawab "tidak
+ * dikenal", padahal suratnya masih dapat diverifikasi karena tanda tangannya
+ * menyimpan salinan kunci publiknya sendiri. Yang seharusnya terbaca adalah
+ * EXPIRED (atau REVOKED beserta sebabnya), bukan UNKNOWN.
+ *
+ * Yang disalin hanya metadata publik — tanpa kunci privat, salt, iv, atau tag.
+ * `upsert` menjaga pemanggilan berulang (dan jalur persetujuan yang berjalan
+ * dua kali) tidak menggandakan sidik jari yang sama.
+ */
+async function archiveActiveKey(client: Db, userId: string): Promise<void> {
+  const key = await client.userSigningKey.findUnique({ where: { userId } });
+  if (!key || !key.fingerprint) {
+    await client.userSigningKey.deleteMany({ where: { userId } });
+    return;
+  }
+
+  await client.signingKeyStatusRecord.upsert({
+    where: { fingerprint: key.fingerprint },
+    create: {
+      userId: key.userId,
+      fingerprint: key.fingerprint,
+      algorithm: key.algorithm,
+      approvedAt: key.approvedAt,
+      expiresAt: key.expiresAt,
+      revokedAt: key.revokedAt,
+      revokedReason: key.revokedReason,
+      revocationCode: key.revocationCode,
+    },
+    update: {
+      // Kunci yang sama tidak berubah; perbarui metadata kalau ada pencabutan
+      // atau perpanjangan terakhir yang belum sempat tercatat.
+      approvedAt: key.approvedAt,
+      expiresAt: key.expiresAt,
+      revokedAt: key.revokedAt,
+      revokedReason: key.revokedReason,
+      revocationCode: key.revocationCode,
+    },
+  });
+
+  await client.userSigningKey.deleteMany({ where: { userId } });
 }
 
 /**
@@ -731,10 +793,10 @@ export const EsignService = {
           });
         }
       } else {
-        // Penerbitan: hapus sisa kunci lama (kedaluwarsa/dicabut) supaya
-        // pemiliknya bisa menetapkan passphrase baru. Tanda tangan lama tidak
-        // terpengaruh — masing-masing menyimpan salinan kunci publiknya.
-        await tx.userSigningKey.deleteMany({ where: { userId: request.userId } });
+        // Penerbitan: arsipkan status kunci lama lalu hapus (kedaluwarsa/dicabut)
+        // supaya pemiliknya bisa menetapkan passphrase baru. Tanda tangan lama
+        // tidak terpengaruh — masing-masing menyimpan salinan kunci publiknya.
+        await archiveActiveKey(tx, request.userId);
       }
 
       return approved;
@@ -771,12 +833,13 @@ export const EsignService = {
     const days = approved.grantedDays ?? DEFAULT_VALIDITY_DAYS;
     const now = new Date();
 
-    await prisma.userSigningKey.deleteMany({ where: { userId } });
+    await archiveActiveKey(prisma, userId);
     const key = await prisma.userSigningKey.create({
       data: {
         userId,
         algorithm: material.algorithm,
         publicKey: material.publicKey,
+        fingerprint: material.fingerprint,
         encryptedPrivateKey: material.encryptedPrivateKey,
         kdfSalt: material.kdfSalt,
         kdfParams: material.kdfParams as unknown as Prisma.InputJsonValue,
@@ -1173,6 +1236,59 @@ export const EsignService = {
     await clearFailedAttempts(key!.id);
 
     /**
+     * Catat hash salinan bercap DICABUT (bila arsipnya ada).
+     *
+     * Pencocokan berkas yang diunggah ke halaman verifikasi mencari salinan
+     * bercap; sebelumnya ia membuat ulang cap itu pada setiap permintaan dan
+     * hanya memeriksa 200 tanda tangan tercabut terbaru — begitu pencabutan
+     * melewati 200, salinan resmi yang lebih tua dijawab "tidak terdaftar".
+     * Menyimpan hashnya di sini membuat pencocokan tepat dan tanpa batas.
+     *
+     * **Nama pencabut dibekukan di sini.** Cap mencetak namanya, dan selama
+     * nama itu dibaca dari `users.name` pada setiap unduhan, satu penggantian
+     * nama menisbikan setiap salinan bercap yang sudah beredar: byte-nya
+     * berubah, hashnya tak lagi cocok. Karena itu namanya disimpan pada baris
+     * tanda tangan bersama hashnya, dan kedua jalur cap membacanya dari sana.
+     *
+     * Usaha terbaik: arsip yang hilang atau rusak tidak menggagalkan
+     * pencabutan — pencabutan itu sendiri sudah tercatat dan sah. Yang
+     * kehilangan hanyalah pengenalan salinan bercap untuk naskah ini, dan
+     * jalur cadangan (membuat ulang cap, terbatas) masih menanganinya.
+     */
+    try {
+      const archived = await prisma.letterSignedDocument.findUnique({
+        where: { signatureId: updated.id },
+        select: { bytes: true, sha256: true },
+      });
+      if (archived) {
+        const archivedBytes = Buffer.from(archived.bytes);
+        // Arsip yang tidak lagi utuh tidak boleh menjadi dasar cap.
+        if (crypto.createHash('sha256').update(archivedBytes).digest('hex') === archived.sha256) {
+          const revoker = await prisma.user.findUnique({
+            where: { id: actor.id },
+            select: { name: true },
+          });
+          const revokedByName = revoker?.name ?? null;
+          const stamped = await stampRevoked(archivedBytes, {
+            reason: trimmed,
+            revokedAt,
+            revokedByName,
+          });
+          await prisma.letterSignature.update({
+            where: { id: updated.id },
+            data: {
+              revokedByName,
+              revokedSha256: crypto.createHash('sha256').update(stamped).digest('hex'),
+            },
+          });
+        }
+      }
+    } catch {
+      // Sengaja ditelan: pencabutan sudah sah; ini hanya mempercepat dan
+      // memperluas pengenalan salinan bercap.
+    }
+
+    /**
      * Status surat sengaja tidak diubah.
      *
      * Surat ini memang pernah ditandatangani dan memang pernah beredar;
@@ -1217,7 +1333,8 @@ export const EsignService = {
     letterId: string,
     userId: string,
     passphrase: string,
-    signerRoleCode?: string | null
+    signerRoleCode?: string | null,
+    authority?: { form?: SigningAuthorityForm | null; representedOffice?: string | null }
   ) {
     const letter = await prisma.letter.findUnique({
       where: { id: letterId },
@@ -1252,6 +1369,32 @@ export const EsignService = {
     const key = await prisma.userSigningKey.findUnique({ where: { userId } });
     assertCanSign(key);
 
+    /**
+     * Garis kewenangan dinormalkan dan diperiksa di sini, bukan di skema.
+     *
+     * Bentuk selain NONE menuntut jabatan yang diwakili: tanpa jabatan itu,
+     * `signingAuthorityLines` tidak dapat mencetak apa pun dan bloknya jatuh
+     * kembali ke bentuk biasa — naskah yang menyatakan dirinya "a.n." tetapi
+     * tidak menyebut siapa yang diwakili adalah naskah yang salah. Lebih baik
+     * menolaknya di sini dengan kalimat yang jelas daripada mencetak blok yang
+     * menyesatkan.
+     *
+     * Yang **tidak** diperiksa: keberadaan surat kuasa atau SK penunjukan yang
+     * mendasari bentuk itu. Sistem tidak memilikinya; bentuknya adalah
+     * pernyataan penanda tangan yang dipublikasikan, sama seperti
+     * `signerRoleCode`.
+     */
+    const authorityForm: SigningAuthorityForm = authority?.form ?? SigningAuthorityForm.NONE;
+    const representedOffice = authority?.representedOffice?.trim() || null;
+    if (
+      requiresRepresentedOffice(authorityForm as unknown as SharedSigningAuthorityForm) &&
+      !representedOffice
+    ) {
+      throw Errors.badRequest(
+        'Jabatan yang diwakili wajib diisi untuk penandatanganan a.n./u.b./Plt./Plh.'
+      );
+    }
+
     const signedAt = new Date();
     const payload: SignablePayload = {
       letterId: letter.id,
@@ -1264,7 +1407,25 @@ export const EsignService = {
       unitId: letter.unitId,
       signerId: userId,
       signedAt,
+      signingAuthorityForm: authorityForm,
+      representedOffice,
     };
+
+    /**
+     * Berkas naskah `UPLOADED` harus milik rantai surat ini (CWE-639).
+     *
+     * Diperiksa sebelum apa pun ditandatangani atau ditulis: `fileUrl` dapat
+     * menunjuk unggahan milik orang lain, dan yang ditandatangani adalah byte
+     * berkas itu. Yang berhak adalah penyusun (pengunggah naskahnya) dan para
+     * peninjau yang ditugaskan; berkas yang tidak tercatat pemiliknya ditolak,
+     * sebab kepemilikannya tidak dapat dibuktikan.
+     */
+    if (letter.authoringTrack === LetterAuthoringTrack.UPLOADED) {
+      await assertLetterUploadOwnedBy(letter.fileUrl, [
+        letter.createdById,
+        ...letter.reviewers.map((r) => r.reviewerId),
+      ]);
+    }
 
     let signed;
     try {
@@ -1335,6 +1496,12 @@ export const EsignService = {
               // yang ditandatangani Ketua tetap naskah Ketua walaupun
               // penandatangannya kemudian menjabat yang lain.
               signerRoleCode: signerRoleCode ?? null,
+              // Garis kewenangan saat menandatangani. Milik baris tanda tangan,
+              // bukan surat: bentuk yang dipakai saat itu tidak boleh berubah
+              // setelahnya, dan nilainya ikut ditandatangani.
+              signingAuthorityForm: authorityForm,
+              representedOffice,
+              canonicalVersion: signed.canonicalVersion,
             },
           });
 
@@ -1401,7 +1568,59 @@ export const EsignService = {
           });
           if (!fullLetter) throw Errors.notFound('Surat tidak ditemukan');
 
-          const pdfBuffer = await generateLetterPdfBuffer(fullLetter);
+          /**
+           * Naskah yang ditandatangani, dari jalur penyusunannya.
+           *
+           * Dua jalur menghasilkan naskah yang ditandatangani, dan keduanya
+           * harus menghasilkan **byte yang sama** di sini, saat ditandatangani,
+           * dan di `signed-pdf`, saat diunduh — hash byte inilah dasar
+           * verifikasi publik.
+           *
+           * - `GENERATED` (bawaan): sistem menyusun naskahnya dari isian
+           *   formulir.
+           * - `UPLOADED`: penyusun menyusun naskahnya di luar sistem lalu
+           *   mengunggah PDF-nya. Byte unggahan itulah naskahnya, jadi yang
+           *   ditandatangani adalah byte tersebut, ditambah cap visualisasi TTE
+           *   (QR + keterangan) di halaman terakhir. Cap itu bagian dari byte
+           *   yang di-hash, sehingga ia tidak dapat dilepas tanpa membatalkan
+           *   tanda tangannya.
+           *
+           * Sebelum ini, jalur `UPLOADED` ada tetapi tidak pernah membaca
+           * berkas unggahannya: yang di-hash adalah naskah hasil render sistem,
+           * dan berkas penyusun hanya menempel sebagai "Berkas unggahan
+           * penyusun". Dua dokumen berbeda dengan bobot yang sama, dan hanya
+           * satu yang berlaku.
+           */
+          const isUploadedTrack = fullLetter.authoringTrack === LetterAuthoringTrack.UPLOADED;
+
+          /**
+           * Nama penanda tangan untuk cap, diambil dari relasi yang sudah
+           * terbaca — bukan dari `signature`, yang hanya memuat kolomnya
+           * sendiri tanpa relasi `signer`.
+           */
+          const signerName =
+            fullLetter.signatures?.find((s) => s.id === signature.id)?.signer?.name ?? null;
+
+          const pdfBuffer = isUploadedTrack
+            ? await stampSignatureVisualisation(await readUploadedPdfBytes(fullLetter.fileUrl), {
+                signedAt,
+                signerName,
+                signerTitle: fullLetter.senderTitle,
+              })
+            : await generateLetterPdfBuffer(fullLetter);
+
+          /**
+           * Penanda asal byte untuk pembaca arsip.
+           *
+           * `LETTER_PDF_GENERATOR` menyebut versi penghasil naskah; untuk jalur
+           * unggahan, penghasilnya adalah penyusunnya sendiri, dan cap kita
+           * yang menambahkan visualisasi. Menyimpan asalnya membuat sebuah
+           * naskah dapat dibedakan tanpa membuka PDF-nya.
+           */
+          const generator = isUploadedTrack
+            ? `${LETTER_PDF_GENERATOR}+unggahan`
+            : LETTER_PDF_GENERATOR;
+
           const pdfHash = crypto.createHash('sha256').update(pdfBuffer).digest('hex');
           const pdfSignature = signPdfHash(toMaterial(key!), passphrase, pdfHash);
 
@@ -1436,7 +1655,7 @@ export const EsignService = {
               bytes: new Uint8Array(pdfBuffer),
               sha256: pdfHash,
               byteSize: pdfBuffer.length,
-              generator: LETTER_PDF_GENERATOR,
+              generator,
             },
           });
 
@@ -1730,6 +1949,23 @@ export const EsignService = {
     });
 
     if (!signature || !signature.pdfHash || !signature.pdfSignature) {
+      /**
+       * Berkas bercap DICABUT tidak dicari lewat `pdfHash`.
+       *
+       * Salinan yang diunduh setelah pencabutan membawa cap "DICABUT"
+       * (`stampRevoked`), dan cap itu **mengubah byte-nya** — jadi hashnya tidak
+       * akan pernah sama dengan `pdfHash` yang ditandatangani. Tanpa cabang ini,
+       * berkas bercap resmi dari sistem sendiri dijawab "tidak terdaftar atau
+       * telah diubah": naskah yang justru paling perlu dijelaskan statusnya
+       * dituduh palsu. Persis kelas jawaban keliru yang dihindari di tempat lain.
+       *
+       * Pengenalan dilakukan dengan **membuat ulang capnya** dari byte arsip dan
+       * membandingkan hash — bukan dengan mempercayai teks "DICABUT" di dalam
+       * berkas, sebab teks itu dapat ditempel siapa saja ke PDF karangan.
+       */
+      const revoked = await matchRevokedCopy(pdfBuffer, uploadedHash);
+      if (revoked) return EsignService.verifyByToken(revoked.verificationToken);
+
       return {
         found: false as const,
         isValid: false,
@@ -1741,10 +1977,13 @@ export const EsignService = {
       };
     }
 
-    // 3. Verify Ed25519 digital signature over the PDF byte hash
+    // 3. Verify the Ed25519 signature over the *uploaded* byte hash. The row
+    //    was fetched by `pdfHash === uploadedHash`, so the two are equal by
+    //    construction; naming `uploadedHash` here keeps the binding explicit
+    //    rather than reading back the same field we looked the row up by.
     const isSigValid = verifyPdfHashSignature(
       signature.publicKey,
-      signature.pdfHash,
+      uploadedHash,
       signature.pdfSignature
     );
 
@@ -1762,6 +2001,110 @@ export const EsignService = {
     // 4. Ikatan dokumen sudah terbukti; baru sekarang aturan kerahasiaan dan
     //    status surat dijalankan lewat inti yang sama.
     return EsignService.verifyByToken(signature.verificationToken);
+  },
+
+  /**
+   * Layanan status kunci publik (AATL ICA7).
+   *
+   * Menjawab pertanyaan yang tidak dapat dijawab oleh halaman verifikasi
+   * dokumen: **"apakah kunci yang menandatangani surat ini masih berlaku?"**
+   * Penerima yang memegang PDF menganggur — misalnya arsip lama — dapat
+   * menanyakan sidik jari kunci yang tercetak di halaman verifikasi, tanpa
+   * mengunggah ulang dokumennya.
+   *
+   * **Yang dijawab adalah kunci, bukan surat.** Masukannya sidik jari
+   * (pengenal publik yang sudah tampil di halaman verifikasi), dan keluarannya
+   * hanya keadaan kunci itu: aktif, kedaluwarsa, dicabut beserta sebabnya,
+   * atau tidak dikenal. Tidak ada nomor surat, tidak ada perihal, tidak ada
+   * nama penandatangan. Itulah yang membedakannya dari endpoint berbasis token
+   * yang pernah dihapus: sebuah token dapat disisir untuk menemukan surat,
+   * sedangkan sidik jari adalah turunan dari kunci publik yang memang sudah
+   * dibagikan.
+   *
+   * Karena masukannya 32 byte acak, oracle "kunci ini terdaftar atau tidak"
+   * tidak dapat disisir; yang membocorkan sesuatu hanyalah sidik jari yang
+   * sudah diketahui pemanggil.
+   *
+   * **Kunci yang sudah digantikan tetap dijawab.** Penerbitan ulang kunci
+   * menghapus baris `UserSigningKey`-nya, tetapi surat yang ditandatangani
+   * dengannya masih menyimpan salinan kunci publik itu dan masih dapat
+   * diverifikasi. Karena itu riwayatnya dibaca dari `signingKeyStatusRecords`
+   * — tanpa itu, pemegang arsip melihat UNKNOWN untuk kunci yang sebenarnya
+   * sekadar kedaluwarsa.
+   */
+  async publicKeyStatus(fingerprintInput: string, now = new Date()) {
+    const fingerprint = normaliseFingerprint(fingerprintInput);
+
+    const select = {
+      algorithm: true,
+      approvedAt: true,
+      expiresAt: true,
+      revokedAt: true,
+      revocationCode: true,
+    } as const;
+
+    // Kunci aktif lebih dulu — ia yang menjawab status terkini bagi pemilik
+    // yang masih memegang kuncinya. Bila tidak ada, jatuh ke riwayat.
+    const active = await prisma.userSigningKey.findUnique({
+      where: { fingerprint },
+      select,
+    });
+    const key =
+      active ??
+      (await prisma.signingKeyStatusRecord.findUnique({ where: { fingerprint }, select }));
+
+    if (!key) {
+      return { found: false as const, status: 'UNKNOWN' as const };
+    }
+
+    const state = effectiveState(
+      {
+        revokedAt: key.revokedAt,
+        approvedAt: key.approvedAt,
+        expiresAt: key.expiresAt,
+      },
+      now
+    );
+
+    /**
+     * Terjemahkan keadaan internal ke kode status publik.
+     *
+     * `PENDING_APPROVAL` sengaja menjadi `ACTIVE`: kunci yang belum disetujui
+     * belum dapat menandatangani apa pun, sehingga tidak akan pernah muncul di
+     * surat — membeberkan bahwa ada pengajuan yang tertunda hanya membocorkan
+     * urusan internal.
+     *
+     * Kunci yang sudah digantikan (`active` null) tidak pernah dilaporkan
+     * `ACTIVE`: kunci privatnya sudah dihapus, jadi ia tidak dapat
+     * menandatangani naskah baru. Surat yang ditandatangani selama masa
+     * berlakunya tetap sah — dan itu yang dijawab `EXPIRED`, bukan UNKNOWN.
+     */
+    const status =
+      state === SigningKeyState.REVOKED
+        ? ('REVOKED' as const)
+        : state === SigningKeyState.EXPIRED || !active
+          ? ('EXPIRED' as const)
+          : ('ACTIVE' as const);
+
+    return {
+      found: true as const,
+      status,
+      algorithm: key.algorithm,
+      /**
+       * Sebab pencabutan publik (RFC 5280 §5.3.1). Hanya `KEY_COMPROMISE`
+       * yang membuat surat-surat lama menjadi meragukan; sebab lain berarti
+       * surat lama tetap sah. Karena itu kode ini wajib ikut — tanpa itu,
+       * "DICABUT" menyamakan pemegang yang berhenti dengan kunci yang bocor.
+       */
+      revocationCode: key.revokedAt ? key.revocationCode : null,
+      // Tanpa `revokedReason`: itu teks bebas yang ditulis Super Admin untuk
+      // catatan internal ("diduga bocor dari komputer bersama", nama orang,
+      // kejadian), dan endpoint ini terbuka tanpa masuk. Daftar pencabutan
+      // RFC 5280 pun hanya membuka kodenya (§5.3.1); kode itulah yang
+      // menjawab pertanyaan pembaca: apakah naskah lama masih sah.
+      revokedAt: key.revokedAt,
+      expiresAt: key.expiresAt,
+    };
   },
 };
 

@@ -193,8 +193,13 @@ jobs:
       - run: pnpm --filter api db:generate
       - name: Push database schema
         run: pnpm --filter api db:push
-      - name: Run API tests
-        run: pnpm --filter api test
+      - name: Run API tests with coverage
+        run: pnpm --filter api test:coverage
+      # The floor is a ratchet: fail when coverage dropped more than
+      # `tolerance_pct` below .github/coverage-baseline.json. Reads the
+      # json-summary vitest wrote in the step above; see docs/COVERAGE.md.
+      - name: Check coverage floor
+        run: node .github/scripts/coverage-gate.mjs
       # The web unit suite (~100 vitest specs, incl. the dead-link and RBAC
       # guards) ran in no workflow at all, so a web regression could only be
       # caught by a human running it locally. It needs the shared package's
@@ -202,6 +207,11 @@ jobs:
       - run: pnpm --filter @cipansor/shared build
       - name: Run Web tests
         run: pnpm --filter web test
+      # The load-test runner and its comparison policy are plain Node — no k6,
+      # no network — so their unit suite runs here. The load test itself only
+      # runs on demand (load-tests.yml), which needs a real target.
+      - name: Run load-test runner unit tests
+        run: node --test tests/load/run-load-tests.test.mjs
 
   # Supply-chain / dependency security, plus the records check.
   #

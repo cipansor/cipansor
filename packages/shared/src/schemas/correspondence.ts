@@ -213,3 +213,63 @@ export const updateLetterSchema = z.object({
 });
 
 export type UpdateLetterSchemaInput = z.infer<typeof updateLetterSchema>;
+
+/**
+ * Penyaring ekspor buku agenda.
+ *
+ * Buku agenda adalah daftar, jadi masukannya pun daftar: arah, rentang tanggal,
+ * status, pencarian, dan cakupannya (seluruh unit atau disposisi pribadi).
+ * Semua penyaring yang tampak di layar ikut, supaya berkas yang diserahkan
+ * memuat baris yang diperiksa petugas — bukan lebih.
+ *
+ * Rentang tanggal dibatasi satu tahun buku (366 hari) ketika kedua ujungnya
+ * diisi: buku agenda dibaca per tahun buku, dan tanpa batas ini sebuah
+ * permintaan dapat menyedot seluruh riwayat sekaligus. Bila salah satu ujung
+ * kosong, batasnya tidak dapat dihitung dan tidak ditegakkan — itu disengaja,
+ * karena daftar tetap dibatasi cakupan akses aktornya.
+ */
+const MAX_AGENDA_RANGE_DAYS = 366;
+
+export const exportAgendaQuerySchema = z
+  .object({
+    direction: z.nativeEnum(LetterDirection).optional(),
+    status: z.nativeEnum(LetterStatus).optional(),
+    search: z.string().max(200).optional(),
+    scope: z.enum(["ALL", "PERSONAL"]).optional(),
+    from: z
+      .string()
+      .optional()
+      .refine((v) => !v || !Number.isNaN(Date.parse(v)), {
+        message: "Tanggal awal tidak sah",
+      }),
+    to: z
+      .string()
+      .optional()
+      .refine((v) => !v || !Number.isNaN(Date.parse(v)), {
+        message: "Tanggal akhir tidak sah",
+      }),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.from || !value.to) return;
+    const from = Date.parse(value.from);
+    const to = Date.parse(value.to);
+    if (Number.isNaN(from) || Number.isNaN(to)) return;
+    if (to < from) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["to"],
+        message: "Tanggal akhir mendahului tanggal awal",
+      });
+      return;
+    }
+    const days = (to - from) / 86_400_000;
+    if (days > MAX_AGENDA_RANGE_DAYS) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ["to"],
+        message: `Rentang buku agenda paling lama ${MAX_AGENDA_RANGE_DAYS} hari`,
+      });
+    }
+  });
+
+export type ExportAgendaQueryInput = z.infer<typeof exportAgendaQuerySchema>;

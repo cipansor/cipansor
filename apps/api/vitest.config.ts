@@ -10,9 +10,14 @@ export default defineConfig({
     exclude: ['node_modules', 'dist'],
     coverage: {
       provider: 'v8',
-      reporter: ['text', 'json', 'html'],
+      // `json-summary` writes coverage/coverage-summary.json, which
+      // `.github/scripts/coverage-gate.mjs` reads to enforce the floor.
+      reporter: ['text', 'json', 'json-summary', 'html'],
       include: ['src/**/*.ts'],
       exclude: ['src/main.ts', 'src/**/*.d.ts'],
+      // Write the report even when a test fails, so the floor step reports the
+      // coverage number rather than "summary not found".
+      reportOnFailure: true,
     },
     testTimeout: 10000,
     hookTimeout: 10000,

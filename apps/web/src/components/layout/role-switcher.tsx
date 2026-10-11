@@ -12,9 +12,9 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Badge } from "@/components/ui/badge";
 import { useAuthStore } from "@/stores/auth";
+import { realmColorClass, realmLabel, UNKNOWN_REALM } from "@/hooks/use-roles";
 import { ChevronDown, Check, Building2 } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { realmColor, realmLabel } from "@/lib/realm";
 
 interface UserRole {
   id: string;
@@ -23,7 +23,8 @@ interface UserRole {
     id: string;
     code: string;
     name: string;
-    realm: string;
+    // Optional: a session persisted before the field existed omits it.
+    realm?: string;
   };
   unit?: {
     id: string;
@@ -49,7 +50,7 @@ export function RoleSwitcher({ className }: RoleSwitcherProps) {
         <div className={cn("flex items-center gap-2", className)}>
           <Badge
             variant="secondary"
-            className={cn("text-white", realmColor(singleRole.role.realm))}
+            className={cn("text-white", realmColorClass(singleRole.role.realm))}
           >
             {realmLabel(singleRole.role.realm)}
           </Badge>
@@ -79,7 +80,7 @@ export function RoleSwitcher({ className }: RoleSwitcherProps) {
   // Group roles by realm
   const rolesByRealm = userRoles.reduce(
     (acc, role) => {
-      const realm = role.role.realm;
+      const realm = role.role.realm ?? UNKNOWN_REALM;
       if (!acc[realm]) acc[realm] = [];
       acc[realm].push(role);
       return acc;
@@ -100,7 +101,7 @@ export function RoleSwitcher({ className }: RoleSwitcherProps) {
             variant="secondary"
             className={cn(
               "text-white text-xs",
-              realmColor(activeRole.role.realm),
+              realmColorClass(activeRole.role.realm),
             )}
           >
             {realmLabel(activeRole.role.realm)}

@@ -85,12 +85,10 @@ import {
   type LeaderboardPeriod,
   type VerificationStatus,
 } from "@/hooks/use-ibadah";
-import { defaultSantriUnitId, useUnits } from "@/hooks/use-units";
-import { useAuthStore } from "@/stores/auth";
+import { useUnits } from "@/hooks/use-units";
 import { cn } from "@/lib/utils";
 
 export default function IbadahPage() {
-  const { user } = useAuthStore();
   const [activeTab, setActiveTab] = useState("records");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
@@ -124,14 +122,15 @@ export default function IbadahPage() {
     limit: 100,
   });
 
+  // The API reads only the santri this account reaches; a unit narrows that.
   const { data: leaderboardData, isLoading: leaderboardLoading } =
     useIbadahLeaderboard({
-      // The reader's unit when it has santri, else the first that does: the
-      // pesantren's staff belong to the pesantren unit, which has none.
-      unitId: selectedUnit || defaultSantriUnitId(units, user?.unitId) || "",
+      unitId: selectedUnit || undefined,
       periodType: leaderboardPeriod,
       limit: 10,
     });
+  // A unit to choose only for whoever reaches more than one.
+  const choosesUnit = units.length > 1;
 
   // Mutations
   const deleteRecord = useDeleteIbadahRecord();
@@ -140,7 +139,10 @@ export default function IbadahPage() {
   const records = recordsData?.data || [];
   const targets = targetsData?.data || [];
   const leaderboard = leaderboardData || [];
-  const pagination = recordsData?.meta;
+  // The list endpoints return the pagination block as `meta.pagination`
+  // (SharedPaginatedResponse), not a flat `meta`. Reading `meta.total` gave
+  // `undefined`, which the footer rendered as "Showing 1 to NaN of results".
+  const pagination = recordsData?.meta?.pagination;
 
   // Stats
   const totalRecords = pagination?.total || 0;
@@ -289,24 +291,26 @@ export default function IbadahPage() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-4">
-                <Select
-                  value={selectedUnit || "all"}
-                  onValueChange={(val) =>
-                    setSelectedUnit(val === "all" ? "" : val)
-                  }
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Pilih Unit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Semua Unit</SelectItem>
-                    {units.map((unit) => (
-                      <SelectItem key={unit.id} value={unit.id}>
-                        {unit.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {choosesUnit && (
+                  <Select
+                    value={selectedUnit || "all"}
+                    onValueChange={(val) =>
+                      setSelectedUnit(val === "all" ? "" : val)
+                    }
+                  >
+                    <SelectTrigger className="w-[180px]" aria-label="Unit">
+                      <SelectValue placeholder="Pilih Unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Semua Unit</SelectItem>
+                      {units.map((unit) => (
+                        <SelectItem key={unit.id} value={unit.id}>
+                          {unit.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
 
                 <Select
                   value={category || "all"}
@@ -706,18 +710,26 @@ export default function IbadahPage() {
               </SelectContent>
             </Select>
 
-            <Select value={selectedUnit} onValueChange={setSelectedUnit}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Pilih Unit" />
-              </SelectTrigger>
-              <SelectContent>
-                {units.map((unit) => (
-                  <SelectItem key={unit.id} value={unit.id}>
-                    {unit.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {choosesUnit && (
+              <Select
+                value={selectedUnit || "all"}
+                onValueChange={(val) =>
+                  setSelectedUnit(val === "all" ? "" : val)
+                }
+              >
+                <SelectTrigger className="w-[200px]" aria-label="Unit">
+                  <SelectValue placeholder="Pilih Unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Unit</SelectItem>
+                  {units.map((unit) => (
+                    <SelectItem key={unit.id} value={unit.id}>
+                      {unit.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <Card>
@@ -752,8 +764,10 @@ export default function IbadahPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {leaderboard.map((entry, index) => {
-                    const rank = index + 1;
+                  {leaderboard.map((entry) => {
+                    // The API's rank: a santri sees only their own row, at
+                    // their place in the unit, not at the top of a list of one.
+                    const rank = entry.rank;
                     const isTop3 = rank <= 3;
                     const rankColors = {
                       1: "bg-yellow-100 text-yellow-800 border-yellow-300",

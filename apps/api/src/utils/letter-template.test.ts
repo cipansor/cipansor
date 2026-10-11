@@ -164,6 +164,49 @@ describe('konsep awal surat', () => {
     expect(remainingPlaceholders(filled)).toEqual([]);
   });
 
+  /**
+   * Sebagian petunjuk placeholder ditulis sebagai kalimat berhuruf kecil
+   * ("[URAIAN KETERANGAN, mis. ...]"). Pencari lama hanya menerima huruf
+   * kapital, sehingga konsep yang masih memuat petunjuk itu dilaporkan
+   * lengkap dan naik ke atasan dengan kurung siku yang belum diisi.
+   */
+  it('melaporkan setiap placeholder bersiku di konsep setiap jenis surat', () => {
+    for (const type of Object.values(LetterType)) {
+      for (const nature of Object.values(LetterNature)) {
+        const draft = renderTemplateDraft(type, nature);
+        const reported = remainingPlaceholders(draft);
+        // The oracle does not reuse the pattern under test: take every
+        // reported placeholder out of the draft, and no bracket may be left.
+        const rest = reported.reduce((text, p) => text.split(p).join(''), draft);
+        expect(rest, `${type} / ${nature}`).not.toMatch(/[[\]]/);
+        for (const p of reported) expect(draft).toContain(p);
+      }
+    }
+  });
+
+  it('mengenali petunjuk berupa prosa, termasuk elipsis dan tanda kurung', () => {
+    expect(remainingPlaceholders('Mohon isi [URAIAN KETERANGAN, mis. peran …].')).toEqual([
+      '[URAIAN KETERANGAN, mis. peran …]',
+    ]);
+    expect(
+      remainingPlaceholders(
+        'Hadir pada [HARI, TANGGAL] membawa [KETERANGAN TAMBAHAN, mis. agenda ringkas (bila ada) ...].'
+      )
+    ).toEqual(['[HARI, TANGGAL]', '[KETERANGAN TAMBAHAN, mis. agenda ringkas (bila ada) ...]']);
+    // A placeholder left twice is one thing to fill.
+    expect(remainingPlaceholders('[NAMA] dan [NAMA]')).toEqual(['[NAMA]']);
+    // A letter with nothing left to fill reports nothing.
+    expect(remainingPlaceholders('Surat lengkap, tanpa petunjuk tersisa.')).toEqual([]);
+  });
+
+  it('tetap linier pada deretan kurung siku pembuka (CodeQL js/polynomial-redos)', () => {
+    // A body that admits `[` backtracks quadratically here: seconds, not
+    // milliseconds, on 50k characters.
+    const started = performance.now();
+    expect(remainingPlaceholders('['.repeat(50_000) + 'x')).toEqual([]);
+    expect(performance.now() - started).toBeLessThan(1000);
+  });
+
   it('konsep tidak menyisakan baris kosong di awal/akhir', () => {
     for (const type of Object.values(LetterType)) {
       const draft = renderTemplateDraft(type, LetterNature.PUBLIC);

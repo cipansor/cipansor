@@ -4,12 +4,13 @@ import multer from 'multer';
 import { EsignController } from './esign.controller';
 import { authenticate, isSuperAdmin } from '@/middleware/auth';
 import { requireTurnstile } from '@/middleware/turnstile';
-import { validate } from '@/middleware/validate';
+import { validate, validateQuery } from '@/middleware/validate';
 import { Errors } from '@/middleware/error';
 import {
   activateKeySchema,
   changePassphraseSchema,
   decideRequestSchema,
+  keyStatusQuerySchema,
   requestKeySchema,
   saveIdentitySchema,
   decideRevocationSchema,
@@ -115,6 +116,27 @@ router.post(
   upload.single('file'),
   requireTurnstile('verify-letter'),
   EsignController.verifyPdf
+);
+
+/**
+ * Layanan status kunci publik (AATL ICA7) — juga di luar `authenticate`.
+ *
+ * Menjawab keadaan sebuah **kunci** dari sidik jarinya: aktif, kedaluwarsa,
+ * dicabut beserta sebabnya, atau tidak dikenal. Bedanya dengan endpoint
+ * verifikasi: yang terakhir membuktikan sebuah *dokumen*, yang ini menjawab
+ * tentang sebuah *kunci* — jadi penerima arsip lama dapat memeriksanya tanpa
+ * memegang dokumennya.
+ *
+ * Tidak dijaga Turnstile: permintaan ini tidak menulis apa pun, masukannya
+ * sudah menjadi pengenal publik (sidik jari tampil di halaman verifikasi), dan
+ * lajunya dibatasi `publicVerifyLimiter`. Menambahkan tantangan di sini akan
+ * menghalangi persis pemakaian yang dimaksudkan — verifikasi programatis.
+ */
+router.get(
+  '/public/key-status',
+  publicVerifyLimiter,
+  validateQuery(keyStatusQuerySchema),
+  EsignController.keyStatus
 );
 
 router.use(authenticate);

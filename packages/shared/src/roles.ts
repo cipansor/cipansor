@@ -250,6 +250,39 @@ export const LETTER_EDIT_EXECUTIVE_ROLES: readonly string[] = [
 ];
 
 /**
+ * Foundation roles that see across units — the mirror of the API's
+ * `FOUNDATION_SCOPE_ROLES` (`apps/api/src/utils/resolve-unit-id.ts`). Note the
+ * `SUPER_ADMIN` literal rather than `ADMIN_ROLE_CODES`: a school's own
+ * `*_ADMIN` is unit-scoped, so it is deliberately **not** foundation-scoped.
+ * `roles-sync.test.ts` pins this list equal to the API's, both directions.
+ */
+export const FOUNDATION_SCOPE_ROLE_CODES: readonly string[] = [
+  "SUPER_ADMIN",
+  ...GOVERNANCE_ROLE_CODES,
+];
+
+/**
+ * Who may open the archive retention review (the E-Office card and its page).
+ *
+ * Exactly the API's guard (`choosesUnit(actor) || handlesUnitCorrespondence(actor)`
+ * in `correspondence.controller.ts`): the office and head who handle a unit's
+ * letters, plus the foundation roles that may choose a unit. The web card reads
+ * this so it does not offer a door the server answers 403 — which it did while
+ * the card only checked that a `unitId` existed, and almost every account has one.
+ */
+export const LETTER_RETENTION_ROLE_CODES: readonly string[] = [
+  ...LETTER_UNIT_SCOPE_ROLES,
+  ...FOUNDATION_SCOPE_ROLE_CODES,
+];
+
+/** True when a role code may open the retention review. Mirrors the API guard. */
+export function mayReviewLetterRetention(
+  roleCode: string | null | undefined,
+): boolean {
+  return !!roleCode && LETTER_RETENTION_ROLE_CODES.includes(roleCode);
+}
+
+/**
  * True when a role code may edit a letter's naskah (excluding the "is the
  * creator" check, which is by user id). Mirrors `updateLetter` on the API so
  * the E-Office "Edit Naskah Surat" UI toggle and the server guard read the

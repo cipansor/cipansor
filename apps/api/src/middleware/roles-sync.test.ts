@@ -1,6 +1,14 @@
 import { describe, it, expect } from 'vitest';
 import { RoleCode } from '@prisma/client';
-import { ALL_ROLE_CODES, LEGACY_ROLE_EXPANSION, ROLE_CODE_TO_LEGACY } from '@cipansor/shared';
+import {
+  ALL_ROLE_CODES,
+  LEGACY_ROLE_EXPANSION,
+  LETTER_RETENTION_ROLE_CODES,
+  LETTER_UNIT_SCOPE_ROLES,
+  ROLE_CODE_TO_LEGACY,
+  mayReviewLetterRetention,
+} from '@cipansor/shared';
+import { FOUNDATION_SCOPE_ROLES } from '@/utils/resolve-unit-id';
 
 // The shared role groups (packages/shared/src/roles.ts) are plain strings —
 // shared cannot import @prisma/client. This test is the contract that keeps
@@ -41,5 +49,28 @@ describe('shared role codes stay in sync with the Prisma RoleCode enum', () => {
     for (const code of prismaCodes.filter((c) => c.endsWith('_KOMITE') || c.endsWith('_ALUMNI'))) {
       expect(ROLE_CODE_TO_LEGACY[code]).toBeUndefined();
     }
+  });
+
+  /**
+   * `LETTER_RETENTION_ROLE_CODES` (shared) and the API's retention guard must
+   * name the same set.
+   *
+   * The E-Office home shows the retention card from the shared list; the
+   * controller refuses the endpoint from `choosesUnit(actor) ||
+   * handlesUnitCorrespondence(actor)`. Those are two expressions of one rule —
+   * `LETTER_UNIT_SCOPE_ROLES` plus the foundation roles that may choose a unit —
+   * and the failure mode when they drift is a card that opens a 403, which is
+   * exactly what shipped while the card checked only `unitId`. Pin them equal,
+   * both directions.
+   */
+  it('the shared retention allowlist equals the API retention guard set', () => {
+    const expected = [...LETTER_UNIT_SCOPE_ROLES, ...FOUNDATION_SCOPE_ROLES];
+    expect([...LETTER_RETENTION_ROLE_CODES].sort()).toEqual([...expected].sort());
+    // ... and the helper reads that list, not a private copy.
+    for (const code of LETTER_RETENTION_ROLE_CODES) {
+      expect(mayReviewLetterRetention(code)).toBe(true);
+    }
+    expect(mayReviewLetterRetention('SMPIT_SISWA')).toBe(false);
+    expect(mayReviewLetterRetention(null)).toBe(false);
   });
 });

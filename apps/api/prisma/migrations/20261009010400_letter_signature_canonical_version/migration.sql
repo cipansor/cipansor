@@ -1,0 +1,11 @@
+-- Versi bentuk kanonik yang ditandatangani (utils/esign.ts canonicalPayload).
+--
+-- Ditambahkan karena garis kewenangan (a.n./u.b./Plt./Plh.) memperpanjang
+-- payload yang ditandatangani. Baris lama dibuat atas bentuk v1 dan harus tetap
+-- diverifikasi dengan aturan itu; tanpa menyimpan versinya, verifier memakai
+-- bentuk terkini dan menolak tanda tangan yang sah.
+--
+-- NULL berarti "v1" — baris yang dibuat sebelum kolom ini ada. Nilainya
+-- sengaja dibiarkan NULL, bukan diisi 1, supaya verifier menangani keduanya
+-- dengan satu aturan (`canonicalVersionOf`: NULL -> 1).
+ALTER TABLE "letter_signatures" ADD COLUMN "canonical_version" INTEGER;

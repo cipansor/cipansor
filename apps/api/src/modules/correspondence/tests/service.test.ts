@@ -46,6 +46,9 @@ vi.mock('@/lib/prisma', () => ({
     user: {
       findMany: vi.fn(),
     },
+    unit: {
+      findMany: vi.fn(),
+    },
     academicYear: {
       findFirst: vi.fn(),
     },
@@ -80,9 +83,12 @@ describe('CorrespondenceService', () => {
 
       const result = await CorrespondenceService.generateNumber('unit-1', 'OUTGOING', 'year-1');
 
-      const date = new Date();
-      const year = date.getFullYear().toString();
-      // We accept any roman month in the test string to avoid flaky tests based on current month
+      // Bulan/tahun mengikuti kalender WIB (UTC+7 tetap), bukan zona jam server —
+      // instan batasnya dikunci di generate-number-timezone.test.ts. Di sini
+      // tahun saja yang dipatok agar tes tidak flaky di akhir Desember, tapi
+      // tetap gagal andai bulan memakai zona host (mis. UTC vs WIB).
+      const shifted = new Date(Date.now() + 7 * 60 * 60 * 1000);
+      const year = shifted.getUTCFullYear().toString();
       expect(result).toMatch(new RegExp(`011/OUTGOING/[IVX]+/${year}`));
     });
 
@@ -771,6 +777,81 @@ describe('CorrespondenceService', () => {
           }),
         ],
       });
+    });
+
+    /**
+     * Jalur penyusunan mengikuti berkasnya selama suratnya masih dapat diubah.
+     *
+     * Penyusun boleh mengunggah naskahnya belakangan; kalau jalurnya tidak ikut
+     * berubah, berkas unggahan itu akan berakhir sebagai "berkas unggahan
+     * penyusun" yang tidak pernah ditandatangani — persis keadaan yang
+     * diperbaiki jalur `UPLOADED`.
+     */
+    it('menandai UPLOADED saat berkas naskah ditambahkan pada surat keluar', async () => {
+      vi.mocked(prisma.letter.findUnique).mockResolvedValue({
+        ...draftLetter(),
+        signatures: [],
+        recipients: [],
+        dispositions: [],
+      } as any);
+      vi.mocked(prisma.letter.update).mockResolvedValue({} as any);
+
+      await CorrespondenceService.updateLetter(
+        'letter-edit-1',
+        { fileUrl: 'https://portal.cipansor.or.id/uploads/naskah-1.pdf' },
+        'tu-1',
+        adminActor as any
+      );
+
+      expect(prisma.letter.update).toHaveBeenCalledWith({
+        where: { id: 'letter-edit-1' },
+        data: expect.objectContaining({
+          fileUrl: 'https://portal.cipansor.or.id/uploads/naskah-1.pdf',
+          authoringTrack: 'UPLOADED',
+        }),
+      });
+    });
+
+    it('kembali ke GENERATED saat berkas naskah dihapus dari surat keluar', async () => {
+      vi.mocked(prisma.letter.findUnique).mockResolvedValue({
+        ...draftLetter({ authoringTrack: 'UPLOADED', fileUrl: '/uploads/lama.pdf' }),
+        signatures: [],
+        recipients: [],
+        dispositions: [],
+      } as any);
+      vi.mocked(prisma.letter.update).mockResolvedValue({} as any);
+
+      await CorrespondenceService.updateLetter(
+        'letter-edit-1',
+        { fileUrl: null as any },
+        'tu-1',
+        adminActor as any
+      );
+
+      expect(prisma.letter.update).toHaveBeenCalledWith({
+        where: { id: 'letter-edit-1' },
+        data: expect.objectContaining({ fileUrl: null, authoringTrack: 'GENERATED' }),
+      });
+    });
+
+    it('surat masuk tidak pernah menjadi UPLOADED', async () => {
+      vi.mocked(prisma.letter.findUnique).mockResolvedValue({
+        ...draftLetter({ direction: 'INCOMING' }),
+        signatures: [],
+        recipients: [],
+        dispositions: [],
+      } as any);
+      vi.mocked(prisma.letter.update).mockResolvedValue({} as any);
+
+      await CorrespondenceService.updateLetter(
+        'letter-edit-1',
+        { fileUrl: 'https://portal.cipansor.or.id/uploads/pindaian.pdf' },
+        'tu-1',
+        adminActor as any
+      );
+
+      const data = vi.mocked(prisma.letter.update).mock.calls.at(-1)![0].data as any;
+      expect(data.authoringTrack).toBeUndefined();
     });
 
     it('rejects changing type when letterNumber is already issued', async () => {
@@ -2142,6 +2223,212 @@ describe('CorrespondenceService', () => {
       expect(events).toContainEqual(
         expect.objectContaining({ action: 'ARCHIVED', toStatus: 'ARCHIVED' })
       );
+    });
+  });
+
+  describe('exportAgendaCsv', () => {
+    const actor = { id: 'tu-1', roleCode: 'SMPIT_TATA_USAHA', unitId: 'unit-1' };
+
+    function row(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'l-1',
+        agendaNumber: '001',
+        letterNumber: '001/YYS/2026',
+        direction: 'INCOMING',
+        date: new Date('2026-01-15T00:00:00.000Z'),
+        subject: 'Undangan rapat',
+        senderName: 'Kemenag',
+        recipientName: null,
+        nature: 'PUBLIC',
+        status: 'PENDING_REVIEW',
+        classification: { code: '005', name: 'Undangan' },
+        unit: { name: 'SMP IT Cipansor' },
+        ...overrides,
+      };
+    }
+
+    it('emits a BOM-prefixed CSV with Indonesian labels', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([row()] as any);
+
+      const csv = await CorrespondenceService.exportAgendaCsv(actor as any, {});
+
+      // Excel on Windows needs the BOM or every accented name is mojibake.
+      expect(csv.startsWith('\uFEFF')).toBe(true);
+      expect(csv).toContain('Nomor Agenda');
+      expect(csv).toContain('Undangan rapat');
+      expect(csv).toContain('Masuk');
+      // Human labels, never the raw enum.
+      expect(csv).toContain('Menunggu review');
+      expect(csv).not.toContain('PENDING_REVIEW');
+    });
+
+    /**
+     * Surat yang pihaknya hanya sebuah instansi.
+     *
+     * Daftar di layar jatuh ke `senderInstance`/`recipientInstance` ketika nama
+     * orangnya kosong, jadi barisnya tampil sebagai "Kemenag". Ekspor yang
+     * menghitung pihaknya sendiri pernah melewatkan kedua kolom itu, sehingga
+     * buku agenda yang diserahkan ke pengawas kehilangan pengirimnya justru
+     * untuk surat yang paling sering datang dari instansi luar.
+     */
+    it('mengisi kolom pihak dari instansi bila nama orangnya kosong', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([
+        row({ senderName: null, senderInstance: 'Kemenag' }),
+      ] as any);
+
+      const csv = await CorrespondenceService.exportAgendaCsv(actor as any, {});
+
+      expect(csv).toContain('Kemenag');
+    });
+
+    it('mengisi penerima dari instansinya pada surat keluar', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([
+        row({
+          direction: 'OUTGOING',
+          senderName: 'Yayasan',
+          recipientName: null,
+          recipientInstance: 'Dinas Pendidikan',
+        }),
+      ] as any);
+
+      const csv = await CorrespondenceService.exportAgendaCsv(actor as any, {});
+
+      expect(csv).toContain('Dinas Pendidikan');
+    });
+
+    it('quotes a field containing a comma or a quote (RFC 4180)', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([
+        row({ subject: 'Rapat "khusus", pagi' }),
+      ] as any);
+
+      const csv = await CorrespondenceService.exportAgendaCsv(actor as any, {});
+
+      expect(csv).toContain('"Rapat ""khusus"", pagi"');
+    });
+
+    it('scopes the export with the same rule as the letter list', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([] as any);
+
+      await CorrespondenceService.exportAgendaCsv(actor as any, {});
+
+      const where = vi.mocked(prisma.letter.findMany).mock.calls[0][0]?.where as any;
+      // A unit office is scoped to its own unit — and, inside it, is denied the
+      // classified letters that `letterScopeWhere` excludes.
+      expect(JSON.stringify(where)).toContain('unit-1');
+      expect(JSON.stringify(where)).toContain('CONFIDENTIAL');
+    });
+
+    it('neutralises spreadsheet formulas (CWE-1236)', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([
+        row({ subject: '=HYPERLINK("http://jahat.example","Klik")' }),
+        row({ id: 'l-2', subject: '+1+1' }),
+        row({ id: 'l-3', subject: '@SUM(A1:A9)' }),
+      ] as any);
+
+      const csv = await CorrespondenceService.exportAgendaCsv(actor as any, {});
+
+      // Every dangerous lead character is prefixed with an apostrophe, which
+      // spreadsheet software reads as literal text and hides.
+      expect(csv).toContain("'=HYPERLINK");
+      expect(csv).toContain("'+1+1");
+      expect(csv).toContain("'@SUM");
+      // …and no cell is left beginning a line with a bare formula.
+      expect(csv).not.toMatch(/\n=[A-Z]/);
+      expect(csv).not.toMatch(/\n@[A-Z]/);
+    });
+
+    it('still quotes a comma-bearing subject after neutralising', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([
+        row({ subject: '=cmd, penting' }),
+      ] as any);
+
+      const csv = await CorrespondenceService.exportAgendaCsv(actor as any, {});
+
+      expect(csv).toContain('"\'=cmd, penting"');
+    });
+
+    it('confines a personal scope to the actor’s own dispositions', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([] as any);
+
+      await CorrespondenceService.exportAgendaCsv(actor as any, { scope: 'PERSONAL' });
+
+      const where = vi.mocked(prisma.letter.findMany).mock.calls[0][0]?.where as any;
+      const json = JSON.stringify(where);
+      expect(json).toContain('tu-1');
+      expect(json).toContain('dispositions');
+    });
+
+    it('passes a search term into the export predicates', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([] as any);
+
+      await CorrespondenceService.exportAgendaCsv(actor as any, { search: 'Undangan' });
+
+      const where = vi.mocked(prisma.letter.findMany).mock.calls[0][0]?.where as any;
+      expect(JSON.stringify(where)).toContain('Undangan');
+    });
+
+    it('closes the date range at the start of the following day', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([] as any);
+
+      await CorrespondenceService.exportAgendaCsv(actor as any, {
+        from: '2026-01-01',
+        to: '2026-12-31',
+      });
+
+      const where = vi.mocked(prisma.letter.findMany).mock.calls[0][0]?.where as any;
+      // `to` is exclusive at midnight of 2027-01-01, so a letter timestamped
+      // 2026-12-31T11:00 is inside the range rather than dropped.
+      const date = (where.AND as any[]).find((term) => term.date)?.date;
+      expect(date.gte.toISOString()).toBe('2026-01-01T00:00:00.000Z');
+      expect(date.lt.toISOString()).toBe('2027-01-01T00:00:00.000Z');
+      expect(date.lte).toBeUndefined();
+    });
+  });
+
+  describe('exportRetentionCsv', () => {
+    const actor = { id: 'tu-1', roleCode: 'SMPIT_TATA_USAHA', unitId: 'unit-1' };
+
+    function dueRow(overrides: Record<string, unknown> = {}) {
+      return {
+        id: 'l-1',
+        letterNumber: '001/YYS/2000',
+        agendaNumber: '001',
+        subject: 'Undangan rapat',
+        unitId: 'unit-1',
+        nature: 'CONFIDENTIAL',
+        date: new Date('2000-01-01T00:00:00.000Z'),
+        classification: { code: '005', name: 'Undangan', retention: 5 },
+        ...overrides,
+      };
+    }
+
+    /**
+     * Berkas ini diserahkan kepada petugas kearsipan dan pengawas, bukan
+     * dibaca mesin. Nilai enum `nature` dan UUID unit yang tercetak apa adanya
+     * memaksa pembacanya menebak; kolomnya harus berisi kata yang dibaca orang.
+     */
+    it('mencetak sifat dan unit dalam bahasa manusia, bukan enum dan id', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([dueRow()] as any);
+      vi.mocked(prisma.unit.findMany).mockResolvedValue([
+        { id: 'unit-1', name: 'SMP IT Cipansor' },
+      ] as any);
+
+      const csv = await CorrespondenceService.exportRetentionCsv(actor as any);
+
+      expect(csv).toContain('Rahasia');
+      expect(csv).toContain('SMP IT Cipansor');
+      // Nilai enum dan UUID mentah tidak boleh sampai ke meja pengawas.
+      expect(csv).not.toContain('CONFIDENTIAL');
+      expect(csv).not.toContain('unit-1');
+    });
+
+    it('jatuh ke id unit bila namanya tidak ditemukan', async () => {
+      vi.mocked(prisma.letter.findMany).mockResolvedValue([dueRow()] as any);
+      vi.mocked(prisma.unit.findMany).mockResolvedValue([] as any);
+
+      const csv = await CorrespondenceService.exportRetentionCsv(actor as any);
+
+      expect(csv).toContain('unit-1');
     });
   });
 });

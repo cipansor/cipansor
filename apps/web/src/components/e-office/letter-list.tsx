@@ -6,7 +6,8 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { id as localeId } from "date-fns/locale";
 import { safeFormat } from "@/lib/date";
 import { useAuth } from "@/hooks/use-auth";
-import { useCorrespondence } from "@/hooks/use-correspondence";
+import { useCorrespondence, fetchAgendaCsv } from "@/hooks/use-correspondence";
+import { objectUrlForBlob, releaseObjectUrl } from "@/lib/files";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
@@ -35,9 +36,11 @@ import {
   LetterNature,
   LetterStatus,
   LetterUrgency,
+  letterPartyName,
   type LetterDetail,
 } from "@cipansor/shared";
-import { Inbox, Plus, Search, Send } from "lucide-react";
+import { Inbox, Plus, Search, Send, Download } from "lucide-react";
+import { toast } from "sonner";
 
 /**
  * Buku agenda surat — satu daftar, dipakai surat masuk dan surat keluar.
@@ -100,6 +103,9 @@ const URGENCY_TONE: Record<LetterUrgency, string> = {
   [LetterUrgency.IMMEDIATE]: "border-orange-300 bg-orange-50 text-orange-700",
   [LetterUrgency.NORMAL]: "border-slate-200 bg-slate-50 text-slate-600",
 };
+
+/** Banyaknya baris per halaman yang boleh dipilih petugas. */
+const PAGE_SIZES = [10, 25, 50, 100] as const;
 
 const NATURE_TONE: Record<LetterNature, string> = {
   [LetterNature.PUBLIC]: "border-slate-200 bg-slate-50 text-slate-600",
@@ -165,6 +171,11 @@ export function LetterList({
   );
   const [searchInput, setSearchInput] = useState("");
   const [search, setSearch] = useState("");
+  // Banyaknya baris per halaman. Sebelumnya tetap 10, sehingga buku agenda
+  // yang seharusnya dilihat sebagai satu lembar kerja terpaksa disusuri
+  // sepuluh baris sekaligus. Pilihannya sengaja kecil dan tetap — sebuah
+  // buku agenda dibaca, bukan ditelusuri tanpa batas.
+  const [limit, setLimit] = useState(10);
 
   const effectiveStatus =
     fixedStatus ?? (status === "ALL" ? undefined : (status as LetterStatus));
@@ -177,12 +188,12 @@ export function LetterList({
 
   // Any change of filter invalidates the page number: page 3 of the old result
   // is rarely page 3 of the new one, and is often past its end.
-  useEffect(() => setPage(1), [search, status, scope, direction]);
+  useEffect(() => setPage(1), [search, status, scope, direction, limit]);
 
   const { useLetters } = useCorrespondence(user?.unitId);
   const { data, isLoading } = useLetters({
     page,
-    limit: 10,
+    limit,
     direction,
     status: effectiveStatus,
     search: search || undefined,
@@ -196,9 +207,46 @@ export function LetterList({
 
   const range = useMemo(() => {
     if (total === 0) return null;
-    const from = (page - 1) * 10 + 1;
-    return `${from}–${Math.min(page * 10, total)} dari ${total}`;
-  }, [page, total]);
+    const from = (page - 1) * limit + 1;
+    return `${from}–${Math.min(page * limit, total)} dari ${total}`;
+  }, [page, total, limit]);
+
+  /**
+   * Buku agenda yang dapat diserahkan — CSV dari penyaring yang sedang dilihat.
+   *
+   * Diekspor dengan saringan yang sama persis dengan yang tampil di layar:
+   * sebuah "ekspor" yang diam-diam mengembalikan seluruh riwayat akan membuat
+   * petugas menyerahkan berkas yang tidak sesuai dengan yang ia periksa.
+   */
+  const [exporting, setExporting] = useState(false);
+  const handleExport = async () => {
+    setExporting(true);
+    try {
+      const blob = await fetchAgendaCsv({
+        direction,
+        status: effectiveStatus,
+        search: search || undefined,
+        scope,
+      });
+      const url = objectUrlForBlob(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `Buku-Agenda-${direction === LetterDirection.INCOMING ? "Masuk" : "Keluar"}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      releaseObjectUrl(url);
+      document.body.removeChild(a);
+    } catch (error) {
+      console.error(error);
+      toast.error(
+        error instanceof Error && error.message
+          ? error.message
+          : "Gagal mengekspor buku agenda",
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
 
   return (
     <div className="space-y-6 p-6">
@@ -222,6 +270,10 @@ export function LetterList({
               </Link>
             </Button>
           )}
+          <Button variant="outline" onClick={handleExport} disabled={exporting}>
+            <Download className="mr-2 h-4 w-4" />
+            {exporting ? "Mengekspor…" : "Ekspor Buku Agenda"}
+          </Button>
           <Button
             onClick={() =>
               router.push(
@@ -277,6 +329,24 @@ export function LetterList({
             </SelectContent>
           </Select>
         )}
+        <Select
+          value={String(limit)}
+          onValueChange={(v) => setLimit(Number(v))}
+        >
+          <SelectTrigger
+            className="w-full sm:w-40"
+            aria-label="Banyaknya baris per halaman"
+          >
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {PAGE_SIZES.map((n) => (
+              <SelectItem key={n} value={String(n)}>
+                {n} per halaman
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
         {range && (
           <span className="text-sm text-muted-foreground sm:ml-auto">
             {range} surat
@@ -349,13 +419,7 @@ export function LetterList({
                             </span>
                           )}
                         </TableCell>
-                        <TableCell>
-                          {direction === LetterDirection.INCOMING
-                            ? letter.senderName || letter.senderInstance || "—"
-                            : letter.recipientName ||
-                              letter.recipientInstance ||
-                              "—"}
-                        </TableCell>
+                        <TableCell>{letterPartyName(letter) || "—"}</TableCell>
                         <TableCell className="whitespace-nowrap">
                           {safeFormat(new Date(letter.date), "dd MMM yyyy", {
                             locale: localeId,
@@ -405,11 +469,19 @@ export function LetterList({
 
       {/* Tanpa ini, surat ke-11 tidak dapat dicapai dari mana pun. */}
       {totalPages > 1 && (
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <span className="text-sm text-muted-foreground">
             Halaman {page} dari {totalPages}
           </span>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(1)}
+              disabled={page <= 1}
+            >
+              Pertama
+            </Button>
             <Button
               variant="outline"
               size="sm"
@@ -425,6 +497,14 @@ export function LetterList({
               disabled={page >= totalPages}
             >
               Berikutnya
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setPage(totalPages)}
+              disabled={page >= totalPages}
+            >
+              Terakhir
             </Button>
           </div>
         </div>

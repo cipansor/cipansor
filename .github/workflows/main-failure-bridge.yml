@@ -1,0 +1,87 @@
+# Dispatch the deployment monitor the moment a workflow on `main` fails.
+#
+# GitHub Actions is the deterministic bridge: it sees the finished result of
+# every workflow on `main` and dispatches only while the run that failed is still
+# the tip of `main` — so a failure mid-PR (which never has `main` as its branch)
+# never raises an issue, and an older failure whose tip has already moved on is
+# left to the event of the newer tip. This mirrors `pr-lifecycle.yml`, which
+# dispatches the review gate.
+#
+# The monitor itself (`Pemantau deployment`) lives in the automation service and
+# is dispatched by id, the same way the review gate is.
+name: Main failure bridge
+
+on:
+  # The code checks that run on a push to `main`: a failure there needs a
+  # diagnosis (the "why"), which is what the monitor is for. The deploys are
+  # NOT here: `deploy-watch.yml` reports a failed, hung or wrong-commit deploy
+  # deterministically, and a deploy run skipped because CI/E2E failed is the
+  # failure this bridge already reports. One problem, one issue (decided
+  # 2026-10-10; docs/SDLC-FLOW.md → "Satu masalah, satu peringatan").
+  workflow_run:
+    workflows: [CI, E2E Tests]
+    types: [completed]
+
+# `commits/main` is read with contents: read; nothing here reads check runs.
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  dispatch:
+    # head_branch alone also matches a fork's branch named `main` (its pull
+    # request runs CI here); only a run of this repository's own main counts.
+    if: |
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_branch == 'main' &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Confirm the failure is still the tip of main
+        id: gate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          FAILED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          # The tip is read from the commit itself, not from check-runs: check
+          # names carry the SHA (`CI and E2E passed on <sha>`) and the list has
+          # dozens of entries, so matching a name is brittle. `commits/main`
+          # returns the tip SHA directly. If it has moved past the run that
+          # failed, a newer merge already superseded it — that tip's own failure
+          # dispatches the monitor, not this stale one.
+          TIP=$(gh api "repos/$REPO/commits/main" --jq .sha 2>/dev/null || echo "")
+          echo "tip=$TIP failed=$FAILED_SHA"
+          if [ -n "$TIP" ] && [ "$TIP" != "$FAILED_SHA" ]; then
+            echo "main has moved past the failed run; skipping dispatch"
+            echo "skip=1" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Dispatch the deployment monitor
+        if: steps.gate.outputs.skip != '1'
+        env:
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+          WORKFLOW: ${{ github.event.workflow_run.name }}
+        run: |
+          MONITOR_ID="${SDLC_DEPLOY_MONITOR_ID:-e827ff1a-2bcd-479a-b932-29e71abfe99d}"
+          if [ -z "$OPENHANDS_API_KEY" ]; then
+            echo "OPENHANDS_API_KEY is not set; the monitor cannot be dispatched."
+            exit 0
+          fi
+          # The body is built by jq, not by string interpolation, so a workflow
+          # name can never break out of its JSON string.
+          body=$(jq -n --arg run "$RUN_ID" --arg wf "$WORKFLOW" \
+            '{source: "main-failure-bridge", run_id: $run, workflow: $wf}')
+          code=$(curl -s -o /tmp/dispatch.out -w '%{http_code}' -X POST \
+            "https://app.all-hands.dev/api/automation/v1/$MONITOR_ID/dispatch" \
+            -H "Authorization: Bearer $OPENHANDS_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$body")
+          cat /tmp/dispatch.out; echo
+          # Nothing retries a failed dispatch: a red main would then reach no
+          # one. Fail the job so the broken bridge itself is visible.
+          case "$code" in
+            2??) echo "Dispatched the deployment monitor for run $RUN_ID ($WORKFLOW), HTTP $code." ;;
+            *) echo "::error::Dispatching the deployment monitor failed (HTTP $code)."; exit 1 ;;
+          esac

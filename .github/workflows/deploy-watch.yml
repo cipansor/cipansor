@@ -1,0 +1,64 @@
+name: Deploy watchdog
+
+# Watches the two workflows that reach a site ("Deploy staging", "Deploy
+# production"). If the latest run failed, hung past the threshold, or finished
+# green while the site it released is not answering with its commit, it opens an
+# issue carrying the run id and the failing log lines. It never rolls back,
+# reruns or repoints a container — a human decides (the release flow is
+# `docs/deploy-azure.md` → "How a change is released").
+#
+# Why on completion and not on a schedule (decided 2026-10-10): the deploys are
+# what changes the sites, so the moment one finishes is the moment to look.
+# A 30-minute cron cost ~1,440 runs a month — free while the repository is
+# public, nearly half the private plan's 3,000 minutes afterwards — to watch
+# sites that mostly did not change. A site that degrades later, with no
+# deploy, is the platform's to report: App Service Health check and an
+# availability test (docs/deploy-azure.md → "Watching a release"). Staging's
+# deploy job times out at 25 minutes, so a hung deploy still ends as a failed
+# run this sees; the stuck check covers the other workflow, read at the same
+# time, and a manual dispatch.
+#
+# Chain depth: E2E Tests (push) → Deploy staging (workflow_run) → this
+# (workflow_run) is the third level, the most GitHub runs ("You can't use
+# workflow_run to chain together more than three levels of workflows").
+# Deploy staging must keep a push-triggered parent, or this stops firing.
+on:
+  workflow_run:
+    workflows: ['Deploy staging', 'Deploy production']
+    types: [completed]
+  workflow_dispatch: # Allow manual trigger
+
+# One watchdog at a time. A newer run supersedes an older one; nothing is lost
+# because each run re-reads the latest state rather than a queue.
+concurrency:
+  group: deploy-watch
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  # Listing a workflow's runs and reading a job's logs need the actions scope;
+  # without it every call answers 403 and the watch would see nothing.
+  actions: read
+  issues: write
+
+jobs:
+  watch:
+    name: Check the latest deploys
+    # A fork inherits this file; neither its deploys nor a manual dispatch
+    # there may open issues against it.
+    if: github.repository == 'ypcipansor/cipansor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Report a failed, stuck or degraded deploy
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # The workflow names must match the `name:` of the files they read;
+          # a mismatch finds no runs and stays silent (lesson:
+          # github-actions-minutes-exhausted, "a monitor that hears nothing").
+          DEPLOY_WATCH_WORKFLOWS: |
+            Deploy staging|deploy-staging.yml|https://staging.cipansor.or.id
+            Deploy production|deploy-production.yml|https://cipansor.or.id
+        run: bash .github/scripts/deploy-watch.sh

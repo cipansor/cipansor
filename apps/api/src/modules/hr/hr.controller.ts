@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { RoleCode } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import * as service from './hr.service';
 import {
@@ -10,8 +11,16 @@ import {
   approveLeaveSchema,
 } from './hr.schema';
 import { Errors } from '../../middleware/error';
+import { requireUser } from '../../middleware/auth';
 import { z } from 'zod';
 import { UserRole } from '@prisma/client';
+import type { HrActor } from './hr.service';
+
+/** The verified token, reduced to what decides an employee's reach. */
+function actor(req: Request): HrActor {
+  const user = requireUser(req);
+  return { sub: user.sub, roleCode: user.roleCode, unitId: user.unitId };
+}
 
 // =====================================
 // STAFF ATTENDANCE CONTROLLERS
@@ -42,8 +51,16 @@ export async function getRetentionRisk(req: Request, res: Response, next: NextFu
     const { unitId } = req.query;
     const user = req.user!;
 
-    const targetUnitId = user.role === 'SUPER_ADMIN' ? (unitId as string) : user.unitId;
-    if (!targetUnitId) throw Errors.badRequest('unitId is required');
+    // `req.user.roleCode` is the canonical role (see root AGENTS.md rule 3);
+    // comparing the deprecated `role` string against SUPER_ADMIN never matched,
+    // so a super admin was wrongly forced to pass a unitId.
+    const targetUnitId =
+      user.roleCode === RoleCode.SUPER_ADMIN
+        ? ((unitId as string | undefined) ?? undefined)
+        : (user.unitId ?? undefined);
+    if (user.roleCode !== RoleCode.SUPER_ADMIN && !targetUnitId) {
+      throw Errors.badRequest('Unit ID missing from user');
+    }
 
     const data = await service.getRetentionRiskAnalytics(targetUnitId);
     res.json({ success: true, data });
@@ -278,6 +295,66 @@ export async function getStaffById(req: Request, res: Response, next: NextFuncti
       throw Errors.notFound('Staff not found');
     }
     res.json({ success: true, data: staff });
+  } catch (error) {
+    next(error);
+  }
+}
+
+// =====================================
+// EMPLOYEE (TEACHER + STAFF) CONTROLLERS
+// =====================================
+//
+// A user is an "employee" in this module whether they hold a Teacher or a
+// Staff row; `service.getEmployees` returns the User with both relations
+// included, so one list can serve the HR pages' mixed roster. The web
+// `/hr/employees*` hooks have always called these paths — the service
+// functions existed but were never routed, so every HR page 404'd and
+// rendered an empty roster.
+
+export async function getEmployees(req: Request, res: Response, next: NextFunction) {
+  try {
+    const query = res.locals.validatedQuery;
+    const result = await service.getEmployees(query, actor(req));
+    res.json({ success: true, ...result });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function getEmployeeById(req: Request, res: Response, next: NextFunction) {
+  try {
+    const employee = await service.getEmployeeById(req.params.id, actor(req));
+    if (!employee) {
+      throw Errors.notFound('Employee not found');
+    }
+    res.json({ success: true, data: employee });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createEmployee(req: Request, res: Response, next: NextFunction) {
+  try {
+    const employee = await service.createEmployee(req.body, actor(req));
+    res.status(201).json({ success: true, data: employee });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function updateEmployee(req: Request, res: Response, next: NextFunction) {
+  try {
+    const employee = await service.updateEmployee(req.params.id, req.body, actor(req));
+    res.json({ success: true, data: employee });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function deleteEmployee(req: Request, res: Response, next: NextFunction) {
+  try {
+    await service.deleteEmployee(req.params.id, actor(req));
+    res.json({ success: true, data: { id: req.params.id } });
   } catch (error) {
     next(error);
   }

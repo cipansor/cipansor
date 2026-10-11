@@ -57,6 +57,17 @@ Test a migration against a restored copy of real data in a Postgres container
 on an `--internal` Docker network, running `node_modules/.bin/prisma migrate
 deploy` directly (corepack wants the internet).
 
+## Renumbering a branch's migrations
+
+A long-lived branch whose migrations are older than `main`'s latest should be
+renumbered after it, so the history reads in the order it is applied. Take
+the list of the branch's own migrations from
+`git diff --name-only --diff-filter=A origin/main HEAD -- apps/api/prisma/migrations`
+— **never from a date glob**: `202609*` matched 34 migrations already applied
+on staging and production, not the branch's 8 (2026-10-09; caught before the
+commit). Afterwards `git diff --name-status origin/main -- apps/api/prisma/migrations`
+must list only `A` lines.
+
 ## Prisma 7 flag traps
 
 - `--to-schema` and `--from-schema` (not `--to-schema-datamodel`).

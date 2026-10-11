@@ -7,6 +7,8 @@ import {
   letterTemplateFor,
   natureMarking,
   siteConfig,
+  signingAuthorityLines,
+  SigningAuthorityForm as SharedSigningAuthorityForm,
   unitDocumentName,
   unitPermitLine,
   type LetterNature,
@@ -50,7 +52,7 @@ const DECIDING_OFFICIAL_TITLE_CASE = DECIDING_OFFICIAL.split(' ')
  * perubahan apa pun yang mengubah keluaran** — kop surat, jarak baris, urutan
  * gambar, atau kenaikan versi `pdf-lib`.
  */
-export const LETTER_PDF_GENERATOR = 'cipansor-naskah/2026-09-03c';
+export const LETTER_PDF_GENERATOR = 'cipansor-naskah/2026-10-05a';
 
 export class LetterPdfError extends Error {
   constructor(message: string) {
@@ -68,6 +70,15 @@ export interface LetterPdfInput {
   nature?: string | null;
   subject: string;
   content?: string | null;
+  /**
+   * Jalur penyusunan naskah, dan berkas unggahannya bila jalurnya `UPLOADED`.
+   *
+   * Dibaca jalur penyajian byte (`signed-pdf`) untuk memilih sumbernya: naskah
+   * `GENERATED` disusun ulang sistem, naskah `UPLOADED` disajikan dari berkas
+   * penyusunnya. `generateLetterPdfBuffer` sendiri tidak memakainya.
+   */
+  authoringTrack?: string | null;
+  fileUrl?: string | null;
   senderName?: string | null;
   senderTitle?: string | null;
   recipientName?: string | null;
@@ -87,6 +98,13 @@ export interface LetterPdfInput {
     signedAt: Date | string;
     revokedAt?: Date | string | null;
     signer?: { name: string } | null;
+    /**
+     * Garis kewenangan penandatanganan (a.n./u.b./Plt./Plh.). Ikut tercetak
+     * pada blok tanda tangan, dan ikut ditandatangani — lihat
+     * `@cipansor/shared/letter-signing-authority`.
+     */
+    signingAuthorityForm?: string | null;
+    representedOffice?: string | null;
   }> | null;
   /** Berkas yang menyertai naskah; hanya jumlahnya yang tercetak. */
   attachments?: Array<{ name: string }> | null;
@@ -636,6 +654,38 @@ export async function generateLetterPdfBuffer(letter: LetterPdfInput): Promise<B
 
   const rightAlignX = width - 220;
 
+  /**
+   * Garis kewenangan (a.n./u.b./Plt./Plh.), bila naskah ditandatangani dengan
+   * salah satunya.
+   *
+   * Ia **bukan** hiasan: ia menyatakan dari mana wewenang penanda tangan
+   * berasal, dan karena itu ikut ditandatangani (`canonicalPayload`) —
+   * mengubahnya setelah penandatanganan membatalkan tanda tangannya.
+   *
+   * Dihitung **hanya** untuk bentuk selain NONE. Bentuk NONE (bawaan, dan
+   * keadaan hampir semua naskah) mencetak blok yang persis sama seperti
+   * sebelumnya: nama yayasan lalu jabatan pengirim. `signingAuthorityLines`
+   * mengembalikan `[jabatan,]` untuk NONE selama ada `senderTitle`, dan
+   * memakainya di sini akan menghapus nama yayasan dari setiap surat biasa —
+   * karena itu bentuk NONE tidak pernah sampai ke sana.
+   */
+  const authorityForm = (activeSignature?.signingAuthorityForm ?? 'NONE') as unknown as
+    SharedSigningAuthorityForm | undefined;
+  const authorityLines =
+    activeSignature && authorityForm && authorityForm !== SharedSigningAuthorityForm.NONE
+      ? signingAuthorityLines({
+          form: authorityForm,
+          representedOffice: activeSignature.representedOffice,
+          signerOffice: letter.senderTitle,
+        })
+      : [];
+  const printAuthorityLines = () => {
+    for (const line of authorityLines) {
+      cur.text(sanitizeForWinAnsi(line), { x: rightAlignX, font: fontTimes });
+      cur.down();
+    }
+  };
+
   if (isDecree) {
     // A keputusan records where it was *established*, not where a letter was
     // written, so it never closes "Tasikmalaya, <tanggal>" like a surat.
@@ -643,19 +693,31 @@ export async function generateLetterPdfBuffer(letter: LetterPdfInput): Promise<B
     cur.down();
     cur.text(`Pada tanggal  : ${dateStr}`, { x: rightAlignX, font: fontTimes });
     cur.down();
-    cur.text(DECIDING_OFFICIAL_TITLE_CASE, { x: rightAlignX, font: fontTimes });
-    cur.down();
+    if (authorityLines.length > 0) {
+      printAuthorityLines();
+    } else {
+      cur.text(DECIDING_OFFICIAL_TITLE_CASE, { x: rightAlignX, font: fontTimes });
+      cur.down();
+    }
   } else if (template.addressed) {
     cur.text('Hormat Kami,', { x: rightAlignX, font: fontTimes });
     cur.down();
+    // Surat alamat tidak pernah mencetak nama yayasan; hanya garis
+    // kewenangannya, bila penanda tangan memilih salah satunya.
+    if (authorityLines.length > 0) printAuthorityLines();
   } else {
     cur.text(`${LETTERHEAD.city}, ${dateStr}`, { x: rightAlignX, font: fontTimes });
     cur.down();
-    cur.text(siteConfig.legalName, { x: rightAlignX, font: fontTimes });
-    cur.down();
-    if (letter.senderTitle) {
-      cur.text(letter.senderTitle, { x: rightAlignX, font: fontTimes });
+
+    if (authorityLines.length > 0) {
+      printAuthorityLines();
+    } else {
+      cur.text(siteConfig.legalName, { x: rightAlignX, font: fontTimes });
       cur.down();
+      if (letter.senderTitle) {
+        cur.text(letter.senderTitle, { x: rightAlignX, font: fontTimes });
+        cur.down();
+      }
     }
   }
 
@@ -870,6 +932,222 @@ export async function stampRevoked(
     });
   }
 
+  pdfDoc.setCreationDate(new Date(0));
+  pdfDoc.setModificationDate(new Date(0));
+  return Buffer.from(await pdfDoc.save());
+}
+
+/**
+ * Visualisasi tanda tangan elektronik pada naskah yang diunggah penyusunnya.
+ *
+ * Naskah dengan jalur penyusunan `UPLOADED` disusun di luar sistem — di Word,
+ * di LibreOffice — lalu diunggah sebagai PDF. Yang ditandatangani, di-hash,
+ * diarsipkan, dan dicocokkan pada verifikasi publik adalah **byte unggahan
+ * itu**, bukan hasil render sistem.
+ *
+ * **Visualisasinya diletakkan pada lembar tersendiri di akhir naskah**, bukan
+ * dicap ke atas halaman terakhir penyusunnya. Sebelumnya cap digambar langsung
+ * ke halaman terakhir pada posisi tetap di kanan-bawah, dan tata letak naskah
+ * unggahan tidak kita ketahui: satu instruksi pembayaran atau tanda tangan
+ * basah di sudut itu tertimpa kode QR, dan salinan yang tertimpa itulah yang
+ * ditandatangani serta diarsipkan. Lembar tersendiri membuat tumpang tindih
+ * mustahil — tidak ada satu titik pun di sana yang berasal dari naskah
+ * penyusunnya.
+ *
+ * Yang dicetak pada lembar itu:
+ *
+ * - **Kode QR** menuju halaman verifikasi publik, sama seperti pada naskah
+ *   GENERATED, dengan lambang yayasan di tengahnya.
+ * - **Keterangan** "Ditandatangani secara elektronik" beserta nama dan jabatan
+ *   penanda tangan. NIP tidak dicetak, dengan alasan yang sama seperti pada
+ *   naskah GENERATED: pedoman visualisasi TTE menyatakan visualisasinya tidak
+ *   memuat NIP/NIK.
+ *
+ * Yang **tidak** dicetak: garis kewenangan (a.n./u.b./Plt./Plh.) dan tembusan.
+ * Keduanya bagian dari tata letak naskah yang disusun penyusunnya sendiri, dan
+ * mencetaknya lagi di sini akan menggandakannya. Nilainya tetap ikut
+ * ditandatangani dan tetap terbaca di halaman verifikasi publik.
+ *
+ * Byte keluaran ini yang menjadi dasar hash dan arsip. Naskah penyusunnya
+ * tidak diubah sedikit pun; yang ditambahkan hanya satu halaman di akhir.
+ */
+export async function stampSignatureVisualisation(
+  pdfBuffer: Buffer,
+  input: {
+    signedAt: Date | string;
+    signerName?: string | null;
+    signerTitle?: string | null;
+  }
+): Promise<Buffer> {
+  let pdfDoc: PDFDocument;
+  try {
+    pdfDoc = await PDFDocument.load(pdfBuffer);
+  } catch {
+    /**
+     * Naskah yang tidak dapat dibuka tidak dapat dicap, dan tidak dapat
+     * ditandatangani: yang ditandatangani adalah byte yang dapat dibaca ulang
+     * oleh pemverifikasi. PDF terenkripsi dan berkas yang rusak jatuh di sini.
+     * Diterjemahkan ke `LetterPdfError` supaya pemanggil menjawab 400 dengan
+     * sebabnya, bukan 500.
+     */
+    throw new LetterPdfError(
+      'Berkas naskah yang diunggah tidak dapat dibuka sebagai PDF (mungkin terproteksi ' +
+        'kata sandi atau rusak). Perbaiki berkasnya lalu unggah ulang sebelum ditandatangani.'
+    );
+  }
+
+  const bold = await pdfDoc.embedFont(StandardFonts.HelveticaBold);
+  const italic = await pdfDoc.embedFont(StandardFonts.TimesRomanItalic);
+
+  const qrBuffer = await QRCode.toBuffer(letterVerificationUrl(), {
+    type: 'png',
+    margin: 1,
+    width: 300,
+    errorCorrectionLevel: 'H',
+  });
+  const qrImage = await pdfDoc.embedPng(qrBuffer);
+  const logo = await pdfDoc.embedPng(Buffer.from(LOGO_CIPANSOR_PNG_BASE64, 'base64'));
+
+  const qrSize = 132;
+  const margin = MARGIN_X;
+  const width = PAGE_WIDTH;
+  const height = PAGE_HEIGHT;
+  const pages = pdfDoc.getPages();
+  if (pages.length === 0) {
+    throw new LetterPdfError('Berkas naskah yang diunggah tidak memuat satu halaman pun.');
+  }
+
+  /**
+   * Lembar tersendiri, bukan cap di atas halaman terakhir penyusun.
+   *
+   * Sampai sekarang cap TTE digambar langsung ke halaman terakhir pada posisi
+   * tetap di kanan-bawah. Naskah unggahan tata letaknya milik penyusunnya dan
+   * tidak kita ketahui: satu instruksi pembayaran, tanda tangan basah, atau
+   * catatan kaki di sudut itu akan tertimpa kode QR — dan salinan yang tertimpa
+   * itulah yang ditandatangani, diarsipkan, dan diserahkan. Memilih posisi
+   * "yang paling kecil kemungkinannya menimpa isi" tetap sebuah tebakan, dan
+   * tebakan yang salah merusak naskah resmi tanpa jejak.
+   *
+   * Menambahkan halaman membuat tumpang tindih itu mustahil: tidak ada satu pun
+   * titik pada lembar ini yang berasal dari naskah penyusunnya, jadi tidak ada
+   * yang dapat tertutup. Yang perlu dijaga tinggal bahwa halaman tambahan itu
+   * tidak menyisipkan apa pun ke tengah naskah — ia selalu di **akhir**, dan
+   * byte-nya tetap deterministik agar hash-nya dapat diverifikasi ulang.
+   */
+  const page = pdfDoc.addPage([width, height]);
+
+  // Bingkai tipis: menandai lembar ini sebagai terbitan sistem, bukan naskah
+  // penyusunnya.
+  page.drawRectangle({
+    x: margin / 2,
+    y: margin / 2,
+    width: width - margin,
+    height: height - margin,
+    borderColor: rgb(0.8, 0.8, 0.8),
+    borderWidth: 0.7,
+  });
+
+  const heading = sanitizeForWinAnsi('LEMBAR VISUALISASI TANDA TANGAN ELEKTRONIK');
+  const headingSize = 11;
+  page.drawText(heading, {
+    x: (width - bold.widthOfTextAtSize(heading, headingSize)) / 2,
+    y: height - 96,
+    size: headingSize,
+    font: bold,
+    color: rgb(0.15, 0.15, 0.15),
+  });
+  page.drawLine({
+    start: { x: margin, y: height - 112 },
+    end: { x: width - margin, y: height - 112 },
+    thickness: 0.7,
+    color: rgb(0.75, 0.75, 0.75),
+  });
+
+  const qrX = (width - qrSize) / 2;
+  const qrY = height - 112 - 48 - qrSize;
+  page.drawImage(qrImage, { x: qrX, y: qrY, width: qrSize, height: qrSize });
+
+  // Lambang yayasan di tengah kode, dengan alas putih, sama seperti pada naskah
+  // GENERATED — bentuk yang membuat cap ini dikenali sebagai cap yayasan.
+  const badge = qrSize * 0.22;
+  page.drawRectangle({
+    x: qrX + (qrSize - badge) / 2 - 2,
+    y: qrY + (qrSize - badge) / 2 - 2,
+    width: badge + 4,
+    height: badge + 4,
+    color: rgb(1, 1, 1),
+  });
+  page.drawImage(logo, {
+    x: qrX + (qrSize - badge) / 2,
+    y: qrY + (qrSize - badge) / 2,
+    width: badge,
+    height: badge,
+  });
+
+  const caption = sanitizeForWinAnsi('Ditandatangani secara elektronik');
+  const name = input.signerName ? sanitizeForWinAnsi(input.signerName) : null;
+  const title = input.signerTitle ? sanitizeForWinAnsi(input.signerTitle) : null;
+  const signedOn = new Date(input.signedAt).toLocaleDateString('id-ID', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    timeZone: 'Asia/Jakarta',
+  });
+
+  const centerLine = (text: string, font: PDFFont, size: number, y: number) => {
+    // Terpusat, dipangkas bila melebihi lebar halaman.
+    let line = text;
+    while (font.widthOfTextAtSize(line, size) > width - 2 * margin && line.length > 12) {
+      line = `${line.slice(0, -4)}…`;
+    }
+    page.drawText(line, {
+      x: (width - font.widthOfTextAtSize(line, size)) / 2,
+      y,
+      size,
+      font,
+      color: rgb(0.25, 0.25, 0.25),
+    });
+  };
+
+  let captionY = qrY - 26;
+  centerLine(caption, italic, 9, captionY);
+  captionY -= 18;
+  if (name) {
+    centerLine(name, bold, 12, captionY);
+    captionY -= 18;
+  }
+  if (title) {
+    centerLine(title, italic, 9, captionY);
+    captionY -= 14;
+  }
+  centerLine(signedOn, italic, 9, captionY);
+
+  const explanation = [
+    'Lembar ini diterbitkan sistem sebagai visualisasi tanda tangan elektronik.',
+    'Pindai kode QR, atau buka halaman verifikasi lalu unggah berkas PDF ini,',
+    'untuk memeriksa keaslian naskah dan status tanda tangannya.',
+  ];
+  let explanationY = 180;
+  for (const line of explanation) {
+    centerLine(sanitizeForWinAnsi(line), italic, 8, explanationY);
+    explanationY -= 12;
+  }
+
+  /**
+   * Salinan uji ikut dicap di sini, bukan hanya pada naskah GENERATED.
+   *
+   * `generateLetterPdfBuffer` mencap hasil rendernya, tetapi naskah unggahan
+   * melewati fungsi itu: byte-nya datang dari berkas penyusun, dan yang kita
+   * tambahkan hanya lembar visualisasi. Tanpa cap di sini, sebuah naskah
+   * unggahan yang ditandatangani di staging terarsip resmi tanpa tanda
+   * "SALINAN UJI" — persis yang hendak dicegah oleh sakelar itu. Cap dipasang
+   * atas seluruh naskah (halaman penyusun dan lembar visualisasi) sebelum byte
+   * di-hash, sehingga tak ada salinan yang lolos tanpa tanda.
+   */
+  await stampIfTestCopy(pdfDoc);
+
+  // Tanggal pembuatan dikosongkan supaya byte-nya tidak berubah karena waktu
+  // render — sama seperti `stampRevoked`. Hash-nya dihitung atas byte ini.
   pdfDoc.setCreationDate(new Date(0));
   pdfDoc.setModificationDate(new Date(0));
   return Buffer.from(await pdfDoc.save());

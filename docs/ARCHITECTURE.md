@@ -102,6 +102,26 @@ Next.js 16 App Router (RSC + client components). Conventions in
 - **Routing/menus** — gate by role/permission (`config/navigation.ts`,
   `components/auth/protected-route.tsx`).
 
+## Roles & access model
+
+Access is enforced in **three places**, and they must agree:
+
+1. **`middleware.ts`** — `publicPrefixes` decides what an anonymous visitor may
+   read; `roleRouteAccess` (`src/lib/rbac.ts`) decides which prefixes a role may
+   open. Both are also mirrored into `host-split.ts` (`PUBLIC_PATH_PREFIXES`),
+   and a guard test fails if the two lists diverge.
+2. **`src/config/navigation.ts`** — what a role is _shown_. A page must appear in
+   some role's menu (or be a sub-page/action page, or be listed in
+   `NO_MENU_BY_DESIGN` with a reason).
+3. **The API** — `authenticate` + `authorize(RoleCode.X)` / `hasPermission(...)`
+   per route. This is the authority; the client-side checks are UX, not security.
+
+The canonical role list is the `RoleCode` enum in `schema.prisma` (53 codes),
+and one demo account per role — 65 in all, several roles having more than one
+persona — is seeded for local login from
+`packages/shared/src/types/demo-accounts.ts` — the single list consumed by both
+the API seed and the login page.
+
 ## Shared (`packages/shared`)
 
 Single source of truth for DTOs and Zod schemas consumed by both apps. No
@@ -129,11 +149,19 @@ Run the full gate locally before pushing (CI re-runs it as a backstop):
 ```
 pnpm --filter @cipansor/shared build
 pnpm --filter api db:generate
-pnpm --filter api build        # strict tsc (the real type gate)
+pnpm --filter api build        # tsc, lenient build config
+pnpm --filter api build:strict # tsc, full strict — the real type gate
 pnpm --filter api test         # vitest, Prisma mocked
 pnpm --filter web build
+pnpm --filter web test
 pnpm --filter web test:e2e     # Playwright; needs the seeded stack
+pnpm format
+pnpm lint
 ```
+
+`pnpm build` uses the lenient `tsconfig.build.json` (`strictNullChecks: false`,
+which also degrades Zod inference); `build:strict` is the target to fix toward,
+not to relax.
 
 - API unit tests mock Prisma; the opt-in DB integration suite runs with
   `RUN_DB_TESTS=1` against a real Postgres.
@@ -146,14 +174,14 @@ pnpm --filter web test:e2e     # Playwright; needs the seeded stack
 
 ### Two hosts, one build
 
-| host | serves |
-|---|---|
-| `cipansor.or.id` | landing, `/profil`, `/unit`, `/berita`, `/wakaf-infaq`, `/kontak`, `/verifikasi` |
-| `portal.cipansor.or.id` | `/login` and everything behind it |
+| host                    | serves                                                                           |
+| ----------------------- | -------------------------------------------------------------------------------- |
+| `cipansor.or.id`        | landing, `/profil`, `/unit`, `/berita`, `/wakaf-infaq`, `/kontak`, `/verifikasi` |
+| `portal.cipansor.or.id` | `/login` and everything behind it                                                |
 
 The split is enforced in `apps/web/src/lib/host-split.ts`, called from
 `middleware.ts` **before** the auth checks — so an anonymous visitor opening a
-bookmarked `cipansor.or.id/dashboard` meets the login screen *on the portal*, with
+bookmarked `cipansor.or.id/dashboard` meets the login screen _on the portal_, with
 `?redirect=` intact, rather than one on the apex that holds no session.
 
 It lives in the codebase rather than in nginx because the route table is here; a

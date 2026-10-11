@@ -3,7 +3,7 @@ import { MainLayout } from "@/components/layout";
 import { useState } from "react";
 import { safeFormat } from "@/lib/date";
 import { useQuery } from "@tanstack/react-query";
-import axios from "axios";
+import { api } from "@/lib/api";
 import Link from "next/link";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,7 +17,7 @@ function ProjectListPageContent() {
   const { data: projects, isLoading } = useQuery({
     queryKey: ["projects"],
     queryFn: async () => {
-      const res = await axios.get("/api/projects");
+      const res = await api.get("/projects");
       return res.data;
     },
   });

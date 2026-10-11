@@ -13,7 +13,8 @@ backlog to [`roadmap.md`](roadmap.md).
 - **Staging** — `staging.cipansor.or.id`, demo data only, deploys every `main`
   on which CI and E2E (Chromium) pass, about 25 minutes after the merge (a
   documentation-only merge is not rebuilt). At `235c00ed8` (#720) on
-  2026-10-09, with the public SPMB announcement (#655); #657 follows. SMP IT's accreditation certificate was recorded there on
+  2026-10-09, with the public SPMB announcement (#655); #657 follows. SMP
+  IT's accreditation certificate was recorded there on
   2026-09-29 at the user's request, by the SMP admin demo account — which
   therefore now asks for a 2FA code — so the public section shows it.
 - **CodeQL is a required check** on `main` since 2026-09-25 (ruleset rule
@@ -32,8 +33,9 @@ backlog to [`roadmap.md`](roadmap.md).
   live".)
 - Role catalogue items decided but not built: wakasek per bidang as a
   timed assignment (Model A; wakasek is no longer a role code —
-  `decisions/peran-dan-tugas-tambahan.md`), `PESANTREN_ADMIN` (possible once the Pesantren unit of part B is in), a Panitia SPMB assignment that expires, and the
-  "Admin" → "Operator" label.
+  `decisions/peran-dan-tugas-tambahan.md`), `PESANTREN_ADMIN` (needs a
+  pesantren unit first — every pesantren role is scoped to SMP IT today), a
+  Panitia SPMB assignment that expires, and the "Admin" → "Operator" label.
 - One Bendahara role with a unit scope waits for Model A (decided 2026-09-25).
 - **The public assistant on staging** — the user decided (2026-10-09) on a
   key of staging's own with a cost cap, provisioned through a temporary cloud
@@ -108,6 +110,133 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   nine people, eight teacher records, no duplicates, idempotent) and drops
   the seed's Direktorat Pendidikan.
 
+- **Application documents (`docs/`), now folded into PR #512
+  (`docs/readme-overhaul-visual-qa`).** A technical document (arc42 +
+  C4-1/2/3) and the user manuals (general part + Guru booklet, all T2: written
+  from code, never run, every card ⚠), built by the `dokumen-aplikasi-cipansor`
+  skill. The first run (2026-09-29, another agent) shipped broken tables,
+  invented routes and a wrong job count; the audit is
+  `docs/EVALUASI-DOKUMEN.md`, and the skill now carries machine
+  checks (`check_docs.py`, `check_env.py`, a self-verifying `build_docs.py`).
+  The documents were later flattened from `docs/dokumen-aplikasi/` into `docs/`
+  root (source `DOKUMEN-TEKNIS.md`, `PANDUAN-PENGGUNA-*.md`, `EVALUASI-DOKUMEN.md`;
+  generated `fakta/`, `diagrams/`, `alur/`, and the `*.docx`/`*.pdf` artifacts
+  untracked) with `docs/README.md` as the index. The `.docx`/`.pdf` are no longer
+  committed (2026-09-29, user's call): git cannot show a binary's contents, so a
+  tracked copy could not be reviewed against its `.md` source and only added
+  drift risk; `check_docs.py --built` and `build.json` were removed with it.
+  The fix commits (`0b6c189`, `0f993b3`) are on the branch (the first push
+  attempts were refused with 403 until the Claude GitHub App access was
+  restored).
+  **Folded into #512 (2026-09-30, user's call).** #627 (this branch) was closed
+  and its content moved onto `docs/readme-overhaul-visual-qa`: #512 already
+  rewrote the README with a full screenshot gallery and had fixed the *same*
+  seven dynamic detail pages for the Next 16 `params` Promise, so the two were
+  the "individually green, red when merged" pair of golden rule #9. The merge
+  kept #512's page implementation and brought over only the guard test that
+  pins it (`next-dynamic-params.guard.test.ts`, 127/127 against `use(params)`).
+  #512 also had two stale conflicts with `main` (`role-switcher.tsx`,
+  `sidebar.tsx` — its `realmColorClass` is the correct side) that were resolved
+  and it is `MERGEABLE` again. Its figures were re-measured after the merge:
+  94 API modules (was 93), 67 four-file / 25 five-part, ~1412 handlers, and the
+  new `certificates` module was added to the document. Gate on the merged tree:
+  API build + build:strict, API 3352, web build, web 640, lint 0 errors,
+  format, `check-doc-refs` 1744/1744. `screenshot-flow.ts` was Prettier-formatted
+  (CI Lint rejects unformatted `.ts`).
+  Open: T1 verification with screenshots and the other role booklets (the
+  `.docx`/`.pdf`-in-git question is settled: they are untracked).
+
+- **E-Office / naskah dinas audit, round 2.** The persuratan and TTE surfaces
+  reviewed against ANRI and PAdES practice. Built: a daily/weekly **retention
+  review job** that lists letters past their JRA-derived retention and never
+  destroys them (`db:retention-review`, weekly Monday 05:00 WIB — destruction
+  needs a berita acara, not a script); the **public key-status surface**
+  (AATL ICA7) at `/public/verify-key`, answering a key's state from the
+  fingerprint printed on every verification page; urgency labelled
+  Sangat Segera / Segera / Biasa (three degrees, decided 2026-10-09); the
+  agenda CSV export moved onto the shared Axios instance (it was a raw relative
+  `fetch` that only worked behind nginx); and an unused placeholder preview
+  component removed (the letter page already rendered the signed PDF). Findings and the standards ceiling are in
+  [`docs/EOFFICE_ESIGN_PLAN.md`](../../docs/EOFFICE_ESIGN_PLAN.md) and
+  `decisions/esign-standards-ceiling.md`. Round 2 closed out on PR **#628**
+  (all checks green 2026-09-29): the Devin findings F1–F12 are fixed, the
+  CodeQL `js/insufficient-password-hash` alert on `publicKeyFingerprint` is
+  cleared by removing the tainted path (the alert's source was a test
+  passphrase literal, not production code), and the audit corrected a wrong
+  premise — **Ed25519 does not block PAdES**; ETSI TS 119 312 V2.1.1 Table A.1
+  lists EdDSA as *shall support*, and it is **AATL** that omits it. The
+  a.n./u.b./Plt./Plh. signing-authority forms and signing uploaded DOCX/PDF
+  bytes were built in `1513317`; the one remaining item, **PAdES B-B + RFC
+  3161**, was **deferred (option b, 2026-09-29)** until the yayasan procures a
+  TSA endpoint — without a trusted timestamp it adds a CMS/PKCS#7 builder and an
+  X.509 certificate (today the signer identity is a raw public key) but no
+  evidential value. The Ed25519→RSA/ECDSA switch stays an *interoperability*
+  choice, not a PAdES requirement. See `decisions/esign-standards-ceiling.md`.
+
+  **Round-2 follow-up, found by this agent (not in F1–F12): cross-unit service
+  roles read the whole letter book.** `letterScopeWhere`, `assertLetterAccess`
+  and `choosesUnit` keyed their "sees everything" branch on `seesAllUnits`,
+  which is broad enough for shared services (a librarian sees every santri) but
+  not for correspondence. Every cross-unit service account — pustakawan,
+  perawat, keamanan, musyrif, ustadz, laboran, and the Pesantren office — was
+  handed the entire yayasan's correspondence, unclassified letters included, and
+  could pass `?unitId=` to read another school's agenda; the retention list came
+  with it. The three now key on `isFoundationScopedRole` (board + super admin),
+  the same line `admissions.access.ts` draws for SPMB, so those roles see only
+  the letters they are actually part of. Regression tests pin the list clause,
+  the direct read, and `choosesUnit`. Also silenced the `/correspondence/stats`
+  toast the E-Office home fired for every staff member without letter duty
+  (`skipErrorToast`), and hardened `verifyByPdfBuffer` to verify the *uploaded*
+  hash rather than read back the field it looked the row up by.
+
+  **Two gate defects found while closing the follow-up:** the retention
+  controller test cast `vi.fn()` to `NextFunction` and read `next.mock.calls`
+  (TS2339 under `build:strict`, fixed with `NextFunction & ReturnType<typeof
+  vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
+  `waitForResponse` after `page.goto` (the race the file's own first test warns
+  against; the listener now registers first). Both were pre-existing, neither a
+  regression from the access-control change.
+
+  **Third pass, 2026-09-29 — the signature's own invariants and the citations.**
+  Walking the a.n./u.b./Plt./Plh. payload change to its end turned up four
+  things a diff review would not:
+
+  - **`canonicalVersion`.** Adding the authority fields extended the signed
+    payload, so every letter signed *before* the change would have been
+    reported as forged (a `v1` signature checked against the `v2` shape). The
+    payload is now versioned (`canonicalPayload(payload, version)`,
+    `CURRENT_CANONICAL_VERSION`, `LetterSignature.canonicalVersion`,
+    `canonicalVersionOf` mapping the pre-column `NULL` rows to `v1`), and
+    verification reads the stored version rather than guessing.
+  - **Upload ownership (CWE-639).** The `UPLOADED` signing path read
+    `Letter.fileUrl` and signed those bytes without asking who uploaded them —
+    so a drafter could paste another user's upload URL and have the system
+    sign and archive *someone else's document* as their own naskah. `LetterUpload`
+    records `filename → userId` at upload, and `assertLetterUploadOwnedBy`
+    refuses a file whose owner is not in the letter's chain; a file with no
+    ownership row is refused, not waved through.
+  - **A revoked download answered with the forgery sentence.** `stampRevoked`
+    changes the bytes, so the system's own post-revocation download no longer
+    matched `pdfHash` and `verifyByPdfBuffer` called it "tidak terdaftar". The
+    stamped copy's hash is now stored on the archive at revocation time
+    (`LetterSignedDocument.revokedSha256`) and matched exactly — replacing a
+    bounded (200-row) recompute that silently stopped recognising older official
+    copies.
+  - **A retention guard that actually guards.** The user's hard constraint is
+    that retention lists, never destroys; `letter-retention.no-destroy.guard.test.ts`
+    now checks the job, its CLI *and* the whole API tree for any `delete`/
+    `deleteMany`/raw SQL `DELETE` of `Letter`/`LetterSignature`.
+
+  **Citations corrected at the source.** Five files cited "Peraturan ANRI
+  5/2021 Pasal 6" for the destruction rule; that regulation is *Pedoman Umum
+  Tata Naskah Dinas* and its Pasal 6 is about types of regulatory naskah —
+  nothing to do with retention. The destruction rule is **UU 43/2009 Pasal
+  51–52 jo. PP 28/2012**. Two more attributions were wrong the same way:
+  signature validity cited UU 43/2009 (Kearsipan) instead of **UU 11/2008 jo.
+  UU 19/2016 (UU ITE) Pasal 11**, and the urgency degrees were credited to
+  Peraturan ANRI 5/2021 rather than the instansi tata-naskah pedoman. All fixed
+  in `docs/EOFFICE_ESIGN_PLAN.md` (§2.9–§2.13, §4.3), the `naskah-dinas` skill,
+  `decisions/esign-standards-ceiling.md` and the source comments.
 - **The brochure's facilities, extracurriculars and agenda on the public site
   — merged 2026-10-04 (#653, #654), on staging and checked there.** Decided
   by the user (`decisions/fasilitas-dan-kegiatan-situs-publik.md`):

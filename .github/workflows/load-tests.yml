@@ -1,0 +1,233 @@
+# Load Tests
+# Run the k6 smoke load test against staging and compare it to
+# the recorded baseline in tests/load/baselines/. Thresholds are relative to
+# that baseline, never absolute (see tests/load/README.md).
+#
+# This workflow is NOT part of CI: it needs a reachable target and a recorded
+# baseline, and it does not gate a merge. It runs on demand, and before each
+# production release (docs/deploy-azure.md → "How a change is released") —
+# not on a schedule (decided 2026-10-10): with no real traffic yet, a weekly
+# run measures the same idle staging over and over, and a private repository
+# pays for every minute.
+#
+# Runner exit codes (tests/load/run-load-tests.mjs):
+#   0 = no regression   1 = regression found   2 = could not run
+#   3 = no baseline recorded   4 = baseline does not match this run
+# A regression (1) fails the job. So does anything else (2, 3, 4): a load
+# test that stays green while it never actually measured anything is worse
+# than a red one. Each is explained in the job summary.
+
+name: Load Tests
+
+on:
+  workflow_dispatch: # Allow manual trigger
+    inputs:
+      url:
+        description: 'Target base URL'
+        required: false
+        default: 'https://staging.cipansor.or.id'
+      scenario:
+        description: 'Scenario under tests/load/scenarios/ (without .js)'
+        required: false
+        default: 'public-smoke'
+      profile:
+        description: 'Load profile'
+        required: false
+        default: 'smoke'
+        type: choice
+        options: [smoke, load]
+      allow_shared_target:
+        description: 'Allow the `load` profile against shared staging (it consumes the staging request budget)'
+        required: false
+        default: false
+        type: boolean
+      record_baseline:
+        description: 'Record this run as the baseline (uploaded as an artifact; commit it through a PR)'
+        required: false
+        default: false
+        type: boolean
+
+# One load test at a time; two runs must not overlap, since both would measure
+# the same shared target.
+concurrency:
+  group: load-tests
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: '22'
+  LOAD_TEST_URL: ${{ github.event.inputs.url || 'https://staging.cipansor.or.id' }}
+  LOAD_TEST_SCENARIO: ${{ github.event.inputs.scenario || 'public-smoke' }}
+  LOAD_TEST_PROFILE: ${{ github.event.inputs.profile || 'smoke' }}
+  # The runner refuses the heavy `load` profile against a known shared host
+  # unless this is set; a dispatch has to opt in explicitly.
+  LOAD_TEST_ALLOW_SHARED: ${{ github.event.inputs.allow_shared_target || 'false' }}
+
+jobs:
+  smoke:
+    name: k6 ${{ github.event.inputs.scenario || 'public-smoke' }} vs baseline
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install k6
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run load test
+        id: load
+        # Capture the runner's exit code without failing the step, so the
+        # report and the summary are produced before the job is judged.
+        run: |
+          set +e
+          extra=""
+          if [ "$LOAD_TEST_ALLOW_SHARED" = "true" ]; then extra="--allow-shared-target"; fi
+          # A baseline is recorded from a GitHub runner, the same place every
+          # later comparison runs from: latency depends on where it is measured.
+          if [ "${{ github.event.inputs.record_baseline }}" = "true" ]; then extra="$extra --update-baseline"; fi
+          # stderr carries the reason a run could not proceed; merge it into the
+          # captured output so the summary explains a non-zero exit.
+          node tests/load/run-load-tests.mjs \
+            --url "$LOAD_TEST_URL" \
+            --scenario "$LOAD_TEST_SCENARIO" \
+            --profile "$LOAD_TEST_PROFILE" \
+            $extra \
+            --report load-report.json 2>&1 | tee load-output.txt
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "### Load test: \`$LOAD_TEST_SCENARIO\` (\`$LOAD_TEST_PROFILE\`) against $LOAD_TEST_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat load-output.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Runner exit code: \`$code\`" >> "$GITHUB_STEP_SUMMARY"
+          case "$code" in
+            0) echo "No regression against the baseline." >> "$GITHUB_STEP_SUMMARY" ;;
+            1) echo "Regression(s) against the baseline — see above." >> "$GITHUB_STEP_SUMMARY" ;;
+            2) echo "Could not run (missing access, k6 error, or a rate-limited run). Nothing was compared." >> "$GITHUB_STEP_SUMMARY" ;;
+            3) echo "No baseline recorded for this target, scenario and profile. Record one before comparing." >> "$GITHUB_STEP_SUMMARY" ;;
+            4) echo "The recorded baseline does not match this run (different target, scenario or profile), or it is unreadable." >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "Unexpected exit code $code." >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+          exit 0
+
+      - name: Upload load-test report
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: load-report
+          path: load-report.json
+          if-no-files-found: warn
+
+      - name: Upload the recorded baseline
+        # The runner writes it under tests/load/baselines/; it becomes the
+        # reference only once it is committed through a PR.
+        if: github.event.inputs.record_baseline == 'true'
+        uses: actions/upload-artifact@v7
+        with:
+          name: load-baseline
+          path: tests/load/baselines/*.json
+          if-no-files-found: error
+
+      - name: Judge the run
+        # 0 passes; 1 (regression) and every "proved nothing" code (2, 3, 4)
+        # fail, with the reason from the summary. Exit 2/3/4 is not silently
+        # green: a test that never measured anything must be seen.
+        run: |
+          code="${{ steps.load.outputs.exit_code }}"
+          case "$code" in
+            0) echo "No regression."; exit 0 ;;
+            1) echo "::error::Load-test regression against the recorded baseline."; exit 1 ;;
+            2) echo "::error::Load test could not run (missing access, k6 error, or rate limited). Nothing was compared."; exit 1 ;;
+            3) echo "::error::No baseline recorded for this target, scenario and profile. Nothing was compared."; exit 1 ;;
+            4) echo "::error::The recorded baseline does not match this run, or is unreadable. Nothing was compared."; exit 1 ;;
+            *) echo "::error::Unexpected load-test exit code $code."; exit 1 ;;
+          esac
+
+  authenticated:
+    name: k6 authenticated-read (optional)
+    runs-on: ubuntu-latest
+    # Credentials are optional. Without them this job reports that it was
+    # skipped rather than fabricating a result.
+    #
+    # This job needs its own recorded baseline
+    # (baselines/<host>__authenticated-read__smoke.json) and the runner exits 3
+    # ("no baseline recorded") until one is committed. The workflow has
+    # contents: read, so it cannot record one; seed it once by hand against a
+    # target you own, then commit it:
+    #   LOAD_TEST_EMAIL=... LOAD_TEST_PASSWORD=... \
+    #     node tests/load/run-load-tests.mjs --url <target> \
+    #       --scenario authenticated-read --profile smoke --update-baseline
+    env:
+      LOAD_TEST_EMAIL: ${{ secrets.LOAD_TEST_EMAIL }}
+      LOAD_TEST_PASSWORD: ${{ secrets.LOAD_TEST_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+
+      - name: Install k6
+        if: ${{ env.LOAD_TEST_EMAIL != '' }}
+        uses: grafana/setup-k6-action@v1
+
+      - name: Run authenticated read load test
+        id: load
+        if: ${{ env.LOAD_TEST_EMAIL != '' }}
+        # Same capture-then-judge shape as the smoke job, so a regression here
+        # is a report with numbers, not a bare red step.
+        run: |
+          set +e
+          node tests/load/run-load-tests.mjs \
+            --url "$LOAD_TEST_URL" \
+            --scenario authenticated-read \
+            --profile smoke \
+            --report load-report-authenticated.json 2>&1 | tee load-output-authenticated.txt
+          code=${PIPESTATUS[0]}
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+          echo "### Load test: \`authenticated-read\` (\`smoke\`) against $LOAD_TEST_URL" >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          cat load-output-authenticated.txt >> "$GITHUB_STEP_SUMMARY"
+          echo '```' >> "$GITHUB_STEP_SUMMARY"
+          echo "Runner exit code: \`$code\`" >> "$GITHUB_STEP_SUMMARY"
+          case "$code" in
+            0) echo "No regression against the baseline." >> "$GITHUB_STEP_SUMMARY" ;;
+            1) echo "Regression(s) against the baseline — see above." >> "$GITHUB_STEP_SUMMARY" ;;
+            2) echo "Could not run (no token — 2FA/Turnstile/bad credentials — or a k6 error). Nothing was compared." >> "$GITHUB_STEP_SUMMARY" ;;
+            3) echo "No authenticated-read baseline recorded. Seed and commit one (see the workflow comment)." >> "$GITHUB_STEP_SUMMARY" ;;
+            4) echo "The recorded baseline does not match this run, or is unreadable." >> "$GITHUB_STEP_SUMMARY" ;;
+            *) echo "Unexpected exit code $code." >> "$GITHUB_STEP_SUMMARY" ;;
+          esac
+          exit 0
+
+      - name: Upload load-test report
+        if: always() && env.LOAD_TEST_EMAIL != ''
+        uses: actions/upload-artifact@v7
+        with:
+          name: load-report-authenticated
+          path: load-report-authenticated.json
+          if-no-files-found: warn
+
+      - name: Judge the run
+        if: ${{ env.LOAD_TEST_EMAIL != '' }}
+        run: |
+          code="${{ steps.load.outputs.exit_code }}"
+          case "$code" in
+            0) echo "No regression."; exit 0 ;;
+            1) echo "::error::Authenticated load-test regression against the recorded baseline."; exit 1 ;;
+            2) echo "::error::Authenticated load test could not run (no token, or a k6 error). Nothing was compared."; exit 1 ;;
+            3) echo "::error::No authenticated-read baseline recorded. Nothing was compared."; exit 1 ;;
+            4) echo "::error::The recorded baseline does not match this run, or is unreadable. Nothing was compared."; exit 1 ;;
+            *) echo "::error::Unexpected load-test exit code $code."; exit 1 ;;
+          esac
+
+      - name: No credentials configured
+        if: ${{ env.LOAD_TEST_EMAIL == '' }}
+        run: |
+          echo "### Authenticated load test skipped" >> "$GITHUB_STEP_SUMMARY"
+          echo "Set the \`LOAD_TEST_EMAIL\` and \`LOAD_TEST_PASSWORD\` repository secrets (a demo account on the target) to run it." >> "$GITHUB_STEP_SUMMARY"

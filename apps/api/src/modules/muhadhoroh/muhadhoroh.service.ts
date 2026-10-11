@@ -2,7 +2,13 @@ import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { Prisma } from '@prisma/client';
 import { CLASS_ENROLLMENT_STATUS } from '@cipansor/shared';
-import { assertStudentInScope, onlyScopedStudents, studentScope } from '@/utils/student-scope';
+import {
+  assertStudentInScope,
+  onlyScopedStudents,
+  studentScope,
+  STUDENT_SAFE_SELECT,
+  TEACHER_SAFE_SELECT,
+} from '@/utils/student-scope';
 
 // Status enum
 type MuhadhorohStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
@@ -118,16 +124,18 @@ export class MuhadhorohService {
         include: {
           unit: { select: { id: true, name: true } },
           student: {
-            include: {
+            select: {
+              id: true,
+              nis: true,
               user: { select: { name: true } },
               enrollments: {
                 where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
-                include: { class: { select: { id: true, name: true, level: true } } },
+                select: { class: { select: { id: true, name: true, level: true } } },
                 take: 1,
               },
             },
           },
-          evaluator: { include: { user: { select: { name: true } } } },
+          evaluator: { select: TEACHER_SAFE_SELECT },
         },
       }),
       prisma.muhadhoroh.count({ where }),
@@ -159,16 +167,18 @@ export class MuhadhorohService {
       include: {
         unit: true,
         student: {
-          include: {
+          select: {
+            id: true,
+            nis: true,
             user: { select: { name: true, email: true } },
             enrollments: {
               where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
-              include: { class: true },
+              select: { class: true },
               take: 1,
             },
           },
         },
-        evaluator: { include: { user: { select: { name: true } } } },
+        evaluator: { select: TEACHER_SAFE_SELECT },
       },
     });
 
@@ -222,7 +232,7 @@ export class MuhadhorohService {
         status: 'SCHEDULED',
       },
       include: {
-        student: { include: { user: { select: { name: true } } } },
+        student: { select: STUDENT_SAFE_SELECT },
         unit: { select: { id: true, name: true } },
       },
     });
@@ -330,11 +340,13 @@ export class MuhadhorohService {
       orderBy: { scheduledAt: 'asc' },
       include: {
         student: {
-          include: {
+          select: {
+            id: true,
+            nis: true,
             user: { select: { name: true } },
             enrollments: {
               where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
-              include: { class: { select: { name: true } } },
+              select: { class: { select: { name: true } } },
               take: 1,
             },
           },
@@ -360,7 +372,7 @@ export class MuhadhorohService {
       take: limit,
       orderBy: { scheduledAt: 'desc' },
       include: {
-        evaluator: { include: { user: { select: { name: true } } } },
+        evaluator: { select: TEACHER_SAFE_SELECT },
       },
     });
 

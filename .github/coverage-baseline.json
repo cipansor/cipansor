@@ -1,0 +1,11 @@
+{
+  "_comment": "Coverage floor for apps/api. The CI 'Check coverage floor' step runs .github/scripts/coverage-gate.mjs and fails a pull request whose coverage dropped more than tolerance_pct below these numbers. Ratchet the numbers upward as coverage improves; never lower them to make a red PR pass. See docs/COVERAGE.md.",
+  "measured_at": "2026-10-07",
+  "metrics": {
+    "statements": 47.62,
+    "branches": 40.41,
+    "functions": 43.61,
+    "lines": 48.19
+  },
+  "tolerance_pct": 0.5
+}

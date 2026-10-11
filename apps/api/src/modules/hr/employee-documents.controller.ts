@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { employeeDocumentService } from './employee-documents.service';
+import { requireUser } from '../../middleware/auth';
+import { assertMayReadEmployeeRecord } from './hr.service';
 import { z } from 'zod';
 import { EmployeeDocumentType } from '@prisma/client';
 
@@ -26,6 +28,7 @@ export const employeeDocumentController = {
   async findAll(req: Request, res: Response, next: NextFunction) {
     try {
       const { userId } = req.params;
+      await assertMayReadEmployeeRecord(requireUser(req), userId);
       const result = await employeeDocumentService.findAll(userId);
       res.json({ success: true, data: result });
     } catch (error) {

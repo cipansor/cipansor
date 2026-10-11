@@ -48,14 +48,17 @@ export const departmentService = {
   },
 
   async findAll(
-    unitId: string,
+    unitId: string | undefined,
     params: { page: number; limit: number; search?: string }
   ): Promise<SharedPaginatedResponse<unknown>> {
     const { page, limit, search } = params;
     const skip = (page - 1) * limit;
 
+    // A super admin with no unit scopes to the whole yayasan; a unit-scoped
+    // user is pinned to their own unit. Passing `undefined` for unitId must
+    // therefore omit the filter rather than match nothing.
     const where: Prisma.DepartmentWhereInput = {
-      unitId,
+      ...(unitId ? { unitId } : {}),
       OR: search
         ? [
             { name: { contains: search, mode: 'insensitive' } },

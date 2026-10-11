@@ -8,6 +8,19 @@ and the sources live in `docs/EOFFICE_ESIGN_PLAN.md` (added 2026-09-02). Read
 the skill before touching e-office, the letter PDF, or the signing code. What
 follows is only what is easiest to get wrong.
 
+## Public transactional pages are Indonesian, like their siblings
+
+`/public/verify-letter`, `/public/verify-card` and `/public/verify-key` are
+**Indonesian only**, even though they live on the public host where content
+pages are Indonesian/English/Arabic. They are not content: a visitor arrives
+holding a sheet of paper and needs one answer, and the sheet, the letter and the
+office that answers are all Indonesian. Translating the answer while the naskah
+under it stays Indonesian adds a way to misread, not a way to understand. This
+is the same line the rest of the verification surface already draws, so
+`verify-key` follows its siblings rather than becoming the one trilingual page
+in the set (review flag F11, decided 2026-09-29). `i18n-coverage.test.ts` does
+not see inline page strings, so nothing else would have recorded the choice.
+
 ## The design decision — do not "restore" the QR landing page
 
 Public verification happens at `/public/verify-letter`: upload the PDF, pass

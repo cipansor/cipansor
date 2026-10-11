@@ -43,15 +43,16 @@ export const contractService = {
   },
 
   async findAll(
-    unitId: string,
+    unitId: string | undefined,
     params: { page: number; limit: number; search?: string; status?: string }
   ): Promise<SharedPaginatedResponse<unknown>> {
     const { page, limit, search, status } = params;
     const skip = (page - 1) * limit;
 
     const where: Prisma.EmploymentContractWhereInput = {
+      // Omitted for a super admin aggregating the whole yayasan.
       user: {
-        unitId, // Filter contracts by users in the unit
+        ...(unitId ? { unitId } : {}), // Filter contracts by users in the unit
         name: search ? { contains: search, mode: 'insensitive' } : undefined,
       },
       status: status ? (status as any) : undefined,
@@ -91,13 +92,14 @@ export const contractService = {
     });
   },
 
-  async findExpiring(unitId: string, days: number = 30) {
+  async findExpiring(unitId: string | undefined, days: number = 30) {
     const expiryDate = new Date();
     expiryDate.setDate(expiryDate.getDate() + days);
 
     return prisma.employmentContract.findMany({
       where: {
-        user: { unitId },
+        // Omitted for a super admin aggregating the whole yayasan.
+        ...(unitId ? { user: { unitId } } : {}),
         endDate: {
           lte: expiryDate,
           gte: new Date(),

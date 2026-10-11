@@ -33,6 +33,7 @@ describe('StudentIdCardService HMAC QR Code', () => {
   });
 
   afterEach(() => {
+    vi.unstubAllEnvs();
     vi.restoreAllMocks();
   });
 
@@ -161,15 +162,24 @@ describe('StudentIdCardService HMAC QR Code', () => {
     // camera offers to open the verification page), not a bare `cipansor://`
     // scheme. The signed `cipansor://…` string lives in the URL's `data`
     // query param, which `/public/verify-card` extracts and verifies.
-    const qrData = StudentIdCardService.generateQRCodeData(mockStudent);
-    const verificationUrl = StudentIdCardService.generateVerificationUrl(qrData);
+    //
+    // The host comes from `config.publicSiteUrl` (`PUBLIC_SITE_URL`), which a
+    // developer's local `.env` sets to `http://localhost:3000` — the right
+    // value for the local stack, the wrong one for this assertion. Pin it so
+    // the test states the production contract rather than the machine's env.
+    vi.stubEnv('PUBLIC_SITE_URL', 'https://cipansor.or.id');
+    vi.resetModules();
+    const { StudentIdCardService: Fresh } = await import('../id-card.service');
+
+    const qrData = Fresh.generateQRCodeData(mockStudent);
+    const verificationUrl = Fresh.generateVerificationUrl(qrData);
 
     expect(verificationUrl).toMatch(/^https:\/\/[^/]+\/public\/verify-card\?data=/);
 
     const dataParam = new URL(verificationUrl).searchParams.get('data');
     expect(dataParam).toBe(qrData);
 
-    const verification = await StudentIdCardService.verifyQRCodeData(dataParam!);
+    const verification = await Fresh.verifyQRCodeData(dataParam!);
     expect(verification.valid).toBe(true);
   });
 });

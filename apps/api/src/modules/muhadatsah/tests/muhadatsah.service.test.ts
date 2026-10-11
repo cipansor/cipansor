@@ -7,6 +7,7 @@ import {
   SMP,
   findStudentLike,
 } from '../../../../tests/mocks/santri-fixture';
+import { relationsLoaded, unsafeRelations } from '../../../../tests/mocks/safe-relations';
 
 /**
  * Which santri's muhadatsah an account reaches, and which unit a new one
@@ -87,5 +88,23 @@ describe('reading muhadatsah', () => {
     expect(prismaMock.muhadatsah.findMany.mock.calls[0][0].where).toEqual({
       student: { userId: ACTORS.santriSmp.sub },
     });
+  });
+});
+
+describe('what a muhadatsah answer carries about people', () => {
+  it('the santri, partner and evaluator by name only — no NIK, No. KK, address or bank account', async () => {
+    const m = prismaMock.muhadatsah;
+    await muhadatsahService.list({ page: 1, limit: 10 } as never, ACTORS.musyrif);
+    await muhadatsahService.getById('missing', ACTORS.musyrif).catch(() => undefined);
+    await muhadatsahService.create(
+      input(SANTRI_SMA.id, { partnerId: SANTRI_SMP.id }),
+      ACTORS.musyrif
+    );
+    await muhadatsahService.getUpcoming(ACTORS.musyrif);
+    await muhadatsahService.getStudentHistory(ACTORS.musyrif, SANTRI_SMP.id);
+
+    const calls = [...m.findMany.mock.calls, ...m.findUnique.mock.calls, ...m.create.mock.calls];
+    expect(relationsLoaded(calls)).toBeGreaterThanOrEqual(5);
+    expect(unsafeRelations(calls)).toEqual([]);
   });
 });

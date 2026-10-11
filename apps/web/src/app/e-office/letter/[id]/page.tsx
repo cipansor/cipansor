@@ -31,8 +31,8 @@ import {
   Truck,
 } from "lucide-react";
 
-import { id } from "date-fns/locale";
-import { useState } from "react";
+import { id as idLocale } from "date-fns/locale";
+import { use, useState } from "react";
 /*
  * Tidak ada html2canvas dan jsPDF di sini lagi.
  *
@@ -97,8 +97,9 @@ const REVIEWER_STATUS_LABEL: Record<string, string> = {
 export default function LetterDetailPage({
   params,
 }: {
-  params: { id: string };
+  params: Promise<{ id: string }>;
 }) {
+  const { id } = use(params);
   const router = useRouter();
   const { user } = useAuth();
   const {
@@ -117,7 +118,7 @@ export default function LetterDetailPage({
     search: participantSearch || undefined,
     limit: 100,
   });
-  const { data: letter, isLoading } = useLetter(params.id);
+  const { data: letter, isLoading } = useLetter(id);
 
   const [notes, setNotes] = useState("");
   const [dispositionOpen, setDispositionOpen] = useState(false);
@@ -315,20 +316,17 @@ export default function LetterDetailPage({
   /**
    * Berkas yang diunggah penyusun, yang bukan naskah yang ditandatangani.
    *
-   * Formulir pembuatan surat menawarkan "Upload File Naskah (PDF)" pada surat
-   * keluar juga, dan kartu ini dulu menampilkannya sebagai "Berkas naskah"
-   * lengkap dengan "Pratinjau Naskah". Tetapi jalur penandatanganan tidak
-   * pernah membacanya: `generateLetterPdfBuffer` menyusun naskahnya sendiri
-   * dari isian formulir, dan byte itulah yang di-hash, ditandatangani,
-   * diarsipkan, dan dicocokkan pada verifikasi publik. Dua dokumen berbeda
-   * ditampilkan dengan bobot yang sama, dan hanya satu yang berlaku.
+   * Keadaan yang dijaga keterangan ini hanya tersisa untuk surat lama: surat
+   * keluar yang berkas unggahannya ada tetapi jalur penyusunannya tercatat
+   * `GENERATED` — termasuk surat yang dibuat sebelum kolom jalur itu ada, dan
+   * sebelum jalur `UPLOADED` benar-benar menandatangani byte unggahan.
+   *
+   * Surat keluar baru yang membawa berkas naskah sekarang tercatat `UPLOADED`,
+   * dan bagi surat itu berkasnya **adalah** naskahnya — tidak ada dokumen kedua
+   * yang perlu dibedakan, jadi keterangan ini tidak lagi muncul.
    *
    * Pada surat masuk keadaannya terbalik dan labelnya tetap benar: berkas itu
    * memang naskah aslinya, dan tidak ada naskah lain yang disusun sistem.
-   *
-   * Ketika jalur UPLOADED nanti benar-benar menandatangani byte unggahan,
-   * keterangan ini hilang dengan sendirinya — bukan karena dihapus, melainkan
-   * karena `authoringTrack` naskah itu memang bukan GENERATED.
    */
   const uploadedFileIsNotTheNaskah =
     !!letter.fileUrl &&
@@ -1011,7 +1009,7 @@ export default function LetterDetailPage({
               new Date(revokedSignature.revokedAt!),
               "dd MMMM yyyy HH:mm",
               {
-                locale: id,
+                locale: idLocale,
               },
             )}
             {revokedSignature.revokedBy?.name
@@ -1043,7 +1041,7 @@ export default function LetterDetailPage({
                   </label>
                   <p>
                     {safeFormat(new Date(letter.date), "dd MMMM yyyy", {
-                      locale: id,
+                      locale: idLocale,
                     })}
                   </p>
                 </div>
@@ -1329,7 +1327,7 @@ export default function LetterDetailPage({
                     Keluar dari kantor pada{" "}
                     <span className="font-medium">
                       {safeFormat(new Date(letter.sentAt), "dd MMMM yyyy", {
-                        locale: id,
+                        locale: idLocale,
                       })}
                     </span>
                     .
@@ -1353,7 +1351,7 @@ export default function LetterDetailPage({
                             {safeFormat(
                               new Date(d.dispatchedAt),
                               "dd MMMM yyyy",
-                              { locale: id },
+                              { locale: idLocale },
                             )}
                           </span>
                         </div>

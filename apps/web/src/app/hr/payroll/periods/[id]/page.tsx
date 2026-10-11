@@ -44,6 +44,7 @@ import {
   useClosePayrollPeriod,
   useProcessPayroll,
   usePayPayroll,
+  type Payroll,
   type PayrollStatus,
   type PayrollPeriodStatus,
   PAYROLL_STATUS_LABELS,
@@ -68,7 +69,6 @@ import {
 } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
-import Link from "next/link";
 import { toast } from "sonner";
 
 interface PageProps {
@@ -99,6 +99,7 @@ export default function PayrollPeriodDetailPage({ params }: PageProps) {
   );
   const [isCloseOpen, setIsCloseOpen] = useState(false);
   const [selectedPayrolls, setSelectedPayrolls] = useState<string[]>([]);
+  const [selectedSlip, setSelectedSlip] = useState<Payroll | null>(null);
 
   const { data: period, isLoading: periodLoading } = usePayrollPeriod(periodId);
   const { data: summary, isLoading: summaryLoading } =
@@ -584,10 +585,12 @@ export default function PayrollPeriodDetailPage({ params }: PageProps) {
                       <TableCell>{getStatusBadge(payroll.status)}</TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon" asChild>
-                            <Link href={`/hr/payroll/${payroll.id}`}>
-                              <Eye className="h-4 w-4" />
-                            </Link>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setSelectedSlip(payroll)}
+                          >
+                            <Eye className="h-4 w-4" />
                           </Button>
                           <Button variant="ghost" size="icon">
                             <Download className="h-4 w-4" />
@@ -662,6 +665,130 @@ export default function PayrollPeriodDetailPage({ params }: PageProps) {
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 )}
                 Tutup Periode
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Slip Detail Dialog */}
+        <Dialog
+          open={!!selectedSlip}
+          onOpenChange={(open) => !open && setSelectedSlip(null)}
+        >
+          <DialogContent className="max-w-2xl">
+            <DialogHeader>
+              <DialogTitle>Detail Slip Gaji</DialogTitle>
+              <DialogDescription>
+                {selectedSlip?.employeeName || selectedSlip?.staff?.fullName} -{" "}
+                {period?.name}
+              </DialogDescription>
+            </DialogHeader>
+            {selectedSlip && (
+              <div className="space-y-6">
+                <div className="grid grid-cols-2 gap-4 p-4 bg-muted/50 rounded-lg">
+                  <div>
+                    <div className="text-sm text-muted-foreground">
+                      Nama Karyawan
+                    </div>
+                    <div className="font-medium">
+                      {selectedSlip.employeeName ||
+                        selectedSlip.staff?.fullName ||
+                        "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground">NIP</div>
+                    <div className="font-medium">
+                      {selectedSlip.employeeNo ||
+                        selectedSlip.staff?.nip ||
+                        "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground">Jabatan</div>
+                    <div className="font-medium">
+                      {selectedSlip.position || "-"}
+                    </div>
+                  </div>
+                  <div>
+                    <div className="text-sm text-muted-foreground">Status</div>
+                    <div className="font-medium">
+                      {PAYROLL_STATUS_LABELS[selectedSlip.status]}
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-green-600 mb-2">
+                    Pendapatan
+                  </h4>
+                  <div className="space-y-2">
+                    <div className="flex justify-between p-2 border-b">
+                      <span>Gaji Pokok</span>
+                      <span className="font-medium">
+                        {formatCurrency(selectedSlip.basicSalary)}
+                      </span>
+                    </div>
+                    {(selectedSlip.allowances ?? []).map((item, idx) => (
+                      <div
+                        key={item.componentId ?? idx}
+                        className="flex justify-between p-2 border-b"
+                      >
+                        <span>{item.name}</span>
+                        <span className="font-medium">
+                          {formatCurrency(item.amount)}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between p-2 bg-green-50 rounded font-semibold">
+                      <span>Total Pendapatan</span>
+                      <span className="text-green-600">
+                        {formatCurrency(selectedSlip.grossSalary)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div>
+                  <h4 className="font-semibold text-red-600 mb-2">Potongan</h4>
+                  <div className="space-y-2">
+                    {(selectedSlip.deductions ?? []).map((item, idx) => (
+                      <div
+                        key={item.componentId ?? idx}
+                        className="flex justify-between p-2 border-b"
+                      >
+                        <span>{item.name}</span>
+                        <span className="font-medium text-red-600">
+                          -{formatCurrency(item.amount)}
+                        </span>
+                      </div>
+                    ))}
+                    <div className="flex justify-between p-2 border-b">
+                      <span>PPh 21</span>
+                      <span className="font-medium text-orange-600">
+                        -{formatCurrency(selectedSlip.taxDeduction ?? 0)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between p-2 bg-red-50 rounded font-semibold">
+                      <span>Total Potongan</span>
+                      <span className="text-red-600">
+                        -{formatCurrency(selectedSlip.totalDeductions ?? 0)}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex justify-between p-4 bg-primary/10 rounded-lg text-lg font-bold">
+                  <span>Gaji Bersih (Take Home Pay)</span>
+                  <span className="text-primary">
+                    {formatCurrency(selectedSlip.netSalary)}
+                  </span>
+                </div>
+              </div>
+            )}
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setSelectedSlip(null)}>
+                Tutup
               </Button>
             </DialogFooter>
           </DialogContent>

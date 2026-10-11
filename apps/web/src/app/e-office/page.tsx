@@ -34,6 +34,7 @@ import {
   Inbox,
   SendHorizontal,
   FolderOpen,
+  ArchiveX,
   PenTool,
   Users,
   Calendar,
@@ -46,8 +47,10 @@ import {
   LetterDirection,
   LetterStatus,
   LetterUrgency,
+  mayReviewLetterRetention,
   type LetterDetail,
 } from "@cipansor/shared";
+import { getActiveRoleCode } from "@/lib/rbac";
 import Link from "next/link";
 import {
   AreaChart,
@@ -63,6 +66,17 @@ export default function EOfficeMainPage() {
   const router = useRouter();
   const { user } = useAuth();
   const { useLetters, useStats } = useCorrespondence(user?.unitId);
+
+  /**
+   * Kartu Retensi Arsip ditawarkan hanya kepada jabatan yang memang mengurus
+   * surat — Tata Usaha, kepala sekolah, dan pengurus yayasan.
+   *
+   * Sebelumnya kartunya muncul untuk setiap staf yang punya `unitId`, dan
+   * hampir setiap akun punya satu; endpoint-nya lalu menjawab 403, sehingga
+   * yang mengeklik mendarat di halaman yang menolak mereka. `mayReviewLetterRetention`
+   * membaca daftar yang sama dengan penjaga di `correspondence.controller.ts`.
+   */
+  const roleCode = getActiveRoleCode(user);
 
   // Fetch inbox and outbox
   const { data: inboxData, isLoading: loadingInbox } = useLetters({
@@ -389,6 +403,23 @@ export default function EOfficeMainPage() {
             </span>
           </CardContent>
         </Card>
+
+        {mayReviewLetterRetention(roleCode) && (
+          <Card
+            className="cursor-pointer hover:bg-primary/5 transition-colors border-2 border-dashed"
+            onClick={() => router.push("/e-office/retention")}
+          >
+            <CardContent className="flex flex-col items-center justify-center p-6 gap-2">
+              <div className="p-3 bg-amber-100 rounded-full">
+                <ArchiveX className="h-6 w-6 text-amber-600" />
+              </div>
+              <span className="font-medium">Retensi Arsip</span>
+              <span className="text-xs text-muted-foreground text-center">
+                Naskah yang masa retensinya sudah lewat
+              </span>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       {/*

@@ -104,6 +104,47 @@ dicatat ─disposisi─► DISPOSED ─► ARCHIVED
   #454).
 - **Tidak ada NIP** di blok tanda tangan maupun di halaman verifikasi
   (diputuskan 2026-09-03).
+- **Jalur `UPLOADED`** (penyusun mengekspor PDF sendiri lalu mengunggahnya):
+  yang ditandatangani adalah byte unggahan itu, dengan visualisasi TTE
+  dicap di atasnya — bukan render ulang sistem. Berkas yang diunggah harus
+  **tercatat milik rantai surat itu** (`LetterUpload`, CWE-639); berkas tanpa
+  catatan pemilik ditolak, sebab kepemilikannya tidak dapat dibuktikan.
+  Jalur penyusunan (`GENERATED`/`UPLOADED`) ikut ditampilkan di halaman
+  verifikasi, karena jaminannya berbeda.
+
+## Bentuk kanonik dan versinya
+
+`canonicalPayload` adalah **byte yang ditandatangani**. Ia pernah berubah —
+garis kewenangan (a.n./u.b./Plt./Plh.) menambah dua ruas — sehingga
+`canonicalPayload(payload, version)` menyimpan `v1` dan `v2` berdampingan.
+`LetterSignature.canonicalVersion` mencatat versi yang dipakai; baris lama
+bernilai `NULL` dan diperlakukan sebagai `v1` (`canonicalVersionOf`). Verifikasi
+**wajib** memakai versi tersimpan, bukan bentuk terkini: memverifikasi tanda
+tangan `v1` dengan aturan `v2` menolaknya sebagai berubah. Menambah ruas baru
+pada payload berarti menaikkan `CURRENT_CANONICAL_VERSION`, bukan menyunting
+`v1`.
+
+## Retensi — mendaftar, tidak pernah memusnahkan
+
+- **Jadwal Retensi Arsip** disalin dari JRA ke `FilingClassification.retention`
+  (tahun). Pekerjaan mingguan (`letter-retention.job.ts`, Senin 05:00 WIB) dan
+  perintah `pnpm --filter api db:retention-review` menghitung naskah yang
+  melewati masa retensinya, dan **hanya itu**.
+- **Tidak ada tombol musnah, dan itu batas keras.** Pemusnahan arsip menuntut
+  prosedur yang benar dan berita acara (UU 43/2009 Pasal 51–52 jo. PP 28/2012),
+  bukan pekerjaan terjadwal. Penjaganya bukan sekadar niat:
+  `letter-retention.no-destroy.guard.test.ts` menolak `delete`/`deleteMany`/
+  SQL `DELETE` di pekerjaan/CLI retensi, dan menolak modul non-uji mana pun yang
+  menghapus `Letter`/`LetterSignature`. Halaman `/e-office/retention` menyajikan
+  daftar usul dan ekspornya untuk rapat penilaian.
+- Daftarnya dibatasi cakupan akses (`letterScopeWhere`): TU satu sekolah tidak
+  melihat perihal naskah Rahasia unit lain.
+- **Naskah yang dicabut tetap dikenali saat diunggah.** Salinan bercap DICABUT
+  byte-nya berbeda dari `pdfHash`, jadi `verifyByPdfBuffer` mencocokkannya lewat
+  `revokedSha256` yang disimpan pada arsip saat pencabutan dicatat
+  (`utils/letter-revoked-copy.ts`), lalu meneruskannya ke `verifyByToken` agar
+  jawabannya "dicabut", bukan "tidak terdaftar". Cap karangan siapa pun tetap
+  dijawab "tidak terdaftar", sebab yang dipercaya hash-nya, bukan teksnya.
 
 ## Verifikasi publik — unggah PDF, bukan QR
 
@@ -120,6 +161,12 @@ dicatat ─disposisi─► DISPOSED ─► ARCHIVED
 - Naskah yang dicabut tetap terverifikasi sebagai *ditemukan, utuh, dicabut*.
   Pencabutannya **dibuktikan** secara kriptografis (`revocationVerified`),
   bukan sekadar dipercaya.
+- **Status kunci** (`/public/verify-key`, `GET /esign/public/key-status?fingerprint=…`)
+  menjawab apakah **kunci** yang menandatangani masih berlaku (aktif /
+  kedaluwarsa / dicabut, dengan kode sebab RFC 5280) dari sidik jari SPKI-DER
+  yang tercetak di setiap halaman verifikasi. Ia **tentang kunci, bukan
+  dokumen** — sehingga tidak dapat menjadi oracle token yang dihapus §1
+  rencana. Ini menutup AATL ICA7.
 
 ## Pencabutan naskah
 
@@ -145,27 +192,44 @@ dicatat ─disposisi─► DISPOSED ─► ARCHIVED
 
 ## Batas standar — jangan menjanjikan lebih
 
+- **Garis kewenangan (a.n./u.b./Plt./Plh.) tercetak, tetapi tata kelolanya
+  belum diputuskan.** Bentuknya ada di `SELECTABLE_SIGNING_AUTHORITY_FORMS`
+  dan dapat dipilih penanda tangan yang sudah ditunjuk; sistem **tidak**
+  memvalidasi surat kuasa atau SK penunjukan apa pun, karena memang tidak
+  menyimpannya. Yang belum dijawab yayasan: siapa boleh menandatangani a.n.
+  siapa, kapan tiap bentuk berlaku, dan — pertanyaan yang paling tajam —
+  apakah pelimpahan itu cukup. **Anggaran Dasar Pasal 18 ayat 1** menyatakan
+  Pengurus mewakili yayasan hanya sebagai **Ketua Umum bersama satu anggota
+  Pengurus lain**, sehingga naskah yang mewakili yayasan ke pihak luar
+  menuntut **dua** tanda tangan; satu tanda tangan Ketua belum memenuhi
+  pasal itu. Karena itu a.n./u.b./Plt./Plh. **tidak boleh** diperlakukan
+  sebagai pengganti penanda tangan kedua sampai yayasan memutuskannya.
+  Keputusan ini terbuka di `docs/EOFFICE_ESIGN_PLAN.md` §6 butir 2 —
+  **jangan ditutup tanpa keputusan yayasan.**
 - TTE ini **tidak tersertifikasi** menurut PP 71/2019. Keputusan yayasan
   2026-09-03: **tetap memakai kunci sendiri, tanpa PSrE**. Keputusan itu
   sekaligus menunda segel elektronik dan kalimat kaki baku BSrE. Kalimat BSrE
   **tidak boleh disalin**, karena menyebut sertifikat yang tidak kita punya.
-- **Ed25519 menghalangi PAdES dan AATL**, yang hanya menerima RSA ≥ 2048 atau
-  EC ≥ 256. Mengganti algoritma adalah migrasi, bukan tambalan.
-- Belum ada stempel waktu RFC 3161 (PR-5). Tanpanya, pertanyaan "apakah
-  kuncinya masih berlaku *saat* menandatangani" belum bisa dijawab.
+- **Ed25519 tidak menghalangi PAdES.** ETSI TS 119 312 V2.1.1 Tabel A.1
+  mencantumkan EdDSA sebagai *shall support*; yang tidak menerimanya adalah
+  **AATL**, program keanggotaan CA yang memang bukan sasaran yayasan. Mengganti
+  ke RSA/ECDSA adalah pilihan interoperabilitas Acrobat, bukan syarat PAdES.
+- Belum ada stempel waktu RFC 3161, dan **PAdES B-B ditunda (opsi b,
+  2026-09-29)** sampai yayasan menetapkan penyedia TSA — tanpa stempel waktu
+  tepercaya, pertanyaan "apakah kuncinya masih berlaku *saat* menandatangani"
+  belum bisa dijawab. Lihat `decisions/esign-standards-ceiling.md`.
 - Visualisasi TTE menurut aturan Indonesia minimal berisi QR, nama, dan
   jabatan. Logo tidak bisa menggantikan QR.
 
 ## Masih terbuka untuk yayasan
 
 Dari `docs/EOFFICE_ESIGN_PLAN.md` §6:
+- **kewenangan tanda tangan dan tanda tangan bersama:** siapa boleh
+  menandatangani a.n. siapa, kapan u.b./Plt./Plh. berlaku, dan apakah naskah
+  yang mewakili yayasan ke luar menuntut dua tanda tangan (Anggaran Dasar
+  Pasal 18 ayat 1) — bentuknya sudah tercetak, tata kelolanya belum diputuskan;
 - naskah mana yang harus terverifikasi di luar pesantren (menentukan perlu
-  tidaknya PSrE);
-- kewenangan menandatangani a.n., u.b., Plt., dan Plh. (PR-6). Anggaran Dasar
-  Pasal 18: Pengurus mewakili yayasan oleh **Ketua Umum bersama satu anggota
-  Pengurus lain**, dengan urutan pengganti bila berhalangan, dan kuasa tertulis
-  untuk perbuatan tertentu (`tata-kelola-yayasan/anggaran-dasar.md`) — naskah
-  yang mewakili yayasan ke luar dengan satu tanda tangan belum memenuhinya;
+  tidaknya PSrE, dan kapan PAdES B-B dibuka kembali);
 - berapa lama naskah bertanda tangan dan arsip PDF-nya disimpan;
 - huruf Arab di badan naskah (PR-7, atau jalur DOCX);
 - berapa lama naskah yang dicabut masih bisa diunduh;
@@ -189,6 +253,8 @@ Dari `docs/EOFFICE_ESIGN_PLAN.md` §6:
 - `eoffice-revocation-mechanics.md` — passphrase, cap DICABUT, permohonan;
 - `eoffice-verify-by-upload-not-qr.md` — unggah PDF, bukan token;
 - `esign-standards-ceiling.md` — AATL, PSrE, riset yang jangan diulang.
+- `derajat-kecepatan-naskah.md` — tiga derajat: Sangat Segera (24 jam), Segera
+  (2 × 24 jam), Biasa; tidak ada Kilat terpisah.
 - `surat-keterangan-lewat-eoffice.md` — surat keterangan santri dibuat sebagai
   naskah E-Office yang terisi dari data santri, bukan dicetak dengan nomor
   buatan browser.

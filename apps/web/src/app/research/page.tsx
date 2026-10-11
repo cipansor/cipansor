@@ -4,6 +4,9 @@ import { MainLayout } from "@/components/layout";
 import { useResearchThemes } from "@/hooks/research/use-research";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Skeleton } from "@/components/ui/skeleton";
+import { EmptyState } from "@/components/shared/empty-state";
+import { FlaskConical } from "lucide-react";
 import Link from "next/link";
 
 function ResearchPageContent() {
@@ -15,11 +18,21 @@ function ResearchPageContent() {
         <h1 className="text-3xl font-bold">Research Portal (Fathul Kutub)</h1>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-3">
-        {isLoading ? (
-          <p>Loading...</p>
-        ) : (
-          themes?.map((theme) => (
+      {isLoading ? (
+        <div className="grid gap-6 md:grid-cols-3">
+          {Array.from({ length: 3 }).map((_, i) => (
+            <Skeleton key={i} className="h-48 w-full" />
+          ))}
+        </div>
+      ) : !themes?.length ? (
+        <EmptyState
+          icon={FlaskConical}
+          title="Belum ada tema penelitian"
+          description="Tema penelitian (Fathul Kutub) yang dibuka akan tampil di sini."
+        />
+      ) : (
+        <div className="grid gap-6 md:grid-cols-3">
+          {themes.map((theme) => (
             <Card key={theme.id} className="flex flex-col">
               <CardHeader>
                 <div className="flex justify-between items-start">
@@ -42,9 +55,9 @@ function ResearchPageContent() {
                 </Link>
               </CardContent>
             </Card>
-          ))
-        )}
-      </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

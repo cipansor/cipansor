@@ -96,10 +96,17 @@ Mount new modules in `src/app.ts`.
   business logic and every branch of an endpoint get a covering test; a bug fix
   gets a regression test that fails before the fix. Barrels, type-only files, and
   pure Zod `schema.ts` are exempt (they're exercised via the service/route).
-- `vitest run`. Unit tests mock Prisma. **New tests go in the module's
-  `tests/`.** Two older layouts still exist — `apps/api/tests/unit/modules/<name>/`
-  and a `*.test.ts` beside the source — and move to `tests/` when their module
-  is next touched; don't add to them.
+- `vitest run`. Unit tests mock Prisma. **A module's tests go in its `tests/`**
+  (`src/modules/<name>/tests/`) — the layout every module under `src/modules/`
+  uses, so a folder of `service.ts` + `service.test.ts` pairs does not sprawl.
+  **Jobs are not modules and are not covered by that rule:** a job is a single
+  file in `src/jobs/` with no module folder to hold a `tests/` directory, so its
+  test sits beside it as `<name>.job.test.ts` (all eleven do). The same holds for
+  any other single-file helper outside `src/modules/` — `src/utils/<name>.test.ts`,
+  `src/middleware/<name>.test.ts`. What is being retired is the *module* layout
+  `apps/api/tests/unit/modules/<name>/` and a `*.test.ts` sitting beside a
+  **module's** source (`src/modules/<name>/service.test.ts`); those move to
+  `tests/` when their module is next touched. Don't add to them.
 - Test setup: `tests/setup.ts`. Keep services pure enough to unit-test.
 - Cover the RBAC/privilege-escalation guards (e.g. `auth.service.ts`) explicitly —
   both the allowed and the forbidden path.

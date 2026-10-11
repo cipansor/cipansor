@@ -1,4 +1,9 @@
-import { LetterNature, LetterType, LetterUrgency } from "./correspondence";
+import {
+  LetterNature,
+  LetterStatus,
+  LetterType,
+  LetterUrgency,
+} from "./correspondence";
 
 /**
  * Jenis naskah dan sifat yang boleh menyertainya.
@@ -70,14 +75,15 @@ export const LETTER_NATURE_LABELS: Record<LetterNature, string> = {
  * bahasa Inggris. Pada naskah dinas, derajat kecepatan menentukan tenggat
  * penyampaian; menggesernya satu tingkat bukan soal gaya bahasa.
  *
- * ANRI mengenal empat derajat — Kilat, Sangat Segera, Segera, Biasa. Skema
- * hanya menyimpan tiga; itu tercatat sebagai kekurangan di
- * `docs/EOFFICE_ESIGN_PLAN.md` §2.7 dan bukan urusan peta ini.
+ * Tiga derajat (keputusan pengguna 2026-10-09,
+ * `decisions/derajat-kecepatan-naskah.md`): Sangat Segera (24 jam), Segera
+ * (2 × 24 jam), Biasa. "Sangat Segera" adalah derajat 24 jam yang dalam pedoman
+ * disebut "Amat Segera/Kilat" — label berganti, artinya tidak.
  */
 export const LETTER_URGENCY_LABELS: Record<LetterUrgency, string> = {
-  [LetterUrgency.NORMAL]: "Biasa",
+  [LetterUrgency.URGENT]: "Sangat Segera",
   [LetterUrgency.IMMEDIATE]: "Segera",
-  [LetterUrgency.URGENT]: "Amat Segera",
+  [LetterUrgency.NORMAL]: "Biasa",
 };
 
 export function naturesForType(type: LetterType): readonly LetterNature[] {
@@ -90,3 +96,22 @@ export function isNatureAllowedForType(
 ): boolean {
   return naturesForType(type).includes(nature);
 }
+
+/**
+ * Label status naskah, satu sumber untuk kedua sisi.
+ *
+ * Sebelumnya peta ini hidup di dalam `letter-list.tsx`, sehingga API yang
+ * mengekspor buku agenda tidak punya cara menerjemahkan `PENDING_REVIEW` ke
+ * bahasa yang dibaca petugas arsip — dan ekspor yang berisi enum mentah
+ * berbahasa Inggris bukan buku agenda yang dapat diserahkan.
+ */
+export const LETTER_STATUS_LABELS: Record<LetterStatus, string> = {
+  [LetterStatus.DRAFT]: "Konsep",
+  [LetterStatus.PENDING_REVIEW]: "Menunggu review",
+  [LetterStatus.REVISION_NEEDED]: "Perlu revisi",
+  [LetterStatus.READY_TO_SIGN]: "Siap tanda tangan",
+  [LetterStatus.SIGNED]: "Sudah ditandatangani",
+  [LetterStatus.SENT]: "Terkirim",
+  [LetterStatus.ARCHIVED]: "Diarsipkan",
+  [LetterStatus.DISPOSED]: "Didisposisikan",
+};

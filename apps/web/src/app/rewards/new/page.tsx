@@ -82,8 +82,11 @@ function NewRewardPageContent() {
   const onSubmit = async (data: FormData) => {
     try {
       await createMutation.mutateAsync({
-        ...data,
-        description: data.description || undefined,
+        studentId: data.studentId,
+        category: data.rewardTypeId,
+        description: data.description?.trim() || "Penghargaan diberikan",
+        points: selectedType?.points ?? 0,
+        givenAt: new Date(data.date).toISOString(),
       });
       toast.success("Penghargaan berhasil diberikan");
       router.push("/rewards");

@@ -1,5 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import type { SigningAuthorityForm } from "@cipansor/shared";
 
 /**
  * Kunci tanda tangan elektronik milik pengguna dan alur pengajuannya.
@@ -354,10 +355,17 @@ export function useWithdrawRevocationRequest() {
 export function useSignLetter() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (input: { letterId: string; passphrase: string }) =>
+    mutationFn: async (input: {
+      letterId: string;
+      passphrase: string;
+      signingAuthorityForm?: SigningAuthorityForm;
+      representedOffice?: string;
+    }) =>
       (
         await api.post(`/esign/letters/${input.letterId}/sign`, {
           passphrase: input.passphrase,
+          signingAuthorityForm: input.signingAuthorityForm,
+          representedOffice: input.representedOffice,
         })
       ).data.data,
     onSuccess: (_d, v) => {

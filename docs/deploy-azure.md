@@ -90,7 +90,10 @@ from the backup, as the VM runbook describes, not on staging.
    reporting the earlier commit — the same code. Release that commit: it is
    the one whose images exist.
 3. **Production** — only when the user asks for a release. Claude:
-   1. confirms staging runs the SHA to be released and has been checked;
+   1. confirms staging runs the SHA to be released and has been checked, and
+      runs the k6 smoke against it (Actions → Load Tests → Run workflow;
+      `tests/load/README.md`) — a regression against the recorded baseline
+      stops the release until it is explained;
    2. takes a backup (`pg_dump` through the backup job, in addition to the
       server's own 7-day point-in-time restore);
    3. runs the pre-checks the VM runbook requires for any migration in the
@@ -113,11 +116,46 @@ built with `GIT_COMMIT_SHA`, and `GET /health` reports it as `commit`. The
 script polls `<host>/healthz` (nginx → api) until `commit` equals the released
 SHA — the old code answering during the restart does not count, and an api that
 never starts (a failed migration exits the container) times out after 15
-minutes. It then requires `<host>/manifest.json` (nginx → web) to return 200.
+minutes. `/health` is a readiness check, so it only answers 200 once the
+database is reachable too; a container whose Postgres is down reports 503 and
+the release keeps waiting rather than counting it as deployed (#665). It then
+requires `<host>/manifest.json` (nginx → web) to return 200.
 
 It goes through Cloudflare like a visitor, because the apps admit nothing else.
 It deliberately does not use `az webapp sitecontainers status`: that call goes
 to the SCM (Kudu) site, which is closed to everything but Cloudflare as well.
+
+## Watching a release
+
+`deploy-watch.yml` runs each time `Deploy staging` or `Deploy production`
+finishes, and asks the GitHub API for the latest run of both. It opens an issue
+labelled `deploy-watch` when the latest run failed or was cancelled, has been
+stuck past 45 minutes, or finished green while the site it released is not
+answering with its commit — the same `/healthz` and `/manifest.json` probes
+[Verifying a release](#verifying-a-release) uses.
+
+It runs on completion, not on a clock (decided 2026-10-10): a cron every 30
+minutes was ~1,440 runs a month to watch sites that mostly had not changed. A
+site that degrades later with no deploy — a container that restarts, a bad app
+setting — is the platform's to report: turn on **Health check** for each web
+app (Monitoring → Health check, path `/healthz`), which pings it every minute
+and replaces an instance that stays unhealthy, and add an **availability test**
+with an alert in Application Insights. Neither is configured from this
+repository.
+
+It is read-only with respect to the deployment: **it never rolls back, reruns or
+repoints a container.** The issue carries the run id, the commit and the failing
+job's log lines; a human decides what to do (step 3 or step 4 above). A failure
+it has already reported is not reported twice — the open issue is matched on a
+`deploy-watch:run=<id>` marker in its body.
+
+Run it by hand against the real repository with
+`GITHUB_REPOSITORY=ypcipansor/cipansor GH_TOKEN=… bash .github/scripts/deploy-watch.sh`,
+or add `DEPLOY_WATCH_DRY_RUN=1` to print what it would open without creating
+anything. `DEPLOY_WATCH_STUCK_MINUTES` and `DEPLOY_WATCH_WORKFLOWS` override the
+threshold and the watched workflows. Its behaviour is pinned by
+`apps/api/src/utils/deploy-watch.guard.test.ts`, which drives the real script
+against a fake API.
 
 ## Cloudflare
 

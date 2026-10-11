@@ -1,7 +1,6 @@
 "use client";
 import { useParams, useRouter } from "next/navigation";
 import { safeFormat } from "@/lib/date";
-import { MainLayout } from "@/components/layout";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -31,25 +30,21 @@ export default function PrintReportCardPage() {
 
   if (isLoading) {
     return (
-      <MainLayout>
-        <div className="flex items-center justify-center h-64">
-          <Loader2 className="h-8 w-8 animate-spin" />
-        </div>
-      </MainLayout>
+      <div className="flex items-center justify-center min-h-screen">
+        <Loader2 className="h-8 w-8 animate-spin" />
+      </div>
     );
   }
 
   if (!reportCard) {
     return (
-      <MainLayout>
-        <div className="flex flex-col items-center justify-center h-64 space-y-4">
-          <AlertCircle className="h-12 w-12 text-muted-foreground" />
-          <p className="text-muted-foreground">Rapor tidak ditemukan</p>
-          <Button onClick={() => router.push("/assessment/report-cards")}>
-            Kembali ke Daftar
-          </Button>
-        </div>
-      </MainLayout>
+      <div className="flex flex-col items-center justify-center min-h-screen space-y-4">
+        <AlertCircle className="h-12 w-12 text-muted-foreground" />
+        <p className="text-muted-foreground">Rapor tidak ditemukan</p>
+        <Button onClick={() => router.push("/assessment/report-cards")}>
+          Kembali ke Daftar
+        </Button>
+      </div>
     );
   }
 
@@ -70,7 +65,7 @@ export default function PrintReportCardPage() {
   };
 
   return (
-    <div>
+    <main id="main-content">
       {/* Print Controls - Hidden in print */}
       <div className="print:hidden fixed top-0 left-0 right-0 bg-background border-b p-4 z-50">
         <div className="max-w-4xl mx-auto flex justify-between items-center">
@@ -334,6 +329,6 @@ export default function PrintReportCardPage() {
           }
         }
       `}</style>
-    </div>
+    </main>
   );
 }

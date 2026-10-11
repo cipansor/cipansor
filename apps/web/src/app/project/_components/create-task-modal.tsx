@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -77,7 +77,7 @@ export function CreateTaskModal({
         ...values,
         columnId,
       };
-      return axios.post(`/api/projects/${projectId}/tasks`, payload);
+      return api.post(`/projects/${projectId}/tasks`, payload);
     },
     onSuccess: () => {
       toast.success("Task created successfully");

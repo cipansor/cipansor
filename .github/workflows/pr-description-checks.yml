@@ -1,19 +1,22 @@
-# Advisory reminders for PR descriptions. Warning-only by design: this workflow
-# posts a comment and never fails, labels or changes the draft state, so it
-# cannot block a merge or a release.
+# Checks for PR descriptions.
 #
-#   template job -> asks for the parts of the PR template that are missing
-#   visual job   -> asks for before/after visuals when apps/web changed
+#   template job -> HARD gate: fails while the PR template is incomplete, the
+#                   linked issue is not `ready`/`bot-implement`, or the prose
+#                   reads as English (see docs/LABELS.md); the `## HUMAN` note
+#                   is required only on a risky PR (pr-template-guard.sh)
+#   visual job   -> advisory: asks for before/after visuals when apps/web changed
 #
 # Runs on `pull_request_target` so the token can comment even on a fork PR;
 # neither job checks out or runs any code from the PR, so that is safe here.
 #
 # The rules live in .github/scripts/ so they can be run by hand.
-name: PR description checks (advisory)
+name: PR description checks
 
 on:
   pull_request_target:
-    types: [opened, edited, reopened, synchronize, ready_for_review]
+    # labeled/unlabeled: a `security` label makes the human note required, so
+    # adding or removing it must re-run the check.
+    types: [opened, edited, reopened, synchronize, ready_for_review, labeled, unlabeled]
 
 permissions:
   contents: read

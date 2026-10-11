@@ -1,3 +1,4 @@
+import { wibDayOf } from '@/utils/wib-day';
 import {
   Prisma,
   LetterFlowAction,
@@ -13,10 +14,13 @@ import {
   DispatchLetterSchemaInput,
   LetterCcInput,
   LETTER_DISPATCH_CHANNEL_LABELS,
+  LETTER_NATURE_LABELS,
+  LETTER_STATUS_LABELS,
   LetterDirection,
   LetterStatus,
   UpdateLetterInput,
   EXCLUDED_CORRESPONDENCE_ROLES,
+  letterPartyName,
 } from '@cipansor/shared';
 import { eventBus } from '@/lib/event-bus';
 import { verifyLetterByToken } from '@/utils/letter-verification';
@@ -27,6 +31,10 @@ import {
   type LetterActor,
 } from '@/utils/letter-access';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
+import {
+  reviewLetterRetentionForActor,
+  type LetterRetentionSummary,
+} from '@/jobs/letter-retention.job';
 import {
   assertMayArchive,
   assertMayDispatch,
@@ -92,6 +100,8 @@ async function recordFlow(
  * mengubah kode.
  */
 const DEFAULT_AGENDA_FORMAT = '[NO]/[TYPE]/Y-CPS/[ROMAN]/[YEAR]';
+
+const ROMAN_MONTHS = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
 
 /** Pengguna internal yang disebut dalam daftar tembusan, tanpa duplikat. */
 function ccUserIds(cc?: LetterCcInput[] | null): string[] {
@@ -186,11 +196,12 @@ export const CorrespondenceService = {
 
     const newNumber = updatedAgenda.lastNumber;
 
-    // 4. Format String
-    const date = new Date();
-    const romanMonths = ['I', 'II', 'III', 'IV', 'V', 'VI', 'VII', 'VIII', 'IX', 'X', 'XI', 'XII'];
-    const romanMonth = romanMonths[date.getMonth()];
-    const year = date.getFullYear().toString();
+    // 4. Format String. Bulan dan tahun menurut kalender WIB, bukan zona jam
+    // server: nomor dicetak ke naskah resmi, dan kontainer API berjalan dalam
+    // UTC, sehingga surat pukul 00:00–07:00 WIB tanggal 1 dulu memakai bulan,
+    // bahkan tahun, kemarin (#743).
+    const [year, month] = wibDayOf(new Date()).split('-');
+    const romanMonth = ROMAN_MONTHS[Number(month) - 1];
 
     let formatted = agenda.format
       .replace('[NO]', newNumber.toString().padStart(3, '0'))
@@ -389,6 +400,21 @@ export const CorrespondenceService = {
           subject: data.subject,
           content: data.content,
           fileUrl: data.fileUrl,
+          /**
+           * Jalur penyusunan naskah, ditetapkan sekali di sini dan tidak diubah.
+           *
+           * Surat keluar yang membawa berkas naskah unggahan penyusunnya
+           * ditandai `UPLOADED`: berkas itulah naskahnya, dan byte yang
+           * ditandatangani, di-hash, serta dicocokkan pada verifikasi publik
+           * adalah byte tersebut — bukan hasil render sistem. Surat lain
+           * `GENERATED`, disusun sistem dari isian formulir.
+           *
+           * Surat masuk tidak pernah `UPLOADED` walau membawa pindaian: naskah
+           * itu disusun pihak luar dan tidak masuk jalur tanda tangan elektronik
+           * kita, jadi yang menentukan jalurnya adalah naskah yang *kita*
+           * terbitkan.
+           */
+          authoringTrack: data.direction === 'OUTGOING' && data.fileUrl ? 'UPLOADED' : 'GENERATED',
           urgency: data.urgency as any,
           nature: data.nature as any,
           status: initialStatus,
@@ -595,6 +621,7 @@ export const CorrespondenceService = {
           unitId: true,
           type: true,
           nature: true,
+          direction: true,
           recipients: { where: { isCC: false }, select: { userId: true } },
           signatures: { select: { id: true } },
         },
@@ -702,6 +729,18 @@ export const CorrespondenceService = {
       }
       if (data.fileUrl !== undefined) {
         updateData.fileUrl = data.fileUrl;
+        /**
+         * Jalur penyusunan ikut berkasnya, selama suratnya masih dapat diubah.
+         *
+         * Penyusun boleh menyusun draf dulu, lalu mengunggah naskahnya
+         * belakangan — atau menghapus unggahannya dan kembali ke naskah yang
+         * disusun sistem. Karena hanya DRAFT/REVISION_NEEDED yang sampai ke
+         * sini, dan surat bertanda tangan sudah ditolak di atas, jalurnya masih
+         * bebas ditetapkan ulang; sesudah ditandatangani ia tidak lagi berubah.
+         */
+        if (letter.direction === 'OUTGOING') {
+          updateData.authoringTrack = data.fileUrl ? 'UPLOADED' : 'GENERATED';
+        }
         hasChange = true;
       }
       if (data.urgency !== undefined) {
@@ -930,6 +969,183 @@ export const CorrespondenceService = {
   },
 
   /**
+   * Buku agenda sebagai CSV — bentuk yang dapat dicetak dan diserahkan.
+   *
+   * Sebelum ini tidak ada satu pun jalan keluar dari daftar surat: sebuah buku
+   * agenda yang hanya ada di layar tidak dapat ditandatangani, diarsipkan, atau
+   * diserahkan kepada pemeriksa. Ia memakai penyaring akses yang sama persis
+   * dengan daftar — `letterScopeWhere` — sehingga ekspor tidak menjadi pintu
+   * belakang untuk membaca apa yang daftarnya sembunyikan.
+   *
+   * Naskah berklasifikasi tetap ikut bila aktornya memang berhak, dan kolom
+   * sifatnya tercetak apa adanya supaya pembaca berkas tahu tingkatannya.
+   */
+  async exportAgendaCsv(
+    actor: LetterActor,
+    filters: {
+      direction?: LetterDirection;
+      status?: LetterStatus;
+      search?: string;
+      scope?: 'ALL' | 'PERSONAL';
+      from?: string;
+      to?: string;
+    }
+  ): Promise<string> {
+    const and: Prisma.LetterWhereInput[] = [letterScopeWhere(actor)];
+
+    /**
+     * Batas atas rentang bersifat eksklusif pada awal hari berikutnya.
+     *
+     * `Letter.date` adalah tanggal, tetapi disimpan sebagai `timestamp`; bila
+     * kelak ada baris dengan jam selain tengah malam, `lte tengah malam` akan
+     * menjatuhkan surat yang bertanggal sama. Menutup rentangnya dengan
+     * `< awal hari berikutnya` membuat "sampai dengan 31 Desember" benar
+     * terlepas dari jam yang tersimpan.
+     */
+    const date: Prisma.DateTimeFilter = {};
+    if (filters.from) date.gte = startOfDay(new Date(filters.from));
+    if (filters.to) date.lt = startOfNextDay(new Date(filters.to));
+    if (filters.from || filters.to) and.push({ date });
+
+    // Penyaring yang sama persis dengan daftar surat: buku agenda yang
+    // diserahkan harus memuat baris yang tampak di layar, bukan lebih.
+    if (filters.search) {
+      and.push({
+        OR: [
+          { subject: { contains: filters.search, mode: 'insensitive' } },
+          { letterNumber: { contains: filters.search, mode: 'insensitive' } },
+          { senderName: { contains: filters.search, mode: 'insensitive' } },
+        ],
+      });
+    }
+    if (filters.scope === 'PERSONAL') {
+      and.push({
+        OR: [
+          { recipients: { some: { userId: actor.id } } },
+          { dispositions: { some: { recipientId: actor.id } } },
+        ],
+      });
+    }
+
+    const letters = await prisma.letter.findMany({
+      where: {
+        direction: filters.direction as any,
+        status: filters.status as any,
+        AND: and,
+      },
+      orderBy: { date: 'asc' },
+      include: {
+        classification: { select: { code: true, name: true } },
+        unit: { select: { name: true } },
+      },
+    });
+
+    const rows = letters.map((letter) => [
+      letter.agendaNumber ?? '',
+      letter.letterNumber ?? '',
+      letter.direction === LetterDirection.INCOMING ? 'Masuk' : 'Keluar',
+      letter.date instanceof Date ? letter.date.toISOString().slice(0, 10) : String(letter.date),
+      letter.subject,
+      // Cadangan instansi ikut, dan sisi yang dipakai mengikuti arah surat —
+      // sama persis dengan yang tampak di daftar. Lihat `letterPartyName`.
+      letterPartyName(letter),
+      letter.classification?.code ?? '',
+      letter.classification?.name ?? '',
+      LETTER_NATURE_LABELS[letter.nature as keyof typeof LETTER_NATURE_LABELS] ?? letter.nature,
+      LETTER_STATUS_LABELS[letter.status as keyof typeof LETTER_STATUS_LABELS] ?? letter.status,
+      letter.unit?.name ?? '',
+    ]);
+
+    return toCsv(
+      [
+        'Nomor Agenda',
+        'Nomor Surat',
+        'Arah',
+        'Tanggal',
+        'Perihal',
+        'Pengirim/Penerima',
+        'Kode Klasifikasi',
+        'Klasifikasi',
+        'Sifat',
+        'Status',
+        'Unit',
+      ],
+      rows
+    );
+  },
+
+  /**
+   * Peninjauan retensi untuk petugas kearsipan — daftar usul, bukan tindakan.
+   *
+   * Sampai sekarang hasil peninjauan hanya sampai ke `logger` penjadwal dan
+   * perintah CLI; seorang petugas arsip tidak punya layar untuk melihatnya, dan
+   * laporan yang tak terbaca tidak mengubah kepatuhan apa pun. Rute ini
+   * memberikan permukaannya, tanpa menambah kemampuan menghapus: memusnahkan
+   * arsip menuntut penilaian dan berita acara (UU 43/2009 Pasal 51–52 dan PP 28/2012),
+   * jadi yang disediakan hanyalah daftar dan ekspornya.
+   *
+   * Cakupannya dijaga `reviewLetterRetentionForActor`; rutenya menjaga bahwa
+   * hanya jabatan yang memang mengurus surat — Tata Usaha, kepala sekolah, dan
+   * pengurus yayasan — yang dapat membukanya.
+   */
+  async reviewRetention(actor: LetterActor): Promise<LetterRetentionSummary> {
+    return reviewLetterRetentionForActor(prisma, actor);
+  },
+
+  /**
+   * Ekspor CSV daftar retensi — kolom yang sama dengan buku agenda, ditambah
+   * klasifikasi dan masa retensi, supaya petugas dapat menyerahkan usulnya
+   * dalam bentuk yang dapat dibuka di Excel.
+   *
+   * Kolomnya dicetak dalam bahasa Indonesia dan nama unit, bukan nilai enum
+   * `nature` dan id unit: berkas ini diserahkan kepada petugas kearsipan dan
+   * pengawas, yang tidak menghafal kode enum maupun UUID unit. Nama unit
+   * diambil dari tabel unit, dan satu kueri mengumpulkannya sekaligus supaya
+   * jumlah baris tidak menambah jumlah kueri.
+   */
+  async exportRetentionCsv(actor: LetterActor): Promise<string> {
+    const summary = await reviewLetterRetentionForActor(prisma, actor);
+
+    const unitIds = [...new Set(summary.due.map((letter) => letter.unitId))];
+    const units = unitIds.length
+      ? await prisma.unit.findMany({
+          where: { id: { in: unitIds } },
+          select: { id: true, name: true },
+        })
+      : [];
+    const unitName = new Map(units.map((unit) => [unit.id, unit.name]));
+
+    const rows = summary.due.map((letter) => [
+      letter.agendaNumber ?? '',
+      letter.letterNumber ?? '',
+      toDateOnly(letter.letterDate),
+      letter.subject,
+      letter.classificationCode ?? '',
+      letter.classificationName ?? '',
+      `${letter.retentionYears} tahun`,
+      toDateOnly(letter.dueAt),
+      LETTER_NATURE_LABELS[letter.nature as keyof typeof LETTER_NATURE_LABELS] ?? letter.nature,
+      unitName.get(letter.unitId) ?? letter.unitId,
+    ]);
+
+    return toCsv(
+      [
+        'Nomor Agenda',
+        'Nomor Surat',
+        'Tanggal Surat',
+        'Perihal',
+        'Kode Klasifikasi',
+        'Klasifikasi',
+        'Masa Retensi',
+        'Retensi Berakhir',
+        'Sifat',
+        'Unit',
+      ],
+      rows
+    );
+  },
+
+  /**
    * `actor` is required, not optional: this route used to return any letter to
    * any authenticated caller. Making the parameter mandatory means a future
    * caller cannot reintroduce the hole by simply forgetting to pass it.
@@ -1042,6 +1258,16 @@ export const CorrespondenceService = {
             revokedAt: true,
             revokedReason: true,
             revokedByRoleCode: true,
+            /**
+             * Nama pencabut **saat mencabut**, bukan dari akunnya hari ini.
+             *
+             * Cap DICABUT mencetak nama ini, dan hash salinan bercap dihitung
+             * atas nama itu. Membacanya dari `revokedBy.name` membuat satu
+             * penggantian nama mengubah byte salinan yang diunduh, sehingga
+             * hashnya tak lagi cocok dan salinan resmi sistem sendiri dijawab
+             * "tidak terdaftar" oleh verifikasi publik.
+             */
+            revokedByName: true,
             revokedBy: { select: { name: true } },
             // Dipakai pencetakan salinan bercap: naskah yang dihasilkan ulang
             // harus terbukti masih sama persis dengan yang di-hash saat
@@ -2248,3 +2474,63 @@ export const CorrespondenceService = {
    * Public verification for signed letters via token and optional uploaded PDF buffer
    */
 };
+
+/**
+ * Satu nilai CSV, dikutip bila perlu dan dineutralkan dari rumus.
+ *
+ * Kutip ganda di dalam nilai digandakan, sesuai RFC 4180 — tanpa itu sebuah
+ * perihal yang mengandung tanda kutip menghasilkan kolom yang bergeser dan
+ * berkasnya rusak di pembaca mana pun.
+ *
+ * Netralkan sel CSV terhadap injeksi rumus (CWE-1236).
+ *
+ * Sebuah perihal surat diketik oleh manusia dan dapat dimulai dengan `=`, `+`,
+ * `-`, `@`, TAB, atau CR. Bila berkasnya dibuka di Excel/LibreOffice, sel
+ * semacam itu **dijalankan sebagai rumus** — `=HYPERLINK(...)`, `=cmd|'...'`,
+ * atau `+1+1` yang mengacaukan buku agenda. Karena buku agenda memang dibuat
+ * untuk dibuka di aplikasi lembar kerja, jalur inilah yang paling mungkin
+ * dipakai menyerang, bukan jalur yang tidak ada.
+ *
+ * Obatnya menurut OWASP: awali nilai yang berbahaya dengan petik tunggal, yang
+ * di lembar kerja menandai teks dan tidak ikut tampil. Nilai juga tetap
+ * dikutip bila mengandung koma/baris baru, sebab tanda `"` saja tidak
+ * menetralkan rumus.
+ */
+function csvCell(value: string): string {
+  const neutralised = /^[=+\-@\t\r]/.test(value) ? `'${value}` : value;
+  const needsQuotes = /[",\r\n]/.test(neutralised);
+  const escaped = neutralised.replace(/"/g, '""');
+  return needsQuotes ? `"${escaped}"` : escaped;
+}
+
+/** Tengah malam UTC dari sebuah tanggal, dasar perbandingan rentang. */
+function startOfDay(date: Date): Date {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  return d;
+}
+
+/** Awal hari UTC berikutnya — batas atas eksklusif rentang ekspor. */
+function startOfNextDay(date: Date): Date {
+  const d = startOfDay(date);
+  d.setUTCDate(d.getUTCDate() + 1);
+  return d;
+}
+
+/** Tanggal saja (`YYYY-MM-DD`) untuk sel CSV — jam tidak bermakna di arsip. */
+function toDateOnly(value: Date | string): string {
+  const d = value instanceof Date ? value : new Date(value);
+  return Number.isNaN(d.getTime()) ? String(value) : d.toISOString().slice(0, 10);
+}
+
+/**
+ * CSV dengan BOM UTF-8.
+ *
+ * BOM bukan hiasan: tanpa itu Excel di Windows membaca berkas sebagai
+ * Latin-1, dan setiap huruf beraksen pada nama orang tampil sebagai mojibake.
+ * Buku agenda yang rusak saat dibuka bukan buku agenda.
+ */
+function toCsv(headers: string[], rows: string[][]): string {
+  const lines = [headers, ...rows].map((row) => row.map(csvCell).join(','));
+  return `\uFEFF${lines.join('\r\n')}\r\n`;
+}

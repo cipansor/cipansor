@@ -4,6 +4,7 @@ import { asyncHandler, Errors } from '@/middleware/error';
 import { ApiResponse } from '@/utils/response';
 import { resolveLetterPdf } from './signed-pdf';
 import { choosesUnit, handlesUnitCorrespondence, type LetterActor } from '@/utils/letter-access';
+import type { ExportAgendaQueryInput } from '@cipansor/shared';
 
 /**
  * The caller, in the shape the access rules expect.
@@ -59,6 +60,35 @@ export const CorrespondenceController = {
   findOne: asyncHandler(async (req: Request, res: Response) => {
     const result = await CorrespondenceService.getLetterById(req.params.id, actorOf(req));
     res.json(ApiResponse.success(result));
+  }),
+
+  /**
+   * Buku agenda sebagai CSV yang dapat diunduh.
+   *
+   * `Content-Disposition: attachment` dengan nama berkas berbahasa Indonesia —
+   * petugas arsip yang menerimanya harus tahu ini berkas apa tanpa membukanya.
+   *
+   * Membaca `res.locals.validatedQuery`, bukan `req.query`: rutenya memasang
+   * `validateQuery`, dan membaca mentah dari `req.query` akan membuat validasi
+   * itu tidak berguna — persis kesalahan yang pernah terjadi pada daftar santri
+   * (lihat `students/student.controller.ts`). Nilai yang tidak lolos skema
+   * tidak boleh sampai ke layanan.
+   */
+  exportAgenda: asyncHandler(async (req: Request, res: Response) => {
+    const filters = res.locals.validatedQuery as ExportAgendaQueryInput;
+    const csv = await CorrespondenceService.exportAgendaCsv(actorOf(req), {
+      direction: filters.direction,
+      status: filters.status,
+      search: filters.search,
+      scope: filters.scope,
+      from: filters.from,
+      to: filters.to,
+    });
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="Buku-Agenda-${stamp}.csv"`);
+    res.send(csv);
   }),
 
   getPdf: asyncHandler(async (req: Request, res: Response) => {
@@ -214,5 +244,35 @@ export const CorrespondenceController = {
       actorOf(req)
     );
     res.json(ApiResponse.success(result));
+  }),
+
+  /**
+   * Daftar naskah yang masa retensinya sudah lewat.
+   *
+   * Hanya jabatan yang mengurus surat yang boleh membukanya. Daftar ini memuat
+   * perihal dan klasifikasi, dan bagi naskah Rahasia itu berarti ia hanya boleh
+   * sampai ke orang yang ada di dalam rantai suratnya — bukan ke setiap akun
+   * yang kebetulan punya `unitId`.
+   */
+  reviewRetention: asyncHandler(async (req: Request, res: Response) => {
+    const actor = actorOf(req);
+    if (!choosesUnit(actor) && !handlesUnitCorrespondence(actor)) {
+      throw Errors.forbidden('Anda tidak memiliki akses ke peninjauan retensi arsip');
+    }
+    const result = await CorrespondenceService.reviewRetention(actor);
+    res.json(ApiResponse.success(result));
+  }),
+
+  exportRetention: asyncHandler(async (req: Request, res: Response) => {
+    const actor = actorOf(req);
+    if (!choosesUnit(actor) && !handlesUnitCorrespondence(actor)) {
+      throw Errors.forbidden('Anda tidak memiliki akses ke peninjauan retensi arsip');
+    }
+    const csv = await CorrespondenceService.exportRetentionCsv(actor);
+
+    const stamp = new Date().toISOString().slice(0, 10);
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="Peninjauan-Retensi-${stamp}.csv"`);
+    res.send(csv);
   }),
 };

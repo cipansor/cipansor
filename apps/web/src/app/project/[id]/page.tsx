@@ -1,7 +1,7 @@
 "use client";
 import { useQuery } from "@tanstack/react-query";
 import { safeFormat } from "@/lib/date";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { useParams } from "next/navigation";
 import { KanbanBoard } from "../_components/kanban-board";
 import { Button } from "@/components/ui/button";
@@ -16,7 +16,7 @@ function ProjectDetailPageContent() {
   const { data: project, isLoading } = useQuery({
     queryKey: ["project", projectId],
     queryFn: async () => {
-      const res = await axios.get(`/api/projects/${projectId}`);
+      const res = await api.get(`/projects/${projectId}`);
       return res.data;
     },
   });

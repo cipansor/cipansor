@@ -1,5 +1,9 @@
 import { test, expect } from "@playwright/test";
-import { loginAs } from "./helpers/auth-api";
+import { loginAs, apiRequest } from "./helpers/auth-api";
+import {
+  ensureSuperAdminSigner,
+  SIGNER_PASSPHRASE,
+} from "./helpers/esign-signer";
 
 test.describe("E-Office & Public Letter Verification E2E", () => {
   test("Public Letter Verification page loads and displays PDF upload form", async ({
@@ -129,6 +133,62 @@ test.describe("E-Office & Public Letter Verification E2E", () => {
     await expect(page.getByText(/23[.:]40[.:]31 WIB/i)).toBeVisible();
   });
 
+  /**
+   * Garis kewenangan (a.n.) yang tercetak pada naskah ikut terbaca publik.
+   *
+   * Surat yang ditandatangani "a.n. Kepala …" menyatakan dari mana wewenang
+   * penandatangannya berasal, dan pembaca yang memegang naskahnya berhak tahu
+   * hal itu. Nilainya bagian dari payload yang ditandatangani, jadi yang
+   * tampil di sini adalah yang benar-benar ditandatangani.
+   */
+  test("Verification of a letter signed a.n. shows the signing authority", async ({
+    page,
+  }) => {
+    await page.route("**/api/esign/verify-pdf", async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            isValid: true,
+            isRevoked: false,
+            signer: { name: "Ust. Fulan", position: "Sekretaris Yayasan" },
+            signingAuthorityForm: "ATAS_NAMA",
+            representedOffice: "Ketua Yayasan Cipansor",
+            letter: {
+              letterNumber: "002/SK/Y-CPS/VIII/2026",
+              subject: "Surat Tugas",
+              date: "2026-08-01",
+              status: "SIGNED",
+              unitName: "Yayasan Pesantren Cipansor",
+            },
+            signedAt: "2026-08-01T16:40:31Z",
+          },
+        }),
+      });
+    });
+
+    await page.goto("/public/verify-letter");
+
+    const buffer = Buffer.from(
+      "%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\ntrailer\n<< /Root 1 0 R >>\n%%EOF",
+    );
+    await page.setInputFiles("input[type='file']", {
+      name: "surat-tugas.pdf",
+      mimeType: "application/pdf",
+      buffer,
+    });
+
+    await page.getByRole("button", { name: /verifikasi dokumen/i }).click();
+
+    await expect(page.getByText(/Garis Kewenangan/i)).toBeVisible();
+    await expect(page.getByText(/Atas nama \(a\.n\.\)/i)).toBeVisible();
+    await expect(
+      page.getByText(/mewakili Ketua Yayasan Cipansor/i),
+    ).toBeVisible();
+  });
+
   test("Revoked PDF verification displays revoked notice", async ({ page }) => {
     await page.route("**/api/esign/verify-pdf", async (route) => {
       await route.fulfill({
@@ -236,5 +296,112 @@ test.describe("E-Office & Public Letter Verification E2E", () => {
     const searchInput = page.getByPlaceholder(/Cari pejabat\/staf/i);
     await expect(searchInput).toBeVisible();
     await searchInput.fill("Ahmad");
+  });
+
+  /**
+   * Alur kewenangan penandatanganan, dari naskah sampai verifikasi publik.
+   *
+   * Versi sebelumnya mengganti `POST /esign/verify-pdf` dengan jawaban palsu
+   * dan memeriksa render-nya. Yang dibuktikan hanya bahwa halaman dapat
+   * menampilkan JSON — bukan bahwa PDF yang ditandatangani dan jawaban
+   * verifikasi saling cocok, padahal itulah seluruh klaim sebuah tanda tangan.
+   * Uji ini menandatangani naskah sungguhan lewat rantai yang sesungguhnya
+   * (identitas → KTP → permohonan kunci → persetujuan → passphrase), mengambil
+   * PDF yang ditandatangani, lalu mengunggahnya ke halaman verifikasi publik
+   * dan memastikan jawabannya mengakui naskah itu sah beserta garis
+   * kewenangan a.n. yang benar-benar ditandatangani.
+   */
+  test("signed a.n. letter verifies as valid against the real endpoint", async ({
+    page,
+  }) => {
+    const { session } = await ensureSuperAdminSigner();
+
+    const unit = (
+      await apiRequest<{ data: Array<{ id: string }> }>(
+        session,
+        "GET",
+        "/units",
+      )
+    ).data[0];
+    const me = (
+      await apiRequest<{ data: { id: string } }>(session, "GET", "/auth/me")
+    ).data;
+
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/correspondence/letters",
+      {
+        unitId: unit.id,
+        direction: "OUTGOING",
+        date: new Date().toISOString(),
+        subject: "E2E alur kewenangan penandatanganan",
+        content:
+          "Naskah uji yang ditandatangani a.n. lalu diverifikasi publik.",
+        urgency: "NORMAL",
+        nature: "PUBLIC",
+        status: "DRAFT",
+        recipientName: "Pihak Eksternal",
+        reviewerIds: [me.id],
+      },
+    );
+    const letterId = created.data.id;
+
+    await apiRequest(
+      session,
+      "POST",
+      `/correspondence/letters/${letterId}/submit`,
+      {
+        reviewerIds: [me.id],
+      },
+    );
+    await apiRequest(
+      session,
+      "POST",
+      `/correspondence/letters/${letterId}/review`,
+      {
+        action: "APPROVE",
+        isFinalSigner: true,
+      },
+    );
+    await apiRequest(session, "POST", `/esign/letters/${letterId}/sign`, {
+      passphrase: SIGNER_PASSPHRASE,
+      signingAuthorityForm: "ATAS_NAMA",
+      representedOffice: "Ketua Yayasan Cipansor",
+    });
+
+    const pdfRes = await fetch(
+      `${process.env.API_URL || "http://localhost:3001/api"}/correspondence/letters/${letterId}/pdf`,
+      { headers: { authorization: `Bearer ${session.accessToken}` } },
+    );
+    expect(pdfRes.status).toBeLessThan(400);
+    const pdfBytes = Buffer.from(await pdfRes.arrayBuffer());
+    expect(pdfBytes.subarray(0, 5).toString()).toBe("%PDF-");
+
+    const letterNumber = (
+      await apiRequest<{ data: { letterNumber: string } }>(
+        session,
+        "GET",
+        `/correspondence/letters/${letterId}`,
+      )
+    ).data.letterNumber;
+
+    await page.goto("/public/verify-letter");
+    await page.setInputFiles("input[type='file']", {
+      name: "surat-an.pdf",
+      mimeType: "application/pdf",
+      buffer: pdfBytes,
+    });
+    await page.getByRole("button", { name: /verifikasi dokumen/i }).click();
+
+    // The signature is genuine and the uploaded bytes are exactly the archived
+    // ones, so the public verifier must accept it.
+    await expect(page.getByText(/DOKUMEN SAH & TERVERIFIKASI/i)).toBeVisible();
+    await expect(page.getByText(letterNumber)).toBeVisible();
+    await expect(page.getByText(/Garis Kewenangan/i)).toBeVisible();
+    await expect(page.getByText(/Atas nama \(a\.n\.\)/i)).toBeVisible();
+    await expect(
+      page.getByText(/mewakili Ketua Yayasan Cipansor/i),
+    ).toBeVisible();
   });
 });

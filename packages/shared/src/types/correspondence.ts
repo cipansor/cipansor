@@ -1,15 +1,22 @@
 // Letter Enums
 import type { UpdateLetterSchemaInput } from "../schemas/correspondence";
+import type { SigningAuthorityForm } from "./letter-signing-authority";
 
 export enum LetterDirection {
   INCOMING = "INCOMING",
   OUTGOING = "OUTGOING",
 }
 
+/**
+ * Derajat kecepatan penyampaian — bukan derajat kerahasiaan. Tiga derajat,
+ * dari yang paling mendesak: URGENT/Sangat Segera (24 jam) →
+ * IMMEDIATE/Segera (2 × 24 jam) → NORMAL/Biasa (menurut urutan).
+ * Lihat `decisions/derajat-kecepatan-naskah.md`.
+ */
 export enum LetterUrgency {
-  NORMAL = "NORMAL",
-  IMMEDIATE = "IMMEDIATE",
   URGENT = "URGENT",
+  IMMEDIATE = "IMMEDIATE",
+  NORMAL = "NORMAL",
 }
 
 /**
@@ -308,6 +315,42 @@ export function ccRecipientName(r: LetterRecipientDetail): string {
   return r.user?.name?.trim() || r.externalName?.trim() || "Tidak diketahui";
 }
 
+/** Kolom pihak pada daftar surat, buku agenda, dan ekspornya. */
+export interface LetterPartyFields {
+  /**
+   * Arah surat, dari enum mana pun.
+   *
+   * Peladen membacanya dari `@prisma/client`, web dari enum di berkas ini;
+   * keduanya bernilai string yang sama, jadi fungsi ini menerima keduanya dan
+   * membandingkan nilainya, bukan identitas tipe enum-nya. Menuntut satu enum
+   * saja berarti salah satu sisi harus dicor — dan aturan repositori melarang
+   * enum basis data diimpor ke kontrak bersama.
+   */
+  direction: LetterDirection | `${LetterDirection}`;
+  senderName?: string | null;
+  senderInstance?: string | null;
+  recipientName?: string | null;
+  recipientInstance?: string | null;
+}
+
+/**
+ * Nama pihak yang ditampilkan untuk sebuah surat — pengirim bila masuk,
+ * penerima bila keluar.
+ *
+ * Satu fungsi, dipakai daftar di layar dan ekspor CSV. Ekspor yang menghitung
+ * sendiri pernah menjatuhkan `senderInstance`/`recipientInstance`, sehingga
+ * surat yang pihaknya hanya sebuah instansi — dan karena itu tampil di layar
+ * sebagai "Kemenag" — tercetak dengan kolom Pengirim/Penerima kosong. Buku
+ * agenda yang diserahkan harus memuat baris yang tampak di layar, bukan lebih
+ * sedikit.
+ */
+export function letterPartyName(letter: LetterPartyFields): string {
+  if (letter.direction === LetterDirection.INCOMING) {
+    return letter.senderName?.trim() || letter.senderInstance?.trim() || "";
+  }
+  return letter.recipientName?.trim() || letter.recipientInstance?.trim() || "";
+}
+
 /** Satu baris buku ekspedisi: kapan naskah keluar, lewat apa, dan buktinya. */
 export interface LetterDispatchDetail {
   id: string;
@@ -521,10 +564,30 @@ export interface PublicLetterVerificationResult {
   signedAt?: string | Date;
   algorithm?: string;
   digest?: string;
+  /**
+   * Sidik jari kunci publik penandatangan, dalam bentuk pasangan heksadesimal
+   * (`AB:CD:…`), seperti sidik jari sertifikat (RFC 5280 §4.2.1.2).
+   *
+   * Pembaca dapat mencatatnya sekali dan membandingkannya pada setiap naskah
+   * berikutnya dari orang yang sama — jawaban atas "apakah ini orang yang saya
+   * kira", bukan sekadar "apakah ini sistem Cipansor".
+   */
+  signerKeyFingerprint?: string | null;
   signer?: {
     name: string;
     position: string;
   };
+  /**
+   * Garis kewenangan penandatanganan (a.n./u.b./Plt./Plh.), bila ada.
+   *
+   * Publik karena ia tercetak pada naskahnya: pembaca yang memegang surat
+   * ber-tanda "a.n. Kepala …" berhak tahu bentuk apa yang dinyatakan
+   * penandatangannya. Ia bagian dari payload yang ditandatangani, jadi
+   * nilainya yang terbaca di sini adalah nilai yang benar-benar ditandatangani.
+   */
+  signingAuthorityForm?: SigningAuthorityForm | null;
+  /** Jabatan yang diwakili, mis. "Kepala SMA Qur'an Cipansor". */
+  representedOffice?: string | null;
   letter?: {
     letterNumber: string;
     subject: string | null;
@@ -538,6 +601,36 @@ export interface PublicLetterVerificationResult {
     authoringTrack?: LetterAuthoringTrack | null;
   };
   reason?: string;
+}
+
+/**
+ * Jawaban layanan status kunci publik (AATL ICA7).
+ *
+ * Berbeda dari `PublicLetterVerificationResult`: yang ini menjawab tentang
+ * sebuah **kunci**, bukan sebuah dokumen. Penerima yang memegang arsip lama
+ * dapat menanyakan sidik jari yang tercetak pada halaman verifikasi tanpa
+ * mengunggah ulang PDF-nya — pertanyaannya "apakah kunci penandatangan masih
+ * berlaku?", bukan "apakah dokumen ini yang ditandatangani".
+ *
+ * `UNKNOWN` adalah jawaban yang sah, bukan galat: sidik jari yang tidak
+ * terdaftar memang mungkin (dokumen dari sistem lain, atau salah ketik).
+ */
+export type PublicKeyStatus = "ACTIVE" | "EXPIRED" | "REVOKED" | "UNKNOWN";
+
+export interface PublicKeyStatusResult {
+  found: boolean;
+  status: PublicKeyStatus;
+  /** Algoritma kunci, bila ditemukan. */
+  algorithm?: string;
+  /**
+   * Sebab pencabutan menurut RFC 5280 §5.3.1. Hanya `KEY_COMPROMISE` yang
+   * membuat surat-surat lama menjadi meragukan; sebab lain berarti surat lama
+   * tetap sah. Karena itu kode ini ikut, bukan sekadar status "DICABUT".
+   */
+  revocationCode?: string | null;
+  // No free-text reason: it is an internal note, and this answer is public.
+  revokedAt?: string | Date | null;
+  expiresAt?: string | Date | null;
 }
 
 export interface ListParticipantsQuery {
@@ -559,3 +652,42 @@ export interface CorrespondenceParticipant {
 
 export type CreateDispositionResponse =
   LetterDispositionDetail | LetterDispositionDetail[];
+
+/**
+ * Satu naskah yang masa retensinya sudah lewat, menurut klasifikasinya.
+ *
+ * Yang dikembalikan adalah **usul**, bukan keputusan: JRA adalah instrumen yang
+ * disahkan, dan memusnahkan arsip menuntut penilaian serta berita acara
+ * (UU 43/2009 Pasal 51–52 dan PP 28/2012). Karena itu tidak ada endpoint yang menghapus
+ * naskah; yang ada hanya daftar ini dan ekspornya.
+ */
+export interface RetentionDueLetter {
+  id: string;
+  letterNumber: string | null;
+  agendaNumber: string | null;
+  subject: string;
+  unitId: string;
+  nature: string;
+  classificationCode: string | null;
+  classificationName: string | null;
+  /** Tahun retensi dari klasifikasinya. */
+  retentionYears: number;
+  /** Tanggal surat, dasar perhitungan. */
+  letterDate: string | Date;
+  /** Kapan retensinya berakhir: tanggal surat + tahun retensi. */
+  dueAt: string | Date;
+}
+
+/**
+ * Hasil peninjauan retensi.
+ *
+ * `missingRetention` sengaja ikut: surat terarsip yang klasifikasinya belum
+ * punya nilai retensi adalah **kekosongan JRA**, bukan surat yang boleh
+ * dimusnahkan — dan kekosongan itu hanya kelihatan bila dihitung.
+ */
+export interface LetterRetentionSummary {
+  dryRun: boolean;
+  due: RetentionDueLetter[];
+  consideredCount: number;
+  missingRetention: number;
+}

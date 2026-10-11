@@ -35,6 +35,17 @@ export function objectUrlForFile(file: File): string {
 }
 
 /**
+ * Create a `blob:` URL for an already-fetched `Blob` (a downloaded export).
+ *
+ * Same guarantee and same CodeQL-sanitised shape as `objectUrlForFile`: the
+ * result is a URL, never markup, and the `blob:` guard keeps it that way.
+ */
+export function objectUrlForBlob(blob: Blob): string {
+  const url = URL.createObjectURL(blob);
+  return url.startsWith("blob:") ? url : "";
+}
+
+/**
  * Release a preview URL returned by `objectUrlForFile`. A blob URL pins the
  * file's bytes in memory until it is revoked, so a preview that is replaced or
  * discarded must be released explicitly; revoking twice is a no-op.

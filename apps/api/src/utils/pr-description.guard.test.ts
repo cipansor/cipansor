@@ -5,16 +5,14 @@ import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
 /**
- * The advisory PR-description guards, driven against a stub `gh` and the real
- * `jq`:
+ * The PR-description checks, driven against a stub `gh` and the real `jq`:
  *
- *  - `pr-template-guard.sh` reminds when the body is missing a required part,
- *    and clears the reminder once the body is complete — never failing.
+ *  - `pr-template-guard.sh` is a HARD gate: it fails the check while the body
+ *    is missing a required part (Why/What changed/How to test/Acceptance
+ *    criteria, a linked ready issue, Indonesian prose, and — on a risky PR
+ *    only — a `## HUMAN` note), and passes once the body is complete.
  *  - `visual-evidence.sh` asks for before/after visuals only when `apps/web`
- *    changed and no image or video is present in the body.
- *
- * Both must stay advisory: the assertions below check they post a comment (or
- * remove one) and never emit an error status.
+ *    changed and no image or video is present in the body, and stays advisory.
  */
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const TEMPLATE = join(REPO_ROOT, '.github', 'scripts', 'pr-template-guard.sh');
@@ -26,8 +24,13 @@ case "$1" in
   pr)
     case "$*" in
       *"--json files,body"*) printf '%s\\n' "\${GH_STUB_PRJSON-}" ;;
+      *"--json labels"*) [ "\${GH_STUB_PRLABELS_FAIL:-}" = "1" ] && exit 1; printf '%s\\n' "\${GH_STUB_PRLABELS-}" ;;
       *"--json body"*) printf '%s\\n' "\${GH_STUB_BODY-}" ;;
-      *"comment"*) log "COMMENT $*"; [ "\${GH_STUB_WRITE_FAIL:-}" = "1" ] && exit 1 ;;
+      *"comment"*)
+        log "COMMENT $*"
+        # Log the reminder itself too, so a test can read what it says.
+        prev=""; for a in "$@"; do [ "$prev" = "--body-file" ] && log "COMMENTBODY $(cat "$a")"; prev="$a"; done
+        [ "\${GH_STUB_WRITE_FAIL:-}" = "1" ] && exit 1 ;;
     esac ;;
   api)
     case "$*" in
@@ -49,6 +52,13 @@ case "$1" in
         log "PATCH $*"; log "PATCHBODY $body"
         [ "\${GH_STUB_WRITE_FAIL:-}" = "1" ] && exit 1 ;;
       *"-X DELETE"*) log "DELETE $*"; [ "\${GH_STUB_WRITE_FAIL:-}" = "1" ] && exit 1 ;;
+      *"/pulls/"*"/files"*)
+        # The PR's changed files, one per line; only read when paginated.
+        [ "\${GH_STUB_FILES_FAIL:-}" = "1" ] && exit 1
+        case "$*" in *--paginate*) printf '%s\\n' "\${GH_STUB_FILES-}" ;; esac ;;
+      *"/issues/"*)
+        # Label lookup for the linked issue; GH_STUB_LABELS holds the CSV.
+        printf '%s\\n' "\${GH_STUB_LABELS:-}" ;;
     esac ;;
 esac
 exit 0
@@ -74,6 +84,9 @@ function run(script: string, env: Record<string, string>) {
       REPO: 'o/r',
       GH_TOKEN: 'x',
       GH_STUB_LOG: log,
+      // The linked issue answers the label lookup; a body with `Fixes #12` is
+      // only complete when that issue is ready for development.
+      GH_STUB_LABELS: 'ready',
       ...env,
     },
   });
@@ -86,17 +99,17 @@ function run(script: string, env: Record<string, string>) {
 
 const COMPLETE = `## HUMAN
 
-I ran the API tests and walked the changed flow.
+Saya menjalankan tes API dan mencoba alur yang berubah.
 
 ## AGENT
 
 ## Why
 
-The health endpoint lied about the database.
+Endpoint health berbohong tentang keadaan basis data.
 
 ## What changed
 
-- probe the database before answering
+- memeriksa basis data sebelum menjawab
 
 ## Linked issue
 
@@ -104,7 +117,7 @@ Fixes #12
 
 ## Acceptance criteria
 
-- [x] answers 503 when the probe fails
+- [x] menjawab 503 ketika pemeriksaan gagal
 
 ## How to test
 
@@ -112,17 +125,181 @@ pnpm --filter api test
 `;
 
 describe('pr-template-guard.sh', () => {
-  it('asks for the missing parts of an incomplete description', () => {
+  it('fails the check when the description is incomplete', () => {
     const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: '## Why\n\nSomething broke.' });
-    expect(status).toBe(0);
+    expect(status).toBe(1);
     expect(calls).toContain('COMMENT');
   });
 
-  it('is silent when the description is complete', () => {
+  it('passes when the description is complete', () => {
     const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: COMPLETE });
     expect(status).toBe(0);
     expect(calls).not.toContain('COMMENT');
     expect(calls).not.toContain('PATCH');
+  });
+
+  // The human note is asked for only where a human must look before the merge
+  // (#760); the gate reviews everything else and a human approves the release.
+  describe('the human note on a risky PR', () => {
+    // COMPLETE's Indonesian function words sit in its human note, so the body
+    // without one gets an Indonesian sentence of its own (the language check is
+    // not what these tests are about).
+    const NO_HUMAN = COMPLETE.replace(
+      /## HUMAN\n\n.*\n/,
+      '## HUMAN\n\n<!-- Penulis manusia: ganti komentar ini. -->\n'
+    ).replace('## Why\n\n', '## Why\n\nIni perbaikan yang kecil dan terukur. ');
+
+    it('is not required on an ordinary PR', () => {
+      const { status, calls } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_PRLABELS: 'bug,priority:medium',
+        GH_STUB_FILES: 'apps/api/src/modules/marketing/roi.service.ts\ndocs/ARCHITECTURE.md',
+      });
+      expect(status).toBe(0);
+      expect(calls).not.toContain('COMMENT');
+    });
+
+    it.each([
+      ['labelled security', { GH_STUB_PRLABELS: 'bug,security' }, 'berlabel `security`'],
+      [
+        'touching a migration',
+        { GH_STUB_FILES: 'docs/x.md\napps/api/prisma/migrations/20261010_x/migration.sql' },
+        'apps/api/prisma/migrations/20261010_x/migration.sql',
+      ],
+      [
+        'touching a production data script',
+        { GH_STUB_FILES: 'apps/api/scripts/require-password-change-all.ts' },
+        'apps/api/scripts/require-password-change-all.ts',
+      ],
+      [
+        'touching the API auth middleware',
+        { GH_STUB_FILES: 'apps/api/src/middleware/auth.ts' },
+        'apps/api/src/middleware/auth.ts',
+      ],
+      [
+        'touching role permissions',
+        { GH_STUB_FILES: 'apps/api/src/modules/roles/permissions.ts' },
+        'apps/api/src/modules/roles/permissions.ts',
+      ],
+      [
+        'touching the student scope',
+        { GH_STUB_FILES: 'apps/api/src/utils/student-scope.ts' },
+        'apps/api/src/utils/student-scope.ts',
+      ],
+      [
+        'touching the web route guard',
+        { GH_STUB_FILES: 'apps/web/src/lib/rbac.ts' },
+        'apps/web/src/lib/rbac.ts',
+      ],
+      [
+        'touching the shared role groups',
+        { GH_STUB_FILES: 'packages/shared/src/roles.ts' },
+        'packages/shared/src/roles.ts',
+      ],
+      ['whose labels cannot be read', { GH_STUB_PRLABELS_FAIL: '1' }, 'label PR tidak terbaca'],
+      ['whose files cannot be read', { GH_STUB_FILES_FAIL: '1' }, 'daftar berkas PR tidak terbaca'],
+    ])('is required on a PR %s, and the reminder names why', (_name, env, reason) => {
+      const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: NO_HUMAN, ...env });
+      expect(status).toBe(1);
+      expect(calls).toContain('COMMENTBODY');
+      expect(calls).toContain('## HUMAN');
+      expect(calls).toContain(reason);
+    });
+
+    it('is satisfied by a note on a risky PR', () => {
+      const { status } = run(TEMPLATE, {
+        GH_STUB_BODY: COMPLETE,
+        GH_STUB_PRLABELS: 'security',
+        GH_STUB_FILES: 'apps/api/prisma/schema.prisma',
+      });
+      expect(status).toBe(0);
+    });
+
+    it('does not call a guide under the prisma folder risky (#765)', () => {
+      const { status, calls } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_FILES: 'apps/api/prisma/AGENTS.md\ndocs/DEPLOYMENT.md',
+      });
+      expect(status).toBe(0);
+      expect(calls).not.toContain('COMMENT');
+    });
+
+    it('still asks for the note when the guide comes with the schema', () => {
+      const { status, calls } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_FILES: 'apps/api/prisma/AGENTS.md\napps/api/prisma/schema.prisma',
+      });
+      expect(status).toBe(1);
+      expect(calls).toContain('apps/api/prisma/schema.prisma');
+    });
+
+    it('does not mistake a test beside the auth middleware for the middleware', () => {
+      const { status } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_FILES: 'apps/api/src/middleware/auth.guards.test.ts',
+      });
+      expect(status).toBe(0);
+    });
+  });
+
+  it('fails when the description reads as English', () => {
+    const english = COMPLETE.replace(
+      'Saya menjalankan tes API dan mencoba alur yang berubah.',
+      'I ran the API tests and walked the changed flow.'
+    )
+      .replace(
+        'Endpoint health berbohong tentang keadaan basis data.',
+        'The health endpoint lied about the database.'
+      )
+      .replace('memeriksa basis data sebelum menjawab', 'probe the database before answering')
+      .replace('menjawab 503 ketika pemeriksaan gagal', 'answers 503 when the probe fails');
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: english });
+    expect(status).toBe(1);
+    expect(calls).toContain('COMMENT');
+  });
+
+  it('fails an English body even when a word merely contains an Indonesian word', () => {
+    // `ini` sits inside "initial". The Indonesian match must be word-anchored,
+    // or an English body that happens to contain such a substring would pass.
+    const english =
+      COMPLETE.replace(
+        'Saya menjalankan tes API dan mencoba alur yang berubah.',
+        'I ran the API tests and walked the changed flow.'
+      )
+        .replace(
+          'Endpoint health berbohong tentang keadaan basis data.',
+          'The health endpoint lied about the database.'
+        )
+        .replace('memeriksa basis data sebelum menjawab', 'probe the database before answering')
+        .replace('menjawab 503 ketika pemeriksaan gagal', 'answers 503 when the probe fails') +
+      '\nInitial rollout only.\n';
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: english });
+    expect(status).toBe(1);
+    expect(calls).toContain('COMMENT');
+  });
+
+  it('passes an English body that says English is intended', () => {
+    const english = COMPLETE.replace(
+      'Saya menjalankan tes API dan mencoba alur yang berubah.',
+      'I ran the API tests and walked the changed flow.\n\nEnglish is intended.'
+    )
+      .replace(
+        'Endpoint health berbohong tentang keadaan basis data.',
+        'The health endpoint lied about the database.'
+      )
+      .replace('memeriksa basis data sebelum menjawab', 'probe the database before answering')
+      .replace('menjawab 503 ketika pemeriksaan gagal', 'answers 503 when the probe fails');
+    const { status } = run(TEMPLATE, { GH_STUB_BODY: english });
+    expect(status).toBe(0);
+  });
+
+  it('fails when the linked issue is not ready for development', () => {
+    const { status, calls } = run(TEMPLATE, {
+      GH_STUB_BODY: COMPLETE,
+      GH_STUB_LABELS: 'needs-info',
+    });
+    expect(status).toBe(1);
+    expect(calls).toContain('COMMENT');
   });
 
   it('treats an untouched template placeholder as missing content', () => {
@@ -134,22 +311,25 @@ describe('pr-template-guard.sh', () => {
 
 <!-- The problem and its motivation. -->
 `;
-    const { calls } = run(TEMPLATE, { GH_STUB_BODY: placeholder });
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: placeholder });
+    expect(status).toBe(1);
     expect(calls).toContain('COMMENT');
   });
 
   it('treats a lone list marker as a missing change summary', () => {
     // The template's `## What changed` ships a bare "-"; leaving it there is not
-    // a change summary, so the reminder must still list it.
-    const bareDash = COMPLETE.replace('- probe the database before answering', '-');
-    const { calls } = run(TEMPLATE, { GH_STUB_BODY: bareDash });
+    // a change summary, so the check must still fail.
+    const bareDash = COMPLETE.replace('- memeriksa basis data sebelum menjawab', '-');
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: bareDash });
+    expect(status).toBe(1);
     expect(calls).toContain('COMMENT');
   });
 
   it('removes an earlier reminder once the description is complete', () => {
     // GH_STUB_CID is only returned when the lookup paginates, so this also
     // proves the marker is found past the first page of comments.
-    const { calls } = run(TEMPLATE, { GH_STUB_BODY: COMPLETE, GH_STUB_CID: '555' });
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: COMPLETE, GH_STUB_CID: '555' });
+    expect(status).toBe(0);
     expect(calls).toContain('DELETE');
     expect(calls).not.toContain('COMMENT');
   });
@@ -165,22 +345,23 @@ describe('pr-template-guard.sh', () => {
     expect(calls).toContain('PATCH');
     expect(calls).not.toContain('COMMENT');
     expect(calls).toContain('PATCHBODY <!-- pr-template-guard -->');
-    expect(calls).toContain("This pull request's description is missing");
+    expect(calls).toContain('Deskripsi pull request ini belum lengkap');
     expect(calls).not.toMatch(/PATCHBODY @/);
   });
 
   it('accepts a body that says there is no linked issue', () => {
-    const none = COMPLETE.replace('Fixes #12', 'No linked issue — a chore.');
-    const { calls } = run(TEMPLATE, { GH_STUB_BODY: none });
+    const none = COMPLETE.replace('Fixes #12', 'Tanpa issue tertaut — sebuah chore.');
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: none });
+    expect(status).toBe(0);
     expect(calls).not.toContain('COMMENT');
   });
 
-  it('stays advisory when the reminder cannot be posted', () => {
+  it('still fails the check when the reminder cannot be posted', () => {
     const { status, out } = run(TEMPLATE, {
       GH_STUB_BODY: '## Why\n\nSomething broke.',
       GH_STUB_WRITE_FAIL: '1',
     });
-    expect(status).toBe(0);
+    expect(status).toBe(1);
     expect(out).toContain('could not post');
   });
 });

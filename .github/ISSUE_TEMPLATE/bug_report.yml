@@ -1,21 +1,21 @@
 name: Bug report
-description: Something is broken or behaves differently from what was intended.
+description: Ada yang rusak atau berperilaku berbeda dari yang dimaksudkan.
 title: "[Bug]: "
 labels: ["bug"]
 body:
   - type: markdown
     attributes:
       value: |
-        A bug is a change to fix; a question belongs in Discussions. The
-        `SDLC 19 · Issue labeller` automation will add a priority and mark the
-        issue `ready` once the fields below are filled well enough to implement
-        without further questions. See [docs/LABELS.md](https://github.com/ypcipansor/cipansor/blob/main/docs/LABELS.md).
+        Bug adalah perubahan yang harus diperbaiki; pertanyaan masuk ke Discussions.
+        Automation `Pelabel issue` akan menambahkan prioritas dan menandai issue
+        `ready` begitu kolom di bawah terisi cukup untuk diimplementasikan tanpa
+        pertanyaan lanjutan. See [docs/LABELS.md](https://github.com/ypcipansor/cipansor/blob/main/docs/LABELS.md).
 
   - type: textarea
     id: what-happened
     attributes:
-      label: What happened
-      description: One or two sentences. The observed behaviour, not the guess at its cause.
+      label: Apa yang terjadi
+      description: Satu atau dua kalimat. Perilaku yang diamati, bukan dugaan penyebabnya.
       placeholder: GET /health answered 200 while the database was down.
     validations:
       required: true
@@ -23,8 +23,8 @@ body:
   - type: textarea
     id: expected
     attributes:
-      label: What you expected
-      description: The behaviour that should have happened, stated as if it already worked.
+      label: Apa yang Anda harapkan
+      description: Perilaku yang seharusnya terjadi, dinyatakan seolah sudah berjalan.
       placeholder: GET /health answers 503 when its database probe fails.
     validations:
       required: true
@@ -32,41 +32,41 @@ body:
   - type: textarea
     id: steps
     attributes:
-      label: Steps to reproduce, and acceptance criteria
+      label: Langkah reproduksi, dan kriteria penerimaan
       description: |
-        **Reproduction** — the exact steps, command or request a reviewer can
-        follow, with the environment (branch/commit, Node, database state) if it
-        matters. A bug without a reproduction is marked `needs-info`, not `ready`.
+        **Reproduksi** — langkah, perintah, atau permintaan persis yang bisa
+        diikuti peninjau, beserta lingkungannya (branch/commit, Node, keadaan basis
+        data) bila relevan. Bug tanpa reproduksi ditandai `needs-info`, bukan `ready`.
 
-        **Acceptance criteria** — the observable outcomes that show this is
-        fixed, as checkboxes. These are what turns this issue `ready`.
+        **Kriteria penerimaan** — hasil yang bisa diamati yang menunjukkan ini
+        diperbaiki, sebagai kotak centang. Inilah yang membuat issue ini `ready`.
 
-        **Before** — the failing output or screenshot, if you have it.
-        **After** — what should replace it.
+        **Sebelum** — keluaran atau tangkapan layar yang gagal, bila ada.
+        **Sesudah** — apa yang seharusnya menggantikannya.
       value: |
-        ### Reproduction
+        ### Reproduksi
         1.
         2.
 
-        ### Acceptance criteria
+        ### Kriteria penerimaan
         - [ ]
         - [ ]
 
-        ### Before / after
-        Before:
+        ### Sebelum / sesudah
+        Sebelum:
 
-        After:
+        Sesudah:
     validations:
       required: true
 
   - type: textarea
     id: evidence
     attributes:
-      label: Evidence
+      label: Bukti
       description: |
-        Logs, stack traces, a failing test, a screenshot or a video. Content is
-        wrapped in a code block automatically. If you could not reproduce it,
-        say so — that is useful, and it keeps this issue out of `ready`.
+        Log, stack trace, tes yang gagal, tangkapan layar, atau video. Isinya
+        otomatis dibungkus blok kode. Jika tidak bisa mereproduksinya, sebutkan —
+        itu berguna, dan menjaga issue ini keluar dari `ready`.
       render: shell
     validations:
       required: false
@@ -74,7 +74,7 @@ body:
   - type: textarea
     id: context
     attributes:
-      label: Additional context
-      description: Related issues, a suspected cause, a workaround, or anything a fixer should know.
+      label: Konteks tambahan
+      description: Issue terkait, dugaan penyebab, solusi sementara, atau apa pun yang perlu diketahui pelaksana.
     validations:
       required: false

@@ -156,7 +156,9 @@ export default function EditEmployeePage() {
         position: employee.position,
         employeeType: employee.employeeType,
         status: employee.status,
-        joinDate: new Date(employee.joinDate).toISOString().split("T")[0],
+        joinDate: employee.joinDate
+          ? new Date(employee.joinDate).toISOString().split("T")[0]
+          : "",
         resignDate: employee.resignDate
           ? new Date(employee.resignDate).toISOString().split("T")[0]
           : "",

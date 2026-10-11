@@ -9,6 +9,7 @@ import { aggregateDashboardMetrics } from './dashboard-metrics.job';
 import { runMonthlyAutoBilling } from './finance-billing.job';
 import { sendMonthlySppReminders } from './spp-reminder.job';
 import { purgeIdentityDocuments } from './identity-purge.job';
+import { reviewLetterRetention } from './letter-retention.job';
 import { runChatbotSpendCheck } from './chatbot-spend.job';
 import { runChatbotTranscriptPurge } from './chatbot-transcript-purge.job';
 import { runChatbotEscalationRetry } from './chatbot-escalation-retry.job';
@@ -197,6 +198,55 @@ export function initializeScheduler(): void {
   );
   scheduledTasks.push(identityPurgeTask);
   logger.info('[Scheduler] Identity document purge job scheduled daily at 02:30 WIB');
+
+  /**
+   * Peninjauan retensi naskah dinas — setiap Senin pukul 05:00 WIB.
+   *
+   * Mingguan, bukan harian: masa retensi dihitung dalam tahun, sehingga
+   * memeriksanya tiap hari hanya mengulang daftar yang sama. Pukul 05:00
+   * berada di celah yang kosong — setelah pekerjaan tengah malam dan sebelum
+   * jam kerja, jadi daftarnya sudah ada ketika petugas arsip mulai bekerja.
+   *
+   * Ia **tidak memusnahkan** apa pun; yang dilakukannya adalah menghitung dan
+   * mencatat (lihat `letter-retention.job.ts` untuk alasannya). Kegagalan
+   * dicatat dan tidak menjatuhkan penjadwal.
+   *
+   * **Di mana petugas arsip menemukan hasilnya.** Baris log di bawah ini
+   * hanyalah jumlah, dan `summary.due` sengaja tidak dicetak ke log: perihal
+   * naskah Rahasia tidak boleh berakhir di pengumpul log. Daftar usulnya
+   * tersedia di tiga permukaan, yang satu-satunya berisi perihal adalah
+   * halaman:
+   *   - `/e-office/retention` — daftar lengkap dan ekspor CSV, dibatasi
+   *     cakupan jabatan pemanggilnya;
+   *   - `pnpm --filter api db:retention-review` — daftar untuk terminal, tanpa
+   *     perihal naskah rahasia;
+   *   - `audit_logs` dengan `action = 'REVIEW_LETTER_RETENTION'` — jejak bahwa
+   *     peninjauan benar-benar berjalan, beserta jumlahnya.
+   * Jadi "hasil mingguan" bukan sesuatu yang menunggu dikirim: ia adalah daftar
+   * yang dapat dibuka kapan saja, dan baris log yang menandai bahwa minggu itu
+   * sudah diperiksa.
+   */
+  const retentionReviewTask = cron.schedule(
+    '0 5 * * 1',
+    async () => {
+      logger.info('[Scheduler] Running letter retention review job');
+      try {
+        const summary = await reviewLetterRetention(prisma);
+        logger.info(
+          `[Scheduler] Retention review: ${summary.due.length} jatuh tempo, ` +
+            `${summary.consideredCount} diperiksa, ` +
+            `${summary.missingRetention} tanpa masa retensi`
+        );
+      } catch (error) {
+        logger.error('[Scheduler] Letter retention review failed:', error);
+      }
+    },
+    {
+      timezone: 'Asia/Jakarta',
+    }
+  );
+  scheduledTasks.push(retentionReviewTask);
+  logger.info('[Scheduler] Letter retention review scheduled weekly on Monday 05:00 WIB');
 
   /**
    * Peringatan belanja chatbot — setiap hari pukul 07:00 WIB.

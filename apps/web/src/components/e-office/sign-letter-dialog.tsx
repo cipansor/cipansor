@@ -13,9 +13,22 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useSignLetter } from "@/hooks/use-esign";
 import { getPublicVerifyUrl } from "@/config/site";
 import { PenLine, ShieldCheck } from "lucide-react";
+import {
+  SELECTABLE_SIGNING_AUTHORITY_FORMS,
+  SIGNING_AUTHORITY_LABELS,
+  SigningAuthorityForm,
+  requiresRepresentedOffice,
+} from "@cipansor/shared";
 
 /**
  * Membubuhkan tanda tangan elektronik pada surat.
@@ -24,6 +37,13 @@ import { PenLine, ShieldCheck } from "lucide-react";
  * tidak disimpan, dan dibersihkan segera setelah dikirim. Itulah yang membuat
  * tanda tangan berarti "orang ini menandatangani sekarang", bukan sekadar
  * "sesi ini sedang terbuka".
+ *
+ * **Garis kewenangan (a.n./u.b./Plt./Plh.)** dipilih di sini bila penanda
+ * tangan menandatangani atas nama jabatan lain. Ia tercetak pada naskah dan
+ * ikut ditandatangani, sehingga harus ditetapkan sebelum, bukan sesudah,
+ * penandatanganan. Yang tidak diperiksa sistem adalah keberadaan surat
+ * kuasa/SK-nya — itu perbuatan tata usaha kepegawaian; bentuknya adalah
+ * pernyataan penanda tangan yang dipublikasikan.
  *
  * Setelah berhasil, QR ditampilkan untuk dibubuhkan pada naskah. QR hanya
  * memuat URL verifikasi — tidak memuat tanda tangan, apalagi isi surat.
@@ -41,7 +61,14 @@ export function SignLetterDialog({
 }) {
   const sign = useSignLetter();
   const [passphrase, setPassphrase] = useState("");
+  const [authorityForm, setAuthorityForm] = useState<SigningAuthorityForm>(
+    SigningAuthorityForm.NONE,
+  );
+  const [representedOffice, setRepresentedOffice] = useState("");
   const [token, setToken] = useState<string | null>(null);
+
+  const needsRepresentedOffice = requiresRepresentedOffice(authorityForm);
+  const authorityInfo = SIGNING_AUTHORITY_LABELS[authorityForm];
 
   const publicVerifyUrl =
     typeof window !== "undefined"
@@ -50,7 +77,14 @@ export function SignLetterDialog({
 
   async function submit() {
     try {
-      const res = await sign.mutateAsync({ letterId, passphrase });
+      const res = await sign.mutateAsync({
+        letterId,
+        passphrase,
+        signingAuthorityForm: authorityForm,
+        representedOffice: needsRepresentedOffice
+          ? representedOffice.trim()
+          : undefined,
+      });
       setPassphrase(""); // tidak disimpan, bahkan tidak di state
       setToken(res.verificationToken);
       toast.success("Surat berhasil ditandatangani.");
@@ -63,6 +97,8 @@ export function SignLetterDialog({
   function close(v: boolean) {
     if (!v) {
       setPassphrase("");
+      setAuthorityForm(SigningAuthorityForm.NONE);
+      setRepresentedOffice("");
       setToken(null);
     }
     onOpenChange(v);
@@ -85,25 +121,73 @@ export function SignLetterDialog({
 
         {!token ? (
           <div className="space-y-3">
-            <Label htmlFor="sign-pass">Passphrase tanda tangan</Label>
-            <Input
-              id="sign-pass"
-              type="password"
-              autoComplete="off"
-              value={passphrase}
-              onChange={(e) => setPassphrase(e.target.value)}
-              placeholder="Passphrase tanda tangan Anda"
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && passphrase) submit();
-              }}
-            />
+            <div className="space-y-2">
+              <Label htmlFor="sign-authority">Garis kewenangan</Label>
+              <Select
+                value={authorityForm}
+                onValueChange={(v) =>
+                  setAuthorityForm(v as SigningAuthorityForm)
+                }
+              >
+                <SelectTrigger id="sign-authority">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {SELECTABLE_SIGNING_AUTHORITY_FORMS.map((form) => (
+                    <SelectItem key={form} value={form}>
+                      {SIGNING_AUTHORITY_LABELS[form].label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <p className="text-xs text-muted-foreground">
+                {authorityInfo.summary}
+              </p>
+            </div>
+
+            {needsRepresentedOffice && (
+              <div className="space-y-2">
+                <Label htmlFor="sign-represented">Jabatan yang diwakili</Label>
+                <Input
+                  id="sign-represented"
+                  value={representedOffice}
+                  onChange={(e) => setRepresentedOffice(e.target.value)}
+                  placeholder="mis. Kepala SMA Qur'an Cipansor"
+                />
+                <p className="text-xs text-muted-foreground">
+                  Tercetak pada naskah di depan singkatan{" "}
+                  {SIGNING_AUTHORITY_LABELS[authorityForm].label}. Sistem tidak
+                  memeriksa surat kuasa/SK yang mendasarinya — pastikan dasarnya
+                  ada.
+                </p>
+              </div>
+            )}
+
+            <div className="space-y-2">
+              <Label htmlFor="sign-pass">Passphrase tanda tangan</Label>
+              <Input
+                id="sign-pass"
+                type="password"
+                autoComplete="off"
+                value={passphrase}
+                onChange={(e) => setPassphrase(e.target.value)}
+                placeholder="Passphrase tanda tangan Anda"
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" && passphrase) submit();
+                }}
+              />
+            </div>
             <p className="text-xs text-muted-foreground">
               Berbeda dari password akun. Setelah ditandatangani, setiap
               perubahan pada naskah akan membuat tanda tangan tidak lagi sah.
             </p>
             <Button
               onClick={submit}
-              disabled={sign.isPending || !passphrase}
+              disabled={
+                sign.isPending ||
+                !passphrase ||
+                (needsRepresentedOffice && representedOffice.trim().length < 3)
+              }
               className="w-full"
             >
               {sign.isPending ? "Menandatangani…" : "Tandatangani Surat"}

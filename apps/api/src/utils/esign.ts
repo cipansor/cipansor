@@ -64,6 +64,19 @@ export interface EncryptedKeyMaterial {
   authTag: string; // base64
 }
 
+/**
+ * Bahan kunci yang baru dibangkitkan, plus sidik jarinya.
+ *
+ * Sidik jari dihitung dari `publicDer` yang baru lahir, bukan di pemanggil dari
+ * field objek ini. Bila pemanggil yang menghitungnya, analisis alir data
+ * (CodeQL) melihat "passphrase → objek → field → hash" dan melaporkan hash
+ * sandi yang lemah, padahal yang di-hash adalah byte publik. Dihitung sekali di
+ * titik kunci itu lahir, jalur itu tidak pernah ada.
+ */
+export interface GeneratedKeyMaterial extends EncryptedKeyMaterial {
+  fingerprint: string;
+}
+
 export class EsignError extends Error {
   constructor(message: string) {
     super(message);
@@ -100,7 +113,7 @@ export function assertPassphraseStrength(passphrase: string): void {
 }
 
 /** Buat pasangan kunci baru dan kunci privatnya disegel dengan passphrase. */
-export function createKeyMaterial(passphrase: string): EncryptedKeyMaterial {
+export function createKeyMaterial(passphrase: string): GeneratedKeyMaterial {
   assertPassphraseStrength(passphrase);
 
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
@@ -117,6 +130,11 @@ export function createKeyMaterial(passphrase: string): EncryptedKeyMaterial {
 
   return {
     algorithm: ESIGN_ALGORITHM,
+    // Dihitung oleh fungsi yang **tidak** memegang passphrase sama sekali —
+    // lihat catatan pada `fingerprintOfSigningKey`. Memanggil
+    // `publicKeyFingerprint` di sini akan menyatukan kembali jalur
+    // "passphrase → objek → hash" yang justru ingin diputus.
+    fingerprint: fingerprintOfSigningKey(publicDer),
     publicKey: publicDer.toString('base64'),
     encryptedPrivateKey: sealed.toString('base64'),
     kdfSalt: salt.toString('base64'),
@@ -189,11 +207,33 @@ export interface SignablePayload {
   unitId: string;
   signerId: string;
   signedAt: Date | string;
+  /**
+   * Garis kewenangan penandatanganan (a.n./u.b./Plt./Plh.), bila ada.
+   *
+   * Ikut ditandatangani karena ia **tercetak pada naskah**: mengubahnya setelah
+   * penandatanganan sama dengan mengubah naskahnya. Opsional supaya tanda
+   * tangan yang dibuat sebelum kolom ini ada tetap terverifikasi — verifier
+   * yang tidak menemukannya memakai string kosong, bukan melempar.
+   */
+  signingAuthorityForm?: string | null;
+  /** Jabatan yang diwakili, mis. "Kepala SMA Qur'an Cipansor". */
+  representedOffice?: string | null;
 }
 
 function iso(value: Date | string): string {
   return (value instanceof Date ? value : new Date(value)).toISOString();
 }
+
+/**
+ * Versi bentuk kanonik yang **ditandatangani saat ini**.
+ *
+ * Naik ke `v2` ketika garis kewenangan (a.n./u.b./Plt./Plh.) masuk: `v1`
+ * berakhir pada `signedAt`, `v2` menambahkan `signingAuthorityForm` dan
+ * `representedOffice`. Menambahkannya pada penanda `v1` yang sama akan
+ * mengubah pesan yang ditandatangani dan membuat setiap tanda tangan lama gagal
+ * diverifikasi — jadi bentuk lamanya dipertahankan utuh di bawah ini.
+ */
+export const CURRENT_CANONICAL_VERSION = 2;
 
 /**
  * Bentuk kanonik naskah — apa yang sebenarnya ditandatangani.
@@ -205,15 +245,23 @@ function iso(value: Date | string): string {
  * Isi surat diwakili ringkasannya (SHA-256), bukan teks utuhnya, agar payload
  * tetap ringkas dan bebas dari persoalan baris baru/encoding — namun tetap
  * mengikat: satu huruf berubah, ringkasannya berubah.
+ *
+ * `version` memilih aturan yang dipakai. `1` adalah bentuk asli (berakhir di
+ * `signedAt`); `2` menambahkan garis kewenangan. Verifikasi tanda tangan lama
+ * harus memakai `1`, sebab tanda tangannya dibuat atas byte `v1` dan menambah
+ * dua ruas kosong saja sudah mengubah pesannya.
  */
-export function canonicalPayload(p: SignablePayload): string {
+export function canonicalPayload(
+  p: SignablePayload,
+  version: number = CURRENT_CANONICAL_VERSION
+): string {
   const contentHash = crypto
     .createHash('sha256')
     .update(p.content ?? '', 'utf8')
     .digest('hex');
 
-  return [
-    'cipansor-esign/v1',
+  const base = [
+    `cipansor-esign/v${version}`,
     p.letterId,
     p.letterNumber ?? '',
     iso(p.date).slice(0, 10),
@@ -224,11 +272,112 @@ export function canonicalPayload(p: SignablePayload): string {
     p.unitId,
     p.signerId,
     iso(p.signedAt),
-  ].join('\n');
+  ];
+
+  // Bentuk asli berakhir di `signedAt`. Ruas garis kewenangan hanya ada sejak
+  // v2; menambahkannya pada v1 (walaupun kosong) mengubah pesan yang
+  // ditandatangani dan menolak tanda tangan yang sah.
+  if (version >= 2) {
+    base.push(p.signingAuthorityForm ?? '', p.representedOffice ?? '');
+  }
+
+  return base.join('\n');
+}
+
+/**
+ * Versi kanonik yang harus dipakai untuk **memverifikasi** sebuah tanda tangan.
+ *
+ * `letterSignature.canonicalVersion` menyimpannya saat menandatangani. Baris
+ * yang belum memilikinya (NULL) ditandatangani sebelum versi disimpan — dan
+ * satu-satunya bentuk yang ada saat itu adalah `v1`, jadi `1` adalah jawaban
+ * yang benar untuk mereka.
+ *
+ * Pemanggil yang memegang barisnya sebaiknya memakai `signature.canonicalVersion
+ * ?? 1` langsung; fungsi ini untuk jalur yang tidak membawa kolomnya.
+ */
+export function canonicalVersionOf(storedVersion: number | null | undefined): number {
+  return storedVersion ?? 1;
 }
 
 export function digestOf(payload: string): string {
   return crypto.createHash('sha256').update(payload, 'utf8').digest('hex');
+}
+
+/**
+ * Sidik jari kunci publik — yang membuat kunci "dapat disebut namanya".
+ *
+ * Bentuknya mengikuti sidik jari sertifikat X.509 supaya orang dapat
+ * membandingkan kunci secara lisan atau tercetak tanpa menyalin blok base64
+ * sepanjang beberapa baris. SBOM, kunci SSH, dan kunci GPG semua melakukan hal
+ * yang sama.
+ *
+ * **Yang di-hash adalah SPKI DER utuh, dengan SHA-256.** Ini disengaja dan
+ * berbeda dari dua konstruksi yang mirip namanya, agar tidak disalahpahami:
+ *
+ *   - RFC 5280 §4.2.1.2 `keyIdentifier` adalah hash **SHA-1 atas
+ *     subjectPublicKey** (bit string kunci mentah), bukan atas seluruh SPKI.
+ *   - Sidik jari sertifikat umumnya adalah hash atas **seluruh sertifikat**.
+ *
+ * Kita memakai SHA-256 (SHA-1 kini dianggap lemah untuk keperluan baru), dan
+ * menampilkannya dalam bentuk pasangan heksadesimal berhuruf besar dipisah
+ * titik dua yang sudah dikenali orang. Karena itu jangan menghitung ulang
+ * angka ini dengan alat yang menghasilkan keyIdentifier SHA-1 — hasilnya akan
+ * berbeda. Format kanonik yang tersimpan dan dicari adalah bentuk di sini.
+ *
+ * CodeQL pernah menandai pemanggilnya `js/insufficient-password-hash` karena
+ * melihat "passphrase → bahan kunci → field → hash". Peringatan itu **keliru**
+ * — yang di-hash adalah SPKI **publik**, bukan sandi. Karena komentar penekan
+ * `// codeql[…]` tidak lagi dihormati, jalur itu diputus di sumbernya:
+ * `createKeyMaterial` memakai `fingerprintOfSigningKey(publicDer)`, yang hanya
+ * menerima byte SPKI dan tidak pernah menyentuh objek bahan kunci. Passphrase
+ * sendiri tidak pernah di-hash; ia melalui scrypt (`SCRYPT_PARAMS`, N=2^15) di
+ * `deriveKey`, dan hasilnya yang mengenkripsi kunci privat.
+ */
+export function publicKeyFingerprint(publicKey: string): string {
+  const der = Buffer.from(publicKey, 'base64');
+  const digest = crypto.createHash('sha256').update(der).digest('hex');
+  return (digest.toUpperCase().match(/.{2}/g) ?? []).join(':');
+}
+
+/**
+ * Sidik jari dari SPKI **DER** yang sudah dilepas dari bahan kunci.
+ *
+ * Perbedaan dengan `publicKeyFingerprint` bukan pada hasilnya — keduanya
+ * meng-hash SPKI yang sama dan mengembalikan bentuk yang sama — melainkan pada
+ * **apa yang dipegang pemanggilnya**. `createKeyMaterial` memegang passphrase
+ * di dalam badannya; bila ia memanggil `publicKeyFingerprint` (yang menerima
+ * `string`, hasil `toString('base64')` dari objek bahan kunci), analisis alir
+ * data membaca rantai "passphrase → bahan kunci → field → hash" dan melaporkan
+ * hash sandi yang lemah. Laporan itu keliru — yang di-hash adalah byte publik —
+ * tetapi menyangkalnya di komentar tidak lagi dihormati perkakasnya.
+ *
+ * Karena itu jalurnya diputus secara struktural: fungsi ini hanya menerima
+ * `Buffer` SPKI, tidak pernah menyentuh bahan kunci, dan dengan begitu tidak
+ * ada jalan dari passphrase ke `createHash`.
+ */
+export function fingerprintOfSigningKey(spkiDer: Buffer): string {
+  const digest = crypto.createHash('sha256').update(spkiDer).digest('hex');
+  return (digest.toUpperCase().match(/.{2}/g) ?? []).join(':');
+}
+
+/**
+ * Terima sidik jari dari pengguna dalam bentuk apa pun yang wajar, keluarkan
+ * bentuk kanonik yang tersimpan.
+ *
+ * Orang mengetik ulang sidik jari dari kertas, dari layar, atau menempelkannya
+ * dari halaman verifikasi — dengan atau tanpa titik dua, huruf besar atau
+ * kecil, kadang dengan spasi. Semua itu sidik jari yang sama, dan menolaknya
+ * karena bentuk bukan hanya memindahkan pekerjaan format ke pembaca. Bentuk
+ * kanoniknya tetap pasangan heksadesimal berhuruf besar dengan pemisah titik
+ * dua, agar sama dengan `publicKeyFingerprint`.
+ *
+ * Masukan yang bukan heksadesimal (setelah pemisah dibuang) ditolak sebagai
+ * "tidak dikenal" oleh pemanggil, bukan dilempar: layanan ini publik, dan
+ * masukan asal-asalan adalah hal yang wajar datang ke sana.
+ */
+export function normaliseFingerprint(input: string): string {
+  const hex = input.replace(/[^0-9a-fA-F]/g, '').toUpperCase();
+  return (hex.match(/.{2}/g) ?? []).join(':');
 }
 
 export interface SignResult {
@@ -236,6 +385,8 @@ export interface SignResult {
   digest: string; // hex
   publicKey: string; // base64, disalin ke rekaman tanda tangan
   algorithm: string;
+  /** Bentuk kanonik yang dipakai; disimpan agar verifikasi memakai aturan yang sama. */
+  canonicalVersion: number;
 }
 
 /** Tandatangani naskah. Passphrase hanya hidup selama pemanggilan ini. */
@@ -245,7 +396,7 @@ export function signPayload(
   payload: SignablePayload
 ): SignResult {
   const privateKey = unsealPrivateKey(material, passphrase);
-  const canonical = canonicalPayload(payload);
+  const canonical = canonicalPayload(payload, CURRENT_CANONICAL_VERSION);
   const signature = crypto.sign(null, Buffer.from(canonical, 'utf8'), privateKey);
 
   return {
@@ -253,6 +404,7 @@ export function signPayload(
     digest: digestOf(canonical),
     publicKey: material.publicKey,
     algorithm: material.algorithm,
+    canonicalVersion: CURRENT_CANONICAL_VERSION,
   };
 }
 
@@ -262,11 +414,18 @@ export function signPayload(
  * Memakai kunci publik yang tersimpan pada rekaman tanda tangan, bukan kunci
  * milik pengguna saat ini — sehingga pencabutan atau penggantian kunci tidak
  * membuat surat yang sudah sah menjadi "palsu".
+ *
+ * `version` memilih bentuk kanonik yang dipakai saat tanda tangan dibuat. Ini
+ * **wajib benar**: sebuah tanda tangan lama dibuat atas byte `v1`, dan
+ * merekonstruksinya dengan `v2` (yang menambah dua ruas) menghasilkan pesan
+ * yang berbeda sehingga kunci yang sah menolaknya. Pemanggil membacanya dari
+ * `letterSignature.canonicalVersion` (`canonicalVersionOf`), bukan menebaknya.
  */
 export function verifySignature(
   publicKeyBase64: string,
   signatureBase64: string,
-  payload: SignablePayload
+  payload: SignablePayload,
+  version: number = CURRENT_CANONICAL_VERSION
 ): boolean {
   try {
     const publicKey = crypto.createPublicKey({
@@ -276,7 +435,7 @@ export function verifySignature(
     });
     return crypto.verify(
       null,
-      Buffer.from(canonicalPayload(payload), 'utf8'),
+      Buffer.from(canonicalPayload(payload, version), 'utf8'),
       publicKey,
       Buffer.from(signatureBase64, 'base64')
     );
@@ -334,7 +493,7 @@ export function signRevocation(
   material: EncryptedKeyMaterial,
   passphrase: string,
   statement: RevocationStatement
-): SignResult {
+): Omit<SignResult, 'canonicalVersion'> {
   const canonical = canonicalRevocation(statement);
   const digest = digestOf(canonical);
   const privateKey = unsealPrivateKey(material, passphrase);

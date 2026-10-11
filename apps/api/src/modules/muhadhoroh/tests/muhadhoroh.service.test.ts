@@ -7,6 +7,7 @@ import {
   SMP,
   findStudentLike,
 } from '../../../../tests/mocks/santri-fixture';
+import { relationsLoaded, unsafeRelations } from '../../../../tests/mocks/safe-relations';
 
 /**
  * Which santri's muhadhoroh an account reaches, and which unit a new one
@@ -128,5 +129,20 @@ describe('reading muhadhoroh', () => {
     await expect(
       muhadhorohService.getStudentHistory(ACTORS.waliSmp, SANTRI_SMP.id)
     ).resolves.toEqual([]);
+  });
+});
+
+describe('what a muhadhoroh answer carries about people', () => {
+  it('the santri, partner and evaluator by name only — no NIK, No. KK, address or bank account', async () => {
+    const m = prismaMock.muhadhoroh;
+    await muhadhorohService.list({ page: 1, limit: 10 } as never, ACTORS.musyrif);
+    await muhadhorohService.getById('missing', ACTORS.musyrif).catch(() => undefined);
+    await muhadhorohService.create(input(SANTRI_SMA.id), ACTORS.musyrif);
+    await muhadhorohService.getUpcoming(ACTORS.musyrif);
+    await muhadhorohService.getStudentHistory(ACTORS.musyrif, SANTRI_SMP.id);
+
+    const calls = [...m.findMany.mock.calls, ...m.findUnique.mock.calls, ...m.create.mock.calls];
+    expect(relationsLoaded(calls)).toBeGreaterThanOrEqual(5);
+    expect(unsafeRelations(calls)).toEqual([]);
   });
 });

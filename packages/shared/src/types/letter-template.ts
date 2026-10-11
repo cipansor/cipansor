@@ -291,7 +291,19 @@ export function renderTemplateDraft(
   return parts.join("\n").trim();
 }
 
-/** Placeholder yang masih tersisa, supaya bisa diingatkan sebelum diajukan. */
+/**
+ * Placeholder yang masih tersisa, supaya bisa diingatkan sebelum diajukan.
+ *
+ * Setiap kurung siku yang berisi teks adalah placeholder, bukan hanya yang
+ * ditulis dengan huruf kapital. Sebagian petunjuk sengaja ditulis sebagai
+ * kalimat berhuruf kecil — `[URAIAN KETERANGAN, mis. merupakan relawan ...]`
+ * — dan daftar karakter lama hanya mengenali huruf kapital, sehingga konsep
+ * yang masih memuat petunjuk itu dilaporkan sudah lengkap.
+ *
+ * Kurung siku pembuka dikecualikan dari isi pola: placeholder tidak pernah
+ * bersarang, dan tanpa pengecualian itu pola menjadi ambigu (`[` bisa memulai
+ * isi maupun membuka placeholder berikutnya) sehingga rawan backtracking.
+ */
 export function remainingPlaceholders(content: string): string[] {
-  return Array.from(new Set(content.match(/\[[A-Z0-9 ÀÁ-ÿ/.,;'’-]+\]/g) ?? []));
+  return Array.from(new Set(content.match(/\[[^\]\[\n]+\]/g) ?? []));
 }

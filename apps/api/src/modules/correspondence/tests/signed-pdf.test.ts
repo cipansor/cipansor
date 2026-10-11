@@ -2,12 +2,21 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import crypto from 'crypto';
 import { prisma } from '@/lib/prisma';
 import { resolveLetterPdf } from '../signed-pdf';
-import { generateLetterPdfBuffer, type LetterPdfInput } from '@/utils/generate-letter-pdf';
+import {
+  generateLetterPdfBuffer,
+  stampRevoked,
+  type LetterPdfInput,
+} from '@/utils/generate-letter-pdf';
+import { readUploadedPdfBytes } from '@/utils/letter-uploaded-file';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     letterSignedDocument: { findUnique: vi.fn() },
   },
+}));
+
+vi.mock('@/utils/letter-uploaded-file', () => ({
+  readUploadedPdfBytes: vi.fn(),
 }));
 
 const sha256 = (b: Buffer) => crypto.createHash('sha256').update(b).digest('hex');
@@ -157,6 +166,40 @@ describe('salinan bercap DICABUT', () => {
     expect(sha256(out.buffer)).not.toBe(pdfHash);
     expect(sha256(signed)).toBe(pdfHash);
   });
+
+  /**
+   * Nama pencabut yang membeku dipakai, bukan nama akunnya hari ini.
+   *
+   * Cap mencetak nama itu, dan hash salinan bercap dihitung atasnya. Bila nama
+   * akun yang sudah berganti yang dipakai, salinan yang diunduh tidak lagi
+   * cocok dengan hash yang tersimpan pada pencabutan — dan verifikasi publik
+   * menolak salinan resmi sistem sendiri sebagai "tidak terdaftar".
+   */
+  it('mencap dengan nama pencabut saat mencabut, bukan nama akun yang sudah berganti', async () => {
+    const signed = await generateLetterPdfBuffer(letter({ signatures: [signature()] }));
+    const pdfHash = sha256(signed);
+    vi.mocked(prisma.letterSignedDocument.findUnique).mockResolvedValue({
+      bytes: signed,
+      sha256: pdfHash,
+    } as any);
+
+    const revoked = {
+      pdfHash,
+      revokedAt: new Date('2026-09-02T07:30:00.000Z'),
+      revokedReason: 'Nomor surat ganda dengan 433/Sket/Y-CPS/IX/2026.',
+      revokedByName: 'Ani',
+      revokedBy: { name: 'Anisa' },
+    };
+
+    const out = await resolveLetterPdf(letter({ signatures: [signature(revoked)] }));
+    const expected = await stampRevoked(signed, {
+      reason: revoked.revokedReason,
+      revokedAt: revoked.revokedAt,
+      revokedByName: 'Ani',
+    });
+
+    expect(sha256(out.buffer)).toBe(sha256(expected));
+  });
 });
 
 describe('surat lama yang ditandatangani sebelum arsip ada', () => {
@@ -197,5 +240,52 @@ describe('surat lama yang ditandatangani sebelum arsip ada', () => {
     const out = await resolveLetterPdf(letter());
     expect(out.source).toBe('regenerated');
     expect(prisma.letterSignedDocument.findUnique).not.toHaveBeenCalled();
+  });
+});
+
+describe('naskah UPLOADED disajikan dari berkas penyusunnya', () => {
+  const uploaded = () =>
+    letter({
+      authoringTrack: 'UPLOADED',
+      fileUrl: 'https://portal.cipansor.or.id/uploads/naskah-1.pdf',
+    });
+
+  it('pratinjau belum ditandatangani adalah byte penyusun apa adanya', async () => {
+    const bytes = Buffer.from('%PDF-1.7\nisi naskah penyusun\n%%EOF');
+    vi.mocked(readUploadedPdfBytes).mockResolvedValue(bytes);
+    vi.mocked(prisma.letterSignedDocument.findUnique).mockResolvedValue(null);
+
+    const out = await resolveLetterPdf(uploaded());
+
+    expect(out.source).toBe('uploaded');
+    expect(out.buffer.equals(bytes)).toBe(true);
+  });
+
+  it('naskah UPLOADED yang ditandatangani tanpa arsip ditolak, bukan dirender ulang', async () => {
+    vi.mocked(prisma.letterSignedDocument.findUnique).mockResolvedValue(null);
+
+    await expect(resolveLetterPdf({ ...uploaded(), signatures: [signature()] })).rejects.toThrow(
+      /tidak dapat dihasilkan ulang/i
+    );
+
+    expect(readUploadedPdfBytes).not.toHaveBeenCalled();
+  });
+
+  it('naskah UPLOADED yang ditandatangani disajikan dari arsipnya', async () => {
+    const stamped = await generateLetterPdfBuffer(letter({ content: 'Naskah penyusun.' }));
+    const pdfHash = sha256(stamped);
+    vi.mocked(prisma.letterSignedDocument.findUnique).mockResolvedValue({
+      bytes: stamped,
+      sha256: pdfHash,
+    } as any);
+
+    const out = await resolveLetterPdf({
+      ...uploaded(),
+      signatures: [signature({ pdfHash })],
+    });
+
+    expect(out.source).toBe('archive');
+    expect(sha256(out.buffer)).toBe(pdfHash);
+    expect(readUploadedPdfBytes).not.toHaveBeenCalled();
   });
 });

@@ -11,6 +11,8 @@
     "clean": "turbo run clean",
     "format": "prettier --write \"**/*.{ts,tsx}\"",
     "format:check": "prettier --check \"**/*.{ts,tsx}\"",
+    "test:load": "node --test tests/load/run-load-tests.test.mjs",
+    "load:test": "node tests/load/run-load-tests.mjs",
     "audit:deps": "node scripts/audit-deps.mjs"
   },
   "devDependencies": {

@@ -511,6 +511,7 @@ model User {
   revocationDecisions  LetterRevocationRequest[] @relation("LetterRevocationDecider")
   letterDispatches     LetterDispatch[]  @relation("LetterDispatcher")
   letterAttachments    LetterAttachment[] @relation("LetterAttachmentUploader")
+  letterUploads        LetterUpload[]   @relation("LetterUploader")
 
   // Risk Management
   createdRisks        Risk[]             @relation("RiskCreator")
@@ -4607,6 +4608,15 @@ model DigitalCertificate {
   // File
   pdfUrl            String?  @map("pdf_url")
   thumbnailUrl      String?  @map("thumbnail_url")
+  // Render data
+  /// What the printed certificate carries that the generic renderer cannot
+  /// derive from `title`/`grade` alone — the juz/name for a sanad, the qira'ah
+  /// and silsilah for a sanad qiraah, the completed juz for a tahfidz syahadah.
+  /// Persisted at mint time so the public download reproduces the document the
+  /// issuer printed instead of a generic one. Shape is per certificate type and
+  /// deliberately open (`Record<string, unknown>`); the renderer reads the keys
+  /// it knows and ignores the rest.
+  metadata          Json?    @map("metadata")
   // Meta
   isPublic          Boolean  @default(false) @map("is_public")
   downloadCount     Int      @default(0) @map("download_count")
@@ -7513,10 +7523,19 @@ enum LetterDirection {
   OUTGOING // Surat Keluar
 }
 
+/// Derajat kecepatan penyampaian naskah — bukan derajat kerahasiaan.
+///
+/// **Tiga derajat** (keputusan pengguna 2026-10-09,
+/// `decisions/derajat-kecepatan-naskah.md`): **Sangat Segera** (hari yang sama,
+/// batas 24 jam), **Segera** (2 × 24 jam), **Biasa** (menurut urutan). Pedoman
+/// tata naskah dinas (Permenpan 80/2012, "Kecepatan Penyampaian") menamai
+/// derajat teratas "Amat Segera/Kilat"; *amat* dan *sangat* bersinonim, jadi
+/// `URGENT` tetap derajat 24 jam yang sama — arti baris lama tidak berubah.
+/// Tidak ada derajat keempat.
 enum LetterUrgency {
   NORMAL // Biasa
-  IMMEDIATE // Segera
-  URGENT // Amat Segera
+  IMMEDIATE // Segera — batas 2 x 24 jam
+  URGENT // Sangat Segera — batas 24 jam
 }
 
 /// Jenis naskah dinas. Menentukan penomoran dan sifat yang boleh dipilih.
@@ -7576,6 +7595,20 @@ enum LetterNature {
 enum LetterAuthoringTrack {
   GENERATED
   UPLOADED
+}
+
+/// Garis kewenangan penandatanganan naskah dinas (a.n./u.b./Plt./Plh.).
+///
+/// Cerminan `SigningAuthorityForm` di `@cipansor/shared`; nilainya harus tetap
+/// sama persis (dijaga `letter-signing-authority.test.ts`). Empat bentuk ini
+/// mengikuti Peraturan BKN 16/2020 Pasal 242; NONE berarti ditandatangani atas
+/// nama jabatan penanda tangan sendiri, yang paling lazim.
+enum SigningAuthorityForm {
+  NONE
+  ATAS_NAMA
+  UNTUK_BELIAU
+  PELAKSANA_TUGAS
+  PELAKSANA_HARIAN
 }
 
 enum LetterStatus {
@@ -7657,6 +7690,18 @@ model UserSigningKey {
   userId              String    @unique @map("user_id")
   algorithm           String    @default("Ed25519")
   publicKey           String    @map("public_key") @db.Text
+  /// Sidik jari kunci publik — SHA-256 atas SPKI DER, ditulis sebagai pasangan
+  /// heksadesimal (`AB:CD:…`). Lihat `publicKeyFingerprint` di `utils/esign.ts`:
+  /// ini **bukan** `keyIdentifier` SHA-1 RFC 5280 §4.2.1.2.
+  ///
+  /// Disimpan, bukan dihitung saat dibaca, karena satu hal saja yang
+  /// membutuhkannya dan hanya bisa dilakukan dengan cara itu: **layanan status
+  /// kunci publik** (AATL ICA7) menerima *sidik jari* dari orang yang memegang
+  /// surat, lalu menjawab apakah kunci itu masih berlaku. Mencari berdasarkan
+  /// sidik jari menuntut kolom ini berindeks; menghitungnya di SQL tidak
+  /// mungkin tanpa ekstensi kripto, dan menyisir seluruh baris pada endpoint
+  /// publik adalah jalan yang lebih buruk.
+  fingerprint         String?   @unique @map("fingerprint")
   encryptedPrivateKey String    @map("encrypted_private_key") @db.Text
   kdfSalt             String    @map("kdf_salt")
   /// Parameter scrypt saat kunci dibuat, agar dapat dinaikkan kelak tanpa
@@ -7701,6 +7746,41 @@ model UserSigningKey {
   revokedBy  User? @relation("SigningKeyRevoker", fields: [revokedById], references: [id])
 
   @@map("user_signing_keys")
+}
+
+/// Riwayat status kunci tanda tangan — jejak kunci yang sudah tidak aktif.
+///
+/// **Kenapa terpisah dari `UserSigningKey`.** Tabel itu menahan ikatan
+/// tepat satu kunci aktif per pengguna (`@unique` pada `user_id`), dan kolom
+/// `encryptedPrivateKey`-nya wajib diisi. Penerbitan ulang kunci menghapus
+/// barisnya supaya pemiliknya dapat menetapkan passphrase baru — dan sejak itu
+/// sidik jari yang tercetak pada surat-surat lama menjadi "tidak dikenal" di
+/// layanan status publik, padahal suratnya masih dapat diverifikasi (tanda
+/// tangannya menyimpan salinan kunci publiknya sendiri). Penerima yang memeriksa
+/// arsip melihat UNKNOWN, bukan EXPIRED, dan kehilangan alasan serta tanggal
+/// pencabutannya.
+///
+/// Baris di sini ditulis **sebelum** kunci aktif dihapus, hanya berisi metadata
+/// publik (tanpa kunci privat, tanpa salt/iv/authTag), dan sengaja kekal:
+/// menghapusnya memulihkan kebuntuan yang ia ada untuk mencegah. Sidik jari
+/// unik di sini, seperti di sumbernya.
+model SigningKeyStatusRecord {
+  id             String    @id @default(uuid())
+  /// Pemilik kunci. Bukan relasi ber-`onDelete: Cascade`: bila pengguna
+  /// dihapus, sidik jari yang tercetak di surat tetap harus terjawab.
+  userId         String    @map("user_id")
+  fingerprint    String    @unique
+  algorithm      String    @default("Ed25519")
+  approvedAt     DateTime? @map("approved_at")
+  expiresAt      DateTime? @map("expires_at")
+  revokedAt      DateTime? @map("revoked_at")
+  revokedReason  String?   @map("revoked_reason") @db.Text
+  revocationCode SigningKeyRevocationCode? @map("revocation_code")
+  /// Kapan kunci aktif digantikan — jejak waktu peralihan.
+  supersededAt   DateTime  @default(now()) @map("superseded_at")
+
+  @@index([userId])
+  @@map("signing_key_status_records")
 }
 
 /// Sebab pencabutan kunci, mengikuti RFC 5280 §5.3.1.
@@ -7906,12 +7986,57 @@ model LetterSignature {
   /// Ketua walaupun penandatangannya kini menjabat yang lain.
   signerRoleCode    String?   @map("signer_role_code")
 
+  /// Garis kewenangan penandatanganan (a.n./u.b./Plt./Plh.) — lihat
+  /// `@cipansor/shared/letter-signing-authority`.
+  ///
+  /// Disimpan pada baris tanda tangan, bukan pada surat, karena ia milik
+  /// perbuatan menandatangani: sebuah naskah hanya ditandatangani sekali, dan
+  /// bentuk yang dipakai saat itu tidak boleh berubah setelahnya. Nilainya
+  /// ikut ditandatangani (`canonicalPayload`), sehingga mengubahnya membuat
+  /// tanda tangannya tidak lagi cocok — sama seperti mengubah isi naskahnya.
+  /// `NONE` (atas jabatan sendiri) untuk naskah tanpa garis kewenangan dan
+  /// untuk baris sebelum kolom ini ada — sama dengan migrasinya.
+  signingAuthorityForm SigningAuthorityForm @default(NONE) @map("signing_authority_form")
+  /// Jabatan pejabat yang diwakili, mis. "Kepala SMA Qur'an Cipansor".
+  /// Dicetak pada naskah di depan singkatan garis kewenangannya.
+  representedOffice String? @map("represented_office")
+
+  /// Versi bentuk kanonik yang ditandatangani (`canonicalPayload`).
+  ///
+  /// `1` berakhir pada `signedAt`; `2` menambahkan garis kewenangan. Verifikasi
+  /// wajib memakai versi ini, bukan bentuk terkini: sebuah tanda tangan lama
+  /// dibuat atas byte `v1`, dan merekonstruksinya dengan `v2` menolak tanda
+  /// tangan yang sah. NULL berarti baris dibuat sebelum kolom ini ada — yaitu
+  /// `v1`, satu-satunya bentuk saat itu.
+  canonicalVersion Int? @map("canonical_version")
+
   /// Pencabutan tidak menghapus baris: surat yang pernah beredar harus tetap
   /// dapat dijelaskan statusnya kepada yang memindai QR-nya.
   revokedAt         DateTime? @map("revoked_at")
   revokedReason     String?   @map("revoked_reason") @db.Text
   revokedById       String?   @map("revoked_by_id")
   revokedByRoleCode String?   @map("revoked_by_role_code")
+
+  /// Nama pencabut **sebagaimana tercatat saat mencabut**, bukan namanya hari
+  /// ini. Cap DICABUT mencetak nama ini dan hash salinan bercap dihitung atas
+  /// nama itu — lihat `revokedSha256`. Selama nama dibaca dari `User.name`,
+  /// satu penggantian nama menisbikan setiap salinan bercap yang sudah
+  /// diunduh orang: byte-nya berubah, hashnya tak lagi cocok, dan salinan
+  /// resmi sistem sendiri dijawab "tidak terdaftar".
+  revokedByName     String?   @map("revoked_by_name")
+
+  /// Hash SHA-256 salinan **bercap DICABUT** dari byte yang diarsipkan.
+  ///
+  /// Diisi saat naskah dicabut, supaya salinan bercap yang diunduh penerimanya
+  /// dapat dikenali kembali lewat satu perbandingan tepat — tanpa membuat
+  /// ulang capnya dan tanpa batas 200 tanda tangan tercabut terbaru. Ia hidup
+  /// di sini, bukan di arsipnya (`LetterSignedDocument`), karena inilah baris
+  /// yang menjawab pertanyaan "apakah tanda tangan ini dicabut" dan di sinilah
+  /// `revokedByName` yang menjadi dasar capnya berada.
+  ///
+  /// NULL untuk pencabutan yang tercatat sebelum kolom ini ada; jalur cadangan
+  /// (membuat ulang cap, terbatas) menanganinya.
+  revokedSha256     String?   @map("revoked_sha256")
 
   /// Tanda tangan Ed25519 pencabut atas pernyataan pencabutannya.
   ///
@@ -7934,6 +8059,10 @@ model LetterSignature {
   @@unique([letterId, signerId])
   @@index([letterId])
   @@index([pdfHash])
+  /// Indeks untuk pencocokan salinan bercap DICABUT (`revokedSha256 = ?`).
+  /// Tanpa ini, setiap unggahan verifikasi publik memindai seluruh tabel tanda
+  /// tangan — dan "tanpa batas" hanya berarti "seluruh tabel", bukan murah.
+  @@index([revokedSha256])
   @@map("letter_signatures")
 }
 
@@ -8217,6 +8346,33 @@ model LetterAttachment {
 
   @@index([letterId, order])
   @@map("letter_attachments")
+}
+
+/// Catatan pemilik sebuah berkas unggahan.
+///
+/// `Letter.fileUrl` menyimpan URL berkas naskah yang diunggah penyusunnya. URL
+/// itu dapat disalin: seorang penyusun yang mengetahui URL unggahan orang lain
+/// dapat menempelkannya sebagai `fileUrl` suratnya, lalu menandatangani dan
+/// mengarsipkan berkas milik orang lain sebagai naskahnya sendiri — akses
+/// lintas-pemilik yang tidak terdeteksi, sebab pembaca byte tidak memeriksa
+/// siapa pemilik berkasnya.
+///
+/// Baris ini menutupnya: setiap unggahan yang sah mencatat pemiliknya, dan
+/// penandatanganan menolak berkas yang bukan milik penanda tangan. Ia adalah
+/// *indeks kepemilikan* — sesuatu yang sengaja tidak dimiliki `/uploads` saat
+/// penyajian berkas (lihat `uploadsAuth`), tetapi wajib ada di sini karena
+/// jalur ini menandatangani berkas sebagai naskah resmi.
+model LetterUpload {
+  id       String @id @default(uuid())
+  /// Nama berkas tersimpan (`randomUUID` + ekstensi), bukan URL penuh.
+  filename String @unique
+  userId   String @map("user_id")
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user User @relation("LetterUploader", fields: [userId], references: [id])
+
+  @@index([userId])
+  @@map("letter_uploads")
 }
 
 /// Cara sebuah naskah keluar dari kantor.

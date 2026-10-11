@@ -4,10 +4,13 @@ import os from 'os';
 import path from 'path';
 import type { Request, Response, NextFunction } from 'express';
 
-vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/prisma', () => ({
+  prisma: { letterUpload: { upsert: vi.fn() } },
+}));
 vi.mock('@/lib/redis', () => ({ redis: {} }));
 
-import { matchesMagicBytes, verifyStoredFile, uploadsAuth } from './upload';
+import { matchesMagicBytes, verifyStoredFile, uploadsAuth, recordUploadOwnership } from './upload';
+import { prisma } from '@/lib/prisma';
 import { generateAccessToken } from '@/lib/jwt';
 import { ApiError } from './error';
 
@@ -176,6 +179,88 @@ describe('verifyStoredFile', () => {
       fs.rmSync(link, { force: true });
       fs.unlinkSync(outside);
     }
+  });
+});
+
+describe('recordUploadOwnership', () => {
+  const uploadDir = path.join(process.cwd(), 'public/uploads');
+  const ownerFile = () => path.join(uploadDir, `upload-owner-${Date.now()}-${Math.random()}`);
+
+  it('mencatat pemilik dan mempertahankan berkasnya', async () => {
+    vi.mocked(prisma.letterUpload.upsert).mockResolvedValue({} as never);
+    const p = ownerFile();
+    fs.writeFileSync(p, pdf);
+
+    const ok = await recordUploadOwnership({ filename: 'abc.pdf', path: p }, 'user-1');
+
+    expect(ok).toBe(true);
+    expect(prisma.letterUpload.upsert).toHaveBeenCalledWith({
+      where: { filename: 'abc.pdf' },
+      create: { filename: 'abc.pdf', userId: 'user-1' },
+      update: {},
+    });
+    expect(fs.existsSync(p)).toBe(true);
+    fs.unlinkSync(p);
+  });
+
+  /**
+   * Bila pencatatan gagal, unggahan itu gagal — bukan sukses dengan URL yang
+   * pasti ditolak saat suratnya ditandatangani. Berkasnya ikut dihapus supaya
+   * tidak menempati ruang tanpa pernah dapat dipakai.
+   */
+  it('mengembalikan false dan menghapus berkas bila pencatatan gagal', async () => {
+    vi.mocked(prisma.letterUpload.upsert).mockRejectedValue(new Error('db down'));
+    const p = ownerFile();
+    fs.writeFileSync(p, pdf);
+
+    const ok = await recordUploadOwnership({ filename: 'abc.pdf', path: p }, 'user-1');
+
+    expect(ok).toBe(false);
+    expect(fs.existsSync(p)).toBe(false);
+  });
+
+  /**
+   * Penghapusan terbatas pada direktori unggahan.
+   *
+   * `path` datang bersama permintaan; menghapusnya apa adanya adalah jalur
+   * penghapusan berkas sembarang (CodeQL js/path-injection). `recordUploadOwnership`
+   * karena itu menyusun ulang path dari `path.basename` **dan** memastikan
+   * hasilnya sama dengan `path` yang diberikan, sehingga sebuah path yang
+   * menunjuk ke luar `public/uploads` tidak pernah tersentuh.
+   */
+  it('tidak menghapus berkas di luar direktori unggahan', async () => {
+    vi.mocked(prisma.letterUpload.upsert).mockRejectedValue(new Error('db down'));
+    const outside = path.join(os.tmpdir(), `upload-owner-outside-${Date.now()}`);
+    fs.writeFileSync(outside, pdf);
+
+    const ok = await recordUploadOwnership({ filename: 'abc.pdf', path: outside }, 'user-1');
+
+    expect(ok).toBe(false);
+    expect(fs.existsSync(outside)).toBe(true);
+    fs.unlinkSync(outside);
+  });
+
+  /**
+   * Berkas milik permintaan lain tidak boleh ikut terhapus.
+   *
+   * `path.basename` saja membuat sebuah path di luar direktori yang kebetulan
+   * berbagi nama dasar menunjuk unggahan milik orang lain — sehingga kegagalan
+   * pencatatan satu permintaan menghapus berkas permintaan lain (CWE-73).
+   */
+  it('tidak menghapus unggahan lain yang kebetulan senama', async () => {
+    vi.mocked(prisma.letterUpload.upsert).mockRejectedValue(new Error('db down'));
+    const sharedName = `upload-owner-collide-${Date.now()}`;
+    const otherRequestFile = path.join(uploadDir, sharedName);
+    fs.writeFileSync(otherRequestFile, pdf);
+
+    const ok = await recordUploadOwnership(
+      { filename: sharedName, path: path.join(os.tmpdir(), sharedName) },
+      'user-1'
+    );
+
+    expect(ok).toBe(false);
+    expect(fs.existsSync(otherRequestFile)).toBe(true);
+    fs.unlinkSync(otherRequestFile);
   });
 });
 

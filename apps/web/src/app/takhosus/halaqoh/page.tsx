@@ -49,7 +49,9 @@ function HalaqohPageContent() {
       const res = await api.get("/takhosus/halaqoh", {
         params: { limit: 100 },
       });
-      return res.data.data.data; // Assuming pagination structure
+      // The list endpoint returns the rows at `data.data` and the pagination
+      // block as a *sibling* of `data` — there is no third `data` nesting.
+      return res.data.data ?? [];
     },
   });
 
@@ -62,7 +64,7 @@ function HalaqohPageContent() {
         params.halaqohId = selectedHalaqohId;
       }
       const res = await api.get("/takhosus/enrollment", { params });
-      return res.data.data.data;
+      return res.data.data ?? [];
     },
   });
 

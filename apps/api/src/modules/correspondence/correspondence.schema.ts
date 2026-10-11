@@ -9,6 +9,7 @@ export {
   dispatchLetterSchema,
   updateLetterCcSchema,
   updateLetterSchema,
+  exportAgendaQuerySchema,
 } from '@cipansor/shared';
 
 export type {
@@ -22,4 +23,5 @@ export type {
   DispatchLetterSchemaInput,
   UpdateLetterCcSchemaInput,
   UpdateLetterSchemaInput,
+  ExportAgendaQueryInput,
 } from '@cipansor/shared';

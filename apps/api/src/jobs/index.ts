@@ -17,6 +17,12 @@ export {
   type IdentityPurgeSummary,
 } from './identity-purge.job';
 export {
+  reviewLetterRetention,
+  LETTER_RETENTION_AUDIT_ACTION,
+  type LetterRetentionSummary,
+  type RetentionDueLetter,
+} from './letter-retention.job';
+export {
   runChatbotSpendCheck,
   CHATBOT_SPEND_AUDIT_ACTION,
   CHATBOT_SPEND_AUDIT_ENTITY,

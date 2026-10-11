@@ -3,7 +3,7 @@ import type {
   IbadahLeaderboardEntry,
   IbadahLeaderboardResult,
 } from "@cipansor/shared";
-import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
+import api, { ApiResponse, SharedPaginatedResponse } from "@/lib/api";
 
 export type { IbadahLeaderboardEntry };
 
@@ -263,7 +263,7 @@ export function useIbadahTargets(params: ListTargetsParams = {}) {
   return useQuery({
     queryKey: ["ibadah-targets", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<IbadahTarget>>(
+      const response = await api.get<SharedPaginatedResponse<IbadahTarget>>(
         "/ibadah/targets",
         { params },
       );
@@ -397,7 +397,7 @@ export function useIbadahRecords(params: ListRecordsParams = {}) {
   return useQuery({
     queryKey: ["ibadah-records", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<IbadahRecord>>(
+      const response = await api.get<SharedPaginatedResponse<IbadahRecord>>(
         "/ibadah/records",
         { params },
       );
@@ -588,7 +588,8 @@ export function useDailyCheckIn() {
 // ======================
 
 export interface LeaderboardParams {
-  unitId: string;
+  /** Narrows within the reader's santri; without it the API ranks all of them. */
+  unitId?: string;
   periodType: LeaderboardPeriod;
   classId?: string;
   dormRoomId?: string;
@@ -606,7 +607,6 @@ export function useIbadahLeaderboard(params: LeaderboardParams) {
       // The entries are nested under data.data; return the array.
       return response.data.data?.data ?? [];
     },
-    enabled: !!params.unitId,
   });
 }
 
@@ -717,7 +717,7 @@ export function useIslamicEvents(params: ListEventsParams = {}) {
   return useQuery({
     queryKey: ["islamic-events", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<IslamicEvent>>(
+      const response = await api.get<SharedPaginatedResponse<IslamicEvent>>(
         "/ibadah/events",
         { params },
       );
