@@ -73,6 +73,12 @@ export const generateCertificateSchema = z.object({
   musyrifName: z.string().optional(),
   sanadChain: z.string().optional(),
   notes: z.string().optional(),
+  // Whether the minted syahadah may be read on the public verification page.
+  // Defaults to `true`: the row's printed URL points at
+  // `/public/verify-sanad?code=…`, so a private row could never verify the
+  // document it was printed on. An issuer minting an internal-only record
+  // passes `false`.
+  isPublic: z.boolean().default(true),
 });
 
 // Types

@@ -16,6 +16,7 @@ import {
   User,
   School,
   BookOpen,
+  Download,
 } from "lucide-react";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -32,6 +33,7 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import api from "@/lib/api";
+import { useDownloadPublicCertificate } from "@/hooks/use-certificate";
 
 interface VerificationResult {
   valid: boolean;
@@ -58,6 +60,37 @@ function VerifySanadContent() {
   const [result, setResult] = useState<VerificationResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const turnstile = useTurnstile();
+  const downloadMutation = useDownloadPublicCertificate();
+
+  /**
+   * Fetch the verified certificate's PDF and save it.
+   *
+   * This is the page the printed QR opens (`certificateVerificationUrl`), and
+   * the recipient holds only the number — so the bytes come from the
+   * session-free `/certificates/public/{code}/download`, which answers only for
+   * a certificate marked `isPublic`. A visitor who reaches the portal's
+   * `/certificates/verify/[code]` page gets the same file; this is the same
+   * flow on the public host. The blob URL is revoked after the click so it does
+   * not pin the file in memory.
+   */
+  const handleDownload = async () => {
+    const number = result?.data?.certificateNumber;
+    if (!number) return;
+    try {
+      const blob = await downloadMutation.mutateAsync(number);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sertifikat-${number.replace(/[^A-Za-z0-9]+/g, "-")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // The axios interceptor already surfaced the error to the visitor.
+      setError("Gagal mengunduh sertifikat. Silakan coba lagi.");
+    }
+  };
 
   const handleVerify = async (e?: React.FormEvent) => {
     if (e) e.preventDefault();
@@ -256,6 +289,19 @@ function VerifySanadContent() {
                   </div>
                 </div>
               </div>
+
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full"
+                onClick={handleDownload}
+                disabled={downloadMutation.isPending}
+              >
+                <Download className="h-4 w-4 mr-2" />
+                {downloadMutation.isPending
+                  ? "Mengunduh..."
+                  : "Unduh Sertifikat (PDF)"}
+              </Button>
             </div>
           )}
         </CardContent>

@@ -971,6 +971,23 @@ const adminNavigation: NavGroup[] = [
         icon: FileSpreadsheet,
       },
       {
+        // Per-unit rapor configuration and generation. Restricted to the roles
+        // whose `roleCodeRouteAccess` grants `/rapor-pesantren`: the four unit
+        // admins and the super admin. Leaving it unrestricted would show it to
+        // the yayasan roles, which share the UNIT_ADMIN bucket but are not
+        // granted the route and would be bounced back to /dashboard.
+        title: "Rapor Pesantren",
+        href: "/rapor-pesantren",
+        icon: FileSpreadsheet,
+        roleCodes: [
+          "SUPER_ADMIN",
+          "TKQ_ADMIN",
+          "SDIT_ADMIN",
+          "SMPIT_ADMIN",
+          "SMAQ_ADMIN",
+        ],
+      },
+      {
         title: "EMIS Kemenag",
         href: "/emis",
         icon: FileSpreadsheet,

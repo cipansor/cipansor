@@ -259,10 +259,11 @@ naming and ZIS/wakaf).
 - **User guide per role, and technical docs** — to be produced through a skill
   (step 4 of the agent-context restructure, see `progress.md`). Decisions that
   still hold: the guide is role-first (each role's chapter covers every module
-  it touches); the README becomes lean (overview, tech, install, links) and its
-  screenshot gallery moves into the guide; screenshots are regenerated into
-  `docs/images`, checking and fixing each page — which doubles as the role/menu
-  audit.
+  it touches); the README becomes lean (overview, tech, install, links, a few
+  screenshots) and every screen's picture lives in the guide, per task, under
+  `docs/screens/`. The page and role galleries are rebuilt locally and never
+  committed; the technical document carries the page map as text (decided
+  2026-10-10, `decisions/dokumentasi-bergambar.md`).
 
 ## 5. Customer-service chatbot — four gaps
 

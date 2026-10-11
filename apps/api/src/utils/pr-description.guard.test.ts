@@ -215,6 +215,24 @@ describe('pr-template-guard.sh', () => {
       expect(status).toBe(0);
     });
 
+    it('does not call a guide under the prisma folder risky (#765)', () => {
+      const { status, calls } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_FILES: 'apps/api/prisma/AGENTS.md\ndocs/DEPLOYMENT.md',
+      });
+      expect(status).toBe(0);
+      expect(calls).not.toContain('COMMENT');
+    });
+
+    it('still asks for the note when the guide comes with the schema', () => {
+      const { status, calls } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_FILES: 'apps/api/prisma/AGENTS.md\napps/api/prisma/schema.prisma',
+      });
+      expect(status).toBe(1);
+      expect(calls).toContain('apps/api/prisma/schema.prisma');
+    });
+
     it('does not mistake a test beside the auth middleware for the middleware', () => {
       const { status } = run(TEMPLATE, {
         GH_STUB_BODY: NO_HUMAN,

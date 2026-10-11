@@ -5,10 +5,13 @@ import path from "path";
 /**
  * Vitest configuration for the web app.
  *
- * Two projects run under a single `pnpm --filter web test`:
+ * Three projects run under a single `pnpm --filter web test`:
  *  - `unit`      — jsdom + React Testing Library for `src/**` (components,
  *                  hooks, and pure helpers like `lib/rbac.ts`).
  *  - `e2e-utils` — node env for the Playwright helper/fixture unit tests.
+ *  - `scripts`   — node env for the visual-QA sweep helpers (`scripts/lib/*`),
+ *                  whose session/route plumbing a browser run cannot cheaply
+ *                  exercise on its own.
  */
 export default defineConfig({
   plugins: [react()],
@@ -39,11 +42,25 @@ export default defineConfig({
           include: ["e2e/**/*.test.ts"],
         },
       },
+      {
+        extends: true,
+        test: {
+          name: "scripts",
+          globals: true,
+          environment: "node",
+          include: ["scripts/**/*.test.ts"],
+        },
+      },
     ],
     coverage: {
       provider: "v8",
       reporter: ["text", "json", "html"],
-      include: ["src/**", "e2e/helpers/**", "e2e/fixtures/**"],
+      include: [
+        "src/**",
+        "e2e/helpers/**",
+        "e2e/fixtures/**",
+        "scripts/lib/**",
+      ],
     },
   },
 });

@@ -7,17 +7,35 @@ import { leaveBalanceController } from './leave-balances.controller';
 import { employeeDocumentController } from './employee-documents.controller';
 import { employmentHistoryController } from './employment-history.controller';
 import { authenticate, authorize } from '../../middleware/auth';
+import { z } from 'zod';
 import { validateQuery } from '../../middleware/error';
+import { validate } from '../../middleware/validate';
 import {
   queryStaffAttendanceSchema,
   queryLeaveSchema,
   queryStaffSchema,
   queryTeachersSchema,
+  createEmployeeSchema,
+  updateEmployeeSchema,
 } from './hr.schema';
 
 const router = Router();
 
 router.use(authenticate);
+
+// Employees are a User with a Teacher or Staff row — the list the HR pages
+// read. Same admin gate as the other HR mutations; TEACHER/STAFF may read
+// their own record (see the `/employees/:userId/*` routes below).
+const EMPLOYEE_READ_ROLES = [
+  UserRole.SUPER_ADMIN,
+  UserRole.UNIT_ADMIN,
+  UserRole.TEACHER,
+  UserRole.STAFF,
+] as const;
+
+const queryEmployeesSchema = queryTeachersSchema.extend({
+  role: z.enum(['TEACHER', 'STAFF']).optional(),
+});
 
 // ==================== STAFF ====================
 
@@ -652,6 +670,37 @@ router.patch(
   '/contracts/:id',
   authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
   contractController.update
+);
+
+// ==================== EMPLOYEES (TEACHER + STAFF) ====================
+//
+// `/employees/:id` cannot shadow `/employees/:userId/documents` (2 segments vs
+// 3), so registration order is free here. The web hooks call exactly these
+// paths; the service functions already existed — only the routes were missing,
+// which is why every HR page 404'd and rendered an empty roster.
+router.get(
+  '/employees',
+  authorize(...EMPLOYEE_READ_ROLES),
+  validateQuery(queryEmployeesSchema),
+  controller.getEmployees
+);
+router.post(
+  '/employees',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  validate(createEmployeeSchema),
+  controller.createEmployee
+);
+router.get('/employees/:id', authorize(...EMPLOYEE_READ_ROLES), controller.getEmployeeById);
+router.put(
+  '/employees/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  validate(updateEmployeeSchema),
+  controller.updateEmployee
+);
+router.delete(
+  '/employees/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  controller.deleteEmployee
 );
 
 // ==================== EMPLOYEE DOCUMENTS ====================

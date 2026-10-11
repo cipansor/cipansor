@@ -58,7 +58,9 @@ missing=""
 # by the gate, and a human approves the weekly release (docs/SDLC-FLOW.md: four
 # human gates). Decided by the owner on 2026-10-10 (#760). A guard that cannot
 # read the labels or the files treats the PR as risky: it never waves through
-# what it could not see.
+# what it could not see. A Markdown file is never risky, even under one of these
+# paths: apps/api/prisma/AGENTS.md is a guide, not a schema or a data script
+# (#765).
 RISKY_PATHS='^(apps/api/prisma/|apps/api/scripts/|apps/api/src/middleware/auth\.ts$|apps/api/src/modules/(auth|roles)/|apps/api/src/utils/(student-scope|resolve-unit-id)\.ts$|apps/web/middleware\.ts$|apps/web/src/lib/rbac\.ts$|packages/shared/src/roles\.ts$)'
 risk=""
 if PR_LABELS="$(gh pr view "$PR" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')"; then
@@ -68,7 +70,7 @@ else
 fi
 if [ -z "$risk" ]; then
   if FILES="$(gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename')"; then
-    HIT="$(printf '%s\n' "$FILES" | grep -E "$RISKY_PATHS" | head -n1 || true)"
+    HIT="$(printf '%s\n' "$FILES" | grep -E "$RISKY_PATHS" | grep -vE '\.md$' | head -n1 || true)"
     [ -z "$HIT" ] || risk="mengubah \`$HIT\`"
   else
     risk="daftar berkas PR tidak terbaca"

@@ -1,467 +1,301 @@
 # CIPANSOR
 
-> **Sistem Informasi Cipansor** - Platform terintegrasi untuk TK, SD IT, SMP IT, SMA Al-Qur'an dengan fokus tahfidz dan kurikulum pesantren terintegrasi.
+> **Sistem Informasi Cipansor** — satu portal untuk **TK Qur'an, SD IT, SMP IT,
+> SMA Qur'an, dan pesantren** (tahfidz, takhosus, asrama) di bawah Yayasan
+> Pesantren Cipansor, Tasikmalaya, ditambah situs publik yayasan.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.x-blue.svg)](https://www.typescriptlang.org/)
-[![Node.js](https://img.shields.io/badge/Node.js-20+-green.svg)](https://nodejs.org/)
+[![Node.js](https://img.shields.io/badge/Node.js-22-green.svg)](https://nodejs.org/)
 [![Next.js](https://img.shields.io/badge/Next.js-16-black.svg)](https://nextjs.org/)
+[![React](https://img.shields.io/badge/React-19-61dafb.svg)](https://react.dev/)
 [![Prisma](https://img.shields.io/badge/Prisma-7-blueviolet.svg)](https://www.prisma.io/)
 [![Express](https://img.shields.io/badge/Express-5-green.svg)](https://expressjs.com/)
+[![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)](https://www.postgresql.org/)
 [![Lisensi: Apache 2.0](https://img.shields.io/badge/Lisensi-Apache%202.0-blue.svg)](LICENSE)
 
 ---
 
-## 📋 Daftar Isi
+## Daftar Isi
 
-- [Overview](#-overview)
-- [Antarmuka](#-antarmuka)
-- [Fitur Utama](#-fitur-utama)
-- [Modul](#-modul)
-- [Teknologi](#-teknologi)
-- [Instalasi](#-instalasi)
-- [Pengembangan](#-pengembangan)
-- [Dokumentasi API](#-dokumentasi-api)
-- [Kontribusi](#-kontribusi)
-- [Lisensi](#-lisensi)
-
----
-
-## 🎯 Overview
-
-**Cipansor** adalah sistem manajemen terintegrasi (ERP) yang dirancang khusus untuk kebutuhan **Yayasan Pesantren Cipansor**. Sistem ini mengelola berbagai unit pendidikan mulai dari TK, SD IT, SMP IT, hingga SMA Al-Qur'an dalam satu platform terpadu.
-
-Sistem ini menggabungkan manajemen akademik sekolah formal dengan manajemen kepesantrenan (tahfidz, asrama, perizinan) serta manajemen administratif yayasan (keuangan, SDM, aset).
+- [Ikhtisar](#ikhtisar)
+- [Sekilas Tampilan](#sekilas-tampilan)
+- [Siapa Memakainya](#siapa-memakainya)
+- [Fitur Utama](#fitur-utama)
+- [Arsitektur Singkat](#arsitektur-singkat)
+- [Angka Proyek](#angka-proyek)
+- [Teknologi](#teknologi)
+- [Menjalankan Secara Lokal](#menjalankan-secara-lokal)
+- [Pengujian dan Gerbang Mutu](#pengujian-dan-gerbang-mutu)
+- [QA Visual dan Galeri Tampilan](#qa-visual-dan-galeri-tampilan)
+- [Dokumentasi](#dokumentasi)
+- [Kontribusi](#kontribusi)
+- [Lisensi](#lisensi)
 
 ---
 
-## 💻 Antarmuka
+## Ikhtisar
 
-Cipansor menyediakan antarmuka modern yang responsif dan terorganisir berdasarkan modul fungsional.
+Cipansor menyatukan tiga pekerjaan yayasan dalam satu aplikasi:
 
-### 1. Dashboard Eksekutif & Unit
+1. **Akademik sekolah** — santri, rombel, jadwal, absensi harian, penilaian,
+   rapor (K13 dan Kurikulum Merdeka), ujian daring, dan bimbingan konseling.
+2. **Kepesantrenan** — tahfidz (ziyadah, murojaah, simaan), takhosus, ibadah
+   harian, kitab kuning, muhadhoroh, asrama, perizinan santri, serta catatan
+   pelanggaran dan penghargaan.
+3. **Tata kelola dan administrasi yayasan** — perencanaan (RPJP → Renstra →
+   RKA), perjanjian kinerja, keuangan (SPP, tagihan, ZIS/wakaf), kepegawaian,
+   sarana, naskah dinas dengan tanda tangan elektronik (E-Office), penjaminan
+   mutu, dan penerimaan santri baru (SPMB).
 
-Pusat kendali utama untuk memantau statistik dan kinerja seluruh unit pendidikan.
-
-| Dashboard Global                                      | Dashboard SMA Al-Qur'an                         |
-| ----------------------------------------------------- | ----------------------------------------------- |
-| ![Dashboard Global](docs/images/dashboard-global.png) | ![Dashboard SMA](docs/images/dashboard-sma.png) |
-
-| Dashboard SMP IT                                | Dashboard SD IT                               |
-| ----------------------------------------------- | --------------------------------------------- |
-| ![Dashboard SMP](docs/images/dashboard-smp.png) | ![Dashboard SD](docs/images/dashboard-sd.png) |
-
-| Dashboard PAUD/TK                                 | Dashboard Umum                          |
-| ------------------------------------------------- | --------------------------------------- |
-| ![Dashboard PAUD](docs/images/dashboard-paud.png) | ![Dashboard](docs/images/dashboard.png) |
-
-| Login System                    |     |
-| ------------------------------- | --- |
-| ![Login](docs/images/login.png) |     |
-
-### 2. Manajemen Yayasan & Administrasi (Foundation)
-
-Pengelolaan sumber daya yayasan, keuangan, dan administrasi perkantoran.
-
-| Profil & Unit                          | Keuangan Yayasan                     |
-| -------------------------------------- | ------------------------------------ |
-| ![Yayasan](docs/images/foundation.png) | ![Keuangan](docs/images/finance.png) |
-
-| Kepegawaian (HR)          | E-Office (Surat)                      |
-| ------------------------- | ------------------------------------- |
-| ![HR](docs/images/hr.png) | ![E-Office](docs/images/e-office.png) |
-
-| Dashboard Guru                      | Jadwal Piket                                |
-| ----------------------------------- | ------------------------------------------- |
-| ![Teacher](docs/images/teacher.png) | ![Duty Roster](docs/images/duty-roster.png) |
-
-| Detail Pegawai                                      | Cuti (Terverifikasi)                                         |
-| --------------------------------------------------- | ------------------------------------------------------------ |
-| ![Employee Detail](docs/images/employee-detail.png) | ![Leaves Verified](docs/images/admin_my_leaves_verified.png) |
-
-| Resepsionis (Buku Tamu)                 | Pengadaan (Procurement)                     |
-| --------------------------------------- | ------------------------------------------- |
-| ![Reception](docs/images/reception.png) | ![Procurement](docs/images/procurement.png) |
-
-| Manajemen User                  | Analitik & Laporan                      |
-| ------------------------------- | --------------------------------------- |
-| ![Users](docs/images/users.png) | ![Analytics](docs/images/analytics.png) |
-
-| Laporan Pusat                       | Manajemen Unit                  |
-| ----------------------------------- | ------------------------------- |
-| ![Reports](docs/images/reports.png) | ![Units](docs/images/units.png) |
-
-| Marketing & Pendaftaran                 | Penjaminan Mutu (SPMI)              |
-| --------------------------------------- | ----------------------------------- |
-| ![Marketing](docs/images/marketing.png) | ![Quality](docs/images/quality.png) |
-
-| Dashboard Staff                 |     |
-| ------------------------------- | --- |
-| ![Staff](docs/images/staff.png) |     |
-
-### 3. Akademik & Pembelajaran
-
-Sistem administrasi sekolah yang komprehensif.
-
-| Data Siswa                            | Kelas & Jadwal                      |
-| ------------------------------------- | ----------------------------------- |
-| ![Students](docs/images/students.png) | ![Classes](docs/images/classes.png) |
-
-| Kurikulum                                 | Kalender Akademik                     |
-| ----------------------------------------- | ------------------------------------- |
-| ![Curriculum](docs/images/curriculum.png) | ![Calendar](docs/images/calendar.png) |
-
-| Absensi                                   | Penilaian (Rapor)                         |
-| ----------------------------------------- | ----------------------------------------- |
-| ![Attendance](docs/images/attendance.png) | ![Assessment](docs/images/assessment.png) |
-
-| Sertifikat & Ijazah                           | Wali Kelas (Homeroom)                 |
-| --------------------------------------------- | ------------------------------------- |
-| ![Certificates](docs/images/certificates.png) | ![Homeroom](docs/images/homeroom.png) |
-
-| Tahun Ajaran                                      | Jadwal Pelajaran                      |
-| ------------------------------------------------- | ------------------------------------- |
-| ![Academic Years](docs/images/academic-years.png) | ![Schedule](docs/images/schedule.png) |
-
-| Detail Siswa                                      |     |
-| ------------------------------------------------- | --- |
-| ![Student Detail](docs/images/student-detail.png) |     |
-
-| Perpustakaan                        | Rapor PAUD                                     |
-| ----------------------------------- | ---------------------------------------------- |
-| ![Library](docs/images/library.png) | ![PAUD Rapor](docs/images/tk-daily-report.png) |
-
-| Manajemen PAUD                | Daftar Siswa PAUD                       |
-| ----------------------------- | --------------------------------------- |
-| ![PAUD](docs/images/paud.png) | ![PAUD List](docs/images/paud-list.png) |
-
-| Laporan Harian (Bulk)                                   |     |
-| ------------------------------------------------------- | --- |
-| ![Daily Report Bulk](docs/images/daily-report-bulk.png) |     |
-
-| Portofolio Siswa                        |     |
-| --------------------------------------- | --- |
-| ![Portfolio](docs/images/portfolio.png) |     |
-
-### 4. Kepesantrenan (Boarding System)
-
-Fitur unggulan untuk manajemen pendidikan Islam berasrama.
-
-| Tahfidz Quran                       | Setoran Hafalan                      |
-| ----------------------------------- | ------------------------------------ |
-| ![Tahfidz](docs/images/tahfidz.png) | ![Setoran](docs/images/takhosus.png) |
-
-| Ibadah Harian                     | Muhasabah Diri                          |
-| --------------------------------- | --------------------------------------- |
-| ![Ibadah](docs/images/ibadah.png) | ![Muhasabah](docs/images/muhasabah.png) |
-
-| Pembelajaran Kitab                       | Muhadatsah (Bahasa)                       |
-| ---------------------------------------- | ----------------------------------------- |
-| ![Kitab](docs/images/kitab-progress.png) | ![Muhadatsah](docs/images/muhadatsah.png) |
-
-| Asrama & Musyrif                            | Muhadhoroh (Pidato)                       |
-| ------------------------------------------- | ----------------------------------------- |
-| ![Dormitories](docs/images/dormitories.png) | ![Muhadhoroh](docs/images/muhadhoroh.png) |
-
-| Dashboard Musyrif                   | Rapor Pesantren                                     |
-| ----------------------------------- | --------------------------------------------------- |
-| ![Musyrif](docs/images/musyrif.png) | ![Rapor Pesantren](docs/images/rapor-pesantren.png) |
-
-| Pelanggaran                               | Konseling & Perizinan                     |
-| ----------------------------------------- | ----------------------------------------- |
-| ![Violations](docs/images/violations.png) | ![Counseling](docs/images/counseling.png) |
-
-| Perizinan (Detail)                  | Penghargaan (Reward)                |
-| ----------------------------------- | ----------------------------------- |
-| ![Permits](docs/images/permits.png) | ![Rewards](docs/images/rewards.png) |
-
-### 5. Fasilitas & Layanan Pendukung
-
-Modul pendukung operasional harian dan pelayanan santri.
-
-| Kesehatan (UKS)                   | Tabungan Santri (E-Wallet)        |
-| --------------------------------- | --------------------------------- |
-| ![Health](docs/images/health.png) | ![Wallet](docs/images/wallet.png) |
-
-| Makan (Catering)                | Laundry                             |
-| ------------------------------- | ----------------------------------- |
-| ![Meals](docs/images/meals.png) | ![Laundry](docs/images/laundry.png) |
-
-| Kantin                              | Inventaris & Aset                       |
-| ----------------------------------- | --------------------------------------- |
-| ![Canteen](docs/images/canteen.png) | ![Inventory](docs/images/inventory.png) |
-
-| Fasilitas                                 | Jadwal Makan                    |
-| ----------------------------------------- | ------------------------------- |
-| ![Facilities](docs/images/facilities.png) | ![Meals](docs/images/meals.png) |
-
-| Ekstrakurikuler                                     | Notifikasi                                      |
-| --------------------------------------------------- | ----------------------------------------------- |
-| ![Extracurricular](docs/images/extracurricular.png) | ![Notifications](docs/images/notifications.png) |
-
-### 6. Komunikasi & Penerimaan
-
-| Pengumuman & Notifikasi                | PSB & PPDB                    |
-| -------------------------------------- | ----------------------------- |
-| ![News](docs/images/announcements.png) | ![PPDB](docs/images/ppdb.png) |
-
-| Portal PSB Online           |     |
-| --------------------------- | --- |
-| ![PSB](docs/images/psb.png) |     |
-
-| Alumni                            | Donasi                                |
-| --------------------------------- | ------------------------------------- |
-| ![Alumni](docs/images/alumni.png) | ![Donation](docs/images/donation.png) |
-
-### 7. Portal Wali Santri
-
-Akses khusus bagi orang tua untuk memantau perkembangan anak.
-
-| Dashboard Wali Murid                            | Data & Progres Anak                           |
-| ----------------------------------------------- | --------------------------------------------- |
-| ![Parent Portal](docs/images/parent-portal.png) | ![Data Anak](docs/images/parent-children.png) |
-
-| Info Keuangan & Tagihan                               | Laporan Harian Anak                                    |
-| ----------------------------------------------------- | ------------------------------------------------------ |
-| ![Keuangan Orang Tua](docs/images/parent-finance.png) | ![Laporan Harian](docs/images/parent-daily-report.png) |
-
-### 8. Pengaturan & Personalisasi
-
-| Profil Pengguna                             | Detail Profil                              |
-| ------------------------------------------- | ------------------------------------------ |
-| ![Profil](docs/images/settings-profile.png) | ![Profile Detail](docs/images/profile.png) |
-
-| Pengaturan Sistem                     |     |
-| ------------------------------------- | --- |
-| ![Settings](docs/images/settings.png) |     |
-
-| Manajemen User (Settings)                         | Tampilan & Tema                                    |
-| ------------------------------------------------- | -------------------------------------------------- |
-| ![Users Settings](docs/images/settings-users.png) | ![Appearance](docs/images/settings-appearance.png) |
+Satu build web melayani **dua host**: situs publik (`cipansor.or.id`, tiga bahasa
+— Indonesia, Inggris, Arab) dan portal internal (`portal.cipansor.or.id`, hanya
+bahasa Indonesia, bisa dipasang sebagai PWA).
 
 ---
 
-## ✨ Fitur Utama
+## Sekilas Tampilan
 
-Sistem Cipansor memiliki fitur-fitur unggulan yang disesuaikan dengan kebutuhan pesantren modern:
+|                                                                                         |                                                                                          |
+| --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- |
+| ![Halaman masuk portal](docs/screens/masuk-dan-kenal-aplikasi/01-halaman-masuk.png)      | ![Data anak di portal wali](docs/screens/pantau-anak-wali/02-data-anak.png)               |
+| **Masuk** — satu pintu untuk semua peran                                                | **Wali santri** — profil, kehadiran, tahfidz, dan nilai anak                             |
+| ![Formulir catatan tahfidz](docs/screens/catatan-tahfidz-dan-pengasuhan-musyrif/04-form-tahfidz.png) | ![Formulir naskah dinas](docs/screens/layanan-tata-usaha/07-buat-surat.png) |
+| **Musyrif/muhafidz** — mencatat setoran hafalan                                         | **Tata usaha** — menyusun naskah dinas untuk diparaf dan ditandatangani                  |
 
-- **Multi-Unit Management**: Mengelola TK, SD, SMP, SMA dalam satu dashboard terpusat.
-- **Manajemen Tahfidz**: Pencatatan hafalan (ziyadah, murojaah), penilaian, dan laporan perkembangan santri.
-- **Kesantrian & Asrama**: Pengelolaan kamar, perizinan keluar/pulang, pelanggaran, dan poin penghargaan.
-- **Akademik Terpadu**: Jadwal pelajaran, absensi, penilaian, dan rapor (K13 & Kurikulum Merdeka).
-- **Keuangan & SPP**: Tagihan otomatis, pembayaran via berbagai metode, dan laporan keuangan yayasan.
-- **Portal Orang Tua**: Akses bagi wali santri untuk memantau hafalan, akademik, dan tagihan anak.
-
----
-
-## 🧩 Modul
-
-Cipansor terdiri dari berbagai modul yang saling terintegrasi:
-
-### 1. Modul Akademik
-
-- Manajemen Siswa & Guru
-- Kelas & Tahun Ajaran
-- Jadwal Pelajaran
-- Absensi (Siswa & Guru)
-- Penilaian & Rapor
-
-### 2. Modul Kepesantrenan
-
-- **Tahfidz**: Target hafalan, setoran harian, ujian tahfidz.
-- **Asrama**: Data kamar, penempatan santri, piket.
-- **Perizinan**: Izin sakit, pulang, atau keluar komplek.
-- **Kedisiplinan**: Poin pelanggaran dan prestasi.
-
-### 3. Modul Administratif
-
-- **Keuangan**: SPP, uang gedung, tabungan santri.
-- **SDM**: Data pegawai, penggajian (payroll), cuti.
-- **Aset & Inventaris**: Manajemen aset yayasan dan pemeliharaan.
-- **PSB (Penerimaan Santri Baru)**: Pendaftaran online, seleksi, dan pengumuman.
-
-### 4. Modul Pendukung
-
-- **Perpustakaan**: Sirkulasi buku dan katalog.
-- **UKS (Kesehatan)**: Rekam medis santri dan stok obat.
-- **Alumni**: Database alumni dan legalisir ijazah.
+Tangkapan layar per tugas ada di [panduan pengguna](docs/README.md) tiap peran.
+Galeri seluruh halaman dibangun ulang dari kode dan tidak disimpan di git (lihat
+[QA Visual dan Galeri Tampilan](#qa-visual-dan-galeri-tampilan)).
 
 ---
 
-## 🛠 Teknologi
+## Siapa Memakainya
 
-Dibangun dengan teknologi modern untuk performa dan skalabilitas tinggi:
+Ada **53 kode peran** (`RoleCode`). Sebagian besar adalah fungsi yang sama yang
+diulang per unit (`TKQ_`, `SDIT_`, `SMPIT_`, `SMAQ_`). Menu dipilih per keluarga
+peran:
 
-### Backend (`apps/api`)
+| Keluarga               | Siapa                                                                            |
+| ---------------------- | -------------------------------------------------------------------------------- |
+| Super Admin            | pengelola sistem: akun, peran, kunci tanda tangan elektronik                     |
+| Organ yayasan          | Pembina, Pengurus (Ketua, Sekretaris, Bendahara, anggota), Pengawas              |
+| Admin unit             | operator sistem tiap sekolah                                                     |
+| Kepala sekolah         | kepala unit: RKA unit, penanda tangan naskah unit, atasan penilai                |
+| Guru                   | guru mata pelajaran, wali kelas, guru BK                                         |
+| Pimpinan Pesantren     | Kiai, kepala unit pesantren                                                      |
+| Pendidik pesantren     | ustadz, musyrif (wali kamar), muhafidz                                           |
+| Staf                   | tata usaha, bendahara unit, pustakawan, perawat, keamanan, laboran, unit usaha   |
+| Komite                 | komite sekolah (membaca, tidak mengelola)                                        |
+| Orang tua              | wali santri: data anaknya sendiri                                                |
+| Santri                 | santri SD IT, SMP IT, SMA Qur'an                                                 |
+| Alumni                 | direktori, dokumen, sanad                                                        |
 
-- **Framework**: Express.js
-- **Bahasa**: TypeScript
-- **Database**: PostgreSQL
-- **ORM**: Prisma
-- **Cache**: Redis
-- **Testing**: Vitest
-
-### Frontend (`apps/web`)
-
-- **Framework**: Next.js 16 (App Router)
-- **UI Library**: React 19, Tailwind CSS, shadcn/ui
-- **State Management**: Zustand, React Query
-- **Testing**: Playwright (E2E)
-
-### Infrastruktur
-
-- **Package Manager**: pnpm
-- **Monorepo Tool**: Turborepo
-- **Containerization**: Docker
-- **CI/CD**: GitHub Actions
+Setiap peran punya akun demo (65 akun) di
+[`packages/shared/src/types/demo-accounts.ts`](packages/shared/src/types/demo-accounts.ts),
+dipakai bersama oleh seed dan uji e2e. Menu tiap peran dicetak langsung dari kode
+dengan `apps/web/scripts/role-menus.ts`.
 
 ---
 
-## 🚀 Instalasi
+## Fitur Utama
 
-Ikuti langkah berikut untuk menjalankan proyek di lingkungan lokal Anda:
+- **Banyak unit, satu portal.** Unit menjadi cakupan data. Organ yayasan dan
+  layanan lintas unit (asrama, klinik, perpustakaan, keamanan) melihat semua
+  unit; peran lain terkunci pada unitnya.
+- **Tahfidz dan kepesantrenan.** Target dan setoran hafalan dari SD sampai SMA,
+  simaan, takhosus, ibadah harian, kitab kuning, asrama, dan perizinan yang
+  diputuskan musyrif atau wali kelas santri itu.
+- **Akademik.** Absensi harian dengan tindak lanjut otomatis, penilaian, rapor
+  K13 dan Kurikulum Merdeka, ujian daring, konseling.
+- **Keuangan.** SPP dan tagihan massal, verifikasi pembayaran, tabungan santri,
+  payroll, ZIS/wakaf, laporan yayasan.
+- **Kepegawaian.** Data pegawai, cuti, dan perjanjian kinerja yang terikat pada
+  RKA unit yang sudah disahkan.
+- **E-Office.** Agenda surat masuk dan keluar, paraf berjenjang, disposisi,
+  tanda tangan elektronik Ed25519, PDF yang diarsipkan saat ditandatangani,
+  verifikasi publik dengan mengunggah PDF, dan pencabutan naskah yang ditandatangani.
+- **Wali santri.** Kehadiran, tahfidz, nilai, tagihan, dan buku penghubung anak,
+  dengan notifikasi Web Push.
+- **Situs publik dan SPMB.** Profil yayasan dan unit, program, fasilitas,
+  kegiatan, berita, serta pendaftaran santri baru langsung di portal.
+
+---
+
+## Arsitektur Singkat
+
+```
+apps/
+  api/        Express 5 + Prisma 7: REST API dan pekerjaan terjadwal
+  web/        Next.js 16 (App Router) + React 19 + React Query
+packages/
+  shared/     @cipansor/shared — kontrak DTO dan skema Zod untuk kedua aplikasi
+```
+
+- **API** tersusun per modul: rute → controller tipis → service (satu-satunya
+  lapisan yang menyentuh Prisma) → skema Zod. Standarnya di
+  [`apps/api/AGENTS.md`](apps/api/AGENTS.md); modul lama sedang dirapikan ke
+  standar itu.
+- **Web** mengambil data hanya lewat hook React Query di `src/hooks/*`. Setiap
+  panggilan diperiksa terhadap router API yang sebenarnya oleh
+  `web-api-contract.guard.test.ts`; daftar panggilan lama yang belum terjawab
+  dicatat sebagai baseline yang hanya boleh menyusut.
+- **Akses berlapis:** menu (`config/navigation.ts`), halaman
+  (`lib/rbac.ts` + `middleware.ts`), rute API (`authorize`), dan cakupan baris
+  di service (mis. `studentScope`). Izin per fitur yang diturunkan dari
+  penugasan ("Model A") sedang dibangun bertahap.
+- **Kontrak** request/response tinggal sekali di `@cipansor/shared`.
+
+Rinciannya di [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) dan dokumen teknis
+[`docs/DOKUMEN-TEKNIS.md`](docs/DOKUMEN-TEKNIS.md) (arc42 + C4).
+
+---
+
+## Angka Proyek
+
+Diukur dari kode pada 2026-10-10:
+
+| Metrik                                   | Jumlah  |
+| ---------------------------------------- | ------- |
+| Modul API (`apps/api/src/modules`)       | **95**  |
+| Model Prisma                             | **294** |
+| Enum Prisma                              | **163** |
+| Halaman web (`page.tsx`)                 | **434** |
+| Kode peran (`RoleCode`)                  | **53**  |
+| Akun demo                                | **65**  |
+| Berkas uji API (vitest)                  | **395** |
+| Berkas uji web (vitest)                  | **67**  |
+| Spesifikasi e2e (Playwright)             | **128** |
+
+Angka bergeser setiap kali kode berubah. Kode adalah sumber kebenarannya,
+bukan tabel ini.
+
+---
+
+## Teknologi
+
+**API (`apps/api`)** — Express 5, TypeScript 5, Zod, Prisma 7
+(`@prisma/adapter-pg`) di atas PostgreSQL 16, Redis (ioredis), JWT dengan
+cookie HttpOnly dan 2FA (TOTP), node-cron, Vitest.
+
+**Web (`apps/web`)** — Next.js 16 (App Router), React 19, Tailwind CSS + Radix UI,
+React Query, Zustand, PWA dengan Web Push, Playwright dan Vitest.
+
+**Repo dan infrastruktur** — pnpm 9 workspaces + Turborepo 2, Docker,
+GitHub Actions, Azure App Service ([`docs/deploy-azure.md`](docs/deploy-azure.md)).
+
+---
+
+## Menjalankan Secara Lokal
 
 ### Prasyarat
 
-- Node.js (v20+)
-- pnpm
-- PostgreSQL
-- Docker (Opsional)
+- Node.js 22 dan pnpm 9 (lewat Corepack)
+- Docker, untuk PostgreSQL 16 dan Redis 7 (layanan `db` dan `redis` di `docker-compose.yml`)
 
-### Langkah-langkah
-
-1.  **Clone Repository**
-
-    ```bash
-    git clone https://github.com/your-org/cipansor.git
-    cd cipansor
-    ```
-
-2.  **Install Dependencies**
-
-    ```bash
-    pnpm install
-    ```
-
-3.  **Setup Environment Variables**
-    Salin file `.env.example` ke `.env` dan sesuaikan konfigurasinya.
-
-    ```bash
-    cp .env.example .env
-    ```
-
-4.  **Setup Database**
-    Pastikan PostgreSQL berjalan, lalu jalankan migrasi dan seeding data awal.
-
-    ```bash
-    pnpm db:push
-    # Seed mengosongkan SEMUA tabel sebelum mengisi data contoh — jangan pernah ke produksi.
-    ALLOW_DESTRUCTIVE_SEED=1 E2E_FIXED_2FA=1 pnpm db:seed
-    ```
-
-5.  **Jalankan Aplikasi**
-
-    ```bash
-    pnpm dev
-    ```
-
-    Akses aplikasi di:
-    - Web: `http://localhost:3000`
-    - API: `http://localhost:3001`
-
-### Prasyarat Deployment: Regenerasi Kartu Pelajar
-
-Verifikasi QR kartu pelajar/santri hanya menerima tanda tangan **HMAC-SHA256
-16 karakter**, sesuai desain keamanan kartu fisik yang tidak boleh divalidasi
-oleh hash lama yang mudah dipalsukan. **Kartu yang tercetak dengan QR generasi
-lama (SHA-256 8 karakter tanpa secret TIDAK akan lolos verifikasi** dan harus
-diregenerasi sebelum verifikasi ketat dipakai di produksi.
-
-Sebelum mengaktifkan verifikasi ketat, jalankan regenerasi massal untuk
-seluruh kartu aktif:
-
-1. Masuk sebagai **SUPER_ADMIN** (atau admin unit yang bisa mengakses menu
-   Generator Kartu Pelajar).
-2. Buka **Generator Kartu Pelajar** (`/students/id-card`).
-3. Pilih unit/kelas (atau biarkan kosong sebagai SUPER_ADMIN untuk semua unit),
-   lalu klik **Regenerasi Kartu**.
-4. Cetak ulang seluruh kartu yang sudah diregenerasi dan distribusikan ke
-   pemegang kartu.
-
-Endpoint `POST /api/students/id-cards/bulk-regenerate` melakukan regenerasi
-tersebut. Tanpa langkah ini, kartu fisik lama akan ditolak oleh endpoint
-verifikasi. Verifikasi QR 8 karakter/non-HMAC tetap ditolak oleh desain — ini
-disengaja, bukan bug.
-
----
-
-## 💻 Pengembangan
-
-Perintah-perintah umum yang digunakan dalam pengembangan:
-
-- `pnpm dev`: Menjalankan semua aplikasi dalam mode development.
-- `pnpm build`: Membuild aplikasi untuk produksi.
-- `pnpm lint`: Memeriksa kode dengan ESLint.
-- `pnpm test`: Menjalankan unit test.
-- `pnpm db:studio`: Membuka Prisma Studio untuk melihat data database.
-
-### Testing
-
-#### E2E Testing (Playwright)
+### Langkah
 
 ```bash
-# Run all E2E tests
-cd apps/web
-pnpm test:e2e
+pnpm install
+cp .env.example .env                             # isi DATABASE_URL, REDIS_URL, JWT_SECRET
+pnpm --filter @cipansor/shared build
 
-# Run with UI mode
-pnpm test:e2e:ui
+docker compose up -d db redis                    # Postgres + Redis
+pnpm --filter api db:generate
+pnpm --filter api db:push
+# Seed MENGOSONGKAN SEMUA TABEL sebelum mengisi data demo — jangan pernah ke produksi.
+ALLOW_DESTRUCTIVE_SEED=1 E2E_FIXED_2FA=1 pnpm --filter api db:seed
 
-# Run in headed mode (see browser)
-pnpm test:e2e:headed
-
-# Debug tests
-pnpm test:e2e:debug
-
-# View test report
-pnpm test:e2e:report
-
-# Cross-browser testing
-pnpm test:e2e:firefox
-pnpm test:e2e:webkit
-pnpm test:e2e:mobile
-
-# Using test runner script (recommended)
-./run-e2e.sh              # All tests with pre-flight checks
-./run-e2e.sh --ui         # UI mode
-./run-e2e.sh --file auth.spec.ts  # Specific file
+pnpm dev                                          # API + web
 ```
 
-**Test Coverage:**
+- Web: `http://localhost:3000`
+- API: `http://localhost:3001` (`/health`; dokumentasi interaktif di `/api/docs`
+  di luar produksi)
 
-- ✅ Authentication (11 tests)
-- ✅ Dashboard data refresh (5 tests)
-- ✅ Tahfidz Dashboard (8 tests)
-- ✅ PAUD Module (15 tests)
-- ✅ Finance Reports (5 tests)
-- ✅ Analytics (8 tests)
-
-**Total:** ~56 E2E tests | **Performance:** 62% faster | **Flakiness:** <5%
+Akun demo dan kata sandinya ada di `demo-accounts.ts`; halaman masuk tidak
+menampilkannya. Akun admin meminta kode 2FA. Dengan `E2E_FIXED_2FA=1`, seed
+memakai rahasia TOTP tetap untuk uji lokal.
 
 ---
 
-## 📚 Dokumentasi API
+## Pengujian dan Gerbang Mutu
 
-Dokumentasi lengkap API tersedia di endpoint `/docs` pada service API (jika Swagger diaktifkan) atau dapat dilihat pada file spesifikasi di folder `docs/`.
+Jalankan seluruh gerbang **secara lokal** sebelum push. CI hanya jaring pengaman.
 
-Contoh endpoint utama:
+```bash
+pnpm --filter @cipansor/shared build
+pnpm --filter api db:generate
+pnpm --filter api build && pnpm --filter api build:strict
+pnpm --filter api test
+pnpm --filter web build && pnpm --filter web test
+pnpm --filter web test:e2e      # butuh stack lokal yang sudah di-seed
+pnpm format && pnpm lint
+```
 
-- `POST /api/auth/login`: Masuk ke sistem
-- `GET /api/students`: Mengambil daftar santri
-- `GET /api/tahfidz/records`: Mengambil data hafalan
+Aturan yang dijaga (lengkapnya di [`AGENTS.md`](AGENTS.md)):
+
+- service/controller baru membawa uji vitest, dan alur web baru membawa uji
+  e2e, di commit yang sama;
+- fitur tersambung dari ujung ke ujung: endpoint baru bersama konsumen web-nya,
+  halaman baru bersama endpoint-nya, tanpa data tiruan;
+- perbaikan cacat membawa uji yang gagal sebelum perbaikan;
+- `apps/api/prisma/schema.prisma` disunting secara bedah, tidak pernah ditimpa;
+- migrasi hanya memakai fungsi bawaan PostgreSQL.
+
+Alur PR, peninjauan otomatis, dan rilis dijelaskan di
+[`docs/SDLC-FLOW.md`](docs/SDLC-FLOW.md) dan [`docs/LABELS.md`](docs/LABELS.md).
 
 ---
 
-## 🤝 Kontribusi
+## QA Visual dan Galeri Tampilan
+
+Dua skrip menyapu **setiap** halaman pada stack lokal yang sudah di-seed, lalu
+menandai halaman yang kosong, melempar galat, terpental ke rute lain, atau
+meluber ke samping:
+
+```bash
+cd apps/web
+../api/node_modules/.bin/tsx scripts/screenshot-all.ts .qa-all        # semua rute, sebagai Super Admin
+../api/node_modules/.bin/tsx scripts/screenshot-roles.ts .qa-screens  # menu setiap peran
+cd ../..
+python3 scripts/audit-screenshots.py apps/web/.qa-all
+python3 scripts/build-page-gallery.py   # galeri per halaman → docs/images/pages, docs/_gallery.md
+python3 scripts/build-role-gallery.py   # galeri per peran → docs/images/roles, docs/_roles-gallery.md
+```
+
+**Galeri hasil sapuan tidak di-commit.** Ribuan gambar yang dibuat ulang setiap
+kali tampilan berubah akan menetap di riwayat git selamanya. GitHub sendiri
+menyarankan berkas yang dihasilkan program disimpan di luar git. Karena itu
+keluaran kedua skrip galeri di-ignore dan dibangun ulang secara lokal bila
+dibutuhkan. Yang di-commit hanya tangkapan layar yang dipakai panduan pengguna
+(`docs/screens/`). Peta seluruh halaman (rute → modul → peran) ada sebagai teks
+di dokumen teknis.
+
+`dynamic-routes.json` adalah kontrak cakupan rute dinamis untuk sapuan. Isi
+ulang dengan `scripts/resolve-dynamic-routes.ts` saat stack menyala;
+`dynamic-routes.guard.test.ts` memastikan setiap pola dinamis terjawab atau
+dicatat beralasan.
+
+---
+
+## Dokumentasi
+
+| Dokumen                                                         | Isi                                                       |
+| --------------------------------------------------------------- | --------------------------------------------------------- |
+| [`docs/README.md`](docs/README.md)                              | indeks dokumen dan panduan pengguna per peran             |
+| [`docs/DOKUMEN-TEKNIS.md`](docs/DOKUMEN-TEKNIS.md)              | dokumen teknis (arc42 + C4)                               |
+| [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)                  | peta sistem, alur request, dua host                       |
+| [`docs/deploy-azure.md`](docs/deploy-azure.md)                  | rilis dan operasi di Azure App Service                    |
+| [`docs/SDLC-FLOW.md`](docs/SDLC-FLOW.md)                        | alur issue → PR → tinjauan → staging → rilis              |
+| [`docs/LABELS.md`](docs/LABELS.md)                              | label dan siklus hidup issue/PR                           |
+| [`docs/EOFFICE_ESIGN_PLAN.md`](docs/EOFFICE_ESIGN_PLAN.md)      | E-Office dan tanda tangan elektronik                      |
+| [`docs/MOBILE_API.md`](docs/MOBILE_API.md)                      | kontrak API aplikasi wali (PWA)                           |
+| [`docs/EMAIL_SETUP.md`](docs/EMAIL_SETUP.md)                    | email keluar                                              |
+| [`AGENTS.md`](AGENTS.md)                                        | aturan kanonik untuk agen dan pengembang                  |
+| [`.claude/memory/`](.claude/memory/)                            | progres, roadmap, cacat yang diketahui, keputusan, pelajaran |
+
+---
+
+## Kontribusi
 
 Pengembangan dilakukan oleh pihak yang ditugaskan atau dikontrak Yayasan
 Pesantren Cipansor. Repositori ini tidak menerima kontribusi dari luar.
@@ -472,7 +306,7 @@ ke `main`.
 
 ---
 
-## 📄 Lisensi
+## Lisensi
 
 Hak Cipta © 2025–2026 Yayasan Pesantren Cipansor.
 
@@ -481,7 +315,3 @@ Kode sumber dan dokumentasinya dilisensikan di bawah
 Cipansor serta unit-unitnya, foto dan isi brosur Yayasan, maupun data pribadi
 dalam data demo/seed — rinciannya di [`NOTICE`](NOTICE). Komponen pihak ketiga
 tetap tunduk pada lisensinya masing-masing.
-
----
-
-**Dibuat dengan ❤️ untuk Kemajuan Pendidikan Islam di Indonesia**

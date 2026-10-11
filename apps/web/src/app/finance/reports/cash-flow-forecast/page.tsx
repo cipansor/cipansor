@@ -1,6 +1,8 @@
 "use client";
 
+import { useState } from "react";
 import { useCashFlowForecast } from "@/hooks/use-finance-enhancement";
+import { useUnits } from "@/hooks/use-units";
 import { useAuth } from "@/hooks/use-auth";
 import { PageHeader } from "@/components/shared/page-header";
 import {
@@ -11,6 +13,13 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   BarChart,
   Bar,
@@ -30,7 +39,15 @@ import { MainLayout } from "@/components/layout";
 
 function CashFlowForecastPageContent() {
   const { user } = useAuth();
-  const unitId = user?.unitId;
+  // The forecast is always computed for one unit, and a SUPER_ADMIN has no
+  // `unitId` of their own — reading `user.unitId` left the query permanently
+  // disabled and rendered the error branch on a page that has data. Default to
+  // the user's own unit, then the first available one, and let them switch.
+  const { data: units } = useUnits();
+  const [selectedUnitId, setSelectedUnitId] = useState<string | undefined>(
+    user?.unitId ?? undefined,
+  );
+  const unitId = selectedUnitId ?? units?.[0]?.id;
   const { data, isLoading, error } = useCashFlowForecast(unitId);
 
   if (isLoading) {
@@ -75,6 +92,21 @@ function CashFlowForecastPageContent() {
         title="Proyeksi Arus Kas"
         description="Estimasi pergerakan kas berdasarkan tagihan piutang dan rencana pengeluaran 6 bulan ke depan."
       />
+
+      <div className="flex justify-end">
+        <Select value={unitId ?? ""} onValueChange={setSelectedUnitId}>
+          <SelectTrigger className="w-[220px]">
+            <SelectValue placeholder="Pilih Unit" />
+          </SelectTrigger>
+          <SelectContent>
+            {(units ?? []).map((unit) => (
+              <SelectItem key={unit.id} value={unit.id}>
+                {unit.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
         <Card>

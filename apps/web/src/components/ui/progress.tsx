@@ -29,7 +29,17 @@ const Progress = React.forwardRef<
         "h-full w-full flex-1 bg-primary transition-all",
         indicatorClassName,
       )}
-      style={{ transform: `translateX(-${100 - (value || 0)}%)` }}
+      // A non-finite `value` (e.g. NaN from `undefined / undefined * 100`)
+      // would render the literal string "NaN" into the transform and warn
+      // "Received NaN for the children attribute". Clamp to 0-100.
+      style={{
+        transform: `translateX(-${
+          100 -
+          (Number.isFinite(value)
+            ? Math.min(100, Math.max(0, value as number))
+            : 0)
+        }%)`,
+      }}
     />
   </ProgressPrimitive.Root>
 ));

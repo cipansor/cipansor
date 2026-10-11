@@ -149,19 +149,16 @@ function PayrollDetailPageContent({
                     <TableRow key={slip.id}>
                       <TableCell>
                         <div className="font-medium">
-                          {slip.staff?.fullName ||
-                            slip.employee?.fullName ||
+                          {slip.staff?.user?.name ||
+                            slip.employeeName ||
+                            slip.staff?.fullName ||
                             "Unknown"}
                         </div>
                         <div className="text-xs text-muted-foreground">
-                          {slip.staff?.nip || slip.employee?.nip}
+                          {slip.employeeNo || slip.staff?.nip}
                         </div>
                       </TableCell>
-                      <TableCell>
-                        {slip.staff?.department?.name ||
-                          slip.employee?.department?.name ||
-                          "-"}
-                      </TableCell>
+                      <TableCell>{slip.department || "-"}</TableCell>
                       <TableCell>
                         {new Intl.NumberFormat("id-ID", {
                           style: "currency",

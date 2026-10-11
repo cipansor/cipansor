@@ -41,7 +41,6 @@ import {
 import { toast } from "sonner";
 import { MainLayout } from "@/components/layout";
 import {
-  DUTY_TYPE_LABELS,
   DutyType,
   DutyStatus,
   DutyShift,
@@ -140,32 +139,73 @@ function DutyRosterDetailPageContent() {
     useDutyRoster(rosterId);
   const updateStatusMutation = useUpdateDutyStatus();
 
-  // Transform API data to UI format
+  // Transform API data to UI format.
+  //
+  // `GET /duty-roster/:id` returns a single DutyRoster row whose relations are
+  // `dutyType` (object) and `student` (object) — there is no `assignments`
+  // array. Feeding it through the list-shaped mapper left `dutyType` a string,
+  // `shift` undefined (→ `SHIFT_CONFIG[undefined].color` threw) and
+  // `students` empty. Normalize from the real shape instead.
   const roster = useMemo(() => {
     if (!rosterData) return null;
+    const r = rosterData as unknown as {
+      id: string;
+      date: string;
+      status?: UIStatus;
+      completedAt?: string | null;
+      notes?: string | null;
+      dutyType?: {
+        name?: string;
+        location?: string | null;
+        startTime?: string | null;
+        endTime?: string | null;
+      };
+      student?: {
+        id: string;
+        nis: string;
+        name?: string;
+        user?: { name?: string } | null;
+        class?: { id: string; name: string } | null;
+      };
+      supervisor?: { id: string; name: string } | null;
+    };
+    const student = r.student;
+    const studentName = student?.name ?? student?.user?.name ?? "Santri";
     return {
-      id: rosterData.id,
-      date: rosterData.date,
-      dayOfWeek: new Date(rosterData.date).getDay(),
-      dutyType: rosterData.dutyType,
-      location: rosterData.location,
-      shift: rosterData.shift,
-      startTime: rosterData.startTime,
-      endTime: rosterData.endTime,
-      notes: rosterData.notes,
-      supervisor: rosterData.supervisor,
-      students:
-        rosterData.assignments?.map((a) => ({
-          id: a.id,
-          studentId: a.student.id,
-          student: a.student,
-          status: a.status as UIStatus,
-          checkInTime: a.completedAt?.slice(11, 16),
-          checkOutTime: undefined,
-          rating: undefined,
-          points: undefined,
-          feedback: a.completionNotes,
-        })) || [],
+      id: r.id,
+      date: r.date,
+      dutyTypeName: r.dutyType?.name ?? "Piket",
+      location: r.dutyType?.location ?? "-",
+      // The DutyRoster model has no `shift` column (only DutyType.startTime/
+      // endTime), so there is nothing to show — leave it undefined and let the
+      // render guard drop the badge rather than index SHIFT_CONFIG with it.
+      shift: undefined as DutyShift | undefined,
+      startTime: r.dutyType?.startTime ?? "-",
+      endTime: r.dutyType?.endTime ?? "-",
+      notes: r.notes ?? undefined,
+      supervisor: r.supervisor ?? undefined,
+      students: student
+        ? [
+            {
+              id: student.id,
+              studentId: student.id,
+              student: {
+                id: student.id,
+                nis: student.nis,
+                name: studentName,
+                class: student.class ?? { id: "", name: "-" },
+              },
+              status: (r.status ?? "PENDING") as UIStatus,
+              checkInTime: r.completedAt
+                ? r.completedAt.slice(11, 16)
+                : undefined,
+              checkOutTime: undefined,
+              rating: undefined,
+              points: undefined,
+              feedback: r.notes ?? undefined,
+            },
+          ]
+        : [],
     };
   }, [rosterData]);
 
@@ -324,9 +364,7 @@ function DutyRosterDetailPageContent() {
           </Button>
         </Link>
         <div className="flex-1">
-          <h1 className="text-2xl font-bold">
-            {DUTY_TYPE_LABELS[roster.dutyType]}
-          </h1>
+          <h1 className="text-2xl font-bold">{roster.dutyTypeName}</h1>
           <p className="text-muted-foreground">{formatDate(roster.date)}</p>
         </div>
       </div>
@@ -352,9 +390,11 @@ function DutyRosterDetailPageContent() {
               </div>
             </div>
             <div className="flex items-center gap-3">
-              <Badge className={SHIFT_CONFIG[roster.shift].color}>
-                {SHIFT_CONFIG[roster.shift].label}
-              </Badge>
+              {roster.shift && (
+                <Badge className={SHIFT_CONFIG[roster.shift].color}>
+                  {SHIFT_CONFIG[roster.shift].label}
+                </Badge>
+              )}
             </div>
             <div className="flex items-center gap-3">
               <Users className="h-5 w-5 text-muted-foreground" />

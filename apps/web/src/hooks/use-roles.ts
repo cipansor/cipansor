@@ -179,7 +179,9 @@ export function useSwitchRole() {
   });
 }
 
-// Role realm display names
+// Role realm display names. Keys mirror the `Realm` enum in schema.prisma — all
+// eight values are listed so a new realm renders its own name instead of falling
+// through to a raw code.
 export const realmDisplayNames: Record<string, string> = {
   GLOBAL: "Global",
   YAYASAN: "Yayasan",
@@ -188,6 +190,7 @@ export const realmDisplayNames: Record<string, string> = {
   SMP_IT: "SMP IT",
   SMA_QURAN: "SMA Qur'an",
   PESANTREN: "Pesantren",
+  UNIT_USAHA: "Sarana & Unit Usaha",
 };
 
 // Role realm colors
@@ -199,7 +202,34 @@ export const realmColors: Record<string, string> = {
   SMP_IT: "bg-blue-500 hover:bg-blue-600",
   SMA_QURAN: "bg-emerald-500 hover:bg-emerald-600",
   PESANTREN: "bg-orange-500 hover:bg-orange-600",
+  UNIT_USAHA: "bg-teal-500 hover:bg-teal-600",
 };
+
+const UNKNOWN_REALM_COLOR = "bg-slate-500 hover:bg-slate-600";
+
+/** Bucket key for a role assignment whose realm is missing from the payload. */
+export const UNKNOWN_REALM = "UNKNOWN";
+
+/**
+ * Human label for a role realm, tolerating a missing/unknown value.
+ *
+ * The realm arrives from the API's `/auth/me` payload, but it also reaches the
+ * UI through whatever a previous session persisted to localStorage, so it can
+ * legitimately be absent (a session written before the field existed). Callers
+ * used to do `realm.replace("_", " ")` directly, which threw a TypeError inside
+ * the sidebar for *every* user on the page — the app rendered a blank screen
+ * rather than a page. Fall back instead of throwing.
+ */
+export function realmLabel(realm: string | undefined | null): string {
+  if (!realm) return "Tidak diketahui";
+  return realmDisplayNames[realm] || realm.replace(/_/g, " ");
+}
+
+/** Colour class for a realm badge, tolerating a missing/unknown value. */
+export function realmColorClass(realm: string | undefined | null): string {
+  if (!realm) return UNKNOWN_REALM_COLOR;
+  return realmColors[realm] || UNKNOWN_REALM_COLOR;
+}
 
 // Group roles by realm
 export function groupRolesByRealm(roles: Role[]): Record<string, Role[]> {
