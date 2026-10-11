@@ -8,9 +8,9 @@ import { join, resolve } from 'path';
  * The PR-description checks, driven against a stub `gh` and the real `jq`:
  *
  *  - `pr-template-guard.sh` is a HARD gate: it fails the check while the body
- *    is missing a required part (a `## HUMAN` note, Why/What changed/How to
- *    test/Acceptance criteria, a linked ready issue, and Indonesian prose), and
- *    passes once the body is complete.
+ *    is missing a required part (Why/What changed/How to test/Acceptance
+ *    criteria, a linked ready issue, Indonesian prose, and — on a risky PR
+ *    only — a `## HUMAN` note), and passes once the body is complete.
  *  - `visual-evidence.sh` asks for before/after visuals only when `apps/web`
  *    changed and no image or video is present in the body, and stays advisory.
  */
@@ -24,8 +24,13 @@ case "$1" in
   pr)
     case "$*" in
       *"--json files,body"*) printf '%s\\n' "\${GH_STUB_PRJSON-}" ;;
+      *"--json labels"*) [ "\${GH_STUB_PRLABELS_FAIL:-}" = "1" ] && exit 1; printf '%s\\n' "\${GH_STUB_PRLABELS-}" ;;
       *"--json body"*) printf '%s\\n' "\${GH_STUB_BODY-}" ;;
-      *"comment"*) log "COMMENT $*"; [ "\${GH_STUB_WRITE_FAIL:-}" = "1" ] && exit 1 ;;
+      *"comment"*)
+        log "COMMENT $*"
+        # Log the reminder itself too, so a test can read what it says.
+        prev=""; for a in "$@"; do [ "$prev" = "--body-file" ] && log "COMMENTBODY $(cat "$a")"; prev="$a"; done
+        [ "\${GH_STUB_WRITE_FAIL:-}" = "1" ] && exit 1 ;;
     esac ;;
   api)
     case "$*" in
@@ -47,6 +52,10 @@ case "$1" in
         log "PATCH $*"; log "PATCHBODY $body"
         [ "\${GH_STUB_WRITE_FAIL:-}" = "1" ] && exit 1 ;;
       *"-X DELETE"*) log "DELETE $*"; [ "\${GH_STUB_WRITE_FAIL:-}" = "1" ] && exit 1 ;;
+      *"/pulls/"*"/files"*)
+        # The PR's changed files, one per line; only read when paginated.
+        [ "\${GH_STUB_FILES_FAIL:-}" = "1" ] && exit 1
+        case "$*" in *--paginate*) printf '%s\\n' "\${GH_STUB_FILES-}" ;; esac ;;
       *"/issues/"*)
         # Label lookup for the linked issue; GH_STUB_LABELS holds the CSV.
         printf '%s\\n' "\${GH_STUB_LABELS:-}" ;;
@@ -127,6 +136,110 @@ describe('pr-template-guard.sh', () => {
     expect(status).toBe(0);
     expect(calls).not.toContain('COMMENT');
     expect(calls).not.toContain('PATCH');
+  });
+
+  // The human note is asked for only where a human must look before the merge
+  // (#760); the gate reviews everything else and a human approves the release.
+  describe('the human note on a risky PR', () => {
+    // COMPLETE's Indonesian function words sit in its human note, so the body
+    // without one gets an Indonesian sentence of its own (the language check is
+    // not what these tests are about).
+    const NO_HUMAN = COMPLETE.replace(
+      /## HUMAN\n\n.*\n/,
+      '## HUMAN\n\n<!-- Penulis manusia: ganti komentar ini. -->\n'
+    ).replace('## Why\n\n', '## Why\n\nIni perbaikan yang kecil dan terukur. ');
+
+    it('is not required on an ordinary PR', () => {
+      const { status, calls } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_PRLABELS: 'bug,priority:medium',
+        GH_STUB_FILES: 'apps/api/src/modules/marketing/roi.service.ts\ndocs/ARCHITECTURE.md',
+      });
+      expect(status).toBe(0);
+      expect(calls).not.toContain('COMMENT');
+    });
+
+    it.each([
+      ['labelled security', { GH_STUB_PRLABELS: 'bug,security' }, 'berlabel `security`'],
+      [
+        'touching a migration',
+        { GH_STUB_FILES: 'docs/x.md\napps/api/prisma/migrations/20261010_x/migration.sql' },
+        'apps/api/prisma/migrations/20261010_x/migration.sql',
+      ],
+      [
+        'touching a production data script',
+        { GH_STUB_FILES: 'apps/api/scripts/require-password-change-all.ts' },
+        'apps/api/scripts/require-password-change-all.ts',
+      ],
+      [
+        'touching the API auth middleware',
+        { GH_STUB_FILES: 'apps/api/src/middleware/auth.ts' },
+        'apps/api/src/middleware/auth.ts',
+      ],
+      [
+        'touching role permissions',
+        { GH_STUB_FILES: 'apps/api/src/modules/roles/permissions.ts' },
+        'apps/api/src/modules/roles/permissions.ts',
+      ],
+      [
+        'touching the student scope',
+        { GH_STUB_FILES: 'apps/api/src/utils/student-scope.ts' },
+        'apps/api/src/utils/student-scope.ts',
+      ],
+      [
+        'touching the web route guard',
+        { GH_STUB_FILES: 'apps/web/src/lib/rbac.ts' },
+        'apps/web/src/lib/rbac.ts',
+      ],
+      [
+        'touching the shared role groups',
+        { GH_STUB_FILES: 'packages/shared/src/roles.ts' },
+        'packages/shared/src/roles.ts',
+      ],
+      ['whose labels cannot be read', { GH_STUB_PRLABELS_FAIL: '1' }, 'label PR tidak terbaca'],
+      ['whose files cannot be read', { GH_STUB_FILES_FAIL: '1' }, 'daftar berkas PR tidak terbaca'],
+    ])('is required on a PR %s, and the reminder names why', (_name, env, reason) => {
+      const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: NO_HUMAN, ...env });
+      expect(status).toBe(1);
+      expect(calls).toContain('COMMENTBODY');
+      expect(calls).toContain('## HUMAN');
+      expect(calls).toContain(reason);
+    });
+
+    it('is satisfied by a note on a risky PR', () => {
+      const { status } = run(TEMPLATE, {
+        GH_STUB_BODY: COMPLETE,
+        GH_STUB_PRLABELS: 'security',
+        GH_STUB_FILES: 'apps/api/prisma/schema.prisma',
+      });
+      expect(status).toBe(0);
+    });
+
+    it('does not call a guide under the prisma folder risky (#765)', () => {
+      const { status, calls } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_FILES: 'apps/api/prisma/AGENTS.md\ndocs/DEPLOYMENT.md',
+      });
+      expect(status).toBe(0);
+      expect(calls).not.toContain('COMMENT');
+    });
+
+    it('still asks for the note when the guide comes with the schema', () => {
+      const { status, calls } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_FILES: 'apps/api/prisma/AGENTS.md\napps/api/prisma/schema.prisma',
+      });
+      expect(status).toBe(1);
+      expect(calls).toContain('apps/api/prisma/schema.prisma');
+    });
+
+    it('does not mistake a test beside the auth middleware for the middleware', () => {
+      const { status } = run(TEMPLATE, {
+        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_FILES: 'apps/api/src/middleware/auth.guards.test.ts',
+      });
+      expect(status).toBe(0);
+    });
   });
 
   it('fails when the description reads as English', () => {

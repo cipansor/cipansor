@@ -33,6 +33,7 @@ import dormitoryRoutes from '@/modules/dormitories/dormitories.routes';
 import permitRoutes from '@/modules/permits/permits.routes';
 import violationRoutes from '@/modules/violations/violations.routes';
 import rewardRoutes from '@/modules/rewards/rewards.routes';
+import certificatesRoutes from '@/modules/certificates/certificates.routes';
 import financeRoutes from '@/modules/finance/finance.routes';
 import foundationRoutes from '@/modules/foundation/foundation.routes';
 // Legacy `psb` module has been superseded by the unified `admissions` module
@@ -320,6 +321,7 @@ apiRouter.use('/dormitories', dormitoryRoutes);
 apiRouter.use('/permits', permitRoutes);
 apiRouter.use('/violations', violationRoutes);
 apiRouter.use('/rewards', rewardRoutes);
+apiRouter.use('/certificates', certificatesRoutes);
 apiRouter.use('/finance', financeRoutes);
 apiRouter.use('/foundation', foundationRoutes);
 // `/api/psb` was removed; use `/api/admissions` instead.

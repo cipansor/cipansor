@@ -295,3 +295,56 @@ test.describe("Extracurricular - create and edit through the forms", () => {
     expect(sent).toBe(false);
   });
 });
+
+/**
+ * An extracurricular with an assigned coach must render on both the list and
+ * the detail page.
+ *
+ * The API and `@cipansor/shared`'s `ExtracurricularDTO` return a coach as
+ * `{ id, user: { id, name } }`, and both pages read `coach.user.name`. A hook
+ * once flattened the coach to `{ id, name, email }` before handing it to the
+ * pages, so any extracurricular that actually had a coach threw while
+ * rendering — list and detail alike. This drives the real pages against a
+ * coach from the seed and fails on the console error the flattening produced.
+ */
+test.describe("Extracurricular - an assigned coach renders", () => {
+  test("the list and the detail show the coach's name, without a render crash", async ({
+    page,
+  }) => {
+    const session = await loginAs(page, "superAdmin");
+
+    const list = await apiRequest<{
+      data: Array<{
+        id: string;
+        coach: { user: { name: string } } | null;
+      }>;
+    }>(session, "GET", "/extracurricular?limit=100");
+    const withCoach = list.data.find((e) => e.coach?.user?.name);
+    expect(
+      withCoach,
+      "the seed must contain an extracurricular with an assigned coach",
+    ).toBeTruthy();
+    const coachName = withCoach!.coach!.user.name;
+
+    const renderErrors: string[] = [];
+    page.on("console", (msg) => {
+      if (msg.type() === "error") renderErrors.push(msg.text());
+    });
+
+    await page.goto("/extracurricular");
+    await expect(page.getByText(coachName).first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    await page.goto(`/extracurricular/${withCoach!.id}`);
+    await expect(page.getByText(coachName).first()).toBeVisible({
+      timeout: 15000,
+    });
+
+    expect(
+      renderErrors.filter((e) =>
+        /Cannot read|is not a function|of undefined|of null/.test(e),
+      ),
+    ).toEqual([]);
+  });
+});

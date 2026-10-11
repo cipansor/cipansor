@@ -5,7 +5,10 @@
 ## HUMAN
 
 <!-- Penulis manusia: ganti komentar ini dengan catatan singkat tentang apa yang
-     Anda uji dan bagaimana. Agen AI tidak boleh menyunting bagian ini. -->
+     Anda uji dan bagaimana. Agen AI tidak boleh menyunting bagian ini.
+     Wajib (minimal 20 karakter) hanya pada PR berisiko: berlabel `security`,
+     atau mengubah skema/migrasi/skrip data, skrip data produksi, atau auth/RBAC
+     (`RISKY_PATHS` di .github/scripts/pr-template-guard.sh). -->
 
 ---
 

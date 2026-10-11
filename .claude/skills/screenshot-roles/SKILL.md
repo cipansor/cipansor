@@ -5,6 +5,13 @@ description: Screenshots of the web app. (1) The per-role visual QA sweep — lo
 
 # Per-role screenshot sweep
 
+> **The sweep script below (`screenshot-roles.ts`) is broken since the session moved to HttpOnly cookies** (found 2026-09-29): it
+> logs in without `X-Client: bearer`, gets no token in the body and fails "Unexpected login response" for every role. Use
+> **`scripts/screenshot-flow.ts`** (this folder) instead: `atlas` = the same per-account sweep (nested menu items included, one
+> pass per demo account) and `flow` = a business process step by step from a JSON file, with `see` assertions and API `setup`.
+> It logs in through `apps/web/e2e/helpers/auth-api.ts`, which the e2e suite keeps current. Usage, the JSON format and the
+> workflow that embeds the pictures in the application documents: `.claude/skills/dokumen-aplikasi-cipansor/references/tangkapan-layar.md`.
+
 > For **before/after screenshots of a UI change** (required by `AGENTS.md` for
 > every UI change), read [`before-after.md`](before-after.md) in this folder —
 > three ways to render the real components, and the traps in each.

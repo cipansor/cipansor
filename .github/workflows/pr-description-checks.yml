@@ -2,7 +2,8 @@
 #
 #   template job -> HARD gate: fails while the PR template is incomplete, the
 #                   linked issue is not `ready`/`bot-implement`, or the prose
-#                   reads as English (see docs/LABELS.md)
+#                   reads as English (see docs/LABELS.md); the `## HUMAN` note
+#                   is required only on a risky PR (pr-template-guard.sh)
 #   visual job   -> advisory: asks for before/after visuals when apps/web changed
 #
 # Runs on `pull_request_target` so the token can comment even on a fork PR;
@@ -13,7 +14,9 @@ name: PR description checks
 
 on:
   pull_request_target:
-    types: [opened, edited, reopened, synchronize, ready_for_review]
+    # labeled/unlabeled: a `security` label makes the human note required, so
+    # adding or removing it must re-run the check.
+    types: [opened, edited, reopened, synchronize, ready_for_review, labeled, unlabeled]
 
 permissions:
   contents: read

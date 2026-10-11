@@ -1,19 +1,21 @@
 "use client";
 
-import { useEffect } from "react";
+import { use, useEffect } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { Loader2 } from "lucide-react";
 
-interface RaportMerdekaPageProps {
-  params: {
-    studentId: string;
-    academicYearId: string;
-    semester: string;
-  };
+interface RaportMerdekaPageParams {
+  studentId: string;
+  academicYearId: string;
+  semester: string;
 }
 
-function RaportMerdekaPrintPageContent({ params }: RaportMerdekaPageProps) {
+function RaportMerdekaPrintPageContent({
+  params,
+}: {
+  params: RaportMerdekaPageParams;
+}) {
   const { studentId, academicYearId, semester } = params;
 
   const {
@@ -235,48 +237,64 @@ function RaportMerdekaPrintPageContent({ params }: RaportMerdekaPageProps) {
           B. PROJEK PENGUATAN PROFIL PELAJAR PANCASILA (P5)
         </h3>
 
-        <table className="w-full border-collapse mb-2">
-          <tbody>
-            <tr>
-              <td className="border-cell header-cell w-1/4">Tema Projek</td>
-              <td className="border-cell">{raport.projekP5.tema}</td>
-            </tr>
-            <tr>
-              <td className="border-cell header-cell">Deskripsi Projek</td>
-              <td className="border-cell">{raport.projekP5.deskripsiProyek}</td>
-            </tr>
-          </tbody>
-        </table>
-
-        <h4 className="font-semibold text-sm mb-2 mt-4">Capaian Dimensi P5:</h4>
-        <table className="w-full border-collapse">
-          <thead>
-            <tr>
-              <th className="border-cell header-cell w-8">No</th>
-              <th className="border-cell header-cell w-1/4">Dimensi</th>
-              <th className="border-cell header-cell w-24">Level Capaian</th>
-              <th className="border-cell header-cell">Deskripsi</th>
-            </tr>
-          </thead>
-          <tbody>
-            {raport.projekP5.dimensiTerkait.map((dim: any, index: number) => (
-              <tr key={dim.dimensiCode}>
-                <td className="border-cell text-center">{index + 1}</td>
-                <td className="border-cell font-semibold">{dim.dimensiName}</td>
-                <td className="border-cell text-center text-xs">
-                  {dim.capaian}
-                </td>
-                <td className="border-cell text-xs">{dim.deskripsi}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-
-        <div className="mt-2">
-          <p className="text-xs">
-            <strong>Catatan Proses:</strong> {raport.projekP5.catatanProses}
+        {!raport.projekP5 || raport.projekP5.length === 0 ? (
+          <p className="text-sm italic text-gray-600">
+            Belum ada projek P5 pada semester ini.
           </p>
-        </div>
+        ) : (
+          raport.projekP5.map((projek: any, projekIndex: number) => (
+            <div key={projekIndex} className="mb-4">
+              <table className="w-full border-collapse mb-2">
+                <tbody>
+                  <tr>
+                    <td className="border-cell header-cell w-1/4">
+                      Tema Projek
+                    </td>
+                    <td className="border-cell">{projek.tema}</td>
+                  </tr>
+                  <tr>
+                    <td className="border-cell header-cell">
+                      Deskripsi Projek
+                    </td>
+                    <td className="border-cell">{projek.deskripsiProyek}</td>
+                  </tr>
+                </tbody>
+              </table>
+
+              <h4 className="font-semibold text-sm mb-2 mt-4">
+                Capaian Dimensi P5:
+              </h4>
+              <table className="w-full border-collapse">
+                <thead>
+                  <tr>
+                    <th className="border-cell header-cell w-8">No</th>
+                    <th className="border-cell header-cell w-1/4">Dimensi</th>
+                    <th className="border-cell header-cell w-24">
+                      Level Capaian
+                    </th>
+                    <th className="border-cell header-cell">Deskripsi</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {(projek.dimensiTerkait ?? []).map(
+                    (dim: any, index: number) => (
+                      <tr key={dim.dimensiCode ?? index}>
+                        <td className="border-cell text-center">{index + 1}</td>
+                        <td className="border-cell font-semibold">
+                          {dim.dimensiName}
+                        </td>
+                        <td className="border-cell text-center text-xs">
+                          {dim.capaian}
+                        </td>
+                        <td className="border-cell text-xs">{dim.deskripsi}</td>
+                      </tr>
+                    ),
+                  )}
+                </tbody>
+              </table>
+            </div>
+          ))
+        )}
       </div>
 
       {/* C. Ekstrakurikuler */}
@@ -471,12 +489,15 @@ function RaportMerdekaPrintPageContent({ params }: RaportMerdekaPageProps) {
   );
 }
 
-export default function RaportMerdekaPrintPage(
-  props: Parameters<typeof RaportMerdekaPrintPageContent>[0],
-) {
+export default function RaportMerdekaPrintPage({
+  params,
+}: {
+  params: Promise<RaportMerdekaPageParams>;
+}) {
+  const resolved = use(params);
   return (
     <main id="main-content">
-      <RaportMerdekaPrintPageContent {...props} />
+      <RaportMerdekaPrintPageContent params={resolved} />
     </main>
   );
 }

@@ -161,6 +161,10 @@ export const getCertificatePdf = asyncHandler(async (req: Request, res: Response
       sanadId: id,
       templateType: (req.query.template as any) || 'STANDARD',
       includeQRCode: req.query.qr !== 'false',
+      // The print flow exists to hand a santri a QR that points at the public
+      // page, so its certificate is public unless an issuer says otherwise.
+      // (This endpoint has no visibility param; POST /certificate does.)
+      isPublic: true,
       signedBy: req.query.signedBy as string,
       signedByTitle: req.query.signedByTitle as string,
     },

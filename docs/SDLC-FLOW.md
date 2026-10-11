@@ -563,6 +563,17 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   langkah maintainer dengan akses admin. Ini menyamakan repo dengan standar
   OpenHands (Why/Summary/How to test + issue `ready-for-dev`). Job `visual`
   tetap advisory.
+- **Catatan `## HUMAN` hanya untuk PR berisiko** (keputusan pemilik
+  2026-10-10, #760). Upstream OpenHands mewajibkannya di setiap PR. Di sini
+  aturan itu akan menjadi gerbang manusia kelima yang menahan setiap PR,
+  termasuk PR dokumen satu baris. Karena itu catatan HUMAN wajib hanya bila PR
+  berlabel `security`, atau mengubah `apps/api/prisma/` (skema, migrasi, seed,
+  skrip data), `apps/api/scripts/` (skrip data produksi), atau jalur auth/RBAC.
+  Daftar persisnya ada di `RISKY_PATHS` dalam `.github/scripts/pr-template-guard.sh`.
+  PR lain ditinjau gerbang, dan manusia menyetujui rilisnya. Label atau daftar
+  berkas yang tidak terbaca dianggap berisiko. Dasarnya: DORA (Accelerate)
+  menunjukkan persetujuan perubahan yang berat berkorelasi dengan kinerja yang
+  lebih buruk, dan yang lebih baik adalah tinjauan ringan berbasis risiko.
 - **CI merah atau review minta-perubahan tidak mengembalikan PR ke draft.** PR
   tetap terbuka dan check yang gagal terlihat padanya; gerbang memposting review
   minta-perubahan dan branch protection menahan merge. Mengembalikan ke draft
@@ -628,3 +639,8 @@ arsitektur`/`Gerbang tinjau PR` memposting blok `suggestion` GitHub sehingga
 - Prometheus Operator runbook, "Watchdog" — peringatan yang selalu menyala
   sebagai *dead man's switch* untuk jalur peringatan itu sendiri:
   <https://runbooks.prometheus-operator.dev/runbooks/general/watchdog/>
+- DORA, "Streamlining change approval" — persetujuan yang berat memperlambat
+  pengiriman dan memperbesar dampak tiap rilis; tinjauan sejawat yang didukung
+  otomasi dan pengujian menurunkan risiko tanpa mengorbankan kinerja (dasar
+  catatan HUMAN hanya untuk PR berisiko):
+  <https://dora.dev/capabilities/streamlining-change-approval/>

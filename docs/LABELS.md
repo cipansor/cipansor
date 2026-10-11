@@ -191,4 +191,7 @@ to produce the labels above, not prose to read and forget:
 These are kept honest by the `pr-description-checks` workflow: the `template`
 job **fails the check** while the description is incomplete, the linked issue is
 not `ready`/`bot-implement`, or the prose reads as English, and passes once it is
-complete (the `visual` job stays advisory). See `docs/IDEAS.md` § 6.
+complete (the `visual` job stays advisory). The `## HUMAN` note is required only
+on a risky PR: one labelled `security`, or touching the schema, migrations and
+data scripts, the production data scripts, or auth/RBAC (`RISKY_PATHS` in
+`.github/scripts/pr-template-guard.sh`; #760). See `docs/IDEAS.md` § 6.

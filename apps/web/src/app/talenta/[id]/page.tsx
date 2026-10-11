@@ -63,7 +63,13 @@ const assessmentSchema = z.object({
   period: z.string().min(1, "Periode wajib diisi (misal: Q1 2024)"),
   score: z.number().min(1).max(100),
   competencies: z.string().min(5, "Kompetensi wajib diisi"),
-  potential: z.string().min(1, "Potensi wajib dipilih"),
+  potential: z.enum([
+    "OUTSTANDING",
+    "EXCEEDS",
+    "MEETS",
+    "BELOW",
+    "UNSATISFACTORY",
+  ]),
   recommendation: z.string().optional(),
 });
 
@@ -83,7 +89,7 @@ function TalentProfileDetailPageContent() {
       period: "",
       score: 75,
       competencies: "",
-      potential: "MEDIUM",
+      potential: "MEETS",
       recommendation: "",
     },
   });
@@ -117,13 +123,13 @@ function TalentProfileDetailPageContent() {
     };
 
     await createAssessment.mutateAsync({
-      profileId: profile.id,
+      talentId: profile.id,
       period: values.period,
-      score: values.score,
+      performanceRating: values.potential,
+      potentialRating: values.potential,
+      overallScore: values.score,
       competencies: competenciesJson,
-      potentialLevel: values.potential,
-      recommendation: values.recommendation,
-      evaluatorId: "user-default", // In real app, from auth session
+      assessedAt: new Date().toISOString(),
     });
     setAssessmentDialogOpen(false);
     form.reset();
@@ -156,13 +162,13 @@ function TalentProfileDetailPageContent() {
       <div className="flex flex-col md:flex-row gap-4 items-start md:items-center justify-between">
         <div className="flex items-center gap-4">
           <div className="w-16 h-16 bg-primary/10 text-primary flex items-center justify-center rounded-full text-2xl font-bold">
-            {profile.employee?.name
-              ? profile.employee.name.substring(0, 2).toUpperCase()
+            {profile.user?.name
+              ? profile.user.name.substring(0, 2).toUpperCase()
               : "U"}
           </div>
           <div>
             <PageHeader
-              title={profile.employee?.name || "Karyawan Internal"}
+              title={profile.user?.name || "Karyawan Internal"}
               description={`Kategori Talenta: ${profile.category}`}
             />
           </div>
@@ -170,9 +176,9 @@ function TalentProfileDetailPageContent() {
 
         <div className="flex items-center gap-2">
           <Badge
-            className={`${getReadinessColor(profile.readiness)} lg:text-sm px-3 py-1`}
+            className={`${getReadinessColor(profile.readinessLevel ?? "")} lg:text-sm px-3 py-1`}
           >
-            Kesiapan: {profile.readiness.replace("_", " ")}
+            Kesiapan: {(profile.readinessLevel ?? "-").replace("_", " ")}
           </Badge>
         </div>
       </div>
@@ -337,14 +343,20 @@ function TalentProfileDetailPageContent() {
                                   </SelectTrigger>
                                 </FormControl>
                                 <SelectContent>
-                                  <SelectItem value="HIGH">
-                                    Tinggi (High)
+                                  <SelectItem value="OUTSTANDING">
+                                    Sangat Baik (Outstanding)
                                   </SelectItem>
-                                  <SelectItem value="MEDIUM">
-                                    Menengah (Medium)
+                                  <SelectItem value="EXCEEDS">
+                                    Melampaui Ekspektasi (Exceeds)
                                   </SelectItem>
-                                  <SelectItem value="LOW">
-                                    Rendah (Low)
+                                  <SelectItem value="MEETS">
+                                    Memenuhi Ekspektasi (Meets)
+                                  </SelectItem>
+                                  <SelectItem value="BELOW">
+                                    Di Bawah Ekspektasi (Below)
+                                  </SelectItem>
+                                  <SelectItem value="UNSATISFACTORY">
+                                    Tidak Memuaskan (Unsatisfactory)
                                   </SelectItem>
                                 </SelectContent>
                               </Select>
@@ -419,7 +431,7 @@ function TalentProfileDetailPageContent() {
                       <div className="bg-muted p-3 border-b flex justify-between items-center">
                         <span className="font-semibold">{ast.period}</span>
                         <Badge variant="outline" className="bg-background">
-                          Skor: {Number(ast.score)}
+                          Skor: {Number(ast.overallScore)}
                         </Badge>
                       </div>
                       <CardContent className="p-4 grid grid-cols-2 gap-4 text-sm">
@@ -428,15 +440,15 @@ function TalentProfileDetailPageContent() {
                             TINGKAT POTENSI
                           </span>
                           <Badge variant="secondary">
-                            {ast.potentialLevel}
+                            {ast.potentialRating}
                           </Badge>
                         </div>
-                        {ast.evaluator && (
+                        {ast.assessor && (
                           <div>
                             <span className="text-muted-foreground block mb-1 text-xs font-bold">
                               EVALUATOR
                             </span>
-                            <span>{ast.evaluator.name}</span>
+                            <span>{ast.assessor.name}</span>
                           </div>
                         )}
                         <div className="col-span-2 mt-2">

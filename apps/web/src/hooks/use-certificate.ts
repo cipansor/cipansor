@@ -1,53 +1,30 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
+import type {
+  CertificateType,
+  CertificateVerification,
+  DigitalCertificate,
+  PublicCertificate,
+} from "@cipansor/shared";
 
-// Types
-export type CertificateType =
-  | "IJAZAH"
-  | "STTB"
-  | "TAHFIDZ"
-  | "SANAD"
-  | "ACHIEVEMENT"
-  | "GRADUATION"
-  | "PARTICIPATION"
-  | "COURSE_COMPLETION"
-  | "APPRECIATION"
-  | "OTHER";
-
-export interface DigitalCertificate {
-  id: string;
-  studentId: string;
-  student?: {
-    id: string;
-    name: string;
-    nis: string;
-    photoUrl?: string;
-    user?: { name: string };
-    class?: { id: string; name: string };
-    unit?: { id: string; name: string; type?: string };
-  };
-  certificateType: CertificateType;
-  title: string;
-  description?: string;
-  certificateNumber: string;
-  qrCode: string;
-  verificationUrl: string;
-  grade?: string;
-  rank?: number;
-  issueDate: string;
-  signatoryName: string;
-  signatoryTitle: string;
-  signatureUrl?: string;
-  pdfUrl?: string;
-  thumbnailUrl?: string;
-  isPublic: boolean;
-  downloadCount: number;
-  createdById: string;
-  createdBy?: { id: string; name: string };
-  createdAt: string;
-  updatedAt: string;
+/** `decodeURIComponent` that leaves a malformed `%`-sequence untouched. */
+function safeDecode(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
+
+// Types — the DTO and its type union live once, in `@cipansor/shared`, so the
+// web picker can no longer offer a certificate type the API rejects.
+export type {
+  CertificateType,
+  CertificateVerification,
+  DigitalCertificate,
+  PublicCertificate,
+};
 
 export interface CertificateTemplate {
   type: CertificateType;
@@ -286,13 +263,16 @@ export function useVerifyCertificate(code: string) {
   return useQuery({
     queryKey: certificateKeys.verification(code),
     queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<{
-          valid: boolean;
-          certificate?: DigitalCertificate;
-          message?: string;
-        }>
-      >(`/certificates/verify/${code}`);
+      // A number may contain slashes (`OTH/09/2026/…`), which must reach the
+      // API as a single percent-encoded segment or Express reads each slash as
+      // a new path segment and answers "route not found". `useParams()` hands
+      // the segment over still encoded, so normalize first — decoding then
+      // encoding again is a no-op for an already-encoded value and still
+      // correct for a raw one. The guard keeps a stray `%` from throwing.
+      const segment = encodeURIComponent(safeDecode(code));
+      const response = await api.get<ApiResponse<CertificateVerification>>(
+        `/certificates/verify/${segment}`,
+      );
       return response.data.data;
     },
     enabled: !!code,
@@ -355,24 +335,40 @@ export function useDeleteCertificate() {
   });
 }
 
-export function useGenerateCertificatePDF() {
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const response = await api.post<{ pdfUrl: string }>(
-        `/certificates/${id}/generate-pdf`,
-      );
-      return response.data;
-    },
-  });
-}
-
+/**
+ * Download the certificate PDF. The route answers with the file itself, so the
+ * caller gets a Blob; the page turns it into an object URL and revokes it after
+ * the click (see the download handler). Requesting a JSON body here would put
+ * the PDF bytes through the JSON parser and fail.
+ */
 export function useDownloadCertificate() {
   return useMutation({
     mutationFn: async (id: string) => {
       const response = await api.get(`/certificates/${id}/download`, {
         responseType: "blob",
       });
-      return response.data;
+      return response.data as Blob;
+    },
+  });
+}
+
+/**
+ * Download a *public* certificate by its printed verification number.
+ *
+ * Distinct from `useDownloadCertificate`, which is the authenticated,
+ * id-keyed, scope-checked route: a visitor on the public verification page
+ * holds only a number, so this hits `/certificates/public/{code}/download`,
+ * which the API answers without a session and only for a certificate marked
+ * `isPublic`. A private number gets the same 404 as an unknown one.
+ */
+export function useDownloadPublicCertificate() {
+  return useMutation({
+    mutationFn: async (code: string) => {
+      const response = await api.get(
+        `/certificates/public/${encodeURIComponent(code)}/download`,
+        { responseType: "blob" },
+      );
+      return response.data as Blob;
     },
   });
 }

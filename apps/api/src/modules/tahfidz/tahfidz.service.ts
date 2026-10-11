@@ -771,6 +771,20 @@ export class TahfidzService {
             signatoryName: input.musyrifName || 'Administrator',
             signatoryTitle: 'Musyrif Tahfidz',
             description: input.notes,
+            // The qira'ah, completed juz and silsilah printed on the syahadah.
+            // Stored so the public download reproduces the issued document
+            // instead of the generic certificate.
+            metadata: {
+              qiraahType: input.qiraahType,
+              completedJuz: input.completedJuz,
+              musyrifName: input.musyrifName,
+              sanadChain: input.sanadChain,
+            },
+            // Explicit, never the column default: the syahadah's printed URL
+            // points at the public page, so a private row could not verify the
+            // document it was printed on. `generateCertificateSchema` defaults
+            // this to `true`; pass `false` for an internal-only record.
+            isPublic: input.isPublic ?? true,
             createdById,
           },
           include: {

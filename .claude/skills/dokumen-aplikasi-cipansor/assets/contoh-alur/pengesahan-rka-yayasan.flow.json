@@ -1,0 +1,97 @@
+{
+  "name": "pengesahan-rka-yayasan",
+  "title": "Pengesahan RKA Yayasan: Pengurus → Pengawas → Pengurus → Pembina",
+  "setup": [
+    { "as": "yayasan.ketua@cipansor.or.id", "method": "GET", "path": "/perencanaan?type=RENSTRA", "save": { "renstra": "data.0.id" } },
+    {
+      "as": "yayasan.ketua@cipansor.or.id",
+      "method": "POST",
+      "path": "/perencanaan",
+      "body": {
+        "title": "RKA Yayasan contoh {{stamp}}",
+        "type": "RKA",
+        "parentId": "{{renstra}}",
+        "startDate": "{{year}}-01-01T00:00:00.000Z",
+        "endDate": "{{year}}-12-31T00:00:00.000Z"
+      },
+      "save": { "plan": "data.id" }
+    }
+  ],
+  "steps": [
+    {
+      "id": "01-draf-siap-diajukan", "as": "yayasan.ketua@cipansor.or.id", "goto": "/perencanaan/{{plan}}",
+      "see": ["Pengesahan dokumen yayasan", "Ajukan ke Pengawas"],
+      "highlight": { "role": "button", "name": "Ajukan ke Pengawas", "exact": true },
+      "area": "main",
+      "caption": "Ketua Pengurus membuka draf RKA Yayasan; tombol Ajukan ke Pengawas tersedia."
+    },
+    {
+      "id": "02-ajukan-ke-pengawas", "click": { "role": "button", "name": "Ajukan ke Pengawas", "exact": true },
+      "see": ["Catatan pengantar (opsional)"], "area": { "role": "dialog" },
+      "caption": "Kotak pengajuan meminta catatan pengantar (opsional)."
+    },
+    {
+      "id": "03-kirim-ke-pengawas",
+      "actions": [
+        { "fill": { "target": { "label": "Catatan pengantar (opsional)", "exact": true }, "value": "Rancangan hasil rapat pengurus." } },
+        { "click": { "role": "button", "name": "Ajukan ke Pengawas", "exact": true } }
+      ],
+      "see": ["Menunggu hasil reviu Pengawas."], "area": "main",
+      "caption": "Status berpindah: Menunggu hasil reviu Pengawas."
+    },
+    {
+      "id": "04-pengawas-membuka", "as": "yayasan.pengawas@cipansor.or.id", "goto": "/perencanaan/{{plan}}",
+      "see": ["Pengesahan dokumen yayasan", "Kirim ke Pengurus"],
+      "highlight": { "role": "button", "name": "Kirim ke Pengurus", "exact": true }, "area": "main",
+      "caption": "Pengawas membuka dokumen yang sama; giliran Pengawas mereviu."
+    },
+    {
+      "id": "05-tulis-reviu",
+      "actions": [
+        { "fill": { "target": { "label": "Hasil reviu", "exact": true }, "value": "Pagu belanja pegawai naik tanpa kenaikan jumlah santri; mohon dasarnya." } },
+        { "click": { "role": "button", "name": "Kirim ke Pengurus", "exact": true } }
+      ],
+      "see": ["Hasil reviu"], "area": { "role": "dialog" },
+      "caption": "Pengawas menulis hasil reviu; tombol kirim baru aktif setelah hasil reviu terisi."
+    },
+    {
+      "id": "06-kirim-reviu", "click": { "role": "button", "name": "Kirim ke Pengurus", "exact": true },
+      "see": ["Menunggu tanggapan Pengurus atas hasil reviu."], "area": "main",
+      "caption": "Status berpindah: Menunggu tanggapan Pengurus atas hasil reviu."
+    },
+    {
+      "id": "07-pengurus-menanggapi", "as": "yayasan.ketua@cipansor.or.id", "goto": "/perencanaan/{{plan}}",
+      "click": { "role": "button", "name": "Ajukan ke Pembina", "exact": true },
+      "see": ["Tidak direvisi"], "area": { "role": "dialog" },
+      "caption": "Ketua Pengurus melihat hasil reviu dan memilih: direvisi atau tidak direvisi."
+    },
+    {
+      "id": "08-ajukan-ke-pembina",
+      "actions": [
+        { "click": { "role": "radio", "name": "Tidak direvisi" } },
+        { "fill": { "target": { "label": "Alasan tidak merevisi", "exact": true }, "value": "Kenaikan mengikuti penyesuaian gaji guru hasil rapat pleno pengurus." } }
+      ],
+      "shot": false
+    },
+    {
+      "id": "09-kirim-ke-pembina", "click": { "role": "button", "name": "Ajukan ke Pembina", "exact": true },
+      "see": ["Menunggu keputusan Pembina."], "area": "main",
+      "caption": "Status berpindah: Menunggu keputusan Pembina."
+    },
+    {
+      "id": "10-pembina-memutuskan", "as": "yayasan.pembina@cipansor.or.id", "goto": "/perencanaan/{{plan}}",
+      "see": ["Tetapkan", "Kembalikan"], "area": "main",
+      "caption": "Pembina memutuskan: Tetapkan atau Kembalikan (wajib beralasan)."
+    },
+    {
+      "id": "11-tetapkan", "click": { "role": "button", "name": "Tetapkan", "exact": true },
+      "see": ["Tetapkan"], "area": { "role": "dialog" },
+      "caption": "Pembina menetapkan dengan hasil reviu dan tanggapan Pengurus di depannya."
+    },
+    {
+      "id": "12-ditetapkan", "click": { "role": "button", "name": "Tetapkan", "exact": true },
+      "see": ["Ditetapkan Pembina pada", "Riwayat pengesahan"], "area": "main",
+      "caption": "Dokumen ditetapkan dan beku; Riwayat pengesahan mencatat tiap langkah."
+    }
+  ]
+}

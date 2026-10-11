@@ -7,7 +7,7 @@
 #
 # The template is a rule, not a nudge (upstream OpenHands enforces the same
 # shape: a linked, ready issue and the Why/Summary/How-to-test sections). The
-# required parts are: a `## HUMAN` note, `## Why`, `## What changed`,
+# required parts are: a `## HUMAN` note on a risky PR (see RISKY_PATHS), `## Why`, `## What changed`,
 # `## Acceptance criteria`, `## How to test`, and a linked issue — `Fixes #<n>`
 # whose issue carries `ready` or `bot-implement`, or an explicit line saying
 # there is no linked issue. The PR-language rule is enforced in the same place:
@@ -52,8 +52,35 @@ visible_len() { printf '%s' "$1" | tr -d '\n' | wc -c | tr -d ' '; }
 
 missing=""
 
-[ "$(visible_len "$(section HUMAN)")" -ge 20 ] || missing="$missing
-- catatan manusia singkat di bawah \`## HUMAN\` (minimal 20 karakter, apa yang Anda uji)"
+# The human note is required only where a human must look before the merge: a
+# PR labelled `security`, or one that touches the schema, migrations and data
+# scripts, the production data scripts, or auth/RBAC. Every other PR is reviewed
+# by the gate, and a human approves the weekly release (docs/SDLC-FLOW.md: four
+# human gates). Decided by the owner on 2026-10-10 (#760). A guard that cannot
+# read the labels or the files treats the PR as risky: it never waves through
+# what it could not see. A Markdown file is never risky, even under one of these
+# paths: apps/api/prisma/AGENTS.md is a guide, not a schema or a data script
+# (#765).
+RISKY_PATHS='^(apps/api/prisma/|apps/api/scripts/|apps/api/src/middleware/auth\.ts$|apps/api/src/modules/(auth|roles)/|apps/api/src/utils/(student-scope|resolve-unit-id)\.ts$|apps/web/middleware\.ts$|apps/web/src/lib/rbac\.ts$|packages/shared/src/roles\.ts$)'
+risk=""
+if PR_LABELS="$(gh pr view "$PR" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')"; then
+  case ",$PR_LABELS," in *,security,*) risk="berlabel \`security\`" ;; esac
+else
+  risk="label PR tidak terbaca"
+fi
+if [ -z "$risk" ]; then
+  if FILES="$(gh api --paginate "repos/$REPO/pulls/$PR/files?per_page=100" --jq '.[].filename')"; then
+    HIT="$(printf '%s\n' "$FILES" | grep -E "$RISKY_PATHS" | grep -vE '\.md$' | head -n1 || true)"
+    [ -z "$HIT" ] || risk="mengubah \`$HIT\`"
+  else
+    risk="daftar berkas PR tidak terbaca"
+  fi
+fi
+
+if [ -n "$risk" ] && [ "$(visible_len "$(section HUMAN)")" -lt 20 ]; then
+  missing="$missing
+- catatan manusia singkat di bawah \`## HUMAN\` (minimal 20 karakter, apa yang Anda uji) — wajib karena PR ini berisiko: $risk"
+fi
 
 [ -n "$(section Why)" ] || missing="$missing
 - \`## Why\` — masalah dan motivasinya"

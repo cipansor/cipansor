@@ -526,6 +526,16 @@ export default function TahfidzCertificatePage() {
             </div>
           )}
 
+          {/* The musyrif who guided the memorisation. Printed so the paper and
+              the downloaded PDF (which reads the same value back from the mint
+              metadata) carry the same line. */}
+          {formData.musyrifName && (
+            <p className="text-sm mb-4">
+              Musyrif:{" "}
+              <span className="font-semibold">{formData.musyrifName}</span>
+            </p>
+          )}
+
           {/* Date */}
           <p className="text-sm mb-6">
             Ditetapkan di {LETTERHEAD.city},{" "}

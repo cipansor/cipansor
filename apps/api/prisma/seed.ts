@@ -6168,6 +6168,15 @@ async function main() {
         issueDate: new Date('2024-10-15'),
         signatoryName: 'KH. Abdullah Syukur',
         signatoryTitle: 'Pimpinan Yayasan Pesantren Cipansor',
+        // What the printed syahadah carries. A freshly minted certificate now
+        // stores this at mint time so its public download reproduces the
+        // issued document; the seed row mirrors that so a fresh database
+        // demonstrates the real flow rather than a generic certificate.
+        metadata: {
+          qiraahType: "Hafs 'an 'Asim",
+          completedJuz: [30],
+          musyrifName: 'Ust. Ahmad Fauzi',
+        },
         isPublic: true,
         createdById: superAdminUser.id,
       },

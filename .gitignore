@@ -135,7 +135,46 @@ dump.rdb
 # balik autentikasi yang bukan otorisasi. Tidak ada satu pun berkas di sini yang
 # boleh masuk ke dalam riwayat git — ia tidak dapat ditarik kembali dari sana.
 apps/api/private/
+# Sebuah skrip/seed yang dijalankan dari akar repo menulis ke `private/` relatif
+# cwd, bukan ke `apps/api/private/`. Ikut diabaikan agar foto KTP yang tersasar
+# di akar repo tidak pernah ter-commit oleh `git add -A`.
+/private/
 
 # Bytecode dari helper hook — dibuat saat hook mengimpornya, bukan sumber.
 __pycache__/
 *.pyc
+
+# Hasil bangun/ukur dokumen aplikasi — bukan sumber.
+#
+# `fakta/` dan `diagrams/` dihasilkan skrip (`collect_facts.py`, `build_docs.py`)
+# dari kode dan dari Mermaid di dalam `.md`. Meng-commit-nya berarti menyimpan
+# salinan yang basi begitu repo bergerak, dan tiap bangun menulis PNG bernama
+# hash yang baru. `alur/` adalah berkas kerja untuk menangkap tangkapan layar
+# (skill `screenshot-roles`), bukan keluaran terbit. Yang dilacak cukup `.md`
+# (sumber).
+#
+# `.docx`/`.pdf` dan `*.build.json` **tidak** dilacak. Biner hanya perantara
+# untuk menghasilkan `.pdf`, dan sebagai berkas git ia tidak berguna untuk
+# ditinjau: git menampilkannya sebagai "Binary files differ", jadi reviewer tak
+# bisa melihat isinya cocok atau tidak dengan `.md`. Menyimpannya di git justru
+# memunculkan masalah "tiga salinan yang bisa berbeda" (kelas cacat D5), yang
+# hilang dengan sendirinya bila biner dibangun ulang dari sumber saat dibutuhkan.
+# `.md` adalah satu-satunya sumber; ia ditinjau seperti kode lain.
+docs/fakta/
+docs/diagrams/
+docs/alur/
+docs/*.build.json
+docs/*.docx
+docs/*.pdf
+
+# Agent working notes (session memory), never part of the repo
+.openhands/
+
+# Visual-QA galleries, built by scripts/build-page-gallery.py and
+# scripts/build-role-gallery.py from a local sweep. Thousands of images that
+# change with every UI change stay out of git history (decided 2026-10-10);
+# the committed screenshots are the ones the user manuals use (docs/screens/).
+docs/images/pages/
+docs/images/roles/
+docs/_gallery.md
+docs/_roles-gallery.md

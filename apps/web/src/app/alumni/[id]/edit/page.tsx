@@ -126,10 +126,13 @@ export default function EditAlumniPage() {
 
   useEffect(() => {
     if (alumni) {
+      // Every field is coerced to a string/undefined: the API returns `null`
+      // for unset columns, and React warns (and switches the input from
+      // controlled to uncontrolled) when a form control receives `null`.
       form.reset({
-        fullName: alumni.fullName,
-        gender: alumni.gender,
-        birthPlace: alumni.birthPlace,
+        fullName: alumni.fullName ?? "",
+        gender: alumni.gender ?? undefined,
+        birthPlace: alumni.birthPlace ?? "",
         birthDate: alumni.birthDate
           ? safeFormat(new Date(alumni.birthDate), "yyyy-MM-dd")
           : "",
@@ -138,7 +141,7 @@ export default function EditAlumniPage() {
         address: alumni.address || "",
         city: alumni.city || "",
         province: alumni.province || "",
-        graduationYear: alumni.graduationYear,
+        graduationYear: alumni.graduationYear ?? currentYear,
         unitId: alumni.unitId || alumni.unit?.id || "",
         currentEducation: alumni.currentEducation || "",
         educationInstitution: alumni.educationInstitution || "",

@@ -87,7 +87,7 @@ Dipilih **gate keras pada job `template`**:
 - `.github/workflows/pr-description-checks.yml` berjalan pada
   `pull_request_target` (PR fork tetap bisa dikomentari; tidak ada kode PR yang
   di-checkout):
-  - job **template** **gagal** selama deskripsi belum lengkap (catatan `HUMAN`,
+  - job **template** **gagal** selama deskripsi belum lengkap (catatan `HUMAN` pada PR berisiko,
     `Why`/`What changed`/`How to test`/`Acceptance criteria`, `Fixes #<n>` ke
     issue `ready`/`bot-implement`, dan prosa Bahasa Indonesia);
   - job **visual** memasang pengingat **sebelum/sesudah** bila PR mengubah

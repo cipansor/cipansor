@@ -13,7 +13,11 @@ import {
 } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useVerifyCertificate } from "@/hooks/use-certificate";
+import { toast } from "sonner";
+import {
+  useVerifyCertificate,
+  useDownloadPublicCertificate,
+} from "@/hooks/use-certificate";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
 import {
@@ -39,6 +43,34 @@ export default function VerifyCertificatePage({
 }) {
   const resolvedParams = use(params);
   const { data, isLoading, error } = useVerifyCertificate(resolvedParams.code);
+  const downloadMutation = useDownloadPublicCertificate();
+
+  /**
+   * Fetch the public certificate's PDF by its verification number and save it.
+   *
+   * The button used to link to `/public/verify-sanad` — the *verification
+   * form* — so clicking "Unduh Sertifikat" only re-asked for the number and
+   * never delivered a file. The bytes come from the session-free
+   * `/certificates/public/{code}/download` route, which answers only for a
+   * certificate marked public; the blob is turned into an object URL and
+   * revoked after the click so it does not pin the file in memory.
+   */
+  const handleDownload = async () => {
+    try {
+      const blob = await downloadMutation.mutateAsync(resolvedParams.code);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sertifikat-${resolvedParams.code.replace(/[^A-Za-z0-9]+/g, "-")}.pdf`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } catch {
+      // The axios interceptor already surfaced the error to the user.
+      toast.error("Gagal mengunduh sertifikat");
+    }
+  };
 
   if (isLoading) {
     return (
@@ -180,12 +212,14 @@ export default function VerifyCertificatePage({
                     {certificate.student?.name || "-"}
                   </span>
                 </div>
-                <div className="flex justify-between">
-                  <span className="text-muted-foreground">NIS</span>
-                  <span className="font-medium">
-                    {certificate.student?.nis || "-"}
-                  </span>
-                </div>
+                {certificate.student?.unit && (
+                  <div className="flex justify-between">
+                    <span className="text-muted-foreground">Unit</span>
+                    <span className="font-medium">
+                      {certificate.student.unit.name}
+                    </span>
+                  </div>
+                )}
                 {certificate.student?.class && (
                   <div className="flex justify-between">
                     <span className="text-muted-foreground">Kelas</span>
@@ -261,16 +295,13 @@ export default function VerifyCertificatePage({
 
             {/* Actions */}
             <div className="flex flex-wrap gap-3 pt-4 border-t">
-              {certificate.pdfUrl && (
-                <Button asChild>
-                  <a
-                    href={certificate.pdfUrl}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    <Download className="mr-2 h-4 w-4" />
-                    Download PDF
-                  </a>
+              {certificate.isPublic && (
+                <Button
+                  onClick={handleDownload}
+                  disabled={downloadMutation.isPending}
+                >
+                  <Download className="mr-2 h-4 w-4" />
+                  Unduh Sertifikat
                 </Button>
               )}
               <Button
