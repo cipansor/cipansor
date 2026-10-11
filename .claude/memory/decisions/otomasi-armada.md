@@ -46,6 +46,29 @@
 11. **Peta modul** tinggal di `DOKUMEN-TEKNIS.md` Lampiran A milik #512, bukan
     berkas tersendiri.
 
+12. **Setiap PR berangkat dari issue dan menautkan semua yang diselesaikannya**
+    (2026-10-11, #772/#773). Satu `Fixes #n` per issue, dan `Refs #n` untuk
+    yang baru sebagian. Tidak ada jalan keluar "tanpa issue". Setiap nomor harus
+    issue terbuka berlabel `ready`. Check-nya dijadikan wajib di ruleset; hanya
+    Dependabot yang dikecualikan, berdasarkan penulis PR. Audit hari itu
+    menemukan delapan issue yang sudah selesai tetapi masih terbuka karena PR
+    penyelesainya tidak menyebutnya.
+13. **Gerbang yang diam ditandai mesin** (#776/#777). PR siap yang semua
+    check-nya hijau lebih dari 60 menit tanpa review gerbang di head-nya
+    didispatch ulang sekali, diberi satu komentar per head, dan dicatat dalam
+    satu issue `automation-health`.
+14. **Panduan tidak menyalin angka jumlah** (#782/#783). Jumlah modul, model,
+    job, dan berkas uji ditunjuk lewat perintah ukurnya. Pengukuran bertanggal
+    beserta definisinya hanya di `known-issues.md` dan di dokumen teknis
+    berrevisi yang diperiksa `check_docs.py`. `Peta basis kode` memperbarui satu
+    issue induk (#782), tidak membuka issue per temuan.
+15. **Penulis dan penyetuju tetap dua identitas** (#781). GitHub menolak
+    approval dari penulis PR itu sendiri, jadi usulan "semua otomasi lewat satu
+    akun" ditolak, karena gerbang tidak lagi bisa meng-approve. Penulis issue
+    dan PR pindah ke GitHub App `cipansor-contributor-bot` (izin minimal, token
+    per run). `cipansor-bot` tetap akun penyetuju, karena approval dari akun
+    ber-izin write terbukti dihitung ruleset.
+
 ## Sumber
 
 - Google SRE, "Monitoring Distributed Systems" —
@@ -59,5 +82,12 @@
   <https://dora.dev/capabilities/streamlining-change-approval/>
 - GitHub, repository security advisories —
   <https://docs.github.com/en/code-security/security-advisories/working-with-repository-security-advisories/about-repository-security-advisories>
-- OpenHands upstream, `check_pr_description.py` (catatan HUMAN di setiap PR) —
+- OpenHands upstream, `check_pr_description.py` (catatan HUMAN di setiap PR;
+  minimal satu issue `ready-for-dev`, bot dikecualikan) —
   <https://github.com/OpenHands/OpenHands/blob/main/.github/scripts/check_pr_description.py>
+- GitHub Docs, "Linking a pull request to an issue" (kata kunci hanya dibaca
+  pada PR ke branch default; satu kata kunci per issue) —
+  <https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue>
+- GitHub Docs, "Generating an installation access token for a GitHub App"
+  (token kedaluwarsa dalam satu jam, izin dan repo bisa dipersempit) —
+  <https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app>

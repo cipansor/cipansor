@@ -52,7 +52,7 @@ the mechanical cases.
 - [fasilitas-dan-kegiatan-situs-publik](decisions/fasilitas-dan-kegiatan-situs-publik.md) — Fasilitas (`/campus`) and Kegiatan (`/activities`) as two menu items; facilities in the site config, extracurriculars from the portal module with admin-kept EN/AR names (brochure loaded by `db:seed:ekskul-2027-2028`, unmarked ones → SD IT/SMP IT/SMA Qur'an); agenda without dates; photos only where one shows the place (2026-10-04)
 <<<<<<< HEAD
 - [showcase-portofolio](decisions/showcase-portofolio.md) — showcase portofolio santri tetap terbatas `studentScope` (PP TUNAS Ps.10, UU PDP Ps.25); perluasan butuh kurasi guru + izin wali; rancangan bertingkat di roadmap (2026-10-10)
-- [otomasi-armada](decisions/otomasi-armada.md) — pemantauan dipicu event, k6 manual sebelum rilis, rilis lewat label `rilis-disetujui`, tanpa CHANGELOG, temuan keamanan ke advisory privat, duplikat = paling benar, tanpa job drift #680, catatan HUMAN hanya PR berisiko (2026-10-09 → 10)
+- [otomasi-armada](decisions/otomasi-armada.md) — pemantauan dipicu event, k6 manual sebelum rilis, rilis lewat label `rilis-disetujui`, tanpa CHANGELOG, temuan keamanan ke advisory privat, duplikat = paling benar, tanpa job drift #680, catatan HUMAN hanya PR berisiko (2026-10-09 → 10); 2026-10-11: PR wajib menautkan semua issue-nya (check wajib), gerbang diam ditandai `gate-watch`, panduan tanpa angka tetap + satu issue induk drift, penulis = App `cipansor-contributor-bot` dan penyetuju tetap `cipansor-bot` (bukan satu akun)
 =======
 - [akses-data-pegawai](decisions/akses-data-pegawai.md) — NIK/KK/alamat/TTL/rekening pegawai hanya untuk diri sendiri, admin unit, TU unit, organ, Super Admin; rekan (termasuk kepala sekolah) melihat kolom direktori (2026-10-10)
 >>>>>>> origin/main
