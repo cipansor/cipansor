@@ -477,8 +477,11 @@ export async function getPortfolioStatistics(
 }
 
 // =====================================
-// STUDENT SHOWCASE (PUBLIC PORTFOLIO VIEW)
+// STUDENT SHOWCASE (WITHIN STUDENT SCOPE)
 // =====================================
+// Not a public page: `isShowcase`/`isPublic` choose which works are shown,
+// not who may see them. Reach stays `studentScope`
+// (decisions/showcase-portofolio.md).
 
 export async function getStudentShowcase(studentId: string, actor: ScopeActor) {
   // The showcase carries the santri's photo, rewards and tahfidz totals: the
