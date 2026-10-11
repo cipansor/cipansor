@@ -243,7 +243,7 @@ function DutyRosterPageContent() {
           </p>
         </div>
         <div className="flex gap-2">
-          <Link href="/duty-roster/schedule">
+          <Link href="/duty-roster/new">
             <Button variant="outline">
               <Settings className="h-4 w-4 mr-2" />
               Kelola Jadwal

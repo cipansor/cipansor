@@ -88,6 +88,35 @@ export class OrganisasiService {
     });
   }
 
+  async getPositionById(id: string) {
+    return prisma.orgPosition.findUnique({
+      where: { id },
+      include: {
+        holder: { select: { id: true, name: true, email: true } },
+        orgUnit: { select: { id: true, name: true } },
+      },
+    });
+  }
+
+  /**
+   * Positions that report into `id`, derived from the org chart: a position's
+   * parent is the position held at its org unit's parent org unit.
+   */
+  async getParentPosition(orgUnitId: string) {
+    const orgUnit = await prisma.orgUnit.findUnique({
+      where: { id: orgUnitId },
+      select: { parentId: true },
+    });
+    if (!orgUnit?.parentId) return null;
+
+    const parent = await prisma.orgPosition.findFirst({
+      where: { orgUnitId: orgUnit.parentId },
+      select: { id: true, title: true },
+      orderBy: { level: 'asc' },
+    });
+    return parent;
+  }
+
   /**
    * Every position across the org chart.
    *

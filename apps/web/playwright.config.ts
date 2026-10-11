@@ -16,7 +16,7 @@ export default defineConfig({
   /* Test Organization */
   testMatch: "**/*.spec.ts",
   // Ignore debug specs and the screenshot/verification utilities — the latter
-  // are tooling (they overwrite tracked docs/images and aren't product tests);
+  // are tooling (they write gallery images and aren't product tests);
   // crash-sweep.spec.ts covers page-crash detection instead.
   testIgnore: [
     "**/debug-*.spec.ts",

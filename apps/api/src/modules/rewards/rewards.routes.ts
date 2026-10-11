@@ -63,6 +63,12 @@ router.get(
   controller.getRewardCategories
 );
 
+router.get(
+  '/categories/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
+  controller.getRewardCategoryById
+);
+
 /**
  * @swagger
  * /api/rewards/top-students:

@@ -138,7 +138,10 @@ export default function IbadahPage() {
   const records = recordsData?.data || [];
   const targets = targetsData?.data || [];
   const leaderboard = leaderboardData || [];
-  const pagination = recordsData?.meta;
+  // The list endpoints return the pagination block as `meta.pagination`
+  // (SharedPaginatedResponse), not a flat `meta`. Reading `meta.total` gave
+  // `undefined`, which the footer rendered as "Showing 1 to NaN of results".
+  const pagination = recordsData?.meta?.pagination;
 
   // Stats
   const totalRecords = pagination?.total || 0;

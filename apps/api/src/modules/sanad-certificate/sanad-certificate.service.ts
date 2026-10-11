@@ -408,6 +408,21 @@ export async function generateCertificate(
         issueDate: sanad.certifiedAt,
         signatoryName: input.signedBy || sanad.teacher.name,
         signatoryTitle: input.signedByTitle || 'Guru Tahfidz',
+        // The juz and teacher printed on the sanad. Stored so the public
+        // download reproduces the issued document instead of the generic
+        // certificate, which knows only the holder's name and grade.
+        metadata: {
+          juz: sanad.juz,
+          juzName: getJuzName(sanad.juz),
+          teacherName: sanad.teacher.name,
+        },
+        // Explicit, never the column default. The certificate's printed
+        // verification URL points at the public page, so a row left private
+        // failed its own verification ("Sertifikat tidak ditemukan") the moment
+        // it was issued. `generateCertificateSchema` defaults this to `true`;
+        // an issuer minting an internal record passes `false` and nothing
+        // discloses it publicly.
+        isPublic: input.isPublic ?? true,
         createdById: context.userId,
       },
     });
@@ -701,16 +716,26 @@ export function generateCertificateHtml(
 
 /**
  * Verify a certificate against the persisted `DigitalCertificate` records.
- * A certificate is valid only if its number exists in the database (and, when
- * a verification code is supplied, the code matches). This endpoint is
- * public, so the returned projection is limited to what is printed on the
- * certificate itself — never internal IDs or contact data.
+ * A certificate is valid only if its number exists in the database, was
+ * marked `isPublic` by its issuer, and — when a verification code is
+ * supplied — the code matches. This endpoint is public, so the returned
+ * projection is limited to what is printed on the certificate itself, never
+ * internal IDs or contact data.
+ *
+ * The `isPublic` predicate is not optional here. Only a certificate its
+ * issuer chose to publish may be read without a session; without it, anyone
+ * holding (or guessing) a *private* certificate's number — a tahfidz syahadah
+ * minted for internal records, say — received the holder's name, unit and
+ * grade from this route. A private certificate now answers `valid: false`,
+ * exactly as an unknown number does, so this route cannot be used to confirm
+ * that a private certificate exists. This mirrors `certificates.service.ts`'s
+ * `verifyCertificate` (CWE-862).
  */
 export async function verifyCertificate(input: VerifyCertificateInput) {
   const { certificateNumber, verificationCode } = input;
 
-  const certificate = await prisma.digitalCertificate.findUnique({
-    where: { certificateNumber },
+  const certificate = await prisma.digitalCertificate.findFirst({
+    where: { certificateNumber, isPublic: true },
     include: {
       student: {
         select: {

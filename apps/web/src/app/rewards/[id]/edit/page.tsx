@@ -106,8 +106,10 @@ function EditRewardPageContent() {
       await updateMutation.mutateAsync({
         id,
         data: {
-          ...data,
-          description: data.description || undefined,
+          category: data.rewardTypeId,
+          description: data.description?.trim() || "Penghargaan diberikan",
+          points: selectedType?.points,
+          givenAt: new Date(data.date).toISOString(),
         },
       });
       toast.success("Penghargaan berhasil diperbarui");

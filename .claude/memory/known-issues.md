@@ -18,6 +18,24 @@ ordered backlog is [`roadmap.md`](./roadmap.md); where the work stands is
 
 ## Broken flows and wrong figures
 
+- **The per-role screenshot sweep cannot log in** (found 2026-09-29). `apps/web/scripts/screenshot-roles.ts` posts `/auth/login`
+  without `X-Client: bearer`, so since the HttpOnly-cookie session (#620) the body carries no token and every role fails
+  "Unexpected login response". Its menu walk also skips nested items. `.claude/skills/screenshot-roles/scripts/screenshot-flow.ts`
+  (`atlas`) replaces it; the old script and `scripts/dev-up.sh` (builds the web with a leaked `NODE_ENV=development`, see the `stack`
+  skill) still need fixing.
+- **The password screens contradict each other and the decision** (found
+  2026-09-29 while checking a manual against the screens).
+  `Profile → Keamanan` still advises changing the password "at least every 3
+  months" (`app/profile/page.tsx`), against `decisions/autentikasi-2fa-dan-sandi.md`
+  (change on an event, not a calendar); its client-side floor message says
+  "minimal 8 karakter" (the full 15-or-8 rule is only checked on submit). And
+  `Settings → Keamanan Akun` says password handling belongs to an administrator
+  and to "IT Support", while the change form lives on Profile.
+- **Wrong language in the portal chrome.** The avatar menu reads *Profile*,
+  *Settings*, *Logout* (`components/layout/header.tsx`) in a portal decided to be
+  Indonesian only, and several screens still say *Siswa* / *Daftar Siswa*
+  (attendance record, menu group *Mengajar*) where the decision is *santri*.
+  The manuals quote the screen as it is.
 - **The web calls API paths that do not exist — 184 distinct calls left**
   (212 when measured on 2026-09-25; Perizinan fixed in #564, the asrama pages
   in #569 and #571, mata pelajaran in #573, laporan harian in #577, the

@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { use, useState, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, Edit, Trash2, QrCode, Wrench, Printer } from "lucide-react";
@@ -804,12 +804,15 @@ function InventoryDetailPageContent({ params }: { params: { id: string } }) {
   );
 }
 
-export default function InventoryDetailPage(
-  props: Parameters<typeof InventoryDetailPageContent>[0],
-) {
+export default function InventoryDetailPage({
+  params,
+}: {
+  params: Promise<Parameters<typeof InventoryDetailPageContent>[0]["params"]>;
+}) {
+  const resolved = use(params);
   return (
     <MainLayout>
-      <InventoryDetailPageContent {...props} />
+      <InventoryDetailPageContent params={resolved} />
     </MainLayout>
   );
 }

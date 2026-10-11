@@ -85,11 +85,17 @@ function NewViolationPageContent() {
 
   const onSubmit = async (data: FormData) => {
     try {
+      // The category carries the severity its existing rows use; submitting a
+      // fixed "MINOR" recorded every violation as a minor one regardless of the
+      // category chosen.
       await createMutation.mutateAsync({
-        ...data,
-        description: data.description || undefined,
-        witness: data.witness || undefined,
-        actionTaken: data.actionTaken || undefined,
+        studentId: data.studentId,
+        type: selectedType?.type ?? "MINOR",
+        category: data.violationTypeId,
+        description: data.description?.trim() || "Pelanggaran dicatat",
+        occurredAt: new Date(data.date).toISOString(),
+        points: selectedType?.points ?? 0,
+        action: data.actionTaken || undefined,
       });
       toast.success("Pelanggaran berhasil dicatat");
       router.push("/violations");

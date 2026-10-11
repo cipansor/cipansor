@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { use, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { ArrowLeft, CheckCircle, XCircle, AlertTriangle } from "lucide-react";
@@ -366,12 +366,15 @@ function AuditDetailPageContent({ params }: { params: { id: string } }) {
   );
 }
 
-export default function AuditDetailPage(
-  props: Parameters<typeof AuditDetailPageContent>[0],
-) {
+export default function AuditDetailPage({
+  params,
+}: {
+  params: Promise<Parameters<typeof AuditDetailPageContent>[0]["params"]>;
+}) {
+  const resolved = use(params);
   return (
     <MainLayout>
-      <AuditDetailPageContent {...props} />
+      <AuditDetailPageContent params={resolved} />
     </MainLayout>
   );
 }

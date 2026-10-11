@@ -1,0 +1,26 @@
+{
+  "/kinerja/evaluasi/[id]": {
+    "reason": "seed.ts creates no PerformanceEvaluation, so no id exists to resolve; only the list page is reachable."
+  },
+  "/kinerja/pk/[id]": {
+    "reason": "seed.ts creates no PerformanceAgreement (Perjanjian Kinerja), so no id exists to resolve; only the list page is reachable."
+  },
+  "/practicum/[id]": {
+    "reason": "Resolvable from /practicum/lesson-plans with the stack up; absent from the committed map until the next resolver run."
+  },
+  "/research/submissions/[id]": {
+    "reason": "seed.ts creates no ResearchSubmission, so no id exists to resolve; only the list page is reachable."
+  },
+  "/research/themes/[id]": {
+    "reason": "seed.ts creates no ResearchTheme, so no id exists to resolve; only the list page is reachable."
+  },
+  "/spmb/periods/[id]": {
+    "reason": "Resolvable from /admissions/periods (the URL prefix differs from the API path); absent from the committed map until the next resolver run."
+  },
+  "/spmb/periods/[id]/edit": {
+    "reason": "Resolvable from /admissions/periods (the URL prefix differs from the API path); absent from the committed map until the next resolver run."
+  },
+  "/student-org/members/[id]": {
+    "reason": "seed.ts creates no StudentOrgMember, so no id exists to resolve; only the list page is reachable."
+  }
+}

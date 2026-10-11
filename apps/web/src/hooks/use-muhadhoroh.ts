@@ -153,7 +153,7 @@ async function fetchMuhadhorohList(params: ListMuhadhorohParams) {
 
 async function fetchMuhadhorohById(id: string) {
   const response = await api.get(`/muhadhoroh/${id}`);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
 async function fetchUpcomingMuhadhoroh(unitId: string, limit = 10) {
@@ -192,12 +192,12 @@ async function fetchStudentHistory(studentId: string, limit = 20) {
 
 async function createMuhadhoroh(input: CreateMuhadhorohInput) {
   const response = await api.post("/muhadhoroh", input);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
 async function updateMuhadhoroh(id: string, input: UpdateMuhadhorohInput) {
   const response = await api.patch(`/muhadhoroh/${id}`, input);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
 async function deleteMuhadhoroh(id: string) {
@@ -206,12 +206,12 @@ async function deleteMuhadhoroh(id: string) {
 
 async function evaluateMuhadhoroh(id: string, input: EvaluateMuhadhorohInput) {
   const response = await api.post(`/muhadhoroh/${id}/evaluate`, input);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
 async function cancelMuhadhoroh(id: string) {
   const response = await api.post(`/muhadhoroh/${id}/cancel`);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
 // ===================
@@ -393,7 +393,8 @@ export function getGradeColor(grade: string | null) {
   }
 }
 
-export function getLanguageLabel(language: string) {
+export function getLanguageLabel(language: string | null | undefined) {
+  if (!language) return "-";
   switch (language.toLowerCase()) {
     case "indonesian":
       return "Bahasa Indonesia";

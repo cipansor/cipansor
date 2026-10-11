@@ -18,7 +18,7 @@ import { ProjectColumn } from "./project-column";
 import { TaskCard } from "./task-card";
 import { CreateTaskModal } from "./create-task-modal";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
+import { api } from "@/lib/api";
 
 interface Props {
   project: any;
@@ -48,7 +48,7 @@ export function KanbanBoard({ project }: Props) {
       columnId: string;
       order: number;
     }) => {
-      await axios.patch(`/api/projects/tasks/${data.taskId}/position`, {
+      await api.patch(`/projects/tasks/${data.taskId}/position`, {
         columnId: data.columnId,
         order: data.order,
       });

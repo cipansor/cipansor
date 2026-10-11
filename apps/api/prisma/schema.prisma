@@ -4608,6 +4608,15 @@ model DigitalCertificate {
   // File
   pdfUrl            String?  @map("pdf_url")
   thumbnailUrl      String?  @map("thumbnail_url")
+  // Render data
+  /// What the printed certificate carries that the generic renderer cannot
+  /// derive from `title`/`grade` alone — the juz/name for a sanad, the qira'ah
+  /// and silsilah for a sanad qiraah, the completed juz for a tahfidz syahadah.
+  /// Persisted at mint time so the public download reproduces the document the
+  /// issuer printed instead of a generic one. Shape is per certificate type and
+  /// deliberately open (`Record<string, unknown>`); the renderer reads the keys
+  /// it knows and ignores the rest.
+  metadata          Json?    @map("metadata")
   // Meta
   isPublic          Boolean  @default(false) @map("is_public")
   downloadCount     Int      @default(0) @map("download_count")

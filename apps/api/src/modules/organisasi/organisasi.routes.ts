@@ -30,6 +30,7 @@ router.delete(
 // Positions
 router.get('/positions', authenticate, controller.getAllPositions);
 router.get('/units/:orgUnitId/positions', authenticate, controller.getPositions);
+router.get('/positions/:id', authenticate, controller.getPositionById);
 router.post(
   '/positions',
   authenticate,

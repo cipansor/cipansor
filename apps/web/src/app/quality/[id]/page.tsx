@@ -3,6 +3,8 @@
 import { MainLayout } from "@/components/layout/main-layout";
 import { useActiveAcademicYear } from "@/hooks/use-academic-years";
 import { useAuth } from "@/hooks/use-auth";
+import { useUnits } from "@/hooks/use-units";
+import { useEffect, useState } from "react";
 import {
   useStandardDetails,
   useDeleteEvidence,
@@ -40,33 +42,62 @@ export default function StandardDetailPage() {
   const params = useParams();
   const { user } = useAuth();
   const { data: activeAcademicYear } = useActiveAcademicYear();
-  const unitId = user?.unitId;
   const standardId = params.id as string;
+
+  // SPMI is measured per unit and the yayasan board belongs to none, so
+  // `user.unitId` is null for exactly the roles that oversee every unit (the
+  // same trap `/quality` and `/quality/audits` already work around). Foundation
+  // users pick a unit; unit users stay pinned to their own.
+  const { data: units } = useUnits();
+  const isFoundationUser = !user?.unitId;
+  const [selectedUnitId, setSelectedUnitId] = useState<string>("");
+
+  useEffect(() => {
+    if (isFoundationUser && !selectedUnitId && units?.length) {
+      setSelectedUnitId(units[0].id);
+    }
+  }, [isFoundationUser, selectedUnitId, units]);
+
+  const unitId = user?.unitId ?? selectedUnitId;
+  const fullUnitId = unitId || "";
 
   const { data: standard, isLoading } = useStandardDetails(
     standardId,
-    unitId || "",
+    fullUnitId,
     activeAcademicYear?.id || "",
   );
 
   const deleteEvidence = useDeleteEvidence();
 
-  if (!unitId)
+  if (isFoundationUser && !unitId)
     return (
       <MainLayout>
-        <div>Access Denied</div>
+        <div className="p-8 text-center">
+          <h2 className="text-2xl font-bold">Belum ada unit</h2>
+          <p className="text-muted-foreground">
+            Tambahkan unit pendidikan terlebih dahulu untuk melihat standar
+            mutu.
+          </p>
+        </div>
       </MainLayout>
     );
-  if (isLoading)
+  if (!fullUnitId || !activeAcademicYear?.id || isLoading)
     return (
       <MainLayout>
-        <div>Loading...</div>
+        <div className="flex items-center justify-center py-12">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-primary border-t-transparent" />
+        </div>
       </MainLayout>
     );
   if (!standard)
     return (
       <MainLayout>
-        <div>Standard not found</div>
+        <div className="p-8 text-center">
+          <p className="text-muted-foreground">Standar mutu tidak ditemukan</p>
+          <Button asChild className="mt-4">
+            <Link href="/quality">Kembali ke Daftar</Link>
+          </Button>
+        </div>
       </MainLayout>
     );
 

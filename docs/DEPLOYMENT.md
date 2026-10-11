@@ -433,6 +433,10 @@ kill -9 <PID>
 
 ## Support
 
-- Documentation: https://docs.cipansor.or.id
-- Email: support@cipansor.or.id
-- Issues: https://github.com/ypcipansor/cipansor/issues
+- Repositori: <https://github.com/ypcipansor/cipansor>
+- Isu & permintaan: <https://github.com/ypcipansor/cipansor/issues>
+- Konvensi pengembangan: [`AGENTS.md`](../AGENTS.md)
+
+Untuk catatan insiden produksi dan langkah pemulihannya, lihat
+[`.claude/memory/known-issues.md`](../.claude/memory/known-issues.md); untuk
+konteks dua-host (apex vs portal) lihat [`ARCHITECTURE.md`](./ARCHITECTURE.md).

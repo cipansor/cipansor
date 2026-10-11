@@ -150,20 +150,6 @@ export interface GenerateCertificateInput {
   completedJuz?: number[];
 }
 
-export interface DigitalCertificate {
-  id: string;
-  studentId: string;
-  certificateType: string;
-  certificateNumber: string;
-  issueDate: string | Date;
-  grade?: string | null;
-  qrCode: string;
-  verificationUrl: string;
-  signatoryName: string;
-  signatoryTitle: string;
-  student?: Student;
-}
-
 export type QuranSurahStatus = "MEMORIZED" | "IN_PROGRESS" | "NOT_STARTED";
 
 export interface QuranSurahProgress {
