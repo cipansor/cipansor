@@ -12,7 +12,9 @@ function actor(req: Parameters<typeof requireUser>[0]): CertificateActor {
 }
 
 export const listCertificates = asyncHandler(async (req, res) => {
-  const query = (res.locals.validatedQuery ?? req.query) as QueryCertificateDto;
+  // `validateQuery(queryCertificateSchema)` ran on the route; the raw query
+  // string is never a fallback (the same rule as sanad-certificate, #545).
+  const query = res.locals.validatedQuery as QueryCertificateDto;
   const result = await service.getCertificates(query, actor(req));
   res.json({ success: true, ...result });
 });

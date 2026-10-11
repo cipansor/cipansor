@@ -59,15 +59,16 @@ async function run(handler: RequestHandler, req: Request, res: Response) {
 beforeEach(() => vi.clearAllMocks());
 
 describe('certificatesController — list', () => {
-  it('passes the validated query and the caller scope to the service', async () => {
+  it('passes the validated query, never the raw query string, and the caller scope', async () => {
     mocked.getCertificates.mockResolvedValue({ data: [], meta: { page: 1, limit: 20, total: 0 } });
-    const req = mockRequest({ query: { page: '1' } });
+    const req = mockRequest({ query: { page: '1', studentId: 'raw-from-the-url' } });
     const res = mockResponse();
+    res.locals.validatedQuery = { page: 1, limit: 20 };
 
     await run(controller.listCertificates, req, res);
 
     expect(mocked.getCertificates).toHaveBeenCalledWith(
-      expect.objectContaining({ page: '1' }),
+      { page: 1, limit: 20 },
       expect.objectContaining({ sub: 'user-1', roleCode: 'SDIT_GURU', unitId: 'unit-1' })
     );
     expect(res.json).toHaveBeenCalledWith(expect.objectContaining({ success: true, data: [] }));
