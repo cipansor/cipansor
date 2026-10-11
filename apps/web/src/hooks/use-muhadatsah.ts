@@ -139,15 +139,15 @@ export const muhadatsahKeys = {
     [...muhadatsahKeys.lists(), params] as const,
   details: () => [...muhadatsahKeys.all, "detail"] as const,
   detail: (id: string) => [...muhadatsahKeys.details(), id] as const,
-  upcoming: (unitId: string) =>
+  upcoming: (unitId?: string) =>
     [...muhadatsahKeys.all, "upcoming", unitId] as const,
-  statistics: (unitId: string, startDate?: string, endDate?: string) =>
+  statistics: (unitId?: string, startDate?: string, endDate?: string) =>
     [...muhadatsahKeys.all, "statistics", unitId, startDate, endDate] as const,
-  topPerformers: (unitId: string, language?: string) =>
+  topPerformers: (unitId?: string, language?: string) =>
     [...muhadatsahKeys.all, "top-performers", unitId, language] as const,
   studentHistory: (studentId: string) =>
     [...muhadatsahKeys.all, "student-history", studentId] as const,
-  matchPartners: (unitId: string, language: string) =>
+  matchPartners: (unitId: string | undefined, language: string) =>
     [...muhadatsahKeys.all, "match-partners", unitId, language] as const,
 };
 
@@ -181,37 +181,32 @@ async function fetchMuhadatsahById(id: string) {
   return response.data.data as MuhadatsahRecord;
 }
 
-async function fetchUpcomingMuhadatsah(unitId: string, limit = 10) {
-  const response = await api.get(
-    `/muhadatsah/upcoming?unitId=${unitId}&limit=${limit}`,
-  );
+async function fetchUpcomingMuhadatsah(unitId?: string, limit = 10) {
+  const response = await api.get("/muhadatsah/upcoming", {
+    params: { unitId, limit },
+  });
   return response.data.data as MuhadatsahRecord[];
 }
 
 async function fetchMuhadatsahStatistics(
-  unitId: string,
+  unitId?: string,
   startDate?: string,
   endDate?: string,
 ) {
-  const params = new URLSearchParams({ unitId });
-  if (startDate) params.set("startDate", startDate);
-  if (endDate) params.set("endDate", endDate);
-
-  const response = await api.get(`/muhadatsah/statistics?${params.toString()}`);
+  const response = await api.get("/muhadatsah/statistics", {
+    params: { unitId, startDate, endDate },
+  });
   return response.data.data as MuhadatsahStats;
 }
 
 async function fetchTopPerformers(
-  unitId: string,
+  unitId?: string,
   language?: string,
   limit = 10,
 ) {
-  const params = new URLSearchParams({ unitId, limit: String(limit) });
-  if (language) params.set("language", language);
-
-  const response = await api.get(
-    `/muhadatsah/top-performers?${params.toString()}`,
-  );
+  const response = await api.get("/muhadatsah/top-performers", {
+    params: { unitId, language, limit },
+  });
   return response.data.data as TopPerformer[];
 }
 
@@ -222,10 +217,13 @@ async function fetchStudentHistory(studentId: string, limit = 20) {
   return response.data.data as MuhadatsahRecord[];
 }
 
-async function fetchMatchPartners(unitId: string, language: string) {
-  const response = await api.get(
-    `/muhadatsah/match-partners?unitId=${unitId}&language=${language}`,
-  );
+async function fetchMatchPartners(
+  unitId: string | undefined,
+  language: string,
+) {
+  const response = await api.get("/muhadatsah/match-partners", {
+    params: { unitId, language },
+  });
   return response.data.data as AvailablePartner[];
 }
 
@@ -272,35 +270,36 @@ export function useMuhadatsahDetail(id: string | undefined) {
   });
 }
 
-export function useUpcomingMuhadatsah(unitId: string | undefined, limit = 10) {
+/**
+ * `unitId` narrows to one unit; without it the API answers with every santri
+ * the reader reaches — their unit's, or every unit's for the pesantren's staff.
+ */
+export function useUpcomingMuhadatsah(unitId?: string, limit = 10) {
   return useQuery({
-    queryKey: muhadatsahKeys.upcoming(unitId!),
-    queryFn: () => fetchUpcomingMuhadatsah(unitId!, limit),
-    enabled: !!unitId,
+    queryKey: muhadatsahKeys.upcoming(unitId),
+    queryFn: () => fetchUpcomingMuhadatsah(unitId, limit),
   });
 }
 
 export function useMuhadatsahStatistics(
-  unitId: string | undefined,
+  unitId?: string,
   startDate?: string,
   endDate?: string,
 ) {
   return useQuery({
-    queryKey: muhadatsahKeys.statistics(unitId!, startDate, endDate),
-    queryFn: () => fetchMuhadatsahStatistics(unitId!, startDate, endDate),
-    enabled: !!unitId,
+    queryKey: muhadatsahKeys.statistics(unitId, startDate, endDate),
+    queryFn: () => fetchMuhadatsahStatistics(unitId, startDate, endDate),
   });
 }
 
 export function useTopPerformers(
-  unitId: string | undefined,
+  unitId?: string,
   language?: string,
   limit = 10,
 ) {
   return useQuery({
-    queryKey: muhadatsahKeys.topPerformers(unitId!, language),
-    queryFn: () => fetchTopPerformers(unitId!, language, limit),
-    enabled: !!unitId,
+    queryKey: muhadatsahKeys.topPerformers(unitId, language),
+    queryFn: () => fetchTopPerformers(unitId, language, limit),
   });
 }
 
@@ -320,9 +319,9 @@ export function useMatchPartners(
   language: string | undefined,
 ) {
   return useQuery({
-    queryKey: muhadatsahKeys.matchPartners(unitId!, language!),
-    queryFn: () => fetchMatchPartners(unitId!, language!),
-    enabled: !!unitId && !!language,
+    queryKey: muhadatsahKeys.matchPartners(unitId, language!),
+    queryFn: () => fetchMatchPartners(unitId, language!),
+    enabled: !!language,
   });
 }
 

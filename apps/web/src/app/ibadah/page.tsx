@@ -23,7 +23,6 @@ import {
   Target,
   CheckCircle,
   Clock,
-  Flame,
   Star,
   Users,
   BarChart3,
@@ -67,7 +66,7 @@ import {
 } from "@/components/ui/popover";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Progress } from "@/components/ui/progress";
-import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import {
@@ -82,7 +81,6 @@ import {
   getCategoryInfo,
   getVerificationStatusInfo,
   formatPoints,
-  getStreakEmoji,
   type IbadahCategory,
   type LeaderboardPeriod,
   type VerificationStatus,
@@ -124,12 +122,15 @@ export default function IbadahPage() {
     limit: 100,
   });
 
+  // The API reads only the santri this account reaches; a unit narrows that.
   const { data: leaderboardData, isLoading: leaderboardLoading } =
     useIbadahLeaderboard({
-      unitId: selectedUnit || units[0]?.id || "",
+      unitId: selectedUnit || undefined,
       periodType: leaderboardPeriod,
       limit: 10,
     });
+  // A unit to choose only for whoever reaches more than one.
+  const choosesUnit = units.length > 1;
 
   // Mutations
   const deleteRecord = useDeleteIbadahRecord();
@@ -290,24 +291,26 @@ export default function IbadahPage() {
             </CardHeader>
             <CardContent>
               <div className="flex flex-wrap gap-4">
-                <Select
-                  value={selectedUnit || "all"}
-                  onValueChange={(val) =>
-                    setSelectedUnit(val === "all" ? "" : val)
-                  }
-                >
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue placeholder="Pilih Unit" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Semua Unit</SelectItem>
-                    {units.map((unit) => (
-                      <SelectItem key={unit.id} value={unit.id}>
-                        {unit.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                {choosesUnit && (
+                  <Select
+                    value={selectedUnit || "all"}
+                    onValueChange={(val) =>
+                      setSelectedUnit(val === "all" ? "" : val)
+                    }
+                  >
+                    <SelectTrigger className="w-[180px]" aria-label="Unit">
+                      <SelectValue placeholder="Pilih Unit" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="all">Semua Unit</SelectItem>
+                      {units.map((unit) => (
+                        <SelectItem key={unit.id} value={unit.id}>
+                          {unit.name}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                )}
 
                 <Select
                   value={category || "all"}
@@ -707,18 +710,26 @@ export default function IbadahPage() {
               </SelectContent>
             </Select>
 
-            <Select value={selectedUnit} onValueChange={setSelectedUnit}>
-              <SelectTrigger className="w-[200px]">
-                <SelectValue placeholder="Pilih Unit" />
-              </SelectTrigger>
-              <SelectContent>
-                {units.map((unit) => (
-                  <SelectItem key={unit.id} value={unit.id}>
-                    {unit.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+            {choosesUnit && (
+              <Select
+                value={selectedUnit || "all"}
+                onValueChange={(val) =>
+                  setSelectedUnit(val === "all" ? "" : val)
+                }
+              >
+                <SelectTrigger className="w-[200px]" aria-label="Unit">
+                  <SelectValue placeholder="Pilih Unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Semua Unit</SelectItem>
+                  {units.map((unit) => (
+                    <SelectItem key={unit.id} value={unit.id}>
+                      {unit.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
           </div>
 
           <Card>
@@ -753,8 +764,10 @@ export default function IbadahPage() {
                 </div>
               ) : (
                 <div className="space-y-4">
-                  {leaderboard.map((entry, index) => {
-                    const rank = index + 1;
+                  {leaderboard.map((entry) => {
+                    // The API's rank: a santri sees only their own row, at
+                    // their place in the unit, not at the top of a list of one.
+                    const rank = entry.rank;
                     const isTop3 = rank <= 3;
                     const rankColors = {
                       1: "bg-yellow-100 text-yellow-800 border-yellow-300",
@@ -765,7 +778,7 @@ export default function IbadahPage() {
 
                     return (
                       <div
-                        key={entry.id}
+                        key={entry.studentId}
                         className={cn(
                           "flex items-center gap-4 p-3 rounded-lg transition-colors",
                           isTop3 ? "bg-muted/50" : "hover:bg-muted/30",
@@ -785,18 +798,19 @@ export default function IbadahPage() {
                         </div>
 
                         <Avatar className="h-10 w-10">
-                          <AvatarImage src={entry.student?.avatar} />
                           <AvatarFallback>
-                            {entry.student?.name?.charAt(0) || "?"}
+                            {entry.studentName.charAt(0) || "?"}
                           </AvatarFallback>
                         </Avatar>
 
                         <div className="flex-1 min-w-0">
                           <p className="font-medium truncate">
-                            {entry.student?.name}
+                            {entry.studentName}
                           </p>
                           <p className="text-xs text-muted-foreground">
-                            {entry.student?.class?.name} • {entry.student?.nis}
+                            {[entry.className, entry.nis]
+                              .filter(Boolean)
+                              .join(" • ")}
                           </p>
                         </div>
 
@@ -805,10 +819,8 @@ export default function IbadahPage() {
                             <Star className="h-4 w-4 text-yellow-500" />
                             {formatPoints(entry.totalPoints)}
                           </div>
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground">
-                            <Flame className="h-3 w-3 text-orange-500" />
-                            {entry.streakDays} hari{" "}
-                            {getStreakEmoji(entry.streakDays)}
+                          <div className="text-xs text-muted-foreground">
+                            {entry.recordCount} catatan
                           </div>
                         </div>
 

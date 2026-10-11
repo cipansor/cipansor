@@ -19,6 +19,7 @@ import { certificateVerificationUrl } from '@/utils/verification-url';
 import { escapeHtml } from '@/utils/html';
 import { Errors } from '@/middleware/error';
 import { unitDocumentName } from '@cipansor/shared';
+import { studentScope } from '@/utils/student-scope';
 
 const JUZ_NAMES: Record<number, string> = {
   1: 'Juz Amma',
@@ -50,33 +51,40 @@ function getJuzName(juz: number): string {
 
 export async function findAllSanadRecords(
   query: ListSanadQuery,
-  context: { role: string; unitId?: string | null; userId: string }
+  context: { role: string; roleCode?: string | null; unitId?: string | null; userId: string }
 ) {
   const { page, limit, studentId, teacherId, halaqohId, juz, grade, hasCertificate, search } =
     query;
   const skip = (page - 1) * limit;
 
+  // One `enrollment` filter, so a santri filter, a halaqoh filter and the
+  // reader's scope all apply together (three spreads of the same key would
+  // keep only the last).
+  //
+  // Which santri: their own unit's for a school's staff, every unit's for the
+  // muhafidz and the rest of the pesantren's staff — whose own unit is the
+  // pesantren, holding none of the schools' santri.
+  const scope = studentScope({
+    sub: context.userId,
+    roleCode: context.roleCode,
+    unitId: context.unitId,
+  });
+  const enrollment: Prisma.TakhosusEnrollmentWhereInput = {
+    ...(studentId && { studentId }),
+    ...(halaqohId && { halaqohId }),
+    ...(Object.keys(scope).length > 0 && { student: scope }),
+  };
+
   const where: Prisma.SanadRecordWhereInput = {
     ...(teacherId && { teacherId }),
     ...(juz && { juz }),
     ...(grade && { grade }),
-    ...(studentId && {
-      enrollment: { studentId },
-    }),
-    ...(halaqohId && {
-      enrollment: { halaqohId },
-    }),
+    ...(Object.keys(enrollment).length > 0 && { enrollment }),
     ...(search && {
       OR: [
         { enrollment: { student: { user: { name: { contains: search, mode: 'insensitive' } } } } },
         { teacher: { name: { contains: search, mode: 'insensitive' } } },
       ],
-    }),
-    // Filter by unit if not super admin
-    ...(context.unitId && {
-      enrollment: {
-        student: { unitId: context.unitId },
-      },
     }),
   };
 

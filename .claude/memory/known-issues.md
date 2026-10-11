@@ -36,16 +36,6 @@ ordered backlog is [`roadmap.md`](./roadmap.md); where the work stands is
   Indonesian only, and several screens still say *Siswa* / *Daftar Siswa*
   (attendance record, menu group *Mengajar*) where the decision is *santri*.
   The manuals quote the screen as it is.
-- **The marketing dashboard's monthly attributed revenue always fails**
-  (found 2026-10-03). `getMonthlyAttributedRevenue` in
-  `marketing/roi.service.ts` filters `invoice.student.registrant`, a relation
-  that does not exist (`Student` has `registrants`), so Prisma refuses the
-  query and the endpoint answers 500 on every call: `/marketing`
-  ("Marketing & PSB") shows an error toast and an empty revenue chart. Its unit test
-  (`tests/funnel-trend.test.ts`) mocks Prisma, so it cannot see a wrong
-  relation name. Fix: `registrants: { some: { campaignId: { not: null }, … } }`,
-  with a test against a real query shape (or an e2e that opens the page and
-  expects no error).
 - **The web calls API paths that do not exist — 184 distinct calls left**
   (212 when measured on 2026-09-25; Perizinan fixed in #564, the asrama pages
   in #569 and #571, mata pelajaran in #573, laporan harian in #577, the

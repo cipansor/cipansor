@@ -84,9 +84,9 @@ export class MuhadhorohController {
 
   async getUpcoming(req: Request, res: Response, next: NextFunction) {
     try {
-      const unitId = (req.query.unitId as string) || req.user!.unitId || '';
+      const unitId = (req.query.unitId as string) || undefined;
       const limit = parseInt(req.query.limit as string) || 10;
-      const result = await muhadhorohService.getUpcoming(unitId, limit);
+      const result = await muhadhorohService.getUpcoming(req.user!, unitId, limit);
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -97,7 +97,7 @@ export class MuhadhorohController {
     try {
       const { studentId } = req.params;
       const limit = parseInt(req.query.limit as string) || 20;
-      const result = await muhadhorohService.getStudentHistory(studentId, limit);
+      const result = await muhadhorohService.getStudentHistory(req.user!, studentId, limit);
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -106,10 +106,10 @@ export class MuhadhorohController {
 
   async getStatistics(req: Request, res: Response, next: NextFunction) {
     try {
-      const unitId = (req.query.unitId as string) || req.user!.unitId || '';
+      const unitId = (req.query.unitId as string) || undefined;
       const startDate = req.query.startDate as string;
       const endDate = req.query.endDate as string;
-      const result = await muhadhorohService.getStatistics(unitId, startDate, endDate);
+      const result = await muhadhorohService.getStatistics(req.user!, unitId, startDate, endDate);
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -118,9 +118,9 @@ export class MuhadhorohController {
 
   async getTopPerformers(req: Request, res: Response, next: NextFunction) {
     try {
-      const unitId = (req.query.unitId as string) || req.user!.unitId || '';
+      const unitId = (req.query.unitId as string) || undefined;
       const limit = parseInt(req.query.limit as string) || 10;
-      const result = await muhadhorohService.getTopPerformers(unitId, limit);
+      const result = await muhadhorohService.getTopPerformers(req.user!, unitId, limit);
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
