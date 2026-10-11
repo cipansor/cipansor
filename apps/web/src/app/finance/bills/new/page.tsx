@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -97,10 +97,14 @@ function NewBillPageContent() {
     },
   });
 
-  // Update academicYearId when activeYear loads
-  if (activeYear?.id && !form.getValues("academicYearId")) {
-    form.setValue("academicYearId", activeYear.id);
-  }
+  // Update academicYearId when activeYear loads. This must run in an effect:
+  // calling `form.setValue` during render updates a component while another one
+  // renders, which React reports as an error and which can drop the value.
+  useEffect(() => {
+    if (activeYear?.id && !form.getValues("academicYearId")) {
+      form.setValue("academicYearId", activeYear.id);
+    }
+  }, [activeYear?.id, form]);
 
   const toggleStudent = (studentId: string) => {
     setSelectedStudents((prev) =>

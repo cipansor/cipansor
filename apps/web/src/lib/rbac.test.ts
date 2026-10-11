@@ -306,6 +306,24 @@ describe("rbac — canAccessRoute", () => {
     expect(canAccessRoute("UNIT_ADMIN", "/talenta/succession")).toBe(true);
   });
 
+  it("unit admin can reach Rapor Pesantren (API authorizes UNIT_ADMIN there)", () => {
+    // `PUT /rapor-pesantren/config` and the generate/leger routes authorize
+    // UNIT_ADMIN, and the config page is per unit — but `/rapor-pesantren` was
+    // a menu entry of the pesantren navigations and of TEACHER only, so the
+    // four unit admins got a 307 to /dashboard. Seen in the rapor-config e2e.
+    for (const code of [
+      "TKQ_ADMIN",
+      "SDIT_ADMIN",
+      "SMPIT_ADMIN",
+      "SMAQ_ADMIN",
+    ]) {
+      expect(
+        canAccessRoute("UNIT_ADMIN", "/rapor-pesantren/config", code),
+        code,
+      ).toBe(true);
+    }
+  });
+
   it("staff can reach finance but not the teacher dashboard", () => {
     expect(canAccessRoute("STAFF", "/finance")).toBe(true);
     expect(canAccessRoute("STAFF", "/teacher")).toBe(false);
@@ -654,6 +672,7 @@ describe("navigation — every page renders the app shell", () => {
     "/unauthorized": "an error page; its own link back is the way out",
     "/assessment/raport-merdeka/[studentId]/[academicYearId]/[semester]":
       "print view — sidebar and header must not reach the paper",
+    "/assessment/report-cards/[id]/print": "print view",
     "/assessment/report-cards/[id]/print-merdeka": "print view",
     "/assessment/skhun/[studentId]/[academicYearId]": "print view",
     "/assessment/transcript/[studentId]": "print view",

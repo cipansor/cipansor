@@ -2,7 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import Link from "next/link";
-import { useEffect } from "react";
+import { use, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { z } from "zod";
@@ -510,12 +510,15 @@ function EditInventoryPageContent({ params }: { params: { id: string } }) {
   );
 }
 
-export default function EditInventoryPage(
-  props: Parameters<typeof EditInventoryPageContent>[0],
-) {
+export default function EditInventoryPage({
+  params,
+}: {
+  params: Promise<Parameters<typeof EditInventoryPageContent>[0]["params"]>;
+}) {
+  const resolved = use(params);
   return (
     <MainLayout>
-      <EditInventoryPageContent {...props} />
+      <EditInventoryPageContent params={resolved} />
     </MainLayout>
   );
 }

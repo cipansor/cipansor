@@ -115,7 +115,7 @@ pnpm --filter api db:generate         # generate Prisma client (after schema edi
 pnpm --filter @cipansor/shared build  # build shared package (consumed by both apps)
 
 # Local stack (Postgres + Redis) for running/testing end-to-end
-docker compose -f docker-compose.dev.yml up -d
+docker compose up -d db redis         # the db and redis services of docker-compose.yml
 pnpm --filter api db:push             # apply schema to the dev DB
 ALLOW_DESTRUCTIVE_SEED=1 E2E_FIXED_2FA=1 pnpm --filter api db:seed  # WIPES every table, then demo data
 
@@ -258,6 +258,7 @@ its "use when" matches the task.
 | [`panduan-peran`](.claude/skills/panduan-peran/SKILL.md) | who a role is, the menu it sees (printed from code), the menu path a report gives, "can role X do Y", user manuals for staff |
 | [`tata-kelola-yayasan`](.claude/skills/tata-kelola-yayasan/SKILL.md) | yayasan organs, the RPJP → Renstra → RKA chain and its ratification, PK and atasan penilai |
 | [`naskah-dinas`](.claude/skills/naskah-dinas/SKILL.md) | E-Office letters, TTE keys and identity, the signed PDF, verification by upload, revocation |
+| [`dokumen-aplikasi-cipansor`](.claude/skills/dokumen-aplikasi-cipansor/SKILL.md) | technical document (arc42 + C4) or user manual (Diátaxis, per role) for this app — handover, grant/donor/auditor pack, staff training |
 
 The Claude Code hooks, what each one enforces, and why each works the way it
 does are in [`.claude/README.md`](./.claude/README.md). Read it before touching

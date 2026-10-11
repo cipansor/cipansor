@@ -45,6 +45,12 @@ node apps/api/dist/main.js &                        # :3001
 
 ## Gotchas
 
+- **`bash scripts/dev-up.sh` (one command, Postgres without Docker) builds the web with `NODE_ENV=development`** leaked from
+  `apps/api/.env`, and `next build` then fails prerendering (`/_global-error`, `/project`, "Each child in a list…"). Build the web
+  yourself: `cd apps/web && env -u NODE_ENV NEXT_PUBLIC_API_URL=http://localhost:3001 pnpm build`, and start it with
+  `env -u NODE_ENV PORT=3000 pnpm start`. The script also skips the build when `.next/BUILD_ID` exists, even a half-built one:
+  `rm -rf apps/web/.next` first. (2026-09-29)
+
 - **Admin accounts always need 2FA** — `DEMO_MODE` (which waived it) was removed
   2026-09-23. Seed with `E2E_FIXED_2FA=1` so every admin is pre-enrolled with the
   fixed TOTP secret the e2e helper and the screenshot sweep answer; without it,

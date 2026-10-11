@@ -76,7 +76,7 @@ export function PageHeader({
 
       {/* Header Content */}
       <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
-        <div className="flex items-center gap-4">
+        <div className="flex min-w-0 items-center gap-4">
           {backHref && (
             <Button variant="ghost" size="sm" asChild>
               <Link href={backHref}>
@@ -90,14 +90,14 @@ export function PageHeader({
               <Icon className="h-6 w-6" />
             </div>
           )}
-          <div>
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold tracking-tight">{title}</h1>
             {description && (
               <p className="text-muted-foreground">{description}</p>
             )}
           </div>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {actions}
           {children}
           {isActionObject ? (

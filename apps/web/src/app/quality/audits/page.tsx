@@ -1,4 +1,5 @@
 "use client";
+import { useEffect, useState } from "react";
 import { MainLayout } from "@/components/layout/main-layout";
 import { safeFormat } from "@/lib/date";
 import {
@@ -8,7 +9,15 @@ import {
   CardHeader,
   CardTitle,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useAuth } from "@/hooks/use-auth";
+import { useUnits } from "@/hooks/use-units";
 import { useActiveAcademicYear } from "@/hooks/use-academic-years";
 import { useQualityAudits } from "@/hooks/use-quality";
 import { CreateAuditDialog } from "@/components/quality/create-audit-dialog";
@@ -22,17 +31,37 @@ import { id as idLocale } from "date-fns/locale";
 export default function QualityAuditsPage() {
   const { user } = useAuth();
   const { data: activeAcademicYear } = useActiveAcademicYear();
-  const unitId = user?.unitId;
+
+  // SPMI is measured per unit and the yayasan board belongs to none, so
+  // `user.unitId` is null for exactly the roles that oversee every unit — the
+  // same trap the SPMI dashboard above already works around. Foundation users
+  // pick a unit; unit users stay pinned to their own.
+  const { data: units } = useUnits();
+  const isFoundationUser = !user?.unitId;
+  const [selectedUnitId, setSelectedUnitId] = useState<string>("");
+
+  useEffect(() => {
+    if (isFoundationUser && !selectedUnitId && units?.length) {
+      setSelectedUnitId(units[0].id);
+    }
+  }, [isFoundationUser, selectedUnitId, units]);
+
+  const unitId = user?.unitId ?? selectedUnitId;
 
   const { data: audits, isLoading } = useQualityAudits(
     unitId || "",
     activeAcademicYear?.id || "",
   );
 
-  if (!unitId) {
+  if (isFoundationUser && !unitId) {
     return (
       <MainLayout>
-        <div className="p-8">Akses Dibatasi</div>
+        <div className="p-8 text-center">
+          <h2 className="text-2xl font-bold">Belum ada unit</h2>
+          <p className="text-muted-foreground">
+            Tambahkan unit pendidikan terlebih dahulu untuk melihat audit mutu.
+          </p>
+        </div>
       </MainLayout>
     );
   }
@@ -56,12 +85,31 @@ export default function QualityAuditsPage() {
               </p>
             </div>
           </div>
-          {activeAcademicYear && (
-            <CreateAuditDialog
-              unitId={unitId}
-              academicYearId={activeAcademicYear.id}
-            />
-          )}
+          <div className="flex items-center gap-2">
+            {isFoundationUser && (
+              <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
+                <SelectTrigger
+                  className="w-full md:w-56"
+                  aria-label="Pilih unit"
+                >
+                  <SelectValue placeholder="Pilih unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(units ?? []).map((unit) => (
+                    <SelectItem key={unit.id} value={unit.id}>
+                      {unit.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {activeAcademicYear && (
+              <CreateAuditDialog
+                unitId={unitId}
+                academicYearId={activeAcademicYear.id}
+              />
+            )}
+          </div>
         </div>
 
         {isLoading ? (

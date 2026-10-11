@@ -1,0 +1,86 @@
+{
+  "name": "absensi-harian",
+  "title": "Mencatat absensi harian, lalu menindaklanjuti Alpa",
+  "steps": [
+    {
+      "id": "01-halaman-kehadiran",
+      "as": "sdit.walikelas@cipansor.or.id",
+      "goto": "/attendance",
+      "see": [
+        "Kehadiran",
+        "Isi Absensi Harian"
+      ],
+      "highlight": "Isi Absensi Harian",
+      "caption": "Halaman Kehadiran. Tombol Isi Absensi Harian ada di kanan atas."
+    },
+    {
+      "id": "02-absensi-harian",
+      "click": "Isi Absensi Harian",
+      "see": [
+        "Absensi Harian",
+        "Simpan Kehadiran",
+        "{{kelas}}"
+      ],
+      "caption": "Halaman Absensi Harian terbuka pada kelas pertama Anda.",
+      "area": "main"
+    },
+    {
+      "id": "03-tandai-tidak-hadir",
+      "click": {
+        "role": "button",
+        "name": "Tidak Hadir",
+        "exact": true,
+        "nth": 0
+      },
+      "highlight": {
+        "role": "button",
+        "name": "Tidak Hadir",
+        "exact": true,
+        "nth": 0
+      },
+      "caption": "Klik tombol status pada baris santri. Tombolnya berbentuk ikon.",
+      "area": "main"
+    },
+    {
+      "id": "04-simpan",
+      "click": "Simpan Kehadiran",
+      "see": [
+        "Kehadiran disimpan"
+      ],
+      "caption": "Pesan \"Kehadiran disimpan\" muncul setelah Simpan Kehadiran."
+    },
+    {
+      "id": "05-tindak-lanjut",
+      "goto": "/attendance/follow-ups",
+      "see": [
+        "Catat hasil"
+      ],
+      "highlight": "Catat hasil",
+      "caption": "Alpa tanpa keterangan menunggu di Tindak Lanjut Absensi.",
+      "area": "main"
+    },
+    {
+      "id": "06-catat-hasil",
+      "click": "Catat hasil",
+      "see": [
+        "Catat hasil tindak lanjut",
+        "Cara menghubungi",
+        "Hasilnya"
+      ],
+      "caption": "Kotak Catat hasil tindak lanjut: pilih cara menghubungi dan hasilnya.",
+      "area": {
+        "role": "dialog"
+      }
+    }
+  ],
+  "setup": [
+    {
+      "as": "sdit.walikelas@cipansor.or.id",
+      "method": "GET",
+      "path": "/attendance/me/classes",
+      "save": {
+        "kelas": "data.classes.0.name"
+      }
+    }
+  ]
+}

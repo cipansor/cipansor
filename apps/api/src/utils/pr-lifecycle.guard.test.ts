@@ -121,6 +121,34 @@ const cr = (name: string, conclusion: string, id: number) => ({
 const page = (runs: ReturnType<typeof cr>[]) => JSON.stringify({ check_runs: runs });
 
 const allGreen = page(REQUIRED.map((n, i) => cr(n, 'success', i + 1)));
+// A docs-only PR: the scope jobs run and pass, every other required check is
+// skipped by its own `if:`. All seven are present, none failed.
+const docsSkipped = page(
+  REQUIRED.map((n, i) => cr(n, /scope/.test(n) ? 'success' : 'skipped', i + 1))
+);
+// Every required check green while this workflow's own check and an advisory
+// one are still running, as they are at the moment CI finishes.
+const running = (name: string, id: number) => ({
+  name,
+  status: 'in_progress',
+  conclusion: null as unknown as string,
+  started_at: `2024-01-01T00:01:${String(id).padStart(2, '0')}Z`,
+  id,
+});
+const greenWhileAdvisoryRuns = JSON.stringify({
+  check_runs: [
+    ...REQUIRED.map((n, i) => cr(n, 'success', i + 1)),
+    running('lifecycle', 50),
+    running('PR template reminder', 51),
+  ],
+});
+// A required check still running: the gate must wait for it.
+const requiredStillRuns = JSON.stringify({
+  check_runs: [
+    ...REQUIRED.filter((n) => n !== 'E2E Tests (Chromium)').map((n, i) => cr(n, 'success', i + 1)),
+    running('E2E Tests (Chromium)', 52),
+  ],
+});
 // Two pages: the failing Tests run is only on the second.
 const paginatedRed =
   page(REQUIRED.filter((n) => n !== 'Tests').map((n, i) => cr(n, 'success', i + 1))) +
@@ -293,6 +321,47 @@ describe('pr-lifecycle.sh', () => {
     });
     expect(calls).toContain('curl');
     expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
+  });
+
+  it('dispatches the review gate for a ready docs PR whose code checks are skipped', () => {
+    const { calls } = run({
+      GH_STUB_STATE: 'OPEN',
+      GH_STUB_DRAFT: 'false',
+      GH_STUB_HEAD: SHA,
+      GH_STUB_CHECKS: docsSkipped,
+      GH_STUB_COMMENTS_LIST: '[]',
+      OPENHANDS_API_KEY: 'key',
+      GH_STUB_HTTP: '200',
+    });
+    expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
+  });
+
+  it('dispatches while only advisory checks are still running', () => {
+    // At the moment CI finishes, this workflow's own `lifecycle` check is in
+    // progress; counting it held every dispatch until the next run (#708).
+    const { calls } = run({
+      GH_STUB_STATE: 'OPEN',
+      GH_STUB_DRAFT: 'false',
+      GH_STUB_HEAD: SHA,
+      GH_STUB_CHECKS: greenWhileAdvisoryRuns,
+      GH_STUB_COMMENTS_LIST: '[]',
+      OPENHANDS_API_KEY: 'key',
+      GH_STUB_HTTP: '200',
+    });
+    expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
+  });
+
+  it('waits while a required check is still running', () => {
+    const { calls } = run({
+      GH_STUB_STATE: 'OPEN',
+      GH_STUB_DRAFT: 'false',
+      GH_STUB_HEAD: SHA,
+      GH_STUB_CHECKS: requiredStillRuns,
+      GH_STUB_COMMENTS_LIST: '[]',
+      OPENHANDS_API_KEY: 'key',
+      GH_STUB_HTTP: '200',
+    });
+    expect(calls).not.toContain('/dispatch');
   });
 
   it('does not report a refused dispatch as dispatched', () => {

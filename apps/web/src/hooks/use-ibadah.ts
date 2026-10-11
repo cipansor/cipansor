@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
+import api, { ApiResponse, SharedPaginatedResponse } from "@/lib/api";
 
 // ======================
 // TYPES & ENUMS
@@ -279,7 +279,7 @@ export function useIbadahTargets(params: ListTargetsParams = {}) {
   return useQuery({
     queryKey: ["ibadah-targets", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<IbadahTarget>>(
+      const response = await api.get<SharedPaginatedResponse<IbadahTarget>>(
         "/ibadah/targets",
         { params },
       );
@@ -413,7 +413,7 @@ export function useIbadahRecords(params: ListRecordsParams = {}) {
   return useQuery({
     queryKey: ["ibadah-records", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<IbadahRecord>>(
+      const response = await api.get<SharedPaginatedResponse<IbadahRecord>>(
         "/ibadah/records",
         { params },
       );
@@ -735,7 +735,7 @@ export function useIslamicEvents(params: ListEventsParams = {}) {
   return useQuery({
     queryKey: ["islamic-events", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<IslamicEvent>>(
+      const response = await api.get<SharedPaginatedResponse<IslamicEvent>>(
         "/ibadah/events",
         { params },
       );

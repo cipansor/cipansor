@@ -106,8 +106,30 @@ export function listUnitScope(req: Request): string | undefined {
 
 /** Whether the request may see, or act on, a row of `unitId` — the per-row half of listUnitScope. */
 export function mayReachUnit(req: Request, unitId: string | null | undefined): boolean {
-  if (isFoundationScopedRole(req.user?.roleCode)) return true;
-  return !!req.user?.unitId && unitId === req.user.unitId;
+  return actorReachesUnit(req.user, unitId);
+}
+
+/**
+ * The actor a scope decision is made from — the verified token's identity, not
+ * the request. Services take this shape (never `Request`) so the rule lives in
+ * one place and stays unit-testable.
+ */
+export interface UnitActor {
+  roleCode?: string | null;
+  unitId?: string | null;
+}
+
+/**
+ * Whether `actor` may see, or act on, a row of `unitId`. A foundation role
+ * reaches every unit; everyone else is pinned to their own, and an actor
+ * without a unit reaches none.
+ */
+export function actorReachesUnit(
+  actor: UnitActor | undefined | null,
+  unitId: string | null | undefined
+): boolean {
+  if (isFoundationScopedRole(actor?.roleCode)) return true;
+  return !!actor?.unitId && unitId === actor.unitId;
 }
 
 /**
@@ -128,13 +150,21 @@ export function assertReachesUnit(
  * whatever the body says.
  */
 export function writeUnitScope(req: Request, named: string | null | undefined): string {
-  if (isFoundationScopedRole(req.user?.roleCode)) {
-    const unitId = named || req.user?.unitId;
+  return writeUnitScopeFor(req.user, named);
+}
+
+/** Actor-based half of `writeUnitScope`, for services that do not hold a `Request`. */
+export function writeUnitScopeFor(
+  actor: UnitActor | undefined | null,
+  named: string | null | undefined
+): string {
+  if (isFoundationScopedRole(actor?.roleCode)) {
+    const unitId = named || actor?.unitId;
     if (!unitId) throw Errors.badRequest('Pilih unit');
     return unitId;
   }
-  if (!req.user?.unitId) throw Errors.forbidden('Akun ini tidak terikat pada unit mana pun');
-  return req.user.unitId;
+  if (!actor?.unitId) throw Errors.forbidden('Akun ini tidak terikat pada unit mana pun');
+  return actor.unitId;
 }
 
 /**

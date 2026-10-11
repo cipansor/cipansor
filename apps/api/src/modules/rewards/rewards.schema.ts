@@ -16,6 +16,7 @@ export const updateRewardSchema = partialUpdateSchema(createRewardSchema).omit({
 export const queryRewardSchema = z.object({
   studentId: z.string().uuid().optional(),
   category: z.string().optional(),
+  categoryId: z.string().optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   page: z.coerce.number().int().positive().default(1),

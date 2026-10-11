@@ -55,10 +55,11 @@ export const PUBLIC_PATH_PREFIXES = [
   "/verifikasi",
   /**
    * Where a printed student ID card's QR points. It is a `/public/*` page, so
-   * the middleware matcher already exempts it from the session wall — but it
-   * must ALSO be classified as a public path here so `hostSplitActionFor` keeps
-   * it on the apex (the host `config.publicSiteUrl` embeds in the printed QR),
-   * and so the two canonical lists stay in step (Flag 11).
+   * the middleware matcher already exempts it from the session wall AND from
+   * the host split — `hostSplitActionFor` never runs on it. It is listed here
+   * only to keep the two canonical lists in step (Flag 11): the lists describe
+   * the same set of public pages, and a reader comparing them should not have
+   * to know which entries the matcher makes redundant.
    */
   "/public/verify-card",
   /**
@@ -71,6 +72,13 @@ export const PUBLIC_PATH_PREFIXES = [
    * so nothing else would have caught it.
    */
   "/public/verify-key",
+  /**
+   * Where a printed sanad/syahadah's QR points (`certificateVerificationUrl`).
+   * Same as `/public/verify-card` above: matcher-exempt from both the session
+   * wall and the host split, listed only so the two canonical lists stay in
+   * step (Flag 11).
+   */
+  "/public/verify-sanad",
 ];
 
 /** True when the request arrived on the portal, ignoring case and port. */

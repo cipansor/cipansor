@@ -85,7 +85,7 @@ function UnifiedRaporPageContent() {
     );
   if (error)
     return (
-      <Alert variant="destructive" className="m-8">
+      <Alert variant="destructive" className="m-8 w-auto">
         <AlertTitle>Error</AlertTitle>
         <AlertDescription>
           Gagal mengambil data Rapor Pesantren

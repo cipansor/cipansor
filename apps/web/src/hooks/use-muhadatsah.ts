@@ -178,7 +178,7 @@ async function fetchMuhadatsahList(params: ListMuhadatsahParams) {
 
 async function fetchMuhadatsahById(id: string) {
   const response = await api.get(`/muhadatsah/${id}`);
-  return response.data as MuhadatsahRecord;
+  return response.data.data as MuhadatsahRecord;
 }
 
 async function fetchUpcomingMuhadatsah(unitId: string, limit = 10) {
@@ -231,12 +231,12 @@ async function fetchMatchPartners(unitId: string, language: string) {
 
 async function createMuhadatsah(input: CreateMuhadatsahInput) {
   const response = await api.post("/muhadatsah", input);
-  return response.data as MuhadatsahRecord;
+  return response.data.data as MuhadatsahRecord;
 }
 
 async function updateMuhadatsah(id: string, input: UpdateMuhadatsahInput) {
   const response = await api.patch(`/muhadatsah/${id}`, input);
-  return response.data as MuhadatsahRecord;
+  return response.data.data as MuhadatsahRecord;
 }
 
 async function deleteMuhadatsah(id: string) {
@@ -245,12 +245,12 @@ async function deleteMuhadatsah(id: string) {
 
 async function evaluateMuhadatsah(id: string, input: EvaluateMuhadatsahInput) {
   const response = await api.post(`/muhadatsah/${id}/evaluate`, input);
-  return response.data as MuhadatsahRecord;
+  return response.data.data as MuhadatsahRecord;
 }
 
 async function cancelMuhadatsah(id: string) {
   const response = await api.post(`/muhadatsah/${id}/cancel`);
-  return response.data as MuhadatsahRecord;
+  return response.data.data as MuhadatsahRecord;
 }
 
 // ===================
@@ -447,7 +447,8 @@ export function getGradeColor(grade: string | null) {
   }
 }
 
-export function getLanguageLabel(language: string) {
+export function getLanguageLabel(language: string | null | undefined) {
+  if (!language) return "-";
   switch (language.toLowerCase()) {
     case "arabic":
       return "Bahasa Arab";
@@ -458,8 +459,8 @@ export function getLanguageLabel(language: string) {
   }
 }
 
-export function getLanguageIcon(language: string) {
-  switch (language.toLowerCase()) {
+export function getLanguageIcon(language: string | null | undefined) {
+  switch ((language ?? "").toLowerCase()) {
     case "arabic":
       return "🕌";
     case "english":
