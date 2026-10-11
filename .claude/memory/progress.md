@@ -25,7 +25,7 @@ backlog to [`roadmap.md`](roadmap.md).
 
 - Approval for the next production release — deferred by the user on
   2026-09-27; ask again at the end of every report. Passwords parts A and B
-  must go out together, with `apps/api/scripts/require-password-change-all.ts` run
+  must go out together, with `scripts/require-password-change-all.ts` run
   once after that deploy; SPMB 2027/2028 needs a release before
   1 January 2027 to take wave 2. (Which fixes production
   still lacks is for the machine-local memory, not here — see "Where things
