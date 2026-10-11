@@ -1,0 +1,45 @@
+# A ready pull request whose checks have all been green for an hour, with no
+# review from the gate on its head, gets the gate re-dispatched once, one
+# comment, and a line in the one health issue that lists them all (#776).
+#
+# pr-lifecycle.sh dispatches the review gate (OpenHands Cloud) and only learns
+# that the request was accepted. This is the other half: it notices when the
+# review never came, and says where to look (the gate's run history).
+#
+# The rules live in .github/scripts/gate-watch.sh so they can be run by hand.
+name: Gate watch
+
+on:
+  schedule:
+    - cron: '23 * * * *' # hourly, off the hour and off the duplicate sweep's slot
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  checks: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: gate-watch
+  cancel-in-progress: false
+
+jobs:
+  watch:
+    name: Flag PRs the review gate left unreviewed
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Comment on silent PRs and keep the health issue current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          WAIT_MINUTES: '60'
+          GATE_LOGIN: cipansor-bot
+          # The same key pr-lifecycle uses: one re-dispatch per silent head.
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: sh .github/scripts/gate-watch.sh

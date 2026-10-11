@@ -127,7 +127,8 @@ sync` workflow adds anything missing and **fails the check** when the type
 | `Pengawas armada`   | daily cron                                     | `automation-health` pada laporannya                                |
 
 The deterministic consequences are GitHub Actions workflows
-(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-sweep.yml`), not
+(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-sweep.yml`,
+`gate-watch.yml`), not
 automations: they must fire every time and cost no tokens.
 
 ## The self-comment loop guard
