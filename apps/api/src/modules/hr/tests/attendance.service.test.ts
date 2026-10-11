@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
@@ -83,7 +83,19 @@ const pagiShift = {
   crossesMidnight: false,
 };
 
+// A punch is refused on a non-working day, so a test that reads the real
+// clock fails on every Saturday and Sunday (it did, on 2026-10-11). Every test
+// runs on a fixed working morning — Monday 2 March 2026, 07:00 WIB — unless it
+// sets its own time. Only Date is faked; timers and promises run as usual.
+const WORKING_MORNING = new Date('2026-03-02T00:00:00Z');
+
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 beforeEach(() => {
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(WORKING_MORNING);
   vi.clearAllMocks();
   m.staffAttendance.upsert.mockResolvedValue({ id: 'att-1' });
   m.staffAttendance.findUnique.mockResolvedValue(null);
