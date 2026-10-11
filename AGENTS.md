@@ -47,7 +47,14 @@ monorepo**:
    Prettier's format, CI's Lint job fails otherwise, and for Claude a
    pre-push hook refuses the push and names the files and the fix command.
 6. **Develop on the feature branch, commit with clear messages, never push to
-   `main`.**
+   `main`.** Every PR starts from an issue and names **every** issue it
+   resolves: `Fixes #n` once per issue (GitHub closes them only when the PR
+   merges into `main`), `Refs #n` for one it only advances, with a comment
+   there saying what remains. Before opening a PR, search the open issues for
+   the files and terms it touches; an issue a merged PR fixed without naming it
+   stays open and breeds duplicates (2026-10-11: eight such issues). The
+   `PR description` check refuses a PR without an open, `ready` issue
+   (`pr-template-guard.sh`, #772); only Dependabot is exempt.
 7. **Ship tests with the code — no behavior change merges untested.** Every
    new/changed API **service or controller** ships with vitest tests in the
    module's `tests/`; every new/changed **web route or user flow** ships with
