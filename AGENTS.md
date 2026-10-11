@@ -128,6 +128,7 @@ pnpm --filter api test                # vitest (API)
 pnpm --filter web build               # next build
 pnpm --filter web test                # vitest (web)
 pnpm --filter web test:e2e            # Playwright e2e (needs the local stack up)
+pnpm test:load                        # unit tests of the k6 load-test runner (CI Tests job)
 pnpm format                           # prettier --write every .ts/.tsx (not .md); CI fails on `pnpm format:check`
 pnpm lint                             # eslint (api + web)
 ```
@@ -141,9 +142,10 @@ home, because a second copy here said `routes.ts` for years while every module
 used `<name>.routes.ts`. The rules that hold across the codebase:
 
 - **Layering:** routes → thin controller → service (the only layer that touches
-  Prisma) → Zod schema. Measured 2026-09-25, 22 of 93 modules follow it fully
-  and 12 call Prisma from a route or controller (`known-issues.md`); new and
-  touched code follows it.
+  Prisma) → Zod schema. Not every module follows it yet (measured, with its
+  date, in `known-issues.md`); new and touched code follows it. Counts of
+  modules, models or files are never written into a guide: they drift with the
+  next PR — measure them, or point at the one place that does.
 - **Modules talk through the typed `eventBus`** (`src/lib/event-bus.ts`, add the
   event to `AppEvents`) or through another module's `index.ts` — never by
   importing its service file.

@@ -340,11 +340,20 @@ decision.
   `dailyReportPhotoSchema` accepts `…/uploads/<file>`; when stored files move
   to blob storage (roadmap 4, PR B), it references a file id instead, in the
   same change.
-- **The module standard is not followed.**
-  22 of 93 modules have all five parts; 12 call Prisma from a route or
-  controller; 23 import other modules directly (the rule is the event bus);
-  1,457 bare `res.json` against 399 `ApiResponse`; 349 of 562 POST/PUT/PATCH
-  routes carry no `validate()`. (`AGENTS.md` and `docs/ARCHITECTURE.md` were
+- **The module standard is not followed.** Measured 2026-10-11 on `main`
+  (`c56078f04`), each with its definition, because three different figures
+  for "the same" count once disagreed (#717): of 95 module folders, 24 have all
+  five parts named exactly `<name>.{routes,controller,service,schema}.ts` plus
+  `index.ts`; 12 call `prisma.` in a `*.routes.ts` or `*.controller.ts`; 20
+  import another module's file other than its `index.ts` (the rule is the event
+  bus or the barrel). Re-measure rather than copy these. Two older figures,
+  from 2026-09-25 and not re-measured since: 1,457 bare `res.json` against 399
+  `ApiResponse`; 349 of 562 POST/PUT/PATCH routes carry no `validate()`.
+- **An orphan module.** `apps/api/src/modules/scholarship/` holds only
+  `scoring.service.ts` (need-based ranking, "the neediest first") and its test;
+  nothing imports it and no route mounts it, so the ranking it tests is not
+  what any screen shows. Wire it into the scholarship flow under
+  `finance-enhancement`, or remove it; found by the codebase mapper (#751). (`AGENTS.md` and `docs/ARCHITECTURE.md` were
   corrected on 2026-09-25; the code itself is phase 6 of the plan.)
 - **Schema and migrations disagree on two points** (measured 2026-09-26 with
   `prisma migrate diff` from a database built by `migrate deploy` to
@@ -354,8 +363,8 @@ decision.
   does not model. Neither came from recent work; a new migration's diff shows
   both and nothing is wrong with it. Make the field `Boolean` and decide
   whether the backup table can be dropped.
-- **Scheduled jobs assume one instance.** Ten `node-cron` jobs run inside the
-  API process with no lock; scaling the App Service to two instances would send
+- **Scheduled jobs assume one instance.** Every `node-cron` job
+  (`apps/api/src/jobs/scheduler.ts`) runs inside the API process with no lock; scaling the App Service to two instances would send
   SPP reminders twice. Add a `pg_try_advisory_lock` (or a separate worker)
   before any scale-out.
 
@@ -438,7 +447,7 @@ decision.
   engagement threshold (a fresh Incognito window has none), then the manifest's
   `"id": "/"`.
 - **The maskable icons and `screenshots` are generated, then committed.**
-  `scripts/gen-pwa-assets.py` writes `public/icons/maskable-*.png` and
+  `apps/web/scripts/gen-pwa-assets.py` writes `public/icons/maskable-*.png` and
   `public/screenshots/*.png`; the outputs are tracked and serve correctly
   (verified 2026-09-29), but the generator is not part of the build, so a logo
   or page change that regenerates them must have the new PNGs committed by hand.

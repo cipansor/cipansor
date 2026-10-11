@@ -138,6 +138,11 @@ API_INTERNAL_URL=http://api:3001
 # Redis
 REDIS_PORT=6379
 
+# Salinan yang berjalan: local | staging | production. Staging memakai provider
+# asli tetapi NODE_ENV tetap production, jadi namanya perlu variabel sendiri.
+# Kosong pada build produksi = production.
+# APP_ENV=staging
+
 # Asisten AI publik (opsional — biarkan kosong jika belum dipakai)
 CHATBOT_PROVIDER=openai-compatible
 CHATBOT_API_BASE_URL=https://<resource>.services.ai.azure.com/openai/v1
@@ -328,7 +333,10 @@ psql -U postgres cipansor < backup_20240101.sql
 - **API**: `GET /health` — readiness check. It probes the database
   (`SELECT 1` via Prisma) and answers **503** (`status: "unavailable"`) when
   Postgres is unreachable, otherwise **200** (`status: "ok"`) with the
-  `GIT_COMMIT_SHA` the release workflow polls.
+  `GIT_COMMIT_SHA` the release workflow polls. `environment` is the deployed
+  copy (`APP_ENV`: `local`/`staging`/`production`) and `nodeEnv` the build
+  mode, which is `production` on staging too — read `environment` to tell the
+  copies apart.
 - **Web**: Available at root `/`
 
 ### Recommended Monitoring Tools

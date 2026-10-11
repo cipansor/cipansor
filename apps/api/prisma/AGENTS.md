@@ -4,7 +4,8 @@ Prisma 7 schema, migrations, and seeds. Read the root `AGENTS.md` first.
 
 ## ⚠️ Never clobber `schema.prisma`
 
-`schema.prisma` defines **237 models and 133 enums** (~300 KB). It was once
+`schema.prisma` defines **hundreds of models and enums** (`grep -c '^model '`
+measures it; a count written here goes stale). It was once
 accidentally truncated to a ~500-byte stub in a "comprehensive enhancement"
 commit, which silently broke the entire backend (an empty Prisma client makes
 every `prisma.*` call fail) and only "passed" because CI tolerated build

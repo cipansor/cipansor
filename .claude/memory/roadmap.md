@@ -73,7 +73,7 @@ items before 2026-09-25 is in the history of this file and of
          account once at the release — by script, with part A in the same
          release); changing one's own password ends the *other* sessions
          only (done, #632 — on staging; parts A and B go to production
-         together, and `scripts/require-password-change-all.ts` runs once
+         together, and `apps/api/scripts/require-password-change-all.ts` runs once
          after that deploy).
        - **passkey (FIDO2/WebAuthn) as the first sign-in path** (decided
          2026-09-30, `decisions/autentikasi-2fa-dan-sandi.md`): a "Masuk

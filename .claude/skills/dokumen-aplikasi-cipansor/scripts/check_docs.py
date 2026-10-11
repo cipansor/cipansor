@@ -287,6 +287,18 @@ def check_numbers(lines: list[str], facts: dict, r: Report) -> None:
         (r"(\d[\d.]*)\s+halaman web", w.get("page_count"), "halaman web"),
         (r"(\d[\d.]*)\s+kunci", e.get("total_keys"), "kunci variabel lingkungan"),
         (r"(\d[\d.]*)\s+hulu rute", a.get("handler_count_approx"), "hulu rute API"),
+        # Layout and schedule figures (#771). Before, only a line saying "N dari
+        # 93" was looked at, so once the tree passed 93 modules no layout figure
+        # was checked at all and "67 dari 94" stood beside a tree of 68 of 95.
+        # The documents write these in the phrasings below.
+        (r"(\d+)\s+(?:dari\s+\d+\s+)?modul\s+(?:dengan\s+|memiliki\s+)?empat berkas",
+         a.get("four_file_modules"), "modul empat berkas (routes+controller+service+schema)"),
+        (r"(\d+)\s+(?:dari\s+\d+\s+)?modul\s+(?:yang\s+)?(?:lengkap\s+)?lima bagian",
+         a.get("five_part_modules"), "modul lima bagian (empat berkas + index.ts)"),
+        (r"\bdari\s+(\d+)\s+modul\b", a["module_count"], "modul API"),
+        (r"(\d+)\s+entri jadwal", j.get("cron_entries"), "entri cron di scheduler.ts"),
+        (r"(\d+)\s+berkas pekerjaan", len(j.get("scheduled_job_files") or []),
+         "berkas job yang dijadwalkan scheduler.ts"),
     ]
     sched_ok = {j["cron_entries"], len(j["scheduled_job_files"])}
     for n, l in enumerate(lines, 1):
@@ -309,7 +321,9 @@ def check_numbers(lines: list[str], facts: dict, r: Report) -> None:
                       f"{len(j['scheduled_job_files'])} berkas job (berkas *.job.ts: {j['count']}, "
                       f"yang tak dijadwalkan: {', '.join(j['job_files_not_scheduled']) or '-'})")
         ctx = " ".join(lines[max(0, n - 3): n + 2])
-        if re.search(r"\b\d+\s+dari\s+93\b|\b\d+\s+of\s+93\b|tata letak lengkap", l) \
+        # Any "N dari M modul", not only M = 93: the old pattern went blind the
+        # day the tree grew a module.
+        if re.search(r"\b\d+\s+(?:dari|of)\s+\d+\s+(?:modul|modules)\b|tata letak lengkap", l) \
                 and not re.search(r"lima bagian|empat berkas", ctx):
             r.add("WARN", n, "ukuran-tata-letak",
                   f"sebut definisinya: {a['four_file_modules']} modul punya empat berkas, "

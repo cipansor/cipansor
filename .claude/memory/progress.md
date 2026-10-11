@@ -25,7 +25,7 @@ backlog to [`roadmap.md`](roadmap.md).
 
 - Approval for the next production release — deferred by the user on
   2026-09-27; ask again at the end of every report. Passwords parts A and B
-  must go out together, with `scripts/require-password-change-all.ts` run
+  must go out together, with `apps/api/scripts/require-password-change-all.ts` run
   once after that deploy; SPMB 2027/2028 needs a release before
   1 January 2027 to take wave 2. (Which fixes production
   still lacks is for the machine-local memory, not here — see "Where things
@@ -336,7 +336,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   from pages, in 31 areas — proven on staging: `POST /permits/:id/approve`,
   `/curriculum/curriculums`, `/hr/employees`, `/certificates` all 404);
   10 API modules and 9 web routes are misnamed, 35 + 32 more need tidying;
-  22 of 93 modules meet the module standard. Plan in seven phases (roadmap §1):
+  Most modules did not meet the module standard (measured in `known-issues.md`). Plan in seven phases (roadmap §1):
   guards → reconnect the broken contract → glossary → consolidate duplicates →
   API by context under `/api/v1` with a Zod → OpenAPI contract → web → harden
   → docs. The glossary still comes before Model A's permission keys.

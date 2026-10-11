@@ -113,9 +113,10 @@ the deployed site. The StrictMode unit test is what pins it.
   invalid), and RBAC per role. Prefer real API calls over `page.route` mocks.
   Radix triggers animate — on Firefox/WebKit under CI load, `click({ force: true })`
   once the element is visible avoids the flaky "element not stable" gate.
-- **Unit/component tests:** add jsdom + React Testing Library under `src/**`
-  (see `.claude/memory/known-issues.md` — a vitest project for `src` is a pending task).
-  Once that project exists, shared hooks/utilities get unit tests too.
+- **Unit/component tests:** `pnpm --filter web test` runs vitest with three
+  projects (`apps/web/vitest.config.ts`): `unit` (jsdom + React Testing Library,
+  `src/**`), `e2e-utils` and `scripts`. Shared hooks, utilities and components
+  get unit tests there; a user flow still gets Playwright.
 
 ## PWA (the mobile app)
 

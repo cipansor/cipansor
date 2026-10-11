@@ -13,6 +13,7 @@
 | 0.9 | 30 September 2026 | commit `7e985a08` + pohon kerja (temuan Devin: akses sertifikat, lingkup unit HR, poin kategori penghargaan) | Angka diukur ulang: **1.412 hulu rute API** (dari 1.413) dan Lampiran A baris `certificates` 10→9 — rute PDF sertifikat tidak lagi terdaftar di router; berkas PDF diunduh lewat rute `download`. Riwayat revisi dikecualikan dari gerbang angka (ia mencatat keadaan lama). Perkakas dokumen diberi uji regresi `scripts/test_tooling.py` | Agen OpenHands |
 | 1.0 | 5 Oktober 2026 | commit `3ba5cb974` (`main` digabung ke cabang README/galeri; 33 commit sejak `aefc719`) | Seluruh angka diukur ulang terhadap pohon hasil gabung: **95 modul API**, **292 model**, **162 enum**, ~**1.407 hulu rute API**, **432 halaman web**, **16 entri jadwal** atas **14 berkas pekerjaan**, **81 kunci** `.env.example`; Lampiran A diganti baris demi baris; modul `environment` masuk tabel ranah 5.3; alamat SPMB publik di bab 6 diperbaiki menjadi `GET /api/admissions/public/intakes`; lima keputusan baru (`fasilitas-dan-kegiatan-situs-publik`, `notifikasi-push`, `siaran-pengumuman`, `spmb-2027-2028`, `surat-keterangan-lewat-eoffice`) ditambahkan ke bab 9. `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
 | 1.1 | 10 Oktober 2026 | `main` digabung ke cabang README/galeri (`66609623d`) dan perbaikan tinjauan | Angka diukur ulang: **294 model**, **163 enum**, ~**1.411 hulu rute API**, **434 halaman web**, **82 kunci** `.env.example`; Lampiran A `correspondence` 15→18 dan `esign` 18→19 handler; empat keputusan ditambahkan ke bab 9; **Lampiran F — Peta Tampilan** baru (galeri gambar dikeluarkan dari git, lihat `decisions/dokumentasi-bergambar.md`). `check_docs.py --final` 0 ERROR | Claude Code |
+| 1.2 | 11 Oktober 2026 | commit `c56078f04` | Angka tata letak modul dan jadwal diukur ulang dan kini diperiksa mesin (#771): 68 dari 95 modul empat berkas, 26 lima bagian, 17 entri jadwal atas 15 berkas pekerjaan. Pemeriksa `check_docs.py` tidak lagi hanya mengenali "dari 93". | Agen Claude Code |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
 > seiring pengembangan. Dokumen diperbarui dengan menjalankan ulang pengukuran, bukan dengan menyunting angka.
@@ -35,7 +36,7 @@ setiap peran melihat menu, dasbor, dan data yang berbeda.
 
 Pada commit ini, basis kode berisi **95 modul API**, **294 model data** dan
 **163 enum**, sekitar **1.411 hulu rute API**, **434 halaman web**, serta
-**16 entri jadwal** (dari 14 berkas pekerjaan). Data disimpan di satu basis data PostgreSQL dan
+**17 entri jadwal** atas 15 berkas pekerjaan. Data disimpan di satu basis data PostgreSQL dan
 diakses lewat Prisma 7. Aplikasi berjalan sebagai dua layanan: API (Express 5)
 dan web (Next.js 16), dengan paket tipe bersama `@cipansor/shared`.
 
@@ -257,8 +258,8 @@ flowchart LR
 
 Aturan lapisannya: **rute tidak pernah memanggil Prisma; controller tidak memuat
 logika bisnis.** Aturan itu belum sepenuhnya menjadi kenyataan. Pada pengukuran
-commit ini, **67 dari 94 modul** memiliki empat berkas inti (routes, controller,
-service, schema), tetapi hanya **25** yang lengkap lima bagian, yaitu keempatnya
+commit ini, **68 dari 95 modul memiliki empat berkas** inti (routes, controller,
+service, schema), tetapi hanya **26 modul lengkap lima bagian**, yaitu keempatnya
 ditambah `index.ts` (ukuran yang dipakai `known-issues.md`, yang mencatat 22
 pada 25 September 2026). **12 modul** memanggil Prisma langsung dari rute atau
 controller. Perbaikannya adalah fase 6 rencana audit (`roadmap.md`). Tanggapan
@@ -430,8 +431,8 @@ tentang siapa yang berhak memutuskan).
 
 ## 6.6 Pekerjaan terjadwal
 
-`jobs/scheduler.ts` memuat **16 entri jadwal** atas **14 berkas pekerjaan**
-(diukur pada commit `3ba5cb974`, 5 Oktober 2026), berzona waktu `Asia/Jakarta` dan berjalan di
+`jobs/scheduler.ts` memuat **17 entri jadwal** atas **15 berkas pekerjaan**
+(diukur pada commit `c56078f04`, 11 Oktober 2026), berzona waktu `Asia/Jakarta` dan berjalan di
 dalam proses API. Satu berkas bisa dijadwalkan lebih dari sekali
 (`dashboard-snapshot` tiga kali).
 
@@ -597,7 +598,7 @@ ditinjau ulang setiap kuartal.
 | Kategori | Ringkasan | Dampak | Arah penanganan |
 |---|---|---|---|
 | Kontrak web↔API | Sejumlah panggilan web belum terlayani API; jumlahnya tercatat di baseline uji yang hanya boleh menyusut. | Sedang | Fase 1 rencana audit, area demi area; uji penjaga mencegah yang baru |
-| Konsistensi lapisan | 12 modul memanggil Prisma dari rute atau controller; hanya 25 dari 94 modul lengkap lima bagian; bentuk respons belum seragam. | Sedang | Fase 6: satukan ke lapisan baku |
+| Konsistensi lapisan | 12 modul memanggil Prisma dari rute atau controller; hanya 26 dari 95 modul lengkap lima bagian; bentuk respons belum seragam. | Sedang | Fase 6: satukan ke lapisan baku |
 | Pekerjaan terjadwal | Mengandaikan satu instans API; penskalaan menjalankan pekerjaan dua kali. | Tinggi bila diskalakan | Kunci advisory atau worker terpisah sebelum scale-out |
 | Optimasi gambar | Optimizer `next/image` tidak pernah mengecilkan gambar; gambar harus disajikan pada ukuran tampil. | Rendah–Sedang | Perbaikan image runtime |
 | Konsep ganda | Tahfidz di lima modul, rapor di lima tempat, P5 di dua modul. | Sedang | Fase 3: konsolidasi berdasar desain |

@@ -20,7 +20,7 @@ Mount new modules in `src/app.ts`.
 > **File naming: `<name>.<type>.ts`.** Every module file carries its type suffix
 > (`finance.controller.ts`, `finance.service.ts`, `finance.schema.ts`,
 > `finance.routes.ts`) — the `feature.type.ts` convention from the Angular style
-> guide and NestJS. It keeps files greppable and unambiguous across ~110 modules
+> guide and NestJS. It keeps files greppable and unambiguous across every module
 > (a folder of bare `controller.ts` / `service.ts` tabs is indistinguishable in
 > editors and fuzzy-finders). All controller/service/schema/routes files now
 > follow this; keep new files consistent.
@@ -101,7 +101,8 @@ Mount new modules in `src/app.ts`.
   uses, so a folder of `service.ts` + `service.test.ts` pairs does not sprawl.
   **Jobs are not modules and are not covered by that rule:** a job is a single
   file in `src/jobs/` with no module folder to hold a `tests/` directory, so its
-  test sits beside it as `<name>.job.test.ts` (all eleven do). The same holds for
+  test sits beside it as `<name>.job.test.ts` (a job without one is a gap to
+  close when it is next touched, not a pattern). The same holds for
   any other single-file helper outside `src/modules/` — `src/utils/<name>.test.ts`,
   `src/middleware/<name>.test.ts`. What is being retired is the *module* layout
   `apps/api/tests/unit/modules/<name>/` and a `*.test.ts` sitting beside a
@@ -113,7 +114,8 @@ Mount new modules in `src/app.ts`.
 
 ## Build
 
-- `pnpm build` uses `tsconfig.build.json` (lenient). `pnpm build:strict` uses the
-  full strict config and is the real quality target. NOTE: `strictNullChecks:false`
-  in the lenient config degrades Zod inference (makes all fields optional); prefer
-  fixing toward the strict build over relaxing further.
+- `pnpm build` uses `tsconfig.build.json`: it extends the strict `tsconfig.json`
+  (`strict`, `strictNullChecks`) but compiles `src/` only, without tests, scripts
+  or `prisma/`. `pnpm build:strict` type-checks the whole tree, tests included,
+  and is the real quality target. Never relax either config to make a build
+  pass.
