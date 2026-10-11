@@ -12,9 +12,10 @@ backlog to [`roadmap.md`](roadmap.md).
   Migrations run when the container starts (`MIGRATE_ON_START`).
 - **Staging** — `staging.cipansor.or.id`, demo data only, deploys every `main`
   on which CI and E2E (Chromium) pass, about 25 minutes after the merge (a
-  documentation-only merge is not rebuilt). At `a61ba9ce1` (#664) on
-  2026-10-10; its `/healthz` now reports `database` and `environment` (#675),
-  and `deploy-watch.yml` checks every deploy against it (#664). SMP IT's accreditation certificate was recorded there on
+  documentation-only merge is not rebuilt). At `b6e0eed86` (#714) on
+  2026-10-11 (the first attempt met an Azure Resource Manager 503 and was
+  re-run); its `/healthz` reports `database` and `environment` (#675), and
+  `deploy-watch.yml` checks every deploy against it (#664). SMP IT's accreditation certificate was recorded there on
   2026-09-29 at the user's request, by the SMP admin demo account — which
   therefore now asks for a 2FA code — so the public section shows it.
 - **CodeQL is a required check** on `main` since 2026-09-25 (ruleset rule
@@ -88,13 +89,27 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
-- **Open PRs, 2026-10-11:** #630 and #714 (the release waits on both; with
-  the review gate), #747 (kept to the read leaks; the `{ body }`-wrapped
-  schemas stay in #749 for all 14 routes, decided 2026-10-11), #660, #691,
-  #703, #707, #658. Merged since 2026-10-10: #512, #708 + #734 (tested
-  together on `main`), #761 and #766 (the human note only on risky PRs, and
-  Markdown is never risky). After #630: #668 (its leave tests merge into
-  #630's file) and #726 (merge `main` in). #706 now that #512 is in.
+- **Open PRs, 2026-10-11:** #630 (the release waits on it, and on the
+  owner's human note; with the review gate), #747 (kept to the read leaks; the
+  `{ body }`-wrapped schemas stay in #749 for all 14 routes, decided
+  2026-10-11), #773 (a PR must link an open, ready issue), #777 (the gate
+  watch), #783 (guides point at what measures a count; closes sixteen drift
+  issues), #660, #691, #703, #707, #658. Merged since 2026-10-10: #512, #714,
+  #708 + #734 (tested together on `main`), #761 and #766 (the human note only
+  on risky PRs, and Markdown is never risky). After #630: #668 (its leave tests
+  merge into #630's file) and #726 (merge `main` in). #706: closing
+  recommended in favour of #783.
+
+- **The Pesantren unit — part A merged (#714, 2026-10-11; on staging).** Walking every
+  menu page of the pesantren's roles before and after moving them to a
+  Pesantren unit showed the musyrif, ustadz and muhafidz losing the schools'
+  santri in Muhadhoroh, Muhadatsah, Ibadah, Kitab and Sanad, and their unit
+  pickers offering their own unit only. Part A puts those modules on
+  `studentScope`, writes a record to the santri's unit, and offers every
+  unit to whoever reaches every unit. Part B then creates the unit, moves the
+  five roles by a data migration (replayed on a copy of production:
+  nine people, eight teacher records, no duplicates, idempotent) and drops
+  the seed's Direktorat Pendidikan.
 
 - **Application documents (`docs/`), merged with PR #512 on 2026-10-11.** A technical document (arc42 +
   C4-1/2/3) and the user manuals (general part + Guru booklet, all T2: written
@@ -228,15 +243,15 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   in `docs/EOFFICE_ESIGN_PLAN.md` (§2.9–§2.13, §4.3), the `naskah-dinas` skill,
   `decisions/esign-standards-ceiling.md` and the source comments.
 - **The brochure's facilities, extracurriculars and agenda on the public site
-  — on a branch (2026-10-04).** Decided by the user
-  (`decisions/fasilitas-dan-kegiatan-situs-publik.md`): *Fasilitas*
-  (`/campus`) and *Kegiatan* (`/activities`) as two menu items. The
-  extracurriculars are read from the portal module, and the brochure's nine
-  are loaded by `db:seed:ekskul-2027-2028` (staging after merge, production
-  with a release). It needed the module's forms fixed first: #653, the
-  forms sent categories, schedules and capacities the API refused or dropped,
-  and Edit was a 404. The facility icons wait for the brochure's original
-  photographs, which the user is asking for.
+  — merged 2026-10-04 (#653, #654), on staging and checked there.** Decided
+  by the user (`decisions/fasilitas-dan-kegiatan-situs-publik.md`):
+  *Fasilitas* (`/campus`) and *Kegiatan* (`/activities`) as two menu items,
+  in Indonesian, English and Arabic. The extracurriculars are read from the
+  portal module; the brochure's nine were loaded on staging by
+  `db:seed:ekskul-2027-2028`, and staging's two invented demo rows were
+  removed at the user's request. Production gets both with a release, after
+  checking which extracurriculars it already holds. The facility icons wait
+  for the brochure's original photographs, which the user is asking for.
 
 - **Web Push and stored notification preferences — merged 2026-10-03
   (#626), on staging and proven there** (a push delivered to a real browser
@@ -322,8 +337,9 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   registrant's Qur'an ability got one vocabulary: the public form had sent
   codes no score read (#646). Then the public SPMB form, its status lookup
   and its document upload in Indonesian, English and Arabic, right to left in
-  Arabic (S6). Next: the brochure's programmes, facilities, extracurriculars
-  and agenda on the public site in three languages. Then the Pesantren unit.
+  Arabic (S6). Then the brochure's programmes, facilities, extracurriculars
+  and agenda on the public site in three languages (#653, #654). Now the
+  Pesantren unit.
   Still open from before: the wali's
   approval for staff-filed leave off the pondok (roadmap 00.5, third part).
   Next: the rest of the homeroom pages (below), the class and teacher

@@ -18,7 +18,31 @@ import type {
   CreateIslamicEventInput,
   UpdateIslamicEventInput,
 } from './ibadah.schema';
-import { CLASS_ENROLLMENT_STATUS, STUDENT_STATUS } from '@cipansor/shared';
+import {
+  CLASS_ENROLLMENT_STATUS,
+  PARENT_ROLE_CODES,
+  STUDENT_ROLE_CODES,
+  STUDENT_STATUS,
+  type IbadahLeaderboardEntry,
+  type IbadahLeaderboardResult,
+} from '@cipansor/shared';
+import {
+  assertStudentInScope,
+  onlyScopedStudents,
+  studentScope,
+  type ScopeActor,
+} from '@/utils/student-scope';
+
+/**
+ * The santri an account reads here: `studentScope` (a santri their own, a wali
+ * their children's, the pesantren's staff and the yayasan every unit's, anyone
+ * else their own unit's), narrowed to `unitId` when one is asked for. The unit
+ * narrows inside the scope; it never widens it.
+ */
+function scopedStudents(actor: ScopeActor, unitId?: string): Prisma.StudentWhereInput {
+  const scope = studentScope(actor);
+  return unitId ? { AND: [scope, { unitId }] } : scope;
+}
 
 // ======================
 // TARGET SERVICES
@@ -106,7 +130,7 @@ export async function deleteTarget(id: string) {
 // RECORD SERVICES
 // ======================
 
-export async function listRecords(query: ListRecordsQuery) {
+export async function listRecords(query: ListRecordsQuery, actor: ScopeActor) {
   const {
     unitId,
     studentId,
@@ -121,7 +145,9 @@ export async function listRecords(query: ListRecordsQuery) {
     limit,
   } = query;
 
-  const where: Prisma.DailyIbadahRecordWhereInput = {};
+  const where: Prisma.DailyIbadahRecordWhereInput = {
+    ...onlyScopedStudents(scopedStudents(actor, unitId)),
+  };
   if (studentId) where.studentId = studentId;
   if (targetId) where.targetId = targetId;
   if (isCompleted !== undefined) where.isCompleted = isCompleted;
@@ -139,18 +165,8 @@ export async function listRecords(query: ListRecordsQuery) {
     if (endDate) where.date.lte = new Date(endDate);
   }
 
-  // Filter by unit through target
-  if (unitId) {
-    where.target = { unitId };
-  }
-
   // Filter by category through target
-  if (category) {
-    where.target = {
-      ...(where.target as Prisma.DailyIbadahTargetWhereInput),
-      category,
-    };
-  }
+  if (category) where.target = { category };
 
   const [records, total] = await Promise.all([
     prisma.dailyIbadahRecord.findMany({
@@ -187,9 +203,9 @@ export async function listRecords(query: ListRecordsQuery) {
   };
 }
 
-export async function getRecordById(id: string) {
-  return prisma.dailyIbadahRecord.findUnique({
-    where: { id },
+export async function getRecordById(id: string, actor: ScopeActor) {
+  return prisma.dailyIbadahRecord.findFirst({
+    where: { id, ...onlyScopedStudents(studentScope(actor)) },
     include: {
       target: true,
       student: { select: { id: true, nis: true, user: { select: { name: true } } } },
@@ -455,7 +471,37 @@ export async function dailyCheckIn(data: DailyCheckInInput) {
 // LEADERBOARD
 // ======================
 
-export async function getLeaderboard(query: LeaderboardQuery) {
+/** Points per santri over a period, highest first; the bonus counts once. */
+async function rankAmong(students: Prisma.StudentWhereInput, from: Date, to: Date) {
+  const totals = await prisma.dailyIbadahRecord.groupBy({
+    by: ['studentId'],
+    where: { date: { gte: from, lte: to }, student: students },
+    _sum: { pointsEarned: true, bonusEarned: true },
+    _count: { id: true },
+  });
+  return totals
+    .map((t) => ({
+      studentId: t.studentId,
+      totalPoints: (t._sum.pointsEarned || 0) + (t._sum.bonusEarned || 0),
+      bonusPoints: t._sum.bonusEarned || 0,
+      recordCount: t._count.id,
+    }))
+    .sort((a, b) => b.totalPoints - a.totalPoints || a.studentId.localeCompare(b.studentId))
+    .map((row, index) => ({ ...row, rank: index + 1 }));
+}
+
+/**
+ * The ranking an account may read: the santri of `studentScope`, narrowed to
+ * `unitId` and `classId` when given.
+ *
+ * A santri or a wali reads only their own rows, but the place in those rows is
+ * the place among the santri's whole unit — ranked among themselves alone,
+ * every santri would read "1st", which is a figure that lies.
+ */
+export async function getLeaderboard(
+  query: LeaderboardQuery,
+  actor: ScopeActor
+): Promise<IbadahLeaderboardResult> {
   const { unitId, periodType, startDate, endDate, classId, limit } = query;
 
   // Calculate date range based on period type
@@ -495,95 +541,93 @@ export async function getLeaderboard(query: LeaderboardQuery) {
     }
   }
 
-  // Build student filter
-  const studentWhere: any = { unitId };
+  const narrowing: Prisma.StudentWhereInput[] = [];
+  if (unitId) narrowing.push({ unitId });
   if (classId) {
-    studentWhere.enrollments = {
-      some: {
-        classId,
-        status: 'ACTIVE',
-      },
-    };
+    narrowing.push({
+      enrollments: { some: { classId, status: CLASS_ENROLLMENT_STATUS.ACTIVE } },
+    });
+  }
+  const visible: Prisma.StudentWhereInput = { AND: [studentScope(actor), ...narrowing] };
+
+  const code = actor.roleCode ?? '';
+  const ownRowsOnly = STUDENT_ROLE_CODES.includes(code) || PARENT_ROLE_CODES.includes(code);
+
+  let ranked: Awaited<ReturnType<typeof rankAmong>>;
+  if (ownRowsOnly) {
+    const own = await prisma.student.findMany({
+      where: visible,
+      select: { id: true, unitId: true },
+    });
+    const ownIds = new Set(own.map((s) => s.id));
+    const units = [...new Set(own.map((s) => s.unitId))];
+    const perUnit = await Promise.all(
+      units.map((unit) => rankAmong({ AND: [{ unitId: unit }, ...narrowing] }, dateStart, dateEnd))
+    );
+    ranked = perUnit.flat().filter((row) => ownIds.has(row.studentId));
+  } else {
+    ranked = (await rankAmong(visible, dateStart, dateEnd)).slice(0, limit);
   }
 
-  // Aggregate points per student
-  const leaderboard = await prisma.dailyIbadahRecord.groupBy({
-    by: ['studentId'],
-    where: {
-      date: {
-        gte: dateStart,
-        lte: dateEnd,
-      },
-      target: { unitId },
-      student: studentWhere,
-    },
-    _sum: {
-      pointsEarned: true,
-      bonusEarned: true,
-    },
-    _count: {
-      id: true,
-    },
-    orderBy: {
-      _sum: {
-        pointsEarned: 'desc',
-      },
-    },
-    take: limit,
-  });
-
-  // Get student details
-  const studentIds = leaderboard.map((l) => l.studentId);
+  const studentIds = ranked.map((r) => r.studentId);
   const students = await prisma.student.findMany({
     where: { id: { in: studentIds } },
-    include: {
+    select: {
+      id: true,
+      userId: true,
+      nis: true,
+      unitId: true,
       user: { select: { name: true } },
       enrollments: {
         where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
-        include: { class: { select: { name: true } } },
+        select: { class: { select: { name: true } } },
         take: 1,
       },
     },
   });
   const studentMap = new Map(students.map((s) => [s.id, s]));
 
-  // Count completed targets per student for this period
-  const targetCounts = await prisma.dailyIbadahTarget.count({
-    where: { unitId, isActive: true },
-  });
-
-  const recordCounts = await prisma.dailyIbadahRecord.groupBy({
-    by: ['studentId'],
-    where: {
-      date: { gte: dateStart, lte: dateEnd },
-      target: { unitId },
-      isCompleted: true,
-    },
-    _count: { id: true },
-  });
-  const recordCountMap = new Map(recordCounts.map((r) => [r.studentId, r._count.id]));
-
-  // Calculate days in period
+  // Completion: targets done out of the active targets of the santri's own
+  // unit, over the days of the period.
+  const unitIds = [...new Set(students.map((s) => s.unitId))];
+  const [targetCounts, completedCounts] = await Promise.all([
+    prisma.dailyIbadahTarget.groupBy({
+      by: ['unitId'],
+      where: { unitId: { in: unitIds }, isActive: true },
+      _count: { id: true },
+    }),
+    prisma.dailyIbadahRecord.groupBy({
+      by: ['studentId'],
+      where: {
+        studentId: { in: studentIds },
+        date: { gte: dateStart, lte: dateEnd },
+        isCompleted: true,
+      },
+      _count: { id: true },
+    }),
+  ]);
+  const targetsPerUnit = new Map(targetCounts.map((t) => [t.unitId, t._count.id]));
+  const completedMap = new Map(completedCounts.map((r) => [r.studentId, r._count.id]));
   const daysInPeriod =
     Math.ceil((dateEnd.getTime() - dateStart.getTime()) / (1000 * 60 * 60 * 24)) + 1;
-  const maxPossibleRecords = targetCounts * daysInPeriod;
 
-  // Format results
-  const results = leaderboard.map((entry, index) => {
+  // Format results — the shape both ibadah pages read (`@cipansor/shared`).
+  const results = ranked.map((entry): IbadahLeaderboardEntry => {
     const student = studentMap.get(entry.studentId);
-    const completedRecords = recordCountMap.get(entry.studentId) || 0;
-    const completionRate =
-      maxPossibleRecords > 0 ? (completedRecords / maxPossibleRecords) * 100 : 0;
+    const maxPossible = (targetsPerUnit.get(student?.unitId ?? '') ?? 0) * daysInPeriod;
+    const completed = completedMap.get(entry.studentId) || 0;
+    const completionRate = maxPossible > 0 ? (completed / maxPossible) * 100 : 0;
 
     return {
-      rank: index + 1,
+      rank: entry.rank,
       studentId: entry.studentId,
+      userId: student?.userId ?? null,
       studentName: student?.user.name || 'Unknown',
       nis: student?.nis || '',
       className: student?.enrollments[0]?.class.name || '',
-      totalPoints: (entry._sum.pointsEarned || 0) + (entry._sum.bonusEarned || 0),
-      bonusPoints: entry._sum.bonusEarned || 0,
-      recordCount: entry._count.id,
+      totalPoints: entry.totalPoints,
+      bonusPoints: entry.bonusPoints,
+      recordCount: entry.recordCount,
       completionRate: Math.round(completionRate * 100) / 100,
     };
   });
@@ -697,6 +741,12 @@ export async function getStudentAchievements(studentId: string) {
   };
 }
 
+/** `getStudentAchievements` for an account: 404 unless the santri is in its scope. */
+export async function getStudentAchievementsFor(studentId: string, actor: ScopeActor) {
+  await assertStudentInScope(studentId, actor);
+  return getStudentAchievements(studentId);
+}
+
 /**
  * Achievements for the logged-in student user. Resolves the student profile
  * from the user id; returns null when the user has no student profile.
@@ -793,13 +843,21 @@ export async function getStudentIbadahStats(query: StudentIbadahStatsQuery) {
   };
 }
 
-export async function getUnitIbadahStats(query: UnitIbadahStatsQuery) {
+/** `getStudentIbadahStats` for an account: 404 unless the santri is in its scope. */
+export async function getStudentIbadahStatsFor(query: StudentIbadahStatsQuery, actor: ScopeActor) {
+  await assertStudentInScope(query.studentId, actor);
+  return getStudentIbadahStats(query);
+}
+
+/** A unit's figures, over the unit's santri this account may see. */
+export async function getUnitIbadahStats(query: UnitIbadahStatsQuery, actor: ScopeActor) {
   const { unitId, startDate, endDate, groupBy } = query;
+  const students = scopedStudents(actor, unitId);
 
   // Get all records for the unit
   const records = await prisma.dailyIbadahRecord.findMany({
     where: {
-      target: { unitId },
+      student: students,
       date: { gte: startDate, lte: endDate },
     },
     include: {
@@ -854,7 +912,7 @@ export async function getUnitIbadahStats(query: UnitIbadahStatsQuery) {
 
   // Get student count
   const studentCount = await prisma.student.count({
-    where: { unitId, status: STUDENT_STATUS.ACTIVE },
+    where: { AND: [students, { status: STUDENT_STATUS.ACTIVE }] },
   });
 
   const totalRecords = records.length;
@@ -889,12 +947,13 @@ export async function getUnitIbadahStats(query: UnitIbadahStatsQuery) {
   };
 }
 
-export async function getClassIbadahStats(query: ClassIbadahStatsQuery) {
+/** A class's figures, over the class's santri this account may see. */
+export async function getClassIbadahStats(query: ClassIbadahStatsQuery, actor: ScopeActor) {
   const { classId, startDate, endDate } = query;
 
   // Get students in class
   const enrollments = await prisma.classEnrollment.findMany({
-    where: { classId, status: CLASS_ENROLLMENT_STATUS.ACTIVE },
+    where: { classId, status: CLASS_ENROLLMENT_STATUS.ACTIVE, student: studentScope(actor) },
     select: { studentId: true },
   });
   const studentIds = enrollments.map((e) => e.studentId);
@@ -922,7 +981,7 @@ export async function getClassIbadahStats(query: ClassIbadahStatsQuery) {
       date: { gte: startDate, lte: endDate },
     },
     include: {
-      student: { include: { user: { select: { name: true } } } },
+      student: { select: { user: { select: { name: true } } } },
     },
   });
 

@@ -158,7 +158,8 @@ export const dailyCheckInSchema = z.object({
 // ======================
 
 export const leaderboardQuerySchema = z.object({
-  unitId: z.string().uuid(),
+  // Narrows within the reader's santri; without it, the ranking is over all of them.
+  unitId: z.string().uuid().optional(),
   periodType: PeriodType,
   startDate: z.coerce.date().optional(),
   endDate: z.coerce.date().optional(),
