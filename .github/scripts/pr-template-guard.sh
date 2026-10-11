@@ -96,8 +96,10 @@ fi
 
 # Every issue the PR closes, once each. GitHub links and closes an issue only
 # for a closing keyword (docs.github.com, "Linking a pull request to an
-# issue"), so a bare "#12" or "Refs #12" is a mention, not a link.
-LINKED="$(printf '%s' "$BODY" | grep -oiE '(fix(e[sd])?|close[sd]?|resolve[sd]?) #[0-9]+' | grep -oE '[0-9]+' | awk '!seen[$0]++')"
+# issue"), so a bare "#12" or "Refs #12" is a mention, not a link. The keyword
+# must be a word of its own: without the boundary "prefix #12" or "hotfix #15"
+# read as a link to an issue the PR never names.
+LINKED="$(printf '%s' "$BODY" | grep -oiE '(^|[^[:alnum:]_])(fix(e[sd])?|close[sd]?|resolve[sd]?) #[0-9]+' | grep -oE '#[0-9]+' | tr -d '#' | awk '!seen[$0]++')"
 if [ -z "$LINKED" ]; then
   missing="$missing
 - \`Fixes #<n>\` untuk setiap issue yang diselesaikan PR ini. PR tanpa issue tidak diterima: buat issue-nya dulu, lalu tautkan"

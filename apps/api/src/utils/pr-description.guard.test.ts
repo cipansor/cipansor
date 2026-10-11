@@ -371,6 +371,28 @@ describe('pr-template-guard.sh', () => {
       expect(calls).toContain('PR tanpa issue tidak diterima');
     });
 
+    it('does not read a closing keyword inside another word as a link', () => {
+      // "prefix", "hotfix", "disclose" and "suffixes" end in a keyword; none of
+      // them links an issue, so a body naming no issue still fails even when
+      // the numbers happen to be open, ready issues.
+      const glued = COMPLETE.replace(
+        'Fixes #12',
+        'Lihat prefix #12, hotfix #15, disclose #14, dan suffixes #13.'
+      );
+      const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: glued });
+      expect(status).toBe(1);
+      expect(calls).toContain('PR tanpa issue tidak diterima');
+      expect(calls).not.toMatch(/^ISSUE /m);
+    });
+
+    it('still reads a keyword after punctuation or at the start of a line', () => {
+      const punctuated = COMPLETE.replace('Fixes #12', '(fixes #12)\nCloses #13.');
+      const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: punctuated });
+      expect(status).toBe(0);
+      expect(calls).toMatch(/^ISSUE 12$/m);
+      expect(calls).toMatch(/^ISSUE 13$/m);
+    });
+
     it('checks every issue the PR closes, not only the first', () => {
       const two = COMPLETE.replace('Fixes #12', 'Fixes #12\nFixes #13');
       const { status, calls } = run(TEMPLATE, {
