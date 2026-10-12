@@ -94,6 +94,22 @@ export function SelfieCapture({
   // A blob URL pins its bytes until revoked, so each replacement is released.
   useEffect(() => () => releaseObjectUrl(previewUrl), [previewUrl]);
 
+  // Attach the live stream once the <video> is actually rendered. It is hidden
+  // (and its ref null) while a photo preview shows, so "Foto Ulang" cleared the
+  // preview first; this effect wires the stream in on the render that follows.
+  useEffect(() => {
+    const video = videoRef.current;
+    if (!cameraOn || !video) return;
+    if (video.srcObject === streamRef.current) return;
+    video.srcObject = streamRef.current;
+    void video.play().catch(() => {
+      // The device answered but its picture never came up: drop the stream so
+      // the recording indicator does not stay on, and offer the file fallback.
+      stopStream();
+      setCameraUnavailable(true);
+    });
+  }, [cameraOn, photoBlob, stopStream]);
+
   const startCamera = async () => {
     setStarting(true);
     try {
@@ -103,12 +119,11 @@ export function SelfieCapture({
         video: { facingMode: "user" },
       });
       streamRef.current = stream;
-      setCameraOn(true);
+      // Clear any preview first: while `photoBlob` is set the <video> is not
+      // rendered, so attaching the stream here would write to a ref that is
+      // null. The effect below attaches it once the video is back on screen.
       onPhoto(null, null);
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        await videoRef.current.play();
-      }
+      setCameraOn(true);
     } catch {
       setCameraUnavailable(true);
     } finally {

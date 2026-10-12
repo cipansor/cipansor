@@ -525,6 +525,17 @@ test.describe("Absen Saya — a punch is recorded", () => {
     await expect(
       page.getByRole("button", { name: "Foto Ulang" }),
     ).toBeVisible();
+    // "Foto Ulang" must reopen a live camera, not an empty box: while the
+    // preview showed the <video> was not rendered, so its ref was null and the
+    // stream was never attached.
+    await page.getByRole("button", { name: "Foto Ulang" }).click();
+    await expect(
+      page.getByRole("button", { name: "Ambil Foto" }),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Ambil Foto" }).click();
+    await expect(
+      page.getByRole("button", { name: "Foto Ulang" }),
+    ).toBeVisible();
     // The file picker is the fallback for a device with no camera only.
     await expect(
       page.getByRole("button", { name: "Pilih Foto dari Perangkat" }),
