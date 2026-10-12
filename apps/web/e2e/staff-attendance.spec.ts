@@ -529,6 +529,16 @@ test.describe("Absen Saya — a punch is recorded", () => {
     // preview showed the <video> was not rendered, so its ref was null and the
     // stream was never attached.
     await page.getByRole("button", { name: "Foto Ulang" }).click();
+    await expect
+      .poll(() =>
+        page.evaluate(() => {
+          const video = document.querySelector('video[aria-label="Kamera"]');
+          return video
+            ? { hasStream: Boolean(video.srcObject), width: video.videoWidth }
+            : null;
+        }),
+      )
+      .toEqual({ hasStream: true, width: 320 });
     await expect(
       page.getByRole("button", { name: "Ambil Foto" }),
     ).toBeVisible();
