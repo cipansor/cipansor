@@ -1,5 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
+import type {
+  IbadahLeaderboardEntry,
+  IbadahLeaderboardResult,
+} from "@cipansor/shared";
+import api, { ApiResponse, SharedPaginatedResponse } from "@/lib/api";
+
+export type { IbadahLeaderboardEntry };
 
 // ======================
 // TYPES & ENUMS
@@ -65,28 +71,6 @@ export interface IbadahRecord {
   verifiedBy?: {
     id: string;
     name: string;
-  };
-}
-
-export interface IbadahLeaderboard {
-  id: string;
-  unitId: string;
-  studentId: string;
-  periodType: LeaderboardPeriod;
-  periodStart: string;
-  periodEnd: string;
-  totalPoints: number;
-  bonusPoints: number;
-  streakDays: number;
-  completionRate: number;
-  rank: number;
-  student?: {
-    id: string;
-    name: string;
-    nis: string;
-    class?: { name: string };
-    dormRoom?: { name: string };
-    avatar?: string;
   };
 }
 
@@ -279,7 +263,7 @@ export function useIbadahTargets(params: ListTargetsParams = {}) {
   return useQuery({
     queryKey: ["ibadah-targets", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<IbadahTarget>>(
+      const response = await api.get<SharedPaginatedResponse<IbadahTarget>>(
         "/ibadah/targets",
         { params },
       );
@@ -413,7 +397,7 @@ export function useIbadahRecords(params: ListRecordsParams = {}) {
   return useQuery({
     queryKey: ["ibadah-records", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<IbadahRecord>>(
+      const response = await api.get<SharedPaginatedResponse<IbadahRecord>>(
         "/ibadah/records",
         { params },
       );
@@ -604,7 +588,8 @@ export function useDailyCheckIn() {
 // ======================
 
 export interface LeaderboardParams {
-  unitId: string;
+  /** Narrows within the reader's santri; without it the API ranks all of them. */
+  unitId?: string;
   periodType: LeaderboardPeriod;
   classId?: string;
   dormRoomId?: string;
@@ -615,16 +600,13 @@ export function useIbadahLeaderboard(params: LeaderboardParams) {
   return useQuery({
     queryKey: ["ibadah-leaderboard", params],
     queryFn: async () => {
-      const response = await api.get<ApiResponse<any>>("/ibadah/leaderboard", {
-        params,
-      });
-      // The endpoint returns { data: { periodType, startDate, endDate, data: [] } }
-      // — the entries are nested under data.data. Return the array so the page's
-      // `leaderboard.map` doesn't crash.
-      const lb = response.data.data;
-      return (Array.isArray(lb) ? lb : (lb?.data ?? [])) as IbadahLeaderboard[];
+      const response = await api.get<ApiResponse<IbadahLeaderboardResult>>(
+        "/ibadah/leaderboard",
+        { params },
+      );
+      // The entries are nested under data.data; return the array.
+      return response.data.data?.data ?? [];
     },
-    enabled: !!params.unitId,
   });
 }
 
@@ -735,7 +717,7 @@ export function useIslamicEvents(params: ListEventsParams = {}) {
   return useQuery({
     queryKey: ["islamic-events", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<IslamicEvent>>(
+      const response = await api.get<SharedPaginatedResponse<IslamicEvent>>(
         "/ibadah/events",
         { params },
       );

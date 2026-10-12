@@ -83,6 +83,20 @@ export const getAllPositions = async (_req: Request, res: Response, next: NextFu
   }
 };
 
+export const getPositionById = async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const position = await organisasiService.getPositionById(req.params.id);
+    if (!position) {
+      res.status(404).json({ error: 'Posisi tidak ditemukan' });
+      return;
+    }
+    const parentPosition = await organisasiService.getParentPosition(position.orgUnitId);
+    res.json({ data: { ...position, parentPosition } });
+  } catch (error) {
+    next(error);
+  }
+};
+
 export const createPosition = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const data = await organisasiService.createPosition(req.body);

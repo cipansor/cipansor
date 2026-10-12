@@ -84,10 +84,9 @@ const publicPrefixes = [
   /**
    * Where a printed student ID card's QR points. Kept in step with
    * `PUBLIC_PATH_PREFIXES` in lib/host-split.ts (the two lists must describe
-   * the same set; a sync test enforces it). It is a `/public/*` page so the
-   * matcher below exempts it from middleware anyway, but listing it here makes
-   * the read-without-a-session intent explicit and keeps the two canonical
-   * lists in agreement (Flag 11).
+   * the same set; a sync test enforces it). It is a `/public/*` page, so the
+   * matcher below exempts it from middleware entirely — this listing only keeps
+   * the two canonical lists in agreement (Flag 11), not a runtime effect.
    */
   "/public/verify-card",
   /**
@@ -97,6 +96,13 @@ const publicPrefixes = [
    * the matching entry in host-split.ts the page would 404 on the apex.
    */
   "/public/verify-key",
+  /**
+   * Where a printed sanad/syahadah's QR points (`certificateVerificationUrl`).
+   * Kept in step with `PUBLIC_PATH_PREFIXES` in lib/host-split.ts. Like
+   * `/public/verify-card` the matcher already exempts it from middleware; the
+   * listing only keeps the two canonical lists in agreement (Flag 11).
+   */
+  "/public/verify-sanad",
 ];
 
 /**

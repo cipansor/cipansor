@@ -93,6 +93,11 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { DocumentsTab } from "./components/documents-tab";
 import { HistoryTab } from "./components/history-tab";
+import { useAuthStore } from "@/stores/auth";
+import {
+  managesEmployees,
+  readsEmployeeRecord,
+} from "@/lib/employee-record-access";
 
 export default function EmployeeDetailPage() {
   const params = useParams();
@@ -104,12 +109,24 @@ export default function EmployeeDetailPage() {
 
   const { data: employee, isLoading } = useEmployee(employeeId);
   const { data: activeAcademicYear } = useActiveAcademicYear();
-  const { data: leaveRequestsData } = useLeaveRequests({ employeeId });
+  // A colleague sees the directory; the HR record — personal data, bank,
+  // contracts, leave, documents, history — is for the employee and whoever
+  // keeps HR records (decisions/akses-data-pegawai.md). The API answers 404
+  // to anyone else, so the page neither asks nor offers.
+  const viewer = useAuthStore((s) => s.user);
+  const full = readsEmployeeRecord(viewer, employee?.userId);
+  const canManage = managesEmployees(viewer);
+  const recordUserId = full ? employee?.userId || "" : "";
+  const { data: leaveRequestsData } = useLeaveRequests(
+    employee?.teacherId
+      ? { teacherId: employee.teacherId }
+      : { staffId: employee?.staffId },
+    { enabled: full && !!(employee?.teacherId || employee?.staffId) },
+  );
 
-  // New hooks
-  const { data: contracts } = useUserContracts(employee?.userId || "");
+  const { data: contracts } = useUserContracts(recordUserId);
   const { data: leaveBalances } = useLeaveBalances(
-    employee?.userId || "",
+    recordUserId,
     activeAcademicYear?.id,
   );
   const createContract = useCreateContract();
@@ -229,41 +246,45 @@ export default function EmployeeDetailPage() {
               </p>
             </div>
           </div>
-          <div className="flex flex-wrap gap-2">
-            <Button variant="outline" asChild>
-              <Link href={`/hr/employees/${employeeId}/edit`}>
-                <Edit className="mr-2 h-4 w-4" />
-                Edit
-              </Link>
-            </Button>
-            <AlertDialog>
-              <AlertDialogTrigger asChild>
-                <Button variant="destructive">
-                  <Trash2 className="mr-2 h-4 w-4" />
-                  Hapus
-                </Button>
-              </AlertDialogTrigger>
-              <AlertDialogContent>
-                <AlertDialogHeader>
-                  <AlertDialogTitle>Hapus Karyawan?</AlertDialogTitle>
-                  <AlertDialogDescription>
-                    Tindakan ini tidak dapat dibatalkan. Semua data karyawan
-                    termasuk riwayat cuti akan dihapus permanen.
-                  </AlertDialogDescription>
-                </AlertDialogHeader>
-                <AlertDialogFooter>
-                  <AlertDialogCancel>Batal</AlertDialogCancel>
-                  <AlertDialogAction onClick={handleDelete}>
+          {canManage && (
+            <div className="flex flex-wrap gap-2">
+              <Button variant="outline" asChild>
+                <Link href={`/hr/employees/${employeeId}/edit`}>
+                  <Edit className="mr-2 h-4 w-4" />
+                  Edit
+                </Link>
+              </Button>
+              <AlertDialog>
+                <AlertDialogTrigger asChild>
+                  <Button variant="destructive">
+                    <Trash2 className="mr-2 h-4 w-4" />
                     Hapus
-                  </AlertDialogAction>
-                </AlertDialogFooter>
-              </AlertDialogContent>
-            </AlertDialog>
-          </div>
+                  </Button>
+                </AlertDialogTrigger>
+                <AlertDialogContent>
+                  <AlertDialogHeader>
+                    <AlertDialogTitle>Hapus Karyawan?</AlertDialogTitle>
+                    <AlertDialogDescription>
+                      Tindakan ini tidak dapat dibatalkan. Semua data karyawan
+                      termasuk riwayat cuti akan dihapus permanen.
+                    </AlertDialogDescription>
+                  </AlertDialogHeader>
+                  <AlertDialogFooter>
+                    <AlertDialogCancel>Batal</AlertDialogCancel>
+                    <AlertDialogAction onClick={handleDelete}>
+                      Hapus
+                    </AlertDialogAction>
+                  </AlertDialogFooter>
+                </AlertDialogContent>
+              </AlertDialog>
+            </div>
+          )}
         </div>
 
         {/* Profile Overview */}
-        <div className="grid gap-6 md:grid-cols-4">
+        <div
+          className={`grid gap-6 ${full ? "md:grid-cols-4" : "md:grid-cols-3"}`}
+        >
           <Card>
             <CardHeader className="flex flex-row items-center justify-between pb-2">
               <CardTitle className="text-sm font-medium">NIP</CardTitle>
@@ -295,27 +316,29 @@ export default function EmployeeDetailPage() {
             </CardHeader>
             <CardContent>
               <p className="text-xl font-bold">
-                {safeFormat(new Date(employee.joinDate), "d MMM yyyy", {
+                {safeFormat(employee.joinDate, "d MMM yyyy", {
                   locale: idLocale,
                 })}
               </p>
             </CardContent>
           </Card>
-          <Card>
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium">
-                Sisa Cuti Tahunan
-              </CardTitle>
-              <FileText className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <p className="text-xl font-bold">
-                {leaveBalances?.find((b) => b.leaveType === "ANNUAL")
-                  ?.remainingDays ?? 12}{" "}
-                hari
-              </p>
-            </CardContent>
-          </Card>
+          {full && (
+            <Card>
+              <CardHeader className="flex flex-row items-center justify-between pb-2">
+                <CardTitle className="text-sm font-medium">
+                  Sisa Cuti Tahunan
+                </CardTitle>
+                <FileText className="h-4 w-4 text-muted-foreground" />
+              </CardHeader>
+              <CardContent>
+                <p className="text-xl font-bold">
+                  {leaveBalances?.find((b) => b.leaveType === "ANNUAL")
+                    ?.remainingDays ?? "-"}{" "}
+                  hari
+                </p>
+              </CardContent>
+            </Card>
+          )}
         </div>
 
         <Tabs value={activeTab} onValueChange={setActiveTab}>
@@ -324,88 +347,96 @@ export default function EmployeeDetailPage() {
               <User className="mr-2 h-4 w-4" />
               Informasi
             </TabsTrigger>
-            <TabsTrigger value="education">
-              <GraduationCap className="mr-2 h-4 w-4" />
-              Pendidikan
-            </TabsTrigger>
-            <TabsTrigger value="contracts">
-              <ClipboardList className="mr-2 h-4 w-4" />
-              Kontrak
-            </TabsTrigger>
-            <TabsTrigger value="leave-balance">
-              <Scale className="mr-2 h-4 w-4" />
-              Kuota Cuti
-            </TabsTrigger>
-            <TabsTrigger value="leaves">
-              <Calendar className="mr-2 h-4 w-4" />
-              Riwayat Cuti
-            </TabsTrigger>
-            <TabsTrigger value="documents">
-              <FileText className="mr-2 h-4 w-4" />
-              Dokumen
-            </TabsTrigger>
-            <TabsTrigger value="history">
-              <Briefcase className="mr-2 h-4 w-4" />
-              Riwayat Karir
-            </TabsTrigger>
+            {full && (
+              <>
+                <TabsTrigger value="education">
+                  <GraduationCap className="mr-2 h-4 w-4" />
+                  Pendidikan
+                </TabsTrigger>
+                <TabsTrigger value="contracts">
+                  <ClipboardList className="mr-2 h-4 w-4" />
+                  Kontrak
+                </TabsTrigger>
+                <TabsTrigger value="leave-balance">
+                  <Scale className="mr-2 h-4 w-4" />
+                  Kuota Cuti
+                </TabsTrigger>
+                <TabsTrigger value="leaves">
+                  <Calendar className="mr-2 h-4 w-4" />
+                  Riwayat Cuti
+                </TabsTrigger>
+                <TabsTrigger value="documents">
+                  <FileText className="mr-2 h-4 w-4" />
+                  Dokumen
+                </TabsTrigger>
+                <TabsTrigger value="history">
+                  <Briefcase className="mr-2 h-4 w-4" />
+                  Riwayat Karir
+                </TabsTrigger>
+              </>
+            )}
           </TabsList>
 
           {/* Info Tab */}
           <TabsContent value="info" className="space-y-4">
             <div className="grid gap-6 md:grid-cols-2">
               {/* Personal Info */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <User className="h-5 w-5" />
-                    Data Pribadi
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <dl className="space-y-4">
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Nama Lengkap</dt>
-                      <dd className="font-medium">{employee.fullName}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Jenis Kelamin</dt>
-                      <dd>
-                        {employee.gender === "MALE" ? "Laki-laki" : "Perempuan"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Tempat Lahir</dt>
-                      <dd>{employee.birthPlace ?? "-"}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Tanggal Lahir</dt>
-                      <dd>
-                        {employee.birthDate
-                          ? format(
-                              new Date(employee.birthDate),
-                              "d MMMM yyyy",
-                              { locale: idLocale },
-                            )
-                          : "-"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Agama</dt>
-                      <dd>{employee.religion ?? "Islam"}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">
-                        Status Pernikahan
-                      </dt>
-                      <dd>{employee.maritalStatus ?? "-"}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">NIK</dt>
-                      <dd className="font-mono">{employee.nik ?? "-"}</dd>
-                    </div>
-                  </dl>
-                </CardContent>
-              </Card>
+              {full && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <User className="h-5 w-5" />
+                      Data Pribadi
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <dl className="space-y-4">
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">Nama Lengkap</dt>
+                        <dd className="font-medium">{employee.fullName}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">Jenis Kelamin</dt>
+                        <dd>
+                          {employee.gender === "MALE"
+                            ? "Laki-laki"
+                            : "Perempuan"}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">Tempat Lahir</dt>
+                        <dd>{employee.birthPlace ?? "-"}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">Tanggal Lahir</dt>
+                        <dd>
+                          {employee.birthDate
+                            ? format(
+                                new Date(employee.birthDate),
+                                "d MMMM yyyy",
+                                { locale: idLocale },
+                              )
+                            : "-"}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">Agama</dt>
+                        <dd>{employee.religion ?? "Islam"}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">
+                          Status Pernikahan
+                        </dt>
+                        <dd>{employee.maritalStatus ?? "-"}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">NIK</dt>
+                        <dd className="font-mono">{employee.nik ?? "-"}</dd>
+                      </div>
+                    </dl>
+                  </CardContent>
+                </Card>
+              )}
 
               {/* Contact Info */}
               <Card>
@@ -451,7 +482,7 @@ export default function EmployeeDetailPage() {
                     </div>
                     <div className="flex justify-between">
                       <dt className="text-muted-foreground">Departemen</dt>
-                      <dd>{employee.department?.name ?? "-"}</dd>
+                      <dd>{employee.department ?? "-"}</dd>
                     </div>
                     <div className="flex justify-between">
                       <dt className="text-muted-foreground">Jabatan</dt>
@@ -470,13 +501,9 @@ export default function EmployeeDetailPage() {
                         Tanggal Bergabung
                       </dt>
                       <dd>
-                        {safeFormat(
-                          new Date(employee.joinDate),
-                          "d MMMM yyyy",
-                          {
-                            locale: idLocale,
-                          },
-                        )}
+                        {safeFormat(employee.joinDate, "d MMMM yyyy", {
+                          locale: idLocale,
+                        })}
                       </dd>
                     </div>
                     {employee.resignDate && (
@@ -498,52 +525,54 @@ export default function EmployeeDetailPage() {
               </Card>
 
               {/* Bank Info */}
-              <Card>
-                <CardHeader>
-                  <CardTitle className="flex items-center gap-2">
-                    <CreditCard className="h-5 w-5" />
-                    Informasi Bank
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <dl className="space-y-4">
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Nama Bank</dt>
-                      <dd>{employee.bankName ?? "-"}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">No. Rekening</dt>
-                      <dd className="font-mono">
-                        {employee.bankAccountNumber ?? "-"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">Atas Nama</dt>
-                      <dd>{employee.bankAccountName ?? "-"}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">NPWP</dt>
-                      <dd className="font-mono">{employee.npwp ?? "-"}</dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">
-                        No. BPJS Kesehatan
-                      </dt>
-                      <dd className="font-mono">
-                        {employee.bpjsKesehatan ?? "-"}
-                      </dd>
-                    </div>
-                    <div className="flex justify-between">
-                      <dt className="text-muted-foreground">
-                        No. BPJS Ketenagakerjaan
-                      </dt>
-                      <dd className="font-mono">
-                        {employee.bpjsKetenagakerjaan ?? "-"}
-                      </dd>
-                    </div>
-                  </dl>
-                </CardContent>
-              </Card>
+              {full && (
+                <Card>
+                  <CardHeader>
+                    <CardTitle className="flex items-center gap-2">
+                      <CreditCard className="h-5 w-5" />
+                      Informasi Bank
+                    </CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <dl className="space-y-4">
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">Nama Bank</dt>
+                        <dd>{employee.bankName ?? "-"}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">No. Rekening</dt>
+                        <dd className="font-mono">
+                          {employee.bankAccountNumber ?? "-"}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">Atas Nama</dt>
+                        <dd>{employee.bankAccountName ?? "-"}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">NPWP</dt>
+                        <dd className="font-mono">{employee.npwp ?? "-"}</dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">
+                          No. BPJS Kesehatan
+                        </dt>
+                        <dd className="font-mono">
+                          {employee.bpjsKesehatan ?? "-"}
+                        </dd>
+                      </div>
+                      <div className="flex justify-between">
+                        <dt className="text-muted-foreground">
+                          No. BPJS Ketenagakerjaan
+                        </dt>
+                        <dd className="font-mono">
+                          {employee.bpjsKetenagakerjaan ?? "-"}
+                        </dd>
+                      </div>
+                    </dl>
+                  </CardContent>
+                </Card>
+              )}
             </div>
           </TabsContent>
 

@@ -261,7 +261,9 @@ export default function AlumniSanadPage() {
   const totalAlumni = alumniWithSanad.length;
 
   return (
-    <MainLayout allowedRoles={["SUPER_ADMIN", "UNIT_ADMIN", "TEACHER"]}>
+    <MainLayout
+      allowedRoles={["SUPER_ADMIN", "UNIT_ADMIN", "TEACHER", "STUDENT"]}
+    >
       <div className="space-y-6">
         <PageHeader
           title="Sanad Alumni"

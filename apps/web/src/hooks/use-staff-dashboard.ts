@@ -4,6 +4,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 import {
+  CROSS_UNIT_ROLE_CODES,
   PERMIT_DECIDER_ROLE_CODES,
   PERMIT_STAFF_ROLE_CODES,
   STUDENT_STATUS,
@@ -11,7 +12,7 @@ import {
   type Permit,
   type PermitSummary,
 } from "@cipansor/shared";
-import { getActiveRoleCode } from "@/lib/rbac";
+import { getActiveRoleCode, type RbacUser } from "@/lib/rbac";
 import { PERMIT_TYPE_LABELS } from "./use-permits";
 
 // ============================================
@@ -82,6 +83,21 @@ export const VIOLATION_CATEGORY_COLORS: Record<string, string> = {
 };
 
 /**
+ * The unit the dashboard's counts are narrowed to. The pesantren's staff and
+ * the cross-unit services serve every unit's santri — the Pesantren unit holds
+ * none of them — so their counts are not pinned to their home unit; the API's
+ * `studentScope` then gives them every unit.
+ */
+export function dashboardUnitId(
+  user: (RbacUser & { unitId?: string | null }) | null | undefined,
+): string | undefined {
+  if (CROSS_UNIT_ROLE_CODES.includes(getActiveRoleCode(user) ?? "")) {
+    return undefined;
+  }
+  return user?.unitId ?? undefined;
+}
+
+/**
  * The shared staff dashboard serves nine functions; only some of them work
  * with permits (`PERMIT_STAFF_ROLE_CODES`, the list the API guards with).
  * The rest are not asked, rather than asked and refused.
@@ -133,7 +149,11 @@ export function useStaffDashboardStats() {
         // Active health issues (students currently sick)
         api
           .get<PaginatedResponse<unknown>>("/health", {
-            params: { status: "ACTIVE", unitId: user?.unitId, limit: 1 },
+            params: {
+              status: "ACTIVE",
+              unitId: dashboardUnitId(user),
+              limit: 1,
+            },
             skipErrorToast: true,
           })
           .catch(() => ({ data: { meta: { pagination: { total: 0 } } } })),
@@ -141,7 +161,7 @@ export function useStaffDashboardStats() {
         // Today's violations
         api
           .get<PaginatedResponse<unknown>>("/violations", {
-            params: { date: today, unitId: user?.unitId, limit: 1 },
+            params: { date: today, unitId: dashboardUnitId(user), limit: 1 },
             skipErrorToast: true,
           })
           .catch(() => ({ data: { meta: { pagination: { total: 0 } } } })),
@@ -149,7 +169,7 @@ export function useStaffDashboardStats() {
         // Today's rewards
         api
           .get<PaginatedResponse<unknown>>("/rewards", {
-            params: { date: today, unitId: user?.unitId, limit: 1 },
+            params: { date: today, unitId: dashboardUnitId(user), limit: 1 },
             skipErrorToast: true,
           })
           .catch(() => ({ data: { meta: { pagination: { total: 0 } } } })),
@@ -165,7 +185,7 @@ export function useStaffDashboardStats() {
               total: number;
             }>
           >("/attendance/summary", {
-            params: { date: today, unitId: user?.unitId },
+            params: { date: today, unitId: dashboardUnitId(user) },
             skipErrorToast: true,
           })
           .catch(() => ({
@@ -179,7 +199,7 @@ export function useStaffDashboardStats() {
           .get<PaginatedResponse<unknown>>("/students", {
             params: {
               status: STUDENT_STATUS.ACTIVE,
-              unitId: user?.unitId,
+              unitId: dashboardUnitId(user),
               limit: 1,
             },
             skipErrorToast: true,
@@ -261,7 +281,7 @@ export function useStaffPendingTasks(limit: number = 10) {
             createdAt: string;
           }>
         >("/health", {
-          params: { status: "ACTIVE", unitId: user?.unitId, limit: 5 },
+          params: { status: "ACTIVE", unitId: dashboardUnitId(user), limit: 5 },
           skipErrorToast: true,
         })
         .catch(() => ({ data: { data: [] } }));
@@ -351,7 +371,7 @@ export function useStaffRecentActivity(limit: number = 10) {
             reporter?: { name: string };
           }>
         >("/violations", {
-          params: { unitId: user?.unitId, limit: 5 },
+          params: { unitId: dashboardUnitId(user), limit: 5 },
           skipErrorToast: true,
         })
         .catch(() => ({ data: { data: [] } }));
@@ -379,7 +399,7 @@ export function useStaffRecentActivity(limit: number = 10) {
             givenBy?: { name: string };
           }>
         >("/rewards", {
-          params: { unitId: user?.unitId, limit: 5 },
+          params: { unitId: dashboardUnitId(user), limit: 5 },
           skipErrorToast: true,
         })
         .catch(() => ({ data: { data: [] } }));

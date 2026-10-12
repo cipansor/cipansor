@@ -203,9 +203,13 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
       paidAt: { gte: start },
       invoice: {
         student: {
-          registrant: {
-            campaignId: { not: null },
-            ...(unitId ? { admissionPeriod: { unitId } } : {}),
+          // A student may carry several registrations, so the campaign link is
+          // a to-many relation (`registrants`), not a single `registrant`.
+          registrants: {
+            some: {
+              campaignId: { not: null },
+              ...(unitId ? { admissionPeriod: { unitId } } : {}),
+            },
           },
         },
       },

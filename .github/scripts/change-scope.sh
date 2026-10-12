@@ -33,6 +33,7 @@ is_code() {
   case "$1" in
     docs/DEPLOYMENT.md) return 0 ;; # decommissioned-modules.guard.test.ts pins its numbers
     docs/LABELS.md) return 0 ;; # the label/lifecycle guard tests read it
+    .claude/hooks/guard.sh) return 0 ;; # agent-guard.guard.test.ts runs it
     *.md | docs/* | .claude/* | .github/ISSUE_TEMPLATE/* | LICENSE | LICENSE.*) return 1 ;;
     *) return 0 ;;
   esac

@@ -49,6 +49,27 @@ export interface Unit extends Partial<UnitOfficialIdentity> {
   npsn?: string | null;
   createdAt: string;
   updatedAt: string;
+  /** Present on `GET /units`. */
+  _count?: { users: number; students: number; classes: number };
+}
+
+/**
+ * The unit a per-unit board (a leaderboard, say) opens on: the reader's own
+ * when it has santri, else the first unit that does, else the first unit.
+ *
+ * The pesantren's ustadz, musyrif and muhafidz belong to the pesantren unit,
+ * which holds none of the schools' santri; opening their board on it would
+ * show an empty ranking.
+ */
+export function defaultSantriUnitId(
+  units: Unit[] | undefined,
+  ownUnitId?: string | null,
+): string | undefined {
+  if (!units?.length) return undefined;
+  const hasSantri = (u: Unit) => (u._count?.students ?? 0) > 0;
+  const own = units.find((u) => u.id === ownUnitId);
+  if (own && hasSantri(own)) return own.id;
+  return (units.find(hasSantri) ?? own ?? units[0]).id;
 }
 
 interface UseUnitsParams {

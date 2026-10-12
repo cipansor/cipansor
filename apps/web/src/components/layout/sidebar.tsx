@@ -5,7 +5,6 @@ import Link from "next/link";
 import Image from "next/image";
 import { usePathname } from "next/navigation";
 import { cn } from "@/lib/utils";
-import { realmColor, realmLabel } from "@/lib/realm";
 import { Button } from "@/components/ui/button";
 import { Separator } from "@/components/ui/separator";
 import { Badge } from "@/components/ui/badge";
@@ -19,6 +18,7 @@ import {
 } from "@/config/navigation";
 import { useHomeroomClasses } from "@/hooks/use-homeroom";
 import { useAuthStore } from "@/stores/auth";
+import { realmColorClass, realmLabel } from "@/hooks/use-roles";
 import { demoPhotoForEmail } from "@/lib/demo-avatar";
 import { ChevronDown, ChevronLeft, LogOut } from "lucide-react";
 import { useState } from "react";
@@ -35,7 +35,8 @@ interface UserRole {
     id: string;
     code: string;
     name: string;
-    realm: string;
+    // Optional: a session persisted before the field existed omits it.
+    realm?: string;
   };
   unit?: {
     id: string;
@@ -168,7 +169,7 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
                   <Badge
                     className={cn(
                       "text-[10px] px-1 py-0 text-white",
-                      realmColor(activeRole.role.realm),
+                      realmColorClass(activeRole.role.realm),
                     )}
                   >
                     {realmLabel(activeRole.role.realm)}

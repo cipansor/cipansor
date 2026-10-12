@@ -49,7 +49,7 @@ perbandingan di <https://choosealicense.com/licenses/>.
 
 - nama, logo, dan lambang Yayasan serta unit-unitnya;
 - foto, isi brosur, dan gambar Yayasan, orang-orangnya, dan santrinya
-  (`apps/web/public/images/`, `docs/images/`). Seluruh haknya tetap milik
+  (`apps/web/public/images/`, `docs/screens/`). Seluruh haknya tetap milik
   Yayasan, dan foto orang juga tunduk pada hak potret (UU 28/2014 Ps. 12);
 - data pribadi dalam data demo atau seed (UU 27/2022).
 

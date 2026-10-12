@@ -8,6 +8,7 @@ vi.mock('../../lib/prisma', () => ({
     orgUnit: {
       create: vi.fn(),
       findMany: vi.fn(),
+      findUnique: vi.fn(),
       findUniqueOrThrow: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -15,6 +16,8 @@ vi.mock('../../lib/prisma', () => ({
     orgPosition: {
       create: vi.fn(),
       findMany: vi.fn(),
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
     },
@@ -101,6 +104,48 @@ describe('Organisasi Service', () => {
         include: expect.any(Object),
         orderBy: { level: 'asc' },
       });
+    });
+
+    it('should get a single position with holder and org unit', async () => {
+      vi.mocked(prisma.orgPosition.findUnique).mockResolvedValue({
+        id: 'pos-1',
+        orgUnitId: 'org-1',
+        title: 'Direktur Pendidikan',
+      } as any);
+
+      const result = await organisasiService.getPositionById('pos-1');
+
+      expect(prisma.orgPosition.findUnique).toHaveBeenCalledWith({
+        where: { id: 'pos-1' },
+        include: {
+          holder: { select: { id: true, name: true, email: true } },
+          orgUnit: { select: { id: true, name: true } },
+        },
+      });
+      expect(result?.title).toBe('Direktur Pendidikan');
+    });
+
+    it('should return null for a missing position', async () => {
+      vi.mocked(prisma.orgPosition.findUnique).mockResolvedValue(null);
+
+      expect(await organisasiService.getPositionById('nope')).toBeNull();
+    });
+
+    it('should resolve the parent position through the org chart, or null at the root', async () => {
+      vi.mocked(prisma.orgUnit.findUnique).mockResolvedValue({ parentId: 'org-parent' } as any);
+      vi.mocked(prisma.orgPosition.findFirst).mockResolvedValue({
+        id: 'pos-parent',
+        title: 'Direktur',
+      } as any);
+
+      expect(await organisasiService.getParentPosition('org-1')).toEqual({
+        id: 'pos-parent',
+        title: 'Direktur',
+      });
+
+      vi.mocked(prisma.orgUnit.findUnique).mockResolvedValue({ parentId: null } as any);
+      expect(await organisasiService.getParentPosition('org-root')).toBeNull();
+      expect(prisma.orgPosition.findFirst).toHaveBeenCalledTimes(1);
     });
   });
 });

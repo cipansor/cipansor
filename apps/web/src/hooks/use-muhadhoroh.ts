@@ -117,11 +117,11 @@ export const muhadhorohKeys = {
     [...muhadhorohKeys.lists(), params] as const,
   details: () => [...muhadhorohKeys.all, "detail"] as const,
   detail: (id: string) => [...muhadhorohKeys.details(), id] as const,
-  upcoming: (unitId: string) =>
+  upcoming: (unitId?: string) =>
     [...muhadhorohKeys.all, "upcoming", unitId] as const,
-  statistics: (unitId: string, startDate?: string, endDate?: string) =>
+  statistics: (unitId?: string, startDate?: string, endDate?: string) =>
     [...muhadhorohKeys.all, "statistics", unitId, startDate, endDate] as const,
-  topPerformers: (unitId: string) =>
+  topPerformers: (unitId?: string) =>
     [...muhadhorohKeys.all, "top-performers", unitId] as const,
   studentHistory: (studentId: string) =>
     [...muhadhorohKeys.all, "student-history", studentId] as const,
@@ -153,33 +153,31 @@ async function fetchMuhadhorohList(params: ListMuhadhorohParams) {
 
 async function fetchMuhadhorohById(id: string) {
   const response = await api.get(`/muhadhoroh/${id}`);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
-async function fetchUpcomingMuhadhoroh(unitId: string, limit = 10) {
-  const response = await api.get(
-    `/muhadhoroh/upcoming?unitId=${unitId}&limit=${limit}`,
-  );
+async function fetchUpcomingMuhadhoroh(unitId?: string, limit = 10) {
+  const response = await api.get("/muhadhoroh/upcoming", {
+    params: { unitId, limit },
+  });
   return response.data.data as MuhadhorohRecord[];
 }
 
 async function fetchMuhadhorohStatistics(
-  unitId: string,
+  unitId?: string,
   startDate?: string,
   endDate?: string,
 ) {
-  const params = new URLSearchParams({ unitId });
-  if (startDate) params.set("startDate", startDate);
-  if (endDate) params.set("endDate", endDate);
-
-  const response = await api.get(`/muhadhoroh/statistics?${params.toString()}`);
+  const response = await api.get("/muhadhoroh/statistics", {
+    params: { unitId, startDate, endDate },
+  });
   return response.data.data as MuhadhorohStats;
 }
 
-async function fetchTopPerformers(unitId: string, limit = 10) {
-  const response = await api.get(
-    `/muhadhoroh/top-performers?unitId=${unitId}&limit=${limit}`,
-  );
+async function fetchTopPerformers(unitId?: string, limit = 10) {
+  const response = await api.get("/muhadhoroh/top-performers", {
+    params: { unitId, limit },
+  });
   return response.data.data as TopPerformer[];
 }
 
@@ -192,12 +190,12 @@ async function fetchStudentHistory(studentId: string, limit = 20) {
 
 async function createMuhadhoroh(input: CreateMuhadhorohInput) {
   const response = await api.post("/muhadhoroh", input);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
 async function updateMuhadhoroh(id: string, input: UpdateMuhadhorohInput) {
   const response = await api.patch(`/muhadhoroh/${id}`, input);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
 async function deleteMuhadhoroh(id: string) {
@@ -206,12 +204,12 @@ async function deleteMuhadhoroh(id: string) {
 
 async function evaluateMuhadhoroh(id: string, input: EvaluateMuhadhorohInput) {
   const response = await api.post(`/muhadhoroh/${id}/evaluate`, input);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
 async function cancelMuhadhoroh(id: string) {
   const response = await api.post(`/muhadhoroh/${id}/cancel`);
-  return response.data as MuhadhorohRecord;
+  return response.data.data as MuhadhorohRecord;
 }
 
 // ===================
@@ -233,31 +231,32 @@ export function useMuhadhorohDetail(id: string | undefined) {
   });
 }
 
-export function useUpcomingMuhadhoroh(unitId: string | undefined, limit = 10) {
+/**
+ * `unitId` narrows to one unit; without it the API answers with every santri
+ * the reader reaches — their unit's, or every unit's for the pesantren's staff.
+ */
+export function useUpcomingMuhadhoroh(unitId?: string, limit = 10) {
   return useQuery({
-    queryKey: muhadhorohKeys.upcoming(unitId!),
-    queryFn: () => fetchUpcomingMuhadhoroh(unitId!, limit),
-    enabled: !!unitId,
+    queryKey: muhadhorohKeys.upcoming(unitId),
+    queryFn: () => fetchUpcomingMuhadhoroh(unitId, limit),
   });
 }
 
 export function useMuhadhorohStatistics(
-  unitId: string | undefined,
+  unitId?: string,
   startDate?: string,
   endDate?: string,
 ) {
   return useQuery({
-    queryKey: muhadhorohKeys.statistics(unitId!, startDate, endDate),
-    queryFn: () => fetchMuhadhorohStatistics(unitId!, startDate, endDate),
-    enabled: !!unitId,
+    queryKey: muhadhorohKeys.statistics(unitId, startDate, endDate),
+    queryFn: () => fetchMuhadhorohStatistics(unitId, startDate, endDate),
   });
 }
 
-export function useTopPerformers(unitId: string | undefined, limit = 10) {
+export function useTopPerformers(unitId?: string, limit = 10) {
   return useQuery({
-    queryKey: muhadhorohKeys.topPerformers(unitId!),
-    queryFn: () => fetchTopPerformers(unitId!, limit),
-    enabled: !!unitId,
+    queryKey: muhadhorohKeys.topPerformers(unitId),
+    queryFn: () => fetchTopPerformers(unitId, limit),
   });
 }
 
@@ -393,7 +392,8 @@ export function getGradeColor(grade: string | null) {
   }
 }
 
-export function getLanguageLabel(language: string) {
+export function getLanguageLabel(language: string | null | undefined) {
+  if (!language) return "-";
   switch (language.toLowerCase()) {
     case "indonesian":
       return "Bahasa Indonesia";

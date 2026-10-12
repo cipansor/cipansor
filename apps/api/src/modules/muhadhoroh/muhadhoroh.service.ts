@@ -1,8 +1,14 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
-import { UserRole, Prisma } from '@prisma/client';
-import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { Prisma } from '@prisma/client';
 import { CLASS_ENROLLMENT_STATUS } from '@cipansor/shared';
+import {
+  assertStudentInScope,
+  onlyScopedStudents,
+  studentScope,
+  STUDENT_SAFE_SELECT,
+  TEACHER_SAFE_SELECT,
+} from '@/utils/student-scope';
 
 // Status enum
 type MuhadhorohStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
@@ -34,7 +40,8 @@ interface ListMuhadhorohQuery {
 }
 
 interface CreateMuhadhorohInput {
-  unitId: string;
+  /** Optional: the record takes the santri's unit; when given it must match. */
+  unitId?: string;
   studentId: string;
   scheduledAt: string;
   topic: string;
@@ -57,6 +64,21 @@ interface EvaluateMuhadhorohInput {
   duration?: number;
 }
 
+/**
+ * The records a reader may see: those of the santri they reach (`studentScope`
+ * — a santri their own, a wali their children's, the pesantren's staff every
+ * unit's, anyone else their unit's), narrowed to one unit on request.
+ *
+ * These reads took the unit from the query, defaulting to the reader's own,
+ * and checked nothing else, so any account could read any unit by naming it.
+ */
+function readable(currentUser: AuthenticatedUser, unitId?: string): Prisma.MuhadhorohWhereInput {
+  return {
+    ...onlyScopedStudents(studentScope(currentUser)),
+    ...(unitId ? { unitId } : {}),
+  };
+}
+
 export class MuhadhorohService {
   // ==================
   // CRUD METHODS
@@ -69,12 +91,7 @@ export class MuhadhorohService {
 
     const where: Prisma.MuhadhorohWhereInput = {};
 
-    // Unit-based access control
-    if (!seesAllUnits(currentUser)) {
-      where.unitId = currentUser.unitId || 'none';
-    } else if (unitId) {
-      where.unitId = unitId;
-    }
+    Object.assign(where, readable(currentUser, unitId));
 
     if (studentId) {
       where.studentId = studentId;
@@ -107,16 +124,18 @@ export class MuhadhorohService {
         include: {
           unit: { select: { id: true, name: true } },
           student: {
-            include: {
+            select: {
+              id: true,
+              nis: true,
               user: { select: { name: true } },
               enrollments: {
                 where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
-                include: { class: { select: { id: true, name: true, level: true } } },
+                select: { class: { select: { id: true, name: true, level: true } } },
                 take: 1,
               },
             },
           },
-          evaluator: { include: { user: { select: { name: true } } } },
+          evaluator: { select: TEACHER_SAFE_SELECT },
         },
       }),
       prisma.muhadhoroh.count({ where }),
@@ -148,16 +167,18 @@ export class MuhadhorohService {
       include: {
         unit: true,
         student: {
-          include: {
+          select: {
+            id: true,
+            nis: true,
             user: { select: { name: true, email: true } },
             enrollments: {
               where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
-              include: { class: true },
+              select: { class: true },
               take: 1,
             },
           },
         },
-        evaluator: { include: { user: { select: { name: true } } } },
+        evaluator: { select: TEACHER_SAFE_SELECT },
       },
     });
 
@@ -165,9 +186,7 @@ export class MuhadhorohService {
       throw Errors.notFound('Muhadhoroh record not found');
     }
 
-    if (currentUser.role !== UserRole.SUPER_ADMIN && record.unitId !== currentUser.unitId) {
-      throw Errors.forbidden('Access denied');
-    }
+    await assertStudentInScope(record.studentId, currentUser);
 
     return {
       ...record,
@@ -188,20 +207,24 @@ export class MuhadhorohService {
   }
 
   async create(input: CreateMuhadhorohInput, currentUser: AuthenticatedUser) {
-    // Access check
-    if (currentUser.role !== UserRole.SUPER_ADMIN && input.unitId !== currentUser.unitId) {
-      throw Errors.forbidden('Cannot create muhadhoroh for another unit');
-    }
-
-    // Verify student exists
-    const student = await prisma.student.findUnique({ where: { id: input.studentId } });
-    if (!student || student.deletedAt) {
+    const student = await prisma.student.findFirst({
+      where: { id: input.studentId, deletedAt: null },
+      select: { id: true, unitId: true },
+    });
+    if (!student) {
       throw Errors.notFound('Student not found');
+    }
+    // A santri the writer reaches — any unit's for the pesantren's staff. The
+    // record belongs to the santri's unit, not the writer's: a musyrif's unit
+    // is the pesantren, the santri's is their school.
+    await assertStudentInScope(student.id, currentUser);
+    if (input.unitId && input.unitId !== student.unitId) {
+      throw Errors.badRequest('Santri ini bukan santri unit yang dipilih');
     }
 
     const record = await prisma.muhadhoroh.create({
       data: {
-        unitId: input.unitId,
+        unitId: student.unitId,
         studentId: input.studentId,
         scheduledAt: new Date(input.scheduledAt),
         topic: input.topic,
@@ -209,7 +232,7 @@ export class MuhadhorohService {
         status: 'SCHEDULED',
       },
       include: {
-        student: { include: { user: { select: { name: true } } } },
+        student: { select: STUDENT_SAFE_SELECT },
         unit: { select: { id: true, name: true } },
       },
     });
@@ -304,12 +327,12 @@ export class MuhadhorohService {
   // QUERIES
   // ==================
 
-  async getUpcoming(unitId: string, limit: number = 10) {
+  async getUpcoming(currentUser: AuthenticatedUser, unitId?: string, limit: number = 10) {
     const now = new Date();
 
     const records = await prisma.muhadhoroh.findMany({
       where: {
-        unitId,
+        ...readable(currentUser, unitId),
         status: 'SCHEDULED',
         scheduledAt: { gte: now },
       },
@@ -317,11 +340,13 @@ export class MuhadhorohService {
       orderBy: { scheduledAt: 'asc' },
       include: {
         student: {
-          include: {
+          select: {
+            id: true,
+            nis: true,
             user: { select: { name: true } },
             enrollments: {
               where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
-              include: { class: { select: { name: true } } },
+              select: { class: { select: { name: true } } },
               take: 1,
             },
           },
@@ -340,21 +365,27 @@ export class MuhadhorohService {
     }));
   }
 
-  async getStudentHistory(studentId: string, limit: number = 20) {
+  async getStudentHistory(currentUser: AuthenticatedUser, studentId: string, limit: number = 20) {
+    await assertStudentInScope(studentId, currentUser);
     const records = await prisma.muhadhoroh.findMany({
       where: { studentId },
       take: limit,
       orderBy: { scheduledAt: 'desc' },
       include: {
-        evaluator: { include: { user: { select: { name: true } } } },
+        evaluator: { select: TEACHER_SAFE_SELECT },
       },
     });
 
     return records;
   }
 
-  async getStatistics(unitId: string, startDate?: string, endDate?: string) {
-    const where: Prisma.MuhadhorohWhereInput = { unitId };
+  async getStatistics(
+    currentUser: AuthenticatedUser,
+    unitId?: string,
+    startDate?: string,
+    endDate?: string
+  ) {
+    const where: Prisma.MuhadhorohWhereInput = readable(currentUser, unitId);
 
     if (startDate && endDate) {
       where.scheduledAt = {
@@ -399,11 +430,11 @@ export class MuhadhorohService {
     };
   }
 
-  async getTopPerformers(unitId: string, limit: number = 10) {
+  async getTopPerformers(currentUser: AuthenticatedUser, unitId?: string, limit: number = 10) {
     const performers = await prisma.muhadhoroh.groupBy({
       by: ['studentId'],
       where: {
-        unitId,
+        ...readable(currentUser, unitId),
         status: 'COMPLETED',
         totalScore: { not: null },
       },
@@ -416,7 +447,9 @@ export class MuhadhorohService {
     const studentIds = performers.map((p) => p.studentId);
     const students = await prisma.student.findMany({
       where: { id: { in: studentIds } },
-      include: {
+      select: {
+        id: true,
+        nis: true,
         user: { select: { name: true } },
         enrollments: {
           where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },

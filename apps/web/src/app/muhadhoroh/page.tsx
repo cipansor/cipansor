@@ -23,7 +23,6 @@ import {
   TrendingUp,
   Star,
 } from "lucide-react";
-import { useAuthStore } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -65,10 +64,6 @@ import {
 } from "@/hooks/use-muhadhoroh";
 
 function MuhadhorohPageContent() {
-  // Get user from auth context
-  const { user } = useAuthStore();
-  const unitId = user?.unitId || user?.unit?.id;
-
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<MuhadhorohStatus | "ALL">(
     "ALL",
@@ -76,18 +71,19 @@ function MuhadhorohPageContent() {
   const [languageFilter, setLanguageFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Fetch data with unitId from auth context
+  // No unitId: the API decides which santri the reader reaches — their own
+  // unit's, or every unit's for the pesantren's ustadz, musyrif and muhafidz,
+  // whose own unit is the pesantren and holds none of the schools' santri.
   const { data: listData, isLoading: isLoadingList } = useMuhadhorohList({
     page: currentPage,
     limit: 10,
     status: statusFilter === "ALL" ? undefined : statusFilter,
     language: languageFilter === "ALL" ? undefined : languageFilter,
-    unitId,
   });
 
-  const { data: upcomingData } = useUpcomingMuhadhoroh(unitId, 5);
-  const { data: statsData } = useMuhadhorohStatistics(unitId);
-  const { data: topPerformersData } = useTopPerformers(unitId, 5);
+  const { data: upcomingData } = useUpcomingMuhadhoroh(undefined, 5);
+  const { data: statsData } = useMuhadhorohStatistics();
+  const { data: topPerformersData } = useTopPerformers(undefined, 5);
 
   const records = listData?.data ?? [];
   const meta = listData?.meta || {

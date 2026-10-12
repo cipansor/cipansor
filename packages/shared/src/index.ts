@@ -8,6 +8,7 @@ export * from "./types/notifications";
 export * from "./types/messages";
 export * from "./types/analytics";
 export * from "./types/tahfidz";
+export * from "./types/ibadah";
 export * from "./types/practicum";
 export * from "./types/student-org";
 export * from "./types/research";
