@@ -302,7 +302,9 @@ Pesantren Cipansor. Repositori ini tidak menerima kontribusi dari luar.
 
 Alur kerjanya ada di [`AGENTS.md`](AGENTS.md): kerjakan di branch fitur, jalankan
 gerbang mutu lokal, lalu buka Pull Request ke `main` — tidak pernah push langsung
-ke `main`.
+ke `main`. Aturan pelabelan dan siklus hidup issue/PR (label type/priority/status,
+kapan sebuah issue `ready`, dan automation yang memegang tiap label) ada di
+[`docs/LABELS.md`](docs/LABELS.md).
 
 ---
 

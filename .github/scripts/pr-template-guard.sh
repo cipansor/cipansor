@@ -8,10 +8,17 @@
 # The template is a rule, not a nudge (upstream OpenHands enforces the same
 # shape: a linked, ready issue and the Why/Summary/How-to-test sections). The
 # required parts are: a `## HUMAN` note on a risky PR (see RISKY_PATHS), `## Why`, `## What changed`,
-# `## Acceptance criteria`, `## How to test`, and a linked issue — `Fixes #<n>`
-# whose issue carries `ready` or `bot-implement`, or an explicit line saying
-# there is no linked issue. The PR-language rule is enforced in the same place:
-# the body must read as Indonesian prose (see docs/LABELS.md).
+# `## Acceptance criteria`, `## How to test`, and at least one linked issue —
+# `Fixes #<n>`, once per issue the PR resolves. Every number it closes must be
+# an open issue (not a pull request) labelled `ready` or `bot-implement`. There
+# is no "no linked issue" way out: a PR without an issue starts with an issue
+# (#772). Dependabot writes its own body and is skipped by the workflow, keyed
+# on the PR's author. The PR-language rule is enforced in the same place: the
+# body must read as Indonesian prose (see docs/LABELS.md).
+#
+# Env (optional, set by the workflow): BASE_REF and DEFAULT_BRANCH. GitHub
+# reads a closing keyword only on a PR into the default branch, so a PR into
+# any other branch is told its `Fixes` will close nothing.
 #
 # A PR that changes anything under apps/web is additionally asked for before and
 # after visuals by the visual-evidence workflow, not by this one.
@@ -33,7 +40,10 @@ gh pr view "$PR" --repo "$REPO" --json body --jq .body > "$RAW"
 
 # Visible text: strip HTML comments (including multi-line ones and the template
 # placeholders) and fenced code, so placeholders do not count as content.
-perl -0777 -pe 's/<!--.*?-->//gs; s/```.*?```//gs' "$RAW" > "$CLEAN"
+# Normalise CRLF/CR first: a body written through a Windows editor arrives with
+# `## Why\r`, which never equals the `## Why` the section matcher compares
+# against — every section then reads empty and a complete body is refused.
+perl -0777 -pe 's/\r\n?/\n/g; s/<!--.*?-->//gs; s/```.*?```//gs' "$RAW" > "$CLEAN"
 BODY="$(cat "$CLEAN")"
 
 # The visible text of the section starting at "## <heading>", blank lines and
@@ -87,20 +97,48 @@ fi
 [ -n "$(section 'What changed')" ] || missing="$missing
 - \`## What changed\` — apa perubahannya"
 
-LINKED="$(printf '%s' "$BODY" | grep -oiE '(fix(e[sd])?|close[sd]?|resolve[sd]?) #[0-9]+' | grep -oE '[0-9]+' | head -n1)"
-if [ -n "$LINKED" ]; then
+# Every issue the PR closes, once each. GitHub links and closes an issue only
+# for a closing keyword (docs.github.com, "Linking a pull request to an
+# issue"), so a bare "#12" or "Refs #12" is a mention, not a link. The keyword
+# must be a word of its own: without the boundary "prefix #12" or "hotfix #15"
+# read as a link to an issue the PR never names.
+LINKED="$(printf '%s' "$BODY" | grep -oiE '(^|[^[:alnum:]_])(fix(e[sd])?|close[sd]?|resolve[sd]?) #[0-9]+' | grep -oE '#[0-9]+' | tr -d '#' | awk '!seen[$0]++')"
+if [ -z "$LINKED" ]; then
+  missing="$missing
+- \`Fixes #<n>\` untuk setiap issue yang diselesaikan PR ini. PR tanpa issue tidak diterima: buat issue-nya dulu, lalu tautkan"
+fi
+for N in $LINKED; do
+  # One lookup per issue: open or closed, issue or pull request (the issues
+  # endpoint answers for both), and its labels.
+  if ! INFO="$(gh api "repos/$REPO/issues/$N" --jq '"\(.state) \(if .pull_request then "pr" else "issue" end) \([.labels[].name] | join(","))"' 2>/dev/null)" || [ -z "$INFO" ]; then
+    missing="$missing
+- #$N tidak ditemukan di repositori ini; tautkan issue yang ada"
+    continue
+  fi
+  STATE="${INFO%% *}"; REST="${INFO#* }"; KIND="${REST%% *}"; LABELS="${REST#* }"
+  [ "$LABELS" = "$REST" ] && LABELS=""
+  if [ "$KIND" = "pr" ]; then
+    missing="$missing
+- #$N adalah pull request, bukan issue; tautkan issue yang diselesaikan PR ini"
+    continue
+  fi
+  if [ "$STATE" != "open" ]; then
+    missing="$missing
+- issue #$N sudah tertutup; tautkan issue yang masih terbuka, atau buka kembali bila belum selesai"
+    continue
+  fi
   # A link is only a green light when the issue is ready for development:
   # `ready` (ready for anyone) or `bot-implement` (handed to the bot). A link to
   # an issue still in `needs-info` or `pending-maintainer` is not.
-  LABELS="$(gh api "repos/$REPO/issues/$LINKED" --jq '[.labels[].name] | join(",")' 2>/dev/null || true)"
   case ",$LABELS," in
     *,ready,* | *,bot-implement,*) ;;
     *) missing="$missing
-- issue tertaut #$LINKED harus berlabel \`ready\` atau \`bot-implement\` sebelum ditinjau (sekarang: ${LABELS:-tidak ada})" ;;
+- issue tertaut #$N harus berlabel \`ready\` atau \`bot-implement\` sebelum ditinjau (sekarang: ${LABELS:-tidak ada})" ;;
   esac
-elif ! printf '%s' "$BODY" | grep -qiE 'no linked issue|tanpa issue'; then
+done
+if [ -n "$LINKED" ] && [ -n "${BASE_REF:-}" ] && [ -n "${DEFAULT_BRANCH:-}" ] && [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then
   missing="$missing
-- \`Fixes #<n>\` untuk issue tertaut, atau satu baris yang menyatakan tidak ada issue tertaut"
+- PR ini menuju \`$BASE_REF\`, bukan \`$DEFAULT_BRANCH\`: GitHub hanya membaca \`Fixes #<n>\` pada PR ke branch default, jadi issue-nya tidak akan tertutup. Arahkan PR ke \`$DEFAULT_BRANCH\`"
 fi
 
 [ -n "$(section 'How to test')" ] || missing="$missing

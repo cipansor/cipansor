@@ -177,15 +177,21 @@ to produce the labels above, not prose to read and forget:
   is expected: `Reproduksi bug` investigates, adds the cause and, for a UI defect,
   reproduces it and attaches a screenshot to the issue by editing its body. It
   does not send the issue to `needs-info` for being incomplete.
-- The **PR template** requires `Fixes #<n>` to a `ready` issue, copies the
+- The **PR template** requires `Fixes #<n>` for every issue the PR resolves
+  (each an open `ready` issue, never a PR; `Refs #<n>` for a partial step), copies the
   issue's acceptance criteria as checkboxes, and asks for a **before and after**
   visual on any change under `apps/web`. `Pelabel PR` mirrors the linked issue's
   type and priority onto the PR.
 
 These are kept honest by the `pr-description-checks` workflow: the `template`
-job **fails the check** while the description is incomplete, the linked issue is
-not `ready`/`bot-implement`, or the prose reads as English, and passes once it is
-complete (the `visual` job stays advisory). The `## HUMAN` note is required only
+job **fails the check** while the description is incomplete, no issue is
+linked, a linked number is not an open `ready`/`bot-implement` issue, the PR
+does not target the default branch (where alone `Fixes` closes anything), or the
+prose reads as English, and passes once it is complete (the `visual` job stays
+advisory). There is no "no linked issue" way out (#772). Dependabot alone
+skips the job, keyed on the PR's author; a skipped job counts as passing, so
+making the check required on `main` (decided 2026-10-11, #772) does not hold
+Dependabot back. The `## HUMAN` note is required only
 on a risky PR: one labelled `security`, or touching the schema, migrations and
 data scripts, the production data scripts, or auth/RBAC (`RISKY_PATHS` in
 `.github/scripts/pr-template-guard.sh`; #760). See `docs/IDEAS.md` § 6.

@@ -34,10 +34,15 @@
 
 ## Linked issue
 
-<!-- Wajib. Tulis `Fixes #<n>`. Issue-nya harus berlabel `ready`: label itu
-     berarti tujuannya jelas dan kriteria penerimaannya konkret, dan hanya
-     dipasang oleh `Pelabel issue` saat itu terpenuhi. Tanpa issue `ready`, PR
-     ini seharusnya belum ada — buka issue-nya dulu. Lihat docs/LABELS.md. -->
+<!-- Wajib. Satu `Fixes #<n>` per issue yang diselesaikan PR ini, misalnya
+     `Fixes #12` lalu `Fixes #13` di baris berikutnya. `Refs #<n>` untuk issue
+     yang baru maju sebagian (tulis sisanya di issue itu). Sebelum membuka PR,
+     cari issue terbuka untuk berkas dan istilah yang Anda sentuh: issue yang
+     diselesaikan tanpa ditautkan tetap terbuka. Setiap issue harus masih
+     terbuka dan berlabel `ready`: label itu berarti tujuannya jelas dan
+     kriteria penerimaannya konkret, dan hanya dipasang oleh `Pelabel issue`
+     saat itu terpenuhi. Tanpa issue, PR ini belum boleh ada — buka issue-nya
+     dulu. Lihat docs/LABELS.md. -->
 
 Fixes #
 

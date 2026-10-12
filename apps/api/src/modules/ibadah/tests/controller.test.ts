@@ -19,7 +19,9 @@ vi.mock('../ibadah.service', () => ({
   getLeaderboard: vi.fn(),
   getMyAchievements: vi.fn(),
   getStudentAchievements: vi.fn(),
+  getStudentAchievementsFor: vi.fn(),
   getStudentIbadahStats: vi.fn(),
+  getStudentIbadahStatsFor: vi.fn(),
   getUnitIbadahStats: vi.fn(),
   getClassIbadahStats: vi.fn(),
   listIslamicEvents: vi.fn(),
@@ -88,6 +90,20 @@ describe('ibadah controller', () => {
     const { req, res } = mockReqRes({ body: { recordIds: ['r1'] } as any });
     await run(controller.verifyRecords, req, res);
     expect(service.verifyRecords).toHaveBeenCalledWith('user-1', { recordIds: ['r1'] });
+  });
+
+  it('the santri reads go through the reader, never the query alone', async () => {
+    (service.getLeaderboard as any).mockResolvedValue({ data: [] });
+    (service.listRecords as any).mockResolvedValue({ data: [], pagination: {} });
+    const { req, res } = mockReqRes({ query: { periodType: 'WEEKLY' } as any });
+    await run(controller.getLeaderboard, req, res);
+    // No unit asked for, and none needed: the reader decides which santri.
+    expect(service.getLeaderboard).toHaveBeenCalledWith(
+      { periodType: 'WEEKLY', limit: 20 },
+      req.user
+    );
+    await run(controller.listRecords, req, res);
+    expect(service.listRecords).toHaveBeenCalledWith(expect.anything(), req.user);
   });
 
   it('getMyAchievements: 404 when no student profile is linked', async () => {

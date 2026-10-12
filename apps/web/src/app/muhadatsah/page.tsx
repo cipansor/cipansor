@@ -65,12 +65,8 @@ import {
   formatDuration,
   MuhadatsahStatus,
 } from "@/hooks/use-muhadatsah";
-import { useAuthStore } from "@/stores/auth";
 
 function MuhadatsahPageContent() {
-  const { user } = useAuthStore();
-  const unitId = user?.unitId || user?.unit?.id;
-
   const [searchQuery, setSearchQuery] = useState("");
   const [statusFilter, setStatusFilter] = useState<MuhadatsahStatus | "ALL">(
     "ALL",
@@ -78,7 +74,9 @@ function MuhadatsahPageContent() {
   const [languageFilter, setLanguageFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
 
-  // Fetch data with auth context unitId
+  // No unitId: the API decides which santri the reader reaches — their own
+  // unit's, or every unit's for the pesantren's ustadz, musyrif and muhafidz,
+  // whose own unit is the pesantren and holds none of the schools' santri.
   const { data: listData, isLoading: isLoadingList } = useMuhadatsahList({
     page: currentPage,
     limit: 10,
@@ -86,10 +84,10 @@ function MuhadatsahPageContent() {
     language: languageFilter === "ALL" ? undefined : languageFilter,
   });
 
-  const { data: upcomingData } = useUpcomingMuhadatsah(unitId, 5);
-  const { data: statsData } = useMuhadatsahStatistics(unitId);
-  const { data: topPerformersData } = useTopPerformers(unitId, undefined, 5);
-  const { data: availablePartnersData } = useMatchPartners(unitId, "Arabic");
+  const { data: upcomingData } = useUpcomingMuhadatsah(undefined, 5);
+  const { data: statsData } = useMuhadatsahStatistics();
+  const { data: topPerformersData } = useTopPerformers(undefined, undefined, 5);
+  const { data: availablePartnersData } = useMatchPartners(undefined, "Arabic");
 
   const records = listData?.data ?? [];
   const meta = listData?.meta || {

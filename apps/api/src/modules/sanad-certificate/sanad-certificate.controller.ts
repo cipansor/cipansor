@@ -10,6 +10,7 @@ import type { ListSanadQuery } from './sanad-certificate.schema';
 export const listSanadRecords = asyncHandler(async (req: Request, res: Response) => {
   const context = {
     role: req.user!.role,
+    roleCode: req.user!.roleCode,
     unitId: req.user!.unitId,
     userId: req.user!.sub,
   };

@@ -1,11 +1,24 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
-import { UserRole, Prisma, KitabCategory, KitabLevel } from '@prisma/client';
+import { Prisma, KitabCategory, KitabLevel } from '@prisma/client';
+import {
+  assertStudentInScope,
+  onlyScopedStudents,
+  studentScope,
+  STUDENT_SAFE_SELECT,
+  TEACHER_SAFE_SELECT,
+} from '@/utils/student-scope';
 
 // User type from JwtPayload
 interface AuthenticatedUser {
   sub: string;
   role: string;
+  /**
+   * Decides which santri the caller reaches (`studentScope`): a santri
+   * themselves, a wali their children, the pesantren's staff (ustadz, musyrif,
+   * muhafidz, …) every unit, anyone else their own unit.
+   */
+  roleCode?: string | null;
   unitId: string | null;
 }
 
@@ -216,10 +229,9 @@ export class KitabProgressService {
       where.academicYearId = academicYearId;
     }
 
-    // Filter by unit if not super admin
-    if (currentUser.role !== UserRole.SUPER_ADMIN && currentUser.unitId) {
-      where.student = { unitId: currentUser.unitId };
-    }
+    // Which santri: the same rule as every list about santri — an ustadz,
+    // whose remit is every unit, reads every unit's santri.
+    Object.assign(where, onlyScopedStudents(studentScope(currentUser)));
 
     const [records, total] = await Promise.all([
       prisma.kitabProgress.findMany({
@@ -238,8 +250,8 @@ export class KitabProgressService {
               totalPages: true,
             },
           },
-          student: { include: { user: { select: { name: true } } } },
-          teacher: { include: { user: { select: { name: true } } } },
+          student: { select: STUDENT_SAFE_SELECT },
+          teacher: { select: TEACHER_SAFE_SELECT },
           academicYear: { select: { id: true, name: true } },
         },
       }),
@@ -271,10 +283,7 @@ export class KitabProgressService {
       throw Errors.notFound('Student not found');
     }
 
-    // Check unit access
-    if (currentUser.role !== UserRole.SUPER_ADMIN && student.unitId !== currentUser.unitId) {
-      throw Errors.forbidden('Access denied');
-    }
+    await assertStudentInScope(studentId, currentUser);
 
     // Upsert progress
     const progress = await prisma.kitabProgress.upsert({
@@ -304,8 +313,8 @@ export class KitabProgressService {
       },
       include: {
         kitab: { select: { title: true, totalPages: true } },
-        student: { include: { user: { select: { name: true } } } },
-        teacher: { include: { user: { select: { name: true } } } },
+        student: { select: STUDENT_SAFE_SELECT },
+        teacher: { select: TEACHER_SAFE_SELECT },
       },
     });
 
@@ -318,19 +327,14 @@ export class KitabProgressService {
   async markCompleted(progressId: string, grade: string, currentUser: AuthenticatedUser) {
     const progress = await prisma.kitabProgress.findUnique({
       where: { id: progressId },
-      include: { student: true },
+      select: { studentId: true },
     });
 
     if (!progress) {
       throw Errors.notFound('Progress record not found');
     }
 
-    if (
-      currentUser.role !== UserRole.SUPER_ADMIN &&
-      progress.student.unitId !== currentUser.unitId
-    ) {
-      throw Errors.forbidden('Access denied');
-    }
+    await assertStudentInScope(progress.studentId, currentUser);
 
     const updated = await prisma.kitabProgress.update({
       where: { id: progressId },
@@ -395,15 +399,13 @@ export class KitabProgressService {
       throw Errors.notFound('Student not found');
     }
 
-    if (currentUser.role !== UserRole.SUPER_ADMIN && student.unitId !== currentUser.unitId) {
-      throw Errors.forbidden('Access denied');
-    }
+    await assertStudentInScope(studentId, currentUser);
 
     const progress = await prisma.kitabProgress.findMany({
       where: { studentId },
       include: {
         kitab: true,
-        teacher: { include: { user: { select: { name: true } } } },
+        teacher: { select: TEACHER_SAFE_SELECT },
         academicYear: { select: { name: true } },
       },
       orderBy: [{ academicYear: { name: 'desc' } }, { kitab: { level: 'asc' } }],

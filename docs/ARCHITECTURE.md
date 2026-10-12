@@ -53,14 +53,24 @@ Cross-cutting foundations (reuse, don't reinvent):
 - **Infra** — `src/lib/{prisma,redis,jwt,logger,event-bus,dashboard-metrics}.ts`.
 - **Cross-module side effects** — emit typed events on `eventBus` (`AppEvents`);
   don't reach into other modules' services. `notification:send` drives the
-  notifications module. Nothing is pushed to browsers: the web polls through
-  React Query (`.claude/memory/decisions/realtime-polling.md`).
+  notifications module. The web stays fresh by polling through React Query:
+  there is no Socket.IO/WebSocket/SSE push channel
+  (`.claude/memory/decisions/realtime-polling.md`). Web Push is the one
+  exception, and it complements polling rather than replacing it — each new
+  bell notification is relayed to the recipient's registered devices by
+  `src/jobs/web-push-dispatch.job.ts` (`dispatchPendingPush`), per the stored
+  preferences (`.claude/memory/decisions/notifikasi-push.md`).
 - **Scheduled work** — `src/jobs/` (node-cron): snapshots, summaries, cleanup,
   auto-billing, SPP reminders, identity and transcript purges. The jobs run
   **inside the API process with no lock**, so the design assumes **one API
   instance**: a second instance would run each job twice (SPP reminders sent
   twice). A lock (`pg_try_advisory_lock`) or a separate worker must come before
   any scale-out. `SCHEDULER_ENABLED=false` switches them off (staging).
+  The **Web Push dispatcher** is the exception on both counts: it is started on
+  its own, not behind `SCHEDULER_ENABLED` (it creates nothing, only relays what
+  the environment's own users were notified of), and it is already safe on
+  several instances, because each run claims its rows with
+  `FOR UPDATE SKIP LOCKED` (`modules/notifications/push-dispatch.service.ts`).
 
 ### Data layer (Prisma 7)
 
