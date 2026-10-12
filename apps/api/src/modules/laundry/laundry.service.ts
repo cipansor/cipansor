@@ -235,10 +235,10 @@ export const transactionService = {
     });
   },
 
-  async getReadyForPickup(unitId: string) {
+  async getReadyForPickup(scope: Prisma.LaundryTransactionWhereInput) {
     return prisma.laundryTransaction.findMany({
       where: {
-        unitId,
+        ...scope,
         status: 'READY',
       },
       include: {
@@ -717,7 +717,7 @@ export const transactionService = {
     });
   },
 
-  async getStats(unitId: string, startDate?: string, endDate?: string) {
+  async getStats(scope: Prisma.LaundryTransactionWhereInput, startDate?: string, endDate?: string) {
     const dateFilter =
       startDate && endDate
         ? {
@@ -734,20 +734,20 @@ export const transactionService = {
 
     const [periodStats, statusBreakdown, pendingPayments, pendingPickup] = await Promise.all([
       prisma.laundryTransaction.aggregate({
-        where: { unitId, status: { not: 'CANCELLED' }, ...dateFilter },
+        where: { ...scope, status: { not: 'CANCELLED' }, ...dateFilter },
         _sum: { total: true, weight: true },
         _count: { id: true },
       }),
       prisma.laundryTransaction.groupBy({
         by: ['status'],
-        where: { unitId, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
+        where: { ...scope, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
         _count: { id: true },
       }),
       prisma.laundryTransaction.count({
-        where: { unitId, paymentStatus: 'UNPAID', status: { not: 'CANCELLED' } },
+        where: { ...scope, paymentStatus: 'UNPAID', status: { not: 'CANCELLED' } },
       }),
       prisma.laundryTransaction.count({
-        where: { unitId, status: 'READY' },
+        where: { ...scope, status: 'READY' },
       }),
     ]);
 

@@ -80,6 +80,30 @@ describe('laundry controller', () => {
     expect((transactionService.getAll as any).mock.calls[0][0]).toEqual({ unitId: 'scoped-unit' });
   });
 
+  it('getStats: reads through laundryReadScope, not the caller unit alone', async () => {
+    (transactionService.getStats as any).mockResolvedValue({ summary: {} });
+    const { req, res } = mockReqRes({
+      user: { sub: 'u', roleCode: 'MUSYRIF', unitId: 'p' } as any,
+    });
+    await run(controller.getStats, req, res);
+    expect(laundryReadScope).toHaveBeenCalledWith(req.user);
+    expect((transactionService.getStats as any).mock.calls[0][0]).toEqual({
+      unitId: 'scoped-unit',
+    });
+  });
+
+  it('getReadyForPickup: reads through laundryReadScope, not the caller unit alone', async () => {
+    (transactionService.getReadyForPickup as any).mockResolvedValue([]);
+    const { req, res } = mockReqRes({
+      user: { sub: 'u', roleCode: 'MUSYRIF', unitId: 'p' } as any,
+    });
+    await run(controller.getReadyForPickup, req, res);
+    expect(laundryReadScope).toHaveBeenCalledWith(req.user);
+    expect((transactionService.getReadyForPickup as any).mock.calls[0][0]).toEqual({
+      unitId: 'scoped-unit',
+    });
+  });
+
   it('createTransaction: needs both unit and user id', async () => {
     const { req, res } = mockReqRes({ user: { unitId: 'unit-1' } as any });
     await run(controller.createTransaction, req, res);

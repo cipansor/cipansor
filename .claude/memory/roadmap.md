@@ -155,7 +155,7 @@ items before 2026-09-25 is in the history of this file and of
      relation itself shipped in #579; attendance in #580; behaviour notes in
      #581;
    - `PESANTREN_ADMIN` — possible now that the Pesantren unit exists
-     (`20261009090000_pesantren_unit`);
+     (`20261010130000_pesantren_unit`);
    - a Panitia SPMB assignment that expires — needs writers of `expires_at`,
      which `decommissioned-modules.guard.test.ts` forbids today, so the guard
      changes in the same PR;

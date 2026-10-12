@@ -287,7 +287,7 @@ decision.
 4. **Takhosus halaqoh still sit under SMA Qur'an.** The Pesantren unit
    (`UnitType.PESANTREN`, `decisions/struktur-organisasi-dan-identitas.md`)
    now exists and holds the Kiai, TU Pesantren, ustadz, musyrif and muhafidz
-   (migration `20261009090000_pesantren_unit`); the takhosus programme has not
+   (migration `20261010130000_pesantren_unit`); the takhosus programme has not
    moved to it. The shared services (keamanan, perawat, pustakawan, laboran)
    are still assigned to SMP IT until the organisation tree places them.
 5. **Dashboard metrics cadence.** `aggregateDashboardMetrics` runs every minute

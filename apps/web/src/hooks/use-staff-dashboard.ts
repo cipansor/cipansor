@@ -83,11 +83,6 @@ export const VIOLATION_CATEGORY_COLORS: Record<string, string> = {
 };
 
 /**
- * The shared staff dashboard serves nine functions; only some of them work
- * with permits (`PERMIT_STAFF_ROLE_CODES`, the list the API guards with).
- * The rest are not asked, rather than asked and refused.
- */
-/**
  * The unit the dashboard's counts are narrowed to. The pesantren's staff and
  * the cross-unit services serve every unit's santri — the Pesantren unit holds
  * none of them — so their counts are not pinned to their home unit; the API's
@@ -102,6 +97,11 @@ export function dashboardUnitId(
   return user?.unitId ?? undefined;
 }
 
+/**
+ * The shared staff dashboard serves nine functions; only some of them work
+ * with permits (`PERMIT_STAFF_ROLE_CODES`, the list the API guards with).
+ * The rest are not asked, rather than asked and refused.
+ */
 function readsPermits(user: Parameters<typeof getActiveRoleCode>[0]) {
   return PERMIT_STAFF_ROLE_CODES.includes(getActiveRoleCode(user) ?? "");
 }

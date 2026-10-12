@@ -76,18 +76,18 @@ export const listTransactions = asyncHandler(async (req: Request, res: Response)
 
 /** GET /api/laundry/transactions/stats */
 export const getStats = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = requireUnit(req, res);
-  if (!unitId) return;
   const { startDate, endDate } = req.query;
-  const stats = await transactionService.getStats(unitId, startDate as string, endDate as string);
+  const stats = await transactionService.getStats(
+    laundryReadScope(req.user!),
+    startDate as string,
+    endDate as string
+  );
   return res.json(ApiResponse.success(stats, 'Berhasil mengambil statistik laundry'));
 });
 
 /** GET /api/laundry/transactions/ready */
 export const getReadyForPickup = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = requireUnit(req, res);
-  if (!unitId) return;
-  const transactions = await transactionService.getReadyForPickup(unitId);
+  const transactions = await transactionService.getReadyForPickup(laundryReadScope(req.user!));
   return res.json(
     ApiResponse.success(transactions, 'Berhasil mengambil data laundry siap diambil')
   );

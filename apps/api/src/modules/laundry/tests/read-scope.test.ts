@@ -5,6 +5,8 @@ const prismaMock = vi.hoisted(() => ({
     findMany: vi.fn(),
     findFirst: vi.fn(),
     count: vi.fn(),
+    aggregate: vi.fn(),
+    groupBy: vi.fn(),
   },
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }));
@@ -55,6 +57,11 @@ describe('transactionService reads apply the scope', () => {
     prismaMock.laundryTransaction.findMany.mockResolvedValue([]);
     prismaMock.laundryTransaction.count.mockResolvedValue(0);
     prismaMock.laundryTransaction.findFirst.mockResolvedValue(null);
+    prismaMock.laundryTransaction.aggregate.mockResolvedValue({
+      _sum: { total: null, weight: null },
+      _count: { id: 0 },
+    });
+    prismaMock.laundryTransaction.groupBy.mockResolvedValue([]);
   });
 
   it('lists every unit for a cross-unit reader, and narrows by the query within it', async () => {
@@ -76,5 +83,30 @@ describe('transactionService reads apply the scope', () => {
       student: { parents: { some: { parentId: 'wali-1' } } },
       studentId: 'other-child',
     });
+  });
+
+  it('narrows the ready-for-pickup list by the reader scope, not one unit', async () => {
+    await transactionService.getReadyForPickup(
+      laundryReadScope({ sub: 'u', roleCode: 'MUSYRIF', unitId: PESANTREN })
+    );
+    const where = prismaMock.laundryTransaction.findMany.mock.calls[0][0].where;
+    expect(where).not.toHaveProperty('unitId');
+    expect(where.status).toBe('READY');
+  });
+
+  it('applies the reader scope to every figure in the stats', async () => {
+    await transactionService.getStats(
+      laundryReadScope({ sub: 'u', roleCode: 'BUSINESS_STAFF', unitId: SMP_IT })
+    );
+    expect(prismaMock.laundryTransaction.aggregate.mock.calls[0][0].where).toMatchObject({
+      unitId: SMP_IT,
+    });
+    expect(prismaMock.laundryTransaction.groupBy.mock.calls[0][0].where).toMatchObject({
+      unitId: SMP_IT,
+    });
+    expect(prismaMock.laundryTransaction.count.mock.calls).toHaveLength(2);
+    for (const call of prismaMock.laundryTransaction.count.mock.calls) {
+      expect(call[0].where).toMatchObject({ unitId: SMP_IT });
+    }
   });
 });

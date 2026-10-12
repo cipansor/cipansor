@@ -325,7 +325,7 @@ async function main() {
   // Pimpinan Pesantren, and the ustadz, musyrif, muhafidz and Tata Usaha
   // Pesantren belong to it — the santri they serve stay in their schools. It
   // issues no state diploma, so it has no NPSN; the pondok's NSPP stays with
-  // the yayasan. The data migration 20261009090000_pesantren_unit makes the
+  // the yayasan. The data migration 20261010130000_pesantren_unit makes the
   // same unit in a database that already had the four schools.
   const pesantren = await prisma.unit.create({
     data: {
