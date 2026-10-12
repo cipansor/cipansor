@@ -371,11 +371,17 @@ export async function updatePortfolioComment(id: string, content: string, actor:
   });
 }
 
-/** Removed by its author, or by staff who write the portfolio it is on. */
+/**
+ * Removed by its author, or by staff who write the portfolio it is on — either
+ * way only inside the portfolio the account reaches. The author branch carries
+ * the scope too: were it `userId` alone, staff could delete their own comment
+ * on another unit's portfolio (404 otherwise).
+ */
 export async function deletePortfolioComment(id: string, actor: ScopeActor) {
+  const asAuthor = { userId: actor.sub, portfolio: { student: studentScope(actor) } };
   const reach = moderates(actor)
-    ? { OR: [{ userId: actor.sub }, { portfolio: { student: writeScope(actor) } }] }
-    : { userId: actor.sub, portfolio: { student: studentScope(actor) } };
+    ? { OR: [asAuthor, { portfolio: { student: writeScope(actor) } }] }
+    : asAuthor;
   const found = await prisma.portfolioComment.findFirst({
     where: { id, ...reach },
     select: { id: true },

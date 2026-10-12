@@ -29,6 +29,8 @@ const FILES: Row[] = [{ id: 'f-sma', portfolioId: 'p-sma' }];
 const COMMENTS: Row[] = [
   { id: 'c-wali-sma', portfolioId: 'p-sma', userId: 'u-wali-sma' },
   { id: 'c-guru-smp', portfolioId: 'p-smp', userId: 'u-guru-smp' },
+  // Staff of one unit commented on another unit's portfolio.
+  { id: 'c-guru-smp-sma', portfolioId: 'p-sma', userId: 'u-guru-smp' },
 ];
 
 const ACTORS = {
@@ -54,7 +56,13 @@ const portfolioMatches = (p: Row, where: Row) =>
   (!where.id || p.id === where.id) &&
   (!where.student || studentMatches(studentOf(p.id), where.student));
 function commentMatches(c: Row, where: Row): boolean {
-  if (where.OR) return (where.OR as Row[]).some((w) => commentMatches(c, { ...w, id: where.id }));
+  if (where.OR) {
+    const { OR, ...rest } = where;
+    return (
+      commentMatches(c, rest) &&
+      (OR as Row[]).some((w) => commentMatches(c, { ...w, id: where.id }))
+    );
+  }
   return (
     (!where.id || c.id === where.id) &&
     (!where.userId || c.userId === where.userId) &&
@@ -259,6 +267,17 @@ describe('comments', () => {
     // A santri may not remove the teacher's comment on their own portfolio.
     await expect(
       service.deletePortfolioComment('c-guru-smp', ACTORS.santriSmp as any)
+    ).rejects.toMatchObject(notFound);
+  });
+
+  it('staff remove their own comment only inside the portfolio they reach', async () => {
+    // Their own comment on their own unit's portfolio.
+    await expect(
+      service.deletePortfolioComment('c-guru-smp', ACTORS.guruSmp as any)
+    ).resolves.toBeDefined();
+    // Their own comment on another unit's portfolio is out of reach.
+    await expect(
+      service.deletePortfolioComment('c-guru-smp-sma', ACTORS.guruSmp as any)
     ).rejects.toMatchObject(notFound);
   });
 });
