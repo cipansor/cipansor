@@ -154,12 +154,8 @@ items before 2026-09-25 is in the history of this file and of
      figures, the kepala sekolah's path to a class (known-issues). The
      relation itself shipped in #579; attendance in #580; behaviour notes in
      #581;
-   - **the Pesantren unit** (decided 2026-09-29,
-     `decisions/struktur-organisasi-dan-identitas.md`): create it, move the
-     Kiai, musyrif, ustadz, muhafidz and TU Pesantren assignments off SMP IT
-     (a data migration replayed on a copy of production first), and drop the
-     seed's "Direktorat/Direktur Pendidikan";
-   - `PESANTREN_ADMIN` — once the pesantren unit exists;
+   - `PESANTREN_ADMIN` — possible now that the Pesantren unit exists
+     (`20261010130000_pesantren_unit`);
    - a Panitia SPMB assignment that expires — needs writers of `expires_at`,
      which `decommissioned-modules.guard.test.ts` forbids today, so the guard
      changes in the same PR;

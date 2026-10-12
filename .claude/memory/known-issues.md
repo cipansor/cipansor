@@ -36,16 +36,6 @@ ordered backlog is [`roadmap.md`](./roadmap.md); where the work stands is
   Indonesian only, and several screens still say *Siswa* / *Daftar Siswa*
   (attendance record, menu group *Mengajar*) where the decision is *santri*.
   The manuals quote the screen as it is.
-- **The marketing dashboard's monthly attributed revenue always fails**
-  (found 2026-10-03). `getMonthlyAttributedRevenue` in
-  `marketing/roi.service.ts` filters `invoice.student.registrant`, a relation
-  that does not exist (`Student` has `registrants`), so Prisma refuses the
-  query and the endpoint answers 500 on every call: `/marketing`
-  ("Marketing & PSB") shows an error toast and an empty revenue chart. Its unit test
-  (`tests/funnel-trend.test.ts`) mocks Prisma, so it cannot see a wrong
-  relation name. Fix: `registrants: { some: { campaignId: { not: null }, … } }`,
-  with a test against a real query shape (or an e2e that opens the page and
-  expects no error).
 - **The web calls API paths that do not exist — 184 distinct calls left**
   (212 when measured on 2026-09-25; Perizinan fixed in #564, the asrama pages
   in #569 and #571, mata pelajaran in #573, laporan harian in #577, the
@@ -112,6 +102,14 @@ ordered backlog is [`roadmap.md`](./roadmap.md); where the work stands is
   reads `meta.pagination.total` for health, violations, rewards and students;
   those APIs send other shapes (#564 fixed only the permit counter). The API has
   three pagination shapes (`pagination`, `meta.pagination`, `meta`) — phase 6.
+- **The laundry page reads fields the API never sends.** `laundry/page.tsx`
+  shows `transactionNumber`, `student.fullName`, `receivedAt`, `totalItems`
+  and `totalAmount`; the API sends `transactionNo`, `student.user.name`,
+  `createdAt` and the items, so the list shows no number, no name and no
+  total (seen 2026-10-09 walking the pesantren's menus). It also calls
+  `fetch` directly instead of a hook in `src/hooks/*`. And
+  `GET /laundry/transactions?limit=…` answers 400: the schema expects page
+  and limit as strings, but they reach it as numbers.
 - **`/musyrif/boarding-center` is still mostly sample data** (Social Harmony,
   "4 Musyrif on Duty", alerts, health counts); only the dormitory list and,
   since #564, the permit card and tab are live. The page says so.
@@ -276,12 +274,12 @@ decision.
    column so the rollback image could still write. Drop it in a release of its
    own, after one full release with no old writer — or keep it as a snapshot.
 3. **Who may accept or reject an SPMB applicant** (the disabled buttons above).
-4. **Takhosus as a fifth unit** (`UnitType.PESANTREN`, decided 2026-09-13;
-   to be built, decided again 2026-09-29 in
-   `decisions/struktur-organisasi-dan-identitas.md`) is not built. Until it
-   is, every pesantren role — the Kiai included — is assigned in the **SMP
-   IT** unit, and takhosus halaqoh sit under SMA. The seed also still makes an
-   `OrgUnit` "Direktorat Pendidikan" with a "Direktur Pendidikan" post.
+4. **Takhosus halaqoh still sit under SMA Qur'an.** The Pesantren unit
+   (`UnitType.PESANTREN`, `decisions/struktur-organisasi-dan-identitas.md`)
+   now exists and holds the Kiai, TU Pesantren, ustadz, musyrif and muhafidz
+   (migration `20261010130000_pesantren_unit`); the takhosus programme has not
+   moved to it. The shared services (keamanan, perawat, pustakawan, laboran)
+   are still assigned to SMP IT until the organisation tree places them.
 5. **Dashboard metrics cadence.** `aggregateDashboardMetrics` runs every minute
    and writes 6 rows a run (`jobs/scheduler.ts`), for figures that move on the
    scale of a class period. Retention was fixed; the cadence is a product call.

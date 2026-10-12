@@ -1,10 +1,16 @@
 #!/usr/bin/env bash
-# Bring up a local Postgres 16 + Redis stack for tests/e2e WITHOUT Docker.
+# Bring up a local Postgres + Redis stack for tests/e2e WITHOUT Docker.
 # Idempotent: safe to re-run. Postgres binaries refuse to run as root, so the
 # cluster is owned by an unprivileged 'pgrunner' user.
 set -euo pipefail
 
-PGBIN=/usr/lib/postgresql/16/bin
+# The newest server installed: the version follows the image's distro (Debian
+# 13 ships 17, not 16), so it is found, not assumed. PGBIN overrides it.
+PGBIN=${PGBIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)}
+if [ ! -x "$PGBIN/initdb" ]; then
+  echo "dev-stack: no PostgreSQL server under /usr/lib/postgresql/*/bin; install one or set PGBIN" >&2
+  exit 1
+fi
 PGDATA=/tmp/pgdata
 PGSOCK=/tmp/pgsock
 PGPORT=5432

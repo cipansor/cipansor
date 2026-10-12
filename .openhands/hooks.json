@@ -1,0 +1,24 @@
+{
+  "pre_tool_use": [
+    {
+      "matcher": "terminal|file_editor",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash \"${OPENHANDS_PROJECT_DIR:-.}/.claude/hooks/guard.sh\"",
+          "timeout": 30
+        }
+      ]
+    },
+    {
+      "matcher": "terminal",
+      "hooks": [
+        {
+          "type": "command",
+          "command": "bash \"${OPENHANDS_PROJECT_DIR:-.}/.openhands/hooks/format-before-push.sh\"",
+          "timeout": 150
+        }
+      ]
+    }
+  ]
+}

@@ -1,5 +1,6 @@
 import { Request } from 'express';
 import { RoleCode } from '@prisma/client';
+import { CROSS_UNIT_ROLE_CODES } from '@cipansor/shared';
 import { Errors } from '@/middleware/error';
 
 /**
@@ -210,17 +211,7 @@ export function isLeadershipRole(roleCode?: string | null): boolean {
  * see the SD IT santri they teach, with nothing to indicate rows were missing.
  * Granting breadth here is what actually matches the job.
  */
-export const CROSS_UNIT_SCOPE_ROLES: readonly string[] = [
-  RoleCode.PESANTREN_PENGASUH,
-  RoleCode.PESANTREN_TATA_USAHA,
-  RoleCode.USTADZ,
-  RoleCode.MUSYRIF,
-  RoleCode.MUHAFIDZ,
-  RoleCode.KEAMANAN,
-  RoleCode.PERAWAT,
-  RoleCode.PUSTAKAWAN,
-  RoleCode.LABORAN,
-];
+export const CROSS_UNIT_SCOPE_ROLES: readonly string[] = CROSS_UNIT_ROLE_CODES;
 
 /**
  * True when the role's remit spans every unit — the foundation board, or the

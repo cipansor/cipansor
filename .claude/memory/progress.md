@@ -38,10 +38,15 @@ backlog to [`roadmap.md`](roadmap.md).
   live".)
 - Role catalogue items decided but not built: wakasek per bidang as a
   timed assignment (Model A; wakasek is no longer a role code —
-  `decisions/peran-dan-tugas-tambahan.md`), `PESANTREN_ADMIN` (needs a pesantren unit first — every pesantren role is
-  scoped to SMP IT today), a Panitia SPMB assignment that expires, and the
-  "Admin" → "Operator" label.
+  `decisions/peran-dan-tugas-tambahan.md`), `PESANTREN_ADMIN` (needs a
+  pesantren unit first — every pesantren role is scoped to SMP IT today), a
+  Panitia SPMB assignment that expires, and the "Admin" → "Operator" label.
 - One Bendahara role with a unit scope waits for Model A (decided 2026-09-25).
+- **The public assistant on staging** — the user decided (2026-10-09) on a
+  key of staging's own with a cost cap, provisioned through a temporary cloud
+  role, then deferred doing it; ask again at the end of every report. Until
+  then staging runs the assistant switched off (#657 does that when the key
+  is missing).
 - **Accreditation certificates of SD IT and SMA Qur'an** — the user is
   asking the schools for them (2026-09-28); each unit appears on the public
   site once its certificate is entered. TK Qur'an has none yet — it was
@@ -99,6 +104,12 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   on risky PRs, and Markdown is never risky). After #630: #668 (its leave tests
   merge into #630's file) and #726 (merge `main` in). #706: closing
   recommended in favour of #783.
+
+- **Audit of #655, #657 and #628 (asked 2026-10-09).** All three merged: #655
+  (public SPMB announcement), #657 (assistant on staging, mirrored on Arabic
+  pages), #628 (E-Office round 2); #701 closed as covered by #657 (one name,
+  `APP_ENV`); CODEOWNERS removed (#720), the review-gate scripts fixed (#716).
+  Report: <https://claude.ai/artifact/Di6W55CSPJoUhpezzA1cXU>.
 
 - **The Pesantren unit — part A merged (#714, 2026-10-11; on staging).** Walking every
   menu page of the pesantren's roles before and after moving them to a

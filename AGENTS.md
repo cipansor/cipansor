@@ -47,7 +47,14 @@ monorepo**:
    Prettier's format, CI's Lint job fails otherwise, and for Claude a
    pre-push hook refuses the push and names the files and the fix command.
 6. **Develop on the feature branch, commit with clear messages, never push to
-   `main`.**
+   `main`.** Every PR starts from an issue and names **every** issue it
+   resolves: `Fixes #n` once per issue (GitHub closes them only when the PR
+   merges into `main`), `Refs #n` for one it only advances, with a comment
+   there saying what remains. Before opening a PR, search the open issues for
+   the files and terms it touches; an issue a merged PR fixed without naming it
+   stays open and breeds duplicates (2026-10-11: eight such issues). The
+   `PR description` check refuses a PR without an open, `ready` issue
+   (`pr-template-guard.sh`, #772); only Dependabot is exempt.
 7. **Ship tests with the code — no behavior change merges untested.** Every
    new/changed API **service or controller** ships with vitest tests in the
    module's `tests/`; every new/changed **web route or user flow** ships with
@@ -212,15 +219,18 @@ file you are changing applies on top of this one.
 ## Where things live
 
 Every agent (Claude, OpenHands, Jules, Copilot) loads this file; Claude also
-loads `.claude/memory/INDEX.md`. Each kind of knowledge has exactly one home —
-two copies drift, and a stale one actively misleads.
+loads `.claude/memory/INDEX.md`, and OpenHands is pointed at it by
+`.openhands/memory/MEMORY.md`. Each kind of knowledge has exactly one home —
+two copies drift, and a stale one actively misleads. What an agent learned goes
+to its home below, never into this file, even when the agent's own default is
+to keep its learnings here (OpenHands' is, while its memory is off).
 
 | Kind | Home | Changes |
 |---|---|---|
 | Rules every change follows: architecture, build/test/deploy, style, guardrails | this file + the nested `AGENTS.md` | rarely, by PR |
 | Procedures and domain knowledge, loaded when relevant ([index](#skills)) | `.claude/skills/<name>/SKILL.md` | when a standard or a rule changes, by PR |
-| Enforcement | CI and the `main` ruleset (every agent); `.claude/hooks/` (Claude only) | rarely, by PR |
-| Project memory: progress, backlog, known issues (`.claude/memory/*.md`); decisions not yet in a skill (`decisions/`); traps that cost time (`lessons/`) — indexed in `INDEX.md` | `.claude/memory/` | as work happens, by PR |
+| Enforcement | CI and the `main` ruleset (every agent); `.claude/hooks/` (Claude; `guard.sh` also runs for OpenHands through `.openhands/hooks.json`) | rarely, by PR |
+| Project memory: progress, backlog, known issues (`.claude/memory/*.md`); decisions not yet in a skill (`decisions/`); traps that cost time (`lessons/`) — indexed in `INDEX.md` | `.claude/memory/` (OpenHands' `.openhands/memory/MEMORY.md` is only a pointer here; its daily logs are not committed) | as work happens, by PR |
 | Documentation for people: architecture, deployment, setup, user manuals | `docs/` | with the code it describes |
 | Anything **sensitive**, personal, or specific to one machine | the machine-local memory (`~/.claude/projects/…/memory/`), never the repo | — |
 
@@ -250,8 +260,9 @@ to `main`.
 
 ### Skills
 
-Claude loads a skill by its description; any other agent opens the file when
-its "use when" matches the task.
+Claude, and OpenHands through the symlink `.agents/skills`, load a skill by its
+description; any other agent opens the file when its "use when" matches the
+task.
 
 | Skill | Use when |
 |---|---|
