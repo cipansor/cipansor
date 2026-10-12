@@ -154,7 +154,10 @@ Satu hal **belum ada** dan menjadi prasyarat (diperiksa 2026-10-05):
 
 1. **Tidak ada GA4 / GTM / gtag sama sekali** di `apps/web`. Tanpa ini tidak
    ada conversion tracking → akun berisiko dideaktivasi, dan Smart Bidding
-   buta.
+   buta. Di `.env.example` masih tersisa `GOOGLE_ANALYTICS_ID` yang **tidak
+   dibaca kode mana pun** (bukan di `docker-compose.yml`, bukan di workflow) —
+   itu sisa niat, bukan tanda analitik setengah jalan. Jangan
+   mengaktifkannya; bangun penandaan konversi host-aware seperti di atas.
 
 Satu hal lagi **bukan** prasyarat, walaupun mudah disangka begitu:
 
