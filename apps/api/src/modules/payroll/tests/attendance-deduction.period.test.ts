@@ -137,6 +137,48 @@ describe('computeForPeriod — rules and guard', () => {
     );
   });
 
+  it('keeps the yayasan rule when a same-code unit rule has no legal basis', async () => {
+    // The unit rule shadows the yayasan rule by code, but it may not charge
+    // without a basis — so it must not remove the yayasan rule too. Before the
+    // fix, `effectiveRules` ran first, dropped the yayasan rule, and the unit
+    // rule was then filtered out, leaving no deduction at all.
+    m.payrollPolicyRule.findMany.mockResolvedValue([
+      { ...baseRule, unitId: null, legalBasisDoc: 'Peraturan Kepegawaian Yayasan Ps. 12' },
+      { ...baseRule, unitId: 'unit-1', legalBasisDoc: null },
+    ] as never);
+    m.staffAttendance.findMany.mockResolvedValue([
+      { staffId: 'staff-1', date: new Date('2026-09-01'), status: 'LATE', lateMinutes: 30 },
+    ] as never);
+
+    const [row] = await attendanceDeductionService.computeForPeriod(PERIOD.id);
+
+    const line = row.lines.find((l) => l.code === 'POTONGAN_TELAT');
+    expect(line).toBeDefined();
+    expect(line?.amount).toBe(10_000);
+    expect(row.guardWarnings).toContain(
+      'Aturan POTONGAN_TELAT tidak diterapkan: belum ada dasar hukum tertulis'
+    );
+  });
+
+  it('lets a based unit rule replace the yayasan rule of the same code', async () => {
+    // The override still applies once the unit rule is allowed to charge.
+    m.payrollPolicyRule.findMany.mockResolvedValue([
+      { ...baseRule, unitId: null, rate: 10_000, legalBasisDoc: 'Peraturan Kepegawaian Ps. 12' },
+      { ...baseRule, unitId: 'unit-1', rate: 25_000, legalBasisDoc: 'Peraturan Unit Ps. 3' },
+    ] as never);
+    m.staffAttendance.findMany.mockResolvedValue([
+      { staffId: 'staff-1', date: new Date('2026-09-01'), status: 'LATE', lateMinutes: 30 },
+    ] as never);
+
+    const [row] = await attendanceDeductionService.computeForPeriod(PERIOD.id);
+
+    const line = row.lines.find((l) => l.code === 'POTONGAN_TELAT');
+    expect(line?.amount).toBe(25_000);
+    expect(row.guardWarnings).not.toContain(
+      'Aturan POTONGAN_TELAT tidak diterapkan: belum ada dasar hukum tertulis'
+    );
+  });
+
   it('reads every guard row for the unit and the yayasan, not whichever comes first', async () => {
     await attendanceDeductionService.computeForPeriod(PERIOD.id);
 

@@ -136,6 +136,19 @@ export function effectiveRules<T extends { unitId: string | null; code: string }
 }
 
 /**
+ * Which rules are allowed to charge. A deduction needs its written basis
+ * (PP 36/2021 Ps. 63(2)); earnings and any rule that names a legal document
+ * pass. Filtering *before* `effectiveRules` matters: a unit rule with no basis
+ * must not suppress the yayasan rule of the same code and then be dropped
+ * itself, which left the unit with no deduction at all.
+ */
+export function basedRules<T extends { kind: string; legalBasisDoc: string | null }>(
+  rules: T[]
+): T[] {
+  return rules.filter((r) => r.kind !== 'DEDUCTION' || hasLegalBasis(r));
+}
+
+/**
  * The rupiah ceiling the guard config alone imposes on a payslip's deductions.
  * `Infinity` when no guard is given — the allowance side still caps below.
  * The percentage is held to the legal 50% even if a row says more.
@@ -499,10 +512,15 @@ export const attendanceDeductionService = {
    * Active rules for a unit, yayasan-wide rules included, as of a date. A rule
    * whose `effectiveFrom`/`effectiveTo` window does not cover the period is
    * not applied — the columns are a schedule, not decoration.
+   *
+   * The raw list is returned as-is: the caller decides which rules may charge
+   * (see `basedRules`). Overriding happens after that filter, so a unit rule
+   * that is not allowed to charge cannot shadow a yayasan rule of the same
+   * code and leave the unit with nothing.
    */
   async rulesFor(unitId: string | null, asOf?: Date) {
     const day = asOf ? dayOf(dayString(asOf)) : undefined;
-    const rules = await prisma.payrollPolicyRule.findMany({
+    return prisma.payrollPolicyRule.findMany({
       where: {
         isActive: true,
         OR: [{ unitId }, { unitId: null }],
@@ -517,7 +535,6 @@ export const attendanceDeductionService = {
       },
       orderBy: [{ priority: 'asc' }, { code: 'asc' }],
     });
-    return effectiveRules(rules);
   },
 
   /**
@@ -536,9 +553,12 @@ export const attendanceDeductionService = {
     // A deduction needs its written basis — the perjanjian kerja, peraturan
     // kepegawaian or PKB that sets it (PP 36/2021 Ps. 63(2)). The settings
     // refuse to activate one without it; a row from before that rule is
-    // skipped here and named, rather than charged.
-    const rules = allRules.filter((r) => r.kind !== 'DEDUCTION' || hasLegalBasis(r));
+    // skipped here and named, rather than charged. This runs *before*
+    // `effectiveRules`: a unit deduction with no basis must not replace the
+    // yayasan rule of the same code and then be dropped, which left the unit
+    // with no deduction at all.
     const unbasedRules = allRules.filter((r) => r.kind === 'DEDUCTION' && !hasLegalBasis(r));
+    const rules = effectiveRules(basedRules(allRules));
     const guardRows = await prisma.payrollGuardConfig.findMany({
       where: { isActive: true, OR: [{ unitId: period.unitId }, { unitId: null }] },
     });
