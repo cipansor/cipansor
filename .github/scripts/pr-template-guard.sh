@@ -33,7 +33,10 @@ gh pr view "$PR" --repo "$REPO" --json body --jq .body > "$RAW"
 
 # Visible text: strip HTML comments (including multi-line ones and the template
 # placeholders) and fenced code, so placeholders do not count as content.
-perl -0777 -pe 's/<!--.*?-->//gs; s/```.*?```//gs' "$RAW" > "$CLEAN"
+# Normalise CRLF/CR first: a body written through a Windows editor arrives with
+# `## Why\r`, which never equals the `## Why` the section matcher compares
+# against — every section then reads empty and a complete body is refused.
+perl -0777 -pe 's/\r\n?/\n/g; s/<!--.*?-->//gs; s/```.*?```//gs' "$RAW" > "$CLEAN"
 BODY="$(cat "$CLEAN")"
 
 # The visible text of the section starting at "## <heading>", blank lines and

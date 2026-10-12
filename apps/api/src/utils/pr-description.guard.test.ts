@@ -138,6 +138,22 @@ describe('pr-template-guard.sh', () => {
     expect(calls).not.toContain('PATCH');
   });
 
+  // A body typed in an editor that writes CRLF arrives as `## Why\r`, which is
+  // never equal to the `## Why` the section matcher compares against — a
+  // complete body was refused with every section listed as missing. PR #726.
+  it('reads a CRLF body as complete', () => {
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: COMPLETE.replace(/\n/g, '\r\n') });
+    expect(status).toBe(0);
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('still fails a CRLF body that is missing a section', () => {
+    const missing = COMPLETE.replace(/## What changed\r?\n\r?\n[^\n]*\n/, '');
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: missing.replace(/\n/g, '\r\n') });
+    expect(status).toBe(1);
+    expect(calls).toContain('COMMENT');
+  });
+
   // The human note is asked for only where a human must look before the merge
   // (#760); the gate reviews everything else and a human approves the release.
   describe('the human note on a risky PR', () => {
