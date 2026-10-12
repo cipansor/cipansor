@@ -272,7 +272,7 @@ dibutuhkan. Yang di-commit hanya tangkapan layar yang dipakai panduan pengguna
 di dokumen teknis.
 
 `dynamic-routes.json` adalah kontrak cakupan rute dinamis untuk sapuan. Isi
-ulang dengan `scripts/resolve-dynamic-routes.ts` saat stack menyala;
+ulang dengan `apps/web/scripts/resolve-dynamic-routes.ts` saat stack menyala;
 `dynamic-routes.guard.test.ts` memastikan setiap pola dinamis terjawab atau
 dicatat beralasan.
 
