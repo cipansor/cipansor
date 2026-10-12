@@ -47,11 +47,15 @@ first word was `git`, so `sudo git push origin main`, `(git push origin main)`,
 tokenizes with the shell's punctuation (quotes kept, so `echo "git push origin
 main"` stays a mention), walks past keywords, assignments and the wrappers that
 run the rest of their words, and reads the script of `sh -c`/`bash -c`/`eval`
-and of every `$( )` and backtick. What it cannot see it does not guess at:
-`xargs` adds words from its input and a `$VAR` destination is known only at
-run time, so both are refused. Still out of its sight: a script file
-(`./push.sh`), a git alias, and a quoted backtick it reads as a substitution
-(over-refusing, which is the safe side). Cases:
+and of every `$( )` and backtick. A substitution is also refused when it *is*
+the destination — `git push $(echo origin) main`, `git push origin:$(echo
+main)`, `` git push `echo origin` main `` — because the tokenizer cuts the
+substitution out of the word and `main` would otherwise fall outside the
+refspec slot; every positional argument is scanned for an unresolved expansion.
+What it cannot see it does not guess at: `xargs` adds words from its input and a
+`$VAR` destination is known only at run time, so both are refused. Still out of
+its sight: a script file (`./push.sh`), a git alias, and a quoted backtick it
+reads as a substitution (over-refusing, which is the safe side). Cases:
 `apps/api/src/utils/agent-guard.guard.test.ts`.
 
 **Why the compaction hook exists.** Compaction discards the transcript, and only

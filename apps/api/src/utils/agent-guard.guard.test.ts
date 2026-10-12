@@ -136,6 +136,20 @@ describe('a push that lands on main is refused', () => {
     expect(shell(command)).toBe(REFUSED);
   });
 
+  // A substitution in the destination position hides where the push lands
+  // (#660 review round 2). The tokenizer splits `$( … )` and backticks out of
+  // the word, so `main` no longer sits in the refspec slot; every positional
+  // argument is scanned for an unresolved expansion instead.
+  it.each([
+    'git push $(echo origin) main',
+    'git push `echo origin` main',
+    'git push origin:$(echo main)',
+    'git push origin:$(echo refs/heads/main)',
+    'git push $(echo origin) $(echo main)',
+  ])('%s', (command) => {
+    expect(shell(command)).toBe(REFUSED);
+  });
+
   it('a push naming no destination, on main or tracking it', () => {
     expect(shell('git push', onMain)).toBe(REFUSED);
     expect(shell('git push origin', onMain)).toBe(REFUSED);

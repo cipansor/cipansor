@@ -215,8 +215,11 @@ def resolve_refspec(repo, refspec):
 # Words that end one command and start the next; `<`/`>` are redirections.
 # Splitting with the shell's own punctuation, quotes kept, is what lets
 # `echo "git push origin main"` stay a mention and `(git push origin main)`
-# be a push.
-PUNCT = ";&|()<>`\n"
+# be a push. A backtick is deliberately NOT here: splitting on it would cut a
+# substitution out of the word it belongs to, so `git push `echo origin` main`
+# would lose the `main` destination. It stays inside the word and
+# `substitutions()` reads it (see the joined-segment scan in `check_push`).
+PUNCT = ";&|()<>\n"
 # Words before a command that only open a compound command or negate it.
 SHELL_KEYWORDS = {"{", "}", "!", "if", "then", "else", "elif", "do", "while", "until", "fi", "done"}
 # Commands that run the rest of their words as a command (`sudo git push …`),
@@ -367,9 +370,11 @@ def check_push(text, here, uncertain=False):
                 refuse_push("the command names main as its destination.")
         return
     for words in commands:
-        for w in words:
-            for inner in substitutions(w):
-                check_push(inner, here, uncertain)
+        # A substitution inside a word (`echo "$(git push origin main)"`) and a
+        # backtick substitution — which PUNCT leaves inside its word — runs the
+        # push too; the joined text keeps a backtick pair together.
+        for inner in substitutions(" ".join(words)):
+            check_push(inner, here, uncertain)
         words, via, seg_here = unwrap(words, here)
         if not words:
             continue
@@ -428,7 +433,12 @@ def check_push(text, here, uncertain=False):
         if any(re.search(r"(?:^|:)\+?(?:HEAD:)?(?:refs/heads/)?main$", a) for a in positional):
             refuse_push("the command names main as its destination.")
         refspecs = positional[1:]
-        if any("$" in r or "`" in r for r in refspecs):
+        # A substitution anywhere in the destination — the remote or a refspec —
+        # hides where the push lands (`git push $(echo origin) main`,
+        # `git push origin:$(echo main)`), so every positional argument is
+        # checked, not just the refspecs. The tokenizer splits `$( … )` and
+        # backticks out of the word, so this looks at all of them.
+        if any("$" in r or "`" in r for r in positional):
             refuse_push(
                 "the destination is a shell expansion this guard cannot resolve; "
                 "name the branch plainly."
