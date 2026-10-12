@@ -342,11 +342,15 @@ decision.
   same change.
 - **The module standard is not followed.** Measured 2026-10-11 on `main`
   (`c56078f04`), each with its definition, because three different figures
-  for "the same" count once disagreed (#717): of 95 module folders, 24 have all
-  five parts named exactly `<name>.{routes,controller,service,schema}.ts` plus
-  `index.ts`; 12 call `prisma.` in a `*.routes.ts` or `*.controller.ts`; 20
-  import another module's file other than its `index.ts` (the rule is the event
-  bus or the barrel). Re-measure rather than copy these. Two older figures,
+  for "the same" count once disagreed (#717): of 95 module folders, 26 have all
+  five parts — `*.routes.ts`, `*.controller.ts`, `*.service.ts`, `*.schema.ts`
+  plus `index.ts` (the `five_part_modules` definition `collect_facts.py`
+  measures; a strict `<name>.X` name match gives 24, dropping `units` and
+  `dashboard-enhancement`, which follow the layout but name their files without
+  the folder's prefix); 12 call `prisma.` in a `*.routes.ts` or
+  `*.controller.ts`; 20 import another module's file other than its `index.ts`
+  (the rule is the event bus or the barrel) — 20 source modules, 27 imports.
+  Re-measure rather than copy these. Two older figures,
   from 2026-09-25 and not re-measured since: 1,457 bare `res.json` against 399
   `ApiResponse`; 349 of 562 POST/PUT/PATCH routes carry no `validate()`.
 - **An orphan module.** `apps/api/src/modules/scholarship/` holds only

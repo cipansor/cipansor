@@ -259,11 +259,13 @@ flowchart LR
 Aturan lapisannya: **rute tidak pernah memanggil Prisma; controller tidak memuat
 logika bisnis.** Aturan itu belum sepenuhnya menjadi kenyataan. Pada pengukuran
 commit ini, **68 dari 95 modul memiliki empat berkas** inti (routes, controller,
-service, schema), tetapi hanya **26 modul lengkap lima bagian**, yaitu keempatnya
-ditambah `index.ts` (ukuran yang dipakai `known-issues.md`, yang mencatat 22
-pada 25 September 2026). **12 modul** memanggil Prisma langsung dari rute atau
-controller. Perbaikannya adalah fase 6 rencana audit (`roadmap.md`). Tanggapan
-memakai satu amplop `{ success, data, meta? }` lewat `src/utils/response.ts`.
+service, schema), dan **26 modul lengkap lima bagian**, yaitu keempatnya ditambah
+`index.ts` — definisi `five_part_modules` yang diukur `collect_facts.py` dan
+dipakai `known-issues.md` (pencocokan nama berkas ketat `<name>.X` memberi 24,
+menggugurkan `units` dan `dashboard-enhancement` yang hanya beda awalan nama
+berkas). **12 modul** memanggil Prisma langsung dari rute atau controller.
+Perbaikannya adalah fase 6 rencana audit (`roadmap.md`). Tanggapan memakai satu
+amplop `{ success, data, meta? }` lewat `src/utils/response.ts`.
 
 ## 5.3 Modul menurut ranah
 
