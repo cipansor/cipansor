@@ -14,6 +14,12 @@ useful — send what you have rather than waiting for a complete one.
 The same form is offered from the "New issue" page so that a blank issue is not
 mistaken for a safe place to publish a vulnerability.
 
+## Contact
+
+For anything outside a vulnerability report — questions about this policy, the
+advisory process, or how a report is handled — write to
+**admin@cipansor.or.id**.
+
 ## What to expect
 
 - An acknowledgement within a few days.
