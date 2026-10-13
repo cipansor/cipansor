@@ -43,6 +43,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useUnits } from "@/hooks";
+import { api } from "@/lib/api";
 
 // Template types for WhatsApp
 const WA_TEMPLATES = [
@@ -223,8 +224,7 @@ export default function WhatsAppPage() {
   // Check WhatsApp status
   const checkStatus = async () => {
     try {
-      const res = await fetch("/api/notifications/whatsapp/status");
-      const data = await res.json();
+      const { data } = await api.get("/notifications/whatsapp/status");
       if (data.success) {
         setProviderStatus(data.data);
       }
@@ -242,12 +242,10 @@ export default function WhatsAppPage() {
 
     setIsLoading(true);
     try {
-      const res = await fetch("/api/notifications/whatsapp/send", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(singleSend),
-      });
-      const data = await res.json();
+      const { data } = await api.post(
+        "/notifications/whatsapp/send",
+        singleSend,
+      );
 
       if (data.success) {
         toast.success("Pesan berhasil dikirim");
@@ -266,12 +264,9 @@ export default function WhatsAppPage() {
   const handleTriggerTask = async (taskId: string) => {
     setIsLoading(true);
     try {
-      const res = await fetch("/api/notifications/scheduler/trigger", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ task: taskId }),
+      const { data } = await api.post("/notifications/scheduler/trigger", {
+        task: taskId,
       });
-      const data = await res.json();
 
       if (data.success) {
         toast.success(data.message);

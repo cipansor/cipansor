@@ -1,9 +1,10 @@
 import { test, expect } from "@playwright/test";
 import { loginAs } from "./helpers/auth-api";
+import { isProductionApi } from "./helpers/api-env";
 
 /**
- * The WhatsApp page's "Tugas Terjadwal" tab lists the registered jobs and lets
- * a super admin run one by hand (#802).
+ * The WhatsApp page's "Tugas Terjadwal" card (the *Penjadwalan* tab) lists the
+ * registered jobs and lets a super admin run one by hand (#802).
  *
  * The backend's manual-trigger endpoint validates the task id against
  * `SCHEDULED_TASK_IDS`; the page used to send ids the endpoint did not know
@@ -18,10 +19,16 @@ test.describe("Notification scheduler — manual trigger", () => {
   test("lists every registered task and runs one through the API", async ({
     page,
   }) => {
+    // "Jalankan" runs a real job (it queries invoices); never against prod.
+    test.skip(
+      await isProductionApi(),
+      "Runs a scheduler task; not against production.",
+    );
+
     await loginAs(page, "superAdmin");
     await page.goto(PAGE);
 
-    await page.getByRole("tab", { name: "Tugas Terjadwal" }).click();
+    await page.getByRole("tab", { name: "Penjadwalan" }).click();
 
     // One row per registered task; the row is the only element carrying both
     // `justify-between` and the task name, so it does not collide with the

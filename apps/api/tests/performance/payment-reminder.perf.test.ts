@@ -22,6 +22,7 @@ vi.mock('../../src/lib/prisma', () => ({
 describe('Payment Reminder Performance', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.mocked(prisma.notification.findFirst).mockResolvedValue(null);
   });
 
   it('measures payment reminder batching', async () => {
