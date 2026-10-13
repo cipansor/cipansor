@@ -6,6 +6,7 @@ import {
   getNotificationById,
 } from '../notifications.service';
 import { prisma } from '../../../lib/prisma';
+import type { CreateNotificationInput } from '../notifications.schema';
 
 vi.mock('../../../lib/prisma', () => ({
   prisma: {
@@ -82,7 +83,7 @@ describe('createNotification — recurring delivery key (#802)', () => {
     vi.clearAllMocks();
   });
 
-  const base = {
+  const base: CreateNotificationInput = {
     userId: 'u-1',
     title: 'Pengingat Pembayaran',
     message: 'Tagihan akan jatuh tempo.',
@@ -90,7 +91,7 @@ describe('createNotification — recurring delivery key (#802)', () => {
     priority: 'HIGH',
     channels: ['IN_APP'],
     recipientType: 'INDIVIDUAL',
-  } as const;
+  };
 
   it('writes the dedupe key into the row so the unique index can back it', async () => {
     (prisma.notification.findFirst as any).mockResolvedValue(null);
