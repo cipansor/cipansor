@@ -145,9 +145,9 @@ describe('createNotification — durable recurring delivery (#802)', () => {
 
   it('claims a durable marker and writes the dedupe key onto the row', async () => {
     (prisma.notificationDelivery.create as any).mockResolvedValue({ id: 'd-1', channels: {} });
-    (prisma.notification.create as any).mockResolvedValue({ id: 'n-1' });
+    (prisma.notification.create as any).mockResolvedValue({ id: 'n-1', status: 'UNREAD' });
 
-    await createNotification({ ...base, dedupeKey: 'payment-reminder:inv-1' });
+    const result = await createNotification({ ...base, dedupeKey: 'payment-reminder:inv-1' });
 
     // The marker is created first; the bell row is just the in-app record.
     expect(prisma.notificationDelivery.create).toHaveBeenCalledWith({
@@ -156,6 +156,9 @@ describe('createNotification — durable recurring delivery (#802)', () => {
     const args = (prisma.notification.create as any).mock.calls[0][0];
     expect(args.data.dedupeKey).toBe('payment-reminder:inv-1');
     expect(args.data.userId).toBe('u-1');
+    // The persisted row is returned, not the pre-insert payload — a caller
+    // needing the created notification gets its generated id (review finding).
+    expect(result).toMatchObject({ id: 'n-1', status: 'UNREAD' });
   });
 
   it('suppresses a redelivery whose marker exists and owes no channel', async () => {

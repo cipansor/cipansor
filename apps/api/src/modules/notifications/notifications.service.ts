@@ -100,18 +100,18 @@ const CHANNEL_CLAIM_LEASE_MS = 60 * 60 * 1000;
  * A pre-existing marker (the unique key is taken) means the slot was already
  * claimed; `created` is false and no row is inserted.
  */
-async function claimNotificationDeliveryWithRow(
+async function claimNotificationDeliveryWithRow<T extends { id: string }>(
   userId: string,
   dedupeKey: string,
-  createRow: (tx: Prisma.TransactionClient) => Promise<{ id: string }>
-): Promise<{ marker: NotificationDeliveryMarker; created: boolean }> {
+  createRow: (tx: Prisma.TransactionClient) => Promise<T>
+): Promise<{ marker: NotificationDeliveryMarker; created: boolean; notification?: T }> {
   try {
     return await prisma.$transaction(async (tx) => {
       const created = await tx.notificationDelivery.create({
         data: { userId, dedupeKey, channels: {} },
       });
-      await createRow(tx);
-      return { marker: { id: created.id, channels: {} }, created: true };
+      const notification = await createRow(tx);
+      return { marker: { id: created.id, channels: {} }, created: true, notification };
     });
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
@@ -391,7 +391,7 @@ export async function createNotification(data: CreateNotificationInput) {
     // claimNotificationDeliveryWithRow): a concurrent run can only observe the
     // marker once the row is durable, so a failed insert can no longer race a
     // channel send.
-    const { marker, created } = await claimNotificationDeliveryWithRow(
+    const { marker, created, notification } = await claimNotificationDeliveryWithRow(
       data.userId,
       dedupeKey,
       (tx) => tx.notification.create({ data: rowData })
@@ -413,7 +413,10 @@ export async function createNotification(data: CreateNotificationInput) {
     if (externalChannels.length > 0) {
       await dispatchExternalChannels({ ...data, userId: data.userId }, externalChannels, marker.id);
     }
-    return originalType ? { ...(rowData as object), type: originalType } : rowData;
+    // `notification` is the row `tx.notification.create` persisted, with its
+    // generated id, status and timestamps — an incomplete pre-insert payload
+    // would leave a caller needing the created row with no id.
+    return originalType ? { ...(notification as object), type: originalType } : notification;
   }
 
   // One-shot notification: no marker, no dedupe.
