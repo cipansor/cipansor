@@ -58,6 +58,30 @@ export interface NotificationDeliveryMarker {
 type ExternalChannel = Exclude<NotificationChannel, 'IN_APP' | 'PUSH'>;
 
 /**
+ * Per-channel delivery states on a marker.
+ *
+ * `RETRYING` is a *claim*: written before a dispatch so a second run sees the
+ * channel is taken and stays silent. `PENDING` is a log-only outcome (print,
+ * not sent — transport unconfigured, simulator, outbound disabled): retryable,
+ * kept distinct from `FAILED` so a real outage and a not-yet-configured
+ * transport are told apart.
+ */
+export const DELIVERY_IN_FLIGHT = 'RETRYING';
+export const DELIVERY_SENT = 'SENT';
+export const DELIVERY_FAILED = 'FAILED';
+export const DELIVERY_PENDING = 'PENDING';
+export const DELIVERY_SKIPPED = 'SKIPPED';
+
+/**
+ * How long a `RETRYING` claim stays valid before another run may take it over.
+ * Long enough that a live send (an SMTP round trip, a provider retry) is never
+ * stolen; short enough that an interrupted run (deploy, crash) recovers on the
+ * next tick. The payment reminder runs daily, so a day-old claim being stolen is
+ * exactly right.
+ */
+const RETRY_LEASE_MS = 15 * 60 * 1000;
+
+/**
  * Claim the delivery slot for `(userId, dedupeKey)`, or return the existing
  * marker if the slot was already claimed.
  *
@@ -106,14 +130,70 @@ export async function clearNotificationDeliveries(dedupeKeyPrefix: string, userI
   });
 }
 
-/** Record a channel's outcome on its marker (idempotent upsert of the map). */
-async function markDeliveryChannel(id: string, channels: Record<string, string>) {
-  const marker = await prisma.notificationDelivery.findUnique({
-    where: { id },
-    select: { channels: true },
-  });
-  const merged = { ...((marker?.channels ?? {}) as Record<string, string>), ...channels };
-  await prisma.notificationDelivery.update({ where: { id }, data: { channels: merged } });
+/**
+ * Atomically claim one channel for a dispatch, so two runs — separate API
+ * instances, or a manual trigger overlapping a scheduled tick — never send the
+ * same message twice.
+ *
+ * The claim is a compare-and-swap on the marker's `channels` map, done by the
+ * database (`UPDATE ... WHERE`, row-locked), not in memory: a channel is
+ * claimable when it is unset or left by a previous failed attempt, and the
+ * winner flips it to `RETRYING` in the same statement. A second run's `WHERE`
+ * no longer matches, so it learns it lost the race and stays silent.
+ *
+ * The claim is a lease, its claim time kept under `channels._claims[channel]`
+ * (epoch ms): a `RETRYING` older than `staleBefore` is claimable again, so a
+ * run killed mid-send (deploy, crash) does not wedge the channel forever.
+ * `markDeliveryOutcome` deletes the claim on completion. Returns whether the
+ * claim succeeded.
+ */
+async function claimChannelForRetry(
+  markerId: string,
+  channel: string,
+  staleBefore: Date
+): Promise<boolean> {
+  const rows = await prisma.$queryRaw<Array<{ id: string }>>`
+    UPDATE "notification_deliveries"
+    SET "channels" =
+          COALESCE("channels", '{}'::jsonb) ||
+          jsonb_build_object(${channel}::text, ${DELIVERY_IN_FLIGHT}::text) ||
+          jsonb_build_object(
+            '_claims'::text,
+            COALESCE("channels" -> '_claims', '{}'::jsonb) ||
+              jsonb_build_object(
+                ${channel}::text,
+                (extract(epoch from now()) * 1000)::bigint
+              )
+          ),
+        "updated_at" = now()
+    WHERE "id" = ${markerId}
+      AND (
+        jsonb_extract_path_text("channels", ${channel}::text) IS NULL
+        OR jsonb_extract_path_text("channels", ${channel}::text) IN (${DELIVERY_FAILED}, ${DELIVERY_PENDING})
+        OR (
+          jsonb_extract_path_text("channels", ${channel}::text) = ${DELIVERY_IN_FLIGHT}
+          AND COALESCE(
+            (jsonb_extract_path_text("channels", '_claims', ${channel}::text))::bigint,
+            0
+          ) < ${staleBefore.getTime()}
+        )
+      )
+    RETURNING "id"
+  `;
+  return rows.length > 0;
+}
+
+/** Record a channel's outcome and clear its lease (idempotent upsert). */
+async function markDeliveryOutcome(markerId: string, channel: string, state: string) {
+  await prisma.$executeRaw`
+    UPDATE "notification_deliveries"
+    SET "channels" = (
+          COALESCE("channels", '{}'::jsonb) ||
+            jsonb_build_object(${channel}::text, ${state}::text)
+        ) #- ARRAY['_claims'::text, ${channel}::text],
+        "updated_at" = now()
+    WHERE "id" = ${markerId}
+  `;
 }
 
 // ==================== NOTIFICATION ====================
@@ -250,11 +330,13 @@ export async function createNotification(data: CreateNotificationInput) {
     const { marker, created } = await claimNotificationDelivery(data.userId, dedupeKey);
 
     if (!created) {
-      // The in-app row is already there. Retry only the channels that never
-      // confirmed (a transient mail outage, a provider 5xx).
-      const channelsToRetry = externalChannels.filter((c) => marker.channels[c] === 'FAILED');
-      if (channelsToRetry.length === 0) return null;
-      await dispatchExternalChannels({ ...data, userId: data.userId }, channelsToRetry, marker.id);
+      // The in-app row is already there. Retry the channels that never
+      // confirmed (a transient outage, a not-yet-configured transport) — or
+      // whose earlier attempt was abandoned mid-send. Channels already SENT (or
+      // blocked by policy) are left alone. The per-channel claim inside
+      // dispatchExternalChannels is what makes two concurrent retries send only
+      // one message.
+      await dispatchExternalChannels({ ...data, userId: data.userId }, externalChannels, marker.id);
       return null;
     }
 
@@ -320,6 +402,12 @@ function buildCreateData(
  * delivery marker. Best-effort: a dispatch failure is recorded as `FAILED`
  * (so the next run retries it) and never thrown to the caller. `markerId` is
  * null for one-shot notifications, which have no delivery state to keep.
+ *
+ * For a keyed notification each channel is first *claimed* atomically
+ * (`claimChannelForRetry`), so two concurrent runs send at most one message per
+ * channel. A channel already `SENT`, blocked by policy, or held by another run
+ * is skipped. A log-only outcome (nothing left the building) is recorded
+ * `PENDING`, not `SENT`: a transport configured later still delivers.
  */
 async function dispatchExternalChannels(
   data: CreateNotificationInput & { userId: string },
@@ -330,18 +418,38 @@ async function dispatchExternalChannels(
   try {
     // Respect the system-wide channel policy (super-admin managed).
     const policy = await getChannelPolicy();
-    const allowed = externalChannels.filter((c) => policy[c]);
-    const user =
-      allowed.length > 0
-        ? await prisma.user.findUnique({
-            where: { id: data.userId },
-            select: { email: true, phone: true },
-          })
-        : null;
+    const policyAllowed = externalChannels.filter((c) => policy[c]);
+
+    if (markerId) {
+      // Channels the policy blocks are not owed; record that so the state is
+      // legible and the deterministic call below always has a row.
+      for (const channel of externalChannels.filter((c) => !policy[c])) {
+        await markDeliveryOutcome(markerId, channel, DELIVERY_SKIPPED);
+      }
+    }
+    if (policyAllowed.length === 0) return;
+
+    const user = await prisma.user.findUnique({
+      where: { id: data.userId },
+      select: { email: true, phone: true },
+    });
     if (!user) return;
 
+    // Claim each channel up front, then dispatch only the ones we won. The
+    // claim is a lease: a stale `RETRYING` (a run killed mid-send) is
+    // re-claimable after the window below.
+    let toDispatch = policyAllowed;
+    if (markerId) {
+      const staleBefore = new Date(Date.now() - RETRY_LEASE_MS);
+      const claimed = await Promise.all(
+        policyAllowed.map((channel) => claimChannelForRetry(markerId, channel, staleBefore))
+      );
+      toDispatch = policyAllowed.filter((_, i) => claimed[i]);
+    }
+    if (toDispatch.length === 0) return;
+
     const results = await Promise.allSettled(
-      allowed.map((channel) =>
+      toDispatch.map((channel) =>
         channelService.dispatchExternal({
           channel,
           userId: data.userId,
@@ -354,21 +462,27 @@ async function dispatchExternalChannels(
       )
     );
 
-    if (markerId) {
-      const outcomes: Record<string, string> = {};
-      allowed.forEach((channel, i) => {
+    if (!markerId) return;
+    // Each outcome is written by a deterministic statement (`Promise.all` over
+    // known channels), never a read-modify-write of the map, so two runs can
+    // never clobber each other's states.
+    await Promise.all(
+      toDispatch.map(async (channel, i) => {
         const r = results[i];
-        // A channel the policy blocks is not owed; a rejected or unsuccessful
-        // dispatch stays FAILED for the next run to retry.
-        outcomes[channel] =
-          policy[channel] === false
-            ? 'SKIPPED'
+        // `success` says the call worked; `delivered` says the message left.
+        // A log-only transport reports success without delivering, so it must
+        // not be recorded SENT or the reminder is lost once a real transport is
+        // configured. Non-EMAIL channels leave `delivered` undefined (a sent
+        // SMS/WhatsApp carries no such flag), so they key on `success`.
+        const state =
+          r.status === 'fulfilled' && r.value.success && r.value.delivered !== false
+            ? DELIVERY_SENT
             : r.status === 'fulfilled' && r.value.success
-              ? 'SENT'
-              : 'FAILED';
-      });
-      await markDeliveryChannel(markerId, outcomes);
-    }
+              ? DELIVERY_PENDING
+              : DELIVERY_FAILED;
+        await markDeliveryOutcome(markerId, channel, state);
+      })
+    );
   } catch (error) {
     console.error('External notification dispatch failed:', error);
   }

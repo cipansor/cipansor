@@ -630,9 +630,12 @@ export class SchedulerService {
    * `unitId` happens to be set (review finding: scope had no dispatch effect):
    * - `SPECIFIC_CLASS` → that class's active students and its homeroom teacher;
    * - `SPECIFIC_UNIT` → every active user of that unit;
-   * - `ALL_UNITS` → every active user, but only when the event is public — a
-   *   non-public foundation event is not meant for the whole system, and falls
-   *   back to its unit (if any) or to nobody.
+   * - `ALL_UNITS` → every active user, but only when the event is unit-less and
+   *   public (a foundation-wide announcement). A unit-bound event is that
+   *   unit's audience whether public or not: the calendar shows a unit user
+   *   their own unit plus unit-less public events, so reminding the whole
+   *   system of a unit's event leaked its title and location elsewhere
+   *   (#804 review, CWE-200).
    * A scope whose required id is missing notifies nobody (a class event with no
    * class is not everyone's).
    */
@@ -675,6 +678,9 @@ export class SchedulerService {
       case EventScope.SPECIFIC_UNIT:
         return event.unitId ? unitAudience(event.unitId) : [];
       case EventScope.ALL_UNITS:
+        // A unit-bound event is that unit's, not the whole system's, however it
+        // is labelled. Only a unit-less public event is foundation-wide.
+        if (event.unitId) return unitAudience(event.unitId);
         if (event.isPublic) {
           return prisma.user.findMany({
             where: { isActive: true, deletedAt: null },
@@ -682,7 +688,7 @@ export class SchedulerService {
             take: 500,
           });
         }
-        return event.unitId ? unitAudience(event.unitId) : [];
+        return [];
       default:
         return [];
     }

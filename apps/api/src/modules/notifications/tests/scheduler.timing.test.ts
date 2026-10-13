@@ -13,6 +13,7 @@ vi.mock('../../../lib/prisma', () => ({
   prisma: {
     invoice: { findMany: vi.fn() },
     attendance: { findMany: vi.fn() },
+    calendarEvent: { findMany: vi.fn() },
   },
 }));
 vi.mock('../../../lib/logger', () => ({
@@ -85,6 +86,33 @@ describe('SchedulerService WIB timing (#802)', () => {
     // UTC-based filter would have produced the 13th→14th window.
     expect(where.date.gte.toISOString()).toBe('2026-10-14T00:00:00.000Z');
     expect(where.date.lt.toISOString()).toBe('2026-10-15T00:00:00.000Z');
+
+    SchedulerService.stopAll();
+  });
+
+  it('queries tomorrow as the next WIB day, so an early event is not reminded early', async () => {
+    // Boot 06:59 WIB Oct 13 = 23:59 UTC Oct 12, one minute before the 07:00 WIB
+    // tick. An event at 06:00 WIB Oct 14 (= 23:00 UTC Oct 13) is "tomorrow" in
+    // WIB but falls in UTC Oct 13. A UTC-day filter would put it in Oct 13's
+    // window and remind two days early, then never on the day itself (#804
+    // review).
+    vi.setSystemTime(new Date('2026-10-12T23:59:00.000Z'));
+    const { SchedulerService, prisma } = await freshScheduler();
+    vi.mocked(prisma.calendarEvent.findMany).mockResolvedValue([]);
+
+    SchedulerService.initialize();
+    // Cross the 07:00 WIB tick (00:00 UTC Oct 13).
+    await vi.advanceTimersByTimeAsync(2 * 60 * 1000);
+
+    expect(prisma.calendarEvent.findMany).toHaveBeenCalled();
+    const where = vi.mocked(prisma.calendarEvent.findMany).mock.calls[0][0]?.where as {
+      startDate: { gte: Date; lt: Date };
+    };
+    // Tomorrow is Oct 14 WIB → the [00:00Z Oct 14, 00:00Z Oct 15) window, which
+    // contains 23:00Z Oct 13 (06:00 WIB Oct 14). A UTC filter would ask for Oct
+    // 13 and miss it.
+    expect(where.startDate.gte.toISOString()).toBe('2026-10-14T00:00:00.000Z');
+    expect(where.startDate.lt.toISOString()).toBe('2026-10-15T00:00:00.000Z');
 
     SchedulerService.stopAll();
   });

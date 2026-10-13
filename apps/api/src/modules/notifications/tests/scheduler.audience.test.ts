@@ -96,6 +96,32 @@ describe('sendEventReminders recipient scope (#802)', () => {
     const where = vi.mocked(prisma.user.findMany).mock.calls[0][0]?.where as { unitId?: unknown };
     expect(where.unitId).toBeUndefined();
   });
+
+  it('a public all-units event that belongs to a unit only reaches that unit', async () => {
+    // Regression (#804 review, CWE-200): `ALL_UNITS` + `isPublic` + a unitId
+    // broadcast a unit's event to the whole system, while the calendar shows a
+    // unit user only their own unit (plus unit-less public events).
+    vi.mocked(prisma.calendarEvent.findMany).mockResolvedValue([
+      event({ scope: EventScope.ALL_UNITS, isPublic: true, unitId: 'unit-7' }),
+    ] as never);
+    vi.mocked(prisma.user.findMany).mockResolvedValue([{ id: 'u-7', name: 'Wali' }] as never);
+
+    await SchedulerService.runTask('event-reminder');
+
+    const where = vi.mocked(prisma.user.findMany).mock.calls[0][0]?.where as { unitId?: unknown };
+    expect(where.unitId).toBe('unit-7');
+  });
+
+  it('a non-public all-units event with no unit reaches nobody', async () => {
+    vi.mocked(prisma.calendarEvent.findMany).mockResolvedValue([
+      event({ scope: EventScope.ALL_UNITS, isPublic: false, unitId: null }),
+    ] as never);
+
+    await SchedulerService.runTask('event-reminder');
+
+    expect(prisma.user.findMany).not.toHaveBeenCalled();
+    expect(createNotification).not.toHaveBeenCalled();
+  });
 });
 
 describe('sendBudgetOverrunAlerts episode reset (#804)', () => {

@@ -598,7 +598,7 @@ class NotificationService {
     // Outbound messages switched off (staging): log only, whatever is configured.
     if (!config.outboundMessages.enabled) {
       logger.info(`SMS not sent (OUTBOUND_MESSAGES_ENABLED=false) to ${recipientPhone}`);
-      return { success: true, channel: 'SMS', messageId: `log_${Date.now()}` };
+      return { success: true, channel: 'SMS', messageId: `log_${Date.now()}`, delivered: false };
     }
 
     // Check if Twilio is configured
@@ -608,7 +608,7 @@ class NotificationService {
       logger.warn(
         'SMS not configured - TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN, or TWILIO_PHONE_NUMBER not set. SMS logged only.'
       );
-      return { success: true, channel: 'SMS', messageId: `log_${Date.now()}` };
+      return { success: true, channel: 'SMS', messageId: `log_${Date.now()}`, delivered: false };
     }
 
     try {
@@ -620,7 +620,7 @@ class NotificationService {
       });
 
       logger.info(`SMS sent to ${recipientPhone}, SID: ${response.sid}`);
-      return { success: true, channel: 'SMS', messageId: response.sid };
+      return { success: true, channel: 'SMS', messageId: response.sid, delivered: true };
     } catch (error) {
       logger.error('Failed to send SMS via Twilio:', error);
       return {
@@ -678,6 +678,7 @@ class NotificationService {
         channel: 'WHATSAPP',
         messageId: result.messageId,
         error: result.error,
+        delivered: result.delivered,
       };
     } catch (error) {
       logger.error('Failed to send WhatsApp:', error);

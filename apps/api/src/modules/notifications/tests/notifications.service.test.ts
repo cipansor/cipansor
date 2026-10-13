@@ -29,6 +29,10 @@ vi.mock('../../../lib/prisma', () => ({
     user: {
       findUnique: vi.fn(),
     },
+    // The atomic per-channel claim/outcome are raw SQL statements (one
+    // statement, so two runs cannot clobber each other's channel states).
+    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
   },
 }));
 
@@ -39,6 +43,19 @@ vi.mock('../email-sms.service', () => ({
 }));
 
 import { notificationService as channelService } from '../email-sms.service';
+
+/**
+ * The strings a mocked Prisma tag function received. Prisma's `$queryRaw` /
+ * `$executeRaw` are called as tagged templates, so the mock's first argument is
+ * the template's string parts and the rest are the interpolated values. Flatten
+ * both to assert which state was recorded.
+ */
+function rawValues(raw: unknown): string[] {
+  const calls = (raw as { mock: { calls: unknown[][] } }).mock.calls;
+  return calls.flatMap((call) =>
+    call.flatMap((part) => (Array.isArray(part) ? part.map(String) : [String(part ?? '')]))
+  );
+}
 
 describe('Notifications Service - Channel Policy', () => {
   beforeEach(() => {
@@ -97,6 +114,10 @@ describe("Notifications Service - a notification is its owner's", () => {
 describe('createNotification — durable recurring delivery (#802)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // Raw statements default to a clean no-op, so a channel that is never
+    // claimed records nothing. Tests that expect a claim override these.
+    (prisma.$queryRaw as any).mockResolvedValue([]);
+    (prisma.$executeRaw as any).mockResolvedValue(0);
   });
 
   const base: CreateNotificationInput = {
@@ -142,15 +163,19 @@ describe('createNotification — durable recurring delivery (#802)', () => {
 
   it('retries a channel left FAILED without recreating the in-app row', async () => {
     (prisma.notificationDelivery.create as any).mockRejectedValue({ code: 'P2002' });
-    (prisma.notificationDelivery.findUnique as any)
-      .mockResolvedValueOnce({ id: 'd-1', channels: { EMAIL: 'FAILED' } }) // claim read
-      .mockResolvedValueOnce({ id: 'd-1', channels: { EMAIL: 'FAILED' } }); // markDeliveryChannel read
-    (prisma.notificationDelivery.update as any).mockResolvedValue({});
+    (prisma.notificationDelivery.findUnique as any).mockResolvedValue({
+      id: 'd-1',
+      channels: { EMAIL: 'FAILED' },
+    });
+    // The per-channel claim wins (returns a row), so the retry runs.
+    (prisma.$queryRaw as any).mockResolvedValue([{ id: 'd-1' }]);
+    (prisma.$executeRaw as any).mockResolvedValue(1);
     (prisma.setting.findFirst as any).mockResolvedValue(null);
     (prisma.user.findUnique as any).mockResolvedValue({ email: 'a@b.c', phone: null });
     dispatchExternal().mockResolvedValue({
       success: true,
       channel: 'EMAIL',
+      delivered: true,
     });
 
     const result = await createNotification({
@@ -161,15 +186,15 @@ describe('createNotification — durable recurring delivery (#802)', () => {
 
     expect(result).toBeNull();
     expect(prisma.notification.create).not.toHaveBeenCalled();
-    // The retry marked the channel SENT on the existing marker.
-    const updateArgs = (prisma.notificationDelivery.update as any).mock.calls[0][0];
-    expect(updateArgs.data.channels).toEqual({ EMAIL: 'SENT' });
+    expect(dispatchExternal()).toHaveBeenCalledTimes(1);
+    // The outcome is written by a deterministic statement, not a map merge.
+    expect(rawValues(prisma.$executeRaw)).toContain('SENT');
   });
 
   it('records a failed dispatch as FAILED so the next run can retry', async () => {
     (prisma.notificationDelivery.create as any).mockResolvedValue({ id: 'd-1', channels: {} });
-    (prisma.notificationDelivery.findUnique as any).mockResolvedValue({ id: 'd-1', channels: {} });
-    (prisma.notificationDelivery.update as any).mockResolvedValue({});
+    (prisma.$queryRaw as any).mockResolvedValue([{ id: 'd-1' }]);
+    (prisma.$executeRaw as any).mockResolvedValue(1);
     (prisma.notification.create as any).mockResolvedValue({ id: 'n-1' });
     (prisma.setting.findFirst as any).mockResolvedValue(null);
     (prisma.user.findUnique as any).mockResolvedValue({ email: 'a@b.c', phone: null });
@@ -185,8 +210,56 @@ describe('createNotification — durable recurring delivery (#802)', () => {
       dedupeKey: 'payment-reminder:inv-1',
     });
 
-    const updateArgs = (prisma.notificationDelivery.update as any).mock.calls[0][0];
-    expect(updateArgs.data.channels).toEqual({ EMAIL: 'FAILED' });
+    // The FAILED state is written by $executeRaw (deterministic), so the next
+    // run's claim matches and retries it.
+    expect(rawValues(prisma.$executeRaw)).toContain('FAILED');
+  });
+
+  it('does not mark a log-only email SENT — a later transport still delivers', async () => {
+    (prisma.notificationDelivery.create as any).mockResolvedValue({ id: 'd-1', channels: {} });
+    (prisma.$queryRaw as any).mockResolvedValue([{ id: 'd-1' }]);
+    (prisma.$executeRaw as any).mockResolvedValue(1);
+    (prisma.notification.create as any).mockResolvedValue({ id: 'n-1' });
+    (prisma.setting.findFirst as any).mockResolvedValue(null);
+    (prisma.user.findUnique as any).mockResolvedValue({ email: 'a@b.c', phone: null });
+    // success: true, delivered: false — the log-only transport.
+    dispatchExternal().mockResolvedValue({
+      success: true,
+      channel: 'EMAIL',
+      delivered: false,
+    });
+
+    await createNotification({
+      ...base,
+      channels: ['IN_APP', 'EMAIL'],
+      dedupeKey: 'payment-reminder:inv-1',
+    });
+
+    // PENDING must be the recorded state; a SENT here would suppress the real
+    // send once email is configured. The state is written by $executeRaw.
+    expect(rawValues(prisma.$executeRaw)).toContain('PENDING');
+    expect(rawValues(prisma.$executeRaw)).not.toContain('SENT');
+  });
+
+  it('a lost channel claim sends nothing (concurrent retry is a no-op)', async () => {
+    (prisma.notificationDelivery.create as any).mockRejectedValue({ code: 'P2002' });
+    (prisma.notificationDelivery.findUnique as any).mockResolvedValue({
+      id: 'd-1',
+      channels: { EMAIL: 'FAILED' },
+    });
+    // Every claim matches 0 rows: the other run holds the channel.
+    (prisma.$queryRaw as any).mockResolvedValue([]);
+    (prisma.setting.findFirst as any).mockResolvedValue(null);
+    (prisma.user.findUnique as any).mockResolvedValue({ email: 'a@b.c', phone: null });
+
+    const result = await createNotification({
+      ...base,
+      channels: ['IN_APP', 'EMAIL'],
+      dedupeKey: 'payment-reminder:inv-1',
+    });
+
+    expect(result).toBeNull();
+    expect(dispatchExternal()).not.toHaveBeenCalled();
   });
 
   it('never suppresses a one-shot notification (no dedupe key)', async () => {

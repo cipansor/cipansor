@@ -60,6 +60,13 @@ interface SendResult {
   provider: WhatsAppProvider;
   error?: string;
   timestamp: Date;
+  /**
+   * Whether the message actually left the building. `success: true` with
+   * `delivered: false` is the simulator (no phone was messaged) — the call
+   * worked, nothing was sent. Callers that record delivery state must check
+   * this, not `success` alone, or a log-only run is mistaken for a real one.
+   */
+  delivered?: boolean;
 }
 
 // WhatsApp message templates for Indonesian education context
@@ -387,7 +394,11 @@ class WhatsAppService {
       // Log message
       await this.logMessage(phoneNumber, message, type, result);
 
-      return result;
+      // The simulator reports success without touching a phone; a real
+      // provider's `success` means the message actually left. Surface that so a
+      // caller recording delivery state does not mistake a log-only run for a
+      // delivered one.
+      return { ...result, delivered: result.success && this.config.provider !== 'SIMULATOR' };
     } catch (error) {
       logger.error(`WhatsApp send error: ${error}`);
       return {
