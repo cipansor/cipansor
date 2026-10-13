@@ -1,6 +1,6 @@
 # Progress — where the work stands
 
-Updated **2026-10-10**. What a new session needs to pick up the thread, newest
+Updated **2026-10-11**. What a new session needs to pick up the thread, newest
 first. Keep it short: finished work belongs to git history, and the ordered
 backlog to [`roadmap.md`](roadmap.md).
 
