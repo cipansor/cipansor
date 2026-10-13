@@ -163,7 +163,7 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | pemeriksa Actions: PR ready dan hijau tanpa review gerbang pada head itu > 2 jam | satu issue `gerbang-macet` dan dispatch ulang sekali |
+| Gerbang tinjau tidak menjawab | pemeriksa Actions: PR ready dan hijau tanpa review gerbang pada head itu > 60 menit | satu issue `automation-health` dan dispatch ulang sekali |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
@@ -254,7 +254,7 @@ butir mengikuti aturan emas di `AGENTS.md`):
 1. **Maintainer** mematikan cron cloud `Penjaga issue` dan `Uji beban` di
    `app.all-hands.dev`.
 2. **Pemeriksa gerbang macet** (Actions): PR ready dan hijau tanpa review
-   gerbang pada head itu > 2 jam → satu issue `gerbang-macet` dan satu
+   gerbang pada head itu > 60 menit → satu issue `automation-health` dan satu
    dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
    merge.
 3. **Triase satu pemilik**: hanya `Pelabel issue` yang menulis triase,
