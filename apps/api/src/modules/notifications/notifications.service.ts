@@ -33,6 +33,29 @@ export const mapTypeToPrisma = (type: string): { dbType: string; originalType: s
   return { dbType: mapping[type] || 'INFO', originalType: type };
 };
 
+/** Prisma's error code for a unique-constraint violation (P2002). */
+function isUniqueViolation(error: unknown): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as { code?: string }).code === 'P2002'
+  );
+}
+
+/**
+ * Whether a notification carrying this delivery key already reached this
+ * recipient. Backed by the `Notification.user_dedupe_key` unique index; the
+ * `key` path is only queryable because of it. Used to make recurring scheduled
+ * tasks idempotent (#802).
+ */
+async function notificationDeliveryExists(userId: string, dedupeKey: string): Promise<boolean> {
+  const existing = await prisma.notification.findFirst({
+    where: { userId, dedupeKey },
+    select: { id: true },
+  });
+  return existing !== null;
+}
+
 // ==================== NOTIFICATION ====================
 
 export async function getUserNotifications(userId: string, query: QueryNotificationInput) {
@@ -156,7 +179,17 @@ export async function createNotification(data: CreateNotificationInput) {
   const { dbType, originalType } = mapTypeToPrisma(data.type ?? 'INFO');
 
   // Extract fields that are not in the Prisma model but need to be stored in `data`
-  const { priority, channels, recipientType, recipientIds, ...rest } = data;
+  const { priority, channels, recipientType, recipientIds, dedupeKey, ...rest } = data;
+
+  if (dedupeKey && data.userId) {
+    // Idempotent recurring notification (#802): the task reruns, but each
+    // recipient gets one row per delivery key. A cheap pre-read plus the unique
+    // index backstop in `Notification` turn a lost race into a no-op, not a
+    // duplicate.
+    if (await notificationDeliveryExists(data.userId, dedupeKey)) {
+      return null;
+    }
+  }
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const createData: any = {
@@ -170,12 +203,24 @@ export async function createNotification(data: CreateNotificationInput) {
       channels,
       recipientType,
       ...(recipientIds ? { recipientIds } : {}),
+      ...(dedupeKey ? { dedupeKey } : {}),
     },
     // Explicitly map scheduledAt if provided
     scheduledAt: data.scheduledAt || null,
+    // The unique index that makes redelivery a no-op reads the column, not the
+    // JSON copy above.
+    ...(dedupeKey ? { dedupeKey } : {}),
   };
 
-  const notification = await prisma.notification.create({ data: createData });
+  let notification;
+  try {
+    notification = await prisma.notification.create({ data: createData });
+  } catch (error) {
+    if (dedupeKey && isUniqueViolation(error)) {
+      return null;
+    }
+    throw error;
+  }
 
   // Fan out to external channels (EMAIL/SMS/WHATSAPP) listed on the
   // notification. The in-app row above is the record; external dispatch is
