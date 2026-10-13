@@ -44,9 +44,11 @@ Token didapat dari endpoint POST /api/auth/login
         name: 'Cipansor Team',
         email: 'dev@cipansor.or.id',
       },
+      // The repository's licence (LICENSE, package.json, decisions/lisensi.md);
+      // swagger.test.ts keeps the two from drifting apart again.
       license: {
-        name: 'MIT',
-        url: 'https://opensource.org/licenses/MIT',
+        name: 'Apache-2.0',
+        url: 'https://www.apache.org/licenses/LICENSE-2.0',
       },
     },
     servers: [

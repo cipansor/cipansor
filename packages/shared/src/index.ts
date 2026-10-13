@@ -2,6 +2,7 @@ export * from "./types/auth";
 export * from "./types/class";
 export * from "./types/models";
 export * from "./types/attendance";
+export * from "./types/hr-attendance";
 export * from "./types/enums";
 export * from "./types/student-status";
 export * from "./types/notifications";

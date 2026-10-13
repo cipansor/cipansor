@@ -74,6 +74,12 @@ export const generatePayrollSchema = z.object({
   periodId: z.string().uuid(),
   staffIds: z.array(z.string().uuid()).optional(), // If empty, generate for all staff
   overwrite: z.boolean().default(false),
+  /**
+   * A written reason for generating a slip whose deduction crosses the guard
+   * (PP 36/2021 art. 32). Absent, a breaching slip is refused rather than
+   * silently produced.
+   */
+  overrideGuardReason: z.string().min(10).max(500).optional(),
 });
 
 // Approve Payroll Period Schema

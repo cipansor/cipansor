@@ -186,6 +186,11 @@ services:
       # different rules — /uploads is served statically behind authentication,
       # this is served by nothing.
       - api_identity:/app/apps/api/private/identity
+      # Clock-in selfies: facial images (UU PDP Ps. 4), served only by the
+      # endpoint that checks the reader and records the read, and kept until
+      # the attendance retention job removes them. Not under public/ for the
+      # same reason as the KTP scans.
+      - api_attendance:/app/apps/api/private/attendance
     ports:
       - "127.0.0.1:${API_PORT:-3001}:3001"
     depends_on:
@@ -312,6 +317,9 @@ volumes:
   # KTP scans. Outlives the container for the same reason, and must be included
   # in any backup that claims to cover the signing keys' evidence trail.
   api_identity:
+  # Clock-in selfies. Outlives the container; the retention job, not a
+  # redeploy, decides when they go.
+  api_attendance:
   # Survives redeploys so the optimised landing-page images stay warm.
   web-image-cache:
 

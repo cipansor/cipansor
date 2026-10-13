@@ -1,6 +1,6 @@
 # Progress — where the work stands
 
-Updated **2026-10-10**. What a new session needs to pick up the thread, newest
+Updated **2026-10-13**. What a new session needs to pick up the thread, newest
 first. Keep it short: finished work belongs to git history, and the ordered
 backlog to [`roadmap.md`](roadmap.md).
 
@@ -25,17 +25,26 @@ backlog to [`roadmap.md`](roadmap.md).
 
 ## Waiting on the user
 
-- **The next production release is approved once #630 (staff attendance)
-  and #714 (pesantren staff reach every school's santri) are merged**
-  (2026-10-09). Each step that writes production data is still confirmed
-  separately, right before it runs: the SPMB and extracurricular loaders,
-  `require-password-change-all`, and the production VAPID pair. Before that
-  approval it had been deferred since 2026-09-27. Passwords parts A and B
-  must go out together, with `apps/api/scripts/require-password-change-all.ts` run
-  once after that deploy; SPMB 2027/2028 needs a release before
-  1 January 2027 to take wave 2. (Which fixes production
-  still lacks is for the machine-local memory, not here — see "Where things
-  live".)
+- **Absensi pegawai (PR #630, merged 2026-10-12) — before a unit switches
+  self-attendance on.** The 2026-10-09 audit's defects are fixed (punches
+  recorded, settings only for the super admin and unit admins, private selfies,
+  the 50% ceiling, records kept ten years, the camera and location the web
+  header had denied). Selfie and location stay **off** until a unit's admin
+  turns them on, and that waits on the yayasan: the employee privacy notice
+  (D1) and a DPIA for the selfie (UU PDP Ps. 34), plus staff records for every
+  non-teaching employee and the unit's sites, work week and policy
+  (`roadmap.md` §0a, decisions in `decisions/absensi-pegawai.md`, open defects
+  in `known-issues.md`).
+
+- **The next production release.** #630 (staff attendance) and #714 (pesantren
+  staff reach every school's santri) are both merged (2026-10-11/12), the
+  condition the user set on 2026-10-09. Each step that writes production data
+  is still confirmed separately, right before it runs: the SPMB and
+  extracurricular loaders, `apps/api/scripts/require-password-change-all.ts`,
+  and the production VAPID pair. Passwords parts A and B must go out together,
+  with that script run once after the deploy; SPMB 2027/2028 needs a release
+  before 1 January 2027 to take wave 2. (Which fixes production still lacks is
+  for the machine-local memory, not here — see "Where things live".)
 - Role catalogue items decided but not built: wakasek per bidang as a
   timed assignment (Model A; wakasek is no longer a role code —
   `decisions/peran-dan-tugas-tambahan.md`), `PESANTREN_ADMIN` (needs a
@@ -94,16 +103,14 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
-- **Open PRs, 2026-10-11:** #630 (the release waits on it, and on the
-  owner's human note; with the review gate), #747 (kept to the read leaks; the
-  `{ body }`-wrapped schemas stay in #749 for all 14 routes, decided
-  2026-10-11), #773 (a PR must link an open, ready issue), #777 (the gate
-  watch), #783 (guides point at what measures a count; closes sixteen drift
-  issues), #660, #691, #703, #707, #658. Merged since 2026-10-10: #512, #714,
-  #708 + #734 (tested together on `main`), #761 and #766 (the human note only
-  on risky PRs, and Markdown is never risky). After #630: #668 (its leave tests
-  merge into #630's file) and #726 (merge `main` in). #706: closing
-  recommended in favour of #783.
+- **Open PRs, 2026-10-13:** #777 (the gate watch; ready, all checks green,
+  waiting on the review gate), #668 and #775, #804 (draft). Merged since
+  2026-10-10: #512, #714, #708 + #734 (tested together on `main`), #761 and
+  #766 (the human note only on risky PRs, and Markdown is never risky), #630
+  (staff attendance), #726 (the Pesantren unit), #747 (portfolio and replies
+  follow who may read them), #773 (a PR must link an open, ready issue), #783
+  (guides point at what measures a count; closed sixteen drift issues). #706:
+  closed in favour of #783.
 
 - **Audit of #655, #657 and #628 (asked 2026-10-09).** All three merged: #655
   (public SPMB announcement), #657 (assistant on staging, mirrored on Arabic
@@ -368,7 +375,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   from pages, in 31 areas — proven on staging: `POST /permits/:id/approve`,
   `/curriculum/curriculums`, `/hr/employees`, `/certificates` all 404);
   10 API modules and 9 web routes are misnamed, 35 + 32 more need tidying;
-  22 of 93 modules meet the module standard. Plan in seven phases (roadmap §1):
+  Most modules did not meet the module standard (measured in `known-issues.md`). Plan in seven phases (roadmap §1):
   guards → reconnect the broken contract → glossary → consolidate duplicates →
   API by context under `/api/v1` with a Zod → OpenAPI contract → web → harden
   → docs. The glossary still comes before Model A's permission keys.

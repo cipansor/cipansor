@@ -13,6 +13,7 @@ export * from "./curriculum";
 export * from "./daily-report";
 export * from "./homeroom";
 export * from "./attendance";
+export * from "./hr-attendance";
 export * from "./donation";
 export * from "./accreditation";
 export * from "./certificate";

@@ -30,7 +30,7 @@ andalannya. Setelah perbaikan di bagian 6, isi dan berkasnya lolos pemeriksa mes
 
 # 3. Temuan menengah
 
-- **Ukuran tata letak modul rosier daripada repo sendiri.** Dokumen: "66 dari 93 tata letak lengkap"; `known-issues.md`: 22 dari 93 (lima bagian, termasuk `index.ts`; kini 24). Dua definisi dicampur tanpa disebut.
+- **Ukuran tata letak modul rosier daripada repo sendiri.** Dokumen menulis "66 dari 93 tata letak lengkap", sedangkan `known-issues.md` menulis 22 dari 93. Yang pertama menghitung empat berkas, yang kedua lima bagian (termasuk `index.ts`), dan keduanya dicampur tanpa disebut. Kini keduanya dipisah di `facts.json` (`four_file_modules`, `five_part_modules`) dan diperiksa `check_docs.py` di setiap revisi (#771); angkanya tidak disalin ke sini karena bergeser.
 - **Bab 5.3 melewatkan modul inti** (`students`, `parent`, `meals`, `paud-report`, `scholarship`).
 - **Bab 9 memuat `akreditasi-unit.md` dua kali** (baris kedua bahkan menambah klaim yang hanya sebagian ada di berkasnya); jumlah baris tampak cocok karena dua berkas lain digabung dalam satu baris.
 - **Bab 10 bukan skenario mutu.** Tanpa ukuran; satu baris berupa cacat (optimizer gambar), satu kalimat berbalik ("…tidak merges").

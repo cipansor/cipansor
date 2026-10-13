@@ -9,7 +9,7 @@ body:
         Bug adalah perubahan yang harus diperbaiki; pertanyaan masuk ke Discussions.
         Automation `Pelabel issue` akan menambahkan prioritas dan menandai issue
         `ready` begitu kolom di bawah terisi cukup untuk diimplementasikan tanpa
-        pertanyaan lanjutan. See [docs/LABELS.md](https://github.com/ypcipansor/cipansor/blob/main/docs/LABELS.md).
+        pertanyaan lanjutan. See [docs/LABELS.md](https://github.com/cipansor/cipansor/blob/main/docs/LABELS.md).
 
   - type: textarea
     id: what-happened

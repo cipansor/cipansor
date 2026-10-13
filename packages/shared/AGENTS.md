@@ -19,9 +19,13 @@ Shared TypeScript types and Zod schemas consumed by **both** `apps/api` and
 
 ```
 src/
-  index.ts        # barrel — every public type/schema is re-exported here
-  types/*.ts       # domain DTO interfaces (auth, finance, assessment, ...)
-  schemas/*.ts     # Zod schemas (+ inferred types via z.infer)
+  index.ts            # barrel — every public type/schema is re-exported here
+  types/*.ts          # domain DTO interfaces (auth, finance, assessment, ...)
+  schemas/*.ts        # Zod schemas (+ inferred types via z.infer)
+  roles.ts            # how role codes are GROUPED (admin, teacher-level, staff, ...);
+                      #   the RoleCode enum itself is Prisma's
+  public-site.ts      # the public site's verifiable facts, also read by the chatbot
+  password-policy.ts  # the password rules a form can check as you type
 ```
 
 Rules:

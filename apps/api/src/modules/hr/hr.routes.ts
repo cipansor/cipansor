@@ -1,6 +1,8 @@
 import { Router } from 'express';
+import multer from 'multer';
 import { UserRole } from '@prisma/client';
 import * as controller from './hr.controller';
+import * as settingsController from './attendance-settings.controller';
 import { departmentController } from './departments.controller';
 import { contractController } from './contracts.controller';
 import { leaveBalanceController } from './leave-balances.controller';
@@ -9,6 +11,7 @@ import { employmentHistoryController } from './employment-history.controller';
 import { authenticate, authorize } from '../../middleware/auth';
 import { z } from 'zod';
 import { validateQuery } from '../../middleware/error';
+import { MAX_ATTENDANCE_PHOTO_BYTES } from '../../utils/attendance-photo-store';
 import { validate } from '../../middleware/validate';
 import {
   queryStaffAttendanceSchema,
@@ -217,6 +220,225 @@ router.post(
   '/attendance',
   authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
   controller.createStaffAttendance
+);
+
+// ==================== SELF ATTENDANCE (all signed-in staff) ====================
+// Static paths registered before '/attendance/:id' so they are not shadowed.
+
+router.post(
+  '/attendance/check-in',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER, UserRole.STAFF),
+  settingsController.selfCheckIn
+);
+
+router.post(
+  '/attendance/check-out',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER, UserRole.STAFF),
+  settingsController.selfCheckOut
+);
+
+router.get(
+  '/attendance/me',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER, UserRole.STAFF),
+  settingsController.getMyAttendanceToday
+);
+
+// The selfie goes to the private attendance store, not the general /upload:
+// files there are readable by every signed-in account.
+const punchPhotoUpload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: MAX_ATTENDANCE_PHOTO_BYTES, files: 1 },
+});
+
+router.post(
+  '/attendance/photo',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER, UserRole.STAFF),
+  punchPhotoUpload.single('file'),
+  settingsController.uploadPunchPhoto
+);
+
+router.get(
+  '/attendance/records/:id/photo',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER, UserRole.STAFF),
+  settingsController.getPunchPhoto
+);
+
+router.get(
+  '/attendance/calendar',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.getWorkCalendar
+);
+
+// ==================== ATTENDANCE SETTINGS ====================
+
+router.get(
+  '/attendance/sites',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.listAttendanceSites
+);
+router.post(
+  '/attendance/sites',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.createAttendanceSite
+);
+router.patch(
+  '/attendance/sites/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.updateAttendanceSite
+);
+router.delete(
+  '/attendance/sites/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.deleteAttendanceSite
+);
+
+router.get(
+  '/attendance/shifts',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.listWorkShifts
+);
+router.post(
+  '/attendance/shifts',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.createWorkShift
+);
+router.patch(
+  '/attendance/shifts/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.updateWorkShift
+);
+router.delete(
+  '/attendance/shifts/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.deleteWorkShift
+);
+
+router.get(
+  '/attendance/shift-assignments',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.listShiftAssignments
+);
+router.post(
+  '/attendance/shift-assignments',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.createShiftAssignment
+);
+router.delete(
+  '/attendance/shift-assignments/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.deleteShiftAssignment
+);
+
+router.get(
+  '/attendance/rotations',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.listShiftRotations
+);
+router.post(
+  '/attendance/rotations',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.createShiftRotation
+);
+router.patch(
+  '/attendance/rotations/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.updateShiftRotation
+);
+router.delete(
+  '/attendance/rotations/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.deleteShiftRotation
+);
+
+router.get(
+  '/attendance/work-weeks',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.listWorkWeekConfigs
+);
+router.put(
+  '/attendance/work-weeks',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.upsertWorkWeekConfig
+);
+
+router.get(
+  '/attendance/policies',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.listAttendancePolicies
+);
+router.put(
+  '/attendance/policies',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.upsertAttendancePolicy
+);
+
+router.get(
+  '/attendance/exemptions',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.listAttendanceExemptions
+);
+router.post(
+  '/attendance/exemptions',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.createAttendanceExemption
+);
+router.delete(
+  '/attendance/exemptions/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.deleteAttendanceExemption
+);
+
+// ==================== PAYROLL POLICY ====================
+
+router.get(
+  '/payroll/policy-rules',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.listPayrollPolicyRules
+);
+router.put(
+  '/payroll/policy-rules/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.upsertPayrollPolicyRule
+);
+router.delete(
+  '/payroll/policy-rules/:id',
+  authorize(UserRole.SUPER_ADMIN),
+  settingsController.deletePayrollPolicyRule
+);
+
+router.get(
+  '/payroll/guard-config',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.getPayrollGuardConfig
+);
+router.put(
+  '/payroll/guard-config',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.upsertPayrollGuardConfig
+);
+
+// ==================== RETENTION (Super Admin) ====================
+
+router.get(
+  '/retention-policies',
+  authorize(UserRole.SUPER_ADMIN),
+  settingsController.listRetentionPolicies
+);
+router.put(
+  '/retention-policies',
+  authorize(UserRole.SUPER_ADMIN),
+  settingsController.upsertRetentionPolicy
+);
+
+router.get(
+  '/leave-type-configs',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  settingsController.listLeaveTypeConfigs
+);
+router.put(
+  '/leave-type-configs',
+  authorize(UserRole.SUPER_ADMIN),
+  settingsController.upsertLeaveTypeConfig
 );
 
 /**

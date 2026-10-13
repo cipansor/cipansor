@@ -21,14 +21,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import {
-  Dialog,
-  DialogContent,
-  DialogHeader,
-  DialogTitle,
-  DialogTrigger,
-  DialogFooter,
-} from "@/components/ui/dialog";
-import {
   Table,
   TableBody,
   TableCell,
@@ -38,10 +30,7 @@ import {
 } from "@/components/ui/table";
 import {
   useStaffAttendances,
-  useCreateStaffAttendance,
-  useBulkStaffAttendance,
   useUnits,
-  useDepartments,
   STAFF_ATTENDANCE_STATUS_LABELS,
   StaffAttendanceStatus,
 } from "@/hooks";
@@ -52,38 +41,52 @@ import {
   Search,
   Users,
   XCircle,
-  Plus,
   Loader2,
 } from "lucide-react";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
 import { cn } from "@/lib/utils";
-import { toast } from "sonner";
+import { PunchEvidence } from "@/components/hr/PunchEvidence";
+import { StaffAttendanceAdminOnly } from "@/components/hr/StaffAttendanceAdminOnly";
+import { useAuth } from "@/hooks/use-auth";
+import { canManageStaffAttendance } from "@/lib/staff-attendance-access";
+
+/** The name is on `user` for both a staff member and a teacher record. */
+const attendanceName = (item: {
+  staff?: { user?: { name: string } };
+  teacher?: { user?: { name: string } };
+}) => item.staff?.user?.name || item.teacher?.user?.name || "Tanpa nama";
 
 export default function StaffAttendancePage() {
+  const { user } = useAuth();
+  if (user && !canManageStaffAttendance(user))
+    return <StaffAttendanceAdminOnly title="Absensi Pegawai" />;
+  return <StaffAttendanceList />;
+}
+
+function StaffAttendanceList() {
   const [date, setDate] = useState<Date>(new Date());
   const [unitFilter, setUnitFilter] = useState<string>("");
   const [search, setSearch] = useState("");
-  const [isBulkOpen, setIsBulkOpen] = useState(false);
 
   // Queries
   const { data: attendanceData, isLoading } = useStaffAttendances({
     startDate: format(date, "yyyy-MM-dd"),
     endDate: format(date, "yyyy-MM-dd"),
+    unitId: unitFilter || undefined,
     limit: 100, // Fetch more for daily view
   });
 
   const { data: units } = useUnits();
 
-  // Mutations
-  const createAttendance = useCreateStaffAttendance();
-  const bulkAttendance = useBulkStaffAttendance();
-
   const attendances = attendanceData?.data || [];
 
   // Stats
   const stats = {
-    present: attendances.filter((a) => a.status === "PRESENT").length,
+    present: attendances.filter(
+      (a) =>
+        a.status === "PRESENT" || a.status === "REMOTE" || a.status === "DUTY",
+    ).length,
     late: attendances.filter((a) => a.status === "LATE").length,
     absent: attendances.filter((a) => a.status === "ABSENT").length,
     leave: attendances.filter(
@@ -98,6 +101,9 @@ export default function StaffAttendancePage() {
       ABSENT: "bg-red-100 text-red-800",
       LEAVE: "bg-blue-100 text-blue-800",
       SICK: "bg-purple-100 text-purple-800",
+      REMOTE: "bg-sky-100 text-sky-800",
+      DUTY: "bg-teal-100 text-teal-800",
+      HOLIDAY: "bg-gray-100 text-gray-800",
     };
     return (
       <Badge className={colors[status]}>
@@ -106,32 +112,10 @@ export default function StaffAttendancePage() {
     );
   };
 
-  const handleBulkAttendance = async () => {
-    try {
-      // In a real app, you might select specific staff.
-      // For now we'll simulate a bulk action or just direct to a robust bulk form.
-      // But since we need to send staffIds, we usually need a list of ALL staff first.
-      // For this MVP step, let's just show a toast that it requires staff selection implementation
-      // Or we can implement a "Mark All Active Staff as Present" if we fetch staff list.
-
-      // Let's implement a simple "Check In" dialog for individual staff instead for now?
-      // Or just a placeholder.
-      toast.info(
-        "Fitur Absensi Massal akan segera hadir. Silakan input manual per karyawan.",
-      );
-      setIsBulkOpen(false);
-    } catch (error) {
-      toast.error("Gagal memproses absensi massal");
-    }
-  };
-
-  // Filtered Data
+  // Filtered Data (search stays client-side; the unit filter goes to the API)
   const filteredAttendances = attendances.filter((item) => {
-    if (unitFilter && item.staff?.unitId !== unitFilter) return false;
-    if (search) {
-      return item.staff?.fullName.toLowerCase().includes(search.toLowerCase());
-    }
-    return true;
+    if (!search) return true;
+    return attendanceName(item).toLowerCase().includes(search.toLowerCase());
   });
 
   return (
@@ -140,7 +124,7 @@ export default function StaffAttendancePage() {
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
           <div>
             <h1 className="text-3xl font-bold tracking-tight">
-              Absensi Karyawan
+              Absensi Pegawai
             </h1>
             <p className="text-muted-foreground">
               Kelola kehadiran harian guru dan staf
@@ -173,8 +157,16 @@ export default function StaffAttendancePage() {
                 />
               </PopoverContent>
             </Popover>
-            <Button onClick={() => setIsBulkOpen(true)}>
-              <Plus className="mr-2 h-4 w-4" />
+            <Button
+              variant="outline"
+              onClick={() => {
+                const params = new URLSearchParams({
+                  date: format(date, "yyyy-MM-dd"),
+                });
+                window.location.href = `/hr/attendance/bulk?${params}`;
+              }}
+            >
+              <CalendarIcon className="mr-2 h-4 w-4" />
               Absensi Massal
             </Button>
           </div>
@@ -189,7 +181,7 @@ export default function StaffAttendancePage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.present}</div>
-              <p className="text-xs text-muted-foreground">Karyawan</p>
+              <p className="text-xs text-muted-foreground">Pegawai</p>
             </CardContent>
           </Card>
           <Card>
@@ -199,7 +191,7 @@ export default function StaffAttendancePage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.late}</div>
-              <p className="text-xs text-muted-foreground">Karyawan</p>
+              <p className="text-xs text-muted-foreground">Pegawai</p>
             </CardContent>
           </Card>
           <Card>
@@ -209,7 +201,7 @@ export default function StaffAttendancePage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.leave}</div>
-              <p className="text-xs text-muted-foreground">Karyawan</p>
+              <p className="text-xs text-muted-foreground">Pegawai</p>
             </CardContent>
           </Card>
           <Card>
@@ -221,7 +213,7 @@ export default function StaffAttendancePage() {
             </CardHeader>
             <CardContent>
               <div className="text-2xl font-bold">{stats.absent}</div>
-              <p className="text-xs text-muted-foreground">Karyawan</p>
+              <p className="text-xs text-muted-foreground">Pegawai</p>
             </CardContent>
           </Card>
         </div>
@@ -233,7 +225,7 @@ export default function StaffAttendancePage() {
               <div className="relative flex-1">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
-                  placeholder="Cari nama karyawan..."
+                  placeholder="Cari nama pegawai..."
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
                   className="pl-9"
@@ -258,18 +250,19 @@ export default function StaffAttendancePage() {
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Nama Karyawan</TableHead>
+                    <TableHead>Nama Pegawai</TableHead>
                     <TableHead>Unit</TableHead>
                     <TableHead>Jam Masuk</TableHead>
                     <TableHead>Jam Pulang</TableHead>
                     <TableHead>Status</TableHead>
+                    <TableHead>Bukti</TableHead>
                     <TableHead>Catatan</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {isLoading ? (
                     <TableRow>
-                      <TableCell colSpan={6} className="text-center py-8">
+                      <TableCell colSpan={7} className="text-center py-8">
                         <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                       </TableCell>
                     </TableRow>
@@ -277,9 +270,13 @@ export default function StaffAttendancePage() {
                     filteredAttendances.map((item) => (
                       <TableRow key={item.id}>
                         <TableCell className="font-medium">
-                          {item.staff?.fullName}
+                          {attendanceName(item)}
                         </TableCell>
-                        <TableCell>{item.staff?.unit?.name || "-"}</TableCell>
+                        <TableCell>
+                          {item.staff?.unit?.name ||
+                            item.teacher?.unit?.name ||
+                            "-"}
+                        </TableCell>
                         <TableCell>
                           {item.checkIn
                             ? safeFormat(new Date(item.checkIn), "HH:mm")
@@ -291,9 +288,15 @@ export default function StaffAttendancePage() {
                             : "-"}
                         </TableCell>
                         <TableCell>{getStatusBadge(item.status)}</TableCell>
+                        <TableCell>
+                          <PunchEvidence
+                            name={attendanceName(item)}
+                            records={item.records ?? []}
+                          />
+                        </TableCell>
                         <TableCell
                           className="max-w-[200px] truncate"
-                          title={item.notes}
+                          title={item.notes ?? undefined}
                         >
                           {item.notes || "-"}
                         </TableCell>
@@ -302,7 +305,7 @@ export default function StaffAttendancePage() {
                   ) : (
                     <TableRow>
                       <TableCell
-                        colSpan={6}
+                        colSpan={7}
                         className="text-center py-8 text-muted-foreground"
                       >
                         Belum ada data absensi untuk tanggal ini
@@ -314,27 +317,6 @@ export default function StaffAttendancePage() {
             </div>
           </CardContent>
         </Card>
-
-        {/* Bulk Dialog Placeholder */}
-        <Dialog open={isBulkOpen} onOpenChange={setIsBulkOpen}>
-          <DialogContent>
-            <DialogHeader>
-              <DialogTitle>Absensi Massal</DialogTitle>
-            </DialogHeader>
-            <div className="py-4">
-              <p className="text-muted-foreground">
-                Fitur ini akan memungkinkan Anda untuk menandai semua karyawan
-                sebagai "Hadir" atau mengimpor data dari mesin fingerprint.
-              </p>
-              <div className="mt-4 p-4 bg-yellow-50 text-yellow-800 rounded-md text-sm">
-                Status: Dalam Pengembangan
-              </div>
-            </div>
-            <DialogFooter>
-              <Button onClick={() => setIsBulkOpen(false)}>Tutup</Button>
-            </DialogFooter>
-          </DialogContent>
-        </Dialog>
       </div>
     </MainLayout>
   );

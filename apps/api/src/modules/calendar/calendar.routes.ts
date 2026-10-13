@@ -112,6 +112,63 @@ router.post(
   calendarController.generateRecurringEvents.bind(calendarController)
 );
 
+// GET /calendar/holidays/config - Holiday-source settings
+router.get(
+  '/holidays/config',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  calendarController.getHolidaySyncConfig.bind(calendarController)
+);
+
+// PUT /calendar/holidays/config - Change the holiday source / years. The source
+// is yayasan-wide: every unit's scheduled sync reads it, so only the super admin
+// may change it. A unit admin editing it would silently retarget every unit.
+router.put(
+  '/holidays/config',
+  authorize(UserRole.SUPER_ADMIN),
+  calendarController.updateHolidaySyncConfig.bind(calendarController)
+);
+
+// POST /calendar/holidays/sync - Fetch a year's national holidays into the calendar
+router.post(
+  '/holidays/sync',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  calendarController.syncHolidays.bind(calendarController)
+);
+
+// GET /calendar/holidays/drafts - Imported holidays awaiting review
+router.get(
+  '/holidays/drafts',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  calendarController.listHolidayDrafts.bind(calendarController)
+);
+
+// POST /calendar/holidays/drafts/:id/approve - Adopt a draft into the live calendar
+router.post(
+  '/holidays/drafts/:id/approve',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  calendarController.approveHolidayDraft.bind(calendarController)
+);
+
+// POST /calendar/holidays/drafts/:id/reject - Drop a draft so it never affects work days
+router.post(
+  '/holidays/drafts/:id/reject',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  calendarController.rejectHolidayDraft.bind(calendarController)
+);
+
+// GET /calendar/:id - Get event by ID
+router.get(
+  '/:id',
+  authorize(
+    UserRole.SUPER_ADMIN,
+    UserRole.UNIT_ADMIN,
+    UserRole.TEACHER,
+    UserRole.STUDENT,
+    UserRole.PARENT
+  ),
+  calendarController.getEventById.bind(calendarController)
+);
+
 // PUT /calendar/:id - Update event
 router.put(
   '/:id',

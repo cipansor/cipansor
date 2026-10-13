@@ -1,6 +1,6 @@
 ---
 name: dokumen-aplikasi-cipansor
-description: Menyusun dokumen aplikasi Sistem Informasi Cipansor (repo ypcipansor/cipansor) — (1) Dokumen Teknis Aplikasi berkerangka arc42 dengan diagram C4 tingkat 1–3, dan (2) Panduan Pengguna / manual book berkerangka Diátaxis per peran dan per tugas — dari kode yang sebenarnya, dengan pemeriksa mesin yang mencocokkan rute, angka, label layar, dan model data terhadap kode, serta pemindaian data sensitif. Keluaran Markdown untuk docs/ dan .docx/.pdf bersampul logo yayasan. Gunakan setiap kali diminta dokumen teknis, dokumentasi sistem/arsitektur, dokumen serah terima, panduan pengguna, manual book, panduan per peran (guru, TU, bendahara, wali santri, dst.), atau pembaruan dokumen-dokumen itu, untuk aplikasi/sistem informasi/portal Cipansor — juga untuk hibah, donor, auditor, vendor, atau pelatihan staf.
+description: Menyusun dokumen aplikasi Sistem Informasi Cipansor (repo cipansor/cipansor) — (1) Dokumen Teknis Aplikasi berkerangka arc42 dengan diagram C4 tingkat 1–3, dan (2) Panduan Pengguna / manual book berkerangka Diátaxis per peran dan per tugas — dari kode yang sebenarnya, dengan pemeriksa mesin yang mencocokkan rute, angka, label layar, dan model data terhadap kode, serta pemindaian data sensitif. Keluaran Markdown untuk docs/ dan .docx/.pdf bersampul logo yayasan. Gunakan setiap kali diminta dokumen teknis, dokumentasi sistem/arsitektur, dokumen serah terima, panduan pengguna, manual book, panduan per peran (guru, TU, bendahara, wali santri, dst.), atau pembaruan dokumen-dokumen itu, untuk aplikasi/sistem informasi/portal Cipansor — juga untuk hibah, donor, auditor, vendor, atau pelatihan staf.
 ---
 
 # Dokumen Aplikasi Cipansor
@@ -49,7 +49,7 @@ python scripts/check_env.py            # semua terbaca OK? bila ada PERLU: jalan
 python scripts/check_env.py --md-only  # bila hanya Markdown yang diminta
 ```
 
-Repo sudah ada di sesi? Pakai itu. Belum: `git clone --depth 1 https://github.com/ypcipansor/cipansor.git` (jangan `web_fetch`
+Repo sudah ada di sesi? Pakai itu. Belum: `git clone --depth 1 https://github.com/cipansor/cipansor.git` (jangan `web_fetch`
 ke github.com). Clone gagal → minta pengguna mengunggah zip; jangan menulis dari README saja.
 
 ### 2. Ukur — gerbang: `facts.md` ada dan commit tercetak

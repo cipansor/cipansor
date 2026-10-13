@@ -126,7 +126,7 @@ flowchart TD
 | 4 | Keputusan | label `decision` | agen riset → maintainer | riset bersumber + pilihan ganda; maintainer memilih | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready` |
 | 5 | Implementasi | `ready` dan antrean WIP < 3 | `Tiket jadi PR` | PR draf dengan templat, uji, bukti, `Fixes #n` | daftar periksa penulis lengkap → ready for review |
 | 6 | CI | push | Actions | Build, Lint, Tests, Security, E2E | semua hijau |
-| 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready) | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion` | approve |
+| 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`) | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion` | approve |
 | 8 | Perbaikan | review minta perubahan | `Tiket jadi PR` | ikuti atau tolak dengan alasan; ≤ 3 putaran | head baru hijau → tahap 7 |
 | 9 | Merge | approve + check hijau + cabang mutakhir | Actions (auto-merge) | squash ke `main` | — |
 | 10 | Staging | E2E hijau di `main` | `deploy-staging` → `deploy-watch` | staging menyajikan SHA itu, atau satu issue | — |
@@ -163,7 +163,7 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | pemeriksa Actions: PR ready dan hijau tanpa review gerbang pada head itu > 2 jam | satu issue `gerbang-macet` dan dispatch ulang sekali |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready dan seluruh check gerbangnya hijau tanpa review gerbang pada head itu lebih dari 60 menit | dispatch ulang sekali, satu komentar per head, dan satu issue `automation-health` (#776) |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
@@ -253,10 +253,11 @@ butir mengikuti aturan emas di `AGENTS.md`):
 
 1. **Maintainer** mematikan cron cloud `Penjaga issue` dan `Uji beban` di
    `app.all-hands.dev`.
-2. **Pemeriksa gerbang macet** (Actions): PR ready dan hijau tanpa review
-   gerbang pada head itu > 2 jam → satu issue `gerbang-macet` dan satu
-   dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
-   merge.
+2. **Pengawas gerbang tinjau** (Actions, `gate-watch.yml` #776): PR ready dan
+   seluruh check gerbangnya hijau tanpa review gerbang pada head itu lebih dari
+   60 menit → satu issue `automation-health` yang memuat semuanya, satu
+   komentar per head, dan satu dispatch ulang. Dikerjakan pertama, karena
+   gerbang yang diam menahan semua merge.
 3. **Triase satu pemilik**: hanya `Pelabel issue` yang menulis triase,
    estimasi, dan label, dalam satu komentar yang diperbarui. Automation lain
    tidak berkomentar triase.
@@ -317,7 +318,7 @@ flowchart TB
     RDY --> C10["Otomasi QA"]:::cloud
     RDY -. "tunggu hijau" .-> C18["Gerbang tinjau PR"]:::cloud
     RDY --> GAE["Actions · E2E Tests"]:::gh
-    GAC["Actions · CI"]:::gh --> LC{"pr-lifecycle.sh (workflow_run)"}:::gh
+    GAC["Actions · CI"]:::gh --> LC{"pr-lifecycle.sh (workflow_run + ready_for_review)"}:::gh
     GAE --> LC
     LC -- "merah" --> RQ(["diam (check terlihat di PR)"]):::gh
     LC -- "hijau + ready" --> DISP["dispatch gerbang (bridge)"]:::gh --> C18
@@ -391,7 +392,7 @@ flowchart TD
   RDY --> E2E["Actions · E2E Tests"]:::gh
   CI["Actions · CI"]:::gh --> LC
 
-  E2E --> LC{"pr-lifecycle.sh · workflow_run"}:::gh
+  E2E --> LC{"pr-lifecycle.sh · workflow_run + ready_for_review"}:::gh
   LC -- merah --> RQ["diam (check terlihat di PR)"]:::gh
   LC -- "hijau + draft" --> GC["komentar: semua hijau"]:::gh
   LC -- "hijau + ready" --> DISP["dispatch gerbang (bridge)"]:::gh --> C18
@@ -469,7 +470,7 @@ nyata.
 | --------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Triase bug            | triase issue baru, cari duplikat, label + komentar keparahan/area                                              |
 | Estimasi usaha        | ukuran XS–XL + area tersentuh + risiko, dikalibrasi ke PR lama                                                 |
-| Peta basis kode       | membandingkan peta arsitektur dengan kode → issue bila menyimpang                                              |
+| Peta basis kode       | membandingkan peta arsitektur dengan kode → memperbarui **satu** issue induk (#782), tidak membuka issue baru    |
 | Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                |
 | Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                  |
 | Tiket jadi PR         | **satu-satunya pembuat PR**; label `bot-implement` memicunya                                                   |
@@ -521,8 +522,12 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   juga menerima `workflow_run`, tetapi pengantarannya belum terbukti, jadi ia
   bukan sandaran. Karena itu `Gerbang tinjau PR` tidak _menunggu_ CI: ia
   bertindak saat dipicu dan memeriksa check-run sendiri, tidak melakukan apa pun
-  selama masih ada yang berjalan, dan `pr-lifecycle.yml` (pada `workflow_run`)
-  men-dispatch-nya begitu semua check wajib lulus. `Pemantau deployment` memakai
+  selama masih ada yang berjalan, dan `pr-lifecycle.yml` men-dispatch-nya begitu
+  semua check wajib lulus: pada `workflow_run` (CI, E2E selesai) dan pada
+  `pull_request: ready_for_review`. Pemicu kedua ada karena PR yang hanya berisi
+  dokumen men-skip Lint/Build/Tests/E2E, sehingga tidak pernah menghasilkan
+  `workflow_run` sesudah ditandai siap; tanpa pemicu itu PR dokumen tidak pernah
+  ditinjau (#708). `Pemantau deployment` memakai
   pola yang sama: `main-failure-bridge.yml` men-dispatch-nya saat CI atau E2E di
   `main` selesai gagal dan run yang gagal itu masih menjadi tip `main`; event `workflow_run` di automation
   itu hanya pelengkap best-effort, dan promptnya melakukan dedupe per run ID agar

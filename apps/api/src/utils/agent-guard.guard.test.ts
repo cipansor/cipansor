@@ -137,17 +137,38 @@ describe('a push that lands on main is refused', () => {
   });
 
   // A substitution in the destination position hides where the push lands
-  // (#660 review round 2). The tokenizer splits `$( … )` and backticks out of
-  // the word, so `main` no longer sits in the refspec slot; every positional
-  // argument is scanned for an unresolved expansion instead.
+  // (#660 review round 2, #788). The tokenizer splits `$( … )` out of the word
+  // — `(`/`)` are punctuation — leaving a bare `$` among the push's arguments;
+  // a backtick is deliberately kept inside its word (`PUNCT` excludes it), so
+  // the word still carries it. Either way the expansion is unresolved, so every
+  // positional argument is scanned and the guard fails closed — the destination
+  // is refused whether it sits in the remote slot or the refspec slot.
   it.each([
     'git push $(echo origin) main',
     'git push `echo origin` main',
     'git push origin:$(echo main)',
     'git push origin:$(echo refs/heads/main)',
     'git push $(echo origin) $(echo main)',
+    'git push origin $(echo main)',
+    'git push origin feat-x:$(echo main)',
+    'git push origin $BRANCH',
+    'git push origin ${BRANCH}',
   ])('%s', (command) => {
     expect(shell(command)).toBe(REFUSED);
+  });
+
+  it('an expansion is judged in the directory its own segment runs in', () => {
+    // A `cd` earlier in the command reaches the expansion even though the
+    // substituted word sits in a later segment (#788).
+    expect(shell(`cd ${onMain} && echo "$(git push)"`)).toBe(REFUSED);
+    expect(shell(`cd ${onMain} && echo \`git push\``)).toBe(REFUSED);
+    expect(shell(`cd ${onMain} && echo "$(git push origin feat-x)"`)).toBe(ALLOWED);
+    // An `env -C` / `sudo -D` wrapper moves a *direct* push but not the
+    // expansion: the shell expands `$( … )` in its own directory, which only
+    // `cd` moves. So `env -C <main> git push` lands on main, while the push
+    // inside `env -C <main> echo "$(git push)"` ran in the feature checkout.
+    expect(shell(`env -C ${onMain} git push`)).toBe(REFUSED);
+    expect(shell(`env -C ${onMain} echo "$(git push)"`)).toBe(ALLOWED);
   });
 
   it('a push naming no destination, on main or tracking it', () => {
@@ -176,6 +197,11 @@ describe('ordinary pushes and mere mentions pass', () => {
     'git commit -m "fix (scope); push to main later"',
     'git push origin feat-x 2>&1 | tail -3',
     'docker run --rm -v "$PWD:/w" node:22-alpine sh -c \'cd /w && pnpm test\'',
+    // An expansion outside a push is not a push destination, and a branch name
+    // that merely starts with `main` is not main (#788).
+    'echo "$(date)" && git push origin feat-x',
+    'git commit -m "$(date): push to main later"',
+    'git push origin maintenance-x',
   ])('%s', (command) => {
     expect(shell(command)).toBe(ALLOWED);
   });

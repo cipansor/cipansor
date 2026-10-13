@@ -151,22 +151,22 @@ Rinciannya di [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) dan dokumen teknis
 
 ## Angka Proyek
 
-Diukur dari kode pada 2026-10-10:
+Angka proyek bergeser hampir di setiap PR. Tabel berisi angka tetap pernah
+meleset sehari sesudah ditulis, jadi yang dicatat di sini adalah cara
+mengukurnya. Jalankan dari akar repo:
 
-| Metrik                                   | Jumlah  |
-| ---------------------------------------- | ------- |
-| Modul API (`apps/api/src/modules`)       | **95**  |
-| Model Prisma                             | **294** |
-| Enum Prisma                              | **163** |
-| Halaman web (`page.tsx`)                 | **434** |
-| Kode peran (`RoleCode`)                  | **53**  |
-| Akun demo                                | **65**  |
-| Berkas uji API (vitest)                  | **395** |
-| Berkas uji web (vitest)                  | **67**  |
-| Spesifikasi e2e (Playwright)             | **128** |
+| Metrik                         | Perintah                                                                                       |
+| ------------------------------ | ---------------------------------------------------------------------------------------------- |
+| Modul API                      | `ls -d apps/api/src/modules/*/ \| wc -l`                                                       |
+| Model / enum Prisma            | `grep -c '^model ' apps/api/prisma/schema.prisma` / `grep -c '^enum ' …`                       |
+| Halaman web                    | `find apps/web/src/app -name page.tsx \| wc -l`                                                |
+| Kode peran (`RoleCode`)        | `awk '/^enum RoleCode/,/^}/' apps/api/prisma/schema.prisma \| grep -c '^  [A-Z]'`              |
+| Berkas uji API (vitest)        | `find apps/api -name '*.test.ts' -not -path '*/node_modules/*' \| wc -l`                        |
+| Berkas uji web (vitest)        | `find apps/web/src apps/web/e2e apps/web/scripts -name '*.test.ts*' \| wc -l`                   |
+| Spesifikasi e2e (Playwright)   | `find apps/web/e2e -name '*.spec.ts' \| wc -l`                                                 |
 
-Angka bergeser setiap kali kode berubah. Kode adalah sumber kebenarannya,
-bukan tabel ini.
+Dokumen teknis (`docs/DOKUMEN-TEKNIS.md`) memuat angka-angka ini sebagai potret
+bertanggal per revisinya, diukur ulang oleh pemeriksa dokumennya.
 
 ---
 
@@ -228,6 +228,7 @@ pnpm --filter api build && pnpm --filter api build:strict
 pnpm --filter api test
 pnpm --filter web build && pnpm --filter web test
 pnpm --filter web test:e2e      # butuh stack lokal yang sudah di-seed
+pnpm test:load                  # uji unit runner uji beban k6 (bagian job Tests di CI)
 pnpm format && pnpm lint
 ```
 
@@ -271,7 +272,7 @@ dibutuhkan. Yang di-commit hanya tangkapan layar yang dipakai panduan pengguna
 di dokumen teknis.
 
 `dynamic-routes.json` adalah kontrak cakupan rute dinamis untuk sapuan. Isi
-ulang dengan `scripts/resolve-dynamic-routes.ts` saat stack menyala;
+ulang dengan `apps/web/scripts/resolve-dynamic-routes.ts` saat stack menyala;
 `dynamic-routes.guard.test.ts` memastikan setiap pola dinamis terjawab atau
 dicatat beralasan.
 

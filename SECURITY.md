@@ -4,7 +4,7 @@
 
 Do not open a public issue for a security problem. Report it privately through
 GitHub: **Security → Report a vulnerability**
-(<https://github.com/ypcipansor/cipansor/security/advisories/new>). Only the
+(<https://github.com/cipansor/cipansor/security/advisories/new>). Only the
 maintainers see it until a fix is ready and you agree to disclose it.
 
 Include, as far as you know: what is affected (a URL or a module), the steps to
@@ -13,6 +13,12 @@ useful — send what you have rather than waiting for a complete one.
 
 The same form is offered from the "New issue" page so that a blank issue is not
 mistaken for a safe place to publish a vulnerability.
+
+## Contact
+
+For anything outside a vulnerability report — questions about this policy, the
+advisory process, or how a report is handled — write to
+**admin@cipansor.or.id**.
 
 ## What to expect
 

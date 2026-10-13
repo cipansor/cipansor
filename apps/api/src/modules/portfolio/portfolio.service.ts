@@ -11,6 +11,47 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
+import { PARENT_ROLE_CODES, STUDENT_ROLE_CODES } from '@cipansor/shared';
+import { Errors } from '@/middleware/error';
+import { assertStudentInScope, studentScope, type ScopeActor } from '@/utils/student-scope';
+
+// =====================================
+// WHO MAY READ AND WRITE
+// =====================================
+
+/** A filter that matches no santri. */
+const NO_STUDENT: Prisma.StudentWhereInput = { id: { in: [] } };
+
+/**
+ * A portfolio is about one santri, so it follows the santri an account
+ * reaches (`studentScope`): a santri their own, a wali their children, a
+ * school's staff their unit, the cross-unit roles every unit.
+ *
+ * Writing is the same minus the wali, who reads a child's portfolio and may
+ * comment on it, but does not create, change or delete it.
+ */
+function writeScope(actor: ScopeActor): Prisma.StudentWhereInput {
+  return PARENT_ROLE_CODES.includes(actor.roleCode ?? '') ? NO_STUDENT : studentScope(actor);
+}
+
+/**
+ * The portfolio, if `scope` reaches its santri; 404 otherwise, as for an id
+ * that does not exist, so the answer does not confirm one.
+ */
+async function portfolioIn(id: string, scope: Prisma.StudentWhereInput) {
+  const found = await prisma.portfolio.findFirst({
+    where: { id, student: scope },
+    select: { id: true },
+  });
+  if (!found) throw Errors.notFound('Portfolio');
+  return found;
+}
+
+/** Staff may remove any comment on a portfolio they write; others only their own. */
+function moderates(actor: ScopeActor): boolean {
+  const code = actor.roleCode ?? '';
+  return !STUDENT_ROLE_CODES.includes(code) && !PARENT_ROLE_CODES.includes(code);
+}
 
 // Portfolio types and categories
 export const PORTFOLIO_TYPES = [
@@ -63,7 +104,12 @@ export interface CreatePortfolioDto {
   isShowcase?: boolean;
 }
 
-export async function createPortfolio(data: CreatePortfolioDto) {
+export async function createPortfolio(data: CreatePortfolioDto, actor: ScopeActor) {
+  const student = await prisma.student.findFirst({
+    where: { AND: [{ id: data.studentId }, writeScope(actor)] },
+    select: { id: true },
+  });
+  if (!student) throw Errors.notFound('Student');
   return prisma.portfolio.create({
     data,
     include: {
@@ -79,18 +125,21 @@ export async function createPortfolio(data: CreatePortfolioDto) {
   });
 }
 
-export async function getPortfolios(params: {
-  studentId?: string;
-  unitId?: string;
-  type?: string;
-  category?: string;
-  academicYearId?: string;
-  isPublic?: boolean;
-  isShowcase?: boolean;
-  search?: string;
-  page?: number;
-  limit?: number;
-}) {
+export async function getPortfolios(
+  params: {
+    studentId?: string;
+    unitId?: string;
+    type?: string;
+    category?: string;
+    academicYearId?: string;
+    isPublic?: boolean;
+    isShowcase?: boolean;
+    search?: string;
+    page?: number;
+    limit?: number;
+  },
+  actor: ScopeActor
+) {
   const {
     studentId,
     unitId,
@@ -112,9 +161,8 @@ export async function getPortfolios(params: {
   if (academicYearId) where.academicYearId = academicYearId;
   if (isPublic !== undefined) where.isPublic = isPublic;
   if (isShowcase !== undefined) where.isShowcase = isShowcase;
-  if (unitId) {
-    where.student = { unitId };
-  }
+  // The unit filter narrows what the account reaches; it never widens it.
+  where.student = unitId ? { AND: [studentScope(actor), { unitId }] } : studentScope(actor);
   if (search) {
     where.OR = [
       { title: { contains: search, mode: 'insensitive' } },
@@ -160,9 +208,9 @@ export async function getPortfolios(params: {
   };
 }
 
-export async function getPortfolioById(id: string) {
-  return prisma.portfolio.findUnique({
-    where: { id },
+export async function getPortfolioById(id: string, actor: ScopeActor) {
+  return prisma.portfolio.findFirst({
+    where: { id, student: studentScope(actor) },
     include: {
       student: {
         select: {
@@ -187,7 +235,12 @@ export async function getPortfolioById(id: string) {
   });
 }
 
-export async function updatePortfolio(id: string, data: Partial<CreatePortfolioDto>) {
+export async function updatePortfolio(
+  id: string,
+  data: Partial<CreatePortfolioDto>,
+  actor: ScopeActor
+) {
+  await portfolioIn(id, writeScope(actor));
   return prisma.portfolio.update({
     where: { id },
     data,
@@ -204,7 +257,8 @@ export async function updatePortfolio(id: string, data: Partial<CreatePortfolioD
   });
 }
 
-export async function deletePortfolio(id: string) {
+export async function deletePortfolio(id: string, actor: ScopeActor) {
+  await portfolioIn(id, writeScope(actor));
   // Delete files first
   await prisma.portfolioFile.deleteMany({ where: { portfolioId: id } });
   await prisma.portfolioComment.deleteMany({ where: { portfolioId: id } });
@@ -215,14 +269,18 @@ export async function deletePortfolio(id: string) {
 // PORTFOLIO FILES
 // =====================================
 
-export async function addPortfolioFile(data: {
-  portfolioId: string;
-  fileName: string;
-  fileUrl: string;
-  fileType: string;
-  fileSize?: number;
-  isCover?: boolean;
-}) {
+export async function addPortfolioFile(
+  data: {
+    portfolioId: string;
+    fileName: string;
+    fileUrl: string;
+    fileType: string;
+    fileSize?: number;
+    isCover?: boolean;
+  },
+  actor: ScopeActor
+) {
+  await portfolioIn(data.portfolioId, writeScope(actor));
   // If setting as cover, unset other covers
   if (data.isCover) {
     await prisma.portfolioFile.updateMany({
@@ -246,18 +304,27 @@ export async function addPortfolioFile(data: {
   });
 }
 
+/** The file, if `actor` writes its portfolio; 404 otherwise. */
+async function writableFile(id: string, actor: ScopeActor) {
+  const file = await prisma.portfolioFile.findFirst({
+    where: { id, portfolio: { student: writeScope(actor) } },
+    select: { id: true, portfolioId: true },
+  });
+  if (!file) throw Errors.notFound('File');
+  return file;
+}
+
 export async function updatePortfolioFile(
   id: string,
-  data: { isCover?: boolean; sortOrder?: number }
+  data: { isCover?: boolean; sortOrder?: number },
+  actor: ScopeActor
 ) {
+  const file = await writableFile(id, actor);
   if (data.isCover) {
-    const file = await prisma.portfolioFile.findUnique({ where: { id } });
-    if (file) {
-      await prisma.portfolioFile.updateMany({
-        where: { portfolioId: file.portfolioId, isCover: true },
-        data: { isCover: false },
-      });
-    }
+    await prisma.portfolioFile.updateMany({
+      where: { portfolioId: file.portfolioId, isCover: true },
+      data: { isCover: false },
+    });
   }
   return prisma.portfolioFile.update({
     where: { id },
@@ -265,7 +332,8 @@ export async function updatePortfolioFile(
   });
 }
 
-export async function deletePortfolioFile(id: string) {
+export async function deletePortfolioFile(id: string, actor: ScopeActor) {
+  await writableFile(id, actor);
   return prisma.portfolioFile.delete({ where: { id } });
 }
 
@@ -273,27 +341,52 @@ export async function deletePortfolioFile(id: string) {
 // PORTFOLIO COMMENTS
 // =====================================
 
-export async function addPortfolioComment(data: {
-  portfolioId: string;
-  userId: string;
-  content: string;
-}) {
+export async function addPortfolioComment(
+  data: {
+    portfolioId: string;
+    content: string;
+  },
+  actor: ScopeActor
+) {
+  // Whoever reads a portfolio may comment on it, as themselves.
+  await portfolioIn(data.portfolioId, studentScope(actor));
   return prisma.portfolioComment.create({
-    data,
+    data: { ...data, userId: actor.sub },
     include: {
       user: { select: { id: true, name: true } },
     },
   });
 }
 
-export async function updatePortfolioComment(id: string, content: string) {
+/** A comment is changed by its author only. */
+export async function updatePortfolioComment(id: string, content: string, actor: ScopeActor) {
+  const own = await prisma.portfolioComment.findFirst({
+    where: { id, userId: actor.sub, portfolio: { student: studentScope(actor) } },
+    select: { id: true },
+  });
+  if (!own) throw Errors.notFound('Comment');
   return prisma.portfolioComment.update({
     where: { id },
     data: { content },
   });
 }
 
-export async function deletePortfolioComment(id: string) {
+/**
+ * Removed by its author, or by staff who write the portfolio it is on — either
+ * way only inside the portfolio the account reaches. The author branch carries
+ * the scope too: were it `userId` alone, staff could delete their own comment
+ * on another unit's portfolio (404 otherwise).
+ */
+export async function deletePortfolioComment(id: string, actor: ScopeActor) {
+  const asAuthor = { userId: actor.sub, portfolio: { student: studentScope(actor) } };
+  const reach = moderates(actor)
+    ? { OR: [asAuthor, { portfolio: { student: writeScope(actor) } }] }
+    : asAuthor;
+  const found = await prisma.portfolioComment.findFirst({
+    where: { id, ...reach },
+    select: { id: true },
+  });
+  if (!found) throw Errors.notFound('Comment');
   return prisma.portfolioComment.delete({ where: { id } });
 }
 
@@ -307,8 +400,10 @@ export async function reviewPortfolio(
     reviewedBy: string;
     score?: number;
     feedback?: string;
-  }
+  },
+  actor: ScopeActor
 ) {
+  await portfolioIn(id, writeScope(actor));
   return prisma.portfolio.update({
     where: { id },
     data: {
@@ -334,19 +429,20 @@ export async function reviewPortfolio(
 // PORTFOLIO STATISTICS
 // =====================================
 
-export async function getPortfolioStatistics(params: {
-  studentId?: string;
-  unitId?: string;
-  academicYearId?: string;
-}) {
+export async function getPortfolioStatistics(
+  params: {
+    studentId?: string;
+    unitId?: string;
+    academicYearId?: string;
+  },
+  actor: ScopeActor
+) {
   const { studentId, unitId, academicYearId } = params;
 
   const where: Prisma.PortfolioWhereInput = {};
   if (studentId) where.studentId = studentId;
   if (academicYearId) where.academicYearId = academicYearId;
-  if (unitId) {
-    where.student = { unitId };
-  }
+  where.student = unitId ? { AND: [studentScope(actor), { unitId }] } : studentScope(actor);
 
   const portfolios = await prisma.portfolio.findMany({
     where,
@@ -387,10 +483,16 @@ export async function getPortfolioStatistics(params: {
 }
 
 // =====================================
-// STUDENT SHOWCASE (PUBLIC PORTFOLIO VIEW)
+// STUDENT SHOWCASE (WITHIN STUDENT SCOPE)
 // =====================================
+// Not a public page: `isShowcase`/`isPublic` choose which works are shown,
+// not who may see them. Reach stays `studentScope`
+// (decisions/showcase-portofolio.md).
 
-export async function getStudentShowcase(studentId: string) {
+export async function getStudentShowcase(studentId: string, actor: ScopeActor) {
+  // The showcase carries the santri's photo, rewards and tahfidz totals: the
+  // same reach as the portfolio itself.
+  await assertStudentInScope(studentId, actor);
   const student = await prisma.student.findUnique({
     where: { id: studentId },
     select: {
@@ -402,9 +504,7 @@ export async function getStudentShowcase(studentId: string) {
     },
   });
 
-  if (!student) {
-    throw new Error('Student not found');
-  }
+  if (!student) throw Errors.notFound('Student');
 
   const showcasePortfolios = await prisma.portfolio.findMany({
     where: {

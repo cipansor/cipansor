@@ -135,6 +135,7 @@ import { PERMISSIONS, permissionsForRoleCode } from '../src/modules/roles/permis
 import { DEMO_ACCOUNTS, DEMO_PASSWORD } from '../../../packages/shared/src/types/demo-accounts';
 import { YAYASAN_ORGANS } from '../../../packages/shared/src/types/office-holders';
 import { SECOND_FACTOR_ROLE_CODES } from '../../../packages/shared/src/roles';
+import { linkTeacherToStaff } from './seeds/teacher-staff';
 
 // RoleCode comes straight from the generated Prisma client — do NOT keep a
 // local copy here. A shadow copy previously drifted out of sync with the
@@ -972,6 +973,7 @@ async function main() {
       nip: '198501012010011001',
     },
   });
+  await linkTeacherToStaff(prisma, teacherPesantren);
 
   const teacherSdItUser = await prisma.user.create({
     data: {
@@ -1001,6 +1003,7 @@ async function main() {
       nip: '198601022012012002',
     },
   });
+  await linkTeacherToStaff(prisma, teacherSdIt);
 
   // Create Tata Usaha for SMP IT
   const tuSmpItUser = await prisma.user.create({
@@ -1523,6 +1526,7 @@ async function main() {
         },
       });
       if (demo.homeroom) demoHomeroomByUnit.set(demo.unitId, teacher.id);
+      await linkTeacherToStaff(prisma, teacher);
       demoTeachers++;
     } else if (isParent) {
       demoParents++; // linked in the second pass, once every student exists
@@ -6896,6 +6900,11 @@ async function main() {
       description: 'Komponen gaji pokok pokok',
       isFixed: true,
       isPercentage: false,
+      // POKOK: the attendance-deduction engine excludes basic salary from the
+      // allowance side by this classification (PP 36/2021 Ps. 65). Left at the
+      // default, a deduction could consume the base salary as if it were an
+      // allowance.
+      classification: 'POKOK',
       defaultAmount: new Prisma.Decimal(3000000.0),
       isTaxable: true,
       sortOrder: 1,
