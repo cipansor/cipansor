@@ -163,7 +163,7 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | pemeriksa Actions `gate-watch.yml` (**belum ada di `main`** — #776/#777; tiap jam): PR ready dan seluruh check gerbangnya hijau tanpa review gerbang pada head itu lebih dari 60 menit | dispatch ulang sekali, satu komentar per head, dan satu issue `automation-health` (#776) |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | dispatch ulang sekali per head, satu komentar per head, dan satu issue `automation-health` yang memuat semuanya (#776) |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
@@ -180,7 +180,9 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    triase atau estimasi dari automation berbeda. Gabungkan menjadi satu
    pemilik dan satu komentar yang diperbarui (invarian 3–4).
 2. **Gerbang tinjau diam.** Gerbang pernah tidak menjawab sebelas jam tanpa
-   ada yang tahu. Tambahkan pemeriksa Actions (tabel kegagalan, baris 1).
+   ada yang tahu, lalu sehari penuh pada lima PR (2026-10-10). Pemeriksa
+   Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
+   masuk.
 3. **Cron yang bertentangan dengan keputusan.** Matikan `Penjaga issue`
    (penutupan berdasarkan umur) dan `Uji beban` bulanan; k6 berjalan lewat
    `load-tests.yml` sebelum rilis.
@@ -254,10 +256,11 @@ butir mengikuti aturan emas di `AGENTS.md`):
 1. **Maintainer** mematikan cron cloud `Penjaga issue` dan `Uji beban` di
    `app.all-hands.dev`.
 2. **Pengawas gerbang tinjau** (Actions, `gate-watch.yml` #776): PR ready dan
-   seluruh check gerbangnya hijau tanpa review gerbang pada head itu lebih dari
-   60 menit → satu issue `automation-health` yang memuat semuanya, satu
-   komentar per head, dan satu dispatch ulang. Dikerjakan pertama, karena
-   gerbang yang diam menahan semua merge.
+   seluruh check gerbangnya hijau (hadir lengkap, set yang sama dengan
+   `pr-lifecycle`) tanpa review gerbang pada head itu lebih dari 60 menit → satu issue
+   `automation-health` yang memuat semuanya, satu komentar per head, dan satu
+   dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
+   merge.
 3. **Triase satu pemilik**: hanya `Pelabel issue` yang menulis triase,
    estimasi, dan label, dalam satu komentar yang diperbarui. Automation lain
    tidak berkomentar triase.
@@ -449,8 +452,10 @@ flowchart TD
 | 22:00 Jumat     | Pembuat catatan rilis | memotong pre-release `-rc` berikutnya → catatan di body Release |
 | 08:30 tanggal 1 | Audit kematangan      | menilai 18 item → satu issue                                    |
 
-Actions terjadwal: hanya `duplicate-sweep` (harian 01:30 UTC = 08:30 WIB,
-menutup issue atau PR duplikat 7 hari setelah peringatan). Actions berbasis
+Actions terjadwal: `duplicate-sweep` (harian 01:30 UTC = 08:30 WIB,
+menutup issue atau PR duplikat 7 hari setelah peringatan) dan `gate-watch`
+(tiap jam, menit ke-23: PR siap yang hijau lebih dari 60 menit tanpa review
+gerbang pada head-nya didispatch ulang sekali dan dicatat). Actions berbasis
 event: `deploy-watch.yml`, sesudah tiap `Deploy staging`/`Deploy production`
 selesai. Manual: `load-tests.yml` (k6 vs staging), langkah wajib sebelum tiap
 rilis produksi (`docs/deploy-azure.md` → "How a change is released").
@@ -545,6 +550,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   | CI atau E2E di `main` | `main-failure-bridge.yml` → `Pemantau deployment` | diagnosis penyebab (kode mana, mengapa) — butuh penilaian, jadi agen |
   | `Deploy staging`/`Deploy production` gagal, macet > 45 menit, atau hijau tetapi `/healthz` tidak menyajikan commit-nya | `deploy-watch.yml` (skrip) | id run, commit, baris log yang gagal — gejala yang pasti, jadi skrip |
   | Situs menurun tanpa deploy (kontainer restart, pengaturan rusak) | Health check App Service + availability test Application Insights | dari platform, di luar repositori |
+  | Gerbang tinjau di-dispatch tetapi tidak meninjau head yang hijau | `gate-watch.yml` (skrip) | satu issue `automation-health` berisi daftar PR, head, dan sejak kapan hijau; diperbarui di tempat dan ditutup saat kosong |
 
   Run deploy yang `skipped` (gerbangnya tidak jalan karena CI/E2E gagal) tidak
   dilaporkan pengawas deploy: penyebabnya sudah dilaporkan bridge. Rantai
