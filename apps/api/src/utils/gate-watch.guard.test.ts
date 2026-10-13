@@ -42,7 +42,9 @@ case "$1" in
     esac ;;
   api)
     case "$*" in
-      *"pulls?state=open"*) emit "\${GH_STUB_PRS:-[]}" ;;
+      *"pulls?state=open"*)
+        [ "\${GH_STUB_PRS_FAIL:-}" = "1" ] && exit 1
+        emit "\${GH_STUB_PRS:-[]}" ;;
       *"-X PATCH"*) log "PATCH $*"; bodyof "$@" > "$GH_STUB_DIR/patched" ;;
       *"/reviews"*)
         n=$(printf '%s\\n' "$*" | sed -n 's|.*/pulls/\\([0-9]*\\)/reviews.*|\\1|p')
@@ -366,12 +368,26 @@ describe('gate-watch.sh', () => {
     expect(calls).not.toMatch(/PATCH repos\/o\/r\/issues\/41/);
   });
 
+  it('does not close the health issue when the open PR list cannot be read', () => {
+    // A failed fetch is not an empty list: treating it as one closed an issue
+    // whose PRs were still waiting, then reopened it on the next good run.
+    const { status, calls, out } = run({
+      GH_STUB_PRS_FAIL: '1',
+      GH_STUB_OPEN_ISSUES: JSON.stringify([{ number: 41, body: '<!-- gate-watch:health -->' }]),
+    });
+    expect(status).not.toBe(0);
+    expect(out).toContain('Could not read open pull requests');
+    expect(calls).not.toContain('ICOMMENT 41');
+    expect(calls).not.toMatch(/PATCH repos\/o\/r\/issues\/41/);
+  });
+
   it('does not close the health issue when the issue list cannot be read', () => {
-    const { calls } = run({
+    const { status, calls } = run({
       GH_STUB_PRS: '[]',
       GH_STUB_ISSUES_FAIL: '1',
       GH_STUB_OPEN_ISSUES: JSON.stringify([{ number: 41, body: '<!-- gate-watch:health -->' }]),
     });
+    expect(status).not.toBe(0);
     expect(calls).not.toContain('ICOMMENT 41');
     expect(calls).not.toContain('CREATE');
   });

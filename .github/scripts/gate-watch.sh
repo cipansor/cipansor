@@ -71,9 +71,14 @@ iso() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
 
 # Every open PR, paginated: `--limit 200` silently dropped the rest, so a PR
 # past the cutoff was neither flagged nor re-dispatched. The draft filter runs
-# in jq over the whole list.
-PRS=$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
-  --jq '.[] | select(.draft | not) | "\(.number) \(.head.sha)"' 2>/dev/null || true)
+# in jq over the whole list. A failed fetch must fail the scan, never look like
+# an empty list: an empty scan closes the active report, so a transient error
+# read as "nothing waiting" would close an incident that is still open.
+if ! PRS=$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
+  --jq '.[] | select(.draft | not) | "\(.number) \(.head.sha)"' 2>/dev/null); then
+  echo "::warning::Could not read open pull requests; leaving the health report unchanged."
+  exit 1
+fi
 
 # False when a required check is absent, or no check from some known suite has
 # published: a green subset is still pending. Names may contain spaces, so the
@@ -161,22 +166,20 @@ printf '%s\n' "$PRS" | while read -r n sha; do
 done
 
 # The health issue: found by its marker among open `automation-health` issues.
-# If that list cannot be read, an open issue might exist unseen: do not open a
-# second one, and do not close on an empty list.
-issues_readable=true
+# As for the PR list, a failed read fails the scan: an unreadable list is not
+# "no issue open", and opening a second one would duplicate the report.
 if ! _issues=$(gh api --paginate "repos/$REPO/issues?state=open&labels=automation-health&per_page=100" \
     --jq ".[] | select(.pull_request == null) | select((.body // \"\") | contains(\"$ISSUE_MARK\")) | .number" 2>/dev/null); then
-  echo "::warning::Could not read the open automation-health issues."
-  issues_readable=false
-  _issues=""
+  echo "::warning::Could not read the open automation-health issues; leaving the health report unchanged."
+  exit 1
 fi
 ISSUE=$(printf '%s\n' "$_issues" | head -n1)
 
 if [ ! -s "$SILENT" ]; then
-  # An unreadable scan (a failed review/check read, or an unreadable issue list)
-  # is not proof the incident ended: closing on an empty list would reopen a
-  # fresh issue on the next run for the same PR. Leave the report as it is.
-  if [ -s "$UNREADABLE" ] || [ "$issues_readable" != true ]; then
+  # An unreadable scan of an individual PR (a failed review or check read) is
+  # not proof the incident ended: closing on an empty list would reopen a fresh
+  # issue on the next run for the same PR. Leave the report as it is.
+  if [ -s "$UNREADABLE" ]; then
     echo "A scan did not complete; leaving the health report as it is."
     exit 0
   fi
