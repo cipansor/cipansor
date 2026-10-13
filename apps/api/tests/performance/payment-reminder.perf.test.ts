@@ -9,6 +9,7 @@ vi.mock('../../src/lib/prisma', () => ({
       findMany: vi.fn(),
     },
     notification: {
+      findFirst: vi.fn(),
       create: vi.fn(),
       createMany: vi.fn(),
     },
@@ -49,6 +50,8 @@ describe('Payment Reminder Performance', () => {
     }));
 
     vi.mocked(prisma.invoice.findMany).mockResolvedValue(invoices as any);
+    // No prior delivery for any invoice, so batching runs the create path.
+    vi.mocked(prisma.notification.findFirst).mockResolvedValue(null as any);
     vi.mocked(prisma.notification.create).mockResolvedValue({ id: 'new-notif' } as any);
     vi.mocked(prisma.notification.createMany).mockResolvedValue({ count: invoiceCount } as any);
 
