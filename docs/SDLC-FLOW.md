@@ -163,7 +163,7 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready dan seluruh check gerbangnya hijau tanpa review gerbang pada head itu lebih dari 60 menit | dispatch ulang sekali, satu komentar per head, dan satu issue `automation-health` (#776) |
+| Gerbang tinjau tidak menjawab | pemeriksa Actions `gate-watch.yml` (**belum ada di `main`** — #776/#777; tiap jam): PR ready dan seluruh check gerbangnya hijau tanpa review gerbang pada head itu lebih dari 60 menit | dispatch ulang sekali, satu komentar per head, dan satu issue `automation-health` (#776) |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
