@@ -16,12 +16,28 @@ import {
   createManyNotifications,
   mapTypeToPrisma,
 } from './notifications.service';
-import { whatsAppService } from './whatsapp.service';
 import { CreateNotificationInput } from './notifications.schema';
 import { NotificationType, AttendanceStatus, PaymentStatus, Prisma } from '@prisma/client';
 import { NotificationPriority, NotificationChannel, RecipientType } from '@cipansor/shared';
 import { logger } from '../../lib/logger';
 import { STUDENT_STATUS } from '@cipansor/shared';
+
+/** WIB is UTC+7 year-round (no daylight saving). */
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+/**
+ * Task ids registered by `registerDefaultTasks()`. The manual-trigger endpoint
+ * validates against this list so it can never drift from what the scheduler
+ * runs — it had drifted, leaving two of the registered tasks untriggerable.
+ */
+export const SCHEDULED_TASK_IDS = [
+  'payment-reminder',
+  'attendance-summary',
+  'tahfidz-progress',
+  'event-reminder',
+  'monthly-report',
+  'budget-overrun-alert',
+] as const;
 
 interface ScheduledTask {
   id: string;
@@ -90,15 +106,10 @@ export class SchedulerService {
       3600000
     );
 
-    // Monthly SPP reminder to parents - 1st of month at 6 AM
-    // (in-app + WhatsApp via the configured provider)
-    this.registerTask(
-      'monthly-spp-reminder',
-      'Monthly SPP Parent Reminder',
-      '0 6 1 * *',
-      () => this.sendMonthlySppReminders(),
-      3600000
-    );
+    // The monthly SPP reminder to parents lives in `src/jobs/scheduler.ts`
+    // (`sendMonthlySppReminders` from `jobs/spp-reminder.job`) on the same
+    // `0 6 1 * *` WIB slot. Registering it here too sent every parent the same
+    // reminder twice on the 1st; the jobs/ job remains the one true sender.
 
     // Budget overrun alert - Mondays at 7 AM
     this.registerTask(
@@ -151,6 +162,12 @@ export class SchedulerService {
   }
 
   private static shouldRunTask(schedule: string, now: Date): boolean {
+    // The schedules above are WIB wall-clock, the same as `src/jobs/scheduler.ts`.
+    // Shift the instant by the WIB offset and read it in UTC — the container
+    // runs in UTC, and this stays correct whatever the host timezone is (unlike
+    // the local getters it used to read, which made `0 8 * * *` fire at 08:00
+    // UTC, 15:00 WIB).
+    const wib = new Date(now.getTime() + WIB_OFFSET_MS);
     const parts = schedule.split(' ');
     const minute = parts[0] === '*' ? -1 : parseInt(parts[0], 10);
     const hour = parts[1] === '*' ? -1 : parseInt(parts[1], 10);
@@ -158,11 +175,11 @@ export class SchedulerService {
     const month = parts[3] === '*' ? -1 : parseInt(parts[3], 10);
     const weekday = parts[4] === '*' ? -1 : parseInt(parts[4], 10);
 
-    if (minute !== -1 && now.getMinutes() !== minute) return false;
-    if (hour !== -1 && now.getHours() !== hour) return false;
-    if (day !== -1 && now.getDate() !== day) return false;
-    if (month !== -1 && now.getMonth() + 1 !== month) return false;
-    if (weekday !== -1 && now.getDay() !== weekday) return false;
+    if (minute !== -1 && wib.getUTCMinutes() !== minute) return false;
+    if (hour !== -1 && wib.getUTCHours() !== hour) return false;
+    if (day !== -1 && wib.getUTCDate() !== day) return false;
+    if (month !== -1 && wib.getUTCMonth() + 1 !== month) return false;
+    if (weekday !== -1 && wib.getUTCDay() !== weekday) return false;
 
     return true;
   }
@@ -244,9 +261,6 @@ export class SchedulerService {
       case 'monthly-report':
         await this.sendMonthlyReport();
         break;
-      case 'monthly-spp-reminder':
-        await this.sendMonthlySppReminders();
-        break;
       case 'budget-overrun-alert':
         await this.sendBudgetOverrunAlerts();
         break;
@@ -257,11 +271,6 @@ export class SchedulerService {
 
   // ============== TASK HANDLERS ==============
 
-  /**
-   * Awal bulan: ingatkan ORANG TUA atas tagihan SPP bulan berjalan yang
-   * belum lunas — in-app + WhatsApp (provider dikonfigurasi via env;
-   * SIMULATOR hanya mencatat log).
-   */
   /**
    * Alert unit admins when an active strategic plan's account-level
    * realization exceeds 120% of its budget (planning discipline signal —
@@ -365,100 +374,6 @@ export class SchedulerService {
       }
     }
     logger.info('Budget overrun alert: ' + alerts + ' notifications sent');
-  }
-
-  private static async sendMonthlySppReminders(): Promise<void> {
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    const nextMonthStart = new Date(now.getFullYear(), now.getMonth() + 1, 1);
-
-    const invoices = await prisma.invoice.findMany({
-      where: {
-        status: { in: [PaymentStatus.PENDING, PaymentStatus.PARTIAL] },
-        dueDate: { gte: monthStart, lt: nextMonthStart },
-        paymentType: { code: 'SPP' },
-      },
-      include: {
-        student: {
-          include: {
-            user: { select: { name: true } },
-            parents: {
-              include: {
-                parent: { select: { id: true, name: true, phone: true } },
-              },
-            },
-          },
-        },
-        paymentType: { select: { name: true } },
-      },
-      take: 500,
-    });
-
-    if (invoices.length === 0) {
-      logger.info('Monthly SPP reminder: no open SPP invoices this month');
-      return;
-    }
-
-    const notifications: Prisma.NotificationCreateManyInput[] = [];
-    let waSent = 0;
-
-    for (const invoice of invoices) {
-      const remaining = Number(invoice.amount) - Number(invoice.paidAmount);
-      const amountText = 'Rp ' + remaining.toLocaleString('id-ID');
-      const { dbType, originalType } = mapTypeToPrisma(NotificationType.PAYMENT);
-
-      for (const link of invoice.student.parents) {
-        notifications.push({
-          userId: link.parent.id,
-          type: dbType as NotificationType,
-          title: 'Tagihan SPP Bulan Ini',
-          message:
-            'Tagihan ' +
-            invoice.paymentType.name +
-            ' untuk ' +
-            invoice.student.user.name +
-            ' sebesar ' +
-            amountText +
-            ' jatuh tempo ' +
-            invoice.dueDate.toLocaleDateString('id-ID') +
-            '.',
-          data: {
-            ...(originalType ? { originalType } : {}),
-            priority: 'HIGH',
-            channels: ['IN_APP', 'WHATSAPP'],
-            recipientType: 'INDIVIDUAL',
-            invoiceId: invoice.id,
-          },
-          scheduledAt: null,
-        });
-
-        if (link.parent.phone) {
-          try {
-            await whatsAppService.sendPaymentReminder({
-              parentPhone: link.parent.phone,
-              parentName: link.parent.name,
-              studentName: invoice.student.user.name,
-              amount: remaining,
-              dueDate: invoice.dueDate,
-            });
-            waSent++;
-          } catch (error) {
-            logger.error('Monthly SPP WA reminder failed for ' + link.parent.id + ':', error);
-          }
-        }
-      }
-    }
-
-    if (notifications.length > 0) {
-      await prisma.notification.createMany({ data: notifications });
-    }
-    logger.info(
-      'Monthly SPP reminder: ' +
-        notifications.length +
-        ' in-app notifications, ' +
-        waSent +
-        ' WhatsApp messages'
-    );
   }
 
   private static async sendPaymentReminders(): Promise<void> {

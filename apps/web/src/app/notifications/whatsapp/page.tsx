@@ -156,47 +156,50 @@ _Pesantren Cipansor_`,
 ];
 
 // Scheduled tasks
+// Task ids and schedules must match `registerDefaultTasks()` in
+// apps/api/src/modules/notifications/scheduler.service.ts — the trigger
+// endpoint validates the id, so a mismatch is rejected as an unknown task.
 const SCHEDULED_TASKS = [
   {
-    id: "payment_reminder",
+    id: "payment-reminder",
     name: "Pengingat Pembayaran Harian",
     description: "Mengirim pengingat pembayaran H-7, H-3, H-1",
     schedule: "08:00 setiap hari",
     enabled: true,
   },
   {
-    id: "attendance_alert",
-    name: "Notifikasi Kehadiran",
-    description: "Mengirim notifikasi siswa alpha kepada orang tua",
-    schedule: "09:00 Senin-Sabtu",
-    enabled: true,
-  },
-  {
-    id: "daily_summary",
-    name: "Ringkasan Harian Wali Kelas",
-    description: "Mengirim ringkasan kehadiran dan pelanggaran ke wali kelas",
-    schedule: "17:00 Senin-Sabtu",
-    enabled: true,
-  },
-  {
-    id: "tahfidz_report",
-    name: "Laporan Tahfidz Mingguan",
-    description: "Mengirim laporan progress hafalan mingguan",
-    schedule: "10:00 setiap Jumat",
-    enabled: true,
-  },
-  {
-    id: "event_reminder",
+    id: "event-reminder",
     name: "Pengingat Kegiatan",
     description: "Mengirim pengingat kegiatan H-1",
+    schedule: "07:00 setiap hari",
+    enabled: true,
+  },
+  {
+    id: "attendance-summary",
+    name: "Ringkasan Kehadiran Harian",
+    description: "Mengirim ringkasan kehadiran siswa alpha kepada orang tua",
     schedule: "18:00 setiap hari",
     enabled: true,
   },
   {
-    id: "overdue_payment",
-    name: "Peringatan Tunggakan",
-    description: "Mengirim peringatan tagihan overdue",
-    schedule: "10:00 setiap Senin",
+    id: "tahfidz-progress",
+    name: "Laporan Tahfidz Mingguan",
+    description: "Mengirim laporan progress hafalan mingguan",
+    schedule: "16:00 setiap Jumat",
+    enabled: true,
+  },
+  {
+    id: "monthly-report",
+    name: "Laporan Bulanan",
+    description: "Mengirim laporan progress bulanan ke orang tua",
+    schedule: "09:00 tanggal 1 setiap bulan",
+    enabled: true,
+  },
+  {
+    id: "budget-overrun-alert",
+    name: "Peringatan Anggaran Berlebih",
+    description: "Mengirim peringatan realisasi anggaran RKA di atas 120%",
+    schedule: "07:00 setiap Senin",
     enabled: true,
   },
 ];
