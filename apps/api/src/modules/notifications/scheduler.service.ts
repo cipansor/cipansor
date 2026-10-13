@@ -10,25 +10,13 @@
  */
 
 import { prisma } from '../../lib/prisma';
-import {
-  createNotification,
-  createBulkNotifications,
-  createManyNotifications,
-  mapTypeToPrisma,
-} from './notifications.service';
+import { createNotification, createManyNotifications } from './notifications.service';
 import { CreateNotificationInput } from './notifications.schema';
-import { SCHEDULED_TASK_IDS, type ScheduledTaskId } from './scheduler.tasks';
-import {
-  NotificationType,
-  AttendanceStatus,
-  PaymentStatus,
-  Prisma,
-  EventScope,
-} from '@prisma/client';
-import { NotificationPriority, NotificationChannel, RecipientType } from '@cipansor/shared';
+import { type ScheduledTaskId } from './scheduler.tasks';
+import { NotificationType, AttendanceStatus, PaymentStatus, EventScope } from '@prisma/client';
 import { logger } from '../../lib/logger';
 import { STUDENT_STATUS } from '@cipansor/shared';
-import { todayWib, dayOf, wibTimeOnDay, dayString } from '../../utils/wib';
+import { todayWib, dayOf, dayString } from '../../utils/wib';
 import cron, { type ScheduledTask as CronTask } from 'node-cron';
 
 interface ScheduledTask {
