@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { SchedulerService, SCHEDULED_TASK_IDS } from '../scheduler.service';
+import { SchedulerService } from '../scheduler.service';
+import { SCHEDULED_TASK_IDS } from '../scheduler.tasks';
 
 // The task registry the manual-trigger endpoint validates against must equal
 // what `registerDefaultTasks()` actually registers (#802): the endpoint's enum
@@ -36,6 +37,28 @@ describe('SchedulerService task registry (#802)', () => {
       .sort();
 
     expect(ids).toEqual([...SCHEDULED_TASK_IDS].sort());
+  });
+
+  it('registers each task on its expected WIB wall-clock cron', () => {
+    // The boot-time `setInterval` + `shouldRunTask` pairing that required
+    // minute zero is gone; `node-cron` now fires each job at its own minute in
+    // Asia/Jakarta. Pin the schedules so an edit cannot quietly move (or break)
+    // a slot — a malformed expression would leave every job idle while the
+    // registry test still passed.
+    SchedulerService.initialize();
+
+    const scheduleById = Object.fromEntries(
+      SchedulerService.getTaskStatus().map((t) => [t.id, t.schedule])
+    );
+
+    expect(scheduleById).toEqual({
+      'payment-reminder': '0 8 * * *',
+      'attendance-summary': '0 18 * * *',
+      'tahfidz-progress': '0 16 * * 5',
+      'event-reminder': '0 7 * * *',
+      'monthly-report': '0 9 1 * *',
+      'budget-overrun-alert': '0 7 * * 1',
+    });
   });
 
   it('does not register the monthly SPP reminder — jobs/ owns it', () => {

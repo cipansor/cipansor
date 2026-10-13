@@ -17,34 +17,21 @@ import {
   mapTypeToPrisma,
 } from './notifications.service';
 import { CreateNotificationInput } from './notifications.schema';
-import { NotificationType, AttendanceStatus, PaymentStatus, Prisma } from '@prisma/client';
+import { SCHEDULED_TASK_IDS, type ScheduledTaskId } from './scheduler.tasks';
+import { NotificationType, AttendanceStatus, PaymentStatus, Prisma, EventScope } from '@prisma/client';
 import { NotificationPriority, NotificationChannel, RecipientType } from '@cipansor/shared';
 import { logger } from '../../lib/logger';
 import { STUDENT_STATUS } from '@cipansor/shared';
-
-/** WIB is UTC+7 year-round (no daylight saving). */
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-
-/**
- * Task ids registered by `registerDefaultTasks()`. The manual-trigger endpoint
- * validates against this list so it can never drift from what the scheduler
- * runs — it had drifted, leaving two of the registered tasks untriggerable.
- */
-export const SCHEDULED_TASK_IDS = [
-  'payment-reminder',
-  'attendance-summary',
-  'tahfidz-progress',
-  'event-reminder',
-  'monthly-report',
-  'budget-overrun-alert',
-] as const;
+import { todayWib, dayOf, wibTimeOnDay, dayString } from '../../utils/wib';
+import cron, { type ScheduledTask as CronTask } from 'node-cron';
 
 interface ScheduledTask {
   id: string;
   name: string;
   schedule: string;
   enabled: boolean;
-  intervalId: ReturnType<typeof setInterval> | null;
+  cronTask: CronTask | null;
+  running: boolean;
   lastRun?: Date;
 }
 
@@ -61,49 +48,31 @@ export class SchedulerService {
   }
 
   private static registerDefaultTasks(): void {
-    // Payment reminder - check every hour, run at 8 AM
-    this.registerTask(
-      'payment-reminder',
-      'Payment Due Reminder',
-      '0 8 * * *',
-      () => this.sendPaymentReminders(),
-      3600000
+    // Schedules are WIB wall-clock (Asia/Jakarta), the same as `src/jobs/scheduler.ts`.
+    // `node-cron` fires each at its own minute; the old `setInterval`-plus-
+    // `shouldRunTask` pairing ticked every hour from the boot minute, so an API
+    // started at 07:35 looked for minute 0 at 08:35, 09:35, … and — every
+    // schedule being minute 0 — never ran a single job (#802).
+    this.registerTask('payment-reminder', 'Payment Due Reminder', '0 8 * * *', () =>
+      this.sendPaymentReminders()
     );
 
-    // Attendance summary - check every hour, run at 6 PM
-    this.registerTask(
-      'attendance-summary',
-      'Daily Attendance Summary',
-      '0 18 * * *',
-      () => this.sendAttendanceSummary(),
-      3600000
+    this.registerTask('attendance-summary', 'Daily Attendance Summary', '0 18 * * *', () =>
+      this.sendAttendanceSummary()
     );
 
-    // Tahfidz progress - check every hour, run Fridays at 4 PM
-    this.registerTask(
-      'tahfidz-progress',
-      'Weekly Tahfidz Progress',
-      '0 16 * * 5',
-      () => this.sendTahfidzProgress(),
-      3600000
+    // Fridays at 4 PM.
+    this.registerTask('tahfidz-progress', 'Weekly Tahfidz Progress', '0 16 * * 5', () =>
+      this.sendTahfidzProgress()
     );
 
-    // Event reminder - check every hour, run at 7 AM
-    this.registerTask(
-      'event-reminder',
-      'Upcoming Event Reminder',
-      '0 7 * * *',
-      () => this.sendEventReminders(),
-      3600000
+    this.registerTask('event-reminder', 'Upcoming Event Reminder', '0 7 * * *', () =>
+      this.sendEventReminders()
     );
 
-    // Monthly report - check every hour, run 1st of month at 9 AM
-    this.registerTask(
-      'monthly-report',
-      'Monthly Progress Report',
-      '0 9 1 * *',
-      () => this.sendMonthlyReport(),
-      3600000
+    // 1st of month at 9 AM.
+    this.registerTask('monthly-report', 'Monthly Progress Report', '0 9 1 * *', () =>
+      this.sendMonthlyReport()
     );
 
     // The monthly SPP reminder to parents lives in `src/jobs/scheduler.ts`
@@ -111,88 +80,68 @@ export class SchedulerService {
     // `0 6 1 * *` WIB slot. Registering it here too sent every parent the same
     // reminder twice on the 1st; the jobs/ job remains the one true sender.
 
-    // Budget overrun alert - Mondays at 7 AM
+    // Mondays at 7 AM.
     this.registerTask(
       'budget-overrun-alert',
       'Strategic Plan Budget Overrun Alert',
       '0 7 * * 1',
-      () => this.sendBudgetOverrunAlerts(),
-      3600000
+      () => this.sendBudgetOverrunAlerts()
     );
   }
 
   private static registerTask(
-    id: string,
+    id: ScheduledTaskId,
     name: string,
     schedule: string,
-    handler: () => Promise<void>,
-    intervalMs: number
+    handler: () => Promise<void>
   ): void {
-    const intervalId = setInterval(async () => {
-      const task = this.tasks.get(id);
-      if (!task || !task.enabled) return;
+    const cronTask = cron.schedule(
+      schedule,
+      async () => {
+        const task = this.tasks.get(id);
+        if (!task || !task.enabled) return;
+        // node-cron will not re-enter a running task, but a manual trigger
+        // through the API can overlap a scheduled tick; skip rather than send
+        // twice.
+        if (task.running) {
+          logger.warn('Scheduled task still running, skipping tick: ' + name);
+          return;
+        }
 
-      const now = new Date();
-      if (!this.shouldRunTask(schedule, now)) return;
+        logger.info('Running scheduled task: ' + name);
+        task.running = true;
+        task.lastRun = new Date();
 
-      // Check if already ran this hour
-      if (task.lastRun) {
-        const hoursSinceLastRun = (now.getTime() - task.lastRun.getTime()) / (1000 * 60 * 60);
-        if (hoursSinceLastRun < 1) return;
-      }
-
-      logger.info('Running scheduled task: ' + name);
-      task.lastRun = now;
-
-      try {
-        await handler();
-        logger.info('Task completed: ' + name);
-      } catch (error) {
-        logger.error('Task failed: ' + name, error);
-      }
-    }, intervalMs);
+        try {
+          await handler();
+          logger.info('Task completed: ' + name);
+        } catch (error) {
+          logger.error('Task failed: ' + name, error);
+        } finally {
+          task.running = false;
+        }
+      },
+      { timezone: 'Asia/Jakarta' }
+    );
 
     this.tasks.set(id, {
       id,
       name,
       schedule,
       enabled: true,
-      intervalId,
+      cronTask,
+      running: false,
     });
   }
 
-  private static shouldRunTask(schedule: string, now: Date): boolean {
-    // The schedules above are WIB wall-clock, the same as `src/jobs/scheduler.ts`.
-    // Shift the instant by the WIB offset and read it in UTC — the container
-    // runs in UTC, and this stays correct whatever the host timezone is (unlike
-    // the local getters it used to read, which made `0 8 * * *` fire at 08:00
-    // UTC, 15:00 WIB).
-    const wib = new Date(now.getTime() + WIB_OFFSET_MS);
-    const parts = schedule.split(' ');
-    const minute = parts[0] === '*' ? -1 : parseInt(parts[0], 10);
-    const hour = parts[1] === '*' ? -1 : parseInt(parts[1], 10);
-    const day = parts[2] === '*' ? -1 : parseInt(parts[2], 10);
-    const month = parts[3] === '*' ? -1 : parseInt(parts[3], 10);
-    const weekday = parts[4] === '*' ? -1 : parseInt(parts[4], 10);
-
-    if (minute !== -1 && wib.getUTCMinutes() !== minute) return false;
-    if (hour !== -1 && wib.getUTCHours() !== hour) return false;
-    if (day !== -1 && wib.getUTCDate() !== day) return false;
-    if (month !== -1 && wib.getUTCMonth() + 1 !== month) return false;
-    if (weekday !== -1 && wib.getUTCDay() !== weekday) return false;
-
-    return true;
-  }
-
   static startAll(): void {
+    this.tasks.forEach((task) => task.cronTask?.start());
     logger.info('Scheduler tasks started');
   }
 
   static stopAll(): void {
     this.tasks.forEach((task) => {
-      if (task.intervalId) {
-        clearInterval(task.intervalId);
-      }
+      task.cronTask?.stop();
     });
     logger.info('Scheduler tasks stopped');
   }
@@ -347,12 +296,14 @@ export class SchedulerService {
         select: { id: true },
       });
       const pct = Math.round((realization / budget) * 100);
-      const { dbType, originalType } = mapTypeToPrisma(NotificationType.ALERT);
-      if (admins.length > 0) {
-        await prisma.notification.createMany({
-          data: admins.map((admin) => ({
+
+      // One alert per admin per over-budget plan. Without the delivery key this
+      // reran every Monday and piled a fresh alert on the same unchanged plan
+      // (#802); the key makes a rerun a no-op until the plan recovers.
+      const delivered = await Promise.all(
+        admins.map((admin) =>
+          createNotification({
             userId: admin.id,
-            type: dbType as NotificationType,
             title: 'Realisasi Anggaran Melampaui Batas',
             message:
               'Realisasi rencana "' +
@@ -360,18 +311,15 @@ export class SchedulerService {
               '" mencapai ' +
               pct +
               '% dari anggaran (ambang 120%). Mohon tinjau di modul Perencanaan.',
-            data: {
-              ...(originalType ? { originalType } : {}),
-              priority: 'HIGH',
-              channels: ['IN_APP', 'EMAIL'],
-              recipientType: 'INDIVIDUAL',
-              planId: plan.id,
-            },
-            scheduledAt: null,
-          })),
-        });
-        alerts += admins.length;
-      }
+            type: NotificationType.ALERT,
+            priority: 'HIGH',
+            channels: ['IN_APP', 'EMAIL'],
+            recipientType: 'INDIVIDUAL',
+            dedupeKey: `budget-overrun:${plan.id}:${admin.id}`,
+          })
+        )
+      );
+      alerts += delivered.filter(Boolean).length;
     }
     logger.info('Budget overrun alert: ' + alerts + ' notifications sent');
   }
@@ -405,7 +353,7 @@ export class SchedulerService {
       take: 100,
     });
 
-    const notifications: Prisma.NotificationCreateManyInput[] = [];
+    let sentCount = 0;
 
     for (const invoice of unpaidInvoices) {
       const student = invoice.student;
@@ -415,7 +363,6 @@ export class SchedulerService {
         (invoice.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
       );
 
-      const title = 'Pengingat Pembayaran';
       const typeName = invoice.paymentType?.name || 'SPP';
       const amount = Number(invoice.amount).toLocaleString('id-ID');
       const message =
@@ -427,40 +374,32 @@ export class SchedulerService {
         daysUntilDue +
         ' hari.';
 
-      const { dbType, originalType } = mapTypeToPrisma(NotificationType.PAYMENT);
-
-      notifications.push({
+      // One reminder per invoice, ever. The daily rerun used to remind the same
+      // unpaid invoice again every day (#802); the delivery key holds it to the
+      // first time. A genuine change (a new invoice) has a new id and notifies.
+      const created = await createNotification({
         userId: student.user.id,
-        type: dbType as NotificationType,
-        title,
+        title: 'Pengingat Pembayaran',
         message,
-        data: {
-          ...(originalType ? { originalType } : {}),
-          priority: 'HIGH',
-          channels: ['IN_APP', 'EMAIL'],
-          recipientType: 'INDIVIDUAL',
-        },
-        scheduledAt: null,
+        type: NotificationType.PAYMENT,
+        priority: 'HIGH',
+        channels: ['IN_APP', 'EMAIL'],
+        recipientType: 'INDIVIDUAL',
+        dedupeKey: `payment-reminder:${invoice.id}`,
       });
+      if (created) sentCount++;
     }
-
-    if (notifications.length > 0) {
-      await prisma.notification.createMany({
-        data: notifications,
-      });
-    }
-
-    const sentCount = notifications.length;
 
     logger.info('Sent ' + sentCount + ' payment reminders');
   }
 
   private static async sendAttendanceSummary(): Promise<void> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    // "Today" is the WIB calendar day. `Attendance.date` is `@db.Date` (UTC
+    // midnight); `setHours(0,0,0,0)` on the UTC host produced the UTC day, so a
+    // run straddling the 07:00 WIB boundary read the wrong day's absences —
+    // same defect the event reminder had (#802).
+    const today = dayOf(todayWib());
+    const tomorrow = dayOf(SchedulerService.addDays(todayWib(), 1));
 
     // Get today's absent records using correct model name "Attendance"
     const absentRecords = await prisma.attendance.findMany({
@@ -612,53 +551,51 @@ export class SchedulerService {
   }
 
   private static async sendEventReminders(): Promise<void> {
-    const tomorrow = new Date();
-    tomorrow.setDate(tomorrow.getDate() + 1);
-    tomorrow.setHours(0, 0, 0, 0);
-
-    const dayAfter = new Date(tomorrow);
-    dayAfter.setDate(dayAfter.getDate() + 1);
+    // "Tomorrow" is the next WIB calendar day, not the next UTC day. The API
+    // runs in UTC; `setHours(0,0,0,0)` produced the UTC day, so at 07:00 WIB the
+    // window was 07:00-tomorrow to 07:00-the-day-after WIB and an event at 06:00
+    // WIB tomorrow fell outside it — reminded two days early, then never (#802).
+    const nextDay = SchedulerService.addDays(todayWib(), 1);
+    const dayAfter = SchedulerService.addDays(nextDay, 1);
+    const from = dayOf(nextDay);
+    const to = dayOf(dayAfter);
 
     const events = await prisma.calendarEvent.findMany({
       where: {
-        startDate: {
-          gte: tomorrow,
-          lt: dayAfter,
-        },
+        startDate: { gte: from, lt: to },
+        // A draft is not yet part of the live calendar (decisions/absensi-pegawai.md),
+        // and neither is a deleted one.
+        isDraft: false,
+        deletedAt: null,
       },
     });
 
     if (events.length === 0) return;
 
-    // Get active users only
-    const users = await prisma.user.findMany({
-      where: {
-        isActive: true,
-      },
-      select: {
-        id: true,
-        name: true,
-        email: true,
-      },
-      take: 500,
-    });
-
     let sentCount = 0;
 
     for (const event of events) {
-      const eventDate = new Date(event.startDate);
-      const timeStr = eventDate.toLocaleTimeString('id-ID', {
-        hour: '2-digit',
-        minute: '2-digit',
-      });
+      // The audience is the event's, not "every active user". A private,
+      // unit-specific or class-specific event used to be broadcast to everyone,
+      // leaking its title and location to unrelated users (#802, CWE-200).
+      const recipients = await SchedulerService.eventRecipients(event);
+      if (recipients.length === 0) continue;
+
+      // The reminder time is the event's own WIB wall-clock (`startTime`), which
+      // is what a reader means by "besok pukul …"; `startDate` is midnight UTC
+      // for an all-day event and would print 07:00.
+      const timeStr = event.startTime ?? null;
 
       const title = 'Pengingat Acara Besok';
       const locationPart = event.location ? ' di ' + event.location : '';
+      const whenPart = timeStr ? ' pukul ' + timeStr : '';
       const message =
-        event.title + ' akan dilaksanakan besok pukul ' + timeStr + locationPart + '.';
+        event.title + ' akan dilaksanakan besok' + whenPart + locationPart + '.';
 
-      for (const user of users) {
-        await createNotification({
+      for (const user of recipients) {
+        // One reminder per recipient per event, however many times the day
+        // rolls around (#802).
+        const created = await createNotification({
           userId: user.id,
           title,
           message,
@@ -666,13 +603,72 @@ export class SchedulerService {
           priority: 'NORMAL',
           channels: ['IN_APP'],
           recipientType: 'INDIVIDUAL',
+          dedupeKey: `event-reminder:${event.id}`,
         });
-
-        sentCount++;
+        if (created) sentCount++;
       }
     }
 
     logger.info('Sent ' + sentCount + ' event reminders');
+  }
+
+  /** "yyyy-MM-dd" plus n days, in the UTC-midnight space `dayOf` works in. */
+  private static addDays(day: string, n: number): string {
+    const d = dayOf(day);
+    d.setUTCDate(d.getUTCDate() + n);
+    return dayString(d);
+  }
+
+  /**
+   * Who should receive a reminder for this event:
+   * - a public all-units event → every active user;
+   * - a class event → that class's active students and its homeroom teacher;
+   * - a unit event → every active user of that unit.
+   * A scope with no matching audience notifies nobody.
+   */
+  private static async eventRecipients(event: {
+    scope: EventScope;
+    unitId: string | null;
+    classId: string | null;
+    isPublic: boolean;
+  }): Promise<Array<{ id: string; name: string }>> {
+    const select = { id: true, name: true } as const;
+
+    if (event.classId) {
+      const enrollments = await prisma.classEnrollment.findMany({
+        where: { classId: event.classId, status: 'active' },
+        select: { student: { select: { userId: true } } },
+      });
+      const ids = enrollments.map((e) => e.student.userId);
+      const klass = await prisma.class.findUnique({
+        where: { id: event.classId },
+        select: { homeroomTeacher: { select: { userId: true } } },
+      });
+      if (klass?.homeroomTeacher?.userId) ids.push(klass.homeroomTeacher.userId);
+      if (ids.length === 0) return [];
+      return prisma.user.findMany({
+        where: { id: { in: ids }, isActive: true, deletedAt: null },
+        select,
+      });
+    }
+
+    if (event.unitId) {
+      return prisma.user.findMany({
+        where: { unitId: event.unitId, isActive: true, deletedAt: null },
+        select,
+        take: 500,
+      });
+    }
+
+    if (event.isPublic) {
+      return prisma.user.findMany({
+        where: { isActive: true, deletedAt: null },
+        select,
+        take: 500,
+      });
+    }
+
+    return [];
   }
 
   private static async sendMonthlyReport(): Promise<void> {

@@ -2939,6 +2939,12 @@ model Notification {
   data        Json?              @map("data") // Additional data for extended types
   scheduledAt DateTime?          @map("scheduled_at")
   createdAt   DateTime           @default(now()) @map("created_at")
+  /// Durable delivery key for recurring, idempotent notifications (#802). A
+  /// scheduled task that reruns (a due invoice reminded daily, an over-budget
+  /// plan alerted weekly) sets `userId` + this key; the unique index makes the
+  /// insert a no-op when the slot was already delivered. Always NULL for
+  /// one-shot notifications — Postgres keeps NULLs distinct under the index.
+  dedupeKey   String?            @map("dedupe_key")
   /// Web Push outbox state. New rows start PENDING and the dispatcher
   /// (`push-dispatch.service.ts`) claims them; rows older than Web Push are
   /// NULL and are never pushed.
@@ -2955,6 +2961,7 @@ model Notification {
   @@index([status])
   @@index([createdAt])
   @@index([scheduledAt])
+  @@unique([userId, dedupeKey])
   @@index([pushState])
   @@index([announcementId])
   @@map("notifications")
