@@ -65,10 +65,11 @@ printf '%s\n' "$PRS" | while read -r n sha; do
     [ "$reviewed" = "unread" ] && echo "::warning::PR #$n: reviews unreadable; skipped."
     continue
   fi
-  # One line per check run: status, conclusion, completed_at as epoch seconds.
-  # jq's fromdateiso8601 refuses fractional seconds, so they are dropped first.
+  # One line per check run: status, conclusion, completed_at (epoch seconds), and
+  # the check's name. jq's fromdateiso8601 refuses fractional seconds, so they are
+  # dropped first. The name is what lets a re-run supersede an earlier failure.
   if ! runs=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?per_page=100" \
-    --jq '.check_runs[] | "\(.status) \(.conclusion // "none") \(if .completed_at then (.completed_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) else 0 end)"' 2>/dev/null); then
+    --jq '.check_runs[] | "\(.status) \(.conclusion // "none") \(if .completed_at then (.completed_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) else 0 end) \(.name)"' 2>/dev/null); then
     echo "::warning::PR #$n: check runs on $sha unreadable; skipped."
     continue
   fi
@@ -76,16 +77,27 @@ printf '%s\n' "$PRS" | while read -r n sha; do
     echo "PR #$n: no check runs on $sha yet."
     continue
   fi
-  if printf '%s\n' "$runs" | awk '$1 != "completed"' | grep -q .; then
+  # Judge only the LATEST run of each check name, as pr-lifecycle.sh does: a
+  # check that failed and was re-run green is green, not red. Judging every line
+  # would read a superseded failure as red and never flag a head that is in fact
+  # green — the exact silent-gate class this feature exists to remove. The API
+  # returns runs newest-first, but take the greatest completed_at anyway; $4
+  # empty (a name with spaces, or an older API) keys per line, as conservative
+  # as the prior behaviour.
+  LATEST=$(printf '%s\n' "$runs" | awk '{
+      k=($4==""||$4=="null")?NR:$4; t=$3+0
+      if (!(k in best) || t >= best[k]) { best[k]=t; line[k]=$0 }
+    } END { for (k in line) print line[k] }')
+  if printf '%s\n' "$LATEST" | awk '$1 != "completed"' | grep -q .; then
     echo "PR #$n: checks still running on $sha."
     continue
   fi
-  if printf '%s\n' "$runs" | awk '$2 ~ /^(failure|cancelled|timed_out|action_required|startup_failure|stale)$/' | grep -q .; then
+  if printf '%s\n' "$LATEST" | awk '$2 ~ /^(failure|cancelled|timed_out|action_required|startup_failure|stale)$/' | grep -q .; then
     # Red: pr-lifecycle does not dispatch a red PR, so the gate owes it nothing.
     echo "PR #$n: a check on $sha is red; not the gate's turn."
     continue
   fi
-  since=$(printf '%s\n' "$runs" | awk '{print $3}' | sort -n | tail -n1)
+  since=$(printf '%s\n' "$LATEST" | awk '{print $3}' | sort -n | tail -n1)
   waited=$(( (NOW - since) / 60 ))
   if [ "$waited" -lt "$WAIT_MINUTES" ]; then
     echo "PR #$n: green for ${waited} min; within ${WAIT_MINUTES}."

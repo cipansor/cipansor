@@ -255,8 +255,9 @@ butir mengikuti aturan emas di `AGENTS.md`):
 
 1. **Maintainer** mematikan cron cloud `Penjaga issue` dan `Uji beban` di
    `app.all-hands.dev`.
-2. **Pemeriksa gerbang macet** (Actions): PR ready dan hijau tanpa review
-   gerbang pada head itu > 2 jam → satu issue `gerbang-macet` dan satu
+2. **Pengawas gerbang tinjau** (Actions, `gate-watch.yml` #776): PR ready dan
+   hijau tanpa review gerbang pada head itu lebih dari 60 menit → satu issue
+   `automation-health` yang memuat semuanya, satu komentar per head, dan satu
    dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
    merge.
 3. **Triase satu pemilik**: hanya `Pelabel issue` yang menulis triase,

@@ -79,19 +79,20 @@ const NOW = 1_760_150_000;
 const HEAD = 'abc123def456';
 const ago = (minutes: number) => new Date((NOW - minutes * 60) * 1000).toISOString();
 
-const runs = (...list: Array<[string, string | null, string | null]>) =>
+const runs = (...list: Array<[string, string | null, string | null, string?]>) =>
   JSON.stringify({
-    check_runs: list.map(([status, conclusion, completed_at]) => ({
+    check_runs: list.map(([status, conclusion, completed_at, name]) => ({
       status,
       conclusion,
       completed_at,
+      name,
     })),
   });
 
 const GREEN_LONG_AGO = runs(
-  ['completed', 'success', ago(150)],
-  ['completed', 'skipped', ago(140)],
-  ['completed', 'success', ago(90)]
+  ['completed', 'success', ago(150), 'Build'],
+  ['completed', 'skipped', ago(140), 'E2E Tests'],
+  ['completed', 'success', ago(90), 'Tests']
 );
 
 const READY = JSON.stringify([{ number: 7, isDraft: false, headRefOid: HEAD }]);
@@ -141,8 +142,8 @@ describe('gate-watch.sh', () => {
     // Finished 150 and 30 minutes ago: green for only 30 minutes.
     const { calls } = run({
       [`GH_STUB_RUNS_${HEAD}`]: runs(
-        ['completed', 'success', ago(150)],
-        ['completed', 'success', ago(30)]
+        ['completed', 'success', ago(150), 'Build'],
+        ['completed', 'success', ago(30), 'Tests']
       ),
     });
     expect(calls).not.toContain('CREATE');
@@ -179,8 +180,8 @@ describe('gate-watch.sh', () => {
   it('skips a PR whose checks are still running', () => {
     const { calls } = run({
       [`GH_STUB_RUNS_${HEAD}`]: runs(
-        ['completed', 'success', ago(150)],
-        ['in_progress', null, null]
+        ['completed', 'success', ago(150), 'Build'],
+        ['in_progress', null, null, 'Tests']
       ),
     });
     expect(calls).not.toContain('PCOMMENT');
@@ -189,11 +190,47 @@ describe('gate-watch.sh', () => {
   it('skips a red PR: the lifecycle does not dispatch it', () => {
     const { calls } = run({
       [`GH_STUB_RUNS_${HEAD}`]: runs(
-        ['completed', 'success', ago(150)],
-        ['completed', 'failure', ago(140)]
+        ['completed', 'success', ago(150), 'Build'],
+        ['completed', 'failure', ago(140), 'Tests']
       ),
     });
     expect(calls).not.toContain('PCOMMENT');
+  });
+
+  it('flags a PR whose only red run was superseded by a re-run success', () => {
+    // A check that failed then was re-run green is green: judging every line
+    // would read the replaced failure as red and never flag a green head.
+    const { calls } = run({
+      [`GH_STUB_RUNS_${HEAD}`]: runs(
+        ['completed', 'success', ago(150), 'Build'],
+        ['completed', 'failure', ago(140), 'Tests'],
+        ['completed', 'success', ago(90), 'Tests']
+      ),
+    });
+    expect(calls).toContain('PCOMMENT 7');
+  });
+
+  it.each(['failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure', 'stale'])(
+    'skips a PR whose latest run of a check is %s',
+    (conclusion) => {
+      const { calls } = run({
+        [`GH_STUB_RUNS_${HEAD}`]: runs(
+          ['completed', 'success', ago(150), 'Build'],
+          ['completed', conclusion, ago(140), 'Tests']
+        ),
+      });
+      expect(calls).not.toContain('PCOMMENT');
+    }
+  );
+
+  it('flags a PR whose only non-success conclusion is skipped', () => {
+    const { calls } = run({
+      [`GH_STUB_RUNS_${HEAD}`]: runs(
+        ['completed', 'success', ago(150), 'Build'],
+        ['completed', 'skipped', ago(140), 'E2E Tests']
+      ),
+    });
+    expect(calls).toContain('PCOMMENT 7');
   });
 
   it('skips a PR with no check runs yet', () => {
