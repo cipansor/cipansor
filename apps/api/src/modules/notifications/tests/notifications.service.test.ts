@@ -8,8 +8,8 @@ import {
 import { prisma } from '../../../lib/prisma';
 import type { CreateNotificationInput } from '../notifications.schema';
 
-vi.mock('../../../lib/prisma', () => ({
-  prisma: {
+vi.mock('../../../lib/prisma', () => {
+  const prisma = {
     setting: {
       findFirst: vi.fn(),
     },
@@ -33,8 +33,13 @@ vi.mock('../../../lib/prisma', () => ({
     // statement, so two runs cannot clobber each other's channel states).
     $queryRaw: vi.fn(),
     $executeRaw: vi.fn(),
-  },
-}));
+    // The marker and the in-app row are written in one transaction; the mock
+    // hands the callback the same mocked client, so the tx calls are the ones
+    // the tests already assert on.
+    $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
+  };
+  return { prisma };
+});
 
 vi.mock('../email-sms.service', () => ({
   notificationService: {
@@ -55,6 +60,12 @@ function rawValues(raw: unknown): string[] {
   return calls.flatMap((call) =>
     call.flatMap((part) => (Array.isArray(part) ? part.map(String) : [String(part ?? '')]))
   );
+}
+
+/** The SQL text of every call, for asserting on literals rather than values. */
+function rawSql(raw: unknown): string {
+  const calls = (raw as { mock: { calls: unknown[][] } }).mock.calls;
+  return calls.map((call) => (call[0] as string[]).join('?')).join('\n');
 }
 
 describe('Notifications Service - Channel Policy', () => {
@@ -262,6 +273,54 @@ describe('createNotification — durable recurring delivery (#802)', () => {
     expect(dispatchExternal()).not.toHaveBeenCalled();
   });
 
+  it('records a policy-blocked channel under `skip`, not over its delivery state', async () => {
+    // A retryable PENDING for EMAIL is on the marker; the admin then disables
+    // EMAIL for a tick. The disablement must not overwrite PENDING with a state
+    // the claim cannot recover (review finding on #804).
+    (prisma.notificationDelivery.create as any).mockRejectedValue({ code: 'P2002' });
+    (prisma.notificationDelivery.findUnique as any).mockResolvedValue({
+      id: 'd-1',
+      channels: { EMAIL: 'PENDING' },
+    });
+    (prisma.setting.findFirst as any).mockResolvedValue({
+      value: { EMAIL: false, SMS: true, WHATSAPP: true },
+    });
+    (prisma.$executeRaw as any).mockResolvedValue(1);
+
+    await createNotification({
+      ...base,
+      channels: ['IN_APP', 'EMAIL'],
+      dedupeKey: 'payment-reminder:inv-1',
+    });
+
+    // The policy decision is written to `skip`; no channel state is overwritten
+    // and the claim is never attempted for a blocked channel.
+    expect(rawSql(prisma.$executeRaw)).toContain('skip');
+    expect(rawValues(prisma.$executeRaw)).not.toContain('SKIPPED');
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('only writes an outcome while the claim is still the current one', async () => {
+    (prisma.notificationDelivery.create as any).mockResolvedValue({ id: 'd-1', channels: {} });
+    (prisma.$queryRaw as any).mockResolvedValue([{ id: 'd-1' }]);
+    (prisma.$executeRaw as any).mockResolvedValue(1);
+    (prisma.notification.create as any).mockResolvedValue({ id: 'n-1' });
+    (prisma.setting.findFirst as any).mockResolvedValue(null);
+    (prisma.user.findUnique as any).mockResolvedValue({ email: 'a@b.c', phone: null });
+    dispatchExternal().mockResolvedValue({ success: true, channel: 'EMAIL', delivered: true });
+
+    await createNotification({
+      ...base,
+      channels: ['IN_APP', 'EMAIL'],
+      dedupeKey: 'payment-reminder:inv-1',
+    });
+
+    // The outcome UPDATE is guarded by the claim token (the epoch ms written at
+    // claim time), so a late result from an expired claim matches no row and
+    // cannot clobber a newer SENT.
+    expect(rawSql(prisma.$executeRaw)).toContain('_claims');
+  });
+
   it('never suppresses a one-shot notification (no dedupe key)', async () => {
     (prisma.notification.create as any).mockResolvedValue({ id: 'n-2' });
 
@@ -272,18 +331,18 @@ describe('createNotification — durable recurring delivery (#802)', () => {
     expect(args.data.dedupeKey).toBeUndefined();
   });
 
-  it('releases the slot and rethrows when the in-app row cannot be written', async () => {
+  it('rolls the marker and the row back together when the insert fails', async () => {
     (prisma.notificationDelivery.create as any).mockResolvedValue({ id: 'd-1', channels: {} });
-    (prisma.notificationDelivery.delete as any).mockResolvedValue({ id: 'd-1' });
     (prisma.notification.create as any).mockRejectedValue(new Error('db down'));
 
     await expect(
       createNotification({ ...base, dedupeKey: 'payment-reminder:inv-9' })
     ).rejects.toThrow('db down');
 
-    // The marker is gone, so the next run retries the whole delivery rather
-    // than leaving the reminder permanently silent.
-    expect(prisma.notificationDelivery.delete).toHaveBeenCalledWith({ where: { id: 'd-1' } });
+    // Marker and row are written in one transaction, so the failed insert
+    // rolls the marker back too — no partial slot, and no separate delete.
+    expect(prisma.$transaction).toHaveBeenCalled();
+    expect(prisma.notificationDelivery.delete).not.toHaveBeenCalled();
   });
 });
 

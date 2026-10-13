@@ -18,6 +18,14 @@
 import { config as appConfig } from '../../config';
 import { logger } from '../../lib/logger';
 
+/**
+ * Bound every provider HTTP call so it cannot outlive the delivery claim that
+ * guards it. Well under `CHANNEL_CLAIM_LEASE_MS`, so a slow send fails cleanly
+ * and the channel is retried rather than reclaimed while the original request
+ * is still in flight (review finding on #804).
+ */
+const PROVIDER_TIMEOUT_MS = 60_000;
+
 // WhatsApp provider types
 type WhatsAppProvider = 'META' | 'FONNTE' | 'WATROOP' | 'WHACENTER' | 'SIMULATOR';
 
@@ -727,6 +735,7 @@ class WhatsAppService {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify(body),
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       });
 
       const data = (await response.json()) as { messages?: Array<{ id: string }> };
@@ -786,6 +795,7 @@ class WhatsAppService {
           Authorization: this.config.apiKey,
         },
         body: formData,
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       });
 
       const data = (await response.json()) as { status: boolean; id?: string };
@@ -841,6 +851,7 @@ class WhatsAppService {
           phone,
           message,
         }),
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       });
 
       const data = (await response.json()) as { success: boolean; messageId?: string };
@@ -887,6 +898,7 @@ class WhatsAppService {
           number: phone,
           message,
         }),
+        signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
       });
 
       const data = (await response.json()) as { status: boolean; message_id?: string };

@@ -1,4 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { EventScope } from '@prisma/client';
 
 // The registry test pins the cron expressions, but a regression in how the
 // scheduler arms its timers — the boot-minute `setInterval` this replaced
@@ -14,13 +15,14 @@ vi.mock('../../../lib/prisma', () => ({
     invoice: { findMany: vi.fn() },
     attendance: { findMany: vi.fn() },
     calendarEvent: { findMany: vi.fn() },
+    user: { findMany: vi.fn() },
   },
 }));
 vi.mock('../../../lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn(), debug: vi.fn() },
 }));
 vi.mock('../notifications.service', () => ({
-  createNotification: vi.fn(async () => null),
+  createNotification: vi.fn(async () => ({ id: 'n-1' })),
   createBulkNotifications: vi.fn(),
   createManyNotifications: vi.fn(),
   clearNotificationDeliveries: vi.fn(),
@@ -31,7 +33,8 @@ async function freshScheduler() {
   vi.resetModules();
   const { SchedulerService } = await import('../scheduler.service');
   const { prisma } = await import('../../../lib/prisma');
-  return { SchedulerService, prisma };
+  const { createNotification } = await import('../notifications.service');
+  return { SchedulerService, prisma, createNotification };
 }
 
 describe('SchedulerService WIB timing (#802)', () => {
@@ -90,15 +93,29 @@ describe('SchedulerService WIB timing (#802)', () => {
     SchedulerService.stopAll();
   });
 
-  it('queries tomorrow as the next WIB day, so an early event is not reminded early', async () => {
+  it('reminds the next WIB day, so an early event is not reminded early', async () => {
     // Boot 06:59 WIB Oct 13 = 23:59 UTC Oct 12, one minute before the 07:00 WIB
-    // tick. An event at 06:00 WIB Oct 14 (= 23:00 UTC Oct 13) is "tomorrow" in
-    // WIB but falls in UTC Oct 13. A UTC-day filter would put it in Oct 13's
-    // window and remind two days early, then never on the day itself (#804
-    // review).
+    // tick. An event on Oct 14 WIB at 06:00 WIB is "tomorrow" in WIB, but its
+    // calendar day is stored as 2026-10-14T00:00:00Z (the `@db.Date` midnight,
+    // what the form's `yyyy-MM-dd` becomes). A UTC-day filter would look at Oct
+    // 13 and miss it entirely (#804 review).
     vi.setSystemTime(new Date('2026-10-12T23:59:00.000Z'));
-    const { SchedulerService, prisma } = await freshScheduler();
-    vi.mocked(prisma.calendarEvent.findMany).mockResolvedValue([]);
+    const { SchedulerService, prisma, createNotification } = await freshScheduler();
+    vi.mocked(prisma.calendarEvent.findMany).mockResolvedValue([
+      {
+        id: 'e-early',
+        title: 'Apel Pagi',
+        location: 'Lapangan',
+        startTime: '06:00',
+        isPublic: true,
+        isDraft: false,
+        deletedAt: null,
+        scope: EventScope.ALL_UNITS,
+        unitId: null,
+        classId: null,
+      },
+    ] as never);
+    vi.mocked(prisma.user.findMany).mockResolvedValue([{ id: 'u-1', name: 'Budi' }] as never);
 
     SchedulerService.initialize();
     // Cross the 07:00 WIB tick (00:00 UTC Oct 13).
@@ -109,10 +126,12 @@ describe('SchedulerService WIB timing (#802)', () => {
       startDate: { gte: Date; lt: Date };
     };
     // Tomorrow is Oct 14 WIB → the [00:00Z Oct 14, 00:00Z Oct 15) window, which
-    // contains 23:00Z Oct 13 (06:00 WIB Oct 14). A UTC filter would ask for Oct
-    // 13 and miss it.
+    // contains the stored Oct 14 event. A UTC filter would ask for Oct 13 and
+    // leave the event unreminded.
     expect(where.startDate.gte.toISOString()).toBe('2026-10-14T00:00:00.000Z');
     expect(where.startDate.lt.toISOString()).toBe('2026-10-15T00:00:00.000Z');
+    // And the event the window selects actually receives its reminder.
+    expect(vi.mocked(createNotification)).toHaveBeenCalled();
 
     SchedulerService.stopAll();
   });

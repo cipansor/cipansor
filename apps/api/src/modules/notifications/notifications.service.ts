@@ -65,40 +65,54 @@ type ExternalChannel = Exclude<NotificationChannel, 'IN_APP' | 'PUSH'>;
  * not sent — transport unconfigured, simulator, outbound disabled): retryable,
  * kept distinct from `FAILED` so a real outage and a not-yet-configured
  * transport are told apart.
+ *
+ * A channel the channel policy blocks is recorded under `channels.skip`
+ * instead of a state, so a temporary disablement never overwrites a retryable
+ * `FAILED`/`PENDING` (review finding on #804) — re-enabling lets the next run
+ * claim it.
  */
 export const DELIVERY_IN_FLIGHT = 'RETRYING';
 export const DELIVERY_SENT = 'SENT';
 export const DELIVERY_FAILED = 'FAILED';
 export const DELIVERY_PENDING = 'PENDING';
-export const DELIVERY_SKIPPED = 'SKIPPED';
 
 /**
  * How long a `RETRYING` claim stays valid before another run may take it over.
- * Long enough that a live send (an SMTP round trip, a provider retry) is never
- * stolen; short enough that an interrupted run (deploy, crash) recovers on the
- * next tick. The payment reminder runs daily, so a day-old claim being stolen is
- * exactly right.
+ * Longer than every scheduler period (hourly at most), so a live run's late
+ * outcome can never overwrite a newer one: by the time a claim can be stolen,
+ * the next scheduled tick has already passed and handles the recovery cleanly
+ * (review finding on #804, where a 15-minute lease let a stalled send's late
+ * failure replace a newer SENT).
  */
-const RETRY_LEASE_MS = 15 * 60 * 1000;
+const CHANNEL_CLAIM_LEASE_MS = 60 * 60 * 1000;
 
 /**
- * Claim the delivery slot for `(userId, dedupeKey)`, or return the existing
- * marker if the slot was already claimed.
+ * Claim the delivery slot for `(userId, dedupeKey)` and, for a fresh slot,
+ * insert the in-app row in the same transaction.
  *
- * A freshly-created marker is returned with `channels: {}`; the caller runs the
- * dispatches and then marks what succeeded. A pre-existing marker means the
- * in-app row is already there, but any channel still `FAILED` is retried —
- * which is what makes a transient mail outage recoverable.
+ * The marker and the row must land together: if the marker were committed
+ * first, a concurrent run could observe it, claim an external channel and send
+ * — and then this run's failed insert would delete the marker, leaving no
+ * durable `SENT` to suppress the next run (review finding on #804). In one
+ * transaction the marker is invisible until the row exists, so a lost race
+ * rolls both back and a later run claims the slot afresh.
+ *
+ * A pre-existing marker (the unique key is taken) means the slot was already
+ * claimed; `created` is false and no row is inserted.
  */
-export async function claimNotificationDelivery(
+async function claimNotificationDeliveryWithRow(
   userId: string,
-  dedupeKey: string
+  dedupeKey: string,
+  createRow: (tx: Prisma.TransactionClient) => Promise<{ id: string }>
 ): Promise<{ marker: NotificationDeliveryMarker; created: boolean }> {
   try {
-    const created = await prisma.notificationDelivery.create({
-      data: { userId, dedupeKey, channels: {} },
+    return await prisma.$transaction(async (tx) => {
+      const created = await tx.notificationDelivery.create({
+        data: { userId, dedupeKey, channels: {} },
+      });
+      await createRow(tx);
+      return { marker: { id: created.id, channels: {} }, created: true };
     });
-    return { marker: { id: created.id, channels: {} }, created: true };
   } catch (error) {
     if (!isUniqueViolation(error)) throw error;
     const existing = await prisma.notificationDelivery.findUnique({
@@ -107,7 +121,7 @@ export async function claimNotificationDelivery(
     });
     // A lost race between two ticks can delete the row between the failed
     // create and this read; treat it as claimable again rather than crashing.
-    if (!existing) return claimNotificationDelivery(userId, dedupeKey);
+    if (!existing) return claimNotificationDeliveryWithRow(userId, dedupeKey, createRow);
     return {
       marker: { id: existing.id, channels: (existing.channels ?? {}) as Record<string, string> },
       created: false,
@@ -144,12 +158,17 @@ export async function clearNotificationDeliveries(dedupeKeyPrefix: string, userI
  * The claim is a lease, its claim time kept under `channels._claims[channel]`
  * (epoch ms): a `RETRYING` older than `staleBefore` is claimable again, so a
  * run killed mid-send (deploy, crash) does not wedge the channel forever.
- * `markDeliveryOutcome` deletes the claim on completion. Returns whether the
- * claim succeeded.
+ * `markDeliveryOutcome` clears the lease on completion, but only if this claim
+ * is still the current one — a late result from an expired claim cannot
+ * overwrite a newer outcome (review finding on #804). The claim time is the
+ * caller's clock (`claimedAt`) so it can be matched back exactly; both clocks
+ * only have to be consistent with each other, and they are the same process.
+ * Returns whether the claim succeeded.
  */
 async function claimChannelForRetry(
   markerId: string,
   channel: string,
+  claimedAt: number,
   staleBefore: Date
 ): Promise<boolean> {
   const rows = await prisma.$queryRaw<Array<{ id: string }>>`
@@ -162,7 +181,7 @@ async function claimChannelForRetry(
             COALESCE("channels" -> '_claims', '{}'::jsonb) ||
               jsonb_build_object(
                 ${channel}::text,
-                (extract(epoch from now()) * 1000)::bigint
+                ${claimedAt}::bigint
               )
           ),
         "updated_at" = now()
@@ -183,14 +202,54 @@ async function claimChannelForRetry(
   return rows.length > 0;
 }
 
-/** Record a channel's outcome and clear its lease (idempotent upsert). */
-async function markDeliveryOutcome(markerId: string, channel: string, state: string) {
+/**
+ * Record a channel's outcome and clear its lease (idempotent upsert), but only
+ * while the channel still belongs to this attempt.
+ *
+ * The `WHERE` compares the recorded claim time against `claimedAt` (the value
+ * written by this attempt's `claimChannelForRetry`): if the lease expired and
+ * another run reclaimed and finished the channel, this late result matches no
+ * row and is dropped. `jsonb_extract_path_text` yields a string, so the claim
+ * is compared as text — JSON serialises an integer number without an exponent,
+ * exactly like the `String(epochMs)` this attempt passes.
+ */
+async function markDeliveryOutcome(
+  markerId: string,
+  channel: string,
+  state: string,
+  claimedAt: number
+) {
   await prisma.$executeRaw`
     UPDATE "notification_deliveries"
     SET "channels" = (
           COALESCE("channels", '{}'::jsonb) ||
             jsonb_build_object(${channel}::text, ${state}::text)
         ) #- ARRAY['_claims'::text, ${channel}::text],
+        "updated_at" = now()
+    WHERE "id" = ${markerId}
+      AND jsonb_extract_path_text("channels", '_claims', ${channel}::text) = ${String(claimedAt)}
+  `;
+}
+
+/**
+ * Record a policy decision (a blocked channel) without touching the channel's
+ * outstanding delivery state, under `channels.skip[channel]`. A temporary
+ * disablement must not overwrite a retryable `FAILED`/`PENDING`, or the
+ * reminder is lost when the channel is re-enabled (review finding on #804).
+ */
+async function markChannelPolicySkipped(markerId: string, channel: string) {
+  await prisma.$executeRaw`
+    UPDATE "notification_deliveries"
+    SET "channels" =
+          COALESCE("channels", '{}'::jsonb) ||
+          jsonb_build_object(
+            'skip'::text,
+            COALESCE("channels" -> 'skip', '{}'::jsonb) ||
+              jsonb_build_object(
+                ${channel}::text,
+                (extract(epoch from now()) * 1000)::bigint
+              )
+          ),
         "updated_at" = now()
     WHERE "id" = ${markerId}
   `;
@@ -327,7 +386,16 @@ export async function createNotification(data: CreateNotificationInput) {
   // row is just the record, so a deleted row never revives the reminder and a
   // failed channel stays retryable.
   if (dedupeKey && data.userId) {
-    const { marker, created } = await claimNotificationDelivery(data.userId, dedupeKey);
+    const rowData = buildCreateData(data, dbType, originalType, dedupeKey);
+    // Marker + in-app row land in one transaction (see
+    // claimNotificationDeliveryWithRow): a concurrent run can only observe the
+    // marker once the row is durable, so a failed insert can no longer race a
+    // channel send.
+    const { marker, created } = await claimNotificationDeliveryWithRow(
+      data.userId,
+      dedupeKey,
+      (tx) => tx.notification.create({ data: rowData })
+    );
 
     if (!created) {
       // The in-app row is already there. Retry the channels that never
@@ -340,23 +408,12 @@ export async function createNotification(data: CreateNotificationInput) {
       return null;
     }
 
-    // First delivery of this slot: insert the in-app row, then fan out.
-    let notification;
-    try {
-      notification = await prisma.notification.create({
-        data: buildCreateData(data, dbType, originalType, dedupeKey),
-      });
-    } catch (error) {
-      // The row never landed, so nothing was delivered: release the slot and
-      // rethrow, or the marker would leave this reminder permanently silent.
-      await prisma.notificationDelivery.delete({ where: { id: marker.id } }).catch(() => undefined);
-      throw error;
-    }
-
+    // The row is durable; fan out outside the transaction so a slow transport
+    // never holds a database lock.
     if (externalChannels.length > 0) {
       await dispatchExternalChannels({ ...data, userId: data.userId }, externalChannels, marker.id);
     }
-    return originalType ? { ...notification, type: originalType } : notification;
+    return originalType ? { ...(rowData as object), type: originalType } : rowData;
   }
 
   // One-shot notification: no marker, no dedupe.
@@ -408,6 +465,10 @@ function buildCreateData(
  * channel. A channel already `SENT`, blocked by policy, or held by another run
  * is skipped. A log-only outcome (nothing left the building) is recorded
  * `PENDING`, not `SENT`: a transport configured later still delivers.
+ *
+ * The claim time returned by `claimChannelForRetry` is carried through to
+ * `markDeliveryOutcome`, which only writes while that claim is still current —
+ * so a late result from an expired claim cannot clobber a newer one.
  */
 async function dispatchExternalChannels(
   data: CreateNotificationInput & { userId: string },
@@ -421,10 +482,11 @@ async function dispatchExternalChannels(
     const policyAllowed = externalChannels.filter((c) => policy[c]);
 
     if (markerId) {
-      // Channels the policy blocks are not owed; record that so the state is
-      // legible and the deterministic call below always has a row.
+      // A blocked channel is not owed; record the decision under `channels.skip`
+      // without touching its delivery state, so a temporary disablement does not
+      // lose a retryable FAILED/PENDING (review finding on #804).
       for (const channel of externalChannels.filter((c) => !policy[c])) {
-        await markDeliveryOutcome(markerId, channel, DELIVERY_SKIPPED);
+        await markChannelPolicySkipped(markerId, channel);
       }
     }
     if (policyAllowed.length === 0) return;
@@ -439,12 +501,20 @@ async function dispatchExternalChannels(
     // claim is a lease: a stale `RETRYING` (a run killed mid-send) is
     // re-claimable after the window below.
     let toDispatch = policyAllowed;
+    const claimTimes: Record<string, number> = {};
     if (markerId) {
-      const staleBefore = new Date(Date.now() - RETRY_LEASE_MS);
+      const staleBefore = new Date(Date.now() - CHANNEL_CLAIM_LEASE_MS);
       const claimed = await Promise.all(
-        policyAllowed.map((channel) => claimChannelForRetry(markerId, channel, staleBefore))
+        policyAllowed.map(async (channel) => {
+          // The claim's own timestamp is written to the marker so the outcome
+          // can be tied to this exact attempt.
+          const claimedAt = Date.now();
+          const won = await claimChannelForRetry(markerId, channel, claimedAt, staleBefore);
+          return { channel, won, claimedAt };
+        })
       );
-      toDispatch = policyAllowed.filter((_, i) => claimed[i]);
+      toDispatch = claimed.filter((c) => c.won).map((c) => c.channel);
+      for (const c of claimed) if (c.won) claimTimes[c.channel] = c.claimedAt;
     }
     if (toDispatch.length === 0) return;
 
@@ -480,7 +550,7 @@ async function dispatchExternalChannels(
             : r.status === 'fulfilled' && r.value.success
               ? DELIVERY_PENDING
               : DELIVERY_FAILED;
-        await markDeliveryOutcome(markerId, channel, state);
+        await markDeliveryOutcome(markerId, channel, state, claimTimes[channel]);
       })
     );
   } catch (error) {

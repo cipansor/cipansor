@@ -660,6 +660,14 @@ export function resetEmailTransport(): void {
   tokenSource = null;
 }
 
+/**
+ * Bound a provider HTTP call so it cannot outlive the delivery claim that
+ * guards it. Well under the claim lease (`CHANNEL_CLAIM_LEASE_MS`), so a slow
+ * send fails cleanly and the channel is retried rather than being reclaimed
+ * while the original request is still in flight (review finding on #804).
+ */
+const PROVIDER_TIMEOUT_MS = 60_000;
+
 async function sendViaGmailApi(input: DeliverEmailInput): Promise<DeliverEmailResult> {
   const accessToken = await getTokenSource().getAccessToken();
   const raw = (await composeRawMessage(input)).toString('base64url');
@@ -671,6 +679,7 @@ async function sendViaGmailApi(input: DeliverEmailInput): Promise<DeliverEmailRe
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({ raw }),
+    signal: AbortSignal.timeout(PROVIDER_TIMEOUT_MS),
   });
 
   const body = (await response.json().catch(() => null)) as {

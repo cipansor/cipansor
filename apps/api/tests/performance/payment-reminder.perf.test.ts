@@ -3,8 +3,8 @@ import { notificationScheduler } from '../../src/modules/notifications/scheduler
 import { prisma } from '../../src/lib/prisma';
 
 // Mock prisma
-vi.mock('../../src/lib/prisma', () => ({
-  prisma: {
+vi.mock('../../src/lib/prisma', () => {
+  const prisma = {
     invoice: {
       findMany: vi.fn(),
     },
@@ -25,8 +25,13 @@ vi.mock('../../src/lib/prisma', () => ({
       findMany: vi.fn(),
       findUnique: vi.fn(),
     },
-  },
-}));
+    $queryRaw: vi.fn(),
+    $executeRaw: vi.fn(),
+    // The marker and the in-app row are written in one transaction.
+    $transaction: vi.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
+  };
+  return { prisma };
+});
 
 describe('Payment Reminder Performance', () => {
   beforeEach(() => {
