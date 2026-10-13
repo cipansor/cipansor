@@ -27,7 +27,9 @@ test.describe("Notification scheduler — manual trigger", () => {
     // `justify-between` and the task name, so it does not collide with the
     // wrapping Card or the left-hand text group.
     const card = (name: string) =>
-      page.locator("div.flex.items-center.justify-between").filter({ hasText: name });
+      page
+        .locator("div.flex.items-center.justify-between")
+        .filter({ hasText: name });
 
     for (const name of [
       "Pengingat Pembayaran Harian",

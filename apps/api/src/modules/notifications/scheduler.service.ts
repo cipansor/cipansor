@@ -18,7 +18,13 @@ import {
 } from './notifications.service';
 import { CreateNotificationInput } from './notifications.schema';
 import { SCHEDULED_TASK_IDS, type ScheduledTaskId } from './scheduler.tasks';
-import { NotificationType, AttendanceStatus, PaymentStatus, Prisma, EventScope } from '@prisma/client';
+import {
+  NotificationType,
+  AttendanceStatus,
+  PaymentStatus,
+  Prisma,
+  EventScope,
+} from '@prisma/client';
 import { NotificationPriority, NotificationChannel, RecipientType } from '@cipansor/shared';
 import { logger } from '../../lib/logger';
 import { STUDENT_STATUS } from '@cipansor/shared';
@@ -589,8 +595,7 @@ export class SchedulerService {
       const title = 'Pengingat Acara Besok';
       const locationPart = event.location ? ' di ' + event.location : '';
       const whenPart = timeStr ? ' pukul ' + timeStr : '';
-      const message =
-        event.title + ' akan dilaksanakan besok' + whenPart + locationPart + '.';
+      const message = event.title + ' akan dilaksanakan besok' + whenPart + locationPart + '.';
 
       for (const user of recipients) {
         // One reminder per recipient per event, however many times the day

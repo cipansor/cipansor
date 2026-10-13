@@ -36,9 +36,7 @@ export const mapTypeToPrisma = (type: string): { dbType: string; originalType: s
 /** Prisma's error code for a unique-constraint violation (P2002). */
 function isUniqueViolation(error: unknown): boolean {
   return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as { code?: string }).code === 'P2002'
+    typeof error === 'object' && error !== null && (error as { code?: string }).code === 'P2002'
   );
 }
 
