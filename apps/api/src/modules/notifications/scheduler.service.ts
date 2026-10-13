@@ -10,7 +10,11 @@
  */
 
 import { prisma } from '../../lib/prisma';
-import { createNotification, createManyNotifications } from './notifications.service';
+import {
+  createNotification,
+  createManyNotifications,
+  clearNotificationDeliveries,
+} from './notifications.service';
 import { CreateNotificationInput } from './notifications.schema';
 import { type ScheduledTaskId } from './scheduler.tasks';
 import { NotificationType, AttendanceStatus, PaymentStatus, EventScope } from '@prisma/client';
@@ -280,7 +284,13 @@ export class SchedulerService {
         realization += Math.max(0, movement);
       }
 
-      if (realization <= budget * 1.2) continue;
+      if (realization <= budget * 1.2) {
+        // The plan recovered. Clear its delivery markers so a later overrun is
+        // a new episode that alerts again; a permanent marker left a second
+        // overrun silent (review finding on #804).
+        await clearNotificationDeliveries(`budget-overrun:${plan.id}:`);
+        continue;
+      }
 
       const admins = await prisma.user.findMany({
         // Foundation-wide plans have no unit admin; `undefined` would notify every
@@ -613,11 +623,18 @@ export class SchedulerService {
   }
 
   /**
-   * Who should receive a reminder for this event:
-   * - a public all-units event → every active user;
-   * - a class event → that class's active students and its homeroom teacher;
-   * - a unit event → every active user of that unit.
-   * A scope with no matching audience notifies nobody.
+   * Who should receive a reminder for this event.
+   *
+   * `scope` is the audience of record (`EventScope`), so it decides the
+   * recipient set rather than being inferred from whichever of `classId`/
+   * `unitId` happens to be set (review finding: scope had no dispatch effect):
+   * - `SPECIFIC_CLASS` → that class's active students and its homeroom teacher;
+   * - `SPECIFIC_UNIT` → every active user of that unit;
+   * - `ALL_UNITS` → every active user, but only when the event is public — a
+   *   non-public foundation event is not meant for the whole system, and falls
+   *   back to its unit (if any) or to nobody.
+   * A scope whose required id is missing notifies nobody (a class event with no
+   * class is not everyone's).
    */
   private static async eventRecipients(event: {
     scope: EventScope;
@@ -627,14 +644,14 @@ export class SchedulerService {
   }): Promise<Array<{ id: string; name: string }>> {
     const select = { id: true, name: true } as const;
 
-    if (event.classId) {
+    const classAudience = async (classId: string) => {
       const enrollments = await prisma.classEnrollment.findMany({
-        where: { classId: event.classId, status: 'active' },
+        where: { classId, status: 'active' },
         select: { student: { select: { userId: true } } },
       });
       const ids = enrollments.map((e) => e.student.userId);
       const klass = await prisma.class.findUnique({
-        where: { id: event.classId },
+        where: { id: classId },
         select: { homeroomTeacher: { select: { userId: true } } },
       });
       if (klass?.homeroomTeacher?.userId) ids.push(klass.homeroomTeacher.userId);
@@ -643,25 +660,32 @@ export class SchedulerService {
         where: { id: { in: ids }, isActive: true, deletedAt: null },
         select,
       });
-    }
+    };
 
-    if (event.unitId) {
-      return prisma.user.findMany({
-        where: { unitId: event.unitId, isActive: true, deletedAt: null },
+    const unitAudience = (unitId: string) =>
+      prisma.user.findMany({
+        where: { unitId, isActive: true, deletedAt: null },
         select,
         take: 500,
       });
-    }
 
-    if (event.isPublic) {
-      return prisma.user.findMany({
-        where: { isActive: true, deletedAt: null },
-        select,
-        take: 500,
-      });
+    switch (event.scope) {
+      case EventScope.SPECIFIC_CLASS:
+        return event.classId ? classAudience(event.classId) : [];
+      case EventScope.SPECIFIC_UNIT:
+        return event.unitId ? unitAudience(event.unitId) : [];
+      case EventScope.ALL_UNITS:
+        if (event.isPublic) {
+          return prisma.user.findMany({
+            where: { isActive: true, deletedAt: null },
+            select,
+            take: 500,
+          });
+        }
+        return event.unitId ? unitAudience(event.unitId) : [];
+      default:
+        return [];
     }
-
-    return [];
   }
 
   private static async sendMonthlyReport(): Promise<void> {

@@ -13,8 +13,17 @@ vi.mock('../../src/lib/prisma', () => ({
       create: vi.fn(),
       createMany: vi.fn(),
     },
+    notificationDelivery: {
+      create: vi.fn(),
+      findUnique: vi.fn(),
+      update: vi.fn(),
+    },
+    setting: {
+      findFirst: vi.fn(),
+    },
     user: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
     },
   },
 }));
@@ -23,6 +32,19 @@ describe('Payment Reminder Performance', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(prisma.notification.findFirst).mockResolvedValue(null);
+    // Each invoice is a fresh delivery slot; the marker claim succeeds and the
+    // channel map is written after dispatch.
+    vi.mocked(prisma.notificationDelivery.create).mockResolvedValue({
+      id: 'delivery-1',
+      channels: {},
+    } as any);
+    vi.mocked(prisma.notificationDelivery.findUnique).mockResolvedValue({
+      id: 'delivery-1',
+      channels: {},
+    } as any);
+    vi.mocked(prisma.notificationDelivery.update).mockResolvedValue({} as any);
+    vi.mocked(prisma.setting.findFirst).mockResolvedValue(null as any);
+    vi.mocked(prisma.user.findUnique).mockResolvedValue(null as any);
   });
 
   it('measures payment reminder batching', async () => {

@@ -41,17 +41,79 @@ function isUniqueViolation(error: unknown): boolean {
 }
 
 /**
- * Whether a notification carrying this delivery key already reached this
- * recipient. Backed by the `Notification.user_dedupe_key` unique index; the
- * `key` path is only queryable because of it. Used to make recurring scheduled
- * tasks idempotent (#802).
+ * The durable delivery marker for a recurring notification slot (#802).
+ *
+ * Deliberately NOT the notification row: the marker is created before both the
+ * in-app row and the external dispatch, so it survives a bell-row deletion and
+ * a transport failure — the two ways the row-as-marker approach lost state
+ * (review findings on #804). Each external channel records its own outcome, so
+ * a failed EMAIL is retried while a channel that already went out is not.
  */
-async function notificationDeliveryExists(userId: string, dedupeKey: string): Promise<boolean> {
-  const existing = await prisma.notification.findFirst({
-    where: { userId, dedupeKey },
-    select: { id: true },
+export interface NotificationDeliveryMarker {
+  id: string;
+  channels: Record<string, string>;
+}
+
+/** External channels a keyed notification may fan out to. */
+type ExternalChannel = Exclude<NotificationChannel, 'IN_APP' | 'PUSH'>;
+
+/**
+ * Claim the delivery slot for `(userId, dedupeKey)`, or return the existing
+ * marker if the slot was already claimed.
+ *
+ * A freshly-created marker is returned with `channels: {}`; the caller runs the
+ * dispatches and then marks what succeeded. A pre-existing marker means the
+ * in-app row is already there, but any channel still `FAILED` is retried —
+ * which is what makes a transient mail outage recoverable.
+ */
+export async function claimNotificationDelivery(
+  userId: string,
+  dedupeKey: string
+): Promise<{ marker: NotificationDeliveryMarker; created: boolean }> {
+  try {
+    const created = await prisma.notificationDelivery.create({
+      data: { userId, dedupeKey, channels: {} },
+    });
+    return { marker: { id: created.id, channels: {} }, created: true };
+  } catch (error) {
+    if (!isUniqueViolation(error)) throw error;
+    const existing = await prisma.notificationDelivery.findUnique({
+      where: { userId_dedupeKey: { userId, dedupeKey } },
+      select: { id: true, channels: true },
+    });
+    // A lost race between two ticks can delete the row between the failed
+    // create and this read; treat it as claimable again rather than crashing.
+    if (!existing) return claimNotificationDelivery(userId, dedupeKey);
+    return {
+      marker: { id: existing.id, channels: (existing.channels ?? {}) as Record<string, string> },
+      created: false,
+    };
+  }
+}
+
+/**
+ * Remove delivery markers for a subject so a recovery can alert again.
+ * `budget-overrun:<planId>:` matches every admin's marker for that plan; a new
+ * overrun episode then claims fresh slots (review finding: repeat overruns went
+ * unreported because the marker never cleared).
+ */
+export async function clearNotificationDeliveries(dedupeKeyPrefix: string, userId?: string) {
+  return prisma.notificationDelivery.deleteMany({
+    where: {
+      dedupeKey: { startsWith: dedupeKeyPrefix },
+      ...(userId ? { userId } : {}),
+    },
   });
-  return existing !== null;
+}
+
+/** Record a channel's outcome on its marker (idempotent upsert of the map). */
+async function markDeliveryChannel(id: string, channels: Record<string, string>) {
+  const marker = await prisma.notificationDelivery.findUnique({
+    where: { id },
+    select: { channels: true },
+  });
+  const merged = { ...((marker?.channels ?? {}) as Record<string, string>), ...channels };
+  await prisma.notificationDelivery.update({ where: { id }, data: { channels: merged } });
 }
 
 // ==================== NOTIFICATION ====================
@@ -175,95 +237,141 @@ export async function updateChannelPolicy(policy: ChannelPolicy) {
 
 export async function createNotification(data: CreateNotificationInput) {
   const { dbType, originalType } = mapTypeToPrisma(data.type ?? 'INFO');
+  const { channels, dedupeKey } = data;
 
-  // Extract fields that are not in the Prisma model but need to be stored in `data`
-  const { priority, channels, recipientType, recipientIds, dedupeKey, ...rest } = data;
+  const externalChannels = (channels ?? []).filter(
+    (c): c is ExternalChannel => c === 'EMAIL' || c === 'SMS' || c === 'WHATSAPP'
+  );
 
+  // A recurring slot (#802). The durable marker owns delivery state; the in-app
+  // row is just the record, so a deleted row never revives the reminder and a
+  // failed channel stays retryable.
   if (dedupeKey && data.userId) {
-    // Idempotent recurring notification (#802): the task reruns, but each
-    // recipient gets one row per delivery key. A cheap pre-read plus the unique
-    // index backstop in `Notification` turn a lost race into a no-op, not a
-    // duplicate.
-    if (await notificationDeliveryExists(data.userId, dedupeKey)) {
+    const { marker, created } = await claimNotificationDelivery(data.userId, dedupeKey);
+
+    if (!created) {
+      // The in-app row is already there. Retry only the channels that never
+      // confirmed (a transient mail outage, a provider 5xx).
+      const channelsToRetry = externalChannels.filter((c) => marker.channels[c] === 'FAILED');
+      if (channelsToRetry.length === 0) return null;
+      await dispatchExternalChannels({ ...data, userId: data.userId }, channelsToRetry, marker.id);
       return null;
     }
+
+    // First delivery of this slot: insert the in-app row, then fan out.
+    let notification;
+    try {
+      notification = await prisma.notification.create({
+        data: buildCreateData(data, dbType, originalType, dedupeKey),
+      });
+    } catch (error) {
+      // The row never landed, so nothing was delivered: release the slot and
+      // rethrow, or the marker would leave this reminder permanently silent.
+      await prisma.notificationDelivery.delete({ where: { id: marker.id } }).catch(() => undefined);
+      throw error;
+    }
+
+    if (externalChannels.length > 0) {
+      await dispatchExternalChannels({ ...data, userId: data.userId }, externalChannels, marker.id);
+    }
+    return originalType ? { ...notification, type: originalType } : notification;
   }
 
+  // One-shot notification: no marker, no dedupe.
+  const notification = await prisma.notification.create({
+    data: buildCreateData(data, dbType, originalType, undefined),
+  });
+
+  if (externalChannels.length > 0 && data.userId) {
+    await dispatchExternalChannels({ ...data, userId: data.userId }, externalChannels, null);
+  }
+
+  return originalType ? { ...notification, type: originalType } : notification;
+}
+
+/** The Prisma create payload shared by keyed and one-shot notifications. */
+function buildCreateData(
+  data: CreateNotificationInput,
+  dbType: string,
+  originalType: string | null,
+  dedupeKey: string | undefined
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const createData: any = {
+): any {
+  const { priority, channels, recipientType, recipientIds, ...rest } = data;
+  return {
     ...rest,
     type: dbType,
     data: {
       ...(data.data || {}),
       ...(originalType ? { originalType } : {}),
-      // Store non-model fields in JSON data for downstream consumers
       priority,
       channels,
       recipientType,
       ...(recipientIds ? { recipientIds } : {}),
       ...(dedupeKey ? { dedupeKey } : {}),
     },
-    // Explicitly map scheduledAt if provided
     scheduledAt: data.scheduledAt || null,
-    // The unique index that makes redelivery a no-op reads the column, not the
-    // JSON copy above.
     ...(dedupeKey ? { dedupeKey } : {}),
   };
+}
 
-  let notification;
+/**
+ * Fan out to the external channels listed, recording each one's outcome on the
+ * delivery marker. Best-effort: a dispatch failure is recorded as `FAILED`
+ * (so the next run retries it) and never thrown to the caller. `markerId` is
+ * null for one-shot notifications, which have no delivery state to keep.
+ */
+async function dispatchExternalChannels(
+  data: CreateNotificationInput & { userId: string },
+  externalChannels: ExternalChannel[],
+  markerId: string | null
+): Promise<void> {
+  if (externalChannels.length === 0) return;
   try {
-    notification = await prisma.notification.create({ data: createData });
+    // Respect the system-wide channel policy (super-admin managed).
+    const policy = await getChannelPolicy();
+    const allowed = externalChannels.filter((c) => policy[c]);
+    const user =
+      allowed.length > 0
+        ? await prisma.user.findUnique({
+            where: { id: data.userId },
+            select: { email: true, phone: true },
+          })
+        : null;
+    if (!user) return;
+
+    const results = await Promise.allSettled(
+      allowed.map((channel) =>
+        channelService.dispatchExternal({
+          channel,
+          userId: data.userId,
+          recipientEmail: user.email ?? undefined,
+          recipientPhone: user.phone ?? undefined,
+          type: 'GENERAL',
+          title: data.title,
+          message: data.message,
+        })
+      )
+    );
+
+    if (markerId) {
+      const outcomes: Record<string, string> = {};
+      allowed.forEach((channel, i) => {
+        const r = results[i];
+        // A channel the policy blocks is not owed; a rejected or unsuccessful
+        // dispatch stays FAILED for the next run to retry.
+        outcomes[channel] =
+          policy[channel] === false
+            ? 'SKIPPED'
+            : r.status === 'fulfilled' && r.value.success
+              ? 'SENT'
+              : 'FAILED';
+      });
+      await markDeliveryChannel(markerId, outcomes);
+    }
   } catch (error) {
-    if (dedupeKey && isUniqueViolation(error)) {
-      return null;
-    }
-    throw error;
+    console.error('External notification dispatch failed:', error);
   }
-
-  // Fan out to external channels (EMAIL/SMS/WHATSAPP) listed on the
-  // notification. The in-app row above is the record; external dispatch is
-  // best-effort and must never fail the caller.
-  const externalChannels = (channels ?? []).filter(
-    (c): c is Exclude<NotificationChannel, 'IN_APP' | 'PUSH'> =>
-      c === 'EMAIL' || c === 'SMS' || c === 'WHATSAPP'
-  );
-  if (externalChannels.length > 0 && data.userId) {
-    try {
-      // Respect the system-wide channel policy (super-admin managed).
-      const policy = await getChannelPolicy();
-      const allowed = externalChannels.filter((c) => policy[c]);
-      const user =
-        allowed.length > 0
-          ? await prisma.user.findUnique({
-              where: { id: data.userId },
-              select: { email: true, phone: true },
-            })
-          : null;
-      if (user) {
-        await Promise.allSettled(
-          allowed.map((channel) =>
-            channelService.dispatchExternal({
-              channel,
-              userId: data.userId,
-              recipientEmail: user.email ?? undefined,
-              recipientPhone: user.phone ?? undefined,
-              type: 'GENERAL',
-              title: data.title,
-              message: data.message,
-            })
-          )
-        );
-      }
-    } catch (error) {
-      // eslint-disable-next-line no-console
-      console.error('External notification dispatch failed:', error);
-    }
-  }
-
-  if (originalType) {
-    return { ...notification, type: originalType };
-  }
-  return notification;
 }
 
 export async function createBulkNotifications(data: CreateBulkNotificationInput) {

@@ -43,7 +43,11 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { useUnits } from "@/hooks";
-import { api } from "@/lib/api";
+import {
+  useCheckWhatsAppStatus,
+  useSendWhatsAppMessage,
+} from "@/hooks/use-whatsapp";
+import { useTriggerScheduledTask } from "@/hooks/use-scheduler";
 
 // Template types for WhatsApp
 const WA_TEMPLATES = [
@@ -220,11 +224,14 @@ export default function WhatsAppPage() {
   } | null>(null);
 
   const { data: units } = useUnits();
+  const checkStatusMutation = useCheckWhatsAppStatus();
+  const sendMutation = useSendWhatsAppMessage();
+  const triggerMutation = useTriggerScheduledTask();
 
   // Check WhatsApp status
   const checkStatus = async () => {
     try {
-      const { data } = await api.get("/notifications/whatsapp/status");
+      const data = await checkStatusMutation.mutateAsync();
       if (data.success) {
         setProviderStatus(data.data);
       }
@@ -242,10 +249,7 @@ export default function WhatsAppPage() {
 
     setIsLoading(true);
     try {
-      const { data } = await api.post(
-        "/notifications/whatsapp/send",
-        singleSend,
-      );
+      const data = await sendMutation.mutateAsync(singleSend);
 
       if (data.success) {
         toast.success("Pesan berhasil dikirim");
@@ -264,9 +268,7 @@ export default function WhatsAppPage() {
   const handleTriggerTask = async (taskId: string) => {
     setIsLoading(true);
     try {
-      const { data } = await api.post("/notifications/scheduler/trigger", {
-        task: taskId,
-      });
+      const data = await triggerMutation.mutateAsync(taskId);
 
       if (data.success) {
         toast.success(data.message);
