@@ -353,6 +353,18 @@ change that alters it would report every signed letter as altered.
   privacy policy, data-subject access and erasure, a data-access audit); ISAK
   35 non-profit statements and the UU Yayasan annual-report package; a zakat
   *collection* (muzakki) model beside the existing distribution side.
+- **Portfolio showcase in tiers — only when someone needs it.** Today a
+  showcase is visible only within `studentScope` (decided 2026-10-10,
+  `decisions/showcase-portofolio.md`). When a teacher or the yayasan asks to
+  show santri work wider, build it in tiers: private → class/unit, curated by
+  the teacher → yayasan or the public site, with the wali's recorded and
+  revocable consent and identity kept to a minimum. Not before there is a
+  real request: no page uses the showcase today.
+- **Forms that always answer 400 (#749).** Fourteen routes in portfolio,
+  reception and finance-enhancement validate `{ body: … }`-wrapped schemas
+  against `req.body`. Every write in those modules gets a unit-scope check
+  **before** the schemas are flattened (portfolio's part landed with #747,
+  merged 2026-10-13).
 - **Tidiness:** ~200 racy `isVisible({ timeout })` probes in the e2e specs
   (206 on 2026-09-25); `no-explicit-any` in the API, fixed opportunistically
   per module.

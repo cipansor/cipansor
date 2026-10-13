@@ -163,7 +163,7 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | pemeriksa Actions: PR ready dan hijau tanpa review gerbang pada head itu > 60 menit | satu issue `automation-health` dan dispatch ulang sekali |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready dan seluruh check gerbangnya hijau tanpa review gerbang pada head itu lebih dari 60 menit | dispatch ulang sekali, satu komentar per head, dan satu issue `automation-health` (#776) |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
@@ -253,10 +253,11 @@ butir mengikuti aturan emas di `AGENTS.md`):
 
 1. **Maintainer** mematikan cron cloud `Penjaga issue` dan `Uji beban` di
    `app.all-hands.dev`.
-2. **Pemeriksa gerbang macet** (Actions): PR ready dan hijau tanpa review
-   gerbang pada head itu > 60 menit → satu issue `automation-health` dan satu
-   dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
-   merge.
+2. **Pengawas gerbang tinjau** (Actions, `gate-watch.yml` #776): PR ready dan
+   seluruh check gerbangnya hijau tanpa review gerbang pada head itu lebih dari
+   60 menit → satu issue `automation-health` yang memuat semuanya, satu
+   komentar per head, dan satu dispatch ulang. Dikerjakan pertama, karena
+   gerbang yang diam menahan semua merge.
 3. **Triase satu pemilik**: hanya `Pelabel issue` yang menulis triase,
    estimasi, dan label, dalam satu komentar yang diperbarui. Automation lain
    tidak berkomentar triase.
@@ -276,6 +277,14 @@ butir mengikuti aturan emas di `AGENTS.md`):
    `Gerbang tinjau PR`.
 8. **Laporan pemakaian mingguan** pada `Pengawas armada`: menit Actions dan
    token per automation, dibanding anggarannya.
+
+**Setiap kali membuat atau mengubah automation yang dipicu komentar**
+(`issue_comment.created`), sebelum menyalakannya: pastikan filternya memuat
+`!icontains(comment.body, 'This comment was created by an AI agent')`, lalu
+uji dengan satu komentar contoh yang berfooter itu. Komentar itu **tidak boleh**
+memicunya. Ini satu-satunya titik yang mencegah loop #680. Pemeriksaan berkala
+datang sesudah anggarannya habis, jadi tidak dipasang
+(`.claude/memory/decisions/otomasi-armada.md` butir 8).
 
 ## Menyeluruh
 

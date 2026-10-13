@@ -231,6 +231,10 @@ pm2 startup
 
 ## Database Migration
 
+A migration uses built-in PostgreSQL functions only: the managed server installs
+no extensions. The rule and its guard test are in `apps/api/prisma/AGENTS.md` →
+Workflow.
+
 ### Irreversible migrations — backup is a hard prerequisite
 
 Some migrations `DROP TABLE` and cannot be undone by re-running anything: the

@@ -85,7 +85,9 @@ from the backup, as the VM runbook describes, not on staging.
    `https://staging.cipansor.or.id/healthz` reports that SHA (see
    [Verifying a release](#verifying-a-release)). The api applies pending
    migrations to the staging database as it starts, so a migration that cannot
-   apply fails here first. When nothing between the commit staging runs and the
+   apply fails here first. The managed server installs no PostgreSQL
+   extensions, so a migration that calls one fails here and never in CI; the
+   rule is in `apps/api/prisma/AGENTS.md` → Workflow. When nothing between the commit staging runs and the
    new one is code, the build and restart are skipped and staging keeps
    reporting the earlier commit — the same code. Release that commit: it is
    the one whose images exist.
