@@ -11,7 +11,7 @@ name: Gate watch
 
 on:
   schedule:
-    - cron: '23 * * * *' # hourly, at minute 23: off the hour, and clear of the 01:30 duplicate sweep
+    - cron: '23 * * * *' # hourly, at minute 23, off the top of the hour
   workflow_dispatch:
 
 permissions:
