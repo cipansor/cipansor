@@ -163,7 +163,7 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, semua check di head selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | dispatch ulang sekali per head, satu komentar per head, dan satu issue `automation-health` yang memuat semuanya (#776) |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | dispatch ulang sekali per head, satu komentar per head, dan satu issue `automation-health` yang memuat semuanya (#776) |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
@@ -256,7 +256,8 @@ butir mengikuti aturan emas di `AGENTS.md`):
 1. **Maintainer** mematikan cron cloud `Penjaga issue` dan `Uji beban` di
    `app.all-hands.dev`.
 2. **Pengawas gerbang tinjau** (Actions, `gate-watch.yml` #776): PR ready dan
-   hijau tanpa review gerbang pada head itu lebih dari 60 menit → satu issue
+   seluruh check gerbangnya hijau (hadir lengkap, set yang sama dengan
+   `pr-lifecycle`) tanpa review gerbang pada head itu lebih dari 60 menit → satu issue
    `automation-health` yang memuat semuanya, satu komentar per head, dan satu
    dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
    merge.

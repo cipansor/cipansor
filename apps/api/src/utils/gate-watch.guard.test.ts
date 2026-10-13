@@ -8,11 +8,14 @@ import { join, resolve } from 'path';
  * `gate-watch.sh` (#776) against a stub `gh` that serves JSON fixtures and runs
  * each call's real `--jq` expression through `jq`, so the filters the script
  * relies on — not a draft, the gate's login, the head commit — are exercised
- * too, not just the shell around them.
+ * too, not just the shell around them. Check-run fixtures carry `started_at`
+ * and `id` as the real API does, because the script picks the latest run of a
+ * name the same way `pr-lifecycle.sh` does (sort by `started_at`, then `id`) —
+ * a re-run still in flight must keep the head pending.
  *
- * A ready PR whose head checks all finished green more than an hour ago and
- * that the gate has not reviewed is flagged once, and the one health issue
- * lists it; anything else is left alone.
+ * A ready PR whose full gate set finished green more than an hour ago and that
+ * the gate has not reviewed is flagged once, and the one health issue lists it;
+ * anything else is left alone.
  */
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const SCRIPT = join(REPO_ROOT, '.github', 'scripts', 'gate-watch.sh');
@@ -30,7 +33,6 @@ bodyof() { prev=""; for a in "$@"; do
 case "$1" in
   pr)
     case "$2" in
-      list) emit "\${GH_STUB_PRS:-[]}" ;;
       comment) log "PCOMMENT $3"; log "PBODY $(bodyof "$@")" ;;
     esac ;;
   issue)
@@ -40,6 +42,7 @@ case "$1" in
     esac ;;
   api)
     case "$*" in
+      *"pulls?state=open"*) emit "\${GH_STUB_PRS:-[]}" ;;
       *"-X PATCH"*) log "PATCH $*"; bodyof "$@" > "$GH_STUB_DIR/patched" ;;
       *"/reviews"*)
         n=$(printf '%s\\n' "$*" | sed -n 's|.*/pulls/\\([0-9]*\\)/reviews.*|\\1|p')
@@ -47,11 +50,15 @@ case "$1" in
         eval "v=\\\${GH_STUB_REVIEWS_$n:-[]}"; emit "$v" ;;
       *"/check-runs"*)
         s=$(printf '%s\\n' "$*" | sed -n 's|.*/commits/\\([0-9a-f]*\\)/check-runs.*|\\1|p')
-        eval "v=\\\${GH_STUB_RUNS_$s:-}"; emit "\${v:-{\\"check_runs\\":[]}}" ;;
+        [ "\${GH_STUB_RUNS_FAIL:-}" = "$s" ] && exit 1
+        eval "v=\\\${GH_STUB_RUNS_$s:-}"; [ -n "$v" ] || v='{"check_runs":[]}'; emit "$v" ;;
       *"/comments"*)
         n=$(printf '%s\\n' "$*" | sed -n 's|.*/issues/\\([0-9]*\\)/comments.*|\\1|p')
+        [ "\${GH_STUB_COMMENTS_FAIL:-}" = "$n" ] && exit 1
         eval "v=\\\${GH_STUB_COMMENTS_$n:-[]}"; emit "$v" ;;
-      *"issues?state=open"*) emit "\${GH_STUB_OPEN_ISSUES:-[]}" ;;
+      *"issues?state=open"*)
+        [ "\${GH_STUB_ISSUES_FAIL:-}" = "1" ] && exit 1
+        emit "\${GH_STUB_OPEN_ISSUES:-[]}" ;;
       *"/issues/"*) emit "\${GH_STUB_ISSUE_JSON:-{}}" ;;
     esac ;;
 esac
@@ -79,23 +86,43 @@ const NOW = 1_760_150_000;
 const HEAD = 'abc123def456';
 const ago = (minutes: number) => new Date((NOW - minutes * 60) * 1000).toISOString();
 
-const runs = (...list: Array<[string, string, string | null, string | null]>) =>
+// name, status, conclusion, completed_at, started_at (defaults to
+// completed_at), id (defaults to row order).
+type Run = [
+  name: string,
+  status: string,
+  conclusion: string | null,
+  completedAt: string | null,
+  startedAt?: string | null,
+  id?: number,
+];
+const runs = (...list: Run[]) =>
   JSON.stringify({
-    check_runs: list.map(([name, status, conclusion, completed_at]) => ({
-      name,
-      status,
-      conclusion,
-      completed_at,
+    check_runs: list.map((t, i) => ({
+      name: t[0],
+      status: t[1],
+      conclusion: t[2],
+      completed_at: t[3],
+      started_at: t[4] ?? t[3],
+      id: t[5] ?? i + 1,
     })),
   });
 
-const GREEN_LONG_AGO = runs(
-  ['Tests', 'completed', 'success', ago(150)],
+// The full gate set, each green and long settled. Tests replace or extend parts
+// of it, mirroring the names pr-lifecycle.sh dispatches on.
+const GATE_GREEN: Run[] = [
+  ['CI scope', 'completed', 'success', ago(150)],
+  ['Lint', 'completed', 'success', ago(130)],
   ['Build', 'completed', 'skipped', ago(140)],
-  ['Lint', 'completed', 'success', ago(90)]
-);
+  ['Tests', 'completed', 'success', ago(150)],
+  ['Security', 'completed', 'success', ago(140)],
+  ['E2E scope', 'completed', 'success', ago(100)],
+  ['E2E Tests (Chromium)', 'completed', 'success', ago(90)],
+];
+const GREEN_LONG_AGO = runs(...GATE_GREEN);
+const without = (name: string) => GATE_GREEN.filter(([n]) => n !== name);
 
-const READY = JSON.stringify([{ number: 7, isDraft: false, headRefOid: HEAD }]);
+const READY = JSON.stringify([{ number: 7, draft: false, head: { sha: HEAD } }]);
 
 function run(env: Record<string, string>) {
   writeFileSync(log, '');
@@ -112,6 +139,9 @@ function run(env: Record<string, string>) {
       GH_STUB_DIR: dir,
       GH_STUB_PRS: READY,
       [`GH_STUB_RUNS_${HEAD}`]: GREEN_LONG_AGO,
+      // The re-dispatch is off unless a test turns it on; the parent
+      // environment may carry the real key.
+      OPENHANDS_API_KEY: '',
       ...env,
     },
   });
@@ -141,10 +171,7 @@ describe('gate-watch.sh', () => {
   it('counts from the last check to finish, not the first', () => {
     // Finished 150 and 30 minutes ago: green for only 30 minutes.
     const { calls } = run({
-      [`GH_STUB_RUNS_${HEAD}`]: runs(
-        ['Tests', 'completed', 'success', ago(150)],
-        ['Lint', 'completed', 'success', ago(30)]
-      ),
+      [`GH_STUB_RUNS_${HEAD}`]: runs(...without('Lint'), ['Lint', 'completed', 'success', ago(30)]),
     });
     expect(calls).not.toContain('CREATE');
     expect(calls).not.toContain('PCOMMENT');
@@ -155,33 +182,87 @@ describe('gate-watch.sh', () => {
     // latest run of each name counts, so this head is green, not red.
     const { calls } = run({
       [`GH_STUB_RUNS_${HEAD}`]: runs(
-        ['Tests', 'completed', 'success', ago(150)],
-        ['Tests', 'completed', 'failure', ago(140)],
+        ...without('Tests'),
+        ['Tests', 'completed', 'failure', ago(150)],
         ['Tests', 'completed', 'success', ago(90)]
       ),
     });
     expect(calls).toContain('PCOMMENT 7');
   });
 
+  it('keeps waiting when a re-run of a check is still in flight', () => {
+    // An old green run beside a fresh re-run that has not finished: ordering by
+    // completed_at picked the old green run and dispatched the gate before the
+    // new result was known. The latest run by started_at keeps it pending.
+    const { calls } = run({
+      [`GH_STUB_RUNS_${HEAD}`]: runs(
+        ...without('E2E Tests (Chromium)'),
+        ['E2E Tests (Chromium)', 'completed', 'success', ago(140)],
+        ['E2E Tests (Chromium)', 'in_progress', null, null, ago(5)]
+      ),
+    });
+    expect(calls).not.toContain('PCOMMENT');
+  });
+
+  it('keeps waiting while the gate set is still incomplete', () => {
+    // CI finished but the E2E suite has not published its checks yet: a green
+    // subset must not be mistaken for the full gate.
+    const { calls } = run({
+      [`GH_STUB_RUNS_${HEAD}`]: runs(...GATE_GREEN.filter(([n]) => !n.startsWith('E2E'))),
+    });
+    expect(calls).not.toContain('PCOMMENT');
+  });
+
   it.each(['failure', 'cancelled', 'timed_out', 'action_required', 'startup_failure', 'stale'])(
-    'still skips a PR whose latest run of a check is %s',
+    'still skips a PR whose latest run of a gate check is %s',
     (conclusion) => {
       const { calls } = run({
-        [`GH_STUB_RUNS_${HEAD}`]: runs(
-          ['Tests', 'completed', 'success', ago(150)],
-          ['Lint', 'completed', conclusion, ago(140)]
-        ),
+        [`GH_STUB_RUNS_${HEAD}`]: runs(...without('Lint'), [
+          'Lint',
+          'completed',
+          conclusion,
+          ago(140),
+        ]),
       });
       expect(calls).not.toContain('PCOMMENT');
     }
   );
 
+  it('ignores an advisory check that failed when the gate set is green', () => {
+    // `PR template reminder` is not in REQUIRED_CHECKS; pr-lifecycle still
+    // dispatches, so a failing advisory check must not hide the gate's silence.
+    const { calls } = run({
+      [`GH_STUB_RUNS_${HEAD}`]: runs(...GATE_GREEN, [
+        'Before/after visual reminder',
+        'completed',
+        'failure',
+        ago(140),
+      ]),
+    });
+    expect(calls).toContain('PCOMMENT 7');
+  });
+
+  it('ignores an advisory check that is still running when the gate set is green', () => {
+    const { calls } = run({
+      [`GH_STUB_RUNS_${HEAD}`]: runs(...GATE_GREEN, [
+        'Before/after visual reminder',
+        'in_progress',
+        null,
+        null,
+        ago(5),
+      ]),
+    });
+    expect(calls).toContain('PCOMMENT 7');
+  });
+
   it('flags a PR whose only non-success conclusion is skipped', () => {
     const { calls } = run({
-      [`GH_STUB_RUNS_${HEAD}`]: runs(
-        ['Tests', 'completed', 'success', ago(150)],
-        ['Build', 'completed', 'skipped', ago(140)]
-      ),
+      [`GH_STUB_RUNS_${HEAD}`]: runs(...without('Build'), [
+        'Build',
+        'completed',
+        'skipped',
+        ago(140),
+      ]),
     });
     expect(calls).toContain('PCOMMENT 7');
   });
@@ -192,6 +273,7 @@ describe('gate-watch.sh', () => {
     // a head that is in fact red.
     const { calls } = run({
       [`GH_STUB_RUNS_${HEAD}`]: runs(
+        ...without('Tests'),
         ['Tests A', 'completed', 'success', ago(90)],
         ['Tests B', 'completed', 'failure', ago(140)]
       ),
@@ -202,6 +284,7 @@ describe('gate-watch.sh', () => {
   it('lets a re-run of a name with spaces supersede its failure', () => {
     const { calls } = run({
       [`GH_STUB_RUNS_${HEAD}`]: runs(
+        ...without('E2E Tests (Chromium)'),
         ['E2E Tests (Chromium)', 'completed', 'failure', ago(140)],
         ['E2E Tests (Chromium)', 'completed', 'success', ago(90)]
       ),
@@ -231,27 +314,32 @@ describe('gate-watch.sh', () => {
 
   it('skips a draft', () => {
     const { calls } = run({
-      GH_STUB_PRS: JSON.stringify([{ number: 7, isDraft: true, headRefOid: HEAD }]),
+      GH_STUB_PRS: JSON.stringify([{ number: 7, draft: true, head: { sha: HEAD } }]),
     });
     expect(calls).not.toContain('PCOMMENT');
   });
 
   it('skips a PR whose checks are still running', () => {
     const { calls } = run({
-      [`GH_STUB_RUNS_${HEAD}`]: runs(
-        ['Tests', 'completed', 'success', ago(150)],
-        ['E2E Tests (Chromium)', 'in_progress', null, null]
-      ),
+      [`GH_STUB_RUNS_${HEAD}`]: runs(...without('E2E Tests (Chromium)'), [
+        'E2E Tests (Chromium)',
+        'in_progress',
+        null,
+        null,
+        ago(5),
+      ]),
     });
     expect(calls).not.toContain('PCOMMENT');
   });
 
   it('skips a red PR: the lifecycle does not dispatch it', () => {
     const { calls } = run({
-      [`GH_STUB_RUNS_${HEAD}`]: runs(
-        ['Tests', 'completed', 'success', ago(150)],
-        ['Lint', 'completed', 'failure', ago(140)]
-      ),
+      [`GH_STUB_RUNS_${HEAD}`]: runs(...without('Lint'), [
+        'Lint',
+        'completed',
+        'failure',
+        ago(140),
+      ]),
     });
     expect(calls).not.toContain('PCOMMENT');
   });
@@ -265,6 +353,27 @@ describe('gate-watch.sh', () => {
     const { calls, out } = run({ GH_STUB_REVIEWS_FAIL: '7' });
     expect(calls).not.toContain('PCOMMENT');
     expect(out).toContain('reviews unreadable');
+  });
+
+  it('does not close the health issue when a scan did not complete', () => {
+    // Reviews unreadable for the only open PR: the empty list is not proof the
+    // incident ended, so the active report is left alone.
+    const { calls } = run({
+      GH_STUB_REVIEWS_FAIL: '7',
+      GH_STUB_OPEN_ISSUES: JSON.stringify([{ number: 41, body: '<!-- gate-watch:health -->' }]),
+    });
+    expect(calls).not.toContain('ICOMMENT 41');
+    expect(calls).not.toMatch(/PATCH repos\/o\/r\/issues\/41/);
+  });
+
+  it('does not close the health issue when the issue list cannot be read', () => {
+    const { calls } = run({
+      GH_STUB_PRS: '[]',
+      GH_STUB_ISSUES_FAIL: '1',
+      GH_STUB_OPEN_ISSUES: JSON.stringify([{ number: 41, body: '<!-- gate-watch:health -->' }]),
+    });
+    expect(calls).not.toContain('ICOMMENT 41');
+    expect(calls).not.toContain('CREATE');
   });
 
   it('comments once per head: an existing marker for the head is not repeated', () => {
@@ -334,6 +443,13 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
       OPENHANDS_API_KEY: 'k',
       GH_STUB_COMMENTS_7: JSON.stringify([{ id: 5, body: `<!-- gate-watch:${HEAD} -->` }]),
     });
+    expect(calls).not.toContain('CURL');
+  });
+
+  it('does not re-dispatch when the comment list cannot be read', () => {
+    // A read failure must not look like "no comment yet"; replaying the
+    // dispatch every hour for a head already told about is the risk.
+    const { calls } = run({ OPENHANDS_API_KEY: 'k', GH_STUB_COMMENTS_FAIL: '7' });
     expect(calls).not.toContain('CURL');
   });
 

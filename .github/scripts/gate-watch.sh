@@ -10,12 +10,19 @@
 #
 # A PR is "waiting on the gate" when:
 #   * it is open and not a draft,
-#   * every check run on its head has completed and none is red,
+#   * every check in REQUIRED_CHECKS is present on its head, the latest run of
+#     each is completed and none is red, and a check from every known suite has
+#     published (a green subset — CI done before E2E — is still pending),
 #   * the last of them completed more than WAIT_MINUTES ago,
 #   * and GATE_LOGIN has left no review on that head commit.
 # It does not rely on the dispatch itself, which is recorded only in a workflow
 # log: a green, ready head with no gate review is the symptom, whatever the
 # cause.
+#
+# The gate definition (REQUIRED_CHECKS, KNOWN_SUITE_SIGNS, the latest-run-per-
+# name rule, and red/pending restricted to the gate checks) is the same as
+# pr-lifecycle.sh: an advisory check that fails, a re-run still in flight, or a
+# green subset must not be read as the gate's silence.
 #
 # For those PRs:
 #   * one re-dispatch of the gate per head commit, when OPENHANDS_API_KEY is
@@ -45,68 +52,105 @@ ISSUE_MARK="<!-- gate-watch:health -->"
 # the #680 loop guard).
 AI_FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers._"
 
+# The checks that make up the required gate, the same set pr-lifecycle.sh
+# dispatches on. A green subset (E2E not started yet) must never be mistaken for
+# the full gate, so every one of these must be *present* on the head.
+REQUIRED_CHECKS="${REQUIRED_CHECKS:-CI scope|Lint|Build|Tests|Security|E2E scope|E2E Tests (Chromium)}"
+# Suites that publish a check run on every PR whose workflow ran: a signature
+# with no check run on the head means that workflow has not started yet.
+KNOWN_SUITE_SIGNS="${KNOWN_SUITE_SIGNS:-CI scope|E2E scope}"
+
 DIR="$(mktemp -d)"
 trap 'rm -rf "$DIR"' EXIT HUP INT TERM
 SILENT="$DIR/silent"   # lines: <pr> <sha> <green-since epoch>
 : > "$SILENT"
+UNREADABLE="$DIR/unreadable"   # PR numbers that could not be fully read
+: > "$UNREADABLE"
 
 iso() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
 
-PRS=$(gh pr list --repo "$REPO" --state open --limit 200 --json number,isDraft,headRefOid \
-  --jq '.[] | select(.isDraft | not) | "\(.number) \(.headRefOid)"')
+# Every open PR, paginated: `--limit 200` silently dropped the rest, so a PR
+# past the cutoff was neither flagged nor re-dispatched. The draft filter runs
+# in jq over the whole list.
+PRS=$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
+  --jq '.[] | select(.draft | not) | "\(.number) \(.head.sha)"' 2>/dev/null || true)
+
+# False when a required check is absent, or no check from some known suite has
+# published: a green subset is still pending. Names may contain spaces, so the
+# comparison is line-exact.
+gate_complete() { # gate_complete <present-lines>
+  _ifs=$IFS; IFS='
+'
+  set -f
+  for want in $(printf '%s\n' "$REQUIRED_CHECKS" | tr '|' '\n'); do
+    printf '%s\n' "$1" | grep -qxF "$want" || { IFS=$_ifs; set +f; return 1; }
+  done
+  for sign in $(printf '%s\n' "$KNOWN_SUITE_SIGNS" | tr '|' '\n'); do
+    [ -n "$sign" ] || continue
+    printf '%s\n' "$1" | awk -v s="$sign" 'index($0, s) == 1 { found = 1 } END { exit !found }' \
+      || { IFS=$_ifs; set +f; return 1; }
+  done
+  IFS=$_ifs; set +f
+  return 0
+}
 
 printf '%s\n' "$PRS" | while read -r n sha; do
   [ -n "${n:-}" ] || continue
   # Reviewed already: any review by the gate on this very commit, whatever its
   # verdict. An older commit's review does not count — the gate reviews heads.
+  # A read failure is recorded, not treated as "no review": it must not close
+  # the health issue while a PR is still waiting.
   reviewed=$(gh api --paginate "repos/$REPO/pulls/$n/reviews?per_page=100" \
     --jq ".[] | select(.user.login == \"$GATE_LOGIN\" and .commit_id == \"$sha\") | .id" 2>/dev/null || echo unread)
+  if [ "$reviewed" = "unread" ]; then
+    echo "::warning::PR #$n: reviews unreadable; skipped."
+    echo "$n" >> "$UNREADABLE"
+    continue
+  fi
   if [ -n "$reviewed" ]; then
-    [ "$reviewed" = "unread" ] && echo "::warning::PR #$n: reviews unreadable; skipped."
     continue
   fi
-  # One tab-separated line per check run: name, status, conclusion, completed_at
-  # as epoch seconds. Tab keeps a name with spaces (e.g. "E2E Tests (Chromium)")
-  # in one field. jq's fromdateiso8601 refuses fractional seconds, so they are
-  # dropped first.
-  if ! runs=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?per_page=100" \
-    --jq '.check_runs[] | "\(.name)\t\(.status)\t\(.conclusion // "none")\t\(if .completed_at then (.completed_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) else 0 end)"' 2>/dev/null); then
+  # The latest run of every check name, as pr-lifecycle.sh picks it (sort by
+  # started_at then id): a re-run in flight is the newest run and keeps the head
+  # pending, instead of an old green run winning on completed_at. Tab separates
+  # fields so a name with spaces ("E2E Tests (Chromium)") stays whole. jq's
+  # fromdateiso8601 refuses fractional seconds, so they are dropped first.
+  # gh is read on its own so a failed fetch is reported, not mistaken for "no
+  # check runs yet".
+  if ! raw=$(gh api --paginate "repos/$REPO/commits/$sha/check-runs?per_page=100" 2>/dev/null); then
     echo "::warning::PR #$n: check runs on $sha unreadable; skipped."
+    echo "$n" >> "$UNREADABLE"
     continue
   fi
+  runs=$(printf '%s' "$raw" | jq -rs '[.[].check_runs[]] | sort_by(.started_at, .id) | group_by(.name) | map(.[-1])[]
+          | "\(.name)\t\(.status)\t\(.conclusion // "none")\t\(if .completed_at then (.completed_at | sub("\\.[0-9]+Z$"; "Z") | fromdateiso8601) else 0 end)"' 2>/dev/null || true)
   if [ -z "$runs" ]; then
     echo "PR #$n: no check runs on $sha yet."
     continue
   fi
-  # Judge only the latest run of each check name, as pr-lifecycle.sh does: the
-  # API returns replaced runs too (a re-run leaves the earlier failure beside
-  # its green replacement), and reading every line let a superseded failure mark
-  # a head that is in fact green as red — the very silence this exists to end.
-  # A line without a name stands alone, keyed by its row, which is no less
-  # conservative than before.
-  if printf '%s\n' "$runs" | awk -F'\t' '
-        { k = ($1 == "" || $1 == "null") ? NR : $1; e = $4 + 0
-          if (!(k in best) || e >= best[k]) { best[k] = e; st[k] = $2 } }
-        END { for (k in st) if (st[k] != "completed") exit 0; exit 1 }'; then
-    echo "PR #$n: checks still running on $sha."
+  present=$(printf '%s\n' "$runs" | awk -F'\t' '{ print $1 }')
+  # Only the gate checks decide red, pending and green, as pr-lifecycle.sh does:
+  # an advisory check (the PR-template reminder, a visual reminder, CodeQL) that
+  # failed or is still running must not hide a head whose gate is silent.
+  pending=$(printf '%s\n' "$runs" | awk -F'\t' -v req="$REQUIRED_CHECKS" '
+        BEGIN { n = split(req, a, "|"); for (i = 1; i <= n; i++) want[a[i]] = 1 }
+        ($1 in want) && ($2 != "completed" || $3 !~ /^(success|failure|timed_out|action_required|startup_failure|stale|neutral|skipped)$/) { print }')
+  if [ -n "$pending" ] || ! gate_complete "$present"; then
+    echo "PR #$n: the gate checks on $sha are not all complete; waiting."
     continue
   fi
-  if printf '%s\n' "$runs" | awk -F'\t' '
-        { k = ($1 == "" || $1 == "null") ? NR : $1; e = $4 + 0
-          if (!(k in best) || e >= best[k]) {
-            best[k] = e
-            red[k] = ($3 ~ /^(failure|cancelled|timed_out|action_required|startup_failure|stale)$/)
-          } }
-        END { for (k in red) if (red[k]) exit 0; exit 1 }'; then
+  red=$(printf '%s\n' "$runs" | awk -F'\t' -v req="$REQUIRED_CHECKS" '
+        BEGIN { n = split(req, a, "|"); for (i = 1; i <= n; i++) want[a[i]] = 1 }
+        ($1 in want) && $2 == "completed" && $3 ~ /^(failure|timed_out|action_required|startup_failure|stale)$/ { print }')
+  if [ -n "$red" ]; then
     # Red: pr-lifecycle does not dispatch a red PR, so the gate owes it nothing.
-    echo "PR #$n: a check on $sha is red; not the gate's turn."
+    echo "PR #$n: a gate check on $sha is red; not the gate's turn."
     continue
   fi
-  # Green since the last check to settle, over the latest run of each name.
-  since=$(printf '%s\n' "$runs" | awk -F'\t' '
-        { k = ($1 == "" || $1 == "null") ? NR : $1; e = $4 + 0
-          if (!(k in best) || e >= best[k]) best[k] = e }
-        END { for (k in best) print best[k] }' | sort -n | tail -n1)
+  # Green since the last gate check to settle, over the latest run of each name.
+  since=$(printf '%s\n' "$runs" | awk -F'\t' -v req="$REQUIRED_CHECKS" '
+        BEGIN { n = split(req, a, "|"); for (i = 1; i <= n; i++) want[a[i]] = 1 }
+        ($1 in want) { print $4 }' | sort -n | tail -n1)
   waited=$(( (NOW - since) / 60 ))
   if [ "$waited" -lt "$WAIT_MINUTES" ]; then
     echo "PR #$n: green for ${waited} min; within ${WAIT_MINUTES}."
@@ -117,10 +161,25 @@ printf '%s\n' "$PRS" | while read -r n sha; do
 done
 
 # The health issue: found by its marker among open `automation-health` issues.
-ISSUE=$(gh api --paginate "repos/$REPO/issues?state=open&labels=automation-health&per_page=100" \
-  --jq ".[] | select(.pull_request == null) | select((.body // \"\") | contains(\"$ISSUE_MARK\")) | .number" 2>/dev/null | head -n1 || true)
+# If that list cannot be read, an open issue might exist unseen: do not open a
+# second one, and do not close on an empty list.
+issues_readable=true
+if ! _issues=$(gh api --paginate "repos/$REPO/issues?state=open&labels=automation-health&per_page=100" \
+    --jq ".[] | select(.pull_request == null) | select((.body // \"\") | contains(\"$ISSUE_MARK\")) | .number" 2>/dev/null); then
+  echo "::warning::Could not read the open automation-health issues."
+  issues_readable=false
+  _issues=""
+fi
+ISSUE=$(printf '%s\n' "$_issues" | head -n1)
 
 if [ ! -s "$SILENT" ]; then
+  # An unreadable scan (a failed review/check read, or an unreadable issue list)
+  # is not proof the incident ended: closing on an empty list would reopen a
+  # fresh issue on the next run for the same PR. Leave the report as it is.
+  if [ -s "$UNREADABLE" ] || [ "$issues_readable" != true ]; then
+    echo "A scan did not complete; leaving the health report as it is."
+    exit 0
+  fi
   if [ -n "$ISSUE" ]; then
     printf '%s\n' "Tidak ada lagi PR siap yang menunggu gerbang tinjau lebih dari ${WAIT_MINUTES} menit. Ditutup; issue ini dibuka lagi bila ada yang diam lagi." "" "$AI_FOOTER" > "$DIR/close"
     gh issue comment "$ISSUE" --repo "$REPO" --body-file "$DIR/close" >/dev/null
@@ -164,8 +223,14 @@ fi
 # One comment per silent head, pointing at the issue.
 sort -n "$SILENT" | while read -r n sha since; do
   mark="<!-- gate-watch:$sha -->"
+  # A read failure here must not look like "no comment yet": re-dispatching the
+  # gate on every run for a head already told about would pile up dispatches.
   have=$(gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" \
-    --jq ".[] | select((.body // \"\") | contains(\"$mark\")) | .id" 2>/dev/null | head -n1 || true)
+    --jq ".[] | select((.body // \"\") | contains(\"$mark\")) | .id" 2>/dev/null || echo unread)
+  if [ "$have" = "unread" ]; then
+    echo "::warning::PR #$n: comments unreadable; not re-dispatching $sha."
+    continue
+  fi
   if [ -n "$have" ]; then
     echo "PR #$n: already told about $sha."
     continue
