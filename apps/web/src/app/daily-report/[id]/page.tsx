@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { use, useState } from "react";
 import { safeFormat } from "@/lib/date";
 import { useRouter } from "next/navigation";
 import {
@@ -394,12 +394,15 @@ function DailyReportDetailPageContent({ params }: { params: { id: string } }) {
   );
 }
 
-export default function DailyReportDetailPage(
-  props: Parameters<typeof DailyReportDetailPageContent>[0],
-) {
+export default function DailyReportDetailPage({
+  params,
+}: {
+  params: Promise<Parameters<typeof DailyReportDetailPageContent>[0]["params"]>;
+}) {
+  const resolved = use(params);
   return (
     <MainLayout>
-      <DailyReportDetailPageContent {...props} />
+      <DailyReportDetailPageContent params={resolved} />
     </MainLayout>
   );
 }

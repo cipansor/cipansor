@@ -43,6 +43,8 @@ import {
   useCreateLeaveRequest,
   LEAVE_TYPES,
   LEAVE_TYPE_LABELS,
+  type CreateLeavePayload,
+  type LeaveType,
 } from "@/hooks/use-hr";
 import { toast } from "sonner";
 
@@ -70,8 +72,8 @@ export function LeaveRequestDialog({
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
-      const payload = {
-        type: values.type,
+      const payload: CreateLeavePayload = {
+        type: values.type as LeaveType,
         startDate: values.startDate.toISOString(),
         endDate: values.endDate.toISOString(),
         reason: values.reason,

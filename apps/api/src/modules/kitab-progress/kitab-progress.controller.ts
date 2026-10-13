@@ -77,7 +77,12 @@ export class KitabProgressController {
         page: parseInt(req.query.page as string) || 1,
         limit: parseInt(req.query.limit as string) || 20,
       };
-      const user = { sub: req.user!.sub, role: req.user!.role, unitId: req.user!.unitId };
+      const user = {
+        sub: req.user!.sub,
+        role: req.user!.role,
+        roleCode: req.user!.roleCode,
+        unitId: req.user!.unitId,
+      };
       const result = await kitabProgressService.listProgress(query, user);
       res.json(result);
     } catch (error) {
@@ -87,7 +92,12 @@ export class KitabProgressController {
 
   async updateProgress(req: Request, res: Response, next: NextFunction) {
     try {
-      const user = { sub: req.user!.sub, role: req.user!.role, unitId: req.user!.unitId };
+      const user = {
+        sub: req.user!.sub,
+        role: req.user!.role,
+        roleCode: req.user!.roleCode,
+        unitId: req.user!.unitId,
+      };
       const progress = await kitabProgressService.updateProgress(req.body, user);
       res.json({ data: progress });
     } catch (error) {
@@ -123,7 +133,12 @@ export class KitabProgressController {
   async bulkCreateRecords(req: Request, res: Response, next: NextFunction) {
     try {
       const { records } = req.body;
-      const user = { sub: req.user!.sub, role: req.user!.role, unitId: req.user!.unitId };
+      const user = {
+        sub: req.user!.sub,
+        role: req.user!.role,
+        roleCode: req.user!.roleCode,
+        unitId: req.user!.unitId,
+      };
       const results = { success: 0, failed: 0, errors: [] as string[] };
 
       const promises = records.map(async (record: UpdateProgressInput) => {
@@ -175,7 +190,12 @@ export class KitabProgressController {
   async getStudentReport(req: Request, res: Response, next: NextFunction) {
     try {
       const { studentId } = req.params;
-      const user = { sub: req.user!.sub, role: req.user!.role, unitId: req.user!.unitId };
+      const user = {
+        sub: req.user!.sub,
+        role: req.user!.role,
+        roleCode: req.user!.roleCode,
+        unitId: req.user!.unitId,
+      };
       const report = await kitabProgressService.getStudentReport(studentId, user);
       res.json({ data: report });
     } catch (error) {

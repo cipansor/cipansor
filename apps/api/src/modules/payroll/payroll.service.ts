@@ -12,6 +12,10 @@
 
 import { prisma } from '../../lib/prisma';
 import { Prisma, SalaryComponentType, PayrollStatus } from '@prisma/client';
+import { attendanceDeductionService } from './attendance-deduction.service';
+import { calculateMonthlyPph21, effectiveItemAmount, isBasicSalaryComponent } from './payroll-tax';
+import { Errors } from '../../middleware/error';
+import { workDatesInRange } from '../../utils/work-calendar';
 import { JournalReferenceType } from '@cipansor/shared';
 import { ACCOUNT_MAPPING_KEYS, getAccountOrFallback } from '../finance/accounting-config.service';
 import {
@@ -24,85 +28,6 @@ import {
   GeneratePayrollInput,
   PayrollItemAdjustmentInput,
 } from './payroll.schema';
-
-// ============================================
-// PPh 21 TAX CALCULATION (Simplified)
-// ============================================
-
-// PTKP 2024 (Penghasilan Tidak Kena Pajak)
-const PTKP: Record<string, number> = {
-  'TK/0': 54000000, // Tidak Kawin, 0 tanggungan
-  'TK/1': 58500000, // Tidak Kawin, 1 tanggungan
-  'TK/2': 63000000, // Tidak Kawin, 2 tanggungan
-  'TK/3': 67500000, // Tidak Kawin, 3 tanggungan
-  'K/0': 58500000, // Kawin, 0 tanggungan
-  'K/1': 63000000, // Kawin, 1 tanggungan
-  'K/2': 67500000, // Kawin, 2 tanggungan
-  'K/3': 72000000, // Kawin, 3 tanggungan
-  'K/I/0': 112500000, // Kawin, istri bekerja, 0 tanggungan
-  'K/I/1': 117000000, // Kawin, istri bekerja, 1 tanggungan
-  'K/I/2': 121500000, // Kawin, istri bekerja, 2 tanggungan
-  'K/I/3': 126000000, // Kawin, istri bekerja, 3 tanggungan
-};
-
-// Tarif progresif PPh 21 (2024)
-const TAX_BRACKETS = [
-  { limit: 60000000, rate: 0.05 },
-  { limit: 250000000, rate: 0.15 },
-  { limit: 500000000, rate: 0.25 },
-  { limit: 5000000000, rate: 0.3 },
-  { limit: Infinity, rate: 0.35 },
-];
-
-function calculateAnnualTax(annualTaxableIncome: number): number {
-  if (annualTaxableIncome <= 0) return 0;
-
-  let tax = 0;
-  let remaining = annualTaxableIncome;
-  let previousLimit = 0;
-
-  for (const bracket of TAX_BRACKETS) {
-    const bracketAmount = Math.min(remaining, bracket.limit - previousLimit);
-    if (bracketAmount <= 0) break;
-
-    tax += bracketAmount * bracket.rate;
-    remaining -= bracketAmount;
-    previousLimit = bracket.limit;
-  }
-
-  return tax;
-}
-
-function calculateMonthlyPph21(
-  monthlyGrossIncome: number,
-  taxStatus: string = 'TK/0',
-  hasNpwp: boolean = true
-): number {
-  const ptkp = PTKP[taxStatus] || PTKP['TK/0'];
-
-  // Annualized calculation
-  const annualGross = monthlyGrossIncome * 12;
-
-  // Biaya jabatan (5% max 6jt/tahun)
-  const biayaJabatan = Math.min(annualGross * 0.05, 6000000);
-
-  // Penghasilan Neto
-  const annualNet = annualGross - biayaJabatan;
-
-  // PKP (Penghasilan Kena Pajak)
-  const pkp = Math.max(0, annualNet - ptkp);
-
-  // Hitung pajak tahunan
-  let annualTax = calculateAnnualTax(pkp);
-
-  // Jika tidak punya NPWP, tambah 20%
-  if (!hasNpwp) {
-    annualTax *= 1.2;
-  }
-
-  // PPh 21 bulanan
-  return Math.round(annualTax / 12);
-}
 
 // ============================================
 // SALARY COMPONENT SERVICE
@@ -994,8 +919,64 @@ export const payrollService = {
       attendanceMap.set(att.staffId, current);
     }
 
-    // Calculate work days in period
-    const workDays = calculateWorkDays(period.startDate, period.endDate);
+    // Attendance-derived adjustments, computed once for the whole period from
+    // the configured PayrollPolicyRule rows. Nothing is hardcoded here.
+    const deductionRows = await attendanceDeductionService.computeForPeriod(period.id);
+    const deductionByStaff = new Map(deductionRows.map((row) => [row.staffId, row]));
+
+    // A payslip cannot be honest while the register it reads is incomplete:
+    // a work day with no row means nobody knows whether the person was there,
+    // so no deduction can be derived from it. Generation stops here — but only
+    // for the staff this request generates, so one employee's missing day does
+    // not block everyone else's slip.
+    const requestedStaffIds = new Set(staffList.map((s) => s.id));
+    const unresolved = deductionRows.filter(
+      (row) => row.unresolvedDates.length > 0 && requestedStaffIds.has(row.staffId)
+    );
+    if (unresolved.length > 0) {
+      const detail = unresolved
+        .slice(0, 5)
+        .map((row) => `${row.staffName} (${row.unresolvedDates.length} hari)`)
+        .join(', ');
+      const more = unresolved.length > 5 ? `, +${unresolved.length - 5} lainnya` : '';
+      throw Errors.badRequest(
+        `Absensi belum lengkap untuk ${unresolved.length} pegawai: ${detail}${more}. ` +
+          'Lengkapi presensi atau tandai pegawai yang tidak masuk sebelum generate slip.'
+      );
+    }
+
+    // A salary structure that crosses the legal bound (basic below the
+    // configured share, or below UMK) is reported, not silently applied —
+    // PP 36/2021 art. 32 bounds how far "upah" may be reduced. An admin may
+    // still proceed, but only by saying so and leaving a reason on the record.
+    // The attendance cap itself is enforced by the engine and never blocks.
+    const breached = deductionRows.filter(
+      (row) => row.guardBreaches.length > 0 && requestedStaffIds.has(row.staffId)
+    );
+    if (breached.length > 0 && !data.overrideGuardReason) {
+      const detail = breached
+        .slice(0, 5)
+        .map((row) => `${row.staffName}: ${row.guardBreaches[0]}`)
+        .join('; ');
+      const more = breached.length > 5 ? `; +${breached.length - 5} lainnya` : '';
+      throw Errors.badRequest(
+        `Potongan melampaui batas untuk ${breached.length} pegawai — ${detail}${more}. ` +
+          'Ubah aturan potongan, atau isi alasan override bila memang disengaja.'
+      );
+    }
+    // The override is not silent: the reason lands on each breaching slip, so
+    // the record says who decided and why when the slip is read back.
+    const guardNoteByStaff = new Map<string, string>();
+    if (data.overrideGuardReason) {
+      for (const row of breached) {
+        guardNoteByStaff.set(row.staffId, `Override batas potongan: ${data.overrideGuardReason}`);
+      }
+    }
+
+    // Work days come from the unit's configured week and its holidays, not a
+    // Monday–Friday literal: a 6-day unit and a 5-day unit must not print the
+    // same number on a slip.
+    const workDays = await countWorkDays(period.startDate, period.endDate, period.unitId);
 
     await prisma.$transaction(async (tx) => {
       for (const staff of staffList) {
@@ -1031,8 +1012,13 @@ export const payrollService = {
 
           const payrollItems: Prisma.PayrollItemCreateManyInput[] = [];
 
-          // Add base salary as first item
-          const baseSalaryComponent = components.find((c) => c.code === 'GAJI_POKOK');
+          // Add base salary as first item. The base component is whichever
+          // earning is classified POKOK (or named GAJI_POKOK / BASIC_SALARY):
+          // the seed calls it BASIC_SALARY, so matching the literal GAJI_POKOK
+          // alone silently dropped the basic salary line from every slip.
+          const baseSalaryComponent = components.find(
+            (c) => c.type === 'EARNING' && isBasicSalaryComponent(c)
+          );
           if (baseSalaryComponent) {
             payrollItems.push({
               payrollId: '', // Will be set after payroll creation
@@ -1047,14 +1033,13 @@ export const payrollService = {
             }
           }
 
-          // Add employee-specific salary items
+          // Add employee-specific salary items. A basic-salary item is skipped:
+          // `EmployeeSalary.baseSalary` is the authoritative base and already
+          // printed above, so counting the item too would pay the base twice.
           for (const item of empSalary.items) {
             const comp = item.component;
-            let amount = Number(item.amount);
-
-            if (item.isPercentage && item.rate) {
-              amount = Number(empSalary.baseSalary) * Number(item.rate);
-            }
+            if (isBasicSalaryComponent(comp)) continue;
+            const amount = effectiveItemAmount(item, Number(empSalary.baseSalary));
 
             if (comp.type === 'EARNING') {
               totalEarnings += amount;
@@ -1095,7 +1080,46 @@ export const payrollService = {
             });
           }
 
-          const netSalary = totalEarnings - totalDeductions;
+          // Apply the configured attendance rules: deductions come from the
+          // allowance side, additions go back to earnings. Each line is written
+          // to the slip so the employee can see what was docked and why.
+          const attendanceAdjust = deductionByStaff.get(staff.id);
+          if (attendanceAdjust) {
+            for (const line of attendanceAdjust.lines) {
+              let component = components.find((c) => c.code === line.code);
+              if (!component) {
+                // A rule may name a component that has no payslip line yet;
+                // create it so the FK holds and the line is visible.
+                component = await tx.salaryComponent.upsert({
+                  where: { code: line.code },
+                  update: {},
+                  create: {
+                    code: line.code,
+                    name: line.name,
+                    type: line.kind,
+                    isFixed: false,
+                    classification: 'TIDAK_TETAP',
+                  },
+                });
+              }
+              if (line.kind === 'DEDUCTION') {
+                totalDeductions += line.amount;
+              } else {
+                totalEarnings += line.amount;
+              }
+              payrollItems.push({
+                payrollId: '',
+                componentId: component.id,
+                componentCode: line.code,
+                componentName: component.name,
+                type: line.kind,
+                amount: new Prisma.Decimal(line.amount),
+                notes: line.detail,
+              });
+            }
+          }
+
+          const netSalaryFinal = totalEarnings - totalDeductions;
 
           // Create or update payroll
           if (existing && data.overwrite) {
@@ -1115,7 +1139,7 @@ export const payrollService = {
                 baseSalary: empSalary.baseSalary,
                 totalEarnings: new Prisma.Decimal(totalEarnings),
                 totalDeductions: new Prisma.Decimal(totalDeductions),
-                netSalary: new Prisma.Decimal(netSalary),
+                netSalary: new Prisma.Decimal(netSalaryFinal),
                 taxableIncome: new Prisma.Decimal(taxableIncome),
                 taxAmount: new Prisma.Decimal(taxAmount),
                 taxStatus: empSalary.taxStatus,
@@ -1127,6 +1151,7 @@ export const payrollService = {
                 absentDays,
                 lateDays,
                 status: 'DRAFT',
+                notes: guardNoteByStaff.get(staff.id),
               },
             });
 
@@ -1152,7 +1177,7 @@ export const payrollService = {
                 baseSalary: empSalary.baseSalary,
                 totalEarnings: new Prisma.Decimal(totalEarnings),
                 totalDeductions: new Prisma.Decimal(totalDeductions),
-                netSalary: new Prisma.Decimal(netSalary),
+                netSalary: new Prisma.Decimal(netSalaryFinal),
                 taxableIncome: new Prisma.Decimal(taxableIncome),
                 taxAmount: new Prisma.Decimal(taxAmount),
                 taxStatus: empSalary.taxStatus,
@@ -1164,6 +1189,7 @@ export const payrollService = {
                 absentDays,
                 lateDays,
                 status: 'DRAFT',
+                notes: guardNoteByStaff.get(staff.id),
               },
             });
 
@@ -1363,18 +1389,15 @@ export const payrollService = {
 };
 
 // Helper: Calculate work days (excluding weekends)
-function calculateWorkDays(startDate: Date, endDate: Date): number {
-  let count = 0;
-  const current = new Date(startDate);
-
-  while (current <= endDate) {
-    const day = current.getDay();
-    if (day !== 0 && day !== 6) {
-      // Not Sunday or Saturday
-      count++;
-    }
-    current.setDate(current.getDate() + 1);
-  }
-
-  return count;
+/**
+ * Working days in a period for a unit: the unit's `WorkWeekConfig` (or the
+ * yayasan default), minus whole-unit holidays. The same rules the deduction
+ * engine uses, so the slip's day count and its deductions agree.
+ */
+async function countWorkDays(
+  startDate: Date,
+  endDate: Date,
+  unitId: string | null
+): Promise<number> {
+  return (await workDatesInRange(startDate, endDate, unitId)).length;
 }

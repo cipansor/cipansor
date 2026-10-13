@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, AlertCircle, Settings } from "lucide-react";
 import {
@@ -11,6 +10,13 @@ import {
   CardTitle,
   CardDescription,
 } from "@/components/ui/card";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
@@ -19,6 +25,7 @@ import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { LoadingSpinner } from "@/components/shared";
 import { api } from "@/lib/api";
+import { useUnits } from "@/hooks/use-units";
 import { useAuthStore } from "@/stores/auth";
 import { MainLayout } from "@/components/layout/main-layout";
 
@@ -44,10 +51,24 @@ interface RaporConfig {
 }
 
 export default function RaporConfigPage() {
-  const router = useRouter();
   const queryClient = useQueryClient();
   const { user } = useAuthStore();
-  const unitId = user?.unitId;
+
+  // Rapor configuration is stored per unit, and a yayasan-level user has no
+  // unit of their own — `user.unitId` is null for them, which used to render
+  // "Unit ID tidak ditemukan pada profil user." instead of the form. Those
+  // users pick a unit; unit users stay pinned to theirs.
+  const { data: units } = useUnits();
+  const isFoundationUser = !user?.unitId;
+  const [selectedUnitId, setSelectedUnitId] = useState<string>("");
+
+  useEffect(() => {
+    if (isFoundationUser && !selectedUnitId && units?.length) {
+      setSelectedUnitId(units[0].id);
+    }
+  }, [isFoundationUser, selectedUnitId, units]);
+
+  const unitId = user?.unitId ?? selectedUnitId;
 
   const [formData, setFormData] = useState<RaporConfig | null>(null);
 
@@ -86,20 +107,23 @@ export default function RaporConfigPage() {
   });
 
   if (!unitId) {
+    // Only reached when the units query itself came back empty.
     return (
-      <div className="flex justify-center items-center min-h-[400px]">
-        <p className="text-muted-foreground">
-          Unit ID tidak ditemukan pada profil user.
-        </p>
-      </div>
+      <MainLayout>
+        <div className="flex justify-center items-center min-h-[400px]">
+          <p className="text-muted-foreground">Belum ada unit yang tersedia.</p>
+        </div>
+      </MainLayout>
     );
   }
 
   if (isLoading || !formData) {
     return (
-      <div className="flex justify-center items-center min-h-screen">
-        <LoadingSpinner size="lg" />
-      </div>
+      <MainLayout>
+        <div className="flex justify-center items-center min-h-[400px]">
+          <LoadingSpinner size="lg" />
+        </div>
+      </MainLayout>
     );
   }
 
@@ -157,17 +181,39 @@ export default function RaporConfigPage() {
               Pengaturan bobot nilai dan standar kelulusan
             </p>
           </div>
-          <Button
-            onClick={() => mutation.mutate(formData)}
-            disabled={mutation.isPending || totalWeight !== 100}
-          >
-            {mutation.isPending ? (
-              <LoadingSpinner size="sm" className="mr-2" />
-            ) : (
-              <Save className="w-4 h-4 mr-2" />
+          <div className="flex flex-wrap items-center gap-2">
+            {isFoundationUser && (
+              <Select
+                value={selectedUnitId}
+                onValueChange={(value) => {
+                  setFormData(null);
+                  setSelectedUnitId(value);
+                }}
+              >
+                <SelectTrigger className="w-[200px]" aria-label="Pilih unit">
+                  <SelectValue placeholder="Pilih unit" />
+                </SelectTrigger>
+                <SelectContent>
+                  {(units ?? []).map((unit) => (
+                    <SelectItem key={unit.id} value={unit.id}>
+                      {unit.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             )}
-            Simpan Perubahan
-          </Button>
+            <Button
+              onClick={() => mutation.mutate(formData)}
+              disabled={mutation.isPending || totalWeight !== 100}
+            >
+              {mutation.isPending ? (
+                <LoadingSpinner size="sm" className="mr-2" />
+              ) : (
+                <Save className="w-4 h-4 mr-2" />
+              )}
+              Simpan Perubahan
+            </Button>
+          </div>
         </div>
 
         <div className="grid md:grid-cols-2 gap-6">

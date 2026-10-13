@@ -300,6 +300,172 @@ interface ListRaporParams {
   limit?: number;
 }
 
+const EMPTY_TAHFIDZ: TahfidzSummary = {
+  totalSurah: 0,
+  totalJuz: 0,
+  totalAyah: 0,
+  setoranCount: 0,
+  murajaahCount: 0,
+  tasmiCount: 0,
+  averageGrade: "-",
+  latestSurah: "-",
+  latestJuz: 0,
+  progressPercentage: 0,
+  grade: "-",
+  score: 0,
+  records: [],
+};
+
+const EMPTY_TAKHOSUS: TakhosusSummary = {
+  enrolledHalaqoh: 0,
+  totalSessions: 0,
+  averageScore: 0,
+  grade: "-",
+  score: 0,
+  halaqohDetails: [],
+};
+
+const EMPTY_IBADAH: IbadahSummary = {
+  totalPoints: 0,
+  bonusPoints: 0,
+  currentStreak: 0,
+  longestStreak: 0,
+  completionRate: 0,
+  categoryBreakdown: [],
+  grade: "-",
+  score: 0,
+};
+
+const EMPTY_MUHADHOROH: MuhadhorohSummary = {
+  totalSessions: 0,
+  attendedSessions: 0,
+  performanceCount: 0,
+  averageScore: 0,
+  themes: [],
+  grade: "-",
+  score: 0,
+  performances: [],
+};
+
+const EMPTY_MUHADATSAH: MuhadatsahSummary = {
+  totalSessions: 0,
+  attendedSessions: 0,
+  practiceCount: 0,
+  averageScore: 0,
+  languages: [],
+  grade: "-",
+  score: 0,
+  practices: [],
+};
+
+const EMPTY_KITAB: KitabProgressSummary = {
+  totalKitab: 0,
+  completedKitab: 0,
+  inProgressKitab: 0,
+  totalPages: 0,
+  readPages: 0,
+  progressPercentage: 0,
+  grade: "-",
+  score: 0,
+  kitabList: [],
+};
+
+const EMPTY_AKHLAK: AkhlakSummary = {
+  totalViolations: 0,
+  totalRewards: 0,
+  violationPoints: 0,
+  rewardPoints: 0,
+  netPoints: 0,
+  behaviorGrade: "-",
+  grade: "-",
+  score: 0,
+  violations: [],
+  rewards: [],
+};
+
+const EMPTY_ATTENDANCE: AttendanceSummary = {
+  totalDays: 0,
+  presentDays: 0,
+  absentDays: 0,
+  sickDays: 0,
+  permitDays: 0,
+  lateDays: 0,
+  attendanceRate: 0,
+  grade: "-",
+};
+
+/**
+ * The aggregator in `apps/api` only emits a component when the student has data
+ * for it and stores arbitrary JSON for each, so a rapor can come back with the
+ * per-domain summaries missing or partially populated. The detail and print
+ * views render the full contract, so fill the gaps here rather than guarding
+ * every field access at each call site.
+ */
+function normalizeRapor(raw: Partial<RaporPesantren>): RaporPesantren {
+  // Older rapor rows (and the seed) store a hand-written summary per domain
+  // using the field names below rather than the aggregator's Summary shape.
+  // Bridge the two so either source renders.
+  const legacy = raw as Record<string, Record<string, unknown> | undefined>;
+  const mappedTahfidz = raw.tahfidz
+    ? {
+        score: numberOr(raw.tahfidz.score, legacy.tahfidz?.tahfidzScore),
+        grade: stringOr(raw.tahfidz.grade, legacy.tahfidz?.tahfidzGrade),
+      }
+    : undefined;
+  const mappedIbadah = raw.ibadah
+    ? {
+        score: numberOr(
+          raw.ibadah.score,
+          legacy.ibadah?.sholatFardhuPercentage,
+        ),
+        grade: stringOr(raw.ibadah.grade, undefined),
+      }
+    : undefined;
+  const mappedMuhadhoroh = raw.muhadhoroh
+    ? {
+        score: numberOr(
+          raw.muhadhoroh.score,
+          legacy.muhadhoroh?.speechSkillScore,
+        ),
+        grade: stringOr(raw.muhadhoroh.grade, legacy.muhadhoroh?.speechGrade),
+      }
+    : undefined;
+
+  return {
+    ...(raw as RaporPesantren),
+    tahfidz: { ...EMPTY_TAHFIDZ, ...(raw.tahfidz ?? {}), ...mappedTahfidz },
+    takhosus: { ...EMPTY_TAKHOSUS, ...(raw.takhosus ?? {}) },
+    ibadah: { ...EMPTY_IBADAH, ...(raw.ibadah ?? {}), ...mappedIbadah },
+    muhadhoroh: {
+      ...EMPTY_MUHADHOROH,
+      ...(raw.muhadhoroh ?? {}),
+      ...mappedMuhadhoroh,
+    },
+    muhadatsah: { ...EMPTY_MUHADATSAH, ...(raw.muhadatsah ?? {}) },
+    kitabProgress: { ...EMPTY_KITAB, ...(raw.kitabProgress ?? {}) },
+    akhlak: { ...EMPTY_AKHLAK, ...(raw.akhlak ?? {}) },
+    attendance: { ...EMPTY_ATTENDANCE, ...(raw.attendance ?? {}) },
+    overallScore: raw.overallScore ?? 0,
+    overallGrade: raw.overallGrade ?? "-",
+  };
+}
+
+function numberOr(
+  primary: number | undefined,
+  fallback: unknown,
+): number | undefined {
+  if (typeof primary === "number") return primary;
+  return typeof fallback === "number" ? fallback : undefined;
+}
+
+function stringOr(
+  primary: string | undefined,
+  fallback: unknown,
+): string | undefined {
+  if (primary) return primary;
+  return typeof fallback === "string" ? fallback : undefined;
+}
+
 async function listRapor(params: ListRaporParams) {
   const { data } = await api.get("/rapor-pesantren", { params });
   return data;
@@ -307,7 +473,7 @@ async function listRapor(params: ListRaporParams) {
 
 async function getRaporById(id: string) {
   const { data } = await api.get(`/rapor-pesantren/${id}`);
-  return data.data as RaporPesantren;
+  return normalizeRapor(data.data ?? {});
 }
 
 interface GenerateRaporParams {

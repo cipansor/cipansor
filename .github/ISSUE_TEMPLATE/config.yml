@@ -1,17 +1,17 @@
 blank_issues_enabled: true
 contact_links:
   - name: Report a security vulnerability (private)
-    url: https://github.com/ypcipansor/cipansor/security/advisories/new
+    url: https://github.com/cipansor/cipansor/security/advisories/new
     about: >-
       Do not open a public issue for a vulnerability. Use GitHub's private
       advisory form; a maintainer sees it before anything is public.
   - name: Labels, priority and the automation lifecycle
-    url: https://github.com/ypcipansor/cipansor/blob/main/docs/LABELS.md
+    url: https://github.com/cipansor/cipansor/blob/main/docs/LABELS.md
     about: >-
       How type, priority and status labels work, what makes an issue `ready`,
       and which automation owns each label.
   - name: Automations and their guardrails
-    url: https://github.com/ypcipansor/cipansor/blob/main/docs/IDEAS.md
+    url: https://github.com/cipansor/cipansor/blob/main/docs/IDEAS.md
     about: >-
       What the non-framework automations do (bug hunter, steward, watchdog),
       and the limits each one keeps.

@@ -36,14 +36,13 @@ AI_FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the
 # tested commit - a subset (E2E has not started, or the API truncated a page)
 # must never be mistaken for the full gate.
 #
-# Note the two definitions of "green" GitHub and this script use. A job skipped
-# by its own `if:` (a docs-only PR reports `scope.run=false`, so
-# Lint/Build/Tests/Security/E2E are skipped) still satisfies a *required status
-# check* on GitHub - a skipped job reports success. This script is stricter: it
-# requires each check to be present and `conclusion=success`, so a docs-only PR
-# never reaches the all-green notice. That is intentional - the notice means "the
-# full gate ran and passed", and a documentation change cannot satisfy it in any
-# useful sense.
+# A job skipped by its own `if:` (a docs-only PR reports `scope.run=false`, so
+# Lint/Build/Tests/Security/E2E are skipped) is neither red nor pending here: a
+# `skipped` conclusion is excluded from RED (which lists only real failures) and
+# from PENDING (which lists conclusions this gate does not call green). A docs
+# PR is therefore green once every check is *present* and none failed, which is
+# what lets it reach the gate. Presence is still required, so a green subset (an
+# early CI finish before E2E has published its checks) stays pending.
 REQUIRED_CHECKS="${REQUIRED_CHECKS:-CI scope|Lint|Build|Tests|Security|E2E scope|E2E Tests (Chromium)}"
 
 # Suites that publish a check run on every PR whose workflow ran. A signature
@@ -117,10 +116,16 @@ printf '%s\n' "$LATEST" \
   | awk -F'\t' -v req="$REQUIRED_CHECKS" '
       BEGIN { n = split(req, a, "|"); for (i = 1; i <= n; i++) want[a[i]] = 1 }
       NF && $2 == "completed" && $3 ~ /^(failure|timed_out|action_required|startup_failure|stale)$/ && !($1 in want) { print "Ignoring non-gate check \x27" $1 "\x27 when deciding to draft the PR." }' || true
-# PENDING: a latest run still running, or finished with a conclusion this gate
-# does not call green (a cancelled run whose replacement has not appeared yet).
+# PENDING: a required check's latest run still running, or finished with a
+# conclusion this gate does not call green (a cancelled run whose replacement
+# has not appeared yet). Only the required checks count, as for RED: this
+# workflow's own `lifecycle` check is always in progress while it runs, and
+# advisory checks (template reminder, visual reminder, CodeQL) finish on their
+# own time — counting them held every dispatch until the next run.
 PENDING=$(printf '%s\n' "$LATEST" \
-  | awk -F'\t' 'NF && ($2 != "completed" || $3 !~ /^(success|failure|timed_out|action_required|startup_failure|stale|neutral|skipped)$/)' || true)
+  | awk -F'\t' -v req="$REQUIRED_CHECKS" '
+      BEGIN { n = split(req, a, "|"); for (i = 1; i <= n; i++) want[a[i]] = 1 }
+      NF && ($1 in want) && ($2 != "completed" || $3 !~ /^(success|failure|timed_out|action_required|startup_failure|stale|neutral|skipped)$/)' || true)
 PRESENT=$(printf '%s\n' "$LATEST" | awk -F'\t' 'NF {print $1}' || true)
 
 # True when every required check is present on the tested commit. A skipped

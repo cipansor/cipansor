@@ -99,6 +99,7 @@ router.post(
 router.post('/periods/:id/cancel', authorize(UserRole.SUPER_ADMIN), controller.cancelPeriod);
 router.delete('/periods/:id', authorize(UserRole.SUPER_ADMIN), controller.deletePeriod);
 router.get('/periods/:id/summary', controller.getPeriodSummary);
+router.get('/periods/:id/attendance-deductions', controller.previewAttendanceDeductions);
 
 // ============================================
 // PAYROLLS (SLIP GAJI)

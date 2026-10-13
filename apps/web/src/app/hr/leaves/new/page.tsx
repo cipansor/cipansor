@@ -115,10 +115,14 @@ export default function NewLeavePage() {
 
   const onSubmit = async (data: LeaveRequestFormData) => {
     try {
+      // The API contract is `type` + `staffId`; the form's own names
+      // (`leaveType`, `employeeId`) must be mapped, not sent through as-is.
       await createLeaveRequest.mutateAsync({
-        ...data,
+        type: data.leaveType,
+        staffId: data.employeeId,
         startDate: new Date(data.startDate).toISOString(),
         endDate: new Date(data.endDate).toISOString(),
+        reason: data.reason,
       });
       toast.success("Pengajuan cuti berhasil dibuat");
       router.push("/hr");

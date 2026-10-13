@@ -41,7 +41,9 @@ const { MockDecimal } = vi.hoisted(() => {
   return { MockDecimal: Decimal };
 });
 
-vi.mock('@prisma/client', () => ({
+vi.mock('@prisma/client', async (importOriginal) => ({
+  // The real enums: the read scope recognises roles by RoleCode.
+  RoleCode: (await importOriginal<typeof import('@prisma/client')>()).RoleCode,
   Prisma: {
     Decimal: MockDecimal,
   },

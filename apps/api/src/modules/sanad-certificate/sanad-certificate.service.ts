@@ -19,6 +19,7 @@ import { certificateVerificationUrl } from '@/utils/verification-url';
 import { escapeHtml } from '@/utils/html';
 import { Errors } from '@/middleware/error';
 import { unitDocumentName } from '@cipansor/shared';
+import { studentScope } from '@/utils/student-scope';
 
 const JUZ_NAMES: Record<number, string> = {
   1: 'Juz Amma',
@@ -50,33 +51,40 @@ function getJuzName(juz: number): string {
 
 export async function findAllSanadRecords(
   query: ListSanadQuery,
-  context: { role: string; unitId?: string | null; userId: string }
+  context: { role: string; roleCode?: string | null; unitId?: string | null; userId: string }
 ) {
   const { page, limit, studentId, teacherId, halaqohId, juz, grade, hasCertificate, search } =
     query;
   const skip = (page - 1) * limit;
 
+  // One `enrollment` filter, so a santri filter, a halaqoh filter and the
+  // reader's scope all apply together (three spreads of the same key would
+  // keep only the last).
+  //
+  // Which santri: their own unit's for a school's staff, every unit's for the
+  // muhafidz and the rest of the pesantren's staff — whose own unit is the
+  // pesantren, holding none of the schools' santri.
+  const scope = studentScope({
+    sub: context.userId,
+    roleCode: context.roleCode,
+    unitId: context.unitId,
+  });
+  const enrollment: Prisma.TakhosusEnrollmentWhereInput = {
+    ...(studentId && { studentId }),
+    ...(halaqohId && { halaqohId }),
+    ...(Object.keys(scope).length > 0 && { student: scope }),
+  };
+
   const where: Prisma.SanadRecordWhereInput = {
     ...(teacherId && { teacherId }),
     ...(juz && { juz }),
     ...(grade && { grade }),
-    ...(studentId && {
-      enrollment: { studentId },
-    }),
-    ...(halaqohId && {
-      enrollment: { halaqohId },
-    }),
+    ...(Object.keys(enrollment).length > 0 && { enrollment }),
     ...(search && {
       OR: [
         { enrollment: { student: { user: { name: { contains: search, mode: 'insensitive' } } } } },
         { teacher: { name: { contains: search, mode: 'insensitive' } } },
       ],
-    }),
-    // Filter by unit if not super admin
-    ...(context.unitId && {
-      enrollment: {
-        student: { unitId: context.unitId },
-      },
     }),
   };
 
@@ -408,6 +416,21 @@ export async function generateCertificate(
         issueDate: sanad.certifiedAt,
         signatoryName: input.signedBy || sanad.teacher.name,
         signatoryTitle: input.signedByTitle || 'Guru Tahfidz',
+        // The juz and teacher printed on the sanad. Stored so the public
+        // download reproduces the issued document instead of the generic
+        // certificate, which knows only the holder's name and grade.
+        metadata: {
+          juz: sanad.juz,
+          juzName: getJuzName(sanad.juz),
+          teacherName: sanad.teacher.name,
+        },
+        // Explicit, never the column default. The certificate's printed
+        // verification URL points at the public page, so a row left private
+        // failed its own verification ("Sertifikat tidak ditemukan") the moment
+        // it was issued. `generateCertificateSchema` defaults this to `true`;
+        // an issuer minting an internal record passes `false` and nothing
+        // discloses it publicly.
+        isPublic: input.isPublic ?? true,
         createdById: context.userId,
       },
     });
@@ -701,16 +724,26 @@ export function generateCertificateHtml(
 
 /**
  * Verify a certificate against the persisted `DigitalCertificate` records.
- * A certificate is valid only if its number exists in the database (and, when
- * a verification code is supplied, the code matches). This endpoint is
- * public, so the returned projection is limited to what is printed on the
- * certificate itself — never internal IDs or contact data.
+ * A certificate is valid only if its number exists in the database, was
+ * marked `isPublic` by its issuer, and — when a verification code is
+ * supplied — the code matches. This endpoint is public, so the returned
+ * projection is limited to what is printed on the certificate itself, never
+ * internal IDs or contact data.
+ *
+ * The `isPublic` predicate is not optional here. Only a certificate its
+ * issuer chose to publish may be read without a session; without it, anyone
+ * holding (or guessing) a *private* certificate's number — a tahfidz syahadah
+ * minted for internal records, say — received the holder's name, unit and
+ * grade from this route. A private certificate now answers `valid: false`,
+ * exactly as an unknown number does, so this route cannot be used to confirm
+ * that a private certificate exists. This mirrors `certificates.service.ts`'s
+ * `verifyCertificate` (CWE-862).
  */
 export async function verifyCertificate(input: VerifyCertificateInput) {
   const { certificateNumber, verificationCode } = input;
 
-  const certificate = await prisma.digitalCertificate.findUnique({
-    where: { certificateNumber },
+  const certificate = await prisma.digitalCertificate.findFirst({
+    where: { certificateNumber, isPublic: true },
     include: {
       student: {
         select: {

@@ -62,6 +62,13 @@ export const generateCertificateSchema = z.object({
   includeQRCode: z.boolean().default(true),
   signedBy: z.string().optional(), // Principal name
   signedByTitle: z.string().optional(), // e.g., "Kepala Madrasah"
+  // Whether the minted certificate may be read on the public verification page.
+  // It defaults to `true` because this flow exists to print a QR that points at
+  // `/public/verify-sanad`; a row left private (the column default) made the
+  // page answer "Sertifikat tidak ditemukan" for a certificate the pesantren
+  // had just issued. An issuer that needs an internal-only record passes
+  // `false`.
+  isPublic: z.boolean().default(true),
 });
 
 export type GenerateCertificateInput = z.infer<typeof generateCertificateSchema>;

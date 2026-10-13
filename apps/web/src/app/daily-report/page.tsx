@@ -55,7 +55,10 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { Separator } from "@/components/ui/separator";
 
 import { toast } from "sonner";
-import { DAILY_REPORT_STAFF_ROLE_CODES } from "@cipansor/shared";
+import {
+  CROSS_UNIT_ROLE_CODES,
+  DAILY_REPORT_STAFF_ROLE_CODES,
+} from "@cipansor/shared";
 import { ConfirmDialog } from "@/components/shared";
 import {
   useDailyReports,
@@ -65,7 +68,7 @@ import { useAuthStore } from "@/stores/auth";
 import { getEffectiveRole, getPrimaryRoleCode } from "@/lib/rbac";
 import { getErrorMessage } from "@/lib/api-error";
 import { useClasses } from "@/hooks/use-classes";
-import { useUnits } from "@/hooks/use-units";
+import { defaultSantriUnitId, useUnits } from "@/hooks/use-units";
 import { cn } from "@/lib/utils";
 import Link from "next/link";
 
@@ -83,9 +86,15 @@ export default function DailyReportPage() {
   // per child), this only hides buttons a reader could not use.
   const canWrite =
     !!roleCode && DAILY_REPORT_STAFF_ROLE_CODES.includes(roleCode);
-  // Everyone but the super admin works in their own unit.
+  // Everyone works in their own unit but the super admin and the cross-unit
+  // staff: the pesantren's musyrif keeps the mutabaah of santri in every
+  // school, and belongs to the Pesantren unit, which holds none of them.
+  const reachesEveryUnit =
+    !!roleCode && CROSS_UNIT_ROLE_CODES.includes(roleCode);
   const ownUnit =
-    user && getEffectiveRole(user) !== "SUPER_ADMIN" ? (user.unitId ?? "") : "";
+    user && getEffectiveRole(user) !== "SUPER_ADMIN" && !reachesEveryUnit
+      ? (user.unitId ?? "")
+      : "";
   const deleteReport = useDeleteDailyReport();
   const [deleting, setDeleting] = useState<{ id: string; name: string } | null>(
     null,
@@ -93,12 +102,19 @@ export default function DailyReportPage() {
   const [date, setDate] = useState<Date>(new Date());
   const [search, setSearch] = useState("");
   const [pickedUnit, setUnitId] = useState<string>("");
-  const unitId = ownUnit || pickedUnit;
+  const { data: unitsData } = useUnits();
+  // A cross-unit reader opens on a school that has santri, not on an empty
+  // list; the picker changes it.
+  const unitId =
+    ownUnit ||
+    pickedUnit ||
+    (reachesEveryUnit
+      ? (defaultSantriUnitId(unitsData, user?.unitId) ?? "")
+      : "");
   const [classId, setClassId] = useState<string>("");
   const [page, setPage] = useState(1);
 
   // Fetch data
-  const { data: unitsData } = useUnits();
   const { data: classesData } = useClasses({ unitId: unitId || undefined });
   const { data: reportsData, isLoading } = useDailyReports({
     page,

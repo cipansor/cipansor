@@ -112,10 +112,16 @@ function EditViolationPageContent() {
       await updateMutation.mutateAsync({
         id,
         data: {
-          ...data,
-          description: data.description || undefined,
-          witness: data.witness || undefined,
-          actionTaken: data.actionTaken || undefined,
+          type: selectedType?.category
+            ? ({ LIGHT: "MINOR", MEDIUM: "MODERATE", HEAVY: "MAJOR" }[
+                selectedType.category
+              ] ?? "MINOR")
+            : undefined,
+          category: data.violationTypeId,
+          description: data.description?.trim() || "Pelanggaran dicatat",
+          occurredAt: new Date(data.date).toISOString(),
+          points: selectedType?.points,
+          action: data.actionTaken || undefined,
         },
       });
       toast.success("Pelanggaran berhasil diperbarui");

@@ -25,8 +25,9 @@ Install and run PostgreSQL directly, then point the API at it. This is the path
 that works in the web/remote sandboxes where the Docker socket is absent.
 
 ```bash
-apt-get install -y postgresql-16        # if not already present
-pg_ctlcluster 16 main start
+apt-get install -y postgresql          # version follows the distro (Debian 13 → 17)
+PGBIN="$(ls -d /usr/lib/postgresql/*/bin | sort -V | tail -1)"
+pg_ctlcluster "$(basename "$(dirname "$PGBIN")")" main start   # or run the cluster as an unprivileged owner; see below
 su postgres -c "psql -c \"ALTER USER postgres PASSWORD 'postgres';\""
 su postgres -c "createdb cipansor"
 
@@ -43,7 +44,48 @@ node apps/api/dist/main.js &                        # :3001
 ( cd apps/web && node_modules/.bin/next start -p 3000 ) &
 ```
 
+`scripts/dev-stack.sh` discovers the version dir the same way (`PGBIN`
+overrides it) and stops with a clear message when no server is installed. When
+`su postgres` is unavailable, run the cluster as an unprivileged owner
+instead, with two things the old recipe got wrong:
+
+- **Create the socket directory first.** `pg_ctl -k` aborts if the directory
+  does not exist; `scripts/dev-stack.sh` makes `/tmp/pgsock` and chowns it to
+  the database user before starting, and this path must do the same.
+- **Never `--auth=trust`.** A trust cluster on `127.0.0.1` lets any process on
+  the box in as `postgres` and alter the database (CWE-306). Set the superuser
+  password at `initdb` and authenticate every connection.
+
+```bash
+sudo useradd -m pgrunner 2>/dev/null || true
+sudo install -d -o pgrunner -g pgrunner /tmp/pgsock
+# 0600: a `printf >` under the default 022 umask is world-readable, so another
+# local user could copy the password before it is deleted (CWE-732).
+( umask 077; printf '%s\n' "${PGPASSWORD:?set PGPASSWORD first}" > /tmp/pgpass.txt )
+sudo chown pgrunner /tmp/pgpass.txt
+sudo -u pgrunner "$PGBIN/initdb" -D /tmp/pgdata -U postgres -A scram-sha-256 --pwfile=/tmp/pgpass.txt
+sudo rm -f /tmp/pgpass.txt
+sudo -u pgrunner "$PGBIN/pg_ctl" -D /tmp/pgdata -o "-k /tmp/pgsock -p 5432 -c listen_addresses=127.0.0.1" -l /tmp/pg.log start
+
+# Wait for the listener before touching the database (pg_isready needs no auth):
+until sudo -u pgrunner "$PGBIN/pg_isready" -h 127.0.0.1 -p 5432 -U postgres >/dev/null 2>&1; do sleep 1; done
+sudo -u pgrunner env PGPASSWORD="$PGPASSWORD" "$PGBIN/createdb" -h 127.0.0.1 -U postgres cipansor
+```
+
+Use the same `PGPASSWORD` in the `DATABASE_URL` above; do not commit it if the
+box is shared.
+
+On an OpenHands sandbox (no Docker daemon, no preinstalled Postgres), run
+`.openhands/setup.sh` first: it installs Postgres and Redis, so only the cluster
+start + seed steps below are left. Redis is optional there too.
+
 ## Gotchas
+
+- **`bash scripts/dev-up.sh` (one command, Postgres without Docker) builds the web with `NODE_ENV=development`** leaked from
+  `apps/api/.env`, and `next build` then fails prerendering (`/_global-error`, `/project`, "Each child in a list…"). Build the web
+  yourself: `cd apps/web && env -u NODE_ENV NEXT_PUBLIC_API_URL=http://localhost:3001 pnpm build`, and start it with
+  `env -u NODE_ENV PORT=3000 pnpm start`. The script also skips the build when `.next/BUILD_ID` exists, even a half-built one:
+  `rm -rf apps/web/.next` first. (2026-09-29)
 
 - **Admin accounts always need 2FA** — `DEMO_MODE` (which waived it) was removed
   2026-09-23. Seed with `E2E_FIXED_2FA=1` so every admin is pre-enrolled with the

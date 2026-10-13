@@ -2,7 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { RoleCode, UnitType, Prisma } from '@prisma/client';
 import { STUDENT_STATUS, type UnitHead, type UnitSummary } from '@cipansor/shared';
-import { isFoundationScopedRole } from '@/utils/resolve-unit-id';
+import { isFoundationScopedRole, seesAllUnits } from '@/utils/resolve-unit-id';
 import type { ListUnitsQuery, CreateUnitInput, UpdateUnitInput } from './unit.schema';
 import { findUnitHead } from './unit-head';
 
@@ -27,13 +27,17 @@ export class UnitService {
       deletedAt: null,
     };
 
-    // Unit-scoped roles see only their own unit. Foundation-scoped roles (the
-    // yayasan board, plus SUPER_ADMIN) see all of them — this used to test
-    // `role !== SUPER_ADMIN`, and because deriveLegacyRole() maps YAYASAN_* to
-    // the legacy 'UNIT_ADMIN' string, the board fell into the unit branch with
-    // a null unitId and got `where.id = 'none'`: an empty list on every
-    // foundation-level screen.
-    if (!isFoundationScopedRole(currentUser.roleCode)) {
+    // Unit-scoped roles see only their own unit. The yayasan board, SUPER_ADMIN
+    // and the staff who serve every unit — the pesantren's ustadz, musyrif and
+    // muhafidz, the clinic, the library (`seesAllUnits`) — see all of them:
+    // their forms ask for a santri's unit first, and a musyrif offered only
+    // their own unit could not pick a santri of SMP IT or SMA Qur'an.
+    //
+    // This used to test `role !== SUPER_ADMIN`, and because deriveLegacyRole()
+    // maps YAYASAN_* to the legacy 'UNIT_ADMIN' string, the board fell into the
+    // unit branch with a null unitId and got `where.id = 'none'`: an empty list
+    // on every foundation-level screen.
+    if (!seesAllUnits(currentUser)) {
       where.id = currentUser.unitId || 'none';
     }
 

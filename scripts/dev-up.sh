@@ -6,7 +6,8 @@ ROOT=/home/user/cipansor
 cd "$ROOT"
 
 bash scripts/dev-stack.sh >/tmp/devstack.log 2>&1
-PGBIN=/usr/lib/postgresql/16/bin
+# The same server dev-stack.sh found (see there).
+PGBIN=${PGBIN:-$(ls -d /usr/lib/postgresql/*/bin 2>/dev/null | sort -V | tail -1)}
 
 # .env (gitignored; recreated on fresh containers)
 if [ ! -f apps/api/.env ]; then

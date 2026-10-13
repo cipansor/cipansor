@@ -71,5 +71,15 @@ describe('getMonthlyAttributedRevenue', () => {
     expect(current).toEqual({ month: thisMonthKey, revenue: 350000, transactionCount: 2 });
     // Older months exist but are zero
     expect(trend.filter((t) => t.month !== thisMonthKey).every((t) => t.revenue === 0)).toBe(true);
+
+    // The campaign link hangs off the to-many `registrants` relation on
+    // Student; a bare `registrant` is not a relation and Prisma rejects it.
+    expect(mocked.payment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          invoice: { student: { registrants: { some: { campaignId: { not: null } } } } },
+        }),
+      })
+    );
   });
 });

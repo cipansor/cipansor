@@ -20,7 +20,11 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { useCertificates, DigitalCertificate } from "@/hooks/use-certificate";
+import {
+  useCertificates,
+  useDownloadCertificate,
+  DigitalCertificate,
+} from "@/hooks/use-certificate";
 import { type ColumnDef } from "@/components/shared";
 
 import { id } from "date-fns/locale";
@@ -88,6 +92,25 @@ export default function CertificatesPage() {
     limit: 20,
     certificateType: typeFilter === "ALL" ? undefined : typeFilter,
   });
+
+  // Download through the scoped API route rather than opening the stored file
+  // directly: `/uploads` is served to anyone signed in, so a raw `pdfUrl` would
+  // let a parent or teacher of another unit fetch the file. The route checks
+  // the certificate is in the caller's scope and counts the download.
+  const downloadMutation = useDownloadCertificate();
+  const handleDownload = async (cert: DigitalCertificate) => {
+    try {
+      const blob = await downloadMutation.mutateAsync(cert.id);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `sertifikat-${cert.certificateNumber?.replace(/[^A-Za-z0-9]+/g, "-") ?? cert.id}.pdf`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch {
+      // The axios interceptor already surfaced the error to the user.
+    }
+  };
 
   const columns: ColumnDef<DigitalCertificate>[] = [
     {
@@ -195,14 +218,10 @@ export default function CertificatesPage() {
               <QrCode className="mr-2 h-4 w-4" />
               Verifikasi
             </DropdownMenuItem>
-            {row.original.pdfUrl && (
-              <DropdownMenuItem
-                onClick={() => window.open(row.original.pdfUrl!, "_blank")}
-              >
-                <Download className="mr-2 h-4 w-4" />
-                Download PDF
-              </DropdownMenuItem>
-            )}
+            <DropdownMenuItem onClick={() => handleDownload(row.original)}>
+              <Download className="mr-2 h-4 w-4" />
+              Download PDF
+            </DropdownMenuItem>
             <DropdownMenuItem
               onClick={() =>
                 navigator.clipboard.writeText(row.original.verificationUrl)

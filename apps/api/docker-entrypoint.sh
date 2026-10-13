@@ -14,14 +14,14 @@
 # PERSISTENT_DIR below.
 set -e
 
-# PERSISTENT_DIR (Azure App Service): the api writes files to public/uploads and
-# private/identity under its working directory. On the VM those are docker
+# PERSISTENT_DIR (Azure App Service): the api writes files to public/uploads,
+# private/identity and private/attendance under its working directory. On the VM those are docker
 # volumes. On App Service the only storage that survives a restart and reaches a
 # sidecar container is the app's /home (Azure Files mounts reach the main
 # container only), so both directories become links into $PERSISTENT_DIR. A
 # directory that already holds files is never replaced: that would hide them.
 if [ -n "${PERSISTENT_DIR:-}" ]; then
-  for d in public/uploads private/identity; do
+  for d in public/uploads private/identity private/attendance; do
     mkdir -p "$PERSISTENT_DIR/$d"
     if [ ! -L "$d" ]; then
       if [ -n "$(ls -A "$d" 2>/dev/null)" ]; then
@@ -32,8 +32,8 @@ if [ -n "${PERSISTENT_DIR:-}" ]; then
       ln -s "$PERSISTENT_DIR/$d" "$d"
     fi
   done
-  chmod 700 "$PERSISTENT_DIR/private" "$PERSISTENT_DIR/private/identity" 2>/dev/null || true
-  echo "[entrypoint] PERSISTENT_DIR=$PERSISTENT_DIR: public/uploads and private/identity live there"
+  chmod 700 "$PERSISTENT_DIR/private" "$PERSISTENT_DIR/private/identity" "$PERSISTENT_DIR/private/attendance" 2>/dev/null || true
+  echo "[entrypoint] PERSISTENT_DIR=$PERSISTENT_DIR: public/uploads, private/identity and private/attendance live there"
 fi
 
 if [ "${MIGRATE_ON_START:-false}" = "true" ]; then

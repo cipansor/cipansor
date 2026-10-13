@@ -264,6 +264,9 @@ export const roleRouteAccess: Record<LegacyRole, string[]> = {
     "/e-office",
     "/finance",
     "/health",
+    // Self-service clock-in only: every employee clocks in for themselves, but
+    // nothing else under /hr is theirs (the API refuses the rest).
+    "/hr/attendance/me",
     "/kinerja",
     "/lingkungan",
     "/notifications",
@@ -408,6 +411,17 @@ export function getEffectiveRole(
  */
 export const roleCodeRouteAccess: Readonly<Record<string, readonly string[]>> =
   {
+    // The four unit admins run Rapor Pesantren — its config is stored per unit
+    // and `PUT /rapor-pesantren/config` authorizes UNIT_ADMIN — but the
+    // `/rapor-pesantren` entry is a menu item of the *pesantren* navigations
+    // and of TEACHER, not of the school admin menu. Without this the sidebar
+    // link (and the page itself) bounced the unit admin straight back to
+    // /dashboard — the rapor-config e2e caught it as a 307. A head keeps it
+    // through TEACHER.
+    TKQ_ADMIN: ["/rapor-pesantren"],
+    SDIT_ADMIN: ["/rapor-pesantren"],
+    SMPIT_ADMIN: ["/rapor-pesantren"],
+    SMAQ_ADMIN: ["/rapor-pesantren"],
     // The head drafts the RKA Unit their PK must anchor to
     // (`canAuthorUnitPlan` on the API), and reads their unit's page and its
     // accreditation (Profil Unit).

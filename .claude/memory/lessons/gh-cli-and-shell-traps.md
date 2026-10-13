@@ -29,7 +29,7 @@ through `gh api` REST with a read-back; free text never passes through an
 unquoted heredoc.
 
 **A status hook can quote the wrong repository.** After the move to the
-`ypcipansor` org, a hook reported "`main` is red" for a run from the old
+`cipansor` org, a hook reported "`main` is red" for a run from the old
 personal repo. Check with `gh run list --repo <org>/<repo> --branch main`
 before acting on such a warning.
 

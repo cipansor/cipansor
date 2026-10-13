@@ -367,6 +367,8 @@ export class CalendarService {
       where: {
         deletedAt: null,
         eventType: EventType.HOLIDAY,
+        // Drafts are not holidays yet; they show only in the review list.
+        isDraft: false,
         OR: [{ unitId: unitId }, { unitId: null }],
         startDate: { gte: new Date(startDate), lte: new Date(endDate) },
       },

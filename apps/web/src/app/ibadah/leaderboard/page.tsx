@@ -24,7 +24,7 @@ import {
   Trophy,
   Medal,
   Crown,
-  Flame,
+  Target,
   Star,
   TrendingUp,
   Users,
@@ -32,11 +32,11 @@ import {
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useAuthStore } from "@/stores/auth";
+import { useUnits } from "@/hooks/use-units";
 import {
   useIbadahLeaderboard,
   LeaderboardPeriod,
   LEADERBOARD_PERIODS,
-  IbadahLeaderboard,
 } from "@/hooks/use-ibadah";
 
 // Period mapping for UI filter to API enum
@@ -74,11 +74,13 @@ const getRankBg = (rank: number) => {
 };
 
 interface LeaderboardEntry {
+  id: string;
   rank: number;
   name: string;
   class: string;
   score: number;
-  streak: number;
+  /** Share of the period's targets done, in percent. */
+  completion: number;
   avatar: string;
 }
 
@@ -86,10 +88,17 @@ export default function IbadahLeaderboardPage() {
   const { user } = useAuthStore();
   const [period, setPeriod] = useState("week");
   const [category, setCategory] = useState("all");
+  const [unitChoice, setUnitChoice] = useState("");
+
+  // The API ranks only the santri this account reaches (a santri: their own
+  // row, at their place in the unit). Whoever reaches more than one unit — the
+  // pesantren's staff, the yayasan — may narrow to one.
+  const { data: units } = useUnits({ limit: 100 });
+  const choosesUnit = (units?.length ?? 0) > 1;
 
   // Fetch leaderboard data
   const { data: leaderboardData, isLoading } = useIbadahLeaderboard({
-    unitId: user?.unitId || user?.unit?.id || "",
+    unitId: unitChoice || undefined,
     periodType: PERIOD_MAP[period] || "WEEKLY",
     limit: 10,
   });
@@ -97,29 +106,39 @@ export default function IbadahLeaderboardPage() {
   // Transform API data to UI format
   const leaderboard: LeaderboardEntry[] = useMemo(() => {
     if (!leaderboardData) return [];
-    return leaderboardData.map((item: any, index) => ({
-      rank: item.rank || index + 1,
-      name: item.student?.name || item.student?.user?.name || "Unknown",
-      class: item.student?.class?.name || "-",
-      score: item.totalPoints + (item.bonusPoints || 0),
-      streak: item.streakDays || 0,
-      avatar: index < 3 ? ["🥇", "🥈", "🥉"][index] : "👤",
-    }));
+    // The fields the API sends (`IbadahLeaderboardEntry`). This used to read
+    // `student.name` and `streakDays`, which it never sent — every name was
+    // "Unknown" — and added the bonus to a total that already holds it.
+    return leaderboardData.map((item, index) => {
+      const rank = item.rank || index + 1;
+      return {
+        id: item.studentId,
+        rank,
+        name: item.studentName,
+        class: item.className || "-",
+        score: item.totalPoints,
+        completion: Math.round(item.completionRate),
+        avatar: rank <= 3 ? ["🥇", "🥈", "🥉"][rank - 1] : "👤",
+      };
+    });
   }, [leaderboardData]);
+
+  // The top three by the API's rank — a santri placed fourth has no podium.
+  const podium = leaderboard.filter((s) => s.rank <= 3);
+  // A santri receives only their own row (the API's scope), so the list is
+  // their place, not a top ten.
+  const onlyOwnRow =
+    !!user?.id &&
+    !!leaderboardData?.length &&
+    leaderboardData.every((item) => item.userId === user.id);
 
   // Find current user position (from leaderboard or default).
   // (React Compiler auto-memoizes; manual useMemo could not be preserved here.)
   const currentUserEntry = ((): { rank: number | string; score: number } => {
     if (!user?.id || !leaderboardData) return { rank: "-", score: 0 };
-    const found = leaderboardData.find(
-      (item: any) =>
-        item.studentId === user.id || item.student?.userId === user.id,
-    );
+    const found = leaderboardData.find((item) => item.userId === user.id);
     if (found) {
-      return {
-        rank: found.rank || "-",
-        score: found.totalPoints + (found.bonusPoints || 0),
-      };
+      return { rank: found.rank || "-", score: found.totalPoints };
     }
     return { rank: "-", score: 0 };
   })();
@@ -174,24 +193,24 @@ export default function IbadahLeaderboardPage() {
               </p>
             </CardContent>
           </Card>
-        ) : (
+        ) : podium.length === 0 ? null : (
           <div className="grid gap-4 md:grid-cols-3">
-            {leaderboard.slice(0, 3).map((student, index) => (
+            {podium.map((student) => (
               <Card
-                key={student.rank}
+                key={student.id}
                 className={cn(
                   "relative overflow-hidden",
-                  index === 0 && "md:order-2 md:scale-105 z-10",
-                  index === 1 && "md:order-1",
-                  index === 2 && "md:order-3",
+                  student.rank === 1 && "md:order-2 md:scale-105 z-10",
+                  student.rank === 2 && "md:order-1",
+                  student.rank === 3 && "md:order-3",
                 )}
               >
                 <div
                   className={cn(
                     "absolute inset-0 opacity-10",
-                    index === 0 && "bg-yellow-500",
-                    index === 1 && "bg-gray-500",
-                    index === 2 && "bg-amber-500",
+                    student.rank === 1 && "bg-yellow-500",
+                    student.rank === 2 && "bg-gray-500",
+                    student.rank === 3 && "bg-amber-500",
                   )}
                 />
                 <CardContent className="pt-6 text-center relative">
@@ -210,12 +229,12 @@ export default function IbadahLeaderboardPage() {
                     </div>
                     <div className="text-center">
                       <div className="flex items-center gap-1">
-                        <Flame className="h-5 w-5 text-orange-500" />
+                        <Target className="h-5 w-5 text-orange-500" />
                         <span className="text-xl font-bold">
-                          {student.streak}
+                          {student.completion}%
                         </span>
                       </div>
-                      <p className="text-xs text-muted-foreground">Streak</p>
+                      <p className="text-xs text-muted-foreground">Capaian</p>
                     </div>
                   </div>
                 </CardContent>
@@ -226,6 +245,25 @@ export default function IbadahLeaderboardPage() {
 
         {/* Filters */}
         <div className="flex flex-wrap gap-4">
+          {choosesUnit && (
+            <Select
+              value={unitChoice || "all"}
+              onValueChange={(v) => setUnitChoice(v === "all" ? "" : v)}
+            >
+              <SelectTrigger className="w-[200px]" aria-label="Unit">
+                <SelectValue placeholder="Pilih unit" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Semua unit</SelectItem>
+                {units?.map((u) => (
+                  <SelectItem key={u.id} value={u.id}>
+                    {u.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          )}
+
           <Select value={period} onValueChange={setPeriod}>
             <SelectTrigger className="w-[150px]">
               <SelectValue />
@@ -287,9 +325,13 @@ export default function IbadahLeaderboardPage() {
           <CardHeader>
             <CardTitle className="flex items-center gap-2">
               <Trophy className="h-5 w-5 text-yellow-500" />
-              Top 10 Santri
+              {onlyOwnRow ? "Peringkatmu" : "Top 10 Santri"}
             </CardTitle>
-            <CardDescription>Berdasarkan total poin ibadah</CardDescription>
+            <CardDescription>
+              {onlyOwnRow
+                ? "Peringkat di unitmu, berdasarkan total poin ibadah"
+                : "Berdasarkan total poin ibadah"}
+            </CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -321,7 +363,7 @@ export default function IbadahLeaderboardPage() {
               <div className="space-y-2">
                 {leaderboard.map((student) => (
                   <div
-                    key={student.rank}
+                    key={student.id}
                     className={cn(
                       "flex items-center justify-between p-4 border rounded-xl transition-all",
                       getRankBg(student.rank),
@@ -339,9 +381,14 @@ export default function IbadahLeaderboardPage() {
                       </div>
                     </div>
                     <div className="flex items-center gap-6">
-                      <div className="flex items-center gap-1">
-                        <Flame className="h-4 w-4 text-orange-500" />
-                        <span className="font-medium">{student.streak}</span>
+                      <div
+                        className="flex items-center gap-1"
+                        title="Capaian target"
+                      >
+                        <Target className="h-4 w-4 text-orange-500" />
+                        <span className="font-medium">
+                          {student.completion}%
+                        </span>
                       </div>
                       <Badge variant="secondary" className="text-lg px-3">
                         {student.score}

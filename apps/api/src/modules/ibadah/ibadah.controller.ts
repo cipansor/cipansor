@@ -66,13 +66,13 @@ export const seedTargets = asyncHandler(async (req: Request, res: Response) => {
 /** GET /api/ibadah/records */
 export const listRecords = asyncHandler(async (req: Request, res: Response) => {
   const query = listRecordsQuerySchema.parse(req.query);
-  const result = await service.listRecords(query);
+  const result = await service.listRecords(query, req.user!);
   res.json({ success: true, data: result.data, meta: { pagination: result.pagination } });
 });
 
 /** GET /api/ibadah/records/:id */
 export const getRecord = asyncHandler(async (req: Request, res: Response) => {
-  const record = await service.getRecordById(req.params.id);
+  const record = await service.getRecordById(req.params.id, req.user!);
   if (!record) {
     return res.status(404).json(ApiResponse.error('Record not found'));
   }
@@ -126,7 +126,7 @@ export const dailyCheckIn = asyncHandler(async (req: Request, res: Response) => 
 /** GET /api/ibadah/leaderboard */
 export const getLeaderboard = asyncHandler(async (req: Request, res: Response) => {
   const query = leaderboardQuerySchema.parse(req.query);
-  const result = await service.getLeaderboard(query);
+  const result = await service.getLeaderboard(query, req.user!);
   res.json(ApiResponse.success(result));
 });
 
@@ -146,7 +146,7 @@ export const getMyAchievements = asyncHandler(async (req: Request, res: Response
 
 /** GET /api/ibadah/achievements/:studentId */
 export const getStudentAchievements = asyncHandler(async (req: Request, res: Response) => {
-  const result = await service.getStudentAchievements(req.params.studentId);
+  const result = await service.getStudentAchievementsFor(req.params.studentId, req.user!);
   res.json(ApiResponse.success(result));
 });
 
@@ -157,21 +157,21 @@ export const getStudentAchievements = asyncHandler(async (req: Request, res: Res
 /** GET /api/ibadah/stats/student */
 export const getStudentStats = asyncHandler(async (req: Request, res: Response) => {
   const query = studentIbadahStatsQuerySchema.parse(req.query);
-  const result = await service.getStudentIbadahStats(query);
+  const result = await service.getStudentIbadahStatsFor(query, req.user!);
   res.json(ApiResponse.success(result));
 });
 
 /** GET /api/ibadah/stats/unit */
 export const getUnitStats = asyncHandler(async (req: Request, res: Response) => {
   const query = unitIbadahStatsQuerySchema.parse(req.query);
-  const result = await service.getUnitIbadahStats(query);
+  const result = await service.getUnitIbadahStats(query, req.user!);
   res.json(ApiResponse.success(result));
 });
 
 /** GET /api/ibadah/stats/class */
 export const getClassStats = asyncHandler(async (req: Request, res: Response) => {
   const query = classIbadahStatsQuerySchema.parse(req.query);
-  const result = await service.getClassIbadahStats(query);
+  const result = await service.getClassIbadahStats(query, req.user!);
   res.json(ApiResponse.success(result));
 });
 

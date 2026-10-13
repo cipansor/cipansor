@@ -34,8 +34,14 @@ export function Pagination({
   onPageSizeChange,
   pageSizeOptions = [10, 20, 50, 100],
 }: PaginationProps) {
-  const startItem = (page - 1) * pageSize + 1;
-  const endItem = Math.min(page * pageSize, total);
+  // Guard against a caller that hands over an undefined count (e.g. reading a
+  // flat `meta` from a `meta.pagination` envelope). Without this the footer
+  // rendered the literal string "NaN" — React warns "Received NaN for the
+  // children attribute" — and `Math.min`/multiplication propagated it.
+  const safeTotal = Number.isFinite(total) ? total : 0;
+  const safeSize = Number.isFinite(pageSize) && pageSize > 0 ? pageSize : 1;
+  const startItem = (page - 1) * safeSize + 1;
+  const endItem = Math.min(page * safeSize, safeTotal);
 
   /**
    * Stacked on a phone, side by side from `sm:` up.
@@ -56,7 +62,7 @@ export function Pagination({
     <div className="flex flex-col items-center justify-between gap-3 px-2 py-4 sm:flex-row sm:gap-4">
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
         <span>
-          Showing {startItem} to {endItem} of {total} results
+          Showing {startItem} to {endItem} of {safeTotal} results
         </span>
         {onPageSizeChange && (
           <div className="flex items-center gap-2">

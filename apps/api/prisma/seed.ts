@@ -135,6 +135,7 @@ import { PERMISSIONS, permissionsForRoleCode } from '../src/modules/roles/permis
 import { DEMO_ACCOUNTS, DEMO_PASSWORD } from '../../../packages/shared/src/types/demo-accounts';
 import { YAYASAN_ORGANS } from '../../../packages/shared/src/types/office-holders';
 import { SECOND_FACTOR_ROLE_CODES } from '../../../packages/shared/src/roles';
+import { linkTeacherToStaff } from './seeds/teacher-staff';
 
 // RoleCode comes straight from the generated Prisma client — do NOT keep a
 // local copy here. A shadow copy previously drifted out of sync with the
@@ -317,6 +318,24 @@ async function main() {
       address: UNIT_ADDRESS,
       phone: '0811110400',
       email: 'smaquran@cipansor.or.id',
+    },
+  });
+
+  // The pesantren's own unit (decided 2026-09-29,
+  // decisions/struktur-organisasi-dan-identitas.md): the Kiai heads it as
+  // Pimpinan Pesantren, and the ustadz, musyrif, muhafidz and Tata Usaha
+  // Pesantren belong to it — the santri they serve stay in their schools. It
+  // issues no state diploma, so it has no NPSN; the pondok's NSPP stays with
+  // the yayasan. The data migration 20261010130000_pesantren_unit makes the
+  // same unit in a database that already had the four schools.
+  const pesantren = await prisma.unit.create({
+    data: {
+      foundationId: foundation.id,
+      name: 'Pesantren Cipansor',
+      officialName: 'Pondok Pesantren Cipansor',
+      type: UnitType.PESANTREN,
+      address: UNIT_ADDRESS,
+      phone: '0811110400',
     },
   });
 
@@ -679,39 +698,33 @@ async function main() {
   // realm-prefixed (`smpit.guru`, `yayasan.ketua`), not by the domain.
   // ============================================
   /**
-   * Boarding-side and shared-service roles, whose codes carry no unit prefix.
-   *
-   * These people serve the pesantren (asrama, tahfidz, kitab) and the shared
-   * services — keamanan, perawat, pustakawan, laboran — none of which belong to
-   * one school. The data model gives a user exactly one `unitId`, so there is no
-   * honest way to express that here.
-   *
-   * They are pointed at SMP IT because that is where the boarding santri are
-   * seeded, which makes their unit-scoped queries return the right rows today.
-   * It is the least-wrong single choice, not a correct one: the moment boarding
-   * santri exist in SMA Qur'an as well, a musyrif will be unable to see the
-   * santri in their own asrama. Fixing that needs cross-unit scope for these
-   * roles, the same way isFoundationScopedRole() handles the yayasan board.
+   * The pesantren's roles, whose codes carry no unit prefix: they belong to
+   * the pesantren unit. The santri they serve are in SD IT, SMP IT and SMA
+   * Qur'an, which they reach through `seesAllUnits` (CROSS_UNIT_SCOPE_ROLES).
    */
-  const PESANTREN_REALM_ROLES = new Set([
+  const PESANTREN_ROLES = new Set([
     'PESANTREN_PENGASUH',
     'PESANTREN_TATA_USAHA',
     'USTADZ',
     'MUSYRIF',
     'MUHAFIDZ',
-    'KEAMANAN',
-    'PERAWAT',
-    'PUSTAKAWAN',
-    'LABORAN',
   ]);
+  /**
+   * The shared services — keamanan, perawat, pustakawan, laboran — serve the
+   * whole campus and belong to no school either. The model gives a user one
+   * `unitId`, so they are pointed at SMP IT until the organisation tree places
+   * them (decisions/struktur-organisasi-dan-identitas.md, item 2); their reach
+   * comes from `seesAllUnits`, not from that unit.
+   */
+  const SHARED_SERVICE_ROLES = new Set(['KEAMANAN', 'PERAWAT', 'PUSTAKAWAN', 'LABORAN']);
   const demoUnitIdFor = (code: string): string | undefined => {
     if (code.startsWith('TKQ_')) return tkQuran.id;
     if (code.startsWith('SDIT_')) return sdIt.id;
     if (code.startsWith('SMPIT_')) return smpIt.id;
     if (code.startsWith('SMAQ_')) return smaQuran.id;
-    // Boarding-side and shared-service roles: see PESANTREN_REALM_ROLES above
-    // for why they land on SMP IT and what that costs.
-    if (PESANTREN_REALM_ROLES.has(code)) return smpIt.id;
+    if (PESANTREN_ROLES.has(code)) return pesantren.id;
+    // See SHARED_SERVICE_ROLES above for why they land on SMP IT.
+    if (SHARED_SERVICE_ROLES.has(code)) return smpIt.id;
     // SUPER_ADMIN, YAYASAN_* and the business-unit roles are deliberately
     // left unit-less: the first two are foundation-wide, and business units
     // are a separate entity from the academic units.
@@ -960,6 +973,7 @@ async function main() {
       nip: '198501012010011001',
     },
   });
+  await linkTeacherToStaff(prisma, teacherPesantren);
 
   const teacherSdItUser = await prisma.user.create({
     data: {
@@ -989,6 +1003,7 @@ async function main() {
       nip: '198601022012012002',
     },
   });
+  await linkTeacherToStaff(prisma, teacherSdIt);
 
   // Create Tata Usaha for SMP IT
   const tuSmpItUser = await prisma.user.create({
@@ -1511,6 +1526,7 @@ async function main() {
         },
       });
       if (demo.homeroom) demoHomeroomByUnit.set(demo.unitId, teacher.id);
+      await linkTeacherToStaff(prisma, teacher);
       demoTeachers++;
     } else if (isParent) {
       demoParents++; // linked in the second pass, once every student exists
@@ -6168,6 +6184,15 @@ async function main() {
         issueDate: new Date('2024-10-15'),
         signatoryName: 'KH. Abdullah Syukur',
         signatoryTitle: 'Pimpinan Yayasan Pesantren Cipansor',
+        // What the printed syahadah carries. A freshly minted certificate now
+        // stores this at mint time so its public download reproduces the
+        // issued document; the seed row mirrors that so a fresh database
+        // demonstrates the real flow rather than a generic certificate.
+        metadata: {
+          qiraahType: "Hafs 'an 'Asim",
+          completedJuz: [30],
+          musyrifName: 'Ust. Ahmad Fauzi',
+        },
         isPublic: true,
         createdById: superAdminUser.id,
       },
@@ -6875,6 +6900,11 @@ async function main() {
       description: 'Komponen gaji pokok pokok',
       isFixed: true,
       isPercentage: false,
+      // POKOK: the attendance-deduction engine excludes basic salary from the
+      // allowance side by this classification (PP 36/2021 Ps. 65). Left at the
+      // default, a deduction could consume the base salary as if it were an
+      // allowance.
+      classification: 'POKOK',
       defaultAmount: new Prisma.Decimal(3000000.0),
       isTaxable: true,
       sortOrder: 1,
@@ -7402,17 +7432,8 @@ async function main() {
 
   // 2. Org Structure (org_units, org_positions)
   console.log('   Seeding Org Units & Org Positions...');
-  const orgUnitPendidikan = await prisma.orgUnit.create({
-    data: {
-      unitId: smpIt.id,
-      name: 'Direktorat Pendidikan',
-      code: 'DIR-EDU',
-      description: 'Mengurus seluruh kegiatan akademik dan kurikulum.',
-      level: 1,
-      sortOrder: 1,
-    },
-  });
-
+  // No "Direktorat Pendidikan" and no "Direktur Pendidikan": Cipansor has no
+  // Direktur (decisions/pimpinan-pesantren-kiai.md).
   const orgUnitKeuangan = await prisma.orgUnit.create({
     data: {
       unitId: smpIt.id,
@@ -7421,18 +7442,6 @@ async function main() {
       description: 'Mengurus keuangan dan akuntansi pesantren.',
       level: 1,
       sortOrder: 2,
-    },
-  });
-
-  await prisma.orgPosition.create({
-    data: {
-      orgUnitId: orgUnitPendidikan.id,
-      title: 'Direktur Pendidikan',
-      code: 'POS-DIR-EDU',
-      level: 2,
-      status: OrgPositionStatus.ACTIVE,
-      holderId: adminPesantrenUser.id,
-      description: 'Memimpin dan merumuskan kebijakan kurikulum.',
     },
   });
 

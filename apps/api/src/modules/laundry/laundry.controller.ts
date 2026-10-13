@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 import { asyncHandler } from '../../middleware/error';
 import { ListTransactionsQuerySchema } from './laundry.schema';
-import { pricingService, transactionService } from './laundry.service';
+import { laundryReadScope, pricingService, transactionService } from './laundry.service';
 import { ApiResponse } from '../../utils/response';
 
 /** Guard: pull the caller's unit or bail with 400. */
@@ -67,10 +67,8 @@ export const deletePricing = asyncHandler(async (req: Request, res: Response) =>
 
 /** GET /api/laundry/transactions */
 export const listTransactions = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = requireUnit(req, res);
-  if (!unitId) return;
   const parsedQuery = ListTransactionsQuerySchema.parse(req.query);
-  const result = await transactionService.getAll(unitId, parsedQuery);
+  const result = await transactionService.getAll(laundryReadScope(req.user!), parsedQuery);
   return res.json(
     ApiResponse.success(result.data, 'Berhasil mengambil data transaksi', result.pagination)
   );
@@ -78,18 +76,18 @@ export const listTransactions = asyncHandler(async (req: Request, res: Response)
 
 /** GET /api/laundry/transactions/stats */
 export const getStats = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = requireUnit(req, res);
-  if (!unitId) return;
   const { startDate, endDate } = req.query;
-  const stats = await transactionService.getStats(unitId, startDate as string, endDate as string);
+  const stats = await transactionService.getStats(
+    laundryReadScope(req.user!),
+    startDate as string,
+    endDate as string
+  );
   return res.json(ApiResponse.success(stats, 'Berhasil mengambil statistik laundry'));
 });
 
 /** GET /api/laundry/transactions/ready */
 export const getReadyForPickup = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = requireUnit(req, res);
-  if (!unitId) return;
-  const transactions = await transactionService.getReadyForPickup(unitId);
+  const transactions = await transactionService.getReadyForPickup(laundryReadScope(req.user!));
   return res.json(
     ApiResponse.success(transactions, 'Berhasil mengambil data laundry siap diambil')
   );
@@ -97,17 +95,16 @@ export const getReadyForPickup = asyncHandler(async (req: Request, res: Response
 
 /** GET /api/laundry/transactions/student/:studentId */
 export const getByStudent = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = requireUnit(req, res);
-  if (!unitId) return;
-  const transactions = await transactionService.getByStudent(req.params.studentId, unitId);
+  const transactions = await transactionService.getByStudent(
+    req.params.studentId,
+    laundryReadScope(req.user!)
+  );
   return res.json(ApiResponse.success(transactions, 'Berhasil mengambil data laundry santri'));
 });
 
 /** GET /api/laundry/transactions/:id */
 export const getTransaction = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = requireUnit(req, res);
-  if (!unitId) return;
-  const transaction = await transactionService.getById(req.params.id, unitId);
+  const transaction = await transactionService.getById(req.params.id, laundryReadScope(req.user!));
   if (!transaction) {
     return res.status(404).json(ApiResponse.error('Transaksi tidak ditemukan', 'NOT_FOUND'));
   }

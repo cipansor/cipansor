@@ -83,12 +83,20 @@ describe("hostSplitActionFor", () => {
       expect(target(PUBLIC_HOST, `${prefix}/anak`)).toBeNull();
     });
 
-    // Where the printed student ID card's QR points. It must answer on the
-    // public host (that is the host `config.publicSiteUrl` embeds), never 404
-    // there — while the portal sends it back so there is one address per page.
+    // `/public/*` pages are exempt from middleware by the matcher, so these two
+    // assertions describe what `hostSplitActionFor` *would* answer rather than
+    // something a request actually reaches. Kept because the function is the
+    // contract middleware switches on: if the matcher ever stops excluding
+    // `/public`, the printed QR's address must still resolve on the apex and be
+    // sent back from the portal.
     it("keeps the public verify-card page", () => {
       expect(target(PUBLIC_HOST, "/public/verify-card")).toBeNull();
       expect(target(PORTAL_HOST, "/public/verify-card")).toBe(PUBLIC_HOST);
+    });
+
+    it("keeps the public verify-sanad page", () => {
+      expect(target(PUBLIC_HOST, "/public/verify-sanad")).toBeNull();
+      expect(target(PORTAL_HOST, "/public/verify-sanad")).toBe(PUBLIC_HOST);
     });
 
     // 404, not a redirect to the portal. A redirect would imply the

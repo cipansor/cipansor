@@ -29,7 +29,7 @@ export function authFileUrl(url: string | null | undefined): string {
  * browser registered the original spelling, so the altered one no longer names
  * the blob and the preview fails to resolve.
  */
-export function objectUrlForFile(file: File): string {
+export function objectUrlForFile(file: Blob): string {
   const url = URL.createObjectURL(file);
   return url.startsWith("blob:") ? url : "";
 }

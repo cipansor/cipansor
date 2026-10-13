@@ -106,6 +106,19 @@ describe('PR lifecycle guard never approves or merges', () => {
     expect(source).not.toContain('--undo');
   });
 
+  it('the workflow runs when a ready docs PR turns ready', () => {
+    const wf = readFileSync(join(REPO, WORKFLOW), 'utf8');
+    // A docs-only PR's scope job skips Lint/Build/Tests/E2E, so CI finishes
+    // while the PR is still a draft; the ready transition is then the only
+    // event left to start the lifecycle. A `workflow_run`-only trigger never
+    // sees it, so the PR is never reviewed — the ready trigger is what closes
+    // that gap, and the job `if` must admit the pull_request event too.
+    expect(wf).toMatch(/pull_request:\s*\n\s*types:\s*\[ready_for_review\]/);
+    expect(wf).toContain(
+      "github.event_name == 'pull_request' && github.event.pull_request.number != null"
+    );
+  });
+
   it('LABELS.md names the review gate as the approver', () => {
     const doc = readFileSync(join(REPO, 'docs/LABELS.md'), 'utf8');
     expect(doc).toMatch(/review gate/i);

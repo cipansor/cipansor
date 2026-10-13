@@ -21,8 +21,10 @@ period with the latest `startDate` — the wrong record as soon as two waves are
 flagged, which is exactly the shape the corrected seed creates. Old query →
 "Gelombang 2 [BELUM DIBUKA]"; new query → "Gelombang 1 [OPEN]". Fixing data
 without code gives a *different* wrong answer. It now prefers open → next
-upcoming → most recently closed, matching the three states `getPeriodWindow`
-(`apps/web/src/lib/admission-period.ts`) renders.
+upcoming → most recently closed, the same three states the public SPMB page
+shows. (The web helper first named here, `getPeriodWindow` in
+`admission-period.ts`, went when admissions moved to intakes and waves;
+`apps/web/src/lib/admission-intake.ts` holds what replaced it.)
 
 **The rules:**
 

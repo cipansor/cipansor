@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import axios from "axios";
+import { api } from "@/lib/api";
 import { toast } from "sonner";
 import {
   Dialog,
@@ -61,7 +61,7 @@ export function CreateProjectModal({ open, onOpenChange }: Props) {
         ...values,
         budget: values.budget ? parseFloat(values.budget) : undefined,
       };
-      return axios.post("/api/projects", payload);
+      return api.post("/projects", payload);
     },
     onSuccess: () => {
       toast.success("Project created successfully");

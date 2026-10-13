@@ -1,5 +1,53 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import api from "@/lib/api";
+import {
+  LeaveStatus,
+  LeaveType,
+  StaffAttendanceStatus,
+  type AttendanceEvidence,
+  type AttendanceExemption,
+  type AttendancePolicy,
+  type AttendanceSite,
+  type HolidayDraft,
+  type HolidaySyncConfig,
+  type HolidaySyncResult,
+  type LeaveTypeConfig,
+  type MyAttendance,
+  type MyAttendanceToday,
+  type RetentionPolicy,
+  type SelfAttendanceInput,
+  type ShiftAssignment,
+  type ShiftRotation,
+  type StaffAttendance,
+  type WorkCalendarDay,
+  type WorkShift,
+  type WorkWeekConfig,
+} from "@cipansor/shared";
+
+// Re-exported so existing pages keep importing these from the hook module; the
+// contracts themselves live once, in `@cipansor/shared` (golden rule #8).
+export {
+  LeaveStatus,
+  LeaveType,
+  StaffAttendanceStatus,
+  type AttendanceEvidence,
+  type AttendanceExemption,
+  type AttendancePolicy,
+  type AttendanceSite,
+  type HolidayDraft,
+  type HolidaySyncConfig,
+  type HolidaySyncResult,
+  type LeaveTypeConfig,
+  type MyAttendance,
+  type MyAttendanceToday,
+  type RetentionPolicy,
+  type ShiftAssignment,
+  type ShiftRotation,
+  type StaffAttendance,
+  type WorkCalendarDay,
+  type WorkShift,
+  type WorkWeekConfig,
+};
 
 // Types
 export type EmployeeStatus =
@@ -38,12 +86,17 @@ export const EMPLOYEE_TYPE_LABELS: Record<EmployeeType, string> = {
 
 export interface Employee {
   id: string;
-  nip: string;
+  nip?: string;
   userId?: string;
+  /** The Teacher or Staff profile id — what the leave list filters on. */
+  teacherId?: string;
+  staffId?: string;
   user?: {
     id: string;
     name: string;
     email: string;
+    phone?: string | null;
+    isActive?: boolean;
   };
   unitId: string;
   unit?: {
@@ -51,27 +104,24 @@ export interface Employee {
     name: string;
   };
   departmentId?: string;
-  department?: {
-    id: string;
-    name: string;
-  };
+  department?: string;
 
   // Personal info
   fullName: string;
-  gender: Gender;
-  birthPlace: string;
-  birthDate: string;
+  gender?: Gender;
+  birthPlace?: string;
+  birthDate?: string;
   nationalId?: string;
   nik?: string;
   taxId?: string;
   npwp?: string;
-  maritalStatus: string;
-  religion: string;
+  maritalStatus?: string;
+  religion?: string;
 
   // Contact
-  phone: string;
-  email?: string;
-  address: string;
+  phone?: string;
+  email: string;
+  address?: string;
   city?: string;
   province?: string;
   postalCode?: string;
@@ -80,7 +130,8 @@ export interface Employee {
   position: string;
   employeeType: EmployeeType;
   status: EmployeeStatus;
-  joinDate: string;
+  role?: string;
+  joinDate?: string;
   endDate?: string;
   resignDate?: string;
 
@@ -114,8 +165,72 @@ export interface Employee {
     uploadedAt?: string;
   }[];
 
-  createdAt: string;
-  updatedAt: string;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+// ---------------------------------------------------------------------------
+// The API models an employee as a User with either a Teacher or a Staff row
+// (`/hr/employees` returns the User with both relations). The HR pages read a
+// flat `Employee`, so normalize once here — and derive the two fields the API
+// has no column for:
+//
+//   status       from `user.isActive`
+//   employeeType from `employmentStatus` (PNS/GTY…), defaulting to PERMANENT
+//
+// Without this the roster renders blank cells and a "Total Karyawan 0" count,
+// even though the endpoint returns dozens of people.
+// ---------------------------------------------------------------------------
+const EMPLOYEE_TYPE_BY_EMPLOYMENT_STATUS: Record<string, EmployeeType> = {
+  PNS: "PERMANENT",
+  PPPK: "CONTRACT",
+  GTY: "PERMANENT",
+  GTT: "CONTRACT",
+  HONOR: "PART_TIME",
+  KONTRAK: "CONTRACT",
+};
+
+export function normalizeEmployee(raw: any): Employee {
+  const teacher = raw?.teacher ?? null;
+  const staff = raw?.staff ?? null;
+  const profile = staff ?? teacher ?? {};
+  const user = raw?.user ?? raw ?? {};
+
+  const employmentStatus =
+    profile.employmentStatus ?? teacher?.employmentStatus;
+
+  return {
+    ...profile,
+    id: raw?.id ?? user.id,
+    userId: user.id ?? raw?.userId,
+    teacherId: teacher?.id ?? undefined,
+    staffId: staff?.id ?? undefined,
+    user,
+    nip: profile.nip ?? undefined,
+    unitId: raw?.unitId ?? user.unitId ?? "",
+    unit: raw?.unit ?? user.unit ?? undefined,
+    departmentId: profile.departmentId ?? undefined,
+    department: staff?.department ?? teacher?.department ?? undefined,
+
+    fullName: user.name ?? raw?.name ?? "",
+    email: user.email ?? raw?.email ?? "",
+    phone: user.phone ?? undefined,
+    gender: profile.gender ?? undefined,
+    birthPlace: profile.birthPlace ?? undefined,
+    birthDate: profile.birthDate ?? undefined,
+    nik: profile.nik ?? undefined,
+    address: profile.address ?? undefined,
+    religion: profile.religion ?? undefined,
+    joinDate: profile.joinDate ?? undefined,
+
+    position: staff?.position ?? (teacher ? "Guru" : "Pegawai"),
+    employeeType:
+      EMPLOYEE_TYPE_BY_EMPLOYMENT_STATUS[employmentStatus] ?? "PERMANENT",
+    status: user.isActive === false ? "INACTIVE" : "ACTIVE",
+    role: raw?.role,
+    createdAt: raw?.createdAt,
+    updatedAt: raw?.updatedAt,
+  };
 }
 
 export interface Department {
@@ -165,16 +280,15 @@ export interface LeaveRequest {
   updatedAt: string;
 }
 
-export type LeaveType =
-  | "ANNUAL"
-  | "SICK"
-  | "MATERNITY"
-  | "PATERNITY"
-  | "MARRIAGE"
-  | "BEREAVEMENT"
-  | "UNPAID"
-  | "OTHER";
-export type LeaveStatus = "PENDING" | "APPROVED" | "REJECTED" | "CANCELLED";
+/** The payload the API's POST /hr/leaves accepts. */
+export interface CreateLeavePayload {
+  type: LeaveType;
+  staffId?: string;
+  teacherId?: string;
+  startDate: string;
+  endDate: string;
+  reason: string;
+}
 
 export const LEAVE_TYPES: LeaveType[] = [
   "ANNUAL",
@@ -216,16 +330,24 @@ export interface Payroll {
   periodId: string;
   period?: PayrollPeriod;
   staffId: string;
+  // The API stores the employee name/NIP/department/position as flat snapshot
+  // columns on the Payroll row (`employeeName`, `employeeNo`, `department`,
+  // `position`), not as nested `staff.*` fields. The page reads the flat ones;
+  // `staff` carries only the live user + unit.
+  employeeName?: string;
+  employeeNo?: string;
+  department?: string;
+  position?: string;
   staff?: {
     id: string;
     employeeId?: string;
-    fullName: string;
+    fullName?: string;
     nip?: string;
     position?: string;
     unitId?: string;
     unit?: { id: string; name: string };
+    user?: { name: string; email: string };
     departmentId?: string;
-    department?: { id: string; name: string };
     bankName?: string;
     bankAccount?: string;
     employeeType?: string;
@@ -428,8 +550,40 @@ export function useEmployees(params?: {
     queryKey: ["employees", params],
     queryFn: async () => {
       const response = await api.get("/hr/employees", { params });
+      const body = response.data as {
+        data: unknown[];
+        meta: {
+          total: number;
+          page: number;
+          limit: number;
+          totalPages: number;
+        };
+      };
+      return { ...body, data: (body.data ?? []).map(normalizeEmployee) };
+    },
+  });
+}
+
+/**
+ * Active staff members for pickers (bulk attendance). The API serves the list
+ * at GET /hr/staff; the name lives on `user`.
+ */
+export function useStaffList(params?: { unitId?: string; search?: string }) {
+  return useQuery({
+    queryKey: ["staff-list", params],
+    queryFn: async () => {
+      const response = await api.get("/hr/staff", {
+        params: { limit: 100, ...params },
+      });
       return response.data as {
-        data: Employee[];
+        data: {
+          id: string;
+          nip?: string;
+          position?: string;
+          unitId: string;
+          user: { id: string; name: string; email?: string };
+          unit?: { id: string; name: string };
+        }[];
         meta: {
           total: number;
           page: number;
@@ -469,7 +623,7 @@ export function useEmployee(id: string) {
     queryKey: ["employee", id],
     queryFn: async () => {
       const response = await api.get(`/hr/employees/${id}`);
-      return response.data.data as Employee;
+      return normalizeEmployee(response.data.data);
     },
     enabled: !!id,
   });
@@ -531,18 +685,24 @@ export function useDeleteEmployee() {
 }
 
 // Leave request queries
-export function useLeaveRequests(params?: {
-  employeeId?: string;
-  status?: LeaveStatus;
-  leaveType?: LeaveType;
-  startDate?: string;
-  endDate?: string;
-  page?: number;
-  limit?: number;
-  mine?: boolean;
-}) {
+export function useLeaveRequests(
+  params?: {
+    /** One employee's leave: the API filters on the Teacher or Staff profile. */
+    teacherId?: string;
+    staffId?: string;
+    status?: LeaveStatus;
+    leaveType?: LeaveType;
+    startDate?: string;
+    endDate?: string;
+    page?: number;
+    limit?: number;
+    mine?: boolean;
+  },
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: ["leave-requests", params],
+    enabled: options?.enabled ?? true,
     queryFn: async () => {
       const response = await api.get("/hr/leaves", { params });
       return response.data as {
@@ -569,13 +729,18 @@ export function useLeaveRequest(id: string) {
   });
 }
 
+// The API serves leaves at /hr/leaves: create is POST /hr/leaves, a decision is
+// PATCH /hr/leaves/{id}/approve, cancellation PATCH /hr/leaves/{id}/cancel.
+// These hooks used to post to /hr/leave-requests, which no route answers — the
+// apply/approve/reject/cancel buttons all 404'd (baseline of
+// web-api-contract.guard.test.ts).
 export function useCreateLeaveRequest() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: FormData | Partial<LeaveRequest>) => {
+    mutationFn: async (data: FormData | CreateLeavePayload) => {
       const isFormData = data instanceof FormData;
-      const response = await api.post("/hr/leave-requests", data, {
+      const response = await api.post("/hr/leaves", data, {
         headers: isFormData
           ? { "Content-Type": "multipart/form-data" }
           : undefined,
@@ -593,7 +758,9 @@ export function useApproveLeaveRequest() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await api.post(`/hr/leave-requests/${id}/approve`);
+      const response = await api.patch(`/hr/leaves/${id}/approve`, {
+        status: "APPROVED",
+      });
       return response.data.data;
     },
     onSuccess: () => {
@@ -607,8 +774,9 @@ export function useRejectLeaveRequest() {
 
   return useMutation({
     mutationFn: async ({ id, reason }: { id: string; reason: string }) => {
-      const response = await api.post(`/hr/leave-requests/${id}/reject`, {
-        reason,
+      const response = await api.patch(`/hr/leaves/${id}/approve`, {
+        status: "REJECTED",
+        rejectedNote: reason,
       });
       return response.data.data;
     },
@@ -623,7 +791,7 @@ export function useCancelLeaveRequest() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await api.post(`/hr/leave-requests/${id}/cancel`);
+      const response = await api.patch(`/hr/leaves/${id}/cancel`);
       return response.data.data;
     },
     onSuccess: () => {
@@ -944,14 +1112,6 @@ export function useDeleteSalaryComponent() {
 // STAFF ATTENDANCE
 // ============================================
 
-export enum StaffAttendanceStatus {
-  PRESENT = "PRESENT",
-  ABSENT = "ABSENT",
-  LATE = "LATE",
-  LEAVE = "LEAVE",
-  SICK = "SICK",
-}
-
 export const STAFF_ATTENDANCE_STATUS_LABELS: Record<
   StaffAttendanceStatus,
   string
@@ -961,6 +1121,9 @@ export const STAFF_ATTENDANCE_STATUS_LABELS: Record<
   LATE: "Terlambat",
   LEAVE: "Izin/Cuti",
   SICK: "Sakit",
+  REMOTE: "WFH",
+  DUTY: "Dinas Luar",
+  HOLIDAY: "Libur",
 };
 
 export interface Department {
@@ -979,26 +1142,11 @@ export interface Department {
   updatedAt: string;
 }
 
-export interface StaffAttendance {
-  id: string;
-  staffId: string;
-  staff?: {
-    id: string;
-    fullName: string;
-    unitId?: string;
-    unit?: { id: string; name: string };
-  };
-  date: string;
-  status: StaffAttendanceStatus;
-  checkIn?: string;
-  checkOut?: string;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export function useStaffAttendances(params?: {
   staffId?: string;
+  teacherId?: string;
+  unitId?: string;
+  status?: StaffAttendanceStatus;
   startDate?: string;
   endDate?: string;
   page?: number;
@@ -1359,5 +1507,611 @@ export function useAddPayrollAdjustment() {
       queryClient.invalidateQueries({ queryKey: ["payrolls"] });
       queryClient.invalidateQueries({ queryKey: ["payroll"] });
     },
+  });
+}
+
+// ============================================
+// SELF ATTENDANCE (clock in / out)
+// ============================================
+
+/** GET /hr/attendance/me — the day's row plus what the caller may do next. */
+/** The punch body, as `@cipansor/shared` validates it — minus the admin-only staffId. */
+export type SelfAttendancePayload = Omit<SelfAttendanceInput, "staffId">;
+
+/**
+ * Keep a selfie in the private attendance store and get back the reference a
+ * punch names it by. Not `/upload`: that store is readable by every signed-in
+ * account, and a selfie is a facial image.
+ */
+export function useUploadPunchPhoto() {
+  return useMutation({
+    mutationFn: async (photo: Blob) => {
+      const form = new FormData();
+      const type = photo.type || "image/jpeg";
+      const ext =
+        type === "image/png" ? "png" : type === "image/webp" ? "webp" : "jpg";
+      form.append("file", new File([photo], `absen.${ext}`, { type }));
+      const response = await api.post("/hr/attendance/photo", form, {
+        headers: { "Content-Type": "multipart/form-data" },
+      });
+      return response.data.data as { photoRef: string };
+    },
+  });
+}
+
+/**
+ * One punch's selfie as a Blob, fetched only when asked for (`enabled`). The
+ * API checks the reader and records the read, so a list never loads them all.
+ */
+export function usePunchPhoto(recordId: string | null) {
+  return useQuery({
+    queryKey: ["punch-photo", recordId],
+    enabled: Boolean(recordId),
+    staleTime: Infinity,
+    gcTime: 60_000,
+    queryFn: async () => {
+      const response = await api.get(
+        `/hr/attendance/records/${recordId}/photo`,
+        {
+          responseType: "blob",
+        },
+      );
+      return response.data as Blob;
+    },
+  });
+}
+
+export function useMyAttendanceToday() {
+  return useQuery({
+    queryKey: ["my-attendance-today"],
+    queryFn: async () => {
+      const response = await api.get("/hr/attendance/me");
+      return response.data.data as MyAttendanceToday;
+    },
+    // A clock-in is a once-a-day action; refresh so the page agrees with the
+    // server after the mutation, without polling the endpoint.
+    refetchOnWindowFocus: true,
+  });
+}
+
+export function useSelfCheckIn() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: SelfAttendancePayload) => {
+      const response = await api.post("/hr/attendance/check-in", data);
+      return response.data.data as {
+        attendance: MyAttendance;
+        lateMinutes: number;
+        withinRadius: boolean | null;
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["my-attendance-today"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-attendances"] });
+    },
+  });
+}
+
+export function useSelfCheckOut() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async (data: SelfAttendancePayload) => {
+      const response = await api.post("/hr/attendance/check-out", data);
+      return response.data.data as {
+        attendance: MyAttendance;
+        withinRadius: boolean | null;
+      };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["my-attendance-today"] });
+      queryClient.invalidateQueries({ queryKey: ["staff-attendances"] });
+    },
+  });
+}
+
+// ============================================
+// ATTENDANCE SETTINGS
+// ============================================
+
+/** All settings endpoints take an optional unitId; unit admins are pinned. */
+type ScopedParams = { unitId?: string };
+
+export function useAttendanceSites(params?: ScopedParams) {
+  return useQuery({
+    queryKey: ["attendance-sites", params],
+    queryFn: async () => {
+      const response = await api.get("/hr/attendance/sites", { params });
+      return response.data.data as AttendanceSite[];
+    },
+  });
+}
+
+export function useWorkShifts(params?: ScopedParams) {
+  return useQuery({
+    queryKey: ["work-shifts", params],
+    queryFn: async () => {
+      const response = await api.get("/hr/attendance/shifts", { params });
+      return response.data.data as WorkShift[];
+    },
+  });
+}
+
+export function useShiftAssignments(
+  params?: ScopedParams & { staffId?: string },
+) {
+  return useQuery({
+    queryKey: ["shift-assignments", params],
+    queryFn: async () => {
+      const response = await api.get("/hr/attendance/shift-assignments", {
+        params,
+      });
+      return response.data.data as ShiftAssignment[];
+    },
+  });
+}
+
+export function useShiftRotations(params?: ScopedParams) {
+  return useQuery({
+    queryKey: ["shift-rotations", params],
+    queryFn: async () => {
+      const response = await api.get("/hr/attendance/rotations", { params });
+      return response.data.data as ShiftRotation[];
+    },
+  });
+}
+
+export function useWorkWeekConfigs(params?: ScopedParams) {
+  return useQuery({
+    queryKey: ["work-week-configs", params],
+    queryFn: async () => {
+      const response = await api.get("/hr/attendance/work-weeks", { params });
+      return response.data.data as WorkWeekConfig[];
+    },
+  });
+}
+
+export function useAttendancePolicies(params?: ScopedParams) {
+  return useQuery({
+    queryKey: ["attendance-policies", params],
+    queryFn: async () => {
+      const response = await api.get("/hr/attendance/policies", { params });
+      return response.data.data as AttendancePolicy[];
+    },
+  });
+}
+
+export function useAttendanceExemptions() {
+  return useQuery({
+    queryKey: ["attendance-exemptions"],
+    queryFn: async () => {
+      const response = await api.get("/hr/attendance/exemptions");
+      return response.data.data as AttendanceExemption[];
+    },
+  });
+}
+
+export function useRetentionPolicies() {
+  return useQuery({
+    queryKey: ["retention-policies"],
+    queryFn: async () => {
+      const response = await api.get("/hr/retention-policies");
+      return response.data.data as RetentionPolicy[];
+    },
+  });
+}
+
+export function useUpsertRetentionPolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<RetentionPolicy>) => {
+      const response = await api.put("/hr/retention-policies", data);
+      return response.data.data as RetentionPolicy;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["retention-policies"] }),
+  });
+}
+
+export function useLeaveTypeConfigs() {
+  return useQuery({
+    queryKey: ["leave-type-configs"],
+    queryFn: async () => {
+      const response = await api.get("/hr/leave-type-configs");
+      return response.data.data as LeaveTypeConfig[];
+    },
+  });
+}
+
+export function useUpsertLeaveTypeConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<LeaveTypeConfig>) => {
+      const response = await api.put("/hr/leave-type-configs", data);
+      return response.data.data as LeaveTypeConfig;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["leave-type-configs"] }),
+  });
+}
+
+export function useWorkCalendar(month: number, year: number, unitId?: string) {
+  return useQuery({
+    queryKey: ["work-calendar", month, year, unitId],
+    queryFn: async () => {
+      const response = await api.get("/hr/attendance/calendar", {
+        params: { month, year, unitId },
+      });
+      return response.data.data as WorkCalendarDay[];
+    },
+  });
+}
+
+export function useHolidaySyncConfig() {
+  return useQuery({
+    queryKey: ["holiday-sync-config"],
+    queryFn: async () => {
+      const response = await api.get("/calendar/holidays/config");
+      return response.data.data as HolidaySyncConfig;
+    },
+  });
+}
+
+export function useUpdateHolidaySyncConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<HolidaySyncConfig>) => {
+      const response = await api.put("/calendar/holidays/config", data);
+      return response.data.data as HolidaySyncConfig;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["holiday-sync-config"] }),
+  });
+}
+
+export function useSyncHolidays() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: { year: number; unitId?: string }) => {
+      const response = await api.post("/calendar/holidays/sync", data);
+      return response.data.data as HolidaySyncResult;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["holiday-sync-config"] });
+      queryClient.invalidateQueries({ queryKey: ["holiday-drafts"] });
+      queryClient.invalidateQueries({ queryKey: ["work-calendar"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+  });
+}
+
+export function useHolidayDrafts(unitId?: string) {
+  return useQuery({
+    queryKey: ["holiday-drafts", unitId],
+    queryFn: async () => {
+      const response = await api.get("/calendar/holidays/drafts", {
+        params: { unitId },
+      });
+      return response.data.data as HolidayDraft[];
+    },
+  });
+}
+
+export function useApproveHolidayDraft() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await api.post(
+        `/calendar/holidays/drafts/${id}/approve`,
+      );
+      return response.data.data as HolidayDraft;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["holiday-drafts"] });
+      queryClient.invalidateQueries({ queryKey: ["work-calendar"] });
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+  });
+}
+
+export function useRejectHolidayDraft() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      const response = await api.post(`/calendar/holidays/drafts/${id}/reject`);
+      return response.data.data as { id: string };
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["holiday-drafts"] });
+      queryClient.invalidateQueries({ queryKey: ["work-calendar"] });
+    },
+  });
+}
+
+/** The endpoints that upsert by natural key take a PUT with a JSON body. */
+export function useUpsertWorkWeekConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<WorkWeekConfig>) => {
+      const response = await api.put("/hr/attendance/work-weeks", data);
+      return response.data.data as WorkWeekConfig;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["work-week-configs"] }),
+  });
+}
+
+export function useUpsertAttendancePolicy() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<AttendancePolicy>) => {
+      const response = await api.put("/hr/attendance/policies", data);
+      return response.data.data as AttendancePolicy;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["attendance-policies"] }),
+  });
+}
+
+export function useCreateAttendanceSite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<AttendanceSite>) => {
+      const response = await api.post("/hr/attendance/sites", data);
+      return response.data.data as AttendanceSite;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["attendance-sites"] }),
+  });
+}
+
+export function useDeleteAttendanceSite() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/hr/attendance/sites/${id}`);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["attendance-sites"] }),
+  });
+}
+
+export function useCreateWorkShift() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<WorkShift>) => {
+      const response = await api.post("/hr/attendance/shifts", data);
+      return response.data.data as WorkShift;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["work-shifts"] }),
+  });
+}
+
+export function useDeleteWorkShift() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/hr/attendance/shifts/${id}`);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["work-shifts"] }),
+  });
+}
+
+export function useCreateShiftAssignment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      staffId: string;
+      shiftId: string;
+      effectiveFrom: string;
+      effectiveTo?: string;
+      daysOfWeek: number[];
+    }) => {
+      const response = await api.post("/hr/attendance/shift-assignments", data);
+      return response.data.data as ShiftAssignment;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["shift-assignments"] }),
+  });
+}
+
+export function useDeleteShiftAssignment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/hr/attendance/shift-assignments/${id}`);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["shift-assignments"] }),
+  });
+}
+
+export function useCreateShiftRotation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      shiftId: string;
+      name: string;
+      memberIds: string[];
+      startDate: string;
+      endDate?: string;
+      cycleDays: number;
+    }) => {
+      const response = await api.post("/hr/attendance/rotations", data);
+      return response.data.data as ShiftRotation;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["shift-rotations"] }),
+  });
+}
+
+export function useDeleteShiftRotation() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/hr/attendance/rotations/${id}`);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["shift-rotations"] }),
+  });
+}
+
+export function useCreateAttendanceExemption() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      staffId?: string;
+      roleCode?: string;
+      reason?: string;
+    }) => {
+      const response = await api.post("/hr/attendance/exemptions", data);
+      return response.data.data as AttendanceExemption;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["attendance-exemptions"] }),
+  });
+}
+
+export function useDeleteAttendanceExemption() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/hr/attendance/exemptions/${id}`);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["attendance-exemptions"] }),
+  });
+}
+
+// ============================================
+// PAYROLL POLICY RULES
+// ============================================
+
+export interface PayrollPolicyRule {
+  id: string;
+  unitId?: string | null;
+  code: string;
+  kind: "EARNING" | "DEDUCTION";
+  trigger: "LATE" | "ABSENT" | "EARLY_LEAVE" | "PRESENT" | "OVERTIME";
+  basis: string;
+  mode:
+    | "NOMINAL"
+    | "PERSENTASE"
+    | "PRORATA"
+    | "PENGALI"
+    | "BERTINGKAT"
+    | "FORMULA"
+    | "MANUAL";
+  rate?: number | null;
+  unit: "PER_MENIT" | "PER_HARI" | "PER_KEJADIAN" | "PER_BULAN";
+  tiersJson?: unknown;
+  formulaExpr?: string | null;
+  capPerDay?: number | null;
+  capPerMonth?: number | null;
+  rounding: "NONE" | "ROUND" | "FLOOR" | "CEIL";
+  priority: number;
+  legalBasisDoc?: string | null;
+  isActive: boolean;
+  effectiveFrom?: string | null;
+  effectiveTo?: string | null;
+}
+
+export interface PayrollGuardConfig {
+  id: string;
+  unitId?: string | null;
+  maxDeductionPercent: number;
+  minBasicSharePercent: number;
+  mustStayAboveUmk: boolean;
+  umkNominal?: number | null;
+  isActive: boolean;
+}
+
+export function usePayrollPolicyRules(params?: ScopedParams) {
+  return useQuery({
+    queryKey: ["payroll-policy-rules", params],
+    queryFn: async () => {
+      const response = await api.get("/hr/payroll/policy-rules", { params });
+      return response.data.data as PayrollPolicyRule[];
+    },
+  });
+}
+
+export function useUpsertPayrollPolicyRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<PayrollPolicyRule> & { id?: string }) => {
+      const { id, ...body } = data;
+      const response = await api.put(
+        `/hr/payroll/policy-rules/${id ?? "new"}`,
+        body,
+      );
+      return response.data.data as PayrollPolicyRule;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["payroll-policy-rules"] }),
+  });
+}
+
+export function useDeletePayrollPolicyRule() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/hr/payroll/policy-rules/${id}`);
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["payroll-policy-rules"] }),
+  });
+}
+
+export function usePayrollGuardConfig(params?: ScopedParams) {
+  return useQuery({
+    queryKey: ["payroll-guard-config", params],
+    queryFn: async () => {
+      const response = await api.get("/hr/payroll/guard-config", { params });
+      return response.data.data as PayrollGuardConfig | null;
+    },
+  });
+}
+
+export function useUpsertPayrollGuardConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: Partial<PayrollGuardConfig>) => {
+      const response = await api.put("/hr/payroll/guard-config", data);
+      return response.data.data as PayrollGuardConfig;
+    },
+    onSuccess: () =>
+      queryClient.invalidateQueries({ queryKey: ["payroll-guard-config"] }),
+  });
+}
+
+/** Dry run: what the rules would deduct from each slip in a period. */
+export function useAttendanceDeductionPreview(periodId: string) {
+  return useQuery({
+    queryKey: ["attendance-deduction-preview", periodId],
+    queryFn: async () => {
+      const response = await api.get(
+        `/payroll/periods/${periodId}/attendance-deductions`,
+      );
+      return response.data.data as {
+        staffId: string;
+        staffName: string;
+        totalDeductions: number;
+        totalEarningAdditions: number;
+        gross: number;
+        guardWarnings: string[];
+        lines: {
+          code: string;
+          name: string;
+          kind: "EARNING" | "DEDUCTION";
+          amount: number;
+          detail: string;
+        }[];
+      }[];
+    },
+    enabled: !!periodId,
   });
 }

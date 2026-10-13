@@ -42,7 +42,7 @@ Panduan deployment sistem Cipansor untuk production.
 ### 1. Clone Repository
 
 ```bash
-git clone https://github.com/ypcipansor/cipansor.git
+git clone https://github.com/cipansor/cipansor.git
 cd cipansor
 ```
 
@@ -137,6 +137,11 @@ API_INTERNAL_URL=http://api:3001
 
 # Redis
 REDIS_PORT=6379
+
+# Salinan yang berjalan: local | staging | production. Staging memakai provider
+# asli tetapi NODE_ENV tetap production, jadi namanya perlu variabel sendiri.
+# Kosong pada build produksi = production.
+# APP_ENV=staging
 
 # Asisten AI publik (opsional — biarkan kosong jika belum dipakai)
 CHATBOT_PROVIDER=openai-compatible
@@ -328,7 +333,10 @@ psql -U postgres cipansor < backup_20240101.sql
 - **API**: `GET /health` — readiness check. It probes the database
   (`SELECT 1` via Prisma) and answers **503** (`status: "unavailable"`) when
   Postgres is unreachable, otherwise **200** (`status: "ok"`) with the
-  `GIT_COMMIT_SHA` the release workflow polls.
+  `GIT_COMMIT_SHA` the release workflow polls. `environment` is the deployed
+  copy (`APP_ENV`: `local`/`staging`/`production`) and `nodeEnv` the build
+  mode, which is `production` on staging too — read `environment` to tell the
+  copies apart.
 - **Web**: Available at root `/`
 
 ### Recommended Monitoring Tools
@@ -433,6 +441,10 @@ kill -9 <PID>
 
 ## Support
 
-- Documentation: https://docs.cipansor.or.id
-- Email: support@cipansor.or.id
-- Issues: https://github.com/ypcipansor/cipansor/issues
+- Repositori: <https://github.com/cipansor/cipansor>
+- Isu & permintaan: <https://github.com/cipansor/cipansor/issues>
+- Konvensi pengembangan: [`AGENTS.md`](../AGENTS.md)
+
+Untuk catatan insiden produksi dan langkah pemulihannya, lihat
+[`.claude/memory/known-issues.md`](../.claude/memory/known-issues.md); untuk
+konteks dua-host (apex vs portal) lihat [`ARCHITECTURE.md`](./ARCHITECTURE.md).

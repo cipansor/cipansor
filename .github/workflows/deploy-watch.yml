@@ -46,11 +46,11 @@ jobs:
     name: Check the latest deploys
     # A fork inherits this file; neither its deploys nor a manual dispatch
     # there may open issues against it.
-    if: github.repository == 'ypcipansor/cipansor'
+    if: github.repository == 'cipansor/cipansor'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Report a failed, stuck or degraded deploy
         env:

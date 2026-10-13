@@ -68,6 +68,12 @@ router.get(
   controller.getViolationCategories
 );
 
+router.get(
+  '/categories/:id',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
+  controller.getViolationCategoryById
+);
+
 /**
  * @swagger
  * /api/violations:
