@@ -410,10 +410,12 @@ describe('hr createEmployee', () => {
     ).rejects.toThrow(/position/i);
   });
 
-  it('creates a Teacher row (not Staff) for a TEACHER employee', async () => {
+  it('creates a Staff row and a Teacher row linked to it for a TEACHER employee', async () => {
+    // Attendance, leave and payroll key on Staff: a teacher without one can
+    // neither clock in nor file leave.
     mocked.user.findUnique.mockResolvedValue(null);
     const txTeacherCreate = vi.fn();
-    const txStaffCreate = vi.fn();
+    const txStaffCreate = vi.fn().mockResolvedValue({ id: 'staff-1' });
     mocked.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
       fn({
         user: { create: vi.fn().mockResolvedValue({ id: 'u-new' }) },
@@ -427,8 +429,36 @@ describe('hr createEmployee', () => {
       admin
     );
 
-    expect(txTeacherCreate).toHaveBeenCalled();
-    expect(txStaffCreate).not.toHaveBeenCalled();
+    expect(txStaffCreate.mock.calls[0][0].data).toMatchObject({
+      userId: 'u-new',
+      unitId: 'unit-1',
+    });
+    expect(txTeacherCreate.mock.calls[0][0].data).toMatchObject({
+      userId: 'u-new',
+      unitId: 'unit-1',
+      staffId: 'staff-1',
+    });
+  });
+
+  it("writes a unit admin's new teacher, Staff row included, into their own unit, not the body's", async () => {
+    mocked.user.findUnique.mockResolvedValue(null);
+    const txTeacherCreate = vi.fn();
+    const txStaffCreate = vi.fn().mockResolvedValue({ id: 'staff-1' });
+    mocked.$transaction.mockImplementation(async (fn: (tx: unknown) => unknown) =>
+      fn({
+        user: { create: vi.fn().mockResolvedValue({ id: 'u-new' }) },
+        teacher: { create: txTeacherCreate },
+        staff: { create: txStaffCreate },
+      })
+    );
+
+    await createEmployee(
+      { name: 'Ust. A', email: 'a@x.id', role: 'TEACHER', unitId: 'unit-other' },
+      admin
+    );
+
+    expect(txStaffCreate.mock.calls[0][0].data.unitId).toBe('unit-1');
+    expect(txTeacherCreate.mock.calls[0][0].data.unitId).toBe('unit-1');
   });
 
   it('gives an employee created without a password a random one, never a fixed default', async () => {
@@ -440,7 +470,7 @@ describe('hr createEmployee', () => {
       fn({
         user: { create: vi.fn().mockResolvedValue({ id: 'u-new' }) },
         teacher: { create: vi.fn() },
-        staff: { create: vi.fn() },
+        staff: { create: vi.fn().mockResolvedValue({ id: 'staff-1' }) },
       })
     );
 

@@ -131,6 +131,20 @@ export const SUPPORT_ROLE_CODES: readonly string[] = [
   "LABORAN",
 ];
 
+/**
+ * Roles whose remit spans every unit's santri: the pesantren's own staff (the
+ * asrama houses SD IT, SMP IT and SMA Qur'an together) and the cross-unit
+ * support staff. The API widens their reads with `seesAllUnits`; the web stops
+ * pinning their dashboards to their home unit. What they may *do* is still
+ * their permission list.
+ */
+export const CROSS_UNIT_ROLE_CODES: readonly string[] = [
+  ...PESANTREN_LEADER_ROLE_CODES,
+  "PESANTREN_TATA_USAHA",
+  ...PESANTREN_EDUCATOR_ROLE_CODES,
+  ...SUPPORT_ROLE_CODES,
+];
+
 /** Business-unit personnel (kantin, laundry, koperasi, ...). */
 export const BUSINESS_ROLE_CODES: readonly string[] = [
   "BUSINESS_MANAGER",

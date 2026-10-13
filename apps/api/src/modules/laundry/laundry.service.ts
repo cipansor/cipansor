@@ -1,6 +1,14 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
-import { JournalReferenceType } from '@cipansor/shared';
+import {
+  ALUMNI_ROLE_CODES,
+  JournalReferenceType,
+  KOMITE_ROLE_CODES,
+  PARENT_ROLE_CODES,
+  STUDENT_ROLE_CODES,
+} from '@cipansor/shared';
+import { seesAllUnits } from '../../utils/resolve-unit-id';
+import { studentScope, type ScopeActor } from '../../utils/student-scope';
 import { getAccountOrFallback, ACCOUNT_MAPPING_KEYS } from '../finance/accounting-config.service';
 import { isPeriodOpen } from '../finance-enhancement/period.service';
 import type {
@@ -112,14 +120,40 @@ const calculateEstimatedDate = (processDays: number): Date => {
   return date;
 };
 
+/**
+ * The laundry transactions a reader may see. Laundry is an asrama service: one
+ * unit's business staff record it, for santri of every school.
+ *
+ * - the pesantren's staff and the cross-unit services (`seesAllUnits`): every
+ *   unit's — they stay where the asrama is, whichever unit they belong to;
+ * - a santri, a wali, alumni and komite: only the santri they may see
+ *   (`studentScope` — their own, their children's, none);
+ * - anyone else, the staff who run it included: their own unit's.
+ */
+export function laundryReadScope(actor: ScopeActor): Prisma.LaundryTransactionWhereInput {
+  if (seesAllUnits(actor)) return {};
+  const code = actor.roleCode ?? '';
+  if (
+    [
+      ...STUDENT_ROLE_CODES,
+      ...PARENT_ROLE_CODES,
+      ...ALUMNI_ROLE_CODES,
+      ...KOMITE_ROLE_CODES,
+    ].includes(code)
+  ) {
+    return { student: studentScope(actor) };
+  }
+  return actor.unitId ? { unitId: actor.unitId } : { id: { in: [] } };
+}
+
 export const transactionService = {
-  async getAll(unitId: string, query: ListTransactionsQuery) {
+  async getAll(scope: Prisma.LaundryTransactionWhereInput, query: ListTransactionsQuery) {
     const page = parseInt(query.page || '1');
     const limit = parseInt(query.limit || '20');
     const skip = (page - 1) * limit;
 
     const where: Prisma.LaundryTransactionWhereInput = {
-      unitId,
+      ...scope,
       ...(query.studentId && { studentId: query.studentId }),
       ...(query.status && { status: query.status }),
       ...(query.paymentStatus && { paymentStatus: query.paymentStatus }),
@@ -162,9 +196,9 @@ export const transactionService = {
     };
   },
 
-  async getById(id: string, unitId: string) {
+  async getById(id: string, scope: Prisma.LaundryTransactionWhereInput) {
     return prisma.laundryTransaction.findFirst({
-      where: { id, unitId },
+      where: { ...scope, id },
       include: {
         student: {
           select: {
@@ -186,11 +220,11 @@ export const transactionService = {
     });
   },
 
-  async getByStudent(studentId: string, unitId: string) {
+  async getByStudent(studentId: string, scope: Prisma.LaundryTransactionWhereInput) {
     return prisma.laundryTransaction.findMany({
       where: {
+        ...scope,
         studentId,
-        unitId,
         status: { notIn: ['DELIVERED', 'CANCELLED'] },
       },
       include: {
@@ -201,10 +235,10 @@ export const transactionService = {
     });
   },
 
-  async getReadyForPickup(unitId: string) {
+  async getReadyForPickup(scope: Prisma.LaundryTransactionWhereInput) {
     return prisma.laundryTransaction.findMany({
       where: {
-        unitId,
+        ...scope,
         status: 'READY',
       },
       include: {
@@ -683,7 +717,7 @@ export const transactionService = {
     });
   },
 
-  async getStats(unitId: string, startDate?: string, endDate?: string) {
+  async getStats(scope: Prisma.LaundryTransactionWhereInput, startDate?: string, endDate?: string) {
     const dateFilter =
       startDate && endDate
         ? {
@@ -700,20 +734,20 @@ export const transactionService = {
 
     const [periodStats, statusBreakdown, pendingPayments, pendingPickup] = await Promise.all([
       prisma.laundryTransaction.aggregate({
-        where: { unitId, status: { not: 'CANCELLED' }, ...dateFilter },
+        where: { ...scope, status: { not: 'CANCELLED' }, ...dateFilter },
         _sum: { total: true, weight: true },
         _count: { id: true },
       }),
       prisma.laundryTransaction.groupBy({
         by: ['status'],
-        where: { unitId, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
+        where: { ...scope, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
         _count: { id: true },
       }),
       prisma.laundryTransaction.count({
-        where: { unitId, paymentStatus: 'UNPAID', status: { not: 'CANCELLED' } },
+        where: { ...scope, paymentStatus: 'UNPAID', status: { not: 'CANCELLED' } },
       }),
       prisma.laundryTransaction.count({
-        where: { unitId, status: 'READY' },
+        where: { ...scope, status: 'READY' },
       }),
     ]);
 

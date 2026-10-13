@@ -2,7 +2,7 @@
 
 Open defects only, each rechecked against the code on **2026-09-25**
 (asrama and schema entries on 2026-09-26; daily report, schedules,
-counselling and growth on 2026-09-27). The
+counselling and growth on 2026-09-27; staff attendance on 2026-10-09). The
 ordered backlog is [`roadmap.md`](./roadmap.md); where the work stands is
 [`progress.md`](./progress.md); the system overview is
 [`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
@@ -16,7 +16,60 @@ ordered backlog is [`roadmap.md`](./roadmap.md); where the work stands is
   weakness that is still open is recorded outside the repository until it is
   fixed; say here only that a module needs review.
 
+## Staff attendance (absensi pegawai) — still open, rechecked 2026-10-09
+
+The second audit of PR #630 (2026-10-09) closed: every punch answering 500,
+yayasan organs writing any unit's settings, selfies in the public uploads
+directory, the 50% deduction ceiling (PP 36/2021 Ps. 65) that could be passed,
+unit and yayasan rules both applying, deduction rules with no legal basis,
+record retention under ten years, REJECT not applying at checkout, and shift
+workers refused on a closed day. Still open:
+
+- **Payroll stops on a work day with no attendance row.** `computeForPeriod`
+  collects `unresolvedDates` and `payroll.service.ts` refuses the payslip while
+  any exist. The standard is the reverse: record the exception, assume present
+  (`decisions/absensi-pegawai.md`).
+- **Non-teaching employees have no staff record.** The migration makes a
+  `staff` row from every `teachers` row; TU, bendahara, pustakawan, perawat,
+  keamanan, a kepala sekolah without a teacher row and others get none. *Absen
+  Saya* now says so, but admins have no "employees without a record" list.
+  Prepare the records before self-attendance is switched on.
+- **The staff privacy notice is not built** (decision D1, 2026-10-09, in
+  `persetujuan-pengguna.md`). Until it is, selfie and location stay off in
+  every unit.
+- **`EARLY_LEAVE` and `OVERTIME` are never counted.** `earlyLeaveDays` and
+  `overtimeMinutes` start at 0 and never grow, so rules on those triggers do
+  nothing although the settings page offers them. Overtime also has no order
+  and approval (PP 35/2021).
+- **`BERTINGKAT` cannot be used.** The schema takes `tiersJson` as an object
+  (`z.record`), `tieredAmount` requires an array, so the tiers are always empty.
+- **The 50% ceiling ignores the slip's other deductions.** Loans and other
+  slip deductions are PP 36/2021 Ps. 63 deductions too, but the guard caps the
+  attendance deductions only.
+- **`WorkWeekConfig` falls back to Monday–Saturday, 7 hours** when a unit has no
+  row, and no seed writes one.
+- **No review queue.** *Absensi Pegawai* now marks a punch outside the site and
+  a photo from a file, but there is no "needs review" filter and no record
+  that a punch was reviewed.
+- **Corrections have no UI**, and `delete` still removes the row (and its
+  evidence) instead of marking it.
+- **Non-teaching staff cannot file leave.** `/hr/leaves/new` is under `/hr`,
+  and the `STAFF` bucket in `rbac.ts` opens only `/hr/attendance/me`.
+- **The bulk register loads the first 100 employees only** (`useStaffList`
+  forces `limit: 100`).
+- **Dead code.** `teacherId` is still in three `hr.schema.ts` schemas and in
+  the web type though the column is gone; `payrollComponentSchema` has no
+  importer; `StaffAttendanceStatus.HOLIDAY` is never written.
+
 ## Broken flows and wrong figures
+
+- **The head of school's dashboard shows a 403 toast on every load**
+  (found 2026-10-10, already on `main`). `/dashboard` calls
+  `useDonationStats` for every role, and `GET /donation/stats` refuses the
+  kepala sekolah, so the interceptor toasts "Insufficient permissions" each
+  time the page opens. Either ask only when the role may read donations, or
+  drop the card for roles that cannot; an e2e that opens `/dashboard` as each
+  family and expects no error toast would have caught it.
 
 - **The per-role screenshot sweep cannot log in** (found 2026-09-29). `apps/web/scripts/screenshot-roles.ts` posts `/auth/login`
   without `X-Client: bearer`, so since the HttpOnly-cookie session (#620) the body carries no token and every role fails
@@ -102,6 +155,14 @@ ordered backlog is [`roadmap.md`](./roadmap.md); where the work stands is
   reads `meta.pagination.total` for health, violations, rewards and students;
   those APIs send other shapes (#564 fixed only the permit counter). The API has
   three pagination shapes (`pagination`, `meta.pagination`, `meta`) — phase 6.
+- **The laundry page reads fields the API never sends.** `laundry/page.tsx`
+  shows `transactionNumber`, `student.fullName`, `receivedAt`, `totalItems`
+  and `totalAmount`; the API sends `transactionNo`, `student.user.name`,
+  `createdAt` and the items, so the list shows no number, no name and no
+  total (seen 2026-10-09 walking the pesantren's menus). It also calls
+  `fetch` directly instead of a hook in `src/hooks/*`. And
+  `GET /laundry/transactions?limit=…` answers 400: the schema expects page
+  and limit as strings, but they reach it as numbers.
 - **`/musyrif/boarding-center` is still mostly sample data** (Social Harmony,
   "4 Musyrif on Duty", alerts, health counts); only the dormitory list and,
   since #564, the permit card and tab are live. The page says so.
@@ -266,12 +327,12 @@ decision.
    column so the rollback image could still write. Drop it in a release of its
    own, after one full release with no old writer — or keep it as a snapshot.
 3. **Who may accept or reject an SPMB applicant** (the disabled buttons above).
-4. **Takhosus as a fifth unit** (`UnitType.PESANTREN`, decided 2026-09-13;
-   to be built, decided again 2026-09-29 in
-   `decisions/struktur-organisasi-dan-identitas.md`) is not built. Until it
-   is, every pesantren role — the Kiai included — is assigned in the **SMP
-   IT** unit, and takhosus halaqoh sit under SMA. The seed also still makes an
-   `OrgUnit` "Direktorat Pendidikan" with a "Direktur Pendidikan" post.
+4. **Takhosus halaqoh still sit under SMA Qur'an.** The Pesantren unit
+   (`UnitType.PESANTREN`, `decisions/struktur-organisasi-dan-identitas.md`)
+   now exists and holds the Kiai, TU Pesantren, ustadz, musyrif and muhafidz
+   (migration `20261010130000_pesantren_unit`); the takhosus programme has not
+   moved to it. The shared services (keamanan, perawat, pustakawan, laboran)
+   are still assigned to SMP IT until the organisation tree places them.
 5. **Dashboard metrics cadence.** `aggregateDashboardMetrics` runs every minute
    and writes 6 rows a run (`jobs/scheduler.ts`), for figures that move on the
    scale of a class period. Retention was fixed; the cadence is a product call.
@@ -330,11 +391,24 @@ decision.
   `dailyReportPhotoSchema` accepts `…/uploads/<file>`; when stored files move
   to blob storage (roadmap 4, PR B), it references a file id instead, in the
   same change.
-- **The module standard is not followed.**
-  22 of 93 modules have all five parts; 12 call Prisma from a route or
-  controller; 23 import other modules directly (the rule is the event bus);
-  1,457 bare `res.json` against 399 `ApiResponse`; 349 of 562 POST/PUT/PATCH
-  routes carry no `validate()`. (`AGENTS.md` and `docs/ARCHITECTURE.md` were
+- **The module standard is not followed.** Measured 2026-10-11 on `main`
+  (`c56078f04`), each with its definition, because three different figures
+  for "the same" count once disagreed (#717): of 95 module folders, 26 have all
+  five parts — `*.routes.ts`, `*.controller.ts`, `*.service.ts`, `*.schema.ts`
+  plus `index.ts` (the `five_part_modules` definition `collect_facts.py`
+  measures; a strict `<name>.X` name match gives 24, dropping `units` and
+  `dashboard-enhancement`, which follow the layout but name their files without
+  the folder's prefix); 12 call `prisma.` in a `*.routes.ts` or
+  `*.controller.ts`; 20 import another module's file other than its `index.ts`
+  (the rule is the event bus or the barrel) — 20 source modules, 27 imports.
+  Re-measure rather than copy these. Two older figures,
+  from 2026-09-25 and not re-measured since: 1,457 bare `res.json` against 399
+  `ApiResponse`; 349 of 562 POST/PUT/PATCH routes carry no `validate()`.
+- **An orphan module.** `apps/api/src/modules/scholarship/` holds only
+  `scoring.service.ts` (need-based ranking, "the neediest first") and its test;
+  nothing imports it and no route mounts it, so the ranking it tests is not
+  what any screen shows. Wire it into the scholarship flow under
+  `finance-enhancement`, or remove it; found by the codebase mapper (#751). (`AGENTS.md` and `docs/ARCHITECTURE.md` were
   corrected on 2026-09-25; the code itself is phase 6 of the plan.)
 - **Schema and migrations disagree on two points** (measured 2026-09-26 with
   `prisma migrate diff` from a database built by `migrate deploy` to
@@ -344,8 +418,8 @@ decision.
   does not model. Neither came from recent work; a new migration's diff shows
   both and nothing is wrong with it. Make the field `Boolean` and decide
   whether the backup table can be dropped.
-- **Scheduled jobs assume one instance.** Ten `node-cron` jobs run inside the
-  API process with no lock; scaling the App Service to two instances would send
+- **Scheduled jobs assume one instance.** Every `node-cron` job
+  (`apps/api/src/jobs/scheduler.ts`) runs inside the API process with no lock; scaling the App Service to two instances would send
   SPP reminders twice. Add a `pg_try_advisory_lock` (or a separate worker)
   before any scale-out.
 
@@ -428,7 +502,7 @@ decision.
   engagement threshold (a fresh Incognito window has none), then the manifest's
   `"id": "/"`.
 - **The maskable icons and `screenshots` are generated, then committed.**
-  `scripts/gen-pwa-assets.py` writes `public/icons/maskable-*.png` and
+  `apps/web/scripts/gen-pwa-assets.py` writes `public/icons/maskable-*.png` and
   `public/screenshots/*.png`; the outputs are tracked and serve correctly
   (verified 2026-09-29), but the generator is not part of the build, so a logo
   or page change that regenerates them must have the new PNGs committed by hand.

@@ -264,6 +264,9 @@ export const roleRouteAccess: Record<LegacyRole, string[]> = {
     "/e-office",
     "/finance",
     "/health",
+    // Self-service clock-in only: every employee clocks in for themselves, but
+    // nothing else under /hr is theirs (the API refuses the rest).
+    "/hr/attendance/me",
     "/kinerja",
     "/lingkungan",
     "/notifications",

@@ -126,6 +126,7 @@ COPY --from=builder --chown=expressjs:nodejs /app/packages/shared/package.json .
 # request. Chown the directories themselves only — a recursive chown over
 # node_modules would rewrite the largest layer in the image for nothing.
 #
+# `private/attendance/` holds clock-in selfies under the same rules.
 # `private/identity/` holds scans of KTP and is created here for a second
 # reason: a named volume mounted onto a path the image does not contain is
 # created by Docker as root, and the very first upload then fails with EACCES
@@ -133,12 +134,12 @@ COPY --from=builder --chown=expressjs:nodejs /app/packages/shared/package.json .
 # directory is deliberately outside `public/`, so nothing serves it statically,
 # and the only reader is an endpoint that checks the caller's role and logs the
 # read.
-RUN mkdir -p /app/apps/api/logs /app/apps/api/public/uploads /app/apps/api/private/identity \
+RUN mkdir -p /app/apps/api/logs /app/apps/api/public/uploads /app/apps/api/private/identity /app/apps/api/private/attendance \
  && chown expressjs:nodejs \
       /app /app/apps /app/apps/api \
       /app/apps/api/logs /app/apps/api/public /app/apps/api/public/uploads \
-      /app/apps/api/private /app/apps/api/private/identity \
- && chmod 700 /app/apps/api/private /app/apps/api/private/identity
+      /app/apps/api/private /app/apps/api/private/identity /app/apps/api/private/attendance \
+ && chmod 700 /app/apps/api/private /app/apps/api/private/identity /app/apps/api/private/attendance
 
 # The commit this image was built from, reported by GET /health. Declared this
 # late because it changes on every commit and would otherwise invalidate every

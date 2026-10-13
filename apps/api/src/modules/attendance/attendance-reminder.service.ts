@@ -77,6 +77,8 @@ async function onHoliday(day: string, classes: Map<string, FirstLesson>) {
       where: {
         eventType: EventType.HOLIDAY,
         deletedAt: null,
+        // An unapproved import is not a holiday; do not suppress a reminder for it.
+        isDraft: false,
         startDate: { lt: to },
         OR: [{ endDate: { gte: from } }, { endDate: null, startDate: { gte: from } }],
         AND: [

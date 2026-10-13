@@ -90,6 +90,12 @@ sync` workflow adds anything missing and **fails the check** when the type
    closed without merging. A warning that carries no description hash (an older
    one, or one edited by hand) cannot be checked for an edit, so the sweep
    leaves that item open for a maintainer rather than closing on a guess.
+   **Which of two is the duplicate:** the one kept is the **more correct** one
+   (right against the current `main`, with the stronger test); only when both
+   are equally correct is the **earlier** one kept. Being first is not enough
+   on its own: #698 was kept over the earlier #696/#697 for its oracle test, and
+   #708 over #748, which carried the same fix on a stale base (decided by the
+   owner, 2026-10-10).
 
 5. **A red pull request stays open.** The `PR lifecycle` workflow leaves a ready
    PR as it is when any required check is failing — the failing checks are

@@ -1,6 +1,6 @@
 # Progress — where the work stands
 
-Updated **2026-10-04**. What a new session needs to pick up the thread, newest
+Updated **2026-10-13**. What a new session needs to pick up the thread, newest
 first. Keep it short: finished work belongs to git history, and the ordered
 backlog to [`roadmap.md`](roadmap.md).
 
@@ -12,8 +12,10 @@ backlog to [`roadmap.md`](roadmap.md).
   Migrations run when the container starts (`MIGRATE_ON_START`).
 - **Staging** — `staging.cipansor.or.id`, demo data only, deploys every `main`
   on which CI and E2E (Chromium) pass, about 25 minutes after the merge (a
-  documentation-only merge is not rebuilt). At `6431b7731` (#654) on
-  2026-10-04. SMP IT's accreditation certificate was recorded there on
+  documentation-only merge is not rebuilt). At `b6e0eed86` (#714) on
+  2026-10-11 (the first attempt met an Azure Resource Manager 503 and was
+  re-run); its `/healthz` reports `database` and `environment` (#675), and
+  `deploy-watch.yml` checks every deploy against it (#664). SMP IT's accreditation certificate was recorded there on
   2026-09-29 at the user's request, by the SMP admin demo account — which
   therefore now asks for a 2FA code — so the public section shows it.
 - **CodeQL is a required check** on `main` since 2026-09-25 (ruleset rule
@@ -23,19 +25,37 @@ backlog to [`roadmap.md`](roadmap.md).
 
 ## Waiting on the user
 
-- Approval for the next production release — deferred by the user on
-  2026-09-27; ask again at the end of every report. Passwords parts A and B
-  must go out together, with `scripts/require-password-change-all.ts` run
-  once after that deploy; SPMB 2027/2028 needs a release before
-  1 January 2027 to take wave 2. (Which fixes production
-  still lacks is for the machine-local memory, not here — see "Where things
-  live".)
+- **Absensi pegawai (PR #630, merged 2026-10-12) — before a unit switches
+  self-attendance on.** The 2026-10-09 audit's defects are fixed (punches
+  recorded, settings only for the super admin and unit admins, private selfies,
+  the 50% ceiling, records kept ten years, the camera and location the web
+  header had denied). Selfie and location stay **off** until a unit's admin
+  turns them on, and that waits on the yayasan: the employee privacy notice
+  (D1) and a DPIA for the selfie (UU PDP Ps. 34), plus staff records for every
+  non-teaching employee and the unit's sites, work week and policy
+  (`roadmap.md` §0a, decisions in `decisions/absensi-pegawai.md`, open defects
+  in `known-issues.md`).
+
+- **The next production release.** #630 (staff attendance) and #714 (pesantren
+  staff reach every school's santri) are both merged (2026-10-11/12), the
+  condition the user set on 2026-10-09. Each step that writes production data
+  is still confirmed separately, right before it runs: the SPMB and
+  extracurricular loaders, `apps/api/scripts/require-password-change-all.ts`,
+  and the production VAPID pair. Passwords parts A and B must go out together,
+  with that script run once after the deploy; SPMB 2027/2028 needs a release
+  before 1 January 2027 to take wave 2. (Which fixes production still lacks is
+  for the machine-local memory, not here — see "Where things live".)
 - Role catalogue items decided but not built: wakasek per bidang as a
   timed assignment (Model A; wakasek is no longer a role code —
-  `decisions/peran-dan-tugas-tambahan.md`), `PESANTREN_ADMIN` (needs a pesantren unit first — every pesantren role is
-  scoped to SMP IT today), a Panitia SPMB assignment that expires, and the
-  "Admin" → "Operator" label.
+  `decisions/peran-dan-tugas-tambahan.md`), `PESANTREN_ADMIN` (needs a
+  pesantren unit first — every pesantren role is scoped to SMP IT today), a
+  Panitia SPMB assignment that expires, and the "Admin" → "Operator" label.
 - One Bendahara role with a unit scope waits for Model A (decided 2026-09-25).
+- **The public assistant on staging** — the user decided (2026-10-09) on a
+  key of staging's own with a cost cap, provisioned through a temporary cloud
+  role, then deferred doing it; ask again at the end of every report. Until
+  then staging runs the assistant switched off (#657 does that when the key
+  is missing).
 - **Accreditation certificates of SD IT and SMA Qur'an** — the user is
   asking the schools for them (2026-09-28); each unit appears on the public
   site once its certificate is entered. TK Qur'an has none yet — it was
@@ -83,7 +103,22 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
-- **The Pesantren unit — part A on a branch (2026-10-04).** Walking every
+- **Open PRs, 2026-10-13:** #777 (the gate watch; ready, all checks green,
+  waiting on the review gate), #668 and #775, #804 (draft). Merged since
+  2026-10-10: #512, #714, #708 + #734 (tested together on `main`), #761 and
+  #766 (the human note only on risky PRs, and Markdown is never risky), #630
+  (staff attendance), #726 (the Pesantren unit), #747 (portfolio and replies
+  follow who may read them), #773 (a PR must link an open, ready issue), #783
+  (guides point at what measures a count; closed sixteen drift issues). #706:
+  closed in favour of #783.
+
+- **Audit of #655, #657 and #628 (asked 2026-10-09).** All three merged: #655
+  (public SPMB announcement), #657 (assistant on staging, mirrored on Arabic
+  pages), #628 (E-Office round 2); #701 closed as covered by #657 (one name,
+  `APP_ENV`); CODEOWNERS removed (#720), the review-gate scripts fixed (#716).
+  Report: <https://claude.ai/artifact/Di6W55CSPJoUhpezzA1cXU>.
+
+- **The Pesantren unit — part A merged (#714, 2026-10-11; on staging).** Walking every
   menu page of the pesantren's roles before and after moving them to a
   Pesantren unit showed the musyrif, ustadz and muhafidz losing the schools'
   santri in Muhadhoroh, Muhadatsah, Ibadah, Kitab and Sanad, and their unit
@@ -94,8 +129,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   nine people, eight teacher records, no duplicates, idempotent) and drops
   the seed's Direktorat Pendidikan.
 
-- **Application documents (`docs/`), now folded into PR #512
-  (`docs/readme-overhaul-visual-qa`).** A technical document (arc42 +
+- **Application documents (`docs/`), merged with PR #512 on 2026-10-11.** A technical document (arc42 +
   C4-1/2/3) and the user manuals (general part + Guru booklet, all T2: written
   from code, never run, every card ⚠), built by the `dokumen-aplikasi-cipansor`
   skill. The first run (2026-09-29, another agent) shipped broken tables,
@@ -127,6 +161,11 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   API build + build:strict, API 3352, web build, web 640, lint 0 errors,
   format, `check-doc-refs` 1744/1744. `screenshot-flow.ts` was Prettier-formatted
   (CI Lint rejects unformatted `.ts`).
+  Before it merged, #512 was audited again (2026-10-10): the README was
+  rewritten with a few screenshots, the galleries left git
+  (`decisions/dokumentasi-bergambar.md`), and two read leaks it carried were
+  closed (an employee's HR record, a santri's full row under violations and
+  rewards).
   Open: T1 verification with screenshots and the other role booklets (the
   `.docx`/`.pdf`-in-git question is settled: they are untracked).
 
@@ -336,7 +375,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   from pages, in 31 areas — proven on staging: `POST /permits/:id/approve`,
   `/curriculum/curriculums`, `/hr/employees`, `/certificates` all 404);
   10 API modules and 9 web routes are misnamed, 35 + 32 more need tidying;
-  22 of 93 modules meet the module standard. Plan in seven phases (roadmap §1):
+  Most modules did not meet the module standard (measured in `known-issues.md`). Plan in seven phases (roadmap §1):
   guards → reconnect the broken contract → glossary → consolidate duplicates →
   API by context under `/api/v1` with a Zod → OpenAPI contract → web → harden
   → docs. The glossary still comes before Model A's permission keys.
@@ -363,6 +402,26 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   any code. `docs/DEPLOYMENT.md` goes
   after 2026-10-01 (the VM is the rollback target until then, and a guard test
   reads it).
+
+## Recently done (2026-10-09 → 10)
+
+- **Merged:** #655 (SPMB banner and delayed dialog on the public site), #657
+  (assistant on staging, widget in id/en/ar), #716, #720, #724 (Apache 2.0
+  while the repository is public), #628 (E-Office audit round 2), #728, #736
+  (migrations use no PostgreSQL extension), #698 (every bracketed placeholder
+  reported, with an oracle test), #675 (`/health` answers 503 when the database
+  is unreachable, with a bounded probe), #711 (fleet renumbered, target design
+  and implementation steps in `docs/SDLC-FLOW.md`, hard PR-description gate),
+  #744 (letter and agenda numbers use the WIB calendar), #677 (k6 smoke before
+  each release), #664 (deploy watchdog).
+- **Decided:** `decisions/otomasi-armada.md` (alerts, k6, release label, no
+  CHANGELOG, private advisories, duplicates, #680, the human note) and
+  `decisions/showcase-portofolio.md`.
+- **Closed without merging:** #748 (duplicate of #708), #681, #682 and #683
+  (#680 handled by the rule already in `docs/LABELS.md`).
+- **Found while reviewing:** #749 (14 routes answer 400 to every write), #754
+  (marketing trend 500, fixed by #691), #755 (campaign ROI never counts the
+  registration fee).
 
 ## Recently done (2026-09-24 → 28)
 

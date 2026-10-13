@@ -73,7 +73,7 @@ items before 2026-09-25 is in the history of this file and of
          account once at the release — by script, with part A in the same
          release); changing one's own password ends the *other* sessions
          only (done, #632 — on staging; parts A and B go to production
-         together, and `scripts/require-password-change-all.ts` runs once
+         together, and `apps/api/scripts/require-password-change-all.ts` runs once
          after that deploy).
        - **passkey (FIDO2/WebAuthn) as the first sign-in path** (decided
          2026-09-30, `decisions/autentikasi-2fa-dan-sandi.md`): a "Masuk
@@ -118,6 +118,21 @@ items before 2026-09-25 is in the history of this file and of
         the student's record, which then takes its agenda number, TTE and
         verification like any naskah. Its menu place is Akademik → Students.
 
+0a. **Absensi pegawai** — audited 2026-09-29 and again 2026-10-09
+    (`decisions/absensi-pegawai.md`, open defects in `known-issues.md`).
+    **The user asked to be reminded when it is time to implement this.** PR
+    #630 is the implementation branch. Before self-attendance is switched on
+    in a unit: (1) staff records for every non-teaching employee, (2) the staff
+    privacy notice (D1) with its per-version acknowledgement, (3) a DPIA for the
+    selfie (UU PDP Ps. 34), (4) the unit's sites, work week and policy saved.
+    Then, in order: payroll stops blocking on `unresolvedDates` (or an evening
+    job writes `ABSENT` — pick one); the FLAG/FILE review queue; corrections UI
+    and a soft delete; `EARLY_LEAVE`/`OVERTIME` derived from check-out with an
+    overtime order and approval (PP 35/2021); `tiersJson` as an array; the 50%
+    ceiling counting the slip's other deductions; seed every attendance config
+    table; non-teaching staff leave access; drop the `teacherId` branches;
+    split `staff-attendance` out of `hr`.
+
 0. **Architecture audit plan** (report 2026-09-25, linked in `progress.md`;
    decisions in `decisions/istilah-dan-penamaan.md`; the user said "laksanakan"
    on 2026-09-25, so it runs first). Phases, each releasable alone:
@@ -154,12 +169,8 @@ items before 2026-09-25 is in the history of this file and of
      figures, the kepala sekolah's path to a class (known-issues). The
      relation itself shipped in #579; attendance in #580; behaviour notes in
      #581;
-   - **the Pesantren unit** (decided 2026-09-29,
-     `decisions/struktur-organisasi-dan-identitas.md`): create it, move the
-     Kiai, musyrif, ustadz, muhafidz and TU Pesantren assignments off SMP IT
-     (a data migration replayed on a copy of production first), and drop the
-     seed's "Direktorat/Direktur Pendidikan";
-   - `PESANTREN_ADMIN` — once the pesantren unit exists;
+   - `PESANTREN_ADMIN` — possible now that the Pesantren unit exists
+     (`20261010130000_pesantren_unit`);
    - a Panitia SPMB assignment that expires — needs writers of `expires_at`,
      which `decommissioned-modules.guard.test.ts` forbids today, so the guard
      changes in the same PR;
@@ -342,6 +353,18 @@ change that alters it would report every signed letter as altered.
   privacy policy, data-subject access and erasure, a data-access audit); ISAK
   35 non-profit statements and the UU Yayasan annual-report package; a zakat
   *collection* (muzakki) model beside the existing distribution side.
+- **Portfolio showcase in tiers — only when someone needs it.** Today a
+  showcase is visible only within `studentScope` (decided 2026-10-10,
+  `decisions/showcase-portofolio.md`). When a teacher or the yayasan asks to
+  show santri work wider, build it in tiers: private → class/unit, curated by
+  the teacher → yayasan or the public site, with the wali's recorded and
+  revocable consent and identity kept to a minimum. Not before there is a
+  real request: no page uses the showcase today.
+- **Forms that always answer 400 (#749).** Fourteen routes in portfolio,
+  reception and finance-enhancement validate `{ body: … }`-wrapped schemas
+  against `req.body`. Every write in those modules gets a unit-scope check
+  **before** the schemas are flattened (portfolio's part landed with #747,
+  merged 2026-10-13).
 - **Tidiness:** ~200 racy `isVisible({ timeout })` probes in the e2e specs
   (206 on 2026-09-25); `no-explicit-any` in the API, fixed opportunistically
   per module.

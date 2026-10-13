@@ -19,6 +19,7 @@ pnpm --filter api build:strict        # tsc, full strict incl. tests (the real b
 pnpm --filter api test                # vitest (API)
 pnpm --filter web build               # next build (also typechecks web)
 pnpm --filter web test                # vitest (web)
+pnpm test:load                        # node --test, the k6 load-test runner (CI Tests job)
 pnpm run audit:deps                   # the Security job, run against live advisories
 ```
 

@@ -7,6 +7,7 @@ import {
   payrollPeriodService,
   payrollService,
 } from './payroll.service';
+import { attendanceDeductionService } from './attendance-deduction.service';
 import {
   listSalaryComponentsQuerySchema,
   listEmployeeSalariesQuerySchema,
@@ -237,4 +238,15 @@ export const generate = asyncHandler(async (req: Request, res: Response) => {
 export const adjustSlip = asyncHandler(async (req: Request, res: Response) => {
   const payroll = await payrollService.adjustItem(req.params.id, req.body);
   res.json({ success: true, message: 'Slip gaji berhasil disesuaikan', data: payroll });
+});
+
+/**
+ * GET /api/payroll/periods/:id/attendance-deductions
+ * A dry run: what the configured rules would deduct from each slip in the
+ * period, before anything is generated. This is what lets an admin see the
+ * effect of a policy change without touching a single payslip.
+ */
+export const previewAttendanceDeductions = asyncHandler(async (req: Request, res: Response) => {
+  const result = await attendanceDeductionService.computeForPeriod(req.params.id);
+  res.json({ success: true, data: result });
 });

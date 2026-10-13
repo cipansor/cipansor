@@ -1,0 +1,319 @@
+import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { execFileSync, spawnSync } from 'child_process';
+import { mkdtempSync, rmSync } from 'fs';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
+
+/**
+ * `.claude/hooks/guard.sh` is the one PreToolUse guard of both agents: Claude
+ * Code runs it from `.claude/settings.json`, OpenHands from
+ * `.openhands/hooks.json`. Exit 2 refuses the tool call; anything else lets it
+ * through. Each refusal below is a mistake the guard exists for, asked in both
+ * tools' words (Claude `Bash`/`Write`/`Edit`, OpenHands `terminal`/
+ * `file_editor`); each pass is a near miss it must not refuse.
+ *
+ * Before this test, the push check had been rewritten twice with no committed
+ * case: the rewrite let `git -c … push origin main`, `+main` and `--all`
+ * through, and an unbalanced quote turned a refused push into an allowed one.
+ */
+
+const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
+const GUARD = join(REPO_ROOT, '.claude', 'hooks', 'guard.sh');
+// Spelled in two parts: the test names this path, it never reads the file
+// (change-scope.guard.test.ts treats a quoted *.md as a file a test reads).
+const MEMORY_POINTER = join(REPO_ROOT, '.openhands', 'memory', 'MEMORY' + '.md');
+const REFUSED = 2;
+const ALLOWED = 0;
+
+let scratch: string;
+let feature: string; // a checkout on a feature branch
+let onMain: string; // a checkout on main
+let tracksMain: string; // a feature branch whose upstream is main
+
+function checkout(dir: string, branch: string, upstream?: string): string {
+  const git = (...args: string[]) => execFileSync('git', ['-C', dir, ...args], { stdio: 'ignore' });
+  execFileSync('git', ['init', '-q', '-b', branch, dir], { stdio: 'ignore' });
+  git(
+    '-c',
+    'user.email=guard@test',
+    '-c',
+    'user.name=guard',
+    'commit',
+    '-q',
+    '--allow-empty',
+    '-m',
+    'init'
+  );
+  if (upstream) {
+    git('config', `branch.${branch}.remote`, 'origin');
+    git('config', `branch.${branch}.merge`, `refs/heads/${upstream}`);
+  }
+  return dir;
+}
+
+function guard(event: Record<string, unknown>): { status: number; stderr: string } {
+  const r = spawnSync('bash', [GUARD], { input: JSON.stringify(event), encoding: 'utf8' });
+  return { status: r.status ?? -1, stderr: r.stderr };
+}
+
+/** The same shell command through both tools; both answers must agree. */
+function shell(command: string, cwd = feature): number {
+  const claude = guard({ tool_name: 'Bash', tool_input: { command }, cwd }).status;
+  const openhands = guard({
+    tool_name: 'terminal',
+    tool_input: { command },
+    working_dir: cwd,
+  }).status;
+  expect(openhands, `OpenHands and Claude disagree on: ${command}`).toBe(claude);
+  return claude;
+}
+
+beforeAll(() => {
+  scratch = mkdtempSync(join(tmpdir(), 'agent-guard-'));
+  feature = checkout(join(scratch, 'feature'), 'feat-x');
+  onMain = checkout(join(scratch, 'main'), 'main');
+  tracksMain = checkout(join(scratch, 'tracks'), 'feat-y', 'main');
+});
+
+afterAll(() => {
+  rmSync(scratch, { recursive: true, force: true });
+});
+
+describe('a push that lands on main is refused', () => {
+  it.each([
+    'git push origin main',
+    'git push origin HEAD:main',
+    'git push origin HEAD:refs/heads/main',
+    'git push origin +main',
+    'git push -f origin +HEAD:main',
+    'git push --all origin',
+    'git push --mirror origin',
+    'git -c push.default=current push origin main',
+    'git push origin main #"',
+    'cd /tmp && git push origin main',
+    'cd "$HOME" && git push',
+  ])('%s', (command) => {
+    expect(shell(command)).toBe(REFUSED);
+  });
+
+  // A wrapper that runs the rest of its words, a subshell or a nested shell
+  // still runs the push (#660 review). The guard reads the command as the
+  // shell would split it, so none of these is a way around it.
+  it.each([
+    'env git push origin main',
+    'env -i PATH=/usr/bin git push origin main',
+    'command git push origin main',
+    'sudo git push origin main',
+    'sudo -u bob -E git push origin main',
+    'time git push origin main',
+    'nice -n 10 git push origin main',
+    'nohup git push origin main',
+    'setsid git push origin main',
+    'timeout 30 git push origin main',
+    '/usr/bin/git push origin main',
+    '(git push origin main)',
+    '{ git push origin main; }',
+    'if git push origin main; then echo ok; fi',
+    "sh -c 'git push origin main'",
+    'bash -lc "cd /tmp && git push origin main"',
+    "eval 'git push origin main'",
+    'echo $(git push origin main)',
+    'echo "$(git push origin main)"',
+    'echo `git push origin main`',
+    'git push origin main 2>&1 | tail -3',
+    "sudo git push origin main '",
+  ])('%s', (command) => {
+    expect(shell(command)).toBe(REFUSED);
+  });
+
+  // What the guard cannot see, it does not guess at: xargs adds words from
+  // its input, and a variable names the destination only at run time.
+  it.each([
+    'echo x | xargs git push origin main',
+    'echo main | xargs git push origin',
+    'B=main; git push origin "$B"',
+  ])('%s', (command) => {
+    expect(shell(command)).toBe(REFUSED);
+  });
+
+  // A substitution in the destination position hides where the push lands
+  // (#660 review round 2, #788). The tokenizer splits `$( … )` out of the word
+  // — `(`/`)` are punctuation — leaving a bare `$` among the push's arguments;
+  // a backtick is deliberately kept inside its word (`PUNCT` excludes it), so
+  // the word still carries it. Either way the expansion is unresolved, so every
+  // positional argument is scanned and the guard fails closed — the destination
+  // is refused whether it sits in the remote slot or the refspec slot.
+  it.each([
+    'git push $(echo origin) main',
+    'git push `echo origin` main',
+    'git push origin:$(echo main)',
+    'git push origin:$(echo refs/heads/main)',
+    'git push $(echo origin) $(echo main)',
+    'git push origin $(echo main)',
+    'git push origin feat-x:$(echo main)',
+    'git push origin $BRANCH',
+    'git push origin ${BRANCH}',
+  ])('%s', (command) => {
+    expect(shell(command)).toBe(REFUSED);
+  });
+
+  it('an expansion is judged in the directory its own segment runs in', () => {
+    // A `cd` earlier in the command reaches the expansion even though the
+    // substituted word sits in a later segment (#788).
+    expect(shell(`cd ${onMain} && echo "$(git push)"`)).toBe(REFUSED);
+    expect(shell(`cd ${onMain} && echo \`git push\``)).toBe(REFUSED);
+    expect(shell(`cd ${onMain} && echo "$(git push origin feat-x)"`)).toBe(ALLOWED);
+    // An `env -C` / `sudo -D` wrapper moves a *direct* push but not the
+    // expansion: the shell expands `$( … )` in its own directory, which only
+    // `cd` moves. So `env -C <main> git push` lands on main, while the push
+    // inside `env -C <main> echo "$(git push)"` ran in the feature checkout.
+    expect(shell(`env -C ${onMain} git push`)).toBe(REFUSED);
+    expect(shell(`env -C ${onMain} echo "$(git push)"`)).toBe(ALLOWED);
+  });
+
+  it('a push naming no destination, on main or tracking it', () => {
+    expect(shell('git push', onMain)).toBe(REFUSED);
+    expect(shell('git push origin', onMain)).toBe(REFUSED);
+    expect(shell('git push -o ci.skip origin', onMain)).toBe(REFUSED);
+    expect(shell('git push', tracksMain)).toBe(REFUSED);
+    expect(shell(`git -C ${onMain} push`)).toBe(REFUSED);
+    expect(shell('sudo git push', onMain)).toBe(REFUSED);
+    expect(shell("sh -c 'git push'", onMain)).toBe(REFUSED);
+    expect(shell('(git push)', onMain)).toBe(REFUSED);
+  });
+});
+
+describe('ordinary pushes and mere mentions pass', () => {
+  it.each([
+    'git push origin feat-x',
+    'git push -u origin HEAD',
+    'git push -o ci.skip origin feat-x',
+    'FOO="x main y" git push origin feat-x',
+    'echo "git push origin main"',
+    'git commit -m "push to main after review"',
+    'git log --oneline origin/main',
+    'sudo git push origin feat-x',
+    "sh -c 'git push origin feat-x'",
+    'git commit -m "fix (scope); push to main later"',
+    'git push origin feat-x 2>&1 | tail -3',
+    'docker run --rm -v "$PWD:/w" node:22-alpine sh -c \'cd /w && pnpm test\'',
+    // An expansion outside a push is not a push destination, and a branch name
+    // that merely starts with `main` is not main (#788).
+    'echo "$(date)" && git push origin feat-x',
+    'git commit -m "$(date): push to main later"',
+    'git push origin maintenance-x',
+  ])('%s', (command) => {
+    expect(shell(command)).toBe(ALLOWED);
+  });
+
+  it('HEAD names the current branch, even when it tracks main', () => {
+    expect(shell('git push -u origin HEAD', tracksMain)).toBe(ALLOWED);
+  });
+});
+
+describe('the Prisma schema is never rewritten wholesale', () => {
+  const schema = join(REPO_ROOT, 'apps', 'api', 'prisma', 'schema.prisma');
+
+  it('a whole-file write is refused, a surgical edit passes', () => {
+    expect(
+      guard({ tool_name: 'Write', tool_input: { file_path: schema, content: 'x' } }).status
+    ).toBe(REFUSED);
+    expect(
+      guard({
+        tool_name: 'file_editor',
+        tool_input: { command: 'create', path: schema, file_text: 'x' },
+      }).status
+    ).toBe(REFUSED);
+    expect(
+      guard({
+        tool_name: 'Edit',
+        tool_input: { file_path: schema, old_string: 'a', new_string: 'b' },
+      }).status
+    ).toBe(ALLOWED);
+    expect(
+      guard({
+        tool_name: 'file_editor',
+        tool_input: { command: 'str_replace', path: schema, old_str: 'a', new_str: 'b' },
+      }).status
+    ).toBe(ALLOWED);
+  });
+
+  it.each([
+    ['cat /tmp/s > apps/api/prisma/schema.prisma', REFUSED],
+    ['cp /tmp/s apps/api/prisma/schema.prisma', REFUSED],
+    ['sudo cp /tmp/s apps/api/prisma/schema.prisma', REFUSED],
+    ['sudo mv /tmp/s apps/api/prisma/schema.prisma', REFUSED],
+    ['install -m 644 /tmp/s apps/api/prisma/schema.prisma', REFUSED],
+    ['generate | tee apps/api/prisma/schema.prisma', REFUSED],
+    ['cat /tmp/model >> apps/api/prisma/schema.prisma', ALLOWED],
+    ['cp apps/api/prisma/schema.prisma /tmp/s', ALLOWED],
+    ['cat /tmp/s > apps/api/prisma/schema.prisma.bak', ALLOWED],
+    ['npx prisma validate --schema apps/api/prisma/schema.prisma 2>&1', ALLOWED],
+  ])('%s', (command, expected) => {
+    expect(shell(command)).toBe(expected);
+  });
+});
+
+describe('sensitive text never reaches a markdown file of the repository', () => {
+  // Assembled at run time, so no scanner reads this file as a leak.
+  const leak = ['see ', 'postgresql://app:Tr0ub4dor-', 'x9@db.internal.example/app'].join('');
+  const note = join(REPO_ROOT, 'docs', 'guard-test-note' + '.md');
+
+  it('refused in either tool, allowed outside a checkout', () => {
+    expect(
+      guard({ tool_name: 'Write', tool_input: { file_path: note, content: leak } }).status
+    ).toBe(REFUSED);
+    expect(
+      guard({
+        tool_name: 'file_editor',
+        tool_input: { command: 'create', path: note, file_text: leak },
+      }).status
+    ).toBe(REFUSED);
+    const local = join(scratch, 'memory', 'note' + '.md');
+    expect(
+      guard({ tool_name: 'Write', tool_input: { file_path: local, content: leak } }).status
+    ).toBe(ALLOWED);
+    expect(
+      guard({ tool_name: 'Write', tool_input: { file_path: note, content: 'harmless' } }).status
+    ).toBe(ALLOWED);
+  });
+});
+
+describe("OpenHands' project memory index is a pointer to .claude/memory/", () => {
+  it('a write to it is refused, and the refusal says where the finding goes', () => {
+    const r = guard({
+      tool_name: 'file_editor',
+      tool_input: { command: 'str_replace', path: MEMORY_POINTER, old_str: 'a', new_str: 'b' },
+    });
+    expect(r.status).toBe(REFUSED);
+    expect(r.stderr).toContain('.claude/memory/');
+    expect(
+      guard({
+        tool_name: 'Edit',
+        tool_input: { file_path: MEMORY_POINTER, old_string: 'a', new_string: 'b' },
+      }).status
+    ).toBe(REFUSED);
+    expect(shell('echo fact > .openhands/memory/MEMORY.md', REPO_ROOT)).toBe(REFUSED);
+  });
+
+  it('reading it, the daily logs and the user tier stay open', () => {
+    expect(
+      guard({ tool_name: 'file_editor', tool_input: { command: 'view', path: MEMORY_POINTER } })
+        .status
+    ).toBe(ALLOWED);
+    const daily = join(REPO_ROOT, '.openhands', 'memory', '2026-10-09' + '.md');
+    expect(
+      guard({
+        tool_name: 'file_editor',
+        tool_input: { command: 'create', path: daily, file_text: 'notes' },
+      }).status
+    ).toBe(ALLOWED);
+    const userTier = join(scratch, '.openhands', 'memory', 'MEMORY' + '.md');
+    expect(
+      guard({
+        tool_name: 'file_editor',
+        tool_input: { command: 'create', path: userTier, file_text: 'x' },
+      }).status
+    ).toBe(ALLOWED);
+  });
+});

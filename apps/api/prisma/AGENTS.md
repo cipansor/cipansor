@@ -4,7 +4,8 @@ Prisma 7 schema, migrations, and seeds. Read the root `AGENTS.md` first.
 
 ## ⚠️ Never clobber `schema.prisma`
 
-`schema.prisma` defines **237 models and 133 enums** (~300 KB). It was once
+`schema.prisma` defines **hundreds of models and enums** (`grep -c '^model '`
+measures it; a count written here goes stale). It was once
 accidentally truncated to a ~500-byte stub in a "comprehensive enhancement"
 commit, which silently broke the entire backend (an empty Prisma client makes
 every `prisma.*` call fail) and only "passed" because CI tolerated build
@@ -42,6 +43,18 @@ ALLOW_DESTRUCTIVE_SEED=1 pnpm --filter api db:seed  # TRUNCATEs every table firs
 ALLOW_DEMO_PACK=1 pnpm --filter api db:seed:presentasi  # ADDS the presentation pack to an existing DB; truncates nothing
 APPLY_SPMB_2027_2028=1 pnpm --filter api db:seed:spmb-2027-2028  # loads the 2027/2028 SPMB brochure; truncates nothing
 ```
+
+**A migration uses built-in PostgreSQL only.** Staging and production run on
+a managed PostgreSQL server that refuses `CREATE EXTENSION` for any extension
+not on its allow-list, and ours allow none. CI and the local stack run stock
+Postgres, where every contrib extension installs, so a migration that needs one
+passes every check and fails on the first managed server it meets. On
+2026-10-09 a migration called `digest()` from `pgcrypto`; staging refused the
+extension after the column was already added and stopped on P3009 at every
+restart (#736). Use `sha256()` (PostgreSQL 11) and `gen_random_uuid()` (13);
+never `CREATE EXTENSION`, `digest`/`hmac`/`crypt`, `uuid_generate_v4()`,
+`pg_trgm` or `unaccent`. `apps/api/src/utils/migration-extensions.guard.test.ts`
+fails a migration that uses one.
 
 **The 2027/2028 brochure** (`seeds/spmb-2027-2028.ts`, data in
 `seeds/spmb-2027-2028.data.ts`) is real data, not demo data: per unit one

@@ -110,7 +110,8 @@ class CheckNumbersTest(unittest.TestCase):
     row records the number as it was at that commit — it must not be rewritten."""
 
     FACTS = {
-        "api": {"module_count": 94, "handler_count_approx": 1412},
+        "api": {"module_count": 94, "handler_count_approx": 1412,
+                "four_file_modules": 67, "five_part_modules": 25},
         "prisma": {"model_count": 289, "enum_count": 157, "role_code_count": 53},
         "web": {"page_count": 435},
         "jobs": {"cron_entries": 15, "scheduled_job_files": ["a.job.ts"], "count": 1,
@@ -130,6 +131,25 @@ class CheckNumbersTest(unittest.TestCase):
 
     def test_a_correct_number_passes(self):
         self.assertEqual(self._run("Aplikasi punya 94 modul API."), [])
+
+    def test_layout_figures_are_checked_against_facts(self):
+        # #771: "67 dari 94" passed unchecked once the tree passed 93 modules.
+        self.assertEqual(self._run("**67 dari 94 modul memiliki empat berkas inti**"), [])
+        self.assertEqual(len(self._run("**68 dari 94 modul memiliki empat berkas inti**")), 1)
+        self.assertEqual(len(self._run("hanya 25 dari 95 modul lengkap lima bagian")), 1)
+        self.assertEqual(self._run("hanya 25 dari 94 modul lengkap lima bagian"), [])
+
+    def test_schedule_figures_are_checked_against_facts(self):
+        # #771: "16 entri jadwal atas 14 berkas pekerjaan" never matched
+        # "N pekerjaan terjadwal", so it went stale unseen.
+        self.assertEqual(len(self._run("16 entri jadwal atas 1 berkas pekerjaan")), 1)
+        self.assertEqual(len(self._run("15 entri jadwal atas 3 berkas pekerjaan")), 1)
+        self.assertEqual(self._run("15 entri jadwal atas 1 berkas pekerjaan"), [])
+
+    def test_a_layout_figure_without_its_definition_warns_whatever_the_total(self):
+        r = check_docs.Report()
+        check_docs.check_numbers(["Sebanyak 30 dari 95 modul sudah rapi."], self.FACTS, r)
+        self.assertTrue(any(i[0] == "WARN" and i[2] == "ukuran-tata-letak" for i in r.items))
 
     def test_a_revision_history_row_is_exempt(self):
         # History: "~1.413 hulu rute API (dari ~1.412)" was true at that commit.

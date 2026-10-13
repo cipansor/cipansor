@@ -9,6 +9,13 @@ import {
 
 const here = path.resolve(__dirname, "../..");
 const read = (p: string) => fs.readFileSync(path.join(here, p), "utf8");
+/** Every file under `dir`, as paths relative to the web app. */
+const walk = (dir: string): string[] =>
+  fs
+    .readdirSync(path.join(here, dir), { withFileTypes: true })
+    .flatMap((e) =>
+      e.isDirectory() ? walk(path.join(dir, e.name)) : [path.join(dir, e.name)],
+    );
 
 describe("static security headers", () => {
   const byKey = Object.fromEntries(
@@ -46,9 +53,42 @@ describe("static security headers", () => {
     // denying `microphone` here makes every recording fail with no visible
     // cause beyond a generic toast.
     expect(policy).toContain("microphone=(self)");
+    // Absen Saya takes its selfie with `getUserMedia({ video })` and reads
+    // `navigator.geolocation`; `()` refused both without a prompt.
+    expect(policy).toContain("camera=(self)");
+    expect(policy).toContain("geolocation=(self)");
     // Denied permissions use the empty allowlist `()`.
-    expect(policy).toContain("geolocation=()");
-    expect(policy).toContain("camera=()");
+    expect(policy).toContain("payment=()");
+  });
+
+  it("allows every powerful feature a component asks for", () => {
+    // The camera and geolocation were denied here while Absen Saya used both,
+    // and no test noticed: this one reads the components instead of a list.
+    const policy = byKey["Permissions-Policy"];
+    const uses: [RegExp, string][] = [
+      [/getUserMedia\(\{[^}]*video/, "camera"],
+      [/getUserMedia\(\{[^}]*audio/, "microphone"],
+      [
+        /navigator\.geolocation\.(getCurrentPosition|watchPosition)/,
+        "geolocation",
+      ],
+    ];
+    // This file's own comments name the calls, so it is not a caller.
+    const sources = walk("src").filter(
+      (f) =>
+        /\.tsx?$/.test(f) &&
+        !/\.test\.tsx?$/.test(f) &&
+        f !== path.join("src", "lib", "security-headers.ts"),
+    );
+    expect(sources.length).toBeGreaterThan(100);
+    for (const [pattern, feature] of uses) {
+      const callers = sources.filter((f) => pattern.test(read(f)));
+      if (callers.length > 0) {
+        expect(policy, `${feature} is used by ${callers.join(", ")}`).toContain(
+          `${feature}=(self)`,
+        );
+      }
+    }
   });
 
   it("is wired into next.config's headers() so it actually ships", () => {

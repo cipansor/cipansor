@@ -132,17 +132,22 @@ export const STATIC_SECURITY_HEADERS: { key: string; value: string }[] = [
   { key: "X-Frame-Options", value: "DENY" },
   { key: "X-Content-Type-Options", value: "nosniff" },
   { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  // The microphone is the one powerful feature the portal needs: the E-Simaan
-  // setoran recorder (`AudioRecorder` calls `getUserMedia({ audio: true })`),
-  // scoped to our own origin. The camera, geolocation and the payment request
-  // API are not used — the document capture field is a plain
-  // `<input type="file" capture>` (a file picker, not a `getUserMedia` camera)
-  // — so naming them denies the prompt to any injected script. Web Push is not
-  // a Permissions-Policy feature (its permission is the Notifications prompt);
-  // listing `push` only made Chromium log "Unrecognized feature" on every page.
+  // Three powerful features are used, each scoped to our own origin:
+  // - microphone: the E-Simaan setoran recorder (`AudioRecorder` calls
+  //   `getUserMedia({ audio: true })`);
+  // - camera and geolocation: Absen Saya (`SelfieCapture` takes the selfie
+  //   with `getUserMedia({ video })` and reads `navigator.geolocation`).
+  // They are allowed site-wide, not on `/hr/attendance/me` alone, because the
+  // policy belongs to the document: a client-side navigation into that page
+  // keeps the policy of whichever page the session was loaded on. `()` here
+  // made the browser refuse both without a prompt, so every selfie fell back to
+  // a file and no punch ever had a location. The payment request API is not
+  // used, so naming it denies the prompt to any injected script. Web Push is
+  // not a Permissions-Policy feature (its permission is the Notifications
+  // prompt); listing `push` only made Chromium log "Unrecognized feature".
   {
     key: "Permissions-Policy",
     value:
-      "fullscreen=(self), camera=(), microphone=(self), geolocation=(), payment=()",
+      "fullscreen=(self), camera=(self), microphone=(self), geolocation=(self), payment=()",
   },
 ];

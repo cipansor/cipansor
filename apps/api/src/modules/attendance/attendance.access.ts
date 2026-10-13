@@ -25,15 +25,10 @@ export interface AttendanceActor {
 
 type Standing = 'ADMIN' | 'HOMEROOM' | 'TEACHER';
 
-/** Today's calendar day in WIB, "yyyy-MM-dd". */
-export const todayWib = (now: Date = new Date()) =>
-  now.toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
-
-/** A "yyyy-MM-dd" day as the `@db.Date` column stores it. */
-export const dayOf = (day: string) => new Date(`${day}T00:00:00.000Z`);
-
-/** The "yyyy-MM-dd" of a stored `@db.Date` value. */
-export const dayString = (date: Date) => date.toISOString().slice(0, 10);
+// The WIB day helpers live in `@/utils/wib` (one home); re-exported here so
+// existing importers of this module keep working.
+import { todayWib, dayOf, dayString } from '@/utils/wib';
+export { todayWib, dayOf, dayString };
 
 const isSuperAdmin = (actor: AttendanceActor) => actor.roleCode === 'SUPER_ADMIN';
 const isUnitAdmin = (actor: AttendanceActor) =>

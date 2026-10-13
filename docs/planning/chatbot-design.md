@@ -8,8 +8,15 @@ proved too thin to act on.
 Companion to [`roadmap.md`](../../.claude/memory/roadmap.md) §5, which tracks _what_ to build
 and in which order. This file records _why_.
 
-**Status: Phase 1 implemented (2026-07-24), inert until a provider is
-configured.** Code in `apps/api/src/modules/chatbot/` and
+**Status: Phase 1 implemented (2026-07-24). It runs wherever a provider is
+configured: on staging with the real provider since #657, in production once
+its key is set.** Which copy is running is `APP_ENV` (`local` | `staging` |
+`production`, `resolveAppEnv()` in `apps/api/src/config/index.ts`), not
+`NODE_ENV`: both deployed images build with `NODE_ENV=production`, so staging
+needs its own name, and an unset `APP_ENV` on a production build counts as
+production. The `stub` provider is refused in production. The widget and the
+escalation flow speak Indonesian, English and Arabic (`apps/web/src/locales/`);
+the mail to the team stays Indonesian. Code in `apps/api/src/modules/chatbot/` and
 `apps/web/src/components/chatbot/`. Three decisions changed during
 implementation and are marked **REVISED** below — the reasoning that survived
 is kept, because knowing why an option was dropped is the point of this file.
@@ -418,9 +425,12 @@ per-message `replyTo` on `deliverEmail()`, which until now always used
 
 1. Before a single field is requested. Asking for a name and a phone number
    from someone who has not said yes is unsolicited collection, not politeness.
-2. After the summary is composed. People are entitled to see exactly what will
-   be sent in their name — and the text they approve is the *same text* the
-   server renders into the mail, not a similar-looking preview.
+2. After the summary is composed. People are entitled to see what will be sent
+   in their name. What they approve is a **summary of the fields**, in their own
+   language; it is not a copy of the mail. The team's mail is internal and stays
+   Indonesian, and its reference number exists only once the row is recorded
+   (`escalation-flow.tsx` → `summarise()`, `escalation.service.ts` →
+   `renderEscalationEmail`). The fields are the same; the wording is not.
 
 **Fields are collected in a form, not by conversational turns.** A bot that asks
 for an email and then parses it out of free text sounds cleverer and works

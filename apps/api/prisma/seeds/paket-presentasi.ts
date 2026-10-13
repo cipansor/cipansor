@@ -2182,25 +2182,29 @@ async function catatPresensi(
     db.attendance.createMany({ data: b, skipDuplicates: true })
   );
 
-  // Presensi guru. staff_attendance unik pada (staff_id, teacher_id, date), dan
-  // staff_id NULL membuat keunikan itu tidak berlaku — jadi disaring di sini.
+  // Presensi guru. staff_attendance unik pada (staff_id, date): seorang guru
+  // ditulis lewat baris Staff-nya, bukan lewat teacher_id, supaya satu orang
+  // hanya punya satu baris kehadiran sehari. Guru tanpa baris Staff dilewati.
   const unitIds = Object.values(ctx.units).map((u) => u.id);
   const teacherRows = await db.teacher.findMany({
-    where: { unitId: { in: unitIds } },
-    select: { id: true },
+    where: { unitId: { in: unitIds }, staffId: { not: null } },
+    select: { staffId: true },
   });
+  const teacherStaffIds = teacherRows
+    .map((t) => t.staffId)
+    .filter((id): id is string => Boolean(id));
   const taken = new Set(
     (
       await db.staffAttendance.findMany({
-        where: { teacherId: { not: null }, date: { gte: ctx.ay.startDate } },
-        select: { teacherId: true, date: true },
+        where: { staffId: { in: teacherStaffIds }, date: { gte: ctx.ay.startDate } },
+        select: { staffId: true, date: true },
       })
-    ).map((r) => `${r.teacherId}|${isoDay(r.date)}`)
+    ).map((r) => `${r.staffId}|${isoDay(r.date)}`)
   );
   const staffRows: Prisma.StaffAttendanceCreateManyInput[] = [];
-  for (const t of teacherRows) {
+  for (const staffId of teacherStaffIds) {
     for (const day of days) {
-      if (taken.has(`${t.id}|${isoDay(day)}`)) continue;
+      if (taken.has(`${staffId}|${isoDay(day)}`)) continue;
       const r = rng.next();
       let status: StaffAttendanceStatus = StaffAttendanceStatus.PRESENT;
       let checkIn: Date | null = atWib(day, 6, rng.int(35, 59));
@@ -2228,7 +2232,7 @@ async function catatPresensi(
         ]);
       }
       staffRows.push({
-        teacherId: t.id,
+        staffId,
         date: day,
         status,
         checkIn,

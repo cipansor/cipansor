@@ -5,11 +5,33 @@ import { CreateMessageInput, MessageCategory } from '@cipansor/shared';
 import { logger } from '@/lib/logger';
 import { eventBus } from '@/lib/event-bus';
 
+/**
+ * The message a new one hangs under, if `userId` is one of its two people —
+ * only they may read it (getMessageById), so only they may add to it. Anyone
+ * else is told it does not exist, so the answer does not confirm the id.
+ */
+async function threadParentFor(parentId: string, userId: string) {
+  const parent = await prisma.message.findUnique({ where: { id: parentId } });
+  if (!parent || (parent.senderId !== userId && parent.recipientId !== userId)) {
+    throw Errors.notFound('Parent message');
+  }
+  return parent;
+}
+
 export class MessagesService {
   /**
    * Send a new message
    */
   async createMessage(senderId: string, input: CreateMessageInput) {
+    // A message under a thread stays between that thread's two people: the
+    // sender must be one of them, and so must the recipient.
+    if (input.parentId) {
+      const parent = await threadParentFor(input.parentId, senderId);
+      if (input.recipientId !== parent.senderId && input.recipientId !== parent.recipientId) {
+        throw Errors.notFound('Parent message');
+      }
+    }
+
     // Validate recipient exists
     const recipient = await prisma.user.findUnique({
       where: { id: input.recipientId },
@@ -150,13 +172,7 @@ export class MessagesService {
    * Reply to a message
    */
   async replyToMessage(senderId: string, parentId: string, content: string) {
-    const parentMessage = await prisma.message.findUnique({
-      where: { id: parentId },
-    });
-
-    if (!parentMessage) {
-      throw Errors.notFound('Parent message');
-    }
+    const parentMessage = await threadParentFor(parentId, senderId);
 
     // Determine recipient (the other party)
     const recipientId =

@@ -18,6 +18,8 @@ import { runAttendanceRegisterReminder } from './attendance-register-reminder.jo
 import { runAttendancePatternFlags } from './attendance-pattern.job';
 import { runAccreditationReminder } from './accreditation-reminder.job';
 import { runPermitNoteErasure } from './permit-note-erasure.job';
+import { runHolidaySync } from './holiday-sync.job';
+import { runAttendanceRetention } from './attendance-retention.job';
 import { runAdmissionWaveStatusUpdate } from './admission-wave-status.job';
 import { prisma } from '@/lib/prisma';
 
@@ -457,6 +459,34 @@ export function initializeScheduler(): void {
   scheduledTasks.push(permitNoteErasureTask);
   logger.info("[Scheduler] Doctor's note erasure scheduled daily at 01:15 WIB");
 
+  /**
+   * Penarikan libur nasional (decisions/absensi-pegawai.md, diputuskan
+   * 2026-09-29).
+   *
+   * Tanggal 1 pukul 05:00 WIB: `api-hari-libur` memperbarui datanya tiap
+   * tanggal 1, dan 05:00 sudah melewati pekerjaan tengah malam. Hasilnya
+   * disimpan ke kalender, jadi sumber yang mati tidak mengubah hari libur
+   * menjadi Alpa. Super Admin juga bisa menariknya sendiri dari Pengaturan.
+   */
+  const holidaySyncTask = cron.schedule(
+    '0 5 1 * *',
+    async () => {
+      try {
+        const result = await runHolidaySync();
+        if (result && result.created) {
+          logger.info(`[Scheduler] Holiday sync added ${result.created} holiday(s)`);
+        }
+      } catch (error) {
+        logger.error('[Scheduler] Holiday sync failed:', error);
+      }
+    },
+    {
+      timezone: 'Asia/Jakarta',
+    }
+  );
+  scheduledTasks.push(holidaySyncTask);
+  logger.info('[Scheduler] Holiday sync scheduled at 05:00 WIB on the 1st of each month');
+
   // SPMB waves open and close by their dates; a minute past midnight WIB, when
   // a day's windows have just opened or closed.
   const admissionWaveStatusTask = cron.schedule(
@@ -474,6 +504,35 @@ export function initializeScheduler(): void {
   );
   scheduledTasks.push(admissionWaveStatusTask);
   logger.info('[Scheduler] SPMB wave statuses scheduled daily at 00:01 WIB');
+
+  /**
+   * Retensi absensi pegawai (decisions/absensi-pegawai.md).
+   *
+   * Selfie dan koordinat adalah data pribadi spesifik (UU 27/2022 Ps. 4); Pasal
+   * 42 mewajibkan pemrosesan berakhir saat masa retensi tercapai. 03:15 WIB, di
+   * celah kosong antara pembersihan snapshot 03:00 dan pekerjaan pagi.
+   */
+  const attendanceRetentionTask = cron.schedule(
+    '15 3 * * *',
+    async () => {
+      try {
+        const result = await runAttendanceRetention();
+        if (result.photosErased || result.recordsDeleted) {
+          logger.info(
+            `[Scheduler] Attendance retention: ${result.photosErased} photo(s), ` +
+              `${result.recordsDeleted} record(s)`
+          );
+        }
+      } catch (error) {
+        logger.error('[Scheduler] Attendance retention failed:', error);
+      }
+    },
+    {
+      timezone: 'Asia/Jakarta',
+    }
+  );
+  scheduledTasks.push(attendanceRetentionTask);
+  logger.info('[Scheduler] Attendance retention scheduled daily at 03:15 WIB');
 
   logger.info(`[Scheduler] ${scheduledTasks.length} jobs scheduled successfully`);
 }
@@ -507,6 +566,8 @@ export async function runJob(
     | 'attendance-pattern'
     | 'accreditation-reminder'
     | 'permit-note-erasure'
+    | 'holiday-sync'
+    | 'attendance-retention'
 ): Promise<void> {
   logger.info(`[Scheduler] Manually running job: ${jobName}`);
 
@@ -555,6 +616,12 @@ export async function runJob(
       break;
     case 'permit-note-erasure':
       await runPermitNoteErasure();
+      break;
+    case 'holiday-sync':
+      await runHolidaySync();
+      break;
+    case 'attendance-retention':
+      await runAttendanceRetention();
       break;
     default:
       throw new Error(`Unknown job: ${jobName}`);

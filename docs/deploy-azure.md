@@ -85,7 +85,9 @@ from the backup, as the VM runbook describes, not on staging.
    `https://staging.cipansor.or.id/healthz` reports that SHA (see
    [Verifying a release](#verifying-a-release)). The api applies pending
    migrations to the staging database as it starts, so a migration that cannot
-   apply fails here first. When nothing between the commit staging runs and the
+   apply fails here first. The managed server installs no PostgreSQL
+   extensions, so a migration that calls one fails here and never in CI; the
+   rule is in `apps/api/prisma/AGENTS.md` → Workflow. When nothing between the commit staging runs and the
    new one is code, the build and restart are skipped and staging keeps
    reporting the earlier commit — the same code. Release that commit: it is
    the one whose images exist.
@@ -150,7 +152,7 @@ it has already reported is not reported twice — the open issue is matched on a
 `deploy-watch:run=<id>` marker in its body.
 
 Run it by hand against the real repository with
-`GITHUB_REPOSITORY=ypcipansor/cipansor GH_TOKEN=… bash .github/scripts/deploy-watch.sh`,
+`GITHUB_REPOSITORY=cipansor/cipansor GH_TOKEN=… bash .github/scripts/deploy-watch.sh`,
 or add `DEPLOY_WATCH_DRY_RUN=1` to print what it would open without creating
 anything. `DEPLOY_WATCH_STUCK_MINUTES` and `DEPLOY_WATCH_WORKFLOWS` override the
 threshold and the watched workflows. Its behaviour is pinned by
@@ -186,9 +188,9 @@ Set up by hand in the Cloudflare dashboard, once:
   read the registry and update `cipansor-produksi`. Each environment's
   `AZURE_CLIENT_ID` variable names its identity. This repository uses GitHub's
   **immutable subject claims**, so each federated credential's subject is
-  `repo:ypcipansor@312987445/cipansor@1109587728:environment:<name>` — the
-  name-only form `repo:ypcipansor/cipansor:…` is rejected with `AADSTS700213`.
-  `gh api repos/ypcipansor/cipansor/actions/oidc/customization/sub` shows the
+  `repo:cipansor@312987445/cipansor@1109587728:environment:<name>` — the
+  name-only form `repo:cipansor/cipansor:…` is rejected with `AADSTS700213`.
+  `gh api repos/cipansor/cipansor/actions/oidc/customization/sub` shows the
   prefix.
 - **Pulling images:** each app pulls from the registry with its own managed
   identity (`AcrPull`); the registry's admin user is disabled.
