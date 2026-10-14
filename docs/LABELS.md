@@ -19,12 +19,27 @@ enforced, not just conventions.
 
 ## Priority — how urgent
 
-| Label               | Use for                                             |
-| ------------------- | --------------------------------------------------- |
-| `priority:critical` | An outage, data loss, or an active security problem |
-| `priority:high`     | Important; schedule for the current cycle           |
-| `priority:medium`   | Normal; the default for triaged work                |
-| `priority:low`      | Nice to have, no urgency                            |
+Priority is **evidence-backed**, not a feeling: `Pelabel issue` weighs impact,
+urgency and risk, and anything above `medium` must name the concrete evidence.
+A higher label with no evidence is a defect the triage owner must correct.
+
+| Label               | Use for                                                                                                                                                                                                                                            |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `priority:critical` | Exactly one of: layanan mati total; kehilangan/korupsi data; kerentanan keamanan atau kebocoran data pribadi (UU PDP) yang aktif bisa dieksploitasi; pipeline rilis macet total. Naming the concrete victim (unit/peran) and the evidence is required. |
+| `priority:high`     | Menghambat pekerjaan unit/peran sekarang; a regulatory/accreditation deadline this cycle; many users with no workaround; or a security weakness that cannot yet be exploited. Naming the blocker or the deadline is required.                        |
+| `priority:medium`   | Normal; the default for triaged work — real, but not blocking and with a workaround.                                                                                                                                                                |
+| `priority:low`      | Nice to have, no urgency (cosmetic).                                                                                                                                                                                                                |
+
+The evidence rule, enforced in the triage owner's prompt:
+
+- **Exactly one priority.** Above `medium` it must cite evidence — a route/file
+  path, the number of affected users/units, a deadline, or a run id. Without
+  evidence the label is at most `medium`.
+- **When in doubt, pick the lower level** and write down why.
+- **Never inflate `critical`.** It is for total outage, data loss, or an
+  exploitable security/privacy problem, not for "important".
+- **State whether the issue blocks other work**, and re-weigh the priority on
+  every triage round.
 
 ## Status — where it is in the lifecycle
 
@@ -90,6 +105,12 @@ sync` workflow adds anything missing and **fails the check** when the type
    closed without merging. A warning that carries no description hash (an older
    one, or one edited by hand) cannot be checked for an edit, so the sweep
    leaves that item open for a maintainer rather than closing on a guess.
+   **Which of two is the duplicate:** the one kept is the **more correct** one
+   (right against the current `main`, with the stronger test); only when both
+   are equally correct is the **earlier** one kept. Being first is not enough
+   on its own: #698 was kept over the earlier #696/#697 for its oracle test, and
+   #708 over #748, which carried the same fix on a stale base (decided by the
+   owner, 2026-10-10).
 
 5. **A red pull request stays open.** The `PR lifecycle` workflow leaves a ready
    PR as it is when any required check is failing — the failing checks are
@@ -111,6 +132,74 @@ sync` workflow adds anything missing and **fails the check** when the type
    a block. A suggestion is never placed on a line the automation is not certain
    of. This is the same "suggest a change" affordance Copilot's review uses.
 
+8. **`ready` is a strong claim, and it is exclusive.** `Pelabel issue` applies
+   `ready` only when it is **very sure**: the goal is clear, the acceptance
+   criterion is concrete and observable, and **no question is left open**. While
+   anything still has to be discussed, decided, or criticized — a design choice,
+   an unknown scope, a premise that may not hold — it is not `ready` yet; apply
+   `needs-info` (or `question`, for a question rather than a change) and name
+   what is missing. `ready` must never sit beside `question`, `needs-info`, or
+   `pending-maintainer`: two labels that contradict each other make the
+   machine-readable state ambiguous (#814 carried `ready` and `question`
+   together). The automations are told to criticize hard and ask probing
+   questions until they are sure, precisely so `ready` is not applied early.
+   `label-guard.sh` enforces the exclusivity: it removes `ready` whenever it
+   still coexists with an exclusion once the event's own label is accounted for,
+   so a person adding a second exclusion beside an existing `ready` does not
+   leave the issue contradictory.
+
+9. **Issues: comment first, description when `ready`.** While an issue is not
+   yet `ready`, the triage, the estimate, the acceptance criteria and the open
+   questions are written as **comments** — the working conversation. The issue
+   **body** is updated only when the bot applies `ready`: then the final summary
+   is written into the description under a stable marker (for example
+   `<!-- sdlc:triase -->`) and updated in place, so a reader sees the settled
+   state in one place. A pull request is different — its review verdict and QA
+   result are written into the PR **body** under a marker (for example
+   `<!-- sdlc:gerbang -->`), because the PR is already the settled artifact.
+
+10. **A pull request description edit is not answered automatically.** There is
+    no trigger on `pull_request.edited`. The review gate already reads the PR
+    description, the linked issue, the whole diff and every comment when it runs
+    on `ready_for_review` (or on the CI-green dispatch), so an edit needs no
+    separate automation — and a trigger would fight `basmalah.yml`, which PATCHes
+    the body as `github-actions[bot]`. For issues, an edit is caught by the
+    **triage bridge** below rather than by a trigger on `issues.edited`.
+
+11. **The triage bridge re-triages after another automation responds.** A bot
+    applying a type or priority label, or a not-yet-`ready` issue gaining
+    activity (an edited description or a new comment) newer than its last
+    triage, dispatches the triage owner — deterministically, from
+    `.github/scripts/issue-triage-bridge.sh`, and idempotently (a marker comment
+    per type+priority state, and one per activity timestamp). This is why
+    nothing needs to fire on `issues.edited`: the bridge polls and the label
+    event is the hook.
+
+12. **Only `cipansor-bot` labels.** Every label in the taxonomy above is the
+    bot's to apply. A protected label added by any other account is removed by
+    the `Label guard` workflow and the account is told once. The protected set is
+    every label that exists in the repository minus the human-decision labels
+    (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`), read at run time — a
+    new label is protected the moment it is created. A GitHub App (`*[bot]`) is
+    exempt, because the Actions workflows label through `github-actions[bot]`.
+    A person states what they want and the bot records it; this is what keeps
+    the automations and the guards reading the same state.
+
+13. **Every main description opens with the basmalah.** Each issue and pull
+    request body starts with «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»
+    (`Bismillaahirrohmaanirrohiim` where Arabic cannot be typed), then a blank
+    line. The pull-request template carries it in the body; the issue forms show
+    it as a visible prompt (a form's `markdown` block is preview only and never
+    lands in the body), so for issues the `Basmalah` workflow is what puts it
+    there — it prepends the line to a description that lacks it (idempotent — it
+    never stacks), and the automations are told to open their own bodies with it.
+
+14. **An automation acknowledges before it works.** The fleet reacts `👀` on the
+    issue, pull request, or comment it is about to handle — a comment trigger
+    through the `Acknowledge` workflow, the rest from their own prompts — so a
+    person can see the automation is working before the answer lands.
+
+
 ## Which automation owns which label
 
 | Automation          | Trigger                                        | Labels it sets                                                     |
@@ -127,8 +216,11 @@ sync` workflow adds anything missing and **fails the check** when the type
 | `Pengawas armada`   | daily cron                                     | `automation-health` pada laporannya                                |
 
 The deterministic consequences are GitHub Actions workflows
-(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-sweep.yml`), not
-automations: they must fire every time and cost no tokens.
+(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-sweep.yml`,
+`gate-watch.yml`, `label-guard.yml`, `basmalah.yml`, `acknowledge.yml`,
+`issue-triage-bridge.yml`), not automations: they must fire every time and cost
+no tokens. `label-guard.yml` enforces rule 12, `basmalah.yml` rule 13,
+`acknowledge.yml` rule 14, and `issue-triage-bridge.yml` rule 11.
 
 ## The self-comment loop guard
 

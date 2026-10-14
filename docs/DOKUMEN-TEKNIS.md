@@ -111,7 +111,7 @@ setiap orang pada data yang berhak dilihatnya.
 
 | Jenis | Batasan | Sumber |
 |---|---|---|
-| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7.10.0, Zod 4, PostgreSQL, Redis (opsional), Node 22, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@9.15.9`. | `package.json` |
+| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7.10.0, Zod 4, PostgreSQL, Redis (opsional), Node 22, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
 | Organisasi | Tim pengembang kecil; yayasan nirlaba memakai perkakas hibah; satu basis data untuk semua unit; repositori bersifat **publik sampai rilis** (lisensi proprietary, menjadi privat saat rilis). | `AGENTS.md`, `LICENSE` |
 | Hukum (yang tercatat di repo) | UU 16/2001 (Yayasan) untuk wewenang organ; UU 27/2022 (PDP) untuk data pribadi; PP 71/2019 untuk tanda tangan elektronik. | `decisions/pengesahan-dokumen-yayasan.md`, `decisions/esign-standards-ceiling.md`, `skills/tata-kelola-yayasan` |
 | Konvensi | Portal berbahasa Indonesia; situs publik tiga bahasa (Indonesia, Inggris, Arab; Arab ditulis kanan ke kiri). Istilah pesantren tidak diterjemahkan; istilah umum berbahasa Inggris di kode/URL, label berbahasa Indonesia. | `decisions/istilah-dan-penamaan.md` |
@@ -570,6 +570,8 @@ satu kalimat; buka berkasnya untuk alasannya.
 | Lisensi | Apache License 2.0 selama repositori publik, kembali proprietary begitu privat; nama, logo, foto, dan data pribadi di luar lisensi. | `lisensi.md` |
 | Pengumuman SPMB di situs publik | Banner selama ada unit yang membuka pendaftaran, ditambah dialog tertunda sekali per kunjungan; keduanya diturunkan dari `GET /admissions/public/intakes`. | `spmb-announcement-publik.md` |
 | Akses data pegawai | Data pribadi lengkap pegawai hanya untuk dirinya, admin unit, TU unit, organ, dan Super Admin; rekan melihat kolom direktori. | `akses-data-pegawai.md` |
+| Armada otomasi dan rilis | Pemantauan dipicu event, bukan cron; uji beban k6 manual sebelum tiap rilis; persetujuan rilis lewat label pada issue rilis mingguan; tanpa berkas CHANGELOG; temuan keamanan ke advisory privat; catatan `## HUMAN` hanya pada PR berisiko. | `otomasi-armada.md` |
+| Showcase portofolio santri | Tetap terbatas cakupan santri (`studentScope`); rancangan bertingkat baru dibangun saat ada kebutuhan nyata. | `showcase-portofolio.md` |
 
 # 10. Persyaratan Kualitas
 

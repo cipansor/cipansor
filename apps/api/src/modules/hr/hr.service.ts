@@ -735,13 +735,18 @@ export async function getStaffAttendanceById(id: string) {
  * Teacher.staffId. Throws when a teacher has no Staff row yet, rather than
  * silently writing nothing.
  */
-export async function resolveStaffId(input: {
-  staffId?: string;
-  teacherId?: string;
-}): Promise<string> {
+export async function resolveStaffId(
+  input: {
+    staffId?: string;
+    teacherId?: string;
+  },
+  // Pass the transaction client when the caller is already inside one, so the
+  // lookup reads the same snapshot as the write it feeds.
+  client: Pick<typeof prisma, 'teacher'> = prisma
+): Promise<string> {
   if (input.staffId) return input.staffId;
   if (input.teacherId) {
-    const teacher = await prisma.teacher.findUnique({
+    const teacher = await client.teacher.findUnique({
       where: { id: input.teacherId },
       select: { staffId: true },
     });
@@ -2584,29 +2589,125 @@ export async function approveLeave(id: string, approverId: string, data: Approve
     );
   }
 
-  const updateData: Prisma.LeaveUpdateInput = {
+  // A rejection changes only the row, but the move is guarded all the same: an
+  // unconditional update racing an approval would overwrite APPROVED while the
+  // balance and attendance the approval spent stay put — a rejected leave whose
+  // days were debited, with nothing recording that. `updateMany` takes scalar
+  // fields only, so the approver is written as `approvedById` here, not as
+  // `approvedBy: { connect }` (which only `update` accepts).
+  if (data.status !== LeaveStatus.APPROVED) {
+    const rejectData: Prisma.LeaveUncheckedUpdateManyInput = {
+      status: data.status,
+      approvedById: approverId,
+      approvedAt: new Date(),
+      ...(data.rejectedNote ? { rejectedNote: data.rejectedNote } : {}),
+    };
+
+    // Rejection is the one move that may start from PENDING *or* from a leave
+    // already REJECTED: re-rejecting is an idempotent no-op, as it always was.
+    // The row is read again inside the transaction so the decision is taken on
+    // the row this transaction will write, not on the guard's pre-transaction
+    // snapshot — otherwise an approval committing in between still finds the
+    // stale PENDING and is overwritten, and the status the guard read is not a
+    // safe value to lock on (it would turn the idempotent no-op into a 409).
+    return prisma.$transaction(async (tx) => {
+      const current = await tx.leave.findUnique({
+        where: { id },
+        include: { staff: true, teacher: true },
+      });
+      if (!current) throw Errors.notFound('Leave request not found');
+
+      if (current.status === LeaveStatus.REJECTED) {
+        // Idempotent: a second rejection changes nothing and reports the row.
+        return current;
+      }
+      if (current.status !== LeaveStatus.PENDING) {
+        // Approved or cancelled while this request was in flight. That decision
+        // stands; this one must not overwrite it.
+        throw Errors.conflict(
+          'Cuti ini sudah diputuskan oleh permintaan lain. Muat ulang halaman untuk melihat status terbarunya.'
+        );
+      }
+
+      // Move PENDING → rejected, guarded on PENDING like the approval path. The
+      // row lock the update takes is held until commit, so a `cancelLeave` or
+      // `deleteLeave` cannot slip between the write and the read that reports
+      // it.
+      const { count } = await tx.leave.updateMany({
+        where: { id, status: LeaveStatus.PENDING },
+        data: rejectData,
+      });
+      if (count !== 1) {
+        throw Errors.conflict(
+          'Cuti ini sudah diputuskan oleh permintaan lain. Muat ulang halaman untuk melihat status terbarunya.'
+        );
+      }
+      return tx.leave.findUniqueOrThrow({
+        where: { id },
+        include: { staff: true, teacher: true },
+      });
+    });
+  }
+
+  // `updateMany` takes scalar fields only — it has no relation `connect` — so
+  // the approver is written as `approvedById` here, not as `approvedBy`.
+  const moveData: Prisma.LeaveUncheckedUpdateManyInput = {
     status: data.status,
-    approvedBy: { connect: { id: approverId } },
+    approvedById: approverId,
     approvedAt: new Date(),
   };
 
-  if (data.status === LeaveStatus.REJECTED && data.rejectedNote) {
-    updateData.rejectedNote = data.rejectedNote;
-  }
+  // Approval writes the status, the balance debit and every attendance day as
+  // one unit. The status belongs in here too: written first and outside the
+  // transaction, a failing attendance day rolled the debit back but left the
+  // request APPROVED — a retry returned early at the guard above, and a later
+  // cancellation credited days that were never spent.
+  return prisma.$transaction(async (tx) => {
+    // Move PENDING → APPROVED in one statement, guarded on the status the guard
+    // above read. A concurrent decision (another approval, a cancellation)
+    // commits first and this update matches nothing, so the two cannot both
+    // write: the loser gets a 409 instead of silently overwriting the winner.
+    const { count } = await tx.leave.updateMany({
+      where: { id, status: LeaveStatus.PENDING },
+      data: moveData,
+    });
+    if (count !== 1) {
+      throw Errors.conflict(
+        'Cuti ini sudah diputuskan oleh permintaan lain. Muat ulang halaman untuk melihat status terbarunya.'
+      );
+    }
 
-  const leave = await prisma.leave.update({
-    where: { id },
-    data: updateData,
-    include: { staff: true, teacher: true },
-  });
+    const leave = await tx.leave.findUniqueOrThrow({
+      where: { id },
+      include: { staff: true, teacher: true },
+    });
 
-  // If approved, mark staff/teacher attendance as LEAVE for those days
-  if (data.status === LeaveStatus.APPROVED) {
+    // Mark each day of the leave, from the row this transaction just wrote.
+    // `updateLeave` can change a pending leave's dates in a concurrent
+    // transaction; building the days from the guard's pre-transaction snapshot
+    // would then approve the new dates while marking attendance on the stale
+    // ones. Keyed on staffId now, so a teacher's leave lands on the same row as
+    // their clock-ins.
+    const targetStaffId = await resolveStaffId(
+      {
+        staffId: leave.staffId ?? undefined,
+        teacherId: leave.teacherId ?? undefined,
+      },
+      tx
+    );
+
+    const dates: Date[] = [];
+    const currentDate = new Date(leave.startDate);
+    while (currentDate <= leave.endDate) {
+      dates.push(new Date(currentDate));
+      currentDate.setDate(currentDate.getDate() + 1);
+    }
+
     // 1. Update Leave Balance
     const userId = leave.staff?.userId || leave.teacher?.userId;
     if (userId) {
       // Find relevant academic year for the leave start date
-      const academicYear = await prisma.academicYear.findFirst({
+      const academicYear = await tx.academicYear.findFirst({
         where: {
           startDate: { lte: leave.startDate },
           endDate: { gte: leave.endDate },
@@ -2615,7 +2716,7 @@ export async function approveLeave(id: string, approverId: string, data: Approve
 
       if (academicYear) {
         // Update balance if exists
-        const balance = await prisma.leaveBalance.findUnique({
+        const balance = await tx.leaveBalance.findUnique({
           where: {
             userId_academicYearId_leaveType: {
               userId,
@@ -2626,7 +2727,7 @@ export async function approveLeave(id: string, approverId: string, data: Approve
         });
 
         if (balance) {
-          await prisma.leaveBalance.update({
+          await tx.leaveBalance.update({
             where: { id: balance.id },
             data: {
               usedDays: { increment: leave.totalDays },
@@ -2637,60 +2738,46 @@ export async function approveLeave(id: string, approverId: string, data: Approve
       }
     }
 
-    // Mark each day of the leave. Keyed on staffId now, so a teacher's leave
-    // lands on the same row as their clock-ins.
-    const targetStaffId = await resolveStaffId({
-      staffId: leave.staffId ?? undefined,
-      teacherId: leave.teacherId ?? undefined,
-    });
-
-    const dates: Date[] = [];
-    const currentDate = new Date(leave.startDate);
-    while (currentDate <= leave.endDate) {
-      dates.push(new Date(currentDate));
-      currentDate.setDate(currentDate.getDate() + 1);
-    }
-
-    // Mark each day LEAVE, but remember what the row held: a day the person
+    // 2. Mark each day LEAVE, but remember what the row held: a day the person
     // already clocked in keeps its evidence, and a later cancellation restores
     // it rather than deleting a day they actually attended.
-    await prisma.$transaction(async (tx) => {
-      for (const date of dates) {
-        const existing = await tx.staffAttendance.findUnique({
-          where: { staffId_date: { staffId: targetStaffId, date } },
-          select: { id: true, status: true, notes: true, leaveRequestId: true },
-        });
-        if (existing) {
-          // A day already carrying this leave is idempotent; a day carrying a
-          // *different* approved leave is left to that leave's own bookkeeping.
-          if (existing.leaveRequestId && existing.leaveRequestId !== id) continue;
-          await tx.staffAttendance.update({
-            where: { id: existing.id },
-            data: {
-              status: StaffAttendanceStatus.LEAVE,
-              notes: `Cuti: ${leave.type}`,
-              leaveRequestId: id,
-              leavePreviousStatus: existing.status,
-              // Keep the original explanation so cancelling restores it rather
-              // than wiping a recorded reason.
-              leavePreviousNotes: existing.notes,
-            },
-          });
-        } else {
-          await tx.staffAttendance.create({
-            data: {
-              staffId: targetStaffId,
-              date,
-              status: StaffAttendanceStatus.LEAVE,
-              notes: `Cuti: ${leave.type}`,
-              leaveRequestId: id,
-            },
-          });
+    for (const date of dates) {
+      const existingAttendance = await tx.staffAttendance.findUnique({
+        where: { staffId_date: { staffId: targetStaffId, date } },
+        select: { id: true, status: true, notes: true, leaveRequestId: true },
+      });
+      if (existingAttendance) {
+        // A day already carrying this leave is idempotent; a day carrying a
+        // *different* approved leave is left to that leave's own bookkeeping.
+        if (existingAttendance.leaveRequestId && existingAttendance.leaveRequestId !== id) {
+          continue;
         }
+        await tx.staffAttendance.update({
+          where: { id: existingAttendance.id },
+          data: {
+            status: StaffAttendanceStatus.LEAVE,
+            notes: `Cuti: ${leave.type}`,
+            leaveRequestId: id,
+            leavePreviousStatus: existingAttendance.status,
+            // Keep the original explanation so cancelling restores it rather
+            // than wiping a recorded reason.
+            leavePreviousNotes: existingAttendance.notes,
+          },
+        });
+      } else {
+        await tx.staffAttendance.create({
+          data: {
+            staffId: targetStaffId,
+            date,
+            status: StaffAttendanceStatus.LEAVE,
+            notes: `Cuti: ${leave.type}`,
+            leaveRequestId: id,
+          },
+        });
       }
-    });
+    }
 
-    await prisma.auditLog.create({
+    await tx.auditLog.create({
       data: {
         userId: approverId,
         action: 'APPROVE',
@@ -2699,9 +2786,9 @@ export async function approveLeave(id: string, approverId: string, data: Approve
         newValues: { status: data.status, type: leave.type, totalDays: leave.totalDays },
       },
     });
-  }
 
-  return leave;
+    return leave;
+  });
 }
 
 export async function cancelLeave(id: string) {
@@ -2713,7 +2800,22 @@ export async function cancelLeave(id: string) {
 
   const wasApproved = leave.status === LeaveStatus.APPROVED;
 
-  const cancelled = await prisma.$transaction(async (tx) => {
+  // Guarded move to CANCELLED, so a cancellation racing an approval cannot both
+  // write: whichever commits first wins, the other's guarded update matches
+  // nothing and it reverts its own writes instead of crediting a balance the
+  // winner just spent (or spending one it just credited). A second cancellation
+  // of a row already CANCELLED is an idempotent no-op, as before.
+  const { cancelled } = await prisma.$transaction(async (tx) => {
+    const { count } = await tx.leave.updateMany({
+      where: { id, status: leave.status },
+      data: { status: LeaveStatus.CANCELLED },
+    });
+    if (count !== 1) {
+      throw Errors.conflict(
+        'Cuti ini sudah diputuskan oleh permintaan lain. Muat ulang halaman untuk melihat status terbarunya.'
+      );
+    }
+
     if (wasApproved) {
       // Revert the balance the approval spent.
       const userId = leave.staff?.userId || leave.teacher?.userId;
@@ -2747,10 +2849,12 @@ export async function cancelLeave(id: string) {
       }
     }
 
-    return tx.leave.update({
-      where: { id },
-      data: { status: LeaveStatus.CANCELLED },
-    });
+    return {
+      cancelled: await tx.leave.findUniqueOrThrow({
+        where: { id },
+        include: { staff: true, teacher: true },
+      }),
+    };
   });
 
   // Only the rows this leave wrote are touched, and they are matched by the

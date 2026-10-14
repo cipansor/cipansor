@@ -6,6 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
+        بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
+
         Bug adalah perubahan yang harus diperbaiki; pertanyaan masuk ke Discussions.
         Automation `Pelabel issue` akan menambahkan prioritas dan menandai issue
         `ready` begitu kolom di bawah terisi cukup untuk diimplementasikan tanpa

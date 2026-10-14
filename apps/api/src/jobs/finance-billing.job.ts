@@ -1,19 +1,20 @@
 import { logger } from '@/lib/logger';
 import { prisma } from '@/lib/prisma';
 import { generateBulkSppInvoices } from '@/modules/finance/finance.service';
+import { wibMonthYear } from '@/utils/wib-day';
 
 /**
  * Run Monthly Auto-Billing for all recurring PaymentTypes (e.g., SPP)
  */
-export async function runMonthlyAutoBilling(): Promise<void> {
+export async function runMonthlyAutoBilling(at: Date = new Date()): Promise<void> {
   logger.info('[AutoBilling] Starting monthly auto-billing process...');
   const startTime = Date.now();
 
   try {
-    // Determine target billing period (current month, current year)
-    const now = new Date();
-    const year = now.getFullYear();
-    const month = now.getMonth(); // 0-11
+    // Target the WIB calendar month, not the server's. The cron fires at 04:00
+    // WIB on the 1st, when a UTC server still reads the previous month (and, in
+    // January, the previous year).
+    const { year, month } = wibMonthYear(at); // month is 0-11
 
     // Fetch all active recurring payment types across all units
     const recurringPaymentTypes = await prisma.paymentType.findMany({
@@ -45,6 +46,7 @@ export async function runMonthlyAutoBilling(): Promise<void> {
           year,
           month,
           dueDay: 10, // Default due date on the 10th
+          at, // number the invoices from the billed month, not the wall clock
         });
 
         totalCreated += result.created;

@@ -1,0 +1,45 @@
+# Put the basmalah at the top of every issue and pull-request description.
+#
+# The owner asked (2026-10-13) that every main description open with
+# «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ» (transliterated
+# `Bismillaahirrohmaanirrohiim`). The pull-request template carries it in the
+# body, and the automations are told to open their own bodies with it. An issue
+# form cannot carry it — a form's `markdown` block is preview only — so this
+# workflow is the deterministic guarantee for issues: one filed by hand, or a
+# body an automation forgot, still carries it.
+#
+# Idempotent: a body already opening with the basmalah is left alone, so editing
+# a description never stacks a second copy. The rules live in
+# .github/scripts/basmalah.sh so they can be run by hand.
+name: Basmalah
+
+on:
+  issues:
+    types: [opened, edited, reopened]
+  pull_request_target:
+    types: [opened, edited, reopened]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: basmalah-${{ github.event.issue.number || github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  prepend:
+    name: Basmalah at the top of the description
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Prepend the basmalah when it is missing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: sh .github/scripts/basmalah.sh --stdin < "$GITHUB_EVENT_PATH"

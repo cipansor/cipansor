@@ -134,3 +134,35 @@ Setiap automation yang mengomentari issue harus mengakhiri komentarnya dengan
 footer AI-disclosure dan menjaga pemicu `issue_comment.created` dengan
 `!icontains(comment.body, 'This comment was created by an AI agent')`. Tanpa itu
 automation memicu ulang dirinya sendiri — issue #680. Lihat `docs/LABELS.md`.
+
+Sejak 2026-10-13 armada juga berbagi lima aturan (diminta pengguna, terpasang di
+setiap prompt dan dijaga workflow deterministik):
+
+- **Mengakui dulu.** Sebelum menangani apa pun, react 👀 pada objeknya
+  (`POST …/issues/<n>/reactions`, `{"content":"eyes"}`; untuk komentar
+  `…/issues/comments/<id>/reactions`), supaya orang tahu automation bekerja.
+  Pemicu komentar dijaga `acknowledge.yml`.
+- **Komentar dulu, body saat `ready` (issue).** Selama issue belum `ready`,
+  triase/estimasi/kriteria/pertanyaan ditulis sebagai **komentar**; **body** issue
+  diperbarui hanya saat bot memasang `ready` (ringkasan final di bawah penanda
+  `<!-- sdlc:triase -->`). PR berbeda: putusan tinjauan/QA tetap ke body PR di
+  bawah penanda (`<!-- sdlc:gerbang -->`).
+- **Prioritas berbukti.** Dampak, urgensi, dan risiko; apa pun di atas `medium`
+  wajib menyebut bukti konkret, tanpa bukti maksimum `medium`, bila ragu pilih
+  yang lebih rendah. `critical` hanya untuk layanan mati total, kehilangan data,
+  atau keamanan/privacy yang aktif bisa dieksploitasi. Jangan menginflasi.
+- **Triase ulang lewat jembatan, bukan `issues.edited`.** `issue-triage-bridge.yml`
+  + `.github/scripts/issue-triage-bridge.sh` mendispatch pemilik triase saat bot
+  memasang label tipe/prioritas dan saat issue belum `ready` punya aktivitas baru
+  (komentar atau suntingan deskripsi). Idempoten (penanda per keadaan dan per
+  stempel aktivitas). **Deskripsi PR tidak ditanggapi otomatis** — tidak ada
+  pemicu `pull_request.edited`; gerbang tinjau sudah membaca deskripsi, issue,
+  diff, dan semua komentar.
+- **Basmalah.** Setiap body dibuka dengan «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»;
+  templat PR membawanya, form issue menampilkannya sebagai petunjuk (blok
+  `markdown` form tidak ikut ke body), dan `basmalah.yml` menambahkannya bila lupa.
+- **`ready` eksklusif dan kuat.** `ready` hanya bila sangat yakin, tanpa
+  pertanyaan terbuka, dan tidak pernah bersama `question`/`needs-info`/
+  `pending-maintainer` (#814). Kritik habis-habisan dulu, baru `ready`.
+- **Hanya `cipansor-bot` melabeli.** Label akun lain dicabut `label-guard.yml`,
+  kecuali `rilis-disetujui`, `rilis-ditolak`, `bot-implement`.

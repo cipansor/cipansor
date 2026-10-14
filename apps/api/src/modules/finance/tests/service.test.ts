@@ -3,7 +3,7 @@ import { Prisma } from '@prisma/client';
 import * as prismaClient from '@prisma/client';
 
 // Mock prisma before imports
-vi.mock('../../lib/prisma', () => {
+vi.mock('../../../lib/prisma', () => {
   const mockPrisma = {
     paymentType: {
       create: vi.fn(),
@@ -43,13 +43,13 @@ vi.mock('../../lib/prisma', () => {
   return { prisma: mockPrisma };
 });
 
-import { prisma } from '../../lib/prisma';
-import * as financeService from './finance.service';
-import * as notificationService from '../notifications/notifications.service';
+import { prisma } from '../../../lib/prisma';
+import * as financeService from '../finance.service';
+import * as notificationService from '../../notifications/notifications.service';
 
 import { eventBus } from '@/lib/event-bus';
 
-vi.mock('../notifications/notifications.service', () => ({
+vi.mock('../../notifications/notifications.service', () => ({
   createNotification: vi.fn(),
 }));
 
@@ -110,7 +110,7 @@ describe('Finance Service Unit Tests', () => {
       const dto = {
         title: 'Pembayaran SPP Januari',
         amount: 500000,
-        dueDate: '2026-03-01T00:00:00.000Z',
+        dueDate: '2026-03-01',
         studentId: 'stud-1',
         paymentTypeId: 'pt-1',
       };
@@ -124,7 +124,7 @@ describe('Finance Service Unit Tests', () => {
         },
         paymentType: { id: 'pt-1', name: 'SPP', code: 'SPP-01' },
         amount: new Prisma.Decimal(500000),
-        dueDate: new Date(dto.dueDate),
+        dueDate: new Date('2026-03-01T00:00:00.000Z'),
       };
 
       vi.mocked(prisma.invoice.findFirst).mockResolvedValue(null);
@@ -143,7 +143,7 @@ describe('Finance Service Unit Tests', () => {
       const dto = {
         title: 'Pembayaran SPP Januari',
         amount: 500000,
-        dueDate: '2026-03-01T00:00:00.000Z',
+        dueDate: '2026-03-01',
         studentId: 'stud-1',
         paymentTypeId: 'pt-1',
       };
@@ -180,6 +180,41 @@ describe('Finance Service Unit Tests', () => {
       const createArgs = vi.mocked(prisma.invoice.create).mock.calls[0][0];
       expect(Number(createArgs.data.amount)).toBe(250000);
     });
+
+    it('stores a supplied deadline as the date-only value of the day it names', async () => {
+      // A bill's deadline is a calendar day. `createInvoice` stores it at
+      // midnight UTC — the form the monthly guard, the reminder window and the
+      // academic-year bounds all compare against — so "10 August" is stored as
+      // 2026-08-10T00:00Z and renders as the 10th, whatever the server zone.
+      vi.mocked(prisma.invoice.findFirst).mockResolvedValue(null);
+      vi.mocked(prisma.invoice.create).mockResolvedValue({
+        id: 'inv-3',
+        amount: new Prisma.Decimal(500000),
+        dueDate: new Date('2026-08-10T00:00:00.000Z'),
+        student: { user: { id: 'u1' } },
+        paymentType: { name: 'SPP' },
+      } as any);
+      vi.mocked(notificationService.createNotification).mockResolvedValue({} as any);
+
+      await financeService.createInvoice({
+        amount: 500000,
+        dueDate: '2026-08-10',
+        studentId: 'stud-1',
+        paymentTypeId: 'pt-1',
+      } as any);
+
+      const createArgs = vi.mocked(prisma.invoice.create).mock.calls[0][0];
+      expect((createArgs.data.dueDate as Date).toISOString()).toBe('2026-08-10T00:00:00.000Z');
+    });
+
+    it('stores an update deadline as the date-only value of the day it names', async () => {
+      vi.mocked(prisma.invoice.update).mockResolvedValue({ id: 'inv-1' } as any);
+
+      await financeService.updateInvoice('inv-1', { dueDate: '2026-08-10' } as any);
+
+      const updateArgs = vi.mocked(prisma.invoice.update).mock.calls[0][0];
+      expect((updateArgs.data.dueDate as Date).toISOString()).toBe('2026-08-10T00:00:00.000Z');
+    });
   });
 });
 
@@ -206,6 +241,160 @@ describe('generateBulkSppInvoices', () => {
     expect(findStudents).toHaveBeenCalledWith({
       where: expect.objectContaining({ unitId: 'unit-1', status: 'active', deletedAt: null }),
     });
+  });
+
+  it('queries the idempotence guard with WIB month bounds, not server-local ones', async () => {
+    // On a UTC server `new Date(2026, 7, 1)` is 2026-08-01T00:00Z = 07:00 WIB on
+    // the 1st, so an invoice due at 01:00 WIB on the 1st (2026-07-31T18:00Z) fell
+    // outside the guard: `!existing` was true and a re-run created a duplicate.
+    // The guard must use the same [00:00 WIB, next 00:00 WIB) band the reminder
+    // job uses — red before the fix, green after.
+    const prevTz = process.env.TZ;
+    process.env.TZ = 'UTC';
+    try {
+      (prisma.paymentType.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'pt-spp',
+        name: 'SPP',
+        amount: new Prisma.Decimal(350000),
+      });
+      (
+        prisma as unknown as { student: { findMany: ReturnType<typeof vi.fn> } }
+      ).student.findMany.mockResolvedValue([{ id: 'student-1', unitId: 'unit-1' }]);
+      vi.mocked(prisma.invoice.findFirst).mockResolvedValue(null);
+      vi.mocked(prisma.invoice.create).mockResolvedValue({ id: 'inv-1' } as any);
+
+      await financeService.generateBulkSppInvoices({
+        unitId: 'unit-1',
+        paymentTypeId: 'pt-spp',
+        year: 2026,
+        month: 7, // August
+      });
+
+      expect(vi.mocked(prisma.invoice.findFirst).mock.calls[0][0]?.where?.dueDate).toEqual({
+        gte: new Date('2026-08-01T00:00:00.000Z'),
+        lt: new Date('2026-09-01T00:00:00.000Z'),
+      });
+    } finally {
+      if (prevTz === undefined) delete process.env.TZ;
+      else process.env.TZ = prevTz;
+    }
+  });
+
+  it('does not bill a first-day invoice twice on a server east of WIB', async () => {
+    // The due date was built with `new Date(year, month, dueDay)`, which reads
+    // the server timezone. On UTC+8 a `dueDay: 1` bill lands at 2026-07-31T16:00Z
+    // — one hour *before* the WIB month guard opens (2026-07-31T17:00Z) — so a
+    // rerun could not find its own invoice and billed the student again. Emulate
+    // Prisma's `dueDate: { gte, lt }` filter against what was actually stored.
+    const prevTz = process.env.TZ;
+    process.env.TZ = 'Asia/Makassar'; // UTC+8, east of WIB
+    try {
+      (prisma.paymentType.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'pt-spp',
+        name: 'SPP',
+        amount: new Prisma.Decimal(350000),
+      });
+      (
+        prisma as unknown as { student: { findMany: ReturnType<typeof vi.fn> } }
+      ).student.findMany.mockResolvedValue([{ id: 'student-1', unitId: 'unit-1' }]);
+
+      const stored: Array<{ dueDate: Date }> = [];
+      vi.mocked(prisma.invoice.create).mockImplementation((async ({ data }: any) => {
+        stored.push({ dueDate: data.dueDate });
+        return { id: `inv-${stored.length}`, ...data } as any;
+      }) as never);
+      vi.mocked(prisma.invoice.findFirst).mockImplementation((async ({ where }: any) => {
+        if (!where?.dueDate) return null; // generateInvoiceNumber's prefix lookup
+        const { gte, lt } = where.dueDate;
+        return stored.find((r) => r.dueDate >= gte && r.dueDate < lt) ?? null;
+      }) as never);
+
+      const run = () =>
+        financeService.generateBulkSppInvoices({
+          unitId: 'unit-1',
+          paymentTypeId: 'pt-spp',
+          year: 2026,
+          month: 7, // August
+          dueDay: 1,
+        });
+
+      await run();
+      expect(stored).toHaveLength(1);
+      expect(stored[0].dueDate.toISOString()).toBe('2026-08-01T00:00:00.000Z'); // date-only 1 Aug
+
+      const second = await run();
+      expect(stored).toHaveLength(1); // the rerun found the invoice, created none
+      expect(second.created).toBe(0);
+      expect(second.skipped).toBe(1);
+    } finally {
+      vi.mocked(prisma.invoice.findFirst).mockReset();
+      if (prevTz === undefined) delete process.env.TZ;
+      else process.env.TZ = prevTz;
+    }
+  });
+
+  it('finds a manually created first-day invoice and does not bill it again', async () => {
+    // The gate's scenario: a manual SPP invoice the caller meant as "1 August".
+    // The create contract is the calendar day, stored date-only (2026-08-01T00:00Z),
+    // so the guard's [2026-08-01Z, 2026-09-01Z) band finds it and August
+    // generation does not bill the student twice.
+    const prevTz = process.env.TZ;
+    process.env.TZ = 'UTC';
+    try {
+      (prisma.paymentType.findUnique as ReturnType<typeof vi.fn>).mockResolvedValue({
+        id: 'pt-spp',
+        name: 'SPP',
+        amount: new Prisma.Decimal(350000),
+      });
+      (
+        prisma as unknown as { student: { findMany: ReturnType<typeof vi.fn> } }
+      ).student.findMany.mockResolvedValue([{ id: 'student-1', unitId: 'unit-1' }]);
+      vi.mocked(prisma.scholarshipRecipient.findMany).mockResolvedValue([] as any);
+      vi.mocked(notificationService.createNotification).mockResolvedValue({} as any);
+
+      const stored: Array<{ dueDate: Date }> = [];
+      vi.mocked(prisma.invoice.create).mockImplementation((async ({ data }: any) => {
+        stored.push({ dueDate: data.dueDate });
+        return {
+          id: `inv-${stored.length}`,
+          amount: data.amount ?? new Prisma.Decimal(350000),
+          dueDate: data.dueDate,
+          student: { user: { id: 'u1' } },
+          paymentType: { name: 'SPP' },
+          ...data,
+        } as any;
+      }) as never);
+      vi.mocked(prisma.invoice.findFirst).mockImplementation((async ({ where }: any) => {
+        if (!where?.dueDate) return null; // generateInvoiceNumber's prefix lookup
+        const { gte, lt } = where.dueDate;
+        return stored.find((r) => r.dueDate >= gte && r.dueDate < lt) ?? null;
+      }) as never);
+
+      await financeService.createInvoice({
+        amount: 350000,
+        dueDate: '2026-08-01', // 1 August, the calendar day
+        studentId: 'student-1',
+        paymentTypeId: 'pt-spp',
+      } as any);
+      expect(stored).toHaveLength(1);
+      expect(stored[0].dueDate.toISOString()).toBe('2026-08-01T00:00:00.000Z');
+
+      const result = await financeService.generateBulkSppInvoices({
+        unitId: 'unit-1',
+        paymentTypeId: 'pt-spp',
+        year: 2026,
+        month: 7, // August
+        dueDay: 1,
+      });
+
+      expect(stored).toHaveLength(1); // the guard found the manual invoice
+      expect(result.created).toBe(0);
+      expect(result.skipped).toBe(1);
+    } finally {
+      vi.mocked(prisma.invoice.findFirst).mockReset();
+      if (prevTz === undefined) delete process.env.TZ;
+      else process.env.TZ = prevTz;
+    }
   });
 });
 
@@ -289,6 +478,21 @@ describe('bill and payment reads: scope and fields', () => {
     });
     const julySpp = new Date('2026-07-10T00:00:00Z');
     expect(julySpp >= dueDate.gte && julySpp < dueDate.lt).toBe(true);
+  });
+
+  it('a first-day bill stays inside its academic year, not the one before', async () => {
+    // A dueDay:1 bill is stored at the first of the month. Kept as a date-only
+    // value (00:00Z), July's bill sits at the year's own `gte`, not in June of
+    // the year before — which a WIB-midnight instant (17:00Z the day before)
+    // would fall outside of.
+    vi.mocked(prisma.academicYear.findUnique).mockResolvedValue({
+      startDate: new Date('2026-07-15T00:00:00Z'),
+      endDate: new Date('2027-06-30T00:00:00Z'),
+    } as any);
+    await financeService.getInvoices({ ...page, academicYearId: 'ay-2627' } as any, smpTu);
+    const { dueDate } = lastInvoiceQuery().where.AND[1];
+    const firstDayBill = new Date('2026-07-01T00:00:00Z');
+    expect(firstDayBill >= dueDate.gte && firstDayBill < dueDate.lt).toBe(true);
   });
 
   it('an unknown academic year matches nothing instead of every year', async () => {

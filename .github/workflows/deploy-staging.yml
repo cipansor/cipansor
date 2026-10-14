@@ -57,7 +57,7 @@ jobs:
     outputs:
       deploy: ${{ steps.scope.outputs.deploy }}
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           sparse-checkout: .github/scripts
           persist-credentials: false
@@ -120,11 +120,11 @@ jobs:
             context: deploy/azure/nginx
             file: deploy/azure/nginx/Dockerfile
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ env.SHA }}
 
-      - uses: azure/login@v3
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}
@@ -132,13 +132,13 @@ jobs:
 
       - run: az acr login --name "$ACR"
 
-      - uses: docker/setup-buildx-action@v4
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4
 
       # NEXT_PUBLIC_* are baked into the web bundle at build time. The API base
       # is deliberately empty (same-origin through nginx), which is what lets
       # one web image serve both staging and production. The Turnstile site key
       # is public by design; its widget lists both hosts.
-      - uses: docker/build-push-action@v7
+      - uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.file }}
@@ -159,12 +159,12 @@ jobs:
     runs-on: ubuntu-latest
     environment: staging
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
           ref: ${{ env.SHA }}
           sparse-checkout: deploy/azure
 
-      - uses: azure/login@v3
+      - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
         with:
           client-id: ${{ vars.AZURE_CLIENT_ID }}
           tenant-id: ${{ vars.AZURE_TENANT_ID }}

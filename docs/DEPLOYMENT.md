@@ -25,7 +25,7 @@ Panduan deployment sistem Cipansor untuk production.
 
 - **Node.js**: v22 (semua image memakai `node:22-alpine`)
 - **PostgreSQL**: v14 atau lebih baru
-- **pnpm**: 9.15.9 (dipaku lewat `packageManager` di `package.json`; CI memakai `--frozen-lockfile`)
+- **pnpm**: 12.11.2 (dipaku lewat `packageManager` di `package.json`; CI memakai `--frozen-lockfile`)
 - **Docker** (opsional): v24 atau lebih baru
 - **RAM**: Minimum 2GB, recommended 4GB
 - **Disk**: Minimum 20GB
@@ -230,6 +230,10 @@ pm2 startup
 ---
 
 ## Database Migration
+
+A migration uses built-in PostgreSQL functions only: the managed server installs
+no extensions. The rule and its guard test are in `apps/api/prisma/AGENTS.md` →
+Workflow.
 
 ### Irreversible migrations — backup is a hard prerequisite
 

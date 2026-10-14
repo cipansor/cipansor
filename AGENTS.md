@@ -167,6 +167,10 @@ Decided 2026-07-21 and 2026-09-25 — the reasons, the glossary and the target
 name of every module are in
 [`decisions/istilah-dan-penamaan.md`](.claude/memory/decisions/istilah-dan-penamaan.md).
 
+- **GitHub prose is Indonesian.** Issues, PR descriptions and review replies
+  are written in Indonesian; commit messages stay English, and the template's
+  section headings and `Fixes #<n>` stay as they are. The PR template check
+  fails a description that reads as English (`docs/LABELS.md`).
 - **Language.** URL paths, API paths and identifiers are **English** for general
   concepts; **pesantren and regulatory terms are never translated** (`tahfidz`,
   `takhosus`, `muhadhoroh`, `spmb`, `emis`, `dapodik`); **every label a person

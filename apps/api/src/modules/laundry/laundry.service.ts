@@ -8,6 +8,7 @@ import {
   STUDENT_ROLE_CODES,
 } from '@cipansor/shared';
 import { seesAllUnits } from '../../utils/resolve-unit-id';
+import { todayWib } from '../../utils/wib';
 import { studentScope, type ScopeActor } from '../../utils/student-scope';
 import { getAccountOrFallback, ACCOUNT_MAPPING_KEYS } from '../finance/accounting-config.service';
 import { isPeriodOpen } from '../finance-enhancement/period.service';
@@ -95,8 +96,10 @@ export const pricingService = {
 // =============================================================================
 
 const generateTransactionNo = async (unitId: string): Promise<string> => {
-  const today = new Date();
-  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+  // The date on the transaction number is a WIB calendar day, not the UTC one:
+  // the container runs UTC, so a 00:00–07:00 WIB transaction would otherwise be
+  // numbered with yesterday — and merged into yesterday's sequence.
+  const dateStr = todayWib().replace(/-/g, '');
   const prefix = `LDR-${dateStr}`;
 
   const lastTransaction = await prisma.laundryTransaction.findFirst({

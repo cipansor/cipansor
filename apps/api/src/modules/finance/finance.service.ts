@@ -24,6 +24,7 @@ import {
 import { seesAllUnits } from '@/utils/resolve-unit-id';
 import { CLASS_ENROLLMENT_STATUS, STUDENT_STATUS } from '@cipansor/shared';
 import { nisMapForUnit } from '@/utils/student-nis';
+import { wibMonthYear, wibDate, dayDate, utcMonthRange } from '@/utils/wib-day';
 
 // =====================================
 // PAYMENT TYPE SERVICE
@@ -112,10 +113,11 @@ export async function deletePaymentType(id: string) {
 
 async function generateInvoiceNumber(
   unitId?: string,
-  tx?: Prisma.TransactionClient
+  tx?: Prisma.TransactionClient,
+  at: Date = new Date()
 ): Promise<string> {
-  const year = new Date().getFullYear();
-  const month = String(new Date().getMonth() + 1).padStart(2, '0');
+  const { year, month: monthIndex } = wibMonthYear(at);
+  const month = String(monthIndex + 1).padStart(2, '0');
 
   const dbClient: any = tx || prisma;
 
@@ -189,7 +191,7 @@ export async function createInvoice(data: CreateInvoiceDto, tx?: Prisma.Transact
           ...invoiceData,
           invoiceNumber,
           amount: finalAmount.lt(0) ? 0 : finalAmount,
-          dueDate: new Date(data.dueDate),
+          dueDate: dayDate(data.dueDate),
           student: { connect: { id: studentId } },
           paymentType: { connect: { id: paymentTypeId } },
         },
@@ -390,7 +392,7 @@ export async function updateInvoice(id: string, data: UpdateInvoiceDto) {
     data: {
       ...data,
       ...(data.amount && { amount: new Prisma.Decimal(data.amount) }),
-      ...(data.dueDate && { dueDate: new Date(data.dueDate) }),
+      ...(data.dueDate && { dueDate: dayDate(data.dueDate) }),
     },
     include: {
       student: {
@@ -1068,14 +1070,12 @@ export async function getStudentFinanceSummary(studentId: string) {
 }
 
 export async function getUnitFinanceStats(unitId: string, month?: string) {
-  const dateFilter = month
-    ? {
-        dueDate: {
-          gte: new Date(`${month}-01`),
-          lt: new Date(new Date(`${month}-01`).setMonth(new Date(`${month}-01`).getMonth() + 1)),
-        },
-      }
-    : {};
+  let dateFilter: { dueDate?: { gte: Date; lt: Date } } = {};
+  if (month) {
+    const [year, monthIndex] = month.split('-').map(Number);
+    const { start, end } = utcMonthRange(year, monthIndex - 1);
+    dateFilter = { dueDate: { gte: start, lt: end } };
+  }
 
   // Tagihan unit = tagihan jenis bayar unit itu, termasuk milik santri yang
   // sejak itu pindah unit — tunggakannya tetap piutang unit penerbit.
@@ -1451,8 +1451,16 @@ export async function generateBulkSppInvoices(data: {
   year: number;
   month: number; // 0-11
   dueDay?: number;
+  /**
+   * The instant the run belongs to, used only to number the invoices it
+   * creates. A backdated run (`runMonthlyAutoBilling(at)`) bills `year`/`month`
+   * but must number its invoices from that same month, not from the wall clock
+   * — otherwise an August run labels its invoices `INV-202609-`. Defaults to
+   * now, so a manual bulk run from the UI is unchanged.
+   */
+  at?: Date;
 }) {
-  const { unitId, classId, paymentTypeId, year, month, dueDay = 10 } = data;
+  const { unitId, classId, paymentTypeId, year, month, dueDay = 10, at = new Date() } = data;
 
   const paymentType = await prisma.paymentType.findUnique({
     where: { id: paymentTypeId },
@@ -1478,7 +1486,7 @@ export async function generateBulkSppInvoices(data: {
     },
   });
 
-  const dueDate = new Date(year, month, dueDay);
+  const dueDate = wibDate(year, month, dueDay);
   const period = `${
     [
       'Januari',
@@ -1498,6 +1506,10 @@ export async function generateBulkSppInvoices(data: {
 
   const createdInvoices = [];
 
+  // The billed month, as the date-only bounds the due date column uses, so the
+  // guard matches an invoice from this run on any server timezone.
+  const { start: monthStart, end: monthEnd } = utcMonthRange(year, month);
+
   for (const student of students) {
     // Check if invoice already exists for this student/month
     const existing = await prisma.invoice.findFirst({
@@ -1505,14 +1517,14 @@ export async function generateBulkSppInvoices(data: {
         studentId: student.id,
         paymentTypeId,
         dueDate: {
-          gte: new Date(year, month, 1),
-          lt: new Date(year, month + 1, 1),
+          gte: monthStart,
+          lt: monthEnd,
         },
       },
     });
 
     if (!existing) {
-      const invoiceNumber = await generateInvoiceNumber();
+      const invoiceNumber = await generateInvoiceNumber(undefined, undefined, at);
       const invoice = await prisma.invoice.create({
         data: {
           studentId: student.id,
@@ -1536,10 +1548,9 @@ export async function generateBulkSppInvoices(data: {
 }
 
 // Generate recurring bills for all active students (Auto-billing scheduler)
-export async function generateRecurringBills() {
-  const year = new Date().getFullYear();
-  const month = new Date().getMonth();
-  const dueDate = new Date(year, month, 10);
+export async function generateRecurringBills(at: Date = new Date()) {
+  const { year, month } = wibMonthYear(at);
+  const dueDate = wibDate(year, month, 10);
   const period = `${
     [
       'Januari',
@@ -1580,6 +1591,9 @@ export async function generateRecurringBills() {
     return { processed, created, skipped };
   }
 
+  // The billed month, as the date-only bounds the due date column uses.
+  const { start: monthStart, end: monthEnd } = utcMonthRange(year, month);
+
   // Process billing for each student matching payment types
   for (const student of activeStudents) {
     // Determine applicable payment types for this student (matching unitId)
@@ -1594,14 +1608,14 @@ export async function generateRecurringBills() {
           studentId: student.id,
           paymentTypeId: paymentType.id,
           dueDate: {
-            gte: new Date(year, month, 1),
-            lt: new Date(year, month + 1, 1),
+            gte: monthStart,
+            lt: monthEnd,
           },
         },
       });
 
       if (!existing) {
-        const invoiceNumber = await generateInvoiceNumber();
+        const invoiceNumber = await generateInvoiceNumber(undefined, undefined, at);
         await prisma.invoice.create({
           data: {
             studentId: student.id,

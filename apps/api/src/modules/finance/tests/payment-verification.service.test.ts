@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { Prisma } from '@prisma/client';
 
-vi.mock('../../lib/prisma', () => {
+vi.mock('../../../lib/prisma', () => {
   const mockPrisma = {
     invoice: { findUnique: vi.fn(), update: vi.fn() },
     payment: {
@@ -19,17 +19,17 @@ vi.mock('../../lib/prisma', () => {
   return { prisma: mockPrisma };
 });
 
-vi.mock('../notifications/notifications.service', () => ({
+vi.mock('../../notifications/notifications.service', () => ({
   createNotification: vi.fn().mockResolvedValue({}),
 }));
 
-vi.mock('./accounting-config.service', () => ({
+vi.mock('../accounting-config.service', () => ({
   ACCOUNT_MAPPING_KEYS: { BANK: 'BANK', CASH: 'CASH' },
   getAccountOrFallback: vi.fn().mockResolvedValue({ id: 'acc-bank' }),
 }));
 
-import { prisma } from '../../lib/prisma';
-import { submitPaymentProof, verifyPayment } from './finance.service';
+import { prisma } from '../../../lib/prisma';
+import { submitPaymentProof, verifyPayment } from '../finance.service';
 
 const mocked = prisma as any;
 
@@ -231,7 +231,7 @@ describe('verifyPayment state machine', () => {
     mocked.payment.findUnique.mockResolvedValueOnce(
       paymentInStatus('TU_APPROVED', { tuVerifiedById: 'staff-1', invoice: tagihanLama })
     );
-    const { getAccountOrFallback } = await import('./accounting-config.service');
+    const { getAccountOrFallback } = await import('../accounting-config.service');
 
     await verifyPayment('pay-1', 'FINAL_APPROVE', unitAdmin);
 

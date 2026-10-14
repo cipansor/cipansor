@@ -1,0 +1,73 @@
+# Re-triage an issue after another automation has responded, or after new
+# activity, without a trigger on `issues.edited`.
+#
+# Why: nothing in the fleet fires on `issues.edited`, so a reporter who edits an
+# issue description gets no re-triage (found on #818, whose body was edited twice
+# after triage with no answer). The triage owner is dispatched deterministically
+# instead:
+#
+#   labeled -> a bot applied a type or priority label; the labeler responded, so
+#              the triage owner studies the issue and the bot's comment. The
+#              labeler's burst of labels collapses to one dispatch per
+#              type+priority state (a marker comment).
+#   sweep   -> an open, not-`ready` issue's activity signal (body + non-fleet
+#              comments) changed since the bridge's last checkpoint, so an edited
+#              description or a new comment is caught without a trigger on
+#              `issues.edited`. The description is never touched by this workflow.
+#
+# The signal is content, not a timestamp, so a same-second edit is still caught.
+# The triage owner is idempotent, so a duplicate dispatch is not a duplicate
+# comment; the markers only save runs. A marker is written only after the
+# dispatch is accepted, so a failure is retried by the next sweep. The rules live
+# in .github/scripts/issue-triage-bridge.sh so they can be run by hand.
+name: Issue triage bridge
+
+on:
+  issues:
+    types: [labeled]
+  schedule:
+    - cron: '17 * * * *' # hourly, off the top of the hour (gate-watch uses :23)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: issue-triage-bridge-${{ github.event.issue.number || 'sweep' }}
+  cancel-in-progress: false
+
+jobs:
+  labeled:
+    name: Dispatch triage after a bot's label
+    if: github.event_name == 'issues'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Dispatch the triage owner for the labelled issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: sh .github/scripts/issue-triage-bridge.sh --stdin < "$GITHUB_EVENT_PATH"
+
+  sweep:
+    name: Sweep not-ready issues with new activity
+    if: github.event_name != 'issues'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Dispatch the triage owner for issues with activity since triage
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: sh .github/scripts/issue-triage-bridge.sh --sweep

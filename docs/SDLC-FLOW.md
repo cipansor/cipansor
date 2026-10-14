@@ -91,6 +91,60 @@ pertentangan itu dilaporkan sebagai issue.
     Pengawas armada melaporkan pemakaian per automation setiap minggu, dan
     automation yang melampaui anggarannya berhenti sampai maintainer
     memutuskan.
+14. **Mengakui dulu, baru bekerja.** Sebelum menangani apa pun, automation
+    menambahkan reaction 👀 pada objek yang ditanganinya (issue, PR, atau
+    komentar), supaya orang melihat automation bekerja sebelum jawabannya tiba
+    (diminta pengguna 2026-10-13). Pemicu komentar ditangani workflow
+    `acknowledge.yml`; automation lain melakukannya dari promptnya.
+15. **Issue: komentar dulu, body saat `ready`.** Selama issue belum `ready`,
+    triase, estimasi, kriteria, dan pertanyaan terbuka ditulis sebagai
+    **komentar** — percakapan kerja. **Body** issue hanya diperbarui saat bot
+    memasang `ready`: ringkasan final ditulis ke body di bawah penanda tetap
+    (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. PR berbeda — putusan
+    tinjauan dan hasil QA ditulis ke **body** PR di bawah penanda (mis.
+    `<!-- sdlc:gerbang -->`), karena PR sudah artefak yang selesai. Setiap body
+    dibuka dengan basmalah.
+16. **`ready` adalah klaim kuat, dan eksklusif.** `ready` hanya diberikan bila
+    automation **sangat yakin**: tujuan jelas, kriteria penerimaan konkret, tanpa
+    pertanyaan terbuka. Selama masih ada yang perlu dibahas, diputuskan, atau
+    dikritisi, jangan `ready` dulu. `ready` tidak boleh bersama `question`,
+    `needs-info`, atau `pending-maintainer` (#814).
+17. **Hanya `cipansor-bot` yang melabeli.** Label yang dipasang akun lain
+    dicabut workflow `label-guard.yml`, kecuali label keputusan manusia
+    (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`). Automasi membaca
+    label, jadi label manual membuat keduanya berbeda pendapat.
+18. **Prioritas berbukti.** Prioritas dinilai dari dampak, urgensi, dan risiko;
+    apa pun di atas `medium` WAJIB menyebut bukti konkret, tanpa bukti maksimum
+    `medium`, dan bila ragu pilih yang lebih rendah. `critical` hanya untuk
+    layanan mati total, kehilangan/korupsi data, atau masalah keamanan/privacy
+    yang aktif bisa dieksploitasi. Jangan menginflasi `critical`.
+19. **Triase ulang dipicu setelah automation lain menanggapi.** Tak satu pun
+    automation memicu `issues.edited`. Sebuah jembatan deterministik
+    (`issue-triage-bridge.yml` + `.github/scripts/issue-triage-bridge.sh`)
+    mendispatch pemilik triase saat bot memasang label tipe/prioritas, dan saat
+    **sinyal aktivitas** sebuah issue belum `ready` berubah sejak checkpoint
+    terakhir jembatan. Sinyalnya adalah hash dari body issue plus setiap
+    komentar **bukan-armada** (penulis + `updated_at` + body) — jadi suntingan
+    deskripsi, komentar baru, atau komentar yang disunting semuanya mengubah
+    sinyal. Karena sinyalnya isi, bukan timestamp beresolusi detik, suntingan
+    pelapor pada detik yang sama dengan tulisan penanda tetap tertangkap
+    (perbandingan `<=`-detik lama menelannya). Komentar armada sendiri (bot dan
+    GitHub Actions) tidak dihitung, sehingga balasan bot tak pernah memicu
+    triase ulang dirinya — itu yang menutup loop. Idempoten: satu putaran = satu
+    dispatch (penanda per keadaan tipe+prioritas dalam jendela burst 300 dtk,
+    dan satu penanda sweep per issue). Penanda hanya ditulis setelah dispatch
+    diterima (HTTP 2xx), jadi dispatch yang gagal diulang sweep berikutnya dan
+    run-nya gagal keras. Issue lama yang ringkasannya ada di body tanpa
+    komentar penanda (ditriase sebelum jembatan ini ada) tetap disapu sekali,
+    bukan dilewati selamanya. Sapuan memproses setiap kandidat tanpa membiarkan
+    satu issue yang tak perlu dispatch menghentikannya, dan membaca sampai
+    `SWEEP_PAGES` halaman (urut aktivitas terbaru) sementara `SWEEP_MAX`
+    membatasi jumlah dispatch per run.
+20. **Deskripsi PR tidak ditanggapi otomatis.** Tidak ada pemicu
+    `pull_request.edited`; gerbang tinjau yang sudah ada membaca deskripsi PR,
+    issue tertaut, seluruh diff, dan semua komentar. Sebuah pemicu edit akan
+    bertabrakan dengan `basmalah.yml` yang mem-PATCH body sebagai
+    `github-actions[bot]`.
 
 ### Alur ujung ke ujung
 
@@ -104,7 +158,7 @@ flowchart TD
   TR -- keamanan --> ADV["advisory privat"]:::human
   TR -- needs-info --> CL["Penjernih issue"]:::cloud --> TR
   TR -- decision --> DEC["riset + pilihan ganda"]:::cloud --> MD{"maintainer memilih"}:::human --> TR
-  TR -- ready --> Q["antrean WIP ≤ 3"]:::gh --> IMP["Tiket jadi PR"]:::cloud
+  TR -- ready --> HO["penyerahan: label bot-implement"]:::gh --> IMP["Tiket jadi PR"]:::cloud
   IMP --> CI["CI + E2E"]:::gh --> LC{"pr-lifecycle: hijau + ready?"}:::gh
   LC -- ya --> GT["Gerbang tinjau PR"]:::cloud
   GT -- "minta perubahan (≤ 3 putaran)" --> IMP
@@ -121,10 +175,10 @@ flowchart TD
 | # | Tahap | Pemicu | Pemilik | Keluaran | Lanjut bila |
 |---|---|---|---|---|---|
 | 1 | Laporan | manusia, atau temuan automation berkala | pelapor | issue sesuai templat; temuan keamanan → advisory privat | issue terbuka |
-| 2 | Triase | `issues.opened` | `Pelabel issue` | **satu** komentar: tipe, prioritas, duplikat, kesiapan, estimasi | label `ready` / `needs-info` / `question` / `decision` / `duplicate` |
-| 3 | Klarifikasi | balasan pelapor pada `needs-info` | `Penjernih issue` | penilaian ulang dalam komentar triase yang sama | `ready` |
+| 2 | Triase | `issues.opened` | `Pelabel issue` | **satu** komentar: tipe, prioritas (berbukti), duplikat, kesiapan, estimasi | label `ready` / `needs-info` / `question` / `decision` / `duplicate` |
+| 3 | Klarifikasi | balasan pelapor pada `needs-info`, label bot, atau aktivitas baru (jembatan triase) | `Penjernih issue` / `Triase bug` | komentar penilaian ulang; body issue diperbarui hanya saat `ready` | `ready` |
 | 4 | Keputusan | label `decision` | agen riset → maintainer | riset bersumber + pilihan ganda; maintainer memilih | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready` |
-| 5 | Implementasi | `ready` dan antrean WIP < 3 | `Tiket jadi PR` | PR draf dengan templat, uji, bukti, `Fixes #n` | daftar periksa penulis lengkap → ready for review |
+| 5 | Implementasi | label `bot-implement` (`Bot sebutan`, atau maintainer); `ready` saja TIDAK memicu bot | `Tiket jadi PR` | PR draf dengan templat, uji, bukti, `Fixes #n` | daftar periksa penulis lengkap → ready for review |
 | 6 | CI | push | Actions | Build, Lint, Tests, Security, E2E | semua hijau |
 | 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`) | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion` | approve |
 | 8 | Perbaikan | review minta perubahan | `Tiket jadi PR` | ikuti atau tolak dengan alasan; ≤ 3 putaran | head baru hijau → tahap 7 |
@@ -163,7 +217,7 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | pemeriksa Actions: PR ready dan hijau tanpa review gerbang pada head itu > 2 jam | satu issue `gerbang-macet` dan dispatch ulang sekali |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | dispatch ulang sekali per head, satu komentar per head, dan satu issue `automation-health` yang memuat semuanya (#776) |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
@@ -180,7 +234,9 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    triase atau estimasi dari automation berbeda. Gabungkan menjadi satu
    pemilik dan satu komentar yang diperbarui (invarian 3–4).
 2. **Gerbang tinjau diam.** Gerbang pernah tidak menjawab sebelas jam tanpa
-   ada yang tahu. Tambahkan pemeriksa Actions (tabel kegagalan, baris 1).
+   ada yang tahu, lalu sehari penuh pada lima PR (2026-10-10). Pemeriksa
+   Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
+   masuk.
 3. **Cron yang bertentangan dengan keputusan.** Matikan `Penjaga issue`
    (penutupan berdasarkan umur) dan `Uji beban` bulanan; k6 berjalan lewat
    `load-tests.yml` sebelum rilis.
@@ -253,8 +309,10 @@ butir mengikuti aturan emas di `AGENTS.md`):
 
 1. **Maintainer** mematikan cron cloud `Penjaga issue` dan `Uji beban` di
    `app.all-hands.dev`.
-2. **Pemeriksa gerbang macet** (Actions): PR ready dan hijau tanpa review
-   gerbang pada head itu > 2 jam → satu issue `gerbang-macet` dan satu
+2. **Pengawas gerbang tinjau** (Actions, `gate-watch.yml` #776): PR ready dan
+   seluruh check gerbangnya hijau (hadir lengkap, set yang sama dengan
+   `pr-lifecycle`) tanpa review gerbang pada head itu lebih dari 60 menit → satu issue
+   `automation-health` yang memuat semuanya, satu komentar per head, dan satu
    dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
    merge.
 3. **Triase satu pemilik**: hanya `Pelabel issue` yang menulis triase,
@@ -276,6 +334,14 @@ butir mengikuti aturan emas di `AGENTS.md`):
    `Gerbang tinjau PR`.
 8. **Laporan pemakaian mingguan** pada `Pengawas armada`: menit Actions dan
    token per automation, dibanding anggarannya.
+
+**Setiap kali membuat atau mengubah automation yang dipicu komentar**
+(`issue_comment.created`), sebelum menyalakannya: pastikan filternya memuat
+`!icontains(comment.body, 'This comment was created by an AI agent')`, lalu
+uji dengan satu komentar contoh yang berfooter itu. Komentar itu **tidak boleh**
+memicunya. Ini satu-satunya titik yang mencegah loop #680. Pemeriksaan berkala
+datang sesudah anggarannya habis, jadi tidak dipasang
+(`.claude/memory/decisions/otomasi-armada.md` butir 8).
 
 ## Menyeluruh
 
@@ -440,8 +506,10 @@ flowchart TD
 | 22:00 Jumat     | Pembuat catatan rilis | memotong pre-release `-rc` berikutnya → catatan di body Release |
 | 08:30 tanggal 1 | Audit kematangan      | menilai 18 item → satu issue                                    |
 
-Actions terjadwal: hanya `duplicate-sweep` (harian 01:30 UTC = 08:30 WIB,
-menutup issue atau PR duplikat 7 hari setelah peringatan). Actions berbasis
+Actions terjadwal: `duplicate-sweep` (harian 01:30 UTC = 08:30 WIB,
+menutup issue atau PR duplikat 7 hari setelah peringatan) dan `gate-watch`
+(tiap jam, menit ke-23: PR siap yang hijau lebih dari 60 menit tanpa review
+gerbang pada head-nya didispatch ulang sekali dan dicatat). Actions berbasis
 event: `deploy-watch.yml`, sesudah tiap `Deploy staging`/`Deploy production`
 selesai. Manual: `load-tests.yml` (k6 vs staging), langkah wajib sebelum tiap
 rilis produksi (`docs/deploy-azure.md` → "How a change is released").
@@ -525,8 +593,10 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   tidak ada issue ganda. Keduanya butuh rahasia repo `OPENHANDS_API_KEY`.
 - **Konsekuensi deterministik milik Actions.** Jembatan hasil CI, penutupan
   duplikat 7 hari, pemeriksaan ketidaksesuaian label, jembatan kegagalan
-  `main`, dan pengawas deploy adalah skrip, bukan agen: harus menyala tepat waktu dan tidak memakan
-  token.
+  `main`, pengawas deploy, pencabutan label yang dipasang akun lain
+  (`label-guard.yml`), basmalah pada setiap deskripsi (`basmalah.yml`), dan
+  pengakuan reaction 👀 (`acknowledge.yml`) adalah skrip, bukan agen: harus
+  menyala tepat waktu dan tidak memakan token.
 - **Satu masalah, satu peringatan.** Setiap kegagalan punya tepat satu
   pelapor, dan pelapor itu menyimpan penanda per run sehingga run yang sama
   tidak dilaporkan dua kali:
@@ -536,6 +606,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   | CI atau E2E di `main` | `main-failure-bridge.yml` → `Pemantau deployment` | diagnosis penyebab (kode mana, mengapa) — butuh penilaian, jadi agen |
   | `Deploy staging`/`Deploy production` gagal, macet > 45 menit, atau hijau tetapi `/healthz` tidak menyajikan commit-nya | `deploy-watch.yml` (skrip) | id run, commit, baris log yang gagal — gejala yang pasti, jadi skrip |
   | Situs menurun tanpa deploy (kontainer restart, pengaturan rusak) | Health check App Service + availability test Application Insights | dari platform, di luar repositori |
+  | Gerbang tinjau di-dispatch tetapi tidak meninjau head yang hijau | `gate-watch.yml` (skrip) | satu issue `automation-health` berisi daftar PR, head, dan sejak kapan hijau; diperbarui di tempat dan ditutup saat kosong |
 
   Run deploy yang `skipped` (gerbangnya tidak jalan karena CI/E2E gagal) tidak
   dilaporkan pengawas deploy: penyebabnya sudah dilaporkan bridge. Rantai

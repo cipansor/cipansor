@@ -18,7 +18,7 @@
 import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { parse } from "yaml";
+import { parseAllDocuments } from "yaml";
 import semver from "semver";
 
 const REGISTRY = process.env.NPM_REGISTRY_URL || "https://registry.npmjs.org";
@@ -55,9 +55,10 @@ const isBackported = (name, version, range) =>
  * Advisories accepted for a while because nothing can be done yet: no patched
  * release exists, and the package is installed only for development tooling.
  *
- * A pin in `pnpm.overrides` is the fix whenever a fixed version exists. When
- * none does, the alternative is a red Security job on every PR and on `main`
- * — which also stops the staging deploy — until a third party publishes one.
+ * A pin in the `overrides` map of `pnpm-workspace.yaml` is the fix whenever a
+ * fixed version exists. When none does, the alternative is a red Security job
+ * on every PR and on `main` — which also stops the staging deploy — until a
+ * third party publishes one.
  * An entry here waives exactly one advisory (by its URL) on exactly one
  * version, and only while all three hold:
  *
@@ -94,7 +95,23 @@ if (!(threshold in SEVERITY_RANK)) {
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
-const lockfile = parse(readFileSync(resolve(repoRoot, "pnpm-lock.yaml"), "utf8"));
+// pnpm 12 writes the lockfile as TWO YAML documents: the first pins the
+// package manager itself (`packageManagerDependencies`, plus the `@pnpm/exe`
+// packages), the second holds the workspace tree. `parse()` rejects that with
+// MULTIPLE_DOCS, so read every document and union the top-level maps
+// (`importers`, `packages`, `snapshots`) rather than letting a later document
+// overwrite an earlier one's packages.
+const lockfile = parseAllDocuments(
+  readFileSync(resolve(repoRoot, "pnpm-lock.yaml"), "utf8"),
+).reduce((merged, doc) => {
+  for (const [key, value] of Object.entries(doc.toJSON() ?? {})) {
+    merged[key] =
+      value && typeof value === "object" && !Array.isArray(value)
+        ? { ...(merged[key] ?? {}), ...value }
+        : value;
+  }
+  return merged;
+}, {});
 
 // pnpm-lock v9: `packages:` keys look like "qs@6.14.1" or
 // "@scope/name@1.2.3(peer@x)(...)" — strip the peer suffix, split on the

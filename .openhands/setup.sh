@@ -20,7 +20,7 @@ log()  { printf '\n=== [cipansor setup] %s ===\n' "$*"; }
 warn() { printf '!!! [cipansor setup] %s\n' "$*" >&2; }
 
 # --- toolchain -------------------------------------------------------------
-# pnpm 9.15.9 is pinned by package.json "packageManager"; corepack activates
+# pnpm 12.11.2 is pinned by package.json "packageManager"; corepack activates
 # exactly that version. Node >= 20 (CI pins 22).
 log "toolchain"
 command -v node >/dev/null 2>&1 && echo "node $(node --version)" || warn "node not found (need >= 20)"
@@ -30,7 +30,7 @@ if ! command -v pnpm >/dev/null 2>&1; then
   hash -r
 fi
 if ! command -v pnpm >/dev/null 2>&1; then
-  COREPACK_ENABLE_STRICT=0 corepack prepare pnpm@9.15.9 --activate >/dev/null 2>&1 || true
+  COREPACK_ENABLE_STRICT=0 corepack prepare pnpm@12.11.2 --activate >/dev/null 2>&1 || true
   hash -r
 fi
 if ! command -v pnpm >/dev/null 2>&1; then

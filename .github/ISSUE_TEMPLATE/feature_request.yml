@@ -6,6 +6,8 @@ body:
   - type: markdown
     attributes:
       value: |
+        بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
+
         Automation `Pelabel issue` menetapkan tipe yang benar (`enhancement`,
         `documentation`, `refactor`, `chore`, `security`) dan prioritas, lalu
         menandai issue ini `ready` begitu kolom di bawah terisi cukup untuk

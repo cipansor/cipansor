@@ -33,6 +33,9 @@ is_code() {
   case "$1" in
     docs/DEPLOYMENT.md) return 0 ;; # decommissioned-modules.guard.test.ts pins its numbers
     docs/LABELS.md) return 0 ;; # the label/lifecycle guard tests read it
+    docs/SDLC-FLOW.md) return 0 ;; # automation-fleet.guard.test.ts checks its comment-first rule
+    .github/pull_request_template.md) return 0 ;; # automation-fleet.guard.test.ts checks its basmalah
+    .github/ISSUE_TEMPLATE/bug_report.yml | .github/ISSUE_TEMPLATE/feature_request.yml) return 0 ;; # automation-fleet.guard.test.ts checks their basmalah
     .claude/hooks/guard.sh) return 0 ;; # agent-guard.guard.test.ts runs it
     *.md | docs/* | .claude/* | .github/ISSUE_TEMPLATE/* | LICENSE | LICENSE.*) return 1 ;;
     *) return 0 ;;

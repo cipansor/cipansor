@@ -2,11 +2,70 @@ packages:
   - apps/*
   - packages/*
 
-onlyBuiltDependencies:
-  - '@prisma/client'
-  - '@prisma/engines'
-  - '@scarf/scarf'
-  - esbuild
-  - prisma
-  - sharp
-  - unrs-resolver
+# Only the dependencies that need a build step may run install scripts. pnpm 10
+# turned this into a real control (scripts are denied by default); pnpm 11
+# renamed the key from `onlyBuiltDependencies` to `allowBuilds`, a name→boolean
+# map where an absent package is denied with ERR_PNPM_IGNORED_BUILDS. The old
+# key is still accepted but no longer grants anything, which makes a stale
+# allowlist look enforced while being dead. Keep the map complete: a missing
+# entry fails `pnpm install` outright.
+allowBuilds:
+  '@prisma/client': true
+  '@prisma/engines': true
+  esbuild: true
+  prisma: true
+  sharp: true
+  unrs-resolver: true
+  # Telemetry-only scripts: named and denied on purpose, so the intent is
+  # visible rather than silently dropped from the list.
+  '@scarf/scarf': false
+  'core-js': false
+
+# pnpm 12's SECOND permission surface: a dependency that ships `skills/<name>/`
+# has it linked into the agent-skill directory after approval — install scripts
+# are governed by `allowBuilds`, skills are not. `allowBuilds` alone therefore
+# reads as the whole answer while covering only build scripts. Decide every
+# carrier here, like the build map above: `@tanstack/react-table` (a direct
+# `apps/web` dependency) ships three skills and is denied on purpose, so no
+# third-party skill content reaches `.claude/skills` (and its `.agents/skills`
+# symlink) where every agent reads it. A new carrier awaiting approval fails the
+# pnpm-supply-chain guard test.
+permissions:
+  '@tanstack/react-table':
+    skills: false
+
+# pnpm 12 no longer reads `pnpm.overrides` from package.json; they live here.
+overrides:
+  qs: ^6.16.0
+  '@types/express-serve-static-core': 5.1.0
+  '@babel/core': '>=7.29.1'
+  '@hono/node-server': '>=1.19.13'
+  body-parser: '>=2.3.0'
+  brace-expansion@1: '>=1.1.21 <2'
+  brace-expansion@5: '>=5.0.9'
+  dompurify: '>=3.4.16'
+  fast-uri: '>=4.1.5'
+  fflate: '>=0.8.3'
+  form-data: '>=4.0.6'
+  hono: '>=4.12.25'
+  ip-address: '>=10.7.2'
+  js-yaml: '>=5.4.1'
+  multer: '>=2.2.0'
+  mysql2: '>=3.22.0'
+  nanoid@3: 3.3.18
+  next: '>=16.2.11'
+  nodemailer: '>=10.0.9'
+  postcss: '>=8.5.23'
+  proxy-addr: '>=2.0.8'
+  rollup: '>=4.22.4'
+  seroval: '>=1.6.3'
+  sharp: '>=0.35.0'
+  source-map-js: '>=1.2.2'
+  vite: ^8.1.4
+  ws: '>=8.21.0'
+  deepmerge-ts: '>=8.0.0'
+
+# pnpm 12 delays adopting a release for a day by default. This repo is pinned
+# and audited deliberately; the delay only breaks resolution of packages that
+# published in the last 24h.
+minimumReleaseAge: 0

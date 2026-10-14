@@ -1,0 +1,46 @@
+# Only `cipansor-bot` labels. A protected label applied by any other account is
+# removed and the account is told once. Labels are the machine-readable
+# interface between the OpenHands automations and the GitHub Actions guards
+# (docs/LABELS.md), so a hand-applied `ready`, `priority:*` or type label makes
+# the two disagree about an issue's real state.
+#
+# The protected set is every label that exists in the repository minus the
+# human-decision labels (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`),
+# read at run time — never hardcoded, so a new label is protected the moment it
+# is created. A GitHub App (`*[bot]`) is exempt: the Actions workflows label
+# through `github-actions[bot]`, and revoking those would break the guards.
+#
+# The rules live in .github/scripts/label-guard.sh so they can be run by hand.
+name: Label guard
+
+on:
+  issues:
+    types: [labeled]
+  pull_request_target:
+    types: [labeled]
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: label-guard-${{ github.event.issue.number || github.event.pull_request.number }}-${{ github.event.label.name }}
+  cancel-in-progress: false
+
+jobs:
+  revoke:
+    name: Only cipansor-bot may label
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Revoke a label applied by anyone but the bot
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          BOT_LOGIN: cipansor-bot
+        run: sh .github/scripts/label-guard.sh --stdin < "$GITHUB_EVENT_PATH"

@@ -42,8 +42,9 @@ describe('no push channel without a decision', () => {
     '%s depends on no push-channel package',
     (file) => {
       const pkg = JSON.parse(read(file));
-      // Direct dependencies only: `pnpm.overrides` pins versions of transitive
-      // packages (tooling pulls in `ws`) and opens no channel of ours.
+      // Direct dependencies only: `overrides` in pnpm-workspace.yaml pins
+      // versions of transitive packages (tooling pulls in `ws`) and opens no
+      // channel of ours.
       const deps = {
         ...pkg.dependencies,
         ...pkg.devDependencies,

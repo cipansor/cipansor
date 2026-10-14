@@ -15,8 +15,8 @@ not of the diff: a newly published advisory reddens every open PR at once, and
    range and the advisory URL.
 2. If it prints only `Bulk advisory endpoint returned 503` (no package, no
    range), the endpoint failed — run it again before pinning anything.
-3. The fix is almost always a pin in the **root** `package.json` →
-   `pnpm.overrides` (a curated list of exactly these pins; the package is
+3. The fix is almost always a pin in the **root** `pnpm-workspace.yaml` →
+   `overrides` (a curated list of exactly these pins; the package is
    usually transitive). Then `pnpm install` — commit the lockfile, CI installs
    `--frozen-lockfile` — and re-run until it reports 0 advisories. Run the full
    gate afterwards: an override can pull in a transitive major.

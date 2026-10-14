@@ -255,6 +255,10 @@ fi
 # starts a fresh, bounded conversation and cannot pile up.
 GATE_ID="${SDLC_REVIEW_GATE_ID:-96eebf19-b64b-4035-9653-2d8b15b06ac4}"
 if [ -n "${OPENHANDS_API_KEY:-}" ]; then
+  # Acknowledge: the gate is about to run on this PR, so react 👀 on it. The
+  # reporter sees the automation is working before the review lands (asked
+  # 2026-10-13). Best-effort — a reaction must never fail the dispatch.
+  sh "$(dirname "$0")/reaction.sh" "$PR" 2>/dev/null || true
   body=$(jq -n --arg pr "$PR" --arg sha "$CHECK_SHA" \
     '{source: "gate-bridge", pr: $pr, head_sha: $sha}')
   # curl exits 0 on any HTTP answer, a 401 included, so the status code is what

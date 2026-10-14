@@ -34,18 +34,27 @@ export const queryPaymentTypeSchema = z.object({
 // INVOICE SCHEMAS
 // =====================================
 
+/**
+ * A bill's deadline is a calendar day, not an instant: "due 10 August" means
+ * the whole of that day in Tasikmalaya. `dueDate` is stored as that day's
+ * date-only value (midnight UTC) and the monthly guard, the reminder window
+ * and the academic-year bounds all compare it as a date — so the input is the
+ * same day, not a timestamp the writer would silently truncate.
+ */
+const dueDateField = z.string().date('Invalid due date');
+
 export const createInvoiceSchema = z.object({
   studentId: z.string().uuid('Invalid student ID'),
   paymentTypeId: z.string().uuid('Invalid payment type ID'),
   amount: z.number().positive('Amount must be positive'),
-  dueDate: z.string().datetime('Invalid due date'),
+  dueDate: dueDateField,
   period: z.string().optional(),
   notes: z.string().optional(),
 });
 
 export const updateInvoiceSchema = z.object({
   amount: z.number().positive().optional(),
-  dueDate: z.string().datetime().optional(),
+  dueDate: dueDateField.optional(),
   status: z.nativeEnum(PaymentStatus).optional(),
   notes: z.string().optional(),
 });

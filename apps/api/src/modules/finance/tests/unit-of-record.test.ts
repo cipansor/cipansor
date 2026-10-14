@@ -11,7 +11,7 @@ import { Prisma } from '@prisma/client';
  * tunggakannya pindah dari laporan SD IT ke laporan SMP IT.
  */
 
-vi.mock('../../lib/prisma', () => {
+vi.mock('../../../lib/prisma', () => {
   const mockPrisma = {
     invoice: { findUnique: vi.fn(), findMany: vi.fn(), update: vi.fn(), groupBy: vi.fn() },
     payment: { create: vi.fn(), findMany: vi.fn(), count: vi.fn() },
@@ -23,24 +23,24 @@ vi.mock('../../lib/prisma', () => {
   mockPrisma.$transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(mockPrisma));
   return { prisma: mockPrisma };
 });
-vi.mock('../notifications/notifications.service', () => ({
+vi.mock('../../notifications/notifications.service', () => ({
   createNotification: vi.fn().mockResolvedValue({}),
 }));
-vi.mock('./accounting-config.service', () => ({
+vi.mock('../accounting-config.service', () => ({
   ACCOUNT_MAPPING_KEYS: { BANK: 'BANK', CASH: 'CASH' },
   getAccountOrFallback: vi.fn().mockResolvedValue({ id: 'akun-kas' }),
 }));
 vi.mock('@/lib/event-bus', () => ({ eventBus: { emit: vi.fn() } }));
 
-import { prisma } from '../../lib/prisma';
-import { getAccountOrFallback } from './accounting-config.service';
+import { prisma } from '../../../lib/prisma';
+import { getAccountOrFallback } from '../accounting-config.service';
 import { eventBus } from '@/lib/event-bus';
 import {
   createPayment,
   getPendingVerifications,
   getStudentOutstandingBalances,
   getUnitFinanceStats,
-} from './finance.service';
+} from '../finance.service';
 
 const db = prisma as unknown as Record<string, Record<string, ReturnType<typeof vi.fn>>>;
 

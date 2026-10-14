@@ -179,7 +179,7 @@ cookie HttpOnly dan 2FA (TOTP), node-cron, Vitest.
 **Web (`apps/web`)** — Next.js 16 (App Router), React 19, Tailwind CSS + Radix UI,
 React Query, Zustand, PWA dengan Web Push, Playwright dan Vitest.
 
-**Repo dan infrastruktur** — pnpm 9 workspaces + Turborepo 2, Docker,
+**Repo dan infrastruktur** — pnpm 12 workspaces + Turborepo 2, Docker,
 GitHub Actions, Azure App Service ([`docs/deploy-azure.md`](docs/deploy-azure.md)).
 
 ---
@@ -188,7 +188,7 @@ GitHub Actions, Azure App Service ([`docs/deploy-azure.md`](docs/deploy-azure.md
 
 ### Prasyarat
 
-- Node.js 22 dan pnpm 9 (lewat Corepack)
+- Node.js 22 dan pnpm 12.11.2 (lewat Corepack)
 - Docker, untuk PostgreSQL 16 dan Redis 7 (layanan `db` dan `redis` di `docker-compose.yml`)
 
 ### Langkah

@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { JournalReferenceType } from '@cipansor/shared';
+import { todayWib } from '../../utils/wib';
 import { getAccountOrFallback, ACCOUNT_MAPPING_KEYS } from '../finance/accounting-config.service';
 import { isPeriodOpen } from '../finance-enhancement/period.service';
 import type {
@@ -367,8 +368,11 @@ export const itemService = {
 // `unitId` parameter AND include it in both the lock key and the WHERE
 // clause of the `findFirst` query — they must stay in sync.
 const generateTransactionNo = async (tx: Prisma.TransactionClient): Promise<string> => {
-  const today = new Date();
-  const dateStr = today.toISOString().slice(0, 10).replace(/-/g, '');
+  // The date on the transaction number — and the advisory lock key below — is a
+  // WIB calendar day, not the UTC one: the container runs UTC, so a 00:00–07:00
+  // WIB sale would otherwise be numbered with yesterday and merged into
+  // yesterday's sequence (and lock).
+  const dateStr = todayWib().replace(/-/g, '');
   const prefix = `CNT-${dateStr}`;
 
   // Acquire a transaction-scoped advisory lock keyed to the date to serialize

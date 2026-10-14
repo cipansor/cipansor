@@ -20,7 +20,7 @@ RUN --mount=type=secret,id=proxyca,required=false \
       cat /run/secrets/proxyca >> /etc/ssl/certs/ca-certificates.crt; \
     fi && \
     NODE_EXTRA_CA_CERTS=/run/secrets/proxyca corepack enable && \
-    NODE_EXTRA_CA_CERTS=/run/secrets/proxyca corepack prepare pnpm@9.0.0 --activate
+    NODE_EXTRA_CA_CERTS=/run/secrets/proxyca corepack prepare pnpm@12.11.2 --activate
 
 # Manifests only (api + shared; web is intentionally omitted).
 FROM base AS manifests

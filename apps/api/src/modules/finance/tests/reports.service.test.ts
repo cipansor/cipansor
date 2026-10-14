@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 
-vi.mock('../../lib/prisma', () => ({
+vi.mock('../../../lib/prisma', () => ({
   prisma: {
     accountCode: { findMany: vi.fn() },
     journalEntry: { aggregate: vi.fn() },
@@ -10,13 +10,13 @@ vi.mock('../../lib/prisma', () => ({
   },
 }));
 
-vi.mock('./accounting.service', () => ({
+vi.mock('../accounting.service', () => ({
   getTrialBalance: vi.fn(),
 }));
 
-import { prisma } from '../../lib/prisma';
-import { getTrialBalance } from './accounting.service';
-import * as reportsService from './reports.service';
+import { prisma } from '../../../lib/prisma';
+import { getTrialBalance } from '../accounting.service';
+import * as reportsService from '../reports.service';
 
 const mockedTB = vi.mocked(getTrialBalance);
 const mocked = prisma as unknown as Record<string, Record<string, ReturnType<typeof vi.fn>>>;

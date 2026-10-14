@@ -2,6 +2,8 @@
      meninjau PR yang siap; check merah atau permintaan perubahan tampil di PR
      dan branch protection menahan merge sampai diselesaikan. -->
 
+بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
+
 ## HUMAN
 
 <!-- Penulis manusia: ganti komentar ini dengan catatan singkat tentang apa yang
