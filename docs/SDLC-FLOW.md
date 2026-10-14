@@ -589,12 +589,17 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   juga menerima `workflow_run`, tetapi pengantarannya belum terbukti, jadi ia
   bukan sandaran. Karena itu `Gerbang tinjau PR` tidak _menunggu_ CI: ia
   bertindak saat dipicu dan memeriksa check-run sendiri, tidak melakukan apa pun
-  selama masih ada yang berjalan, dan `pr-lifecycle.yml` men-dispatch-nya begitu
-  semua check wajib lulus: pada `workflow_run` (CI, E2E selesai) dan pada
-  `pull_request: ready_for_review`. Pemicu kedua ada karena PR yang hanya berisi
-  dokumen men-skip Lint/Build/Tests/E2E, sehingga tidak pernah menghasilkan
-  `workflow_run` sesudah ditandai siap; tanpa pemicu itu PR dokumen tidak pernah
-  ditinjau (#708). `Pemantau deployment` memakai
+  selama masih ada yang berjalan. Dispatch-nya milik `pr-lifecycle.yml`, yang
+  menyala begitu semua check wajib lulus: pada `workflow_run` (CI, E2E selesai)
+  dan pada `pull_request: ready_for_review`. Jalur kedua ada karena PR yang
+  hanya berisi dokumen men-skip Lint/Build/Tests/E2E, sehingga tidak pernah
+  menghasilkan `workflow_run` sesudah ditandai siap; tanpa jalur itu PR dokumen
+  tidak pernah ditinjau (#708). Gerbang **tidak** memakai pemicu event
+  `pull_request.ready_for_review` sendiri (#840): pemicu itu menyala saat PR
+  ditandai siap tanpa tahu check-nya sudah hijau, sehingga run bisa dimulai lalu
+  berhenti tanpa meninjau. Pemicu event gerbang kini hanya
+  `pull_request.review_requested`, disaring ke `requested_reviewer.login ==
+  'cipansor-bot'`. `Pemantau deployment` memakai
   pola yang sama: `main-failure-bridge.yml` men-dispatch-nya saat CI atau E2E di
   `main` selesai gagal dan run yang gagal itu masih menjadi tip `main`; event `workflow_run` di automation
   itu hanya pelengkap best-effort, dan promptnya melakukan dedupe per run ID agar

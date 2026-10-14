@@ -145,6 +145,21 @@
     Prompt dan tarball runner 24 automation diperbarui lewat
     `scripts/deploy-sdlc-agents.py` (idempoten; `main.py`/`setup.sh` tidak
     disentuh).
+17. **Gerbang tinjau hanya berjalan setelah siap + hijau** (2026-10-14,
+    pengguna; #840). `pr-lifecycle.sh` sudah men-dispatch gerbang pada
+    `workflow_run` begitu semua check wajib hijau — untuk PR biasa maupun PR
+    dokumen (yang tidak menghasilkan `workflow_run` sesudah ditandai siap,
+    tetapi tertangkap jalur `pull_request: ready_for_review` di `pr-lifecycle`
+    itu sendiri). Karena itu pemicu **event** gerbang `pull_request.ready_for_review`
+    dihapus: ia menyala saat PR ditandai siap tanpa tahu check-nya sudah hijau,
+    sehingga run bisa dimulai, menemukan check masih berjalan, lalu berhenti
+    tanpa meninjau — run terbuang. Pemicu event gerbang kini hanya
+    `pull_request.review_requested` (permintaan tinjauan manual, disaring ke
+    `requested_reviewer.login == 'cipansor-bot'`); dispatch biasa tetap milik
+    `pr-lifecycle.sh`. Diterapkan lewat `PATCH` trigger automation `SDLC 18`
+    (id tetap `96eebf19…`). Kegagalan sandbox saat dispatch (`Timed out: Sandbox
+    not available`, `Failed to get execution context`) adalah masalah kapasitas
+    terpisah — #839/#841.
 
 ## Sumber
 
