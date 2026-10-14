@@ -47,10 +47,9 @@ GATE_LOGIN="${GATE_LOGIN:-cipansor-bot}"
 NOW="${NOW:-$(date -u +%s)}"
 GATE_ID="${SDLC_REVIEW_GATE_ID:-96eebf19-b64b-4035-9653-2d8b15b06ac4}"
 ISSUE_MARK="<!-- gate-watch:health -->"
-# Every automated comment carries the AI-disclosure footer, so a
-# comment-triggered automation never mistakes it for a person (docs/LABELS.md,
-# the #680 loop guard).
-AI_FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers._"
+# Automated comments carry no AI-disclosure footer: the anti-loop guard is the
+# comment's author (`cipansor-bot`), not the footer text — the account name
+# already tells a reader the comment is automated (#680).
 
 # The checks that make up the required gate, the same set pr-lifecycle.sh
 # dispatches on. A green subset (E2E not started yet) must never be mistaken for
@@ -184,7 +183,7 @@ if [ ! -s "$SILENT" ]; then
     exit 0
   fi
   if [ -n "$ISSUE" ]; then
-    printf '%s\n' "Tidak ada lagi PR siap yang menunggu gerbang tinjau lebih dari ${WAIT_MINUTES} menit. Ditutup; issue ini dibuka lagi bila ada yang diam lagi." "" "$AI_FOOTER" > "$DIR/close"
+    printf '%s\n' "Tidak ada lagi PR siap yang menunggu gerbang tinjau lebih dari ${WAIT_MINUTES} menit. Ditutup; issue ini dibuka lagi bila ada yang diam lagi." > "$DIR/close"
     gh issue comment "$ISSUE" --repo "$REPO" --body-file "$DIR/close" >/dev/null
     gh api -X PATCH "repos/$REPO/issues/$ISSUE" -f state=closed -f state_reason=completed >/dev/null
     echo "No PR waiting on the gate; closed #$ISSUE."
@@ -205,7 +204,7 @@ fi
   sort -n "$SILENT" | while read -r n sha since; do
     printf '| #%s | `%s` | %s |\n' "$n" "$(printf '%s' "$sha" | cut -c1-9)" "$(iso "$since")"
   done
-  printf '%s\n' "" "Diperbarui oleh \`gate-watch.yml\` setiap jam, hanya saat daftarnya berubah, dan ditutup saat daftarnya kosong (#776)." "" "$AI_FOOTER"
+  printf '%s\n' "" "Diperbarui oleh \`gate-watch.yml\` setiap jam, hanya saat daftarnya berubah, dan ditutup saat daftarnya kosong (#776)."
 } > "$DIR/body"
 
 if [ -n "$ISSUE" ]; then
@@ -254,8 +253,7 @@ sort -n "$SILENT" | while read -r n sha since; do
     retry="Dispatch ulang tidak dicoba: \`OPENHANDS_API_KEY\` tidak tersedia untuk workflow ini."
   fi
   printf '%s\n' "$mark" "" \
-    "Gerbang tinjau belum meninjau head \`$(printf '%s' "$sha" | cut -c1-9)\`, padahal semua check-nya selesai hijau sejak $(iso "$since") UTC. $retry Run \`Gerbang tinjau PR\` untuk PR ini ada di riwayat automation OpenHands Cloud; dicatat juga di #$ISSUE." \
-    "" "$AI_FOOTER" > "$DIR/pr-$n"
+    "Gerbang tinjau belum meninjau head \`$(printf '%s' "$sha" | cut -c1-9)\`, padahal semua check-nya selesai hijau sejak $(iso "$since") UTC. $retry Run \`Gerbang tinjau PR\` untuk PR ini ada di riwayat automation OpenHands Cloud; dicatat juga di #$ISSUE." > "$DIR/pr-$n"
   gh pr comment "$n" --repo "$REPO" --body-file "$DIR/pr-$n" >/dev/null
   echo "PR #$n: commented about $sha."
 done

@@ -230,23 +230,25 @@ cannot tell the automation's own comment from a reporter's. Issue #680 showed
 the consequence: `Penjernih issue` re-armed itself and posted eleven comments in 27
 minutes, each a full LLM run.
 
-The only marker is the AI-disclosure footer every automated comment carries:
-
-```
-This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers.
-```
+The marker is the comment's **author**. Every automated comment is posted as
+`cipansor-bot` (the fleet's account, `user.type: User`) or as a GitHub App
+(`github-actions[bot]`, `openhands-ai[bot]`, `user.type: Bot`, login ending in
+`[bot]`). No comment carries an AI-disclosure footer — the account name already
+tells a reader the comment is automated, so the footer was dropped on
+2026-10-14.
 
 Every automation whose trigger is `issue_comment.created` **must** add this
 negative filter, or it will loop:
 
 ```
-!icontains(comment.body, 'This comment was created by an AI agent')
+comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'
 ```
 
-The automations live outside this repository, so the guard is enforced where
-they are deployed: each comment trigger is validated against a sample automated
-comment before it is enabled, and every automated comment ends with the footer
-above.
+The filter must key on the author, never on body text: a footer match is
+fragile (an edited or reworded comment evades it) and it makes the account's own
+name redundant. The automations live outside this repository, so the guard is
+enforced where they are deployed: each comment trigger is validated against a
+sample automated comment before it is enabled.
 
 ## Templates feed these labels
 

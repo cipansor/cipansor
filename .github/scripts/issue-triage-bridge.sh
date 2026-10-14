@@ -62,10 +62,10 @@ SWEEP_PAGES="${SWEEP_PAGES:-5}"
 # than this collapses the burst to one dispatch. A later change to a type or
 # priority the issue held before still dispatches once the window has passed.
 BURST_WINDOW="${BURST_WINDOW:-300}"
-# Every marker comment carries the AI-disclosure footer: without it a
-# comment-triggered automation (Penjernih issue on `needs-info`, or
-# acknowledge.yml) would read the marker as a reporter's reply and fire.
-FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers._"
+# Every marker comment is posted as `github-actions[bot]`, so the comment-triggered
+# automations (Penjernih issue on `needs-info`, acknowledge.yml) already tell it
+# from a reporter by its author — the `*[bot]` login — and no AI-disclosure
+# footer is needed (#680).
 MARK_PREFIX="<!-- triage-bridge-sweep:"
 
 
@@ -125,11 +125,8 @@ state_marker_age() { # state_marker_age <number> <marker>
 post_marker() { # post_marker <number> <marker>
   n="$1"; m="$2"
   tmp=$(mktemp)
-  # The marker stays greppable (has_comment matches it as a substring); the
-  # footer is appended so the marker is not mistaken for a reporter's reply.
-  jq -n --arg body "$m
-
-$FOOTER" '{body: $body}' > "$tmp"
+  # The marker stays greppable (has_comment matches it as a substring).
+  jq -n --arg body "$m" '{body: $body}' > "$tmp"
   gh api "repos/$REPO/issues/$n/comments" -X POST --input "$tmp" >/dev/null 2>&1 \
     || echo "::warning::could not record the triage-bridge marker on #$n."
   rm -f "$tmp"
@@ -177,9 +174,7 @@ write_sweep_marker() { # write_sweep_marker <number> <signal>
   tmp=$(mktemp)
   # The signal is the checkpoint: it is the activity this run has answered, so
   # the next sweep only re-dispatches when the signal changes again.
-  jq -n --arg body "$MARK_PREFIX$n:$sig -->
-
-$FOOTER" '{body: $body}' > "$tmp"
+  jq -n --arg body "$MARK_PREFIX$n:$sig -->" '{body: $body}' > "$tmp"
   if [ -n "$cid" ]; then
     gh api "repos/$REPO/issues/comments/$cid" -X PATCH --input "$tmp" >/dev/null 2>&1 \
       || echo "::warning::could not update the triage-bridge marker on #$n."

@@ -28,7 +28,6 @@ BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
 # to hand an issue to the bot. Everything else is the bot's.
 EXEMPT_LABELS="${EXEMPT_LABELS:-rilis-disetujui rilis-ditolak bot-implement}"
 
-AI_FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._"
 REVOKE_MARK="<!-- label-guard:revoked -->"
 
 # Every existing label except the human-decision ones. Read once per run.
@@ -111,7 +110,6 @@ if [ -n "$conflict" ]; then
       --jq '.[].body' 2>/dev/null | grep -qF "$READY_MARK"; then
     RBODY="Label \`ready\` dicabut dari #$NUMBER karena bertentangan dengan \`$conflict\`: issue yang masih punya pertanyaan terbuka atau menunggu keputusan belum siap dikerjakan. \`ready\` hanya diberikan bila sangat yakin — tanpa pertanyaan terbuka. Hilangkan dulu \`$conflict\`-nya (jawab pertanyaannya, atau putuskan), lalu \`ready\` boleh dipasang lagi.
 
-$AI_FOOTER
 $READY_MARK"
     gh api "repos/$REPO/issues/$NUMBER/comments" -f body="$RBODY" >/dev/null \
       || echo "::warning::could not post the ready-conflict notice on #$NUMBER."
@@ -163,7 +161,6 @@ esac
 
 BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Sebutkan apa yang Anda inginkan dan bot akan memasangnya. Label keputusan manusia (\`rilis-disetujui\`, \`rilis-ditolak\`, \`bot-implement\`) tetap boleh dipasang manual.$ALERT
 
-$AI_FOOTER
 $REVOKE_MARK"
 
 # One notice per item: a repeat run must not stack comments.

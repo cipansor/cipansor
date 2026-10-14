@@ -405,36 +405,52 @@ describe('reaction.sh', () => {
 });
 
 describe('acknowledge.sh', () => {
-  const event = (opts: { association?: string; labels?: string[]; body?: string; bot?: boolean }) =>
+  const event = (opts: {
+    association?: string;
+    labels?: string[];
+    body?: string;
+    login?: string;
+  }) =>
     JSON.stringify({
       action: 'created',
       comment: {
         id: 555,
-        body: opts.bot
-          ? 'Reply\n\n_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._'
-          : (opts.body ?? 'A reply'),
+        body: opts.body ?? 'A reply',
         author_association: opts.association ?? 'NONE',
+        user: { login: opts.login ?? 'reporter' },
       },
       issue: { number: 7, labels: (opts.labels ?? []).map((name) => ({ name })) },
     });
 
-  it('acknowledges an @openhands mention', () => {
+  it('acknowledges an @cipansor-bot mention', () => {
     const { calls } = run(
       ACKNOWLEDGE,
       { GH_STUB_LOGIN: 'cipansor-bot' },
       ['--stdin'],
-      event({ association: 'OWNER', body: '@openhands please look' })
+      event({ association: 'OWNER', body: '@cipansor-bot please look' })
     );
     expect(calls).toContain('REACT_COMMENT');
   });
 
-  it('does not acknowledge an outsider’s @openhands mention', () => {
+  it('does not acknowledge an outsider’s @cipansor-bot mention', () => {
     // `Bot sebutan` is maintainer-triggered; a stray mention starts nothing.
     const { calls } = run(
       ACKNOWLEDGE,
       { GH_STUB_LOGIN: 'cipansor-bot' },
       ['--stdin'],
-      event({ association: 'NONE', body: '@openhands please look' })
+      event({ association: 'NONE', body: '@cipansor-bot please look' })
+    );
+    expect(calls).not.toContain('REACT_COMMENT');
+  });
+
+  it('does not acknowledge an @openhands mention', () => {
+    // `@openhands` wakes the OpenHands GitHub App, not the fleet; the fleet's
+    // summon is `@cipansor-bot`, so an `@openhands` comment is not acknowledged.
+    const { calls } = run(
+      ACKNOWLEDGE,
+      { GH_STUB_LOGIN: 'cipansor-bot' },
+      ['--stdin'],
+      event({ association: 'OWNER', body: '@openhands please look' })
     );
     expect(calls).not.toContain('REACT_COMMENT');
   });
@@ -470,12 +486,19 @@ describe('acknowledge.sh', () => {
     expect(calls).not.toContain('REACT_COMMENT');
   });
 
-  it("never acknowledges the bot's own comment", () => {
+  it("never acknowledges the bot's own comment, by author", () => {
+    // The guard is the author, not a footer: the bot's comment carries no
+    // AI-disclosure footer any more, and it is still not acknowledged.
     const { calls } = run(
       ACKNOWLEDGE,
       { GH_STUB_LOGIN: 'cipansor-bot' },
       ['--stdin'],
-      event({ association: 'OWNER', labels: ['needs-info'], bot: true })
+      event({
+        association: 'COLLABORATOR',
+        labels: ['needs-info'],
+        login: 'cipansor-bot',
+        body: 'Triase selesai.',
+      })
     );
     expect(calls).not.toContain('REACT_COMMENT');
   });
@@ -618,8 +641,10 @@ describe('fleet contracts', () => {
     expect(read(join(WORKFLOWS, 'label-guard.yml'))).toContain('"$GITHUB_EVENT_PATH"');
   });
 
-  it('keeps the AI-disclosure footer in the label-guard notice', () => {
-    expect(read(LABEL_GUARD)).toContain(AI_FOOTER);
+  it('keeps no AI-disclosure footer in the label-guard notice', () => {
+    // The anti-loop guard is the author (`cipansor-bot`), not a footer; the
+    // notice carries none.
+    expect(read(LABEL_GUARD)).not.toContain(AI_FOOTER);
   });
 
   it('wires the triage bridge into a workflow that fires on labels and a sweep', () => {
@@ -681,8 +706,10 @@ describe('fleet contracts', () => {
 
 describe('deploy-sdlc-agents.py', () => {
   const hasPy = spawnSync('python3', ['--version']).status === 0;
+  // The mandate paragraph and the footer line it mandates, as a live prompt
+  // still carries them. The redeploy must strip both (2026-10-14).
   const FOOTER =
-    '_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._';
+    'Setiap komentar yang Anda tulis ke GitHub WAJIB diakhiri dengan baris footer persis ini, kata demi kata, dalam bahasa Inggris (guard anti-loop bergantung pada teksnya):\n_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._';
 
   // Call the real new_prompt(name, prompt) from the script (its __main__ is
   // guarded, so importing it does nothing else).
@@ -701,6 +728,15 @@ describe('deploy-sdlc-agents.py', () => {
     if (r.status !== 0) throw new Error(r.stderr || 'python failed');
     return r.stdout;
   };
+
+  it.skipIf(!hasPy)('strips the AI-disclosure footer mandate from the head', () => {
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nTail`;
+    const out = newPrompt('SDLC 03', original);
+    expect(out).not.toContain('This comment was created by an AI agent');
+    expect(out).not.toContain('WAJIB diakhiri dengan baris footer');
+    // The body block still lands, now anchored on the task paragraph.
+    expect(out).toContain('BODY ISSUE/PR — KOMENTAR DULU');
+  });
 
   it.skipIf(!hasPy)('keeps the original tail when it has no replacement tail', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nAturan khusus yang harus utuh`;
@@ -724,6 +760,25 @@ describe('deploy-sdlc-agents.py', () => {
     const out = newPrompt('SDLC 01', original);
     expect(out).not.toContain('OLD tail');
     expect(out).toContain('KRITIS dan habis-habisan');
+  });
+
+  it.skipIf(!hasPy)('rewrites the legacy footer filter in a kept tail to the author filter', () => {
+    // A tail with no replacement keeps its text, except the self-comment filter:
+    // the footer is gone, so a body-text match would match nothing.
+    const legacy = "!icontains(comment.body, 'This comment was created by an AI agent')";
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nPeriksa filter ${legacy} pada tiap trigger.`;
+    const out = newPrompt('SDLC 03', original);
+    expect(out).not.toContain(legacy);
+    expect(out).toContain("comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'");
+  });
+
+  it.skipIf(!hasPy)('summons @cipansor-bot in the Bot sebutan tail, not @openhands', () => {
+    // `@openhands` wakes the OpenHands GitHub App; the fleet's summon is
+    // `@cipansor-bot` (split 2026-10-14, one mention must not fire two agents).
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD tail`;
+    const out = newPrompt('SDLC 07', original);
+    expect(out).toContain('menyebut @cipansor-bot');
+    expect(out).toContain('`@openhands` bukan pemicu Anda');
   });
 
   it.skipIf(!hasPy)('rebuilds from an original even when the live prompt lost its tail', () => {
@@ -795,8 +850,7 @@ describe('issue-triage-bridge.sh', () => {
       : '[]';
     return createHash('sha256').update(`${line1}\n${line2}\n`).digest('hex').slice(0, 16);
   };
-  const sweepMarker = (n: number, sig: string) =>
-    `<!-- triage-bridge-sweep:${n}:${sig} -->\n\n_This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers._`;
+  const sweepMarker = (n: number, sig: string) => `<!-- triage-bridge-sweep:${n}:${sig} -->`;
 
   it('dispatches the triage owner when a bot applies a type label', () => {
     const { calls, out } = runBridge(
@@ -837,15 +891,15 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).not.toContain('DISPATCH');
   });
 
-  it('marks its own marker comment with the AI-disclosure footer', () => {
-    // Without the footer, a comment-triggered automation (Penjernih issue on
-    // `needs-info`, or acknowledge.yml) would read the marker as a reply.
+  it('carries no AI-disclosure footer on its marker comment', () => {
+    // The marker posts as `github-actions[bot]`; a comment-triggered automation
+    // tells it from a reporter by that `*[bot]` author, so no footer is needed.
     const { calls } = runBridge(
       { GH_STUB_ISSUE_LABELS: 'bug+priority:high' },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'bug')
     );
-    expect(calls).toContain(AI_FOOTER);
+    expect(calls).not.toContain(AI_FOOTER);
   });
 
   it('collapses the labeler’s burst to one dispatch per type+priority state', () => {

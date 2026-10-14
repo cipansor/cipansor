@@ -19,10 +19,9 @@
 <!-- Agen AI/LLM: jangan menyunting bagian HUMAN. Jangan menuliskan apa yang
      hendak Anda lakukan — tulis apa yang Anda jalankan dan apa yang
      dikembalikannya. Menguji dengan unit test saja tidak cukup untuk perubahan
-     yang bisa dicoba pengguna; jalankan jalur nyatanya dan tunjukkan. Akhiri
-     setiap komentar dengan footer AI-disclosure supaya PR ini tidak memicu
-     automation atas teksnya sendiri:
-     "_This comment was created by an AI agent (OpenHands) on behalf of <user>._" -->
+     yang bisa dicoba pengguna; jalankan jalur nyatanya dan tunjukkan. Automation
+     armada memakai akun `cipansor-bot`, jadi komentarnya tidak perlu footer
+     AI-disclosure: guard anti-loop memakai penulis komentar, bukan teksnya. -->
 
 ## Why
 

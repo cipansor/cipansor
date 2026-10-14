@@ -125,6 +125,23 @@
       manusia (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`) tetap boleh
       manual. Automasi membaca label, jadi label manual membuat keduanya
       berbeda pendapat.
+    - **Dua sebutan, dua penanggap; guard penulis, tanpa footer** (2026-10-14,
+      pengguna; keputusan "A dan lanjut E"). `@openhands` membangunkan OpenHands
+      GitHub App (`openhands-ai[bot]`) — yang membuka conversation OpenHands
+      Cloud sendiri dan membuka PR; `@cipansor-bot` membangunkan armada
+      repositori ini (`Bot sebutan` dan kerabatnya). Keduanya dulu menanggapi
+      `@openhands`, jadi satu sebutan memicu **dua** penanggap (terbukti di
+      timeline PR #828). Guard anti-loop (#680) pindah dari teks footer ke
+      **penulis komentar**: filter `comment.user.login != 'cipansor-bot' &&
+      comment.user.type != 'Bot'`. Karena itu footer AI-disclosure dihapus dari
+      setiap komentar `cipansor-bot` — nama akunnya sudah menandai komentar itu
+      otomatis. Penghapusan footer dan pemindahan guard harus bersama: tanpa
+      footer, guard teks tidak lagi menemukan apa pun; tanpa guard penulis,
+      automation akan meloop. Berlaku di skrip `.github/scripts/*`
+      (`acknowledge.sh`, `label-guard.sh`, `duplicate-sweep.sh`, `gate-watch.sh`,
+      `pr-lifecycle.sh`, `pr-template-guard.sh`, `visual-evidence.sh`,
+      `issue-triage-bridge.sh`) dan di prompt 24 automation (paragraf mandat
+      footer dihapus oleh `deploy-sdlc-agents.py`).
     Prompt dan tarball runner 24 automation diperbarui lewat
     `scripts/deploy-sdlc-agents.py` (idempoten; `main.py`/`setup.sh` tidak
     disentuh).

@@ -181,9 +181,7 @@ if [ -n "$missing" ]; then
     printf '%s\n' "$missing"
     printf '%s\n' "" \
       "Check \`PR description\` gagal sampai ini diperbaiki. Lihat" \
-      "\`docs/LABELS.md\`." \
-      "" \
-      "_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._"
+      "\`docs/LABELS.md\`."
   } > "$OUT"
   if [ -n "$CID" ]; then
     # -F, not -f: only a typed field reads `@file`. With -f the comment became

@@ -164,7 +164,8 @@ describe('gate-watch.sh', () => {
     expect(calls).toContain('CREATE');
     expect(created).toContain('<!-- gate-watch:health -->');
     expect(created).toContain('| #7 | `abc123def` |');
-    expect(created).toContain('This comment was created by an AI agent');
+    // No AI-disclosure footer: the anti-loop guard is the comment's author.
+    expect(created).not.toContain('This comment was created by an AI agent');
     expect(calls).toContain('PCOMMENT 7');
     expect(calls).toContain(`<!-- gate-watch:${HEAD} -->`);
     expect(calls).toContain('dicatat juga di #900');

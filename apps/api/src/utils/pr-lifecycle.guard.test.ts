@@ -380,7 +380,7 @@ describe('pr-lifecycle.sh', () => {
     expect(out).toContain('HTTP 401');
   });
 
-  it('carries the AI-disclosure footer on the all-green notice', () => {
+  it('carries no AI-disclosure footer on the all-green notice', () => {
     const { calls } = run({
       GH_STUB_STATE: 'OPEN',
       GH_STUB_DRAFT: 'true',
@@ -388,6 +388,7 @@ describe('pr-lifecycle.sh', () => {
       GH_STUB_CHECKS: allGreen,
       GH_STUB_COMMENTS_LIST: '[]',
     });
-    expect(calls).toContain('This comment was created by an AI agent');
+    // The anti-loop guard is the comment's author (`cipansor-bot`), not a footer.
+    expect(calls).not.toContain('This comment was created by an AI agent');
   });
 });

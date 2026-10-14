@@ -29,12 +29,12 @@ set -eu
 REPO="${REPO:?REPO is required}"
 GRACE_DAYS="${GRACE_DAYS:-7}"
 MARK="<!-- duplicate-sweep:warned -->"
-# Comments that carry this footer are automated and must not count as a human
-# reply - otherwise one bot comment exempts a duplicate forever. The sweep's own
-# comments must carry it too, or a comment-triggered automation cannot tell them
-# from a reporter's (docs/LABELS.md, the #680 loop guard).
-AI_DISCLOSURE="This comment was created by an AI agent"
-AI_FOOTER="$AI_DISCLOSURE (OpenHands) on behalf of the repository maintainers."
+# The account that posts every automated comment. A comment by it, or by any
+# GitHub App (`*[bot]`), is automated and must not count as a human reply —
+# otherwise one bot comment exempts a duplicate forever. The guard is by author,
+# not by the AI-disclosure footer: `cipansor-bot` is a bot account, so its name
+# already says the comment is automated and no footer is needed (#680).
+BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
 
 body_hash() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 
@@ -71,9 +71,7 @@ sweep() {
 
 If a maintainer agrees it is distinct, removing the \`$dlabel\` label cancels the close. $MARK
 
-<!-- duplicate-sweep:hash:$HASH -->
-
-$AI_FOOTER"
+<!-- duplicate-sweep:hash:$HASH -->"
       echo "Warned on $noun #$n."
       continue
     fi
@@ -84,12 +82,13 @@ $AI_FOOTER"
       continue
     fi
 
-    # A comment after the warning by a person (not the automation footer, not a
-    # bot account) means the author responded; give it to a maintainer instead of
-    # closing on top of a reply. A GitHub bot's login ends in `[bot]`.
+    # A comment after the warning by a person (not the bot, not a GitHub App)
+    # means the author responded; give it to a maintainer instead of closing on
+    # top of a reply. `cipansor-bot` posts as a plain User, so it is matched by
+    # login; a GitHub App's login ends in `[bot]`.
     NEW_REPLY=$(printf '%s\n' "$RAW_COMMENTS" \
-      | awk -F '\t' -v warned="$WARNED_AT" -v ai="$AI_DISCLOSURE" \
-          '$1 > warned && index($3, ai) == 0 && $2 !~ /\[bot\]$/ { line = $3 } END { print line }' || true)
+      | awk -F '\t' -v warned="$WARNED_AT" -v bot="$BOT_LOGIN" \
+          '$1 > warned && $2 != bot && $2 !~ /\[bot\]$/ { line = $3 } END { print line }' || true)
     if [ -n "$NEW_REPLY" ]; then
       echo "$noun #$n has a reply after the warning; leaving it open for a maintainer."
       continue
@@ -114,9 +113,7 @@ $AI_FOOTER"
       continue
     fi
 
-    CLOSE_BODY="Closing as a duplicate: no response in $GRACE_DAYS days. Reopen if it is in fact distinct. $MARK
-
-$AI_FOOTER"
+    CLOSE_BODY="Closing as a duplicate: no response in $GRACE_DAYS days. Reopen if it is in fact distinct. $MARK"
     if [ "$kind" = "pr" ]; then
       gh pr close "$n" --repo "$REPO" --comment "$CLOSE_BODY"
     else

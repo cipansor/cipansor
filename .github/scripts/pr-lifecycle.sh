@@ -25,11 +25,9 @@ REPO="${REPO:?REPO is required}"
 LIFE_MARK="<!-- pr-lifecycle:"
 GREEN_MARK="<!-- pr-lifecycle:green -->"
 
-# Every lifecycle comment carries the AI-disclosure footer. A comment-triggered
-# automation cannot otherwise tell an automated comment from a reporter's, and
-# would treat "CI is red ..." as a fresh human request and re-arm (#680). The
-# footer is also what the duplicate-sweep reply scan looks for.
-AI_FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._"
+# Automated comments carry no AI-disclosure footer: the anti-loop guard is the
+# comment's author (`cipansor-bot` or a `*[bot]` App), not the footer text. The
+# account name already tells a reader the comment is automated (#680).
 
 # The checks that make up the required gate. A green result only counts as
 # "everything passed" when every one of these is present and successful on the
@@ -176,11 +174,6 @@ known_suites_seen() {
 # state is recognised.
 comment_once() { # comment_once <body> <dedupe-token>
   body="$1"; token="$2"
-  # The footer is appended here, once, so every message carries it and the
-  # dedupe comparison below sees the same text that is posted.
-  body="$body
-
-$AI_FOOTER"
   # The REST comments list gives each comment's numeric database id; the GraphQL
   # node id from `gh pr view --json comments` is rejected by
   # repos/.../issues/comments/{id}, so the GET and PATCH below must use this id.

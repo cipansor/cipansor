@@ -14,13 +14,21 @@ untuknya:
   `.github/scripts/` supaya bisa dijalankan manual.
 
 Jadwal cron cloud dalam **Asia/Jakarta (WIB)**; jadwal GHA dalam **UTC**.
-Setiap pemicu komentar membawa guard footer
-`!icontains(comment.body, 'This comment was created by an AI agent')`, karena
+Setiap pemicu komentar membawa guard penulis
+`comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`, karena
 automation memposting lewat akun yang sama dengan pelapor dan tanpa itu akan
-memicu dirinya sendiri (insiden #680). `Bot sebutan` tidak memakai guard itu;
-ia memakai `destination: continue_conversation`, sehingga setiap sebutan tentang
-satu PR/issue berbagi satu conversation dan ledakan sebutan tidak menghabiskan
-kolam sandbox.
+memicu dirinya sendiri (insiden #680). Guard-nya penulis komentar, bukan teks
+footer: nama akun `cipansor-bot` sudah menandai komentar itu otomatis, jadi
+tidak ada footer AI-disclosure yang ditulis (dihapus 2026-10-14). `Bot sebutan`
+tidak memakai guard itu; ia memakai `destination: continue_conversation`,
+sehingga setiap sebutan tentang satu PR/issue berbagi satu conversation dan
+ledakan sebutan tidak menghabiskan kolam sandbox.
+
+**Dua sebutan, dua penanggap.** `@cipansor-bot` membangunkan armada repositori
+ini (automation `Bot sebutan` dan kerabatnya). `@openhands` membangunkan
+OpenHands GitHub App (`openhands-ai[bot]`), yang membuka conversation OpenHands
+Cloud sendiri dan membuka PR. Keduanya dulu menanggapi `@openhands`, sehingga
+satu sebutan memicu dua penanggap; dipisah 2026-10-14.
 
 **Satu penulis, satu gerbang.** Hanya `Tiket jadi PR` yang membuka pull request.
 Automation lain yang menemukan masalah membuka **issue**, lalu maintainer
@@ -337,10 +345,10 @@ butir mengikuti aturan emas di `AGENTS.md`):
 
 **Setiap kali membuat atau mengubah automation yang dipicu komentar**
 (`issue_comment.created`), sebelum menyalakannya: pastikan filternya memuat
-`!icontains(comment.body, 'This comment was created by an AI agent')`, lalu
-uji dengan satu komentar contoh yang berfooter itu. Komentar itu **tidak boleh**
-memicunya. Ini satu-satunya titik yang mencegah loop #680. Pemeriksaan berkala
-datang sesudah anggarannya habis, jadi tidak dipasang
+`comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`, lalu
+uji dengan satu komentar contoh dari `cipansor-bot` (tanpa footer). Komentar itu
+**tidak boleh** memicunya. Ini satu-satunya titik yang mencegah loop #680.
+Pemeriksaan berkala datang sesudah anggarannya habis, jadi tidak dipasang
 (`.claude/memory/decisions/otomasi-armada.md` butir 8).
 
 ## Menyeluruh
@@ -366,7 +374,7 @@ flowchart TB
 
   subgraph PRL["2 · Pull request"]
     R --> C6["Tiket jadi PR"]:::cloud --> DPR([Draft PR])
-    MENT(["komentar @openhands"]):::human -. "penulis terpercaya" .-> C7["Bot sebutan"]:::cloud
+    MENT(["komentar @cipansor-bot"]):::human -. "penulis terpercaya" .-> C7["Bot sebutan"]:::cloud
     C7 -. "tugas kode" .-> BOT(["issue + bot-implement"]):::cloud -.-> C6
     DPR --> C17["Pelabel PR"]:::cloud
     DPR --> C8["Peninjau kode"]:::cloud
@@ -533,7 +541,7 @@ nyata.
 | Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                |
 | Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                  |
 | Tiket jadi PR         | **satu-satunya pembuat PR**; label `bot-implement` memicunya                                                   |
-| Bot sebutan           | menyerahkan permintaan `@openhands` yang berupa pekerjaan ke issue + `bot-implement`, atau menjawab pertanyaan |
+| Bot sebutan           | menyerahkan permintaan `@cipansor-bot` yang berupa pekerjaan ke issue + `bot-implement`, atau menjawab pertanyaan |
 | Peninjau kode         | tinjauan baris demi baris + blok `suggestion`                                                                  |
 | Pemindai celah uji    | satu celah pengujian berisiko → issue                                                                          |
 | Otomasi QA            | menjalankan alur yang berubah, melaporkan lulus/gagal                                                          |
@@ -667,7 +675,7 @@ PR` (item 1–18) memetakan satu-ke-satu ke 18 item Agentic SDLC; `Pelabel issue
 arsitektur`/`Gerbang tinjau PR` memposting blok `suggestion` GitHub sehingga
   perbaikan berlaku dengan satu klik.
 - **Guard self-comment wajib.** Setiap automation yang dipicu komentar menjaga
-  pemeriksaan footer `This comment was created by an AI agent` (#680).
+  pemeriksaan penulis `comment.user.login != 'cipansor-bot'` (#680).
 
 ## Rujukan
 
