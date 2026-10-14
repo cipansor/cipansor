@@ -112,6 +112,23 @@ describe('ServiceAccountTokenSource', () => {
     expect(await source.getAccessToken()).toBe('tok-2');
   });
 
+  it('bounds the token exchange so it cannot outlive the delivery claim', async () => {
+    // An unbounded token fetch could hang past the channel claim's one-hour
+    // lease, leaving the send that holds the claim with no outcome to record
+    // (review finding on #804).
+    const fetchMock = vi.fn(
+      async (_url: string | URL, _init?: RequestInit) =>
+        new Response(JSON.stringify({ access_token: 'tok-1', expires_in: 3600 }), { status: 200 })
+    );
+    vi.stubGlobal('fetch', fetchMock);
+
+    const source = new ServiceAccountTokenSource(credentials);
+    await source.getAccessToken();
+
+    const init = fetchMock.mock.calls[0][1] as RequestInit;
+    expect(init.signal).toBeInstanceOf(AbortSignal);
+  });
+
   it('reports the reason Google gave rather than a bare failure', async () => {
     vi.stubGlobal(
       'fetch',

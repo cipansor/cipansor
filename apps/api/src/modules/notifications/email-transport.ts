@@ -602,6 +602,20 @@ type SmtpAuthOptions =
       refreshToken: string;
     };
 
+/**
+ * Per-phase bounds on an SMTP send, so no single step can hold the delivery
+ * claim past its lease (review finding on #804). Nodemailer's own defaults are
+ * bounded but generous — 2 min to connect, 10 min of inactivity before the
+ * socket is dropped, 30 s to greet — and the pool requeues a failed connection
+ * up to five times, so one `sendMail` can run for many minutes. Each phase here
+ * is kept well inside the 60 s provider fetch so a slow send fails cleanly and
+ * the channel is retried, rather than still being in flight when the next run
+ * reclaims the channel.
+ */
+const SMTP_CONNECTION_TIMEOUT_MS = 30_000;
+const SMTP_GREETING_TIMEOUT_MS = 15_000;
+const SMTP_SOCKET_TIMEOUT_MS = 30_000;
+
 let smtpTransporter: Transporter | null = null;
 
 function getSmtpTransporter(): Transporter {
@@ -646,6 +660,17 @@ function getSmtpTransporter(): Transporter {
     // inside it and still clears a whole-school announcement in seconds.
     rateDelta: 1000,
     rateLimit: 10,
+    // Every phase of a send is bounded so it cannot outlive the delivery claim
+    // that guards it. Nodemailer's own defaults (2 min connect, 10 min idle,
+    // 30 s greeting) leave one `sendMail` able to run for minutes — long enough
+    // that a stalled connection holds the claim until another run steals it and
+    // this attempt's outcome is dropped as late (review finding on #804). These
+    // values are deliberately tighter than the 60 s provider fetch above, so a
+    // slow SMTP send fails cleanly and the channel is retried rather than being
+    // reclaimed mid-flight.
+    connectionTimeout: SMTP_CONNECTION_TIMEOUT_MS,
+    greetingTimeout: SMTP_GREETING_TIMEOUT_MS,
+    socketTimeout: SMTP_SOCKET_TIMEOUT_MS,
     ...(auth ? { auth } : {}),
   });
 
