@@ -161,6 +161,37 @@
     not available`, `Failed to get execution context`) adalah masalah kapasitas
     terpisah — #839/#841.
 
+18. **Sweep triase mengantre sendiri; checkpoint = hasil run, bukan 201**
+    (2026-10-14, pengguna; #836/#841). Sweep jembatan triase mendispatch hingga
+    `SWEEP_MAX=15` sekaligus; kolam sandbox tidak menyediakan 15 slot, sehingga
+    14 run mati `Sandbox not available`. Dua cacat: ledakan dispatch, dan
+    kegagalan senyap — penanda checkpoint ditulis saat API membalas 201,
+    sehingga run yang mati dianggap "sudah ditangani" dan tidak pernah diulang.
+    Perbaikan **C + A**: (C) penanda menyimpan id run
+    (`<!-- triage-bridge-sweep:<n>:<signal>:<run> -->`); sweep berikutnya membaca
+    **hasil run** itu — `COMPLETED` memfinalkan checkpoint, `FAILED`/`CANCELLED`/
+    `SKIPPED` mendispatch ulang, `RUNNING`/`PENDING` dibiarkan. (A) `MAX_INFLIGHT`
+    (default 3) membatasi run triase yang berjalan sekaligus; kandidat berlebih
+    ditunda ke sweep berikutnya, jadi armada tidak pernah membentuk burst yang
+    kolam tak bisa tampung. Hasil run dibaca lewat `$CURL` (bearer OpenHands),
+    bukan `gh api` (bearer GitHub).
+19. **`label-guard` tidak mencabut label tipe bawaan template** (2026-10-14,
+    pengguna; #842/#838). `bug_report.yml` memasang `bug` dan
+    `feature_request.yml` memasang `enhancement` saat issue dibuka; `label-guard`
+    mencabutnya karena bukan `cipansor-bot`, sehingga issue baru kehilangan label
+    dan mendapat komentar pencabutan yang tidak perlu. `ALLOWED_LABELS` (default
+    `bug enhancement`) dibiarkan: label tipe adalah maksud pelapor, dan pelabel
+    (SDLC 15) mencabut tipe yang bertentangan saat memasang tipe yang benar.
+    Label status (`ready`, `priority:*`, label workflow) tetap milik bot.
+20. **Tinjauan PR menyertakan checklist kriteria penerimaan** (2026-10-14,
+    pengguna; #787). `Peninjau kode` (SDLC 08) dan `Gerbang tinjau PR` (SDLC 18)
+    wajib memeriksa setiap kriteria penerimaan issue tertaut **terhadap diff**
+    (bukan terhadap deskripsi PR) dan menyajikannya sebagai checklist
+    `✅ terpenuhi` / `⚠️ sebagian` / `❌ belum`, masing-masing dengan bukti
+    (path/baris atau tes). Kriteria `❌`/`⚠️` tanpa alasan yang meyakinkan
+    menghalangi `APPROVE`.
+
+
 ## Sumber
 
 - Google SRE, "Monitoring Distributed Systems" —
