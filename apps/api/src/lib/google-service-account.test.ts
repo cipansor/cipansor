@@ -115,18 +115,34 @@ describe('ServiceAccountTokenSource', () => {
   it('bounds the token exchange so it cannot outlive the delivery claim', async () => {
     // An unbounded token fetch could hang past the channel claim's one-hour
     // lease, leaving the send that holds the claim with no outcome to record
-    // (review finding on #804).
+    // (review finding on #804). Asserting only that a signal is attached would
+    // pass for a signal with no deadline, so the deadline is pinned to the real
+    // 30 s and the abort is actually driven: `AbortSignal.timeout` schedules on
+    // a native timer vitest's fake timers do not control, so the deadline is
+    // shrunk (keeping the requested value under observation) and awaited for
+    // real.
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal);
+    const timeoutSpy = vi
+      .spyOn(AbortSignal, 'timeout')
+      .mockImplementation((ms: number) => realTimeout(Math.min(ms, 20)));
+
     const fetchMock = vi.fn(
-      async (_url: string | URL, _init?: RequestInit) =>
-        new Response(JSON.stringify({ access_token: 'tok-1', expires_in: 3600 }), { status: 200 })
+      (_url: string | URL, init?: RequestInit) =>
+        new Promise<Response>((_resolve, reject) => {
+          init?.signal?.addEventListener('abort', () =>
+            reject(init.signal?.reason ?? new Error('aborted'))
+          );
+        })
     );
     vi.stubGlobal('fetch', fetchMock);
 
     const source = new ServiceAccountTokenSource(credentials);
-    await source.getAccessToken();
 
+    await expect(source.getAccessToken()).rejects.toThrow();
+    // The requested bound is the module's own 30 s, not whatever was mocked in.
+    expect(timeoutSpy.mock.calls[0][0]).toBe(30_000);
     const init = fetchMock.mock.calls[0][1] as RequestInit;
-    expect(init.signal).toBeInstanceOf(AbortSignal);
+    expect(init.signal?.aborted).toBe(true);
   });
 
   it('reports the reason Google gave rather than a bare failure', async () => {
