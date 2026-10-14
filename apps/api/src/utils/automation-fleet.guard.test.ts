@@ -86,8 +86,21 @@ while [ $# -gt 0 ]; do
     *) [ -z "$url" ] && url="$1"; shift ;;
   esac
 done
+# A read of the triage owner's runs. A run_id= query asks one run's outcome;
+# the plain list feeds the in-flight count. Distinct log line so a test that
+# asserts on DISPATCH is not confused by a read.
+case "$url" in
+  *run_id=*)
+    log "RUNS $url"
+    printf '{"runs":[{"status":"%s"}]}' "\${CURL_STUB_RUN_STATUS:-}"; exit 0 ;;
+  */runs*)
+    log "RUNS $url"
+    runs_json="\${CURL_STUB_RUNS:-}"
+    if [ -z "$runs_json" ]; then runs_json='{"runs":[]}'; fi
+    printf '%s' "$runs_json"; exit 0 ;;
+esac
 log "DISPATCH $url"
-[ -n "$out" ] && printf '{"status":"accepted"}' > "$out"
+[ -n "$out" ] && printf '{"status":"accepted","id":"%s"}' "\${CURL_STUB_RUN_ID:-run-1}" > "$out"
 printf '%s' "$code"
 `;
 
@@ -195,7 +208,7 @@ const runBridge = (env: Record<string, string>, args: string[], stdin?: string) 
   run(BRIDGE, env, args, stdin, bridgeDir);
 
 const LABELS =
-  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nrilis-disetujui\nrilis-ditolak\nbot-implement';
+  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nrilis-disetujui\nrilis-ditolak\nbot-implement\nsource:template';
 
 const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
   JSON.stringify({
@@ -252,6 +265,22 @@ describe('label-guard.sh', () => {
     }
   });
 
+  it('leaves the issue template’s type label, applied when the issue opens', () => {
+    // #842: `bug_report.yml` sets `bug` (and `feature_request.yml` sets
+    // `enhancement`) the moment an issue is created, so revoking it fights the
+    // template and posts a notice on every new issue. The type label is the
+    // reporter's declared intent; the triage owner sets the correct one on top.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS },
+      ['--stdin'],
+      labeledEvent('adminypc', 'bug')
+    );
+    expect(calls).not.toContain('UNLABEL');
+    expect(calls).not.toContain('COMMENT');
+    expect(out).toContain('not a protected label');
+  });
+
   it('leaves a label that is not in the repository', () => {
     const { calls } = run(
       LABEL_GUARD,
@@ -267,9 +296,9 @@ describe('label-guard.sh', () => {
       LABEL_GUARD,
       { GH_STUB_LABELS: LABELS },
       ['--stdin'],
-      labeledEvent('someone', 'bug', { pr: true })
+      labeledEvent('someone', 'priority:high', { pr: true })
     );
-    expect(calls).toContain('/issues/7/labels/bug');
+    expect(calls).toContain('/issues/7/labels/priority:high');
   });
 
   it('does not stack a second notice', () => {
@@ -828,6 +857,23 @@ describe('deploy-sdlc-agents.py', () => {
       expect(out).toContain('Jangan menginflasi `critical`');
     }
   );
+
+  it.skipIf(!hasPy)(
+    'tells both PR reviewers to check the acceptance criteria as a checklist',
+    () => {
+      // The user asked twice (2026-10-14): a PR review must say whether every
+      // acceptance criterion of the linked issue is met, partly met or not, as a
+      // checklist — the diff, not the PR description, decides.
+      for (const name of ['SDLC 08', 'SDLC 18']) {
+        const out = newPrompt(name, `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`);
+        expect(out, name).toContain('KRITERIA PENERIMAAN (WAJIB)');
+        expect(out, name).toContain('✅ terpenuhi');
+        expect(out, name).toContain('⚠️ sebagian');
+        expect(out, name).toContain('❌ belum');
+        expect(out, name).toMatch(/Fixes #n/);
+      }
+    }
+  );
 });
 
 describe('issue-triage-bridge.sh', () => {
@@ -850,7 +896,8 @@ describe('issue-triage-bridge.sh', () => {
       : '[]';
     return createHash('sha256').update(`${line1}\n${line2}\n`).digest('hex').slice(0, 16);
   };
-  const sweepMarker = (n: number, sig: string) => `<!-- triage-bridge-sweep:${n}:${sig} -->`;
+  const sweepMarker = (n: number, sig: string, run = '') =>
+    `<!-- triage-bridge-sweep:${n}:${sig}:${run} -->`;
 
   it('dispatches the triage owner when a bot applies a type label', () => {
     const { calls, out } = runBridge(
@@ -960,7 +1007,7 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).toContain('POST_MARKER');
     const sweepMarkers = calls.match(/triage-bridge-sweep:818:[0-9a-f]{16}/g) ?? [];
     expect(sweepMarkers.length).toBe(1);
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('triaged')}`);
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('triaged')}:run-1`);
   });
 
   it('snapshots the signal before the label dispatch, so an edit during it is not lost', () => {
@@ -979,9 +1026,11 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).toContain('DISPATCH');
     // The checkpoint is the activity the label dispatch actually answered...
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('before')}`);
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('before')}:run-1`);
     // ...not the post-dispatch edit, which would have hidden it.
-    expect(calls).not.toContain(`triage-bridge-sweep:818:${signal('edited-during-dispatch')}`);
+    expect(calls).not.toContain(
+      `triage-bridge-sweep:818:${signal('edited-during-dispatch')}:run-1`
+    );
   });
 
   it('skips an issue whose state read fails, instead of sweeping it', () => {
@@ -1157,5 +1206,89 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).toContain('DELETE_MARKER');
     expect(calls).not.toContain('DISPATCH');
+  });
+
+  // --- #836/#841: retry on the run's result, and cap the burst ---------------
+
+  it('retries an issue whose marked run did not complete, instead of skipping it', () => {
+    // #836: the marker was written at the 201, so an unchanged signal made the
+    // sweep skip an issue whose run then died. The marker now names the run; a
+    // FAILED run must re-dispatch the same activity.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUN_STATUS: 'FAILED',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('finalises the checkpoint, without re-dispatching, when the marked run completed', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUN_STATUS: 'COMPLETED',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    // The run field is cleared, so a later sweep sees a finished checkpoint.
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: `);
+  });
+
+  it('leaves an in-flight run alone rather than dispatching it again', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUN_STATUS: 'RUNNING',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('POST_MARKER');
+  });
+
+  it('records the run id in the sweep marker, not just the 201', () => {
+    const { calls } = runBridge(
+      { GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818', GH_STUB_BODY: 'edited' },
+      ['--sweep']
+    );
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+  });
+
+  it('defers a candidate once MAX_INFLIGHT triage runs are already in flight', () => {
+    // #841: the fleet never forms the burst. With the pool already full, the
+    // candidate is deferred to the next sweep, not dispatched into a dead run.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"},{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '2',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('deferred');
+  });
+
+  it('dispatches when the in-flight count is below the cap', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '2',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
   });
 });

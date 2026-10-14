@@ -101,7 +101,7 @@ Prioritas — beri bukti, jangan mengira-ngira. Nilai dampak, urgensi, dan risik
 - Tepat satu prioritas. Apa pun di atas `medium` WAJIB menyertakan bukti konkret (path rute/berkas, jumlah pengguna/unit terdampak, tenggat, atau ID run); tanpa bukti, maksimum `medium`. Bila ragu antara dua tingkat, pilih yang LEBIH RENDAH dan catat alasannya. Jangan menginflasi `critical`. Nyatakan apakah issue menghambat pekerjaan lain. Nilai ulang prioritas di setiap putaran triase.
 
 Label:
-- Tepat satu tipe (bug/enhancement/documentation/refactor/chore/security) — tipe yang benar-benar dialami, bukan yang diminta.
+- Tepat satu tipe (bug/enhancement/documentation/refactor/chore/security) — tipe yang benar-benar dialami, bukan yang diminta. Issue bisa datang dengan label template (`bug` dari `bug_report.yml`, `enhancement` dari `feature_request.yml`) yang tidak dicabut label-guard; bila tipe itu keliru, CABUT saat memasang tipe yang benar — jangan biarkan dua tipe berdampingan.
 - `ready` HANYA bila SANGAT-SANGAT yakin: tujuan jelas, kriteria penerimaan konkret, tanpa pertanyaan terbuka. `ready` tidak boleh bersama `question`, `needs-info`, atau `pending-maintainer` — bila masih ada yang perlu dibahas, diputuskan, atau dikritisi, jangan `ready` dulu. Issue yang membawa `ready` dan `question` sekaligus adalah cacat yang harus dicegah.
 - `question` bila ini pertanyaan, bukan perubahan. `duplicate` + tautkan aslinya bila duplikat. Cacat tipis yang penyebabnya belum diketahui tetap `bug` + satu prioritas, bukan `needs-info` (Reproduksi bug menyelidikinya).
 - Jangan mengarang label; baca label repo dulu. Jangan pasang `bot-implement`.
@@ -124,6 +124,8 @@ Menjawab maintainer pada issue `pending-maintainer` atau `needs-info`. Baca perc
 """,
     "SDLC 08": """PERILAKU SASARAN (level agentic)
 Tinjau PR ini dengan KRITIS dan habis-habisan. Baca deskripsi, seluruh diff terhadap `main`, setiap thread, dan issue tertaut. Tanyakan bertubi-tubi: apa yang bisa salah, apa yang belum diuji, apa yang bertentangan dengan keputusan di `.claude/memory/decisions/`, apa yang akan pecah di produksi. Untuk masalah lokal/mekanis, kirim komentar inline berisi blok `suggestion` agar bisa diterapkan satu klik; untuk masalah struktural, usulkan perubahan konkret dalam kata-kata. Jangan approve, jangan merge. Jangan mengarang masalah agar terlihat berguna: bila diff-nya bersih, katakan itu. Tulis ringkasan putusan (temuan, tingkat keparahan, apa yang menghalangi merge) ke DESKRIPSI UTAMA PR (bagian `<!-- sdlc:tinjauan -->`), bukan hanya komentar.
+
+KRITERIA PENERIMAAN (WAJIB). Baca issue yang ditautkan PR (`Fixes #n` / `Refs #n` / body) dan periksa SETIAP kriteria penerimaannya terhadap diff, bukan terhadap deskripsi PR. Sertakan checklist dengan satu tanda per kriteria — `✅ terpenuhi`, `⚠️ sebagian`, `❌ belum` — masing-masing dengan bukti (path/baris atau tes yang membuktikannya), di tinjauanmu dan di bagian `<!-- sdlc:tinjauan -->`. Bila tidak ada kriteria eksplisit di issue, turunkan dari maksud issue dan katakan bahwa itu hasil turunan. Sebuah kriteria `❌` atau `⚠️` tanpa penjelasan adalah temuan yang harus muncul di putusan.
 """,
     "SDLC 10": """PERILAKU SASARAN (level agentic)
 Jalankan alur yang berubah pada PR ini dan laporkan lulus/gagal dengan bukti (perintah, keluaran, tangkapan layar). Kritisi habis-habisan: cari kasus batas, keadaan gagal, dan jalur yang tidak diuji. Tulis hasilnya ke DESKRIPSI UTAMA PR (bagian `<!-- sdlc:qa -->`), bukan hanya komentar.
@@ -136,6 +138,8 @@ IDEMPOTEN (WAJIB, invarian 4): sebelum menilai, cari review gerbang yang sudah a
 GERBANG CI — JANGAN MENUNGGU: pemicu utama (dispatch `pr-lifecycle`) hanya menyala saat semua check wajib sudah hijau, jadi jangan pernah mengundi-undi check. Periksa `GET /repos/cipansor/cipansor/commits/<sha>/check-runs` SEKALI saja. Bila masih ada check wajib queued/in progress, berhenti tanpa menunggu dan laporkan `check belum selesai`. Bila ada check merah, JANGAN ubah PR ke draft; cukup kirim `REQUEST_CHANGES` yang menyebut check merah.
 
 METODE: baca deskripsi PR, seluruh diff terhadap `main`, setiap thread, dan label terhadap issue tertaut; kritisi habis-habisan — kebenaran, risiko keamanan, cakupan tes, konsistensi dengan `.claude/memory/decisions/` dan AGENTS.md, dan apa yang akan pecah di produksi. Untuk tiap masalah lokal/mekanis, sertakan blok `suggestion`.
+
+KRITERIA PENERIMAAN (WAJIB). Baca issue yang ditautkan PR (`Fixes #n` / `Refs #n` / body) dan periksa SETIAP kriteria penerimaannya terhadap diff, bukan terhadap deskripsi PR. Sertakan checklist dengan satu tanda per kriteria — `✅ terpenuhi`, `⚠️ sebagian`, `❌ belum` — masing-masing dengan bukti (path/baris atau tes yang membuktikannya) di review dan di bagian `<!-- sdlc:gerbang -->`. Bila tidak ada kriteria eksplisit di issue, turunkan dari maksud issue dan katakan bahwa itu hasil turunan. Kriteria yang `❌` atau `⚠️` tanpa alasan yang meyakinkan adalah temuan yang menghalangi `APPROVE`.
 
 PUTARAN (invarian 7): hitung review gerbang yang sudah ada (penanda `<!-- sdlc:gerbang:`). Bila sudah 3 putaran perubahan, JANGAN `REQUEST_CHANGES` lagi: sampaikan sengketa sebagai pertanyaan pilihan ganda kepada maintainer (rekomendasi di urutan pertama), lalu berhenti.
 

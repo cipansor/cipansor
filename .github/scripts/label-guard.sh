@@ -7,18 +7,27 @@
 # person states what they want and the bot records it.
 #
 # The protected set is every label that exists in the repository minus the few
-# human-decision labels in EXEMPT_LABELS. It is read from the repository, never
-# hardcoded, so a new label is protected the moment it is created and the set
-# cannot drift from `gh label list`.
+# human-decision labels in EXEMPT_LABELS and the provenance labels in
+# ALLOWED_LABELS. It is read from the repository, never hardcoded, so a new label
+# is protected the moment it is created and the set cannot drift from
+# `gh label list`.
 #
 # A GitHub App (`*[bot]`) is exempt: the Actions workflows (`issue-label-sync`,
 # `deploy-watch`, the label sync itself) label through `github-actions[bot]`, and
 # revoking those would break the guards. The automations post as `cipansor-bot`
 # (the runner injects GITHUB_BOT_TOKEN), so they are covered by BOT_LOGIN.
 #
+# ALLOWED_LABELS holds labels the issue template applies by itself, not a person
+# claiming a state: `bug_report.yml` sets `bug` and `feature_request.yml` sets
+# `enhancement` the moment an issue is created, so revoking them fights the
+# template and posts a notice on every new issue (#842). A type label is the
+# reporter's declared intent — the triage owner sets the *correct* type on top of
+# it — so the guard leaves it. Everything else (`ready`, `priority:*`, the
+# workflow labels) stays the bot's.
+#
 # Usage: label-guard.sh --stdin          # a `labeled` webhook event on stdin
 #        label-guard.sh <number> <label> [actor]   # by hand
-# Env:   GH_TOKEN, REPO (owner/name), BOT_LOGIN, EXEMPT_LABELS
+# Env:   GH_TOKEN, REPO (owner/name), BOT_LOGIN, EXEMPT_LABELS, ALLOWED_LABELS
 set -eu
 
 REPO="${REPO:?REPO is required}"
@@ -27,13 +36,17 @@ BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
 # the whole point of the label), and `bot-implement` is the maintainer's choice
 # to hand an issue to the bot. Everything else is the bot's.
 EXEMPT_LABELS="${EXEMPT_LABELS:-rilis-disetujui rilis-ditolak bot-implement}"
+# Labels the issue template applies by itself. Left in place so a fresh issue is
+# not met with a revocation notice (#842).
+ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement}"
 
 REVOKE_MARK="<!-- label-guard:revoked -->"
 
-# Every existing label except the human-decision ones. Read once per run.
+# Every existing label except the human-decision ones and the repository's own.
+# Read once per run.
 protected_labels() {
-  gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null \
-    | grep -vxF "$(printf '%s\n' $EXEMPT_LABELS)" || true
+  { gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null || true; } \
+    | grep -vxF "$(printf '%s\n' $EXEMPT_LABELS $ALLOWED_LABELS)" || true
 }
 
 # The `labeled` event, read from stdin.
