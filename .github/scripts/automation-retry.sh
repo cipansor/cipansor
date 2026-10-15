@@ -243,8 +243,20 @@ printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron") |
       *)
         # The claim was written but the dispatch failed; roll it back so the
         # next pass can try, instead of burning an attempt on a rejected call.
-        kv_put "$aid" "$key" "$attempts" "$last_at" "$((version + 1))" >/dev/null 2>&1 || true
-        echo "::warning::$name: dispatch for $run answered HTTP $code; attempt rolled back."
+        # The claim moved the version by an amount this pass cannot assume — a
+        # fresh key claimed with `nx=true` lands at whatever the API assigns,
+        # not necessarily `version + 1` — so read the version back and match it.
+        # A guessed `if_version` is a 409, and swallowing that would leave the
+        # claim standing and burn the attempt in silence.
+        if kv=$(kv_get "$aid" "$key") && \
+          kv_put "$aid" "$key" "$attempts" "$last_at" "$(printf '%s' "$kv" | cut -f3)"; then
+          echo "::warning::$name: dispatch for $run answered HTTP $code; attempt rolled back."
+        else
+          # The claim may still stand. Say so, and degrade the pass so the
+          # health report is left as it is rather than read as a clean scan.
+          echo "::warning::$name: rollback failed for $run; attempt may be burned."
+          printf '%s\n' "$name" >> "$DEGRADED"
+        fi
         ;;
     esac
   done

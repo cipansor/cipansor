@@ -47,6 +47,15 @@ case "$url" in
     if [ "$method" = PUT ]; then
       log "KV_PUT $url $data"
       [ -n "$out" ] && printf '%s' '{}' > "$out"
+      # A conditional PUT whose \`if_version\` does not match the live version is
+      # a 409. Model that so the rollback's version match is testable: the
+      # claim (\`nx=true\`, no \`if_version\`) is governed by KV_PUT_CODE, while a
+      # later \`if_version\` write is checked against KV_EXPECT_VERSION.
+      want="\${CURL_STUB_KV_EXPECT_VERSION:-}"
+      got=$(printf '%s' "$url" | sed -n 's/.*[?&]if_version=\\([0-9]*\\).*/\\1/p')
+      if [ -n "$want" ] && [ -n "$got" ] && [ "$got" != "$want" ]; then
+        code 409; exit 0
+      fi
       code "\${CURL_STUB_KV_PUT_CODE:-201}"
     elif [ "$method" = DELETE ]; then
       log "KV_DELETE $url"
@@ -56,8 +65,23 @@ case "$url" in
       [ "\${CURL_STUB_KV_FAIL:-}" = 1 ] && exit 1
       # A key that does not exist is 404, not an empty 200: the script tells
       # "no attempt yet" from "KV unreadable" by the status code alone.
-      [ -n "$out" ] && printf '%s' "\${CURL_STUB_KV_JSON:-}" > "$out"
-      printf '%s' "\${CURL_STUB_KV_CODE:-200}"
+      getsfile="\${CURL_STUB_KV_GETS_FILE:-}"
+      if [ -n "$getsfile" ]; then
+        n=$(cat "$getsfile" 2>/dev/null || echo 0)
+        n=$((n + 1)); printf '%s' "$n" > "$getsfile"
+      else
+        n=1
+      fi
+      # The second GET — the one a rollback makes — reports the version the
+      # claim actually left behind, which is not the \`version + 1\` the old
+      # rollback guessed.
+      if [ "$n" -ge 2 ] && [ -n "\${CURL_STUB_KV_VERSION_AFTER_CLAIM:-}" ]; then
+        [ -n "$out" ] && printf '%s' "{\\"value\\":{\\"attempts\\":1,\\"last_at\\":0},\\"version\\":\${CURL_STUB_KV_VERSION_AFTER_CLAIM}}" > "$out"
+        printf '200'
+      else
+        [ -n "$out" ] && printf '%s' "\${CURL_STUB_KV_JSON:-}" > "$out"
+        printf '%s' "\${CURL_STUB_KV_CODE:-200}"
+      fi
     fi ;;
   */dispatch)
     log "DISPATCH $url $data"
@@ -407,6 +431,52 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
     expect(out).toContain('attempt rolled back');
     // The rollback write is a second KV PUT after the claim.
     expect((calls.match(/KV_PUT/g) ?? []).length).toBe(2);
+  });
+
+  it('rolls back using the version read after the claim', () => {
+    // The claim's `if_version` is unknowable in advance: a fresh key claimed
+    // with `nx=true` lands at whatever version the API assigns, not `0 + 1`.
+    // The rollback must read the version back and match it, or its conditional
+    // PUT is a 409 and the attempt is burned in silence.
+    const gets = join(dir, 'kvgets');
+    writeFileSync(gets, '0');
+    const { calls, out } = run({
+      [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
+      CURL_STUB_KV_JSON: JSON.stringify({ value: {}, version: 0 }),
+      CURL_STUB_KV_VERSION_AFTER_CLAIM: '7',
+      CURL_STUB_KV_EXPECT_VERSION: '7',
+      CURL_STUB_KV_GETS_FILE: gets,
+      CURL_STUB_DISPATCH_CODE: '401',
+    });
+    expect(out).toContain('attempt rolled back');
+    expect(out).not.toContain('rollback failed');
+    // The rollback PUT carries the version the second GET reported, not `1`.
+    expect(calls).toMatch(/KV_PUT [^ ]*if_version=7&/);
+    expect(calls).not.toMatch(/KV_PUT [^ ]*if_version=1&/);
+  });
+
+  it('reports a failed rollback instead of swallowing it', () => {
+    // If the rollback's conditional PUT loses (409), the claim may still stand,
+    // so the pass must say so and degrade rather than leave a burned attempt
+    // hidden. The health issue is not touched on a degraded pass.
+    const gets = join(dir, 'kvgets');
+    writeFileSync(gets, '0');
+    const { calls, out } = run({
+      [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
+      CURL_STUB_KV_JSON: JSON.stringify({ value: {}, version: 0 }),
+      CURL_STUB_KV_VERSION_AFTER_CLAIM: '7',
+      CURL_STUB_KV_EXPECT_VERSION: '999', // rollback's if_version=7 will 409
+      CURL_STUB_KV_GETS_FILE: gets,
+      CURL_STUB_DISPATCH_CODE: '401',
+      GH_STUB_OPEN_ISSUES: JSON.stringify([
+        { number: 41, body: '<!-- automation-retry:health -->' },
+      ]),
+    });
+    expect(out).toContain('rollback failed');
+    expect(out).toContain('attempt may be burned');
+    expect(out).toContain('leaving the health report unchanged');
+    expect(calls).not.toContain('PATCH repos/o/r/issues/41');
+    expect(calls).not.toContain('CREATE');
   });
 
   it('skips, with a warning, an automation whose runs cannot be read', () => {
