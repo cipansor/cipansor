@@ -11,8 +11,8 @@ import { join, resolve } from 'path';
  * unavailable, a 502, the LLM proxy's 503), and `POST /{id}/dispatch` is
  * fire-and-forget, so a run that dies after the 201 is lost. The script
  * re-dispatches a **cron** automation whose latest run failed for an
- * infrastructure reason, bounded by a per-run attempt ledger in the KV store,
- * and reports the ones that ran out of chances in one health issue.
+ * infrastructure reason, bounded by a per-automation attempt ledger in the KV
+ * store, and reports the ones that ran out of chances in one health issue.
  *
  * The stub `curl` serves the automation list, each automation's runs, the KV
  * ledger and the dispatch, and runs every `--jq` expression through `jq` so the
