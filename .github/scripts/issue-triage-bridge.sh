@@ -221,9 +221,12 @@ run_status() { # run_status <run-id>
   while :; do
     page=$("$CURL" -s "$API_RUNS?limit=$limit&offset=$offset" \
       -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null) || page=""
-    # A page that is not a runs object is unreadable, not "the run is absent":
-    # an incomplete read must not finalise a run or re-dispatch on a hiccup.
-    printf '%s' "$page" | jq -e 'type == "object" and has("runs")' >/dev/null 2>&1 \
+    # A page whose `runs` is not an array (missing, null, an object) is
+    # unreadable, not "the run is absent": an incomplete read must not finalise a
+    # run or re-dispatch on a hiccup. `has("runs")` alone lets `{"runs":null}`
+    # through — `.runs[]` then fails and `length` reads 0, which looks like the
+    # run is gone and would re-dispatch a run that may still be in flight.
+    printf '%s' "$page" | jq -e 'type == "object" and (.runs | type == "array")' >/dev/null 2>&1 \
       || { printf 'UNKNOWN'; return 0; }
     st=$(printf '%s' "$page" \
       | jq -r --arg id "$id" '[.runs[] | select(.id == $id) | .status][0] // ""' 2>/dev/null) || st=""

@@ -256,6 +256,10 @@
       R220). Bila seluruh halaman habis tanpa id → status kosong → **retry**
       (run hilang, triase idempoten); bila sebuah halaman **tak terbaca** →
       `UNKNOWN` → **biarkan** penanda (jangan dispatch ulang karena hiccup).
+      "Tak terbaca" mencakup `runs` yang **bukan array** (`null`, hilang, objek)
+      — `has("runs")` saja meloloskan `{"runs":null}`, lalu `.runs[]` gagal dan
+      `length` membaca 0 sehingga run yang mungkin masih berjalan terlihat hilang
+      dan didispatch ulang (R226).
       Stub curl uji **wajib mencerminkan API** (abaikan `run_id=`, hormati
       `limit`/`offset`), atau uji hijau terhadap perilaku yang tak ada.
     - Kegagalan dispatch (status 2) dikumpulkan dan menggagalkan langkah

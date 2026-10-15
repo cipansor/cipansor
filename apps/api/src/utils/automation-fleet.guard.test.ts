@@ -1516,6 +1516,23 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).not.toContain('POST_MARKER');
   });
 
+  it('treats a page with runs:null as unreadable, not as a missing run', () => {
+    // R226: `has("runs")` passed for `{"runs":null}`, then `.runs[]` failed and
+    // length read 0 — the run looked gone and was re-dispatched though it may
+    // still be in flight. A non-array `runs` is an unreadable page.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS_RAW: '{"runs":null}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('POST_MARKER');
+  });
+
   it('retries when the marked run is absent from the whole listing', () => {
     const { calls } = runBridge(
       {
