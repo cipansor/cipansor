@@ -100,21 +100,23 @@ iso() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
 # does it fall back to the global newest run, and then only to check whether
 # anything at all is in flight (pr-lifecycle may have dispatched one).
 gate_run_status() { # gate_run_status <run-id>
-  id="$1"; offset=0; limit=100
+  _want="$1"; _off=0; _lim=100
   # The listing is paged with `limit`/`offset` — the one parameter it honours —
   # until the id is found or the pages run out. A single-page read would call a
   # run that merely fell past the page `gone`, and `gone` is retried, so a run
   # still in flight could be dispatched a second time on the same head (#837
   # review). A page that cannot be read is unreadable (non-zero), not `gone`.
+  # Names are `_`-prefixed: this runs inside the caller's `while read -r n sha`
+  # loop, so a bare `n` here would overwrite the PR number.
   while :; do
-    page=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=$limit&offset=$offset" \
+    _page=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=$_lim&offset=$_off" \
       -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
     # A page whose `runs` is not an array (missing, null, an object) is
     # unreadable, not "the run is gone": `{"runs":null}` would otherwise read as
     # length 0 and dispatch a second run on a head already in flight.
-    printf '%s' "$page" | jq -e 'type == "object" and (.runs | type == "array")' >/dev/null 2>&1 \
+    printf '%s' "$_page" | jq -e 'type == "object" and (.runs | type == "array")' >/dev/null 2>&1 \
       || return 1
-    out=$(printf '%s' "$page" | jq -r --arg id "$id" '
+    _out=$(printf '%s' "$_page" | jq -r --arg id "$_want" '
       (.runs // []) as $r
       | ($r | map(select(.id == $id)) | .[0]) as $x
       | if $x == null then ""
@@ -130,11 +132,11 @@ gate_run_status() { # gate_run_status <run-id>
             then "infra:" + $k
             else "failed" end
         else "ok" end' 2>/dev/null) || return 1
-    if [ -n "$out" ]; then printf '%s' "$out"; return 0; fi
-    n=$(printf '%s' "$page" | jq -r '.runs | length' 2>/dev/null) || return 1
-    case "$n" in '' | *[!0-9]*) return 1 ;; esac
-    [ "$n" -ge "$limit" ] || { printf 'gone'; return 0; }
-    offset=$((offset + limit))
+    if [ -n "$_out" ]; then printf '%s' "$_out"; return 0; fi
+    _count=$(printf '%s' "$_page" | jq -r '.runs | length' 2>/dev/null) || return 1
+    case "$_count" in '' | *[!0-9]*) return 1 ;; esac
+    [ "$_count" -ge "$_lim" ] || { printf 'gone'; return 0; }
+    _off=$((_off + _lim))
   done
 }
 
@@ -142,9 +144,9 @@ gate_run_status() { # gate_run_status <run-id>
 # run id: a run nobody attributed could still be this head's, so dispatching
 # then would stack a second run on the same work.
 gate_any_in_flight() { # gate_any_in_flight
-  runs=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=5" \
+  _runs=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=5" \
     -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
-  printf '%s' "$runs" | jq -r '
+  printf '%s' "$_runs" | jq -r '
     if ((.runs // []) | map(select(.status == "RUNNING" or .status == "PENDING")) | length) > 0
     then "busy" else "idle" end' 2>/dev/null
 }
