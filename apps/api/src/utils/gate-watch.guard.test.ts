@@ -654,6 +654,7 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
       ]),
       GH_STUB_DISPATCH_CODE: '401',
     });
+    expect(calls).toContain('/dispatch');
     expect(patched).toContain('Dispatch ulang ditolak (HTTP 401)');
     expect(patched).not.toContain('di-dispatch ulang');
   });
