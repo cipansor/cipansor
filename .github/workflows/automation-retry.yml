@@ -13,9 +13,9 @@
 # the same thing as the original.
 #
 # The rules live in .github/scripts/automation-retry.sh so they can be run by
-# hand. Attempts are kept in the automation KV store, so the same failed run is
-# retried at most RETRY_MAX times with a backoff, and one health issue lists the
-# ones that ran out.
+# hand. Attempts are kept in the automation KV store under one key per
+# automation, so a failing automation is retried at most RETRY_MAX times with a
+# backoff, and one health issue lists the ones that ran out.
 name: Automation retry
 
 on:
