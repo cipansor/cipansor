@@ -72,11 +72,12 @@ case "$url" in
       else
         n=1
       fi
-      # The second GET — the one a rollback makes — reports the version the
-      # claim actually left behind, which is not the \`version + 1\` the old
-      # rollback guessed.
+      # The second GET — the one a rollback makes — reports what the claim left
+      # behind: attempts 1 and the claim's last_at (the pass's NOW). A rollback
+      # only undoes a ledger that still matches its own claim, so these must be
+      # the claimed values, not a guess.
       if [ "$n" -ge 2 ] && [ -n "\${CURL_STUB_KV_VERSION_AFTER_CLAIM:-}" ]; then
-        [ -n "$out" ] && printf '%s' "{\\"value\\":{\\"attempts\\":1,\\"last_at\\":0},\\"version\\":\${CURL_STUB_KV_VERSION_AFTER_CLAIM}}" > "$out"
+        [ -n "$out" ] && printf '%s' "{\\"value\\":{\\"attempts\\":\${CURL_STUB_KV_AFTER_CLAIM_ATTEMPTS:-1},\\"last_at\\":\${CURL_STUB_KV_AFTER_CLAIM_LAST:-0}},\\"version\\":\${CURL_STUB_KV_VERSION_AFTER_CLAIM}}" > "$out"
         printf '200'
       else
         [ -n "$out" ] && printf '%s' "\${CURL_STUB_KV_JSON:-}" > "$out"
@@ -423,9 +424,17 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
   });
 
   it('rolls the attempt back when the dispatch is refused', () => {
+    const gets = join(dir, 'kvgets');
+    writeFileSync(gets, '0');
     const { calls, out } = run({
       [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
       CURL_STUB_KV_JSON: JSON.stringify({ value: {}, version: 0 }),
+      // The ledger still holds this pass's claim (`attempts 1`, `last_at NOW`),
+      // so the rollback is allowed to undo it.
+      CURL_STUB_KV_VERSION_AFTER_CLAIM: '1',
+      CURL_STUB_KV_AFTER_CLAIM_ATTEMPTS: '1',
+      CURL_STUB_KV_AFTER_CLAIM_LAST: String(NOW),
+      CURL_STUB_KV_GETS_FILE: gets,
       CURL_STUB_DISPATCH_CODE: '401',
     });
     expect(out).toContain('attempt rolled back');
@@ -444,6 +453,8 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
       [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
       CURL_STUB_KV_JSON: JSON.stringify({ value: {}, version: 0 }),
       CURL_STUB_KV_VERSION_AFTER_CLAIM: '7',
+      CURL_STUB_KV_AFTER_CLAIM_ATTEMPTS: '1',
+      CURL_STUB_KV_AFTER_CLAIM_LAST: String(NOW),
       CURL_STUB_KV_EXPECT_VERSION: '7',
       CURL_STUB_KV_GETS_FILE: gets,
       CURL_STUB_DISPATCH_CODE: '401',
@@ -453,6 +464,33 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
     // The rollback PUT carries the version the second GET reported, not `1`.
     expect(calls).toMatch(/KV_PUT [^ ]*if_version=7&/);
     expect(calls).not.toMatch(/KV_PUT [^ ]*if_version=1&/);
+  });
+
+  it('does not roll back over another pass\u2019s claim', () => {
+    // If another pass claimed after ours, the ledger is that claim's now.
+    // Writing our old count back would erase it and let the retry cap be
+    // exceeded, so the rollback must stand down and degrade instead.
+    const gets = join(dir, 'kvgets');
+    writeFileSync(gets, '0');
+    const { calls, out } = run({
+      [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
+      CURL_STUB_KV_JSON: JSON.stringify({ value: {}, version: 0 }),
+      CURL_STUB_KV_VERSION_AFTER_CLAIM: '7',
+      // Attempts 2 and a later `last_at`: this is someone else's claim, not the
+      // `attempts 1 / NOW` this pass wrote.
+      CURL_STUB_KV_AFTER_CLAIM_ATTEMPTS: '2',
+      CURL_STUB_KV_AFTER_CLAIM_LAST: String(NOW + 60),
+      CURL_STUB_KV_GETS_FILE: gets,
+      CURL_STUB_DISPATCH_CODE: '401',
+      GH_STUB_OPEN_ISSUES: JSON.stringify([
+        { number: 41, body: '<!-- automation-retry:health -->' },
+      ]),
+    });
+    expect(out).toContain('another pass claimed');
+    expect(out).not.toContain('attempt rolled back');
+    // The ledger is left alone: only the claim PUT, no rollback PUT.
+    expect((calls.match(/KV_PUT/g) ?? []).length).toBe(1);
+    expect(out).toContain('leaving the health report unchanged');
   });
 
   it('reports a failed rollback instead of swallowing it', () => {
@@ -465,6 +503,8 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
       [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
       CURL_STUB_KV_JSON: JSON.stringify({ value: {}, version: 0 }),
       CURL_STUB_KV_VERSION_AFTER_CLAIM: '7',
+      CURL_STUB_KV_AFTER_CLAIM_ATTEMPTS: '1',
+      CURL_STUB_KV_AFTER_CLAIM_LAST: String(NOW),
       CURL_STUB_KV_EXPECT_VERSION: '999', // rollback's if_version=7 will 409
       CURL_STUB_KV_GETS_FILE: gets,
       CURL_STUB_DISPATCH_CODE: '401',

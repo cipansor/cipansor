@@ -243,19 +243,30 @@ printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron") |
       *)
         # The claim was written but the dispatch failed; roll it back so the
         # next pass can try, instead of burning an attempt on a rejected call.
-        # The claim moved the version by an amount this pass cannot assume — a
-        # fresh key claimed with `nx=true` lands at whatever the API assigns,
-        # not necessarily `version + 1` — so read the version back and match it.
-        # A guessed `if_version` is a 409, and swallowing that would leave the
-        # claim standing and burn the attempt in silence.
-        if kv=$(kv_get "$aid" "$key") && \
-          kv_put "$aid" "$key" "$attempts" "$last_at" "$(printf '%s' "$kv" | cut -f3)"; then
-          echo "::warning::$name: dispatch for $run answered HTTP $code; attempt rolled back."
-        else
-          # The claim may still stand. Say so, and degrade the pass so the
-          # health report is left as it is rather than read as a clean scan.
+        # Only *our own* claim may be undone: read the ledger back and match the
+        # values this pass wrote (`attempts + 1`, `NOW`). If another pass has
+        # claimed since, the ledger belongs to that claim now, and writing the
+        # old count back would erase it and let the retry cap be exceeded. A
+        # version mismatch (`if_version` on the write) guards the window between
+        # the read and the write; a value mismatch means stand down and degrade.
+        if ! kv=$(kv_get "$aid" "$key"); then
           echo "::warning::$name: rollback failed for $run; attempt may be burned."
           printf '%s\n' "$name" >> "$DEGRADED"
+        else
+          got_attempts=$(printf '%s' "$kv" | cut -f1)
+          got_last=$(printf '%s' "$kv" | cut -f2)
+          got_version=$(printf '%s' "$kv" | cut -f3)
+          if [ "$got_attempts" != "$((attempts + 1))" ] || [ "$got_last" != "$NOW" ]; then
+            echo "::warning::$name: another pass claimed $run; leaving the ledger alone."
+            printf '%s\n' "$name" >> "$DEGRADED"
+          elif kv_put "$aid" "$key" "$attempts" "$last_at" "$got_version"; then
+            echo "::warning::$name: dispatch for $run answered HTTP $code; attempt rolled back."
+          else
+            # The claim may still stand. Say so, and degrade the pass so the
+            # health report is left as it is rather than read as a clean scan.
+            echo "::warning::$name: rollback failed for $run; attempt may be burned."
+            printf '%s\n' "$name" >> "$DEGRADED"
+          fi
         fi
         ;;
     esac
