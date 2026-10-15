@@ -65,9 +65,13 @@
 15. **Penulis dan penyetuju tetap dua identitas** (#781). GitHub menolak
     approval dari penulis PR itu sendiri, jadi usulan "semua otomasi lewat satu
     akun" ditolak, karena gerbang tidak lagi bisa meng-approve. Penulis issue
-    dan PR pindah ke GitHub App `cipansor-contributor-bot` (izin minimal, token
-    per run). `cipansor-bot` tetap akun penyetuju, karena approval dari akun
-    ber-izin write terbukti dihitung ruleset.
+    dan PR tetap akun pengguna maintainer yang dipakai otomasi penulis, dan
+    `cipansor-bot` tetap akun penyetuju, karena approval dari akun ber-izin
+    write terbukti dihitung ruleset. Rencana memindahkan penulis ke GitHub App
+    `cipansor-contributor-bot` **dibatalkan pemilik pada 2026-10-15** (#781
+    ditutup *not planned*): tidak ada App yang perlu ditunggu atau dibangun.
+    Hak token otomasi penulis ditinjau ulang bersama daftar pra-rilis, saat
+    repositori dijadikan privat.
 16. **Armada mengakui, memusatkan kesimpulan, dan tidak melabeli sendiri**
     (2026-10-13, pengguna). Lima aturan yang dipasang di setiap prompt dan
     dijaga workflow deterministik (`docs/LABELS.md` aturan 8–12, `docs/SDLC-FLOW.md`
@@ -149,5 +153,6 @@
   pada PR ke branch default; satu kata kunci per issue) —
   <https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue>
 - GitHub Docs, "Generating an installation access token for a GitHub App"
-  (token kedaluwarsa dalam satu jam, izin dan repo bisa dipersempit) —
+  (token kedaluwarsa dalam satu jam, izin dan repo bisa dipersempit; riset untuk
+  rencana App butir 15 yang dibatalkan 2026-10-15) —
   <https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app>
