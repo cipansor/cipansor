@@ -86,8 +86,9 @@ iso() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
 #   busy          the run is RUNNING/PENDING: the gate is working, or queued
 #   infra:<cause> the run FAILED on infrastructure — retryable
 #   failed        the run FAILED for a reason a retry will not fix
-#   ok            a COMPLETED run (which owed a review and did not post one — a
-#                 person's call, not another run's)
+#   ok            a COMPLETED run (which owed a review and did not post one — the
+#                 gate went silent; retried, bounded, since the gate is
+#                 idempotent so a stray extra run is cheap)
 #   gone          the id is not in the history window, so its outcome is unknown
 # A failed read returns non-zero: the caller must not read that as "no run",
 # because it would dispatch a head already in flight.
@@ -99,24 +100,42 @@ iso() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
 # does it fall back to the global newest run, and then only to check whether
 # anything at all is in flight (pr-lifecycle may have dispatched one).
 gate_run_status() { # gate_run_status <run-id>
-  runs=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=20" \
-    -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
-  printf '%s' "$runs" | jq -r --arg id "$1" '
-    (.runs // []) as $r
-    | ($r | map(select(.id == $id)) | .[0]) as $x
-    | if $x == null then "gone"
-      elif $x.status == "RUNNING" or $x.status == "PENDING" then "busy"
-      elif $x.status == "FAILED" then
-        (($x.status_detail.phase // "") + "/" + ($x.status_detail.kind // "")) as $k
-        | if $k == "execution/timeout"
-             or $k == "verification/environment_unavailable"
-             or $k == "dispatch/unknown"
-             or $k == "dispatch/server_error"
-             or $k == "execution/execution_error"
-             or $k == "callback/execution_error"
-          then "infra:" + $k
-          else "failed" end
-      else "ok" end' 2>/dev/null
+  id="$1"; offset=0; limit=100
+  # The listing is paged with `limit`/`offset` — the one parameter it honours —
+  # until the id is found or the pages run out. A single-page read would call a
+  # run that merely fell past the page `gone`, and `gone` is retried, so a run
+  # still in flight could be dispatched a second time on the same head (#837
+  # review). A page that cannot be read is unreadable (non-zero), not `gone`.
+  while :; do
+    page=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=$limit&offset=$offset" \
+      -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
+    # A page whose `runs` is not an array (missing, null, an object) is
+    # unreadable, not "the run is gone": `{"runs":null}` would otherwise read as
+    # length 0 and dispatch a second run on a head already in flight.
+    printf '%s' "$page" | jq -e 'type == "object" and (.runs | type == "array")' >/dev/null 2>&1 \
+      || return 1
+    out=$(printf '%s' "$page" | jq -r --arg id "$id" '
+      (.runs // []) as $r
+      | ($r | map(select(.id == $id)) | .[0]) as $x
+      | if $x == null then ""
+        elif $x.status == "RUNNING" or $x.status == "PENDING" then "busy"
+        elif $x.status == "FAILED" then
+          (($x.status_detail.phase // "") + "/" + ($x.status_detail.kind // "")) as $k
+          | if $k == "execution/timeout"
+               or $k == "verification/environment_unavailable"
+               or $k == "dispatch/unknown"
+               or $k == "dispatch/server_error"
+               or $k == "execution/execution_error"
+               or $k == "callback/execution_error"
+            then "infra:" + $k
+            else "failed" end
+        else "ok" end' 2>/dev/null) || return 1
+    if [ -n "$out" ]; then printf '%s' "$out"; return 0; fi
+    n=$(printf '%s' "$page" | jq -r '.runs | length' 2>/dev/null) || return 1
+    case "$n" in '' | *[!0-9]*) return 1 ;; esac
+    [ "$n" -ge "$limit" ] || { printf 'gone'; return 0; }
+    offset=$((offset + limit))
+  done
 }
 
 # Whether *any* gate run is in flight. Used only when this head has no recorded
@@ -342,19 +361,22 @@ sort -n "$SILENT" | while read -r n sha since; do
         retry=" Run gerbang untuk head ini ($myrun) masih RUNNING/PENDING; menunggu, tidak dispatch lagi." ;;
       busy-unknown)
         retry=" Ada run gerbang yang masih RUNNING/PENDING; menunggu agar tidak menumpuk run." ;;
-      ok)
-        retry=" Run gerbang terakhir untuk head ini selesai tetapi tidak menulis review; itu keputusan orang, tidak dispatch lagi." ;;
       failed)
         retry=" Run gerbang terakhir untuk head ini gagal bukan karena infrastruktur; tidak dispatch lagi." ;;
-      infra:* | gone | no-run)
+      infra:* | gone | no-run | ok)
         # `gone`: the recorded run has fallen out of the history window, so its
         # outcome is unknown — treat like a lost run and try again. `no-run`:
-        # the head was never dispatched (or the dispatch was lost). Both are
-        # bounded by the same attempt cap.
+        # the head was never dispatched (or the dispatch was lost). `ok`: the
+        # run completed but wrote no review — the gate went silent, which is the
+        # very failure this watch exists for. All are bounded by the same cap,
+        # and a re-dispatch is safe: the gate is idempotent (it skips a head it
+        # already reviewed), so a stray extra run costs a sandbox slot, not a
+        # wrong review.
         if [ "$attempts" -ge "$GATE_MAX_ATTEMPTS" ]; then
           case "$state" in
             infra:*) cause="${state#infra:}" ;;
             gone) cause="run tercatat tidak ada lagi di riwayat" ;;
+            ok) cause="run selesai tanpa menulis review" ;;
             *) cause="belum ada run untuk head ini" ;;
           esac
           retry=" Gerbang belum meninjau head ini ($cause) dan sudah $attempts kali dicoba ulang — giliran manusia."

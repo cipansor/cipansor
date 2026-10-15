@@ -162,6 +162,14 @@ printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron") |
       printf '%s\n' "$name" >> "$DEGRADED"
       continue
     }
+    # A 200 whose `runs` is not an array (missing, null, an object) is unreadable,
+    # not "no run": read as empty it would reset the ledger and drop an exhausted
+    # automation from the report, so the pass must not be trusted.
+    if ! printf '%s' "$runs" | jq -e 'type == "object" and (.runs | type == "array")' >/dev/null 2>&1; then
+      echo "::warning::$name: runs listing malformed; skipped."
+      printf '%s\n' "$name" >> "$DEGRADED"
+      continue
+    fi
     key="retry-$aid"
     # The newest run only: an automation whose latest run succeeded needs no
     # retry, whatever failed before it.
@@ -242,7 +250,9 @@ printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron") |
   done
 
 # An incomplete scan is not proof that an outage is over: leave the issue as it
-# is and let the next hourly pass re-scan, rather than close or rewrite it.
+# is and let the next hourly pass re-scan, rather than close or rewrite it. A
+# failed KV read is the same: the automation's outcome is unknown, so the pass
+# must not be read as "nothing is out of chances".
 if [ -s "$DEGRADED" ]; then
   echo "::warning::Read failures for: $(tr '\n' ' ' < "$DEGRADED"); leaving the health report unchanged."
   exit 0

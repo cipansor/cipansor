@@ -6,9 +6,10 @@
 #
 # pr-lifecycle.sh dispatches the review gate (OpenHands Cloud) and only learns
 # that the request was accepted. This is the other half: it notices when the
-# review never came, retries the run the platform lost (the gate's own 1800 s
-# timeout is the platform ceiling, so a timeout is a lost run, not a slow one),
-# and says where to look (the gate's run history).
+# review never came, retries the run the platform lost — a lost run is an
+# infrastructure failure, an id that fell out of the history window, or a run
+# that completed without writing a review (the gate went silent) — and says
+# where to look (the gate's run history).
 #
 # The rules live in .github/scripts/gate-watch.sh so they can be run by hand.
 name: Gate watch

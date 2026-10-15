@@ -418,6 +418,17 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
     expect(out).toContain('runs unreadable');
   });
 
+  it('treats a malformed runs listing as unreadable, not as no run', () => {
+    // A 200 whose `runs` is null must not read as "no run": that would reset the
+    // ledger and drop an exhausted automation from the report.
+    const { calls, out } = run({
+      [CRON_KEY]: JSON.stringify({ runs: null }),
+    });
+    expect(calls).not.toContain('/dispatch');
+    expect(out).toContain('runs listing malformed');
+    expect(out).toContain('leaving the health report unchanged');
+  });
+
   it('fails when the automation list cannot be read, instead of closing the report', () => {
     const { status, calls } = run({
       CURL_STUB_AUTOS_FAIL: '1',

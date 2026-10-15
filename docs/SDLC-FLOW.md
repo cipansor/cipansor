@@ -225,7 +225,7 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | bila run gerbang terakhir masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head (run id yang di-dispatch dicatat di penanda komentar head itu, jadi keputusannya per head); satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | bila run yang di-dispatch untuk head itu masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, run tercatat hilang dari riwayat, head belum pernah di-dispatch, atau run selesai tanpa menulis review (gerbang diam), dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head (run id yang di-dispatch dicatat di penanda komentar head itu, jadi keputusannya per head); satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
 | Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20) per **automation** (kunci KV `retry-<aid>`; dihapus saat run terbaru COMPLETED agar episode berikutnya mulai lagi); bila habis, satu issue `automation-health` |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
@@ -245,13 +245,15 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 2. **Gerbang tinjau diam.** Gerbang pernah tidak menjawab sebelas jam tanpa
    ada yang tahu, lalu sehari penuh pada lima PR (2026-10-10). Pemeriksa
    Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
-   masuk. Retry-nya kini terukur: run gerbang yang mati infrastruktur
-   di-dispatch ulang sampai 3 kali per head, dan hanya selama run sebelumnya
-   tidak sedang berjalan. Skrip mencatat run id yang ia dispatch di penanda
-   komentar head itu dan membaca status id itu kembali, jadi keputusan retry
-   mengikuti run head itu sendiri meski beberapa PR siap serentak — API runs
-   tidak punya endpoint per-run id, dan tanpa pencatatan ini run terbaru milik
-   PR lain bisa salah menahan atau salah memicu retry.
+   masuk. Retry-nya kini terukur: run gerbang yang mati infrastruktur,
+   tercatat hilang dari riwayat, atau selesai tanpa menulis review di-dispatch
+   ulang sampai 3 kali per head, dan hanya selama run yang di-dispatch untuk
+   head itu tidak sedang berjalan. Skrip mencatat run id yang ia dispatch di
+   penanda komentar head itu dan membaca status id itu kembali dari listing
+   run (ditelusuri `limit`/`offset` sampai id ditemukan, jadi run yang
+   tergeser ke halaman berikutnya tidak salah disebut hilang) — API runs tidak
+   punya endpoint per-run id, dan tanpa pencatatan ini run terbaru milik PR
+   lain bisa salah menahan atau salah memicu retry.
 3. **Cron yang bertentangan dengan keputusan.** Matikan `Penjaga issue`
    (penutupan berdasarkan umur) dan `Uji beban` bulanan; k6 berjalan lewat
    `load-tests.yml` sebelum rilis.

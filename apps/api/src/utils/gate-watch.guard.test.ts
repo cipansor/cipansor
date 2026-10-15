@@ -74,12 +74,19 @@ prev=""; for a in "$@"; do [ "$prev" = "-d" ] && echo "CURL $*" "PAYLOAD $a" >> 
 # GH_STUB_GATE_RUNS is the JSON body; a missing one means an empty history, and
 # GH_STUB_RUNS_API_FAIL makes the read fail (the "unreadable history" path).
 case "$*" in
-  *"/runs?limit=20"* | *"/runs?limit=5"*)
+  *"/runs?limit="*)
     [ "\${GH_STUB_RUNS_API_FAIL:-}" = 1 ] && exit 1
     # The default is held in a variable: a literal \`}\` inside \${v:-...} would
     # close the expansion early and append a stray brace to the JSON.
     empty='{"runs":[]}'
-    printf '%s' "\${GH_STUB_GATE_RUNS:-$empty}"
+    # gate_run_status walks pages with limit/offset until it finds the id; the
+    # in-flight probe has no offset. Page 1 is served on offset 0 (or a bare
+    # limit=5); later offsets get page 2, so a run pushed past page 1 is still
+    # found (and a single-page read cannot be mistaken for "gone").
+    case "$*" in
+      *"offset=0"* | *"limit=5"*) printf '%s' "\${GH_STUB_GATE_RUNS_PAGE1:-\${GH_STUB_GATE_RUNS:-$empty}}" ;;
+      *) printf '%s' "\${GH_STUB_GATE_RUNS_PAGE2:-$empty}" ;;
+    esac
     exit 0 ;;
   *"/dispatch"*)
     # A successful dispatch answers the new run id in the body, followed by the
@@ -576,9 +583,10 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
     expect(patched).toContain(`<!-- gate-watch-attempt:${HEAD}:2 -->`);
   });
 
-  it('does not re-dispatch a head whose recorded run completed without a review', () => {
-    // A run that finished but wrote no review is a person's call, not another
-    // run's: the head is told about and left alone.
+  it('re-dispatches a head whose recorded run completed without a review, until the cap', () => {
+    // A run that finished but wrote no review is the gate going silent — the
+    // failure this watch exists for — so it earns a bounded re-dispatch, not
+    // just a warning. The gate is idempotent, so a stray extra run is cheap.
     const { calls, patched } = run({
       OPENHANDS_API_KEY: 'k',
       GH_STUB_GATE_RUNS: JSON.stringify({ runs: [{ id: 'r1', status: 'COMPLETED' }] }),
@@ -589,8 +597,59 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
         },
       ]),
     });
+    expect(calls).toContain('/dispatch');
+    expect(patched).toContain(`<!-- gate-watch-attempt:${HEAD}:2 -->`);
+  });
+
+  it('hands a head whose completed run wrote no review to a person at the cap', () => {
+    const { calls, patched } = run({
+      OPENHANDS_API_KEY: 'k',
+      GATE_MAX_ATTEMPTS: '3',
+      GH_STUB_GATE_RUNS: JSON.stringify({ runs: [{ id: 'r1', status: 'COMPLETED' }] }),
+      GH_STUB_COMMENTS_7: JSON.stringify([
+        {
+          id: 5,
+          body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-attempt:${HEAD}:3 -->\n<!-- gate-watch-run:${HEAD}:r1 -->`,
+        },
+      ]),
+    });
     expect(calls).not.toContain('CURL');
-    expect(patched).toContain('tidak menulis review');
+    expect(patched).toContain('giliran manusia');
+    expect(patched).toContain('selesai tanpa menulis review');
+  });
+
+  it('finds a run pushed past the first page instead of calling it gone', () => {
+    // The listing is paged; a run id that fell past page 1 is still there, and
+    // calling it `gone` would dispatch a second run on a head already in
+    // flight. The stub serves the full page 1, then page 2 with the run.
+    const page1 = JSON.stringify({
+      runs: Array.from({ length: 100 }, (_, i) => ({ id: `other-${i}`, status: 'COMPLETED' })),
+    });
+    const page2 = JSON.stringify({ runs: [{ id: 'r1', status: 'RUNNING' }] });
+    const { calls, patched } = run({
+      OPENHANDS_API_KEY: 'k',
+      GH_STUB_GATE_RUNS_PAGE1: page1,
+      GH_STUB_GATE_RUNS_PAGE2: page2,
+      GH_STUB_COMMENTS_7: JSON.stringify([
+        { id: 5, body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-run:${HEAD}:r1 -->` },
+      ]),
+    });
+    expect(calls).not.toContain('/dispatch');
+    expect(patched).toContain('RUNNING/PENDING');
+  });
+
+  it('treats a null runs page as unreadable, not as a lost run', () => {
+    // `{"runs":null}` must not read as length 0: that would look like the run is
+    // gone and dispatch a second one on a head already in flight.
+    const { calls, out } = run({
+      OPENHANDS_API_KEY: 'k',
+      GH_STUB_GATE_RUNS: JSON.stringify({ runs: null }),
+      GH_STUB_COMMENTS_7: JSON.stringify([
+        { id: 5, body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-run:${HEAD}:r1 -->` },
+      ]),
+    });
+    expect(calls).not.toContain('CURL');
+    expect(out).toContain('run history is unreadable');
   });
 
   it('reads the attempt count across comment pages, not per page', () => {

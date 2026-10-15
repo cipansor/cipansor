@@ -314,12 +314,18 @@
       id tercatat ia membaca run terbaru global, dan itu pun hanya untuk tahu
       ada run yang sedang berjalan. Klasifikasi: `RUNNING`/`PENDING` →
       **tunggu**; `FAILED` infrastruktur, run id yang jatuh keluar jendela
-      riwayat, atau belum ada run sama sekali → dispatch ulang sampai
-      `GATE_MAX_ATTEMPTS` (3) per head; `FAILED` non-infrastruktur
-      (auth/quota/config) → tidak di-retry; `COMPLETED` → bukan urusan retry
-      (review-nya yang tidak datang, itu keputusan orang). Riwayat run yang
-      **tak terbaca** **tidak** dianggap "tak ada run": dispatch dilewati agar
-      tidak menumpuk run pada head yang sudah ditinjau. Hitungan percobaan dan
+      riwayat, belum ada run sama sekali, atau `COMPLETED` yang tidak menulis
+      review (gerbang diam — justru kegagalan yang dipantau ini) → dispatch
+      ulang sampai `GATE_MAX_ATTEMPTS` (3) per head; `FAILED` non-infrastruktur
+      (auth/quota/config) → tidak di-retry. Dispatch ulang aman karena gerbang
+      **idempoten** (melewati head yang sudah ditinjau), jadi run ekstra paling
+      buruk memakai satu slot sandbox, bukan menulis review yang salah. Riwayat
+      run yang **tak terbaca** **tidak** dianggap "tak ada run": dispatch
+      dilewati agar tidak menumpuk run pada head yang sudah ditinjau. Listing
+      run **ditelusuri** `limit`/`offset` sampai id ditemukan — satu halaman
+      saja akan menyebut run yang tergeser ke halaman berikutnya `gone`, dan
+      `gone` di-dispatch ulang, sehingga run yang masih berjalan bisa
+      diduplikasi. Hitungan percobaan dan
       run id ikut di penanda komentar (`<!-- gate-watch-attempt:<sha>:<n> -->`)
       sehingga bertahan antar-run, dan komentar diperbarui di tempat (PATCH)
       hanya saat teksnya berubah — bukan ditumpuk.
