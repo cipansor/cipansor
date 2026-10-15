@@ -182,8 +182,15 @@ sync` workflow adds anything missing and **fails the check** when the type
     (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`), read at run time — a
     new label is protected the moment it is created. A GitHub App (`*[bot]`) is
     exempt, because the Actions workflows label through `github-actions[bot]`.
-    A person states what they want and the bot records it; this is what keeps
-    the automations and the guards reading the same state.
+    **On an issue, the type label its form applies at open is also exempt:**
+    `bug_report.yml` sets `bug` and `feature_request.yml` sets `enhancement` the
+    moment the issue is created, and a type label is the reporter's declared
+    intent — the triage owner sets the correct type on top, revoking the wrong
+    one. On a **pull request** there is no such form, so a type label stays
+    protected there: a manually applied `bug` on a PR that closes an
+    `enhancement` issue would otherwise fail the type sync (`issue-label-sync`)
+    and redden the PR. A person states what they want and the bot records it;
+    this is what keeps the automations and the guards reading the same state.
 
 13. **Every main description opens with the basmalah.** Each issue and pull
     request body starts with «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»

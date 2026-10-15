@@ -125,7 +125,7 @@ Menjawab maintainer pada issue `pending-maintainer` atau `needs-info`. Baca perc
     "SDLC 08": """PERILAKU SASARAN (level agentic)
 Tinjau PR ini dengan KRITIS dan habis-habisan. Baca deskripsi, seluruh diff terhadap `main`, setiap thread, dan issue tertaut. Tanyakan bertubi-tubi: apa yang bisa salah, apa yang belum diuji, apa yang bertentangan dengan keputusan di `.claude/memory/decisions/`, apa yang akan pecah di produksi. Untuk masalah lokal/mekanis, kirim komentar inline berisi blok `suggestion` agar bisa diterapkan satu klik; untuk masalah struktural, usulkan perubahan konkret dalam kata-kata. Jangan approve, jangan merge. Jangan mengarang masalah agar terlihat berguna: bila diff-nya bersih, katakan itu. Tulis ringkasan putusan (temuan, tingkat keparahan, apa yang menghalangi merge) ke DESKRIPSI UTAMA PR (bagian `<!-- sdlc:tinjauan -->`), bukan hanya komentar.
 
-KRITERIA PENERIMAAN (WAJIB). Baca issue yang ditautkan PR (`Fixes #n` / `Refs #n` / body) dan periksa SETIAP kriteria penerimaannya terhadap diff, bukan terhadap deskripsi PR. Sajikan sebagai checklist markdown sederhana, satu baris per kriteria: `- [x] <kriteria>` bila terpenuhi, `- [ ] <kriteria>` bila belum (termasuk yang baru sebagian) — masing-masing disertai bukti singkat (path/baris atau tes yang membuktikannya). Tulis di tinjauanmu dan di bagian `<!-- sdlc:tinjauan -->`. Bila tidak ada kriteria eksplisit di issue, turunkan dari maksud issue dan katakan bahwa itu hasil turunan. Kriteria yang `- [ ]` adalah temuan yang harus muncul di putusan.
+KRITERIA PENERIMAAN (WAJIB). Baca issue yang ditautkan PR (`Fixes #n` / `Refs #n` / body) dan periksa SETIAP kriteria penerimaannya terhadap diff, bukan terhadap deskripsi PR. Sajikan sebagai checklist markdown sederhana, satu baris per kriteria: `- [x] <kriteria>` bila terpenuhi, `- [ ] <kriteria>` bila belum — masing-masing disertai bukti singkat (path/baris atau tes yang membuktikannya). Tulis di tinjauanmu dan di bagian `<!-- sdlc:tinjauan -->`. Pakai kriteria persis dari issue; bila issue tidak memuatnya secara eksplisit, turunkan dari maksud issue dan tandai barisnya `(turunan)` agar jelas asalnya. Kriteria yang `- [ ]` adalah temuan yang harus muncul di putusan.
 """,
     "SDLC 10": """PERILAKU SASARAN (level agentic)
 Jalankan alur yang berubah pada PR ini dan laporkan lulus/gagal dengan bukti (perintah, keluaran, tangkapan layar). Kritisi habis-habisan: cari kasus batas, keadaan gagal, dan jalur yang tidak diuji. Tulis hasilnya ke DESKRIPSI UTAMA PR (bagian `<!-- sdlc:qa -->`), bukan hanya komentar.
@@ -139,7 +139,7 @@ GERBANG CI — JANGAN MENUNGGU: pemicu utama (dispatch `pr-lifecycle`) hanya men
 
 METODE: baca deskripsi PR, seluruh diff terhadap `main`, setiap thread, dan label terhadap issue tertaut; kritisi habis-habisan — kebenaran, risiko keamanan, cakupan tes, konsistensi dengan `.claude/memory/decisions/` dan AGENTS.md, dan apa yang akan pecah di produksi. Untuk tiap masalah lokal/mekanis, sertakan blok `suggestion`.
 
-KRITERIA PENERIMAAN (WAJIB). Baca issue yang ditautkan PR (`Fixes #n` / `Refs #n` / body) dan periksa SETIAP kriteria penerimaannya terhadap diff, bukan terhadap deskripsi PR. Sajikan sebagai checklist markdown sederhana, satu baris per kriteria: `- [x] <kriteria>` bila terpenuhi, `- [ ] <kriteria>` bila belum (termasuk yang baru sebagian) — masing-masing disertai bukti singkat (path/baris atau tes yang membuktikannya), di review dan di bagian `<!-- sdlc:gerbang -->`. Bila tidak ada kriteria eksplisit di issue, turunkan dari maksud issue dan katakan bahwa itu hasil turunan. Kriteria yang `- [ ]` tanpa alasan yang meyakinkan adalah temuan yang menghalangi `APPROVE`.
+KRITERIA PENERIMAAN (WAJIB). Baca issue yang ditautkan PR (`Fixes #n` / `Refs #n` / body) dan periksa SETIAP kriteria penerimaannya terhadap diff, bukan terhadap deskripsi PR. Sajikan sebagai checklist markdown sederhana, satu baris per kriteria: `- [x] <kriteria>` bila terpenuhi, `- [ ] <kriteria>` bila belum — masing-masing disertai bukti singkat (path/baris atau tes yang membuktikannya), di review dan di bagian `<!-- sdlc:gerbang -->`. Pakai kriteria persis dari issue; bila issue tidak memuatnya secara eksplisit, turunkan dari maksud issue dan tandai barisnya `(turunan)` agar jelas asalnya. Kriteria yang `- [ ]` tanpa alasan yang meyakinkan adalah temuan yang menghalangi `APPROVE`.
 
 PUTARAN (invarian 7): hitung review gerbang yang sudah ada (penanda `<!-- sdlc:gerbang:`). Bila sudah 3 putaran perubahan, JANGAN `REQUEST_CHANGES` lagi: sampaikan sengketa sebagai pertanyaan pilihan ganda kepada maintainer (rekomendasi di urutan pertama), lalu berhenti.
 
@@ -257,6 +257,59 @@ def upload(data, name):
         return json.loads(resp.read() or b"{}")
 
 
+# Trigger configuration that lives OUTSIDE the tarball and therefore outside this
+# script's prompt/tarball PATCH. It is applied here as a separate `PATCH {trigger}`
+# so the claim "SDLC 07/16/22 filter updated" (and SDLC 18's `on`) can be made,
+# reproduced and rolled forward from ONE place, not by a hand edit in the cloud.
+# Reasons (all settled 2026-10-14):
+#   - the mention is the fleet's own account `@cipansor-bot`, not `@openhands`
+#     (which belongs to the OpenHands GitHub App and was firing two responders);
+#   - the anti-loop guard is the comment's AUTHOR, not the AI-disclosure footer
+#     text (#680) — so it survives an edited comment and needs no footer.
+AUTHOR_GUARD = "comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'"
+FLEET_REPO = "glob(repository.full_name, 'cipansor/cipansor')"
+MENTION_FILTER = (
+    "icontains(comment.body, '@cipansor-bot') && "
+    + AUTHOR_GUARD
+    + " && (comment.author_association == 'OWNER' || comment.author_association == 'MEMBER'"
+    + " || comment.author_association == 'COLLABORATOR') && "
+    + FLEET_REPO
+)
+TRIGGERS = {
+    # on an `@cipansor-bot` mention by a maintainer (was `@openhands`).
+    "SDLC 07": {"filter": MENTION_FILTER},
+    # on a reply to a `needs-info` issue; author-guarded, no label gate.
+    "SDLC 16": {"filter": FLEET_REPO + " && contains(issue.labels[].name, 'needs-info') && " + AUTHOR_GUARD},
+    # on a maintainer reply to a `pending-maintainer`/`needs-info` issue.
+    "SDLC 22": {
+        "filter": FLEET_REPO
+        + " && (contains(issue.labels[].name, 'pending-maintainer')"
+        + " || contains(issue.labels[].name, 'needs-info')) && "
+        + AUTHOR_GUARD
+    },
+    # the review gate runs only on a manual review request, never on
+    # `ready_for_review` — so it is not woken before CI is green (#840).
+    "SDLC 18": {"on": ["pull_request.review_requested"]},
+}
+
+
+def apply_trigger(aid, name, old_trigger, dry):
+    """PATCH one automation's trigger to the fleet standard. Returns True on change."""
+    want = next((v for k, v in TRIGGERS.items() if k in name), None)
+    if not want:
+        return False
+    patch = {k: v for k, v in want.items() if old_trigger.get(k) != v}
+    if not patch:
+        print(f"    trigger already current ({', '.join(want)})")
+        return False
+    if dry:
+        print(f"    trigger would change: {patch}")
+        return True
+    req("PATCH", f"/{aid}", {"trigger": patch})
+    print(f"    trigger deployed ({', '.join(patch)})")
+    return True
+
+
 if __name__ == "__main__":
     if not KEY:
         sys.exit("OPENHANDS_API_KEY is not set")
@@ -279,8 +332,11 @@ if __name__ == "__main__":
         base = originals.get(name, old)
         new = new_prompt(name, base)
         changed = new != old
+        trigger_changed = apply_trigger(aid, name, a.get("trigger") or {}, not DEPLOY)
         print(f"- {name}: {'changed' if changed else 'already current'}")
         if not changed or not DEPLOY:
+            if DEPLOY and trigger_changed and not changed:
+                time.sleep(1)
             continue
         blob = patch_tarball(aid, new)
         up = upload(blob, f"{name} — fleet standard 2026-10-13")

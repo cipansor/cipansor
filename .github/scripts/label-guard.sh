@@ -17,13 +17,16 @@
 # revoking those would break the guards. The automations post as `cipansor-bot`
 # (the runner injects GITHUB_BOT_TOKEN), so they are covered by BOT_LOGIN.
 #
-# ALLOWED_LABELS holds labels the issue template applies by itself, not a person
-# claiming a state: `bug_report.yml` sets `bug` and `feature_request.yml` sets
-# `enhancement` the moment an issue is created, so revoking them fights the
-# template and posts a notice on every new issue (#842). A type label is the
-# reporter's declared intent — the triage owner sets the *correct* type on top of
-# it — so the guard leaves it. Everything else (`ready`, `priority:*`, the
-# workflow labels) stays the bot's.
+# ALLOWED_LABELS holds labels the *issue* template applies by itself, not a
+# person or a PR claiming a state: `bug_report.yml` sets `bug` and
+# `feature_request.yml` sets `enhancement` the moment an issue is created, so
+# revoking them fights the template and posts a notice on every new issue (#842).
+# A type label is the reporter's declared intent — the triage owner sets the
+# *correct* type on top of it — so the guard leaves it on an **issue**. A pull
+# request has no such form, so on a PR the type labels stay protected: a PR that
+# closes an `enhancement` issue but carries `bug` would fail the type sync
+# (`issue-label-sync.sh`), which reads a PR's type as a claim to match. Everything
+# else (`ready`, `priority:*`, the workflow labels) stays the bot's everywhere.
 #
 # Usage: label-guard.sh --stdin          # a `labeled` webhook event on stdin
 #        label-guard.sh <number> <label> [actor]   # by hand
@@ -42,11 +45,15 @@ ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement}"
 
 REVOKE_MARK="<!-- label-guard:revoked -->"
 
-# Every existing label except the human-decision ones and the repository's own.
-# Read once per run.
+# Every existing label except the human-decision ones and, on an issue, the
+# repository's own template labels. Read once per run. On a pull request the
+# template labels are *not* exempt, so `bug`/`enhancement` applied to a PR are
+# protected and revoked like any other type claim.
 protected_labels() {
+  exempt="$EXEMPT_LABELS"
+  [ "$IS_PR" = "1" ] || exempt="$exempt $ALLOWED_LABELS"
   { gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null || true; } \
-    | grep -vxF "$(printf '%s\n' $EXEMPT_LABELS $ALLOWED_LABELS)" || true
+    | grep -vxF "$(printf '%s\n' $exempt)" || true
 }
 
 # The `labeled` event, read from stdin.

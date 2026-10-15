@@ -100,7 +100,7 @@ case "$url" in
     printf '%s' "$runs_json"; exit 0 ;;
 esac
 log "DISPATCH $url"
-[ -n "$out" ] && printf '{"status":"accepted","id":"%s"}' "\${CURL_STUB_RUN_ID:-run-1}" > "$out"
+[ -n "$out" ] && printf '{"status":"accepted","id":"%s"}' "\${CURL_STUB_RUN_ID-run-1}" > "$out"
 printf '%s' "$code"
 `;
 
@@ -281,6 +281,21 @@ describe('label-guard.sh', () => {
     expect(out).toContain('not a protected label');
   });
 
+  it('revokes a template type label applied to a pull request', () => {
+    // The template exemption is for issues: a PR has no issue form, and
+    // `issue-label-sync.sh` reads a PR's type as a claim to match the linked
+    // issue — a manually applied `bug` on an `enhancement` PR fails that check.
+    // So on a PR the type label is protected and revoked.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'admin' },
+      ['--stdin'],
+      labeledEvent('adminypc', 'bug', { pr: true })
+    );
+    expect(calls).toContain('/issues/7/labels/bug');
+    expect(out).toContain('Removed label');
+  });
+
   it('leaves a label that is not in the repository', () => {
     const { calls } = run(
       LABEL_GUARD,
@@ -439,6 +454,7 @@ describe('acknowledge.sh', () => {
     labels?: string[];
     body?: string;
     login?: string;
+    type?: string;
   }) =>
     JSON.stringify({
       action: 'created',
@@ -446,7 +462,7 @@ describe('acknowledge.sh', () => {
         id: 555,
         body: opts.body ?? 'A reply',
         author_association: opts.association ?? 'NONE',
-        user: { login: opts.login ?? 'reporter' },
+        user: { login: opts.login ?? 'reporter', type: opts.type ?? 'User' },
       },
       issue: { number: 7, labels: (opts.labels ?? []).map((name) => ({ name })) },
     });
@@ -540,6 +556,26 @@ describe('acknowledge.sh', () => {
       event({ association: 'OWNER', labels: ['bug'] })
     );
     expect(calls).not.toContain('REACT_COMMENT');
+  });
+
+  it('does not acknowledge a comment authored by a bot account', () => {
+    // The cloud filter that wakes the comment-triggered automations rejects a
+    // `Bot` author, so reacting here would show 👀 on a comment the fleet never
+    // answers — the fleet's own comment-triggered loop (#680) and this guard
+    // must agree on the author.
+    const { calls, out } = run(
+      ACKNOWLEDGE,
+      { GH_STUB_LOGIN: 'cipansor-bot' },
+      ['--stdin'],
+      event({
+        association: 'OWNER',
+        body: '@cipansor-bot please look',
+        login: 'some-app[bot]',
+        type: 'Bot',
+      })
+    );
+    expect(calls).not.toContain('REACT_COMMENT');
+    expect(out).toContain('bot account');
   });
 });
 
@@ -869,6 +905,11 @@ describe('deploy-sdlc-agents.py', () => {
         expect(out, name).toContain('KRITERIA PENERIMAAN (WAJIB)');
         expect(out, name).toContain('- [x] <kriteria>');
         expect(out, name).toContain('- [ ] <kriteria>');
+        // Two states only, and a derived criterion is marked as derived — the
+        // prompt, the PR body and the reviewer's output must agree (finding:
+        // the body promised a `sebagian` state the prompt never had).
+        expect(out, name).not.toContain('sebagian');
+        expect(out, name).toContain('(turunan)');
         expect(out, name).toMatch(/Fixes #n/);
       }
     }
@@ -1289,5 +1330,96 @@ describe('issue-triage-bridge.sh', () => {
       ['--sweep']
     );
     expect(calls).toContain('DISPATCH');
+  });
+
+  it('re-dispatches a legacy marker with no run field, migrating it to the new form', () => {
+    // R378: a marker written at the 201 before #836 has no run field, so whether
+    // its run finished was never recorded. It must not be read as a finished
+    // checkpoint; the sweep re-dispatches once and rewrites the marker with the
+    // run id, so the next sweep can read the outcome.
+    const legacy = `<!-- triage-bridge-sweep:818:${signal('edited')} -->`;
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: legacy,
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+    expect(out).toContain('legacy marker');
+  });
+
+  it('reads the new final form (empty run field) as a finished checkpoint', () => {
+    // The final form is `…:<signal>: -->`; the run field is present and empty.
+    // It is a finished checkpoint, not a legacy marker.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited')),
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('treats a 2xx dispatch that names no run as failed, so the checkpoint is not finalised blind', () => {
+    // R121: a 2xx without `.id` wrote an empty run field, which the next sweep
+    // read as finished and skipped — a silent failure. It is now a failure: no
+    // marker, a non-zero exit, and a retry.
+    const { calls, status, out } = runBridge(
+      { GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818', GH_STUB_BODY: 'edited', CURL_STUB_RUN_ID: '' },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(calls).not.toContain('POST_MARKER');
+    expect(status).not.toBe(0);
+    expect(out).toContain('named no run');
+  });
+
+  it('defers a labelled issue once MAX_INFLIGHT triage runs are in flight', () => {
+    // R319: the label path bypassed the cap, so a burst of labels formed the
+    // burst the sweep cap prevents. It honours the same cap.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"},{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '2',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('deferred');
+  });
+
+  it('records a pending checkpoint when it defers, and dispatches it once capacity frees', () => {
+    // A deferred issue must not be lost: the pending run field keeps it
+    // re-triable, and once the pool has room the sweep dispatches it.
+    const deferred = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(deferred.calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:pending`);
+
+    const resumed = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'pending'),
+        CURL_STUB_RUNS: '{"runs":[]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(resumed.calls).toContain('DISPATCH');
+    expect(resumed.calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
   });
 });

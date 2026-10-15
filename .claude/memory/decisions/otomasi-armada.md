@@ -175,22 +175,55 @@
     ditunda ke sweep berikutnya, jadi armada tidak pernah membentuk burst yang
     kolam tak bisa tampung. Hasil run dibaca lewat `$CURL` (bearer OpenHands),
     bukan `gh api` (bearer GitHub).
-19. **`label-guard` tidak mencabut label tipe bawaan template** (2026-10-14,
-    pengguna; #842/#838). `bug_report.yml` memasang `bug` dan
-    `feature_request.yml` memasang `enhancement` saat issue dibuka; `label-guard`
-    mencabutnya karena bukan `cipansor-bot`, sehingga issue baru kehilangan label
-    dan mendapat komentar pencabutan yang tidak perlu. `ALLOWED_LABELS` (default
-    `bug enhancement`) dibiarkan: label tipe adalah maksud pelapor, dan pelabel
-    (SDLC 15) mencabut tipe yang bertentangan saat memasang tipe yang benar.
-    Label status (`ready`, `priority:*`, label workflow) tetap milik bot.
+19. **`label-guard` tidak mencabut label tipe bawaan template — hanya pada
+    issue** (2026-10-14, pengguna; #842/#838, disempitkan #837). `bug_report.yml`
+    memasang `bug` dan `feature_request.yml` memasang `enhancement` saat issue
+    dibuka; `label-guard` mencabutnya karena bukan `cipansor-bot`, sehingga issue
+    baru kehilangan label dan mendapat komentar pencabutan yang tidak perlu.
+    `ALLOWED_LABELS` (default `bug enhancement`) dibiarkan **pada issue**: label
+    tipe adalah maksud pelapor, dan pelabel (SDLC 15) mencabut tipe yang
+    bertentangan saat memasang tipe yang benar. **Pada PR pengecualian ini tidak
+    berlaku**: PR tidak punya form template, dan `issue-label-sync` membaca tipe
+    PR sebagai klaim yang harus cocok dengan issue tertaut — `bug` manual pada PR
+    yang menutup issue `enhancement` akan menggagalkan check. Jadi tipe tetap
+    dilindungi di PR dan dicabut seperti label lain. Label status (`ready`,
+    `priority:*`, label workflow) tetap milik bot di keduanya.
 20. **Tinjauan PR menyertakan checklist kriteria penerimaan** (2026-10-14,
     pengguna; #787). `Peninjau kode` (SDLC 08) dan `Gerbang tinjau PR` (SDLC 18)
     wajib memeriksa setiap kriteria penerimaan issue tertaut **terhadap diff**
     (bukan terhadap deskripsi PR) dan menyajikannya sebagai checklist markdown
     sederhana — `- [x] <kriteria>` bila terpenuhi, `- [ ] <kriteria>` bila belum
-    — masing-masing dengan bukti (path/baris atau tes). Sama bentuknya dengan
-    `## Acceptance criteria` di deskripsi PR. Kriteria `- [ ]` tanpa alasan yang
+    — **dua keadaan saja**, sama bentuknya dengan `## Acceptance criteria` di
+    deskripsi PR (bukan emoji `✅/⚠️/❌`, bukan keadaan "sebagian"). Kriteria
+    diambil persis dari issue; bila diturunkan dari maksud issue, barisnya
+    ditandai `(turunan)` agar asalnya jelas. Kriteria `- [ ]` tanpa alasan yang
     meyakinkan menghalangi `APPROVE`.
+21. **Checkpoint sweep membedakan tiga bentuk penanda; run tanpa id = gagal**
+    (2026-10-14, pengguna; tinjauan #837 R378/R121, memperbaiki #836/#841 yang
+    belum menutupnya). Tiga bentuk berbagi prefiks: `…:<n>:<signal>` (lama,
+    ditulis saat 201, hasil run tak pernah dicatat), `…:<n>:<signal>:<run>`
+    (run sedang berjalan), `…:<n>:<signal>: -->` (final, run tuntas). Penanda
+    lama **bukan** checkpoint final — sweep mendispatch ulang sekali dan
+    menulisnya ke bentuk baru, karena hasil run-nya tak diketahui. Field run
+    `pending` menandai kandidat yang ditunda karena `MAX_INFLIGHT`, sehingga
+    sweep berikutnya mendispatch saat kapasitas longgar (bukan dibaca final).
+    Dispatch 2xx **tanpa `.id`** diperlakukan **gagal** (tidak menulis penanda,
+    `exit 1`), karena checkpoint dengan run kosong akan dibaca final dan
+    kegagalannya senyap — kekeliruan yang justru ingin dicegah mekanisme retry.
+22. **Batas `MAX_INFLIGHT` berlaku di jalur label juga** (2026-10-14, pengguna;
+    tinjauan #837 R319). Jalur `issues.labeled` menjalankan job `labeled`
+    terpisah per issue, sehingga sepuluh label sekaligus mendispatch sepuluh run
+    tanpa melewati batas yang hanya dipasang di sweep. `on_label` kini membaca
+    jumlah run in-flight dan menunda (menulis penanda `pending`) bila cap
+    tercapai; sweep berikutnya mengambilnya. Pemeriksaan per-job tanpa reservasi
+    atomik tidak cukup untuk event yang serentak, karena itu penanda `pending`
+    yang menyelamatkan kandidat, bukan sekadar hitungan.
+23. **Guard anti-loop `acknowledge.sh` sejalan dengan filter cloud** (2026-10-14;
+    tinjauan #837). `acknowledge.sh` melewatkan komentar yang ditulis akun
+    bertipe `Bot` (`comment.user.type == 'Bot'`), bukan hanya `cipansor-bot`:
+    filter cloud yang membangunkan automation pemicu komentar menolak penulis
+    tipe `Bot`, jadi memberi reaction 👀 pada komentar itu akan menampilkan
+    "sedang dikerjakan" untuk komentar yang tak akan pernah ditanggapi armada.
 
 
 ## Sumber

@@ -11,7 +11,7 @@
 # Reacting only for these keeps an ordinary comment thread unspammed.
 #
 # Usage: acknowledge.sh --stdin          # a `issue_comment.created` webhook event
-#        acknowledge.sh <number> <comment-id> [author_association] [labels] [body] [login]
+#        acknowledge.sh <number> <comment-id> [author_association] [labels] [body] [login] [type]
 # Env:   REPO (owner/name); the reaction itself is reaction.sh.
 set -eu
 
@@ -28,22 +28,28 @@ if [ "${1:-}" = "--stdin" ]; then
   BODY=$(printf '%s' "$EVENT" | jq -r '.comment.body // ""')
   AUTHOR=$(printf '%s' "$EVENT" | jq -r '.comment.author_association // ""')
   LOGIN=$(printf '%s' "$EVENT" | jq -r '.comment.user.login // ""')
+  CTYPE=$(printf '%s' "$EVENT" | jq -r '.comment.user.type // ""')
   LABELS=$(printf '%s' "$EVENT" | jq -r '[.issue.labels[].name] | join(",")')
   NUMBER=$(printf '%s' "$EVENT" | jq -r '.issue.number // empty')
   CID=$(printf '%s' "$EVENT" | jq -r '.comment.id // empty')
 else
-  NUMBER="${1:?usage: acknowledge.sh --stdin | <number> <comment-id> [author_association] [labels] [body] [login]}"
+  NUMBER="${1:?usage: acknowledge.sh --stdin | <number> <comment-id> [author_association] [labels] [body] [login] [type]}"
   CID="${2:?comment id is required}"
   AUTHOR="${3:-}"
   LABELS="${4:-}"
   BODY="${5:-}"
   LOGIN="${6:-}"
+  CTYPE="${7:-}"
 fi
 
 [ -n "$NUMBER" ] && [ -n "$CID" ] || { echo "No number/comment in the event; nothing to do."; exit 0; }
 
-# Never acknowledge the bot's own comment, by author — the anti-loop guard.
+# Never acknowledge the bot's own comment, by author — the anti-loop guard. A
+# GitHub App or a bot account (`user.type == "Bot"`) is skipped too: the cloud
+# filter that wakes the comment-triggered automations rejects a `Bot` author, so
+# reacting here would show 👀 on a comment the fleet never answers.
 [ "$LOGIN" = "$BOT_LOGIN" ] && { echo "Bot's own comment; nothing to do."; exit 0; }
+[ "$CTYPE" = "Bot" ] && { echo "A bot account's comment; nothing to do."; exit 0; }
 
 react=0
 # `Bot sebutan` is maintainer-triggered (docs/SDLC-FLOW.md): a stray mention by
