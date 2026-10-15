@@ -82,35 +82,52 @@ UNREADABLE="$DIR/unreadable"   # PR numbers that could not be fully read
 
 iso() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
 
-# Why the gate's newest run is not a review, or "" when it might still become
-# one. Prints:
-#   busy          a run is RUNNING/PENDING: the gate is working, or queued
-#   infra:<cause> the newest run FAILED on infrastructure — retryable
-#   failed        the newest run FAILED for a reason a retry will not fix
-#   ok            no run, or a COMPLETED one (which owed a review and did not
-#                 post one — a person's call, not another run's)
-# An unreadable history is `unknown` with a non-zero status: the caller must not
-# treat it as "no run", because that would dispatch a head already in flight.
-gate_run_state() { # gate_run_state
-  runs=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=10" \
+# Why the run this head was dispatched is not a review. Prints:
+#   busy          the run is RUNNING/PENDING: the gate is working, or queued
+#   infra:<cause> the run FAILED on infrastructure — retryable
+#   failed        the run FAILED for a reason a retry will not fix
+#   ok            a COMPLETED run (which owed a review and did not post one — a
+#                 person's call, not another run's)
+#   gone          the id is not in the history window, so its outcome is unknown
+# A failed read returns non-zero: the caller must not read that as "no run",
+# because it would dispatch a head already in flight.
+#
+# The `runs` API exposes no run-by-id endpoint and no PR on a run, so a run
+# cannot be attributed to the head that asked for it from the API alone. The
+# caller therefore records the run id it dispatched in the head's own comment
+# marker and asks about *that* id here; only when the head has no recorded id
+# does it fall back to the global newest run, and then only to check whether
+# anything at all is in flight (pr-lifecycle may have dispatched one).
+gate_run_status() { # gate_run_status <run-id>
+  runs=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=20" \
+    -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
+  printf '%s' "$runs" | jq -r --arg id "$1" '
+    (.runs // []) as $r
+    | ($r | map(select(.id == $id)) | .[0]) as $x
+    | if $x == null then "gone"
+      elif $x.status == "RUNNING" or $x.status == "PENDING" then "busy"
+      elif $x.status == "FAILED" then
+        (($x.status_detail.phase // "") + "/" + ($x.status_detail.kind // "")) as $k
+        | if $k == "execution/timeout"
+             or $k == "verification/environment_unavailable"
+             or $k == "dispatch/unknown"
+             or $k == "dispatch/server_error"
+             or $k == "execution/execution_error"
+             or $k == "callback/execution_error"
+          then "infra:" + $k
+          else "failed" end
+      else "ok" end' 2>/dev/null
+}
+
+# Whether *any* gate run is in flight. Used only when this head has no recorded
+# run id: a run nobody attributed could still be this head's, so dispatching
+# then would stack a second run on the same work.
+gate_any_in_flight() { # gate_any_in_flight
+  runs=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=5" \
     -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
   printf '%s' "$runs" | jq -r '
-    (.runs // []) as $r
-    | if ($r | length) == 0 then "ok"
-      else $r[0] as $x
-      | if $x.status == "RUNNING" or $x.status == "PENDING" then "busy"
-        elif $x.status == "FAILED" then
-          (($x.status_detail.phase // "") + "/" + ($x.status_detail.kind // "")) as $k
-          | if $k == "execution/timeout"
-               or $k == "verification/environment_unavailable"
-               or $k == "dispatch/unknown"
-               or $k == "dispatch/server_error"
-               or $k == "execution/execution_error"
-               or $k == "callback/execution_error"
-            then "infra:" + $k
-            else "failed" end
-        else "ok" end
-      end' 2>/dev/null
+    if ((.runs // []) | map(select(.status == "RUNNING" or .status == "PENDING")) | length) > 0
+    then "busy" else "idle" end' 2>/dev/null
 }
 
 # Every open PR, paginated: `--limit 200` silently dropped the rest, so a PR
@@ -271,7 +288,10 @@ fi
 sort -n "$SILENT" | while read -r n sha since; do
   mark="<!-- gate-watch:$sha -->"
   # One read of the head's comments serves both answers: the marker comment to
-  # update in place, and the attempt count it carries.
+  # update in place, and the attempt count it carries. `--paginate` emits one
+  # JSON array per page, so the pages must be slurped (`-s`) into one array
+  # before anything is selected from it — otherwise `cid` and `attempts` become
+  # multi-line strings and the numeric cap comparison silently fails.
   if ! comments=$(gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" 2>/dev/null); then
     echo "::warning::PR #$n: comments unreadable; not re-dispatching $sha."
     continue
@@ -279,66 +299,105 @@ sort -n "$SILENT" | while read -r n sha since; do
   # The marker comment for this head, if any, and how many re-dispatches it
   # records. A read failure must not look like "no comment yet": re-dispatching
   # the gate on every run for a head already told about would pile up dispatches.
-  cid=$(printf '%s' "$comments" | jq -r --arg m "$mark" \
-    '[.[] | select((.body // "") | contains($m))] | last | .id // empty' 2>/dev/null || echo unread)
+  cid=$(printf '%s' "$comments" | jq -rs --arg m "$mark" \
+    '[.[][] | select((.body // "") | contains($m))] | last | .id // empty' 2>/dev/null) || cid=unread
   if [ "$cid" = "unread" ]; then
     echo "::warning::PR #$n: comments unreadable; not re-dispatching $sha."
     continue
   fi
-  attempts=$(printf '%s' "$comments" | jq -r --arg s "$sha" \
-    '[.[] | (.body // "") | scan("gate-watch-attempt:" + $s + ":([0-9]+)") | .[0] | tonumber] | max // 0' 2>/dev/null || echo 0)
-  [ -n "$attempts" ] || attempts=0
+  attempts=$(printf '%s' "$comments" | jq -rs --arg s "$sha" \
+    '[.[][] | (.body // "") | scan("gate-watch-attempt:" + $s + ":([0-9]+)") | .[0] | tonumber] | max // 0' 2>/dev/null || echo 0)
+  case "$attempts" in
+    '' | *[!0-9]*) attempts=0 ;;
+  esac
+  # The gate run this head's last dispatch produced, so its state can be read
+  # back per head instead of guessing from the newest run of the whole gate.
+  myrun=$(printf '%s' "$comments" | jq -rs --arg s "$sha" \
+    '[.[][] | (.body // "") | scan("gate-watch-run:" + $s + ":([A-Za-z0-9-]+)") | .[0]] | last // empty' 2>/dev/null)
+  case "$myrun" in
+    *[!A-Za-z0-9-]*) myrun="" ;;
+  esac
 
-  # Why a run is not a review, read from the gate's own history: a head whose run
-  # is still in flight is left alone, and a run lost to the platform is retried.
-  # An unreadable history is not "no run": dispatching then could double up on a
-  # head already being reviewed.
+  # Why a run is not a review. A head with a recorded run id is judged on that
+  # run; a head without one only waits if some run is in flight (pr-lifecycle
+  # may have dispatched one nobody attributed). An unreadable history is not
+  # "no run": dispatching then could double up on a head already being reviewed.
   retry=""
   if [ -n "${OPENHANDS_API_KEY:-}" ]; then
-    if state=$(gate_run_state); then
-      case "$state" in
-        busy) retry=" Run gerbang masih RUNNING/PENDING; menunggu, tidak dispatch lagi." ;;
-        infra:*)
-          if [ "$attempts" -ge "$GATE_MAX_ATTEMPTS" ]; then
-            retry=" Run terakhir gagal infrastruktur (${state#infra:}) dan sudah $attempts kali dicoba ulang — giliran manusia."
-          else
-            payload=$(jq -nc --arg pr "$n" --arg sha "$sha" '{source: "gate-watch", pr: $pr, head_sha: $sha}')
-            code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
-                "$AUTOMATION_API/$GATE_ID/dispatch" \
-                -H "Authorization: Bearer $OPENHANDS_API_KEY" \
-                -H "Content-Type: application/json" \
-                -d "$payload" 2>/dev/null || echo 000)
-            case "$code" in
-              2??)
-                attempts=$((attempts + 1))
-                retry=" Run terakhir gagal infrastruktur (${state#infra:}); di-dispatch ulang (percobaan $attempts/$GATE_MAX_ATTEMPTS, HTTP $code)." ;;
-              *)
-                retry=" Dispatch ulang ditolak (HTTP $code); periksa kunci dan run-nya." ;;
-            esac
-          fi ;;
-        failed) retry=" Run terakhir gagal bukan karena infrastruktur; periksa run-nya, tidak dispatch lagi." ;;
-      esac
-    else
+    if [ -n "$myrun" ]; then
+      if ! state=$(gate_run_status "$myrun"); then
+        echo "::warning::PR #$n: the gate's run history is unreadable; not re-dispatching $sha."
+        continue
+      fi
+    elif ! state=$(gate_any_in_flight); then
       echo "::warning::PR #$n: the gate's run history is unreadable; not re-dispatching $sha."
       continue
+    elif [ "$state" = "busy" ]; then
+      state="busy-unknown"
+    else
+      state="no-run"
     fi
+    case "$state" in
+      busy)
+        retry=" Run gerbang untuk head ini ($myrun) masih RUNNING/PENDING; menunggu, tidak dispatch lagi." ;;
+      busy-unknown)
+        retry=" Ada run gerbang yang masih RUNNING/PENDING; menunggu agar tidak menumpuk run." ;;
+      ok)
+        retry=" Run gerbang terakhir untuk head ini selesai tetapi tidak menulis review; itu keputusan orang, tidak dispatch lagi." ;;
+      failed)
+        retry=" Run gerbang terakhir untuk head ini gagal bukan karena infrastruktur; tidak dispatch lagi." ;;
+      infra:* | gone | no-run)
+        # `gone`: the recorded run has fallen out of the history window, so its
+        # outcome is unknown — treat like a lost run and try again. `no-run`:
+        # the head was never dispatched (or the dispatch was lost). Both are
+        # bounded by the same attempt cap.
+        if [ "$attempts" -ge "$GATE_MAX_ATTEMPTS" ]; then
+          case "$state" in
+            infra:*) cause="${state#infra:}" ;;
+            gone) cause="run tercatat tidak ada lagi di riwayat" ;;
+            *) cause="belum ada run untuk head ini" ;;
+          esac
+          retry=" Gerbang belum meninjau head ini ($cause) dan sudah $attempts kali dicoba ulang — giliran manusia."
+        else
+          payload=$(jq -nc --arg pr "$n" --arg sha "$sha" '{source: "gate-watch", pr: $pr, head_sha: $sha}')
+          # One call: the body carries the new run id, and `-w` appends the HTTP
+          # code so a refusal is reported with the code it actually returned.
+          resp=$(curl -sS -w '\n%{http_code}' -X POST "$AUTOMATION_API/$GATE_ID/dispatch" \
+              -H "Authorization: Bearer $OPENHANDS_API_KEY" \
+              -H "Content-Type: application/json" \
+              -d "$payload" 2>/dev/null || echo '')
+          code=$(printf '%s' "$resp" | tail -n1)
+          case "$code" in '' | *[!0-9]*) code=000 ;; esac
+          newrun=$(printf '%s' "$resp" | sed '$d' | jq -r '.id // empty' 2>/dev/null)
+          if [ -n "$newrun" ]; then
+            attempts=$((attempts + 1))
+            myrun="$newrun"
+            retry=" Gerbang belum meninjau head ini; di-dispatch ulang (percobaan $attempts/$GATE_MAX_ATTEMPTS, run \`$newrun\`)."
+          else
+            retry=" Dispatch ulang ditolak (HTTP $code); periksa kunci dan run-nya."
+          fi
+        fi ;;
+    esac
   else
     retry=" Dispatch ulang tidak dicoba: \`OPENHANDS_API_KEY\` tidak tersedia untuk workflow ini."
   fi
 
   # One comment per head: it is created once and updated in place, and only when
   # its text actually changes (an attempt, the escalation to a person, a run
-  # going from failed to in flight). The attempt marker rides in that comment, so
-  # the next hourly run reads the counter there instead of dispatching blindly.
+  # going from failed to in flight). The attempt count and the run id ride in
+  # that comment, so the next hourly run reads them there instead of guessing.
   old_body=""
   if [ -n "$cid" ]; then
-    old_body=$(printf '%s' "$comments" | jq -r --argjson id "$cid" \
-      '[.[] | select(.id == $id)][0].body // ""' 2>/dev/null || true)
+    old_body=$(printf '%s' "$comments" | jq -rs --argjson id "$cid" \
+      '[.[][] | select(.id == $id)][0].body // ""' 2>/dev/null || true)
   fi
   printf '%s\n' "$mark" "" \
-    "Gerbang tinjau belum meninjau head \`$(printf '%s' "$sha" | cut -c1-9)\`, padahal semua check-nya selesai hijau sejak $(iso "$since") UTC.${retry} Run \`Gerbang tinjau PR\` untuk PR ini ada di riwayat automation OpenHands Cloud; dicatat juga di #$ISSUE." > "$DIR/pr-$n"
+    "Gerbang tinjau belum meninjau head \`$(printf '%s' "$sha" | cut -c1-9)\`.${retry} Semua check head ini sudah selesai hijau sejak $(iso "$since") UTC; dicatat juga di #$ISSUE." > "$DIR/pr-$n"
   if [ "$attempts" -gt 0 ]; then
     printf '%s\n' "<!-- gate-watch-attempt:$sha:$attempts -->" >> "$DIR/pr-$n"
+  fi
+  if [ -n "$myrun" ]; then
+    printf '%s\n' "<!-- gate-watch-run:$sha:$myrun -->" >> "$DIR/pr-$n"
   fi
   if [ -n "$cid" ] && [ "$old_body" = "$(cat "$DIR/pr-$n")" ]; then
     echo "PR #$n: already told about $sha."

@@ -276,40 +276,56 @@
 25. **Run yang mati infrastruktur mendapat kesempatan kedua yang terukur**
     (2026-10-15, pengguna; #837). `POST /{id}/dispatch` fire-and-forget: run
     yang mati setelah HTTP 201 hilang tanpa apa pun yang mengulangnya. Riwayat
-    run armada memang begitu — 14 dari 50 run terakhir SDLC 18 `FAILED` karena
-    infrastruktur (`execution/timeout` dominan, `environment_unavailable`,
-    `execution_error`, `unknown`), dan **gerbang tinjau PR #837 sendiri tidak
-    pernah selesai**: empat run terakhirnya mati `execution/timeout`
-    (`fingerprint: execution:agent_server:verify_run:timeout`). Menambah timeout
+    run armada memang begitu — mayoritas run `FAILED` terakhir gagal karena
+    infrastruktur, bukan isi tugas (`execution/timeout` dominan, disusul
+    `environment_unavailable`, `execution_error`, `unknown`). Menambah timeout
     tidak menolong — 1800 s sudah plafon platform (field `timeout` automation),
     jadi kegagalan timeout adalah run yang **hilang**, bukan run yang lambat.
     Dua retrier, keduanya tiap jam:
     - **`automation-retry.sh`** (+ `automation-retry.yml`, menit 47): run
       terakhir sebuah automation **cron** yang gagal infrastruktur di-dispatch
       ulang, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20).
-      Percobaan disimpan di **KV store automation** (kunci `retry-<aid>-<run>`,
-      tulis optimistis `nx`/`if_version`) sehingga tak ada dispatch ganda antar
-      run Actions, dan **klaim ditulis sebelum dispatch** — kalah balapan berarti
-      tidak ada dispatch. Dispatch yang ditolak **me-rollback** klaimnya agar
-      percobaan tidak terbakar sia-sia. Yang kehabisan kesempatan dilaporkan di
-      satu issue `automation-health` (ditutup lagi saat daftarnya kosong).
-      Automation **event** sengaja **tidak** di-retry di sini: payload-nya
-      (issue/PR mana) tidak diekspos API runs (`run_metadata` `null`, `trigger`
-      event tak menyimpan payload), jadi run ulang buta bisa salah sasaran —
-      mereka punya retrier deterministik sendiri (`gate-watch.yml`,
-      `issue-triage-bridge.sh`).
+      Percobaan disimpan di **KV store automation** dengan **satu kunci per
+      automation** (`retry-<aid>`), tulis optimistis `nx`/`if_version`. Kunci
+      per-run id **salah**: `POST /{id}/dispatch` selalu menerbitkan run id
+      baru, jadi kunci per-run memberi setiap retry anggaran baru dan rantainya
+      tak pernah berhenti — kunci per-automation membatasi seluruh episode.
+      Kunci itu **dihapus** saat run terbaru `COMPLETED` (automation pulih,
+      kegagalan berikutnya mulai episode baru), dan **klaim ditulis sebelum
+      dispatch** — kalah balapan berarti tidak ada dispatch. Dispatch yang
+      ditolak **me-rollback** klaimnya agar percobaan tidak terbakar sia-sia.
+      Yang kehabisan kesempatan, atau yang **dijeda otomatis** platform
+      (penghentian manual dibiarkan), dilaporkan di satu issue
+      `automation-health` (ditutup lagi saat kedua daftarnya kosong); satu
+      automation yang gagal dibaca membuat seluruh pemindaian **tidak
+      mengubah** issue itu — pemindaian tak lengkap bukan bukti gangguan
+      selesai. Automation **event** sengaja **tidak** di-retry di sini:
+      payload-nya (issue/PR mana) tidak diekspos API runs (`run_metadata`
+      `null`, `trigger` event tak menyimpan payload), jadi run ulang buta bisa
+      salah sasaran — mereka punya retrier deterministik sendiri
+      (`gate-watch.yml`, `issue-triage-bridge.sh`).
     - **`gate-watch.sh`**: re-dispatch gerbang jadi terukur, bukan sekali.
-      Skrip membaca riwayat run gerbang lewat API automation dan mengklasifikasi
-      run terbaru: `RUNNING`/`PENDING` → **tunggu** (jangan tumpuk run di sandbox
-      yang sama); `FAILED` infrastruktur → dispatch ulang sampai
+      API runs tidak punya endpoint per-run id dan tidak menyebut PR mana pun
+      pada sebuah run, jadi sebuah run **tidak bisa** diatribusikan ke head yang
+      memintanya dari API saja — dan run terbaru milik PR lain bisa salah
+      menahan atau salah memicu retry. Karena itu skrip **mencatat run id** yang
+      ia dispatch di penanda komentar head itu (`<!-- gate-watch-run:<sha>:<id>
+      -->`) dan membaca status **id itu** kembali; hanya bila head belum punya
+      id tercatat ia membaca run terbaru global, dan itu pun hanya untuk tahu
+      ada run yang sedang berjalan. Klasifikasi: `RUNNING`/`PENDING` →
+      **tunggu**; `FAILED` infrastruktur, run id yang jatuh keluar jendela
+      riwayat, atau belum ada run sama sekali → dispatch ulang sampai
       `GATE_MAX_ATTEMPTS` (3) per head; `FAILED` non-infrastruktur
       (auth/quota/config) → tidak di-retry; `COMPLETED` → bukan urusan retry
       (review-nya yang tidak datang, itu keputusan orang). Riwayat run yang
       **tak terbaca** **tidak** dianggap "tak ada run": dispatch dilewati agar
-      tidak menumpuk run pada head yang sudah ditinjau. Hitungan percobaan ikut
-      di penanda komentar (`<!-- gate-watch-attempt:<sha>:<n> -->`) sehingga
-      bertahan antar-run, dan komentar diperbarui di tempat (PATCH) hanya saat
-      teksnya berubah — bukan ditumpuk.
+      tidak menumpuk run pada head yang sudah ditinjau. Hitungan percobaan dan
+      run id ikut di penanda komentar (`<!-- gate-watch-attempt:<sha>:<n> -->`)
+      sehingga bertahan antar-run, dan komentar diperbarui di tempat (PATCH)
+      hanya saat teksnya berubah — bukan ditumpuk.
+      `gh api --paginate` mencetak **satu array JSON per halaman**, jadi halaman
+      harus di-`jq -rs` (slurp) dulu: tanpa itu `attempts` menjadi `"3\n0"`,
+      perbandingan angka gagal, dan gerbang bisa di-dispatch ulang tanpa batas.
     - **`set -eu` + pipa ke `while` = subshell**: variabel yang di-set di dalam
       `| while` tidak bertahan setelah loop. Karena itu hitungan percobaan
       disimpan di **penanda komentar**, bukan variabel shell.

@@ -1,8 +1,8 @@
 # A ready pull request whose checks have all been green for an hour, with no
 # review from the gate on its head, gets the gate re-dispatched — up to
-# GATE_MAX_ATTEMPTS times, and only while the gate's last run is not still in
-# flight and did not already fail for a reason a retry cannot fix — plus one
-# comment and a line in the one health issue that lists them all (#776).
+# GATE_MAX_ATTEMPTS times, and only while the run dispatched for *that* head is
+# not still in flight and did not already fail for a reason a retry cannot fix —
+# plus one comment and a line in the one health issue that lists them all (#776).
 #
 # pr-lifecycle.sh dispatches the review gate (OpenHands Cloud) and only learns
 # that the request was accepted. This is the other half: it notices when the

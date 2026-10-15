@@ -446,20 +446,20 @@ decision.
   column holds (`select x, count(*) … group by x`), then a Prisma enum or a
   CHECK, and `z.enum` at the edge
   (`lessons/student-status-case-mismatch.md`).
-- **`gate-watch.sh` reads the gate's run history, which is per automation, not
-  per pull request** (found 2026-10-15, #837). The automation runs API exposes
-  `status`, `status_detail`, `created_at`, `sandbox_id`, `cost` and
-  `trigger_source`, but **no payload**: `run_metadata` is `null` and an event
-  automation's `trigger` stores no payload, so a run cannot be tied to the PR or
-  head it was dispatched for. `gate_run_state()` therefore classifies the
-  newest run of the gate **automation**, whichever PR it belonged to. This is
-  safe while at most one ready PR waits at a time (the gate's usual cadence),
-  but two ready PRs could make one head read another head's run: a foreign
-  `FAILED timeout` would spend an attempt re-dispatching a head the gate has not
-  looked at yet, and a foreign `RUNNING` would skip a head whose own run is
-  dead. The comment and attempt markers are per head, so nothing is lost
-  permanently — the next hourly run corrects it — but the classification is not
-  per-PR until the runs API exposes the run's target. Revisit when it does.
+- **`gate-watch.sh` attributes a gate run to a head by recording the run id it
+  dispatched** (found 2026-10-15, #837; fixed the same day). The automation runs
+  API exposes `status`, `status_detail`, `created_at`, `sandbox_id`, `cost` and
+  `trigger_source`, but **no payload**: `run_metadata` is `null`, an event
+  automation's `trigger` stores no payload, and there is no run-by-id endpoint,
+  so a run cannot be tied to the PR or head it was dispatched for from the API
+  alone. Reading the gate's newest run therefore risked two failures once two
+  PRs waited at once: a foreign `FAILED timeout` would spend an attempt
+  re-dispatching a head the gate had not looked at, and a foreign `RUNNING`
+  would skip a head whose own run was dead. The script now writes the run id it
+  dispatched into the head's own comment marker
+  (`<!-- gate-watch-run:<sha>:<id> -->`) and reads that id back; the global
+  newest run is consulted only when a head has no recorded id, and then only to
+  ask whether anything is in flight. No API change was needed.
 
 ## Performance
 

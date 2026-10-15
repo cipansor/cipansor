@@ -23,20 +23,29 @@
 #     triage).
 #   * only a failure whose `status_detail` is an infrastructure kind is retried;
 #     an `auth`, `quota` or `config` failure is a decision for a person.
-#   * the attempt count is kept in the automation KV store, keyed by the failed
-#     run id, so the same failure is retried at most RETRY_MAX times, never
-#     twice within BACKOFF_MINUTES, and never on a later hourly pass after the
-#     cap. A KV read/write failure skips the retry (never retries blind).
+#   * the attempt count is kept in the automation KV store under **one key per
+#     automation** (`retry-<aid>`), not one per run id. A dispatch mints a new
+#     run id, so a per-run key would hand every retry a fresh budget and the
+#     chain would never end; a per-automation key caps the whole episode. The
+#     ledger is deleted the moment the newest run is COMPLETED (the automation
+#     recovered, so the next failure starts a fresh episode), and a failure is
+#     never retried twice within BACKOFF_MINUTES. A KV read/write failure skips
+#     the retry (never retries blind) and marks the scan degraded.
+#   * an automation the platform **auto-paused** after repeated failures is not
+#     retried (nothing would run), but it is reported: an auto-pause is an
+#     unresolved outage, not a person's decision. A manual stop is left alone.
 #   * the one health issue (marker `automation-retry:health`, label
-#     `automation-health`) lists what was retried and what ran out of chances,
-#     is updated in place, and is closed once the list is empty — the same
-#     "a silence is also a failure" rule gate-watch follows (#776).
+#     `automation-health`) lists what ran out of chances and what was
+#     auto-paused, is updated in place, and is closed once both lists are empty
+#     — the same "a silence is also a failure" rule gate-watch follows (#776).
+#     A scan that could not read every automation leaves the issue untouched:
+#     an incomplete scan is not proof that the outage is over.
 #
 # Usage: automation-retry.sh
 # Env:   OPENHANDS_API_KEY (required), REPO (owner/name),
 #        AUTOMATION_API (default the cloud automation API),
 #        RETRY_MAX (default 2), BACKOFF_MINUTES (default 20),
-#        WINDOW_MINUTES (default 1440, ignore older failures),
+#        WINDOW_MINUTES (default 1440, do not retry a failure older than this),
 #        NOW (epoch seconds; for tests), CURL (default curl)
 set -eu
 
@@ -59,9 +68,13 @@ fi
 DIR="$(mktemp -d)"
 trap 'rm -rf "$DIR"' EXIT HUP INT TERM
 RETRIED="$DIR/retried"     # lines: <name> <run> <kind> <attempt>
-EXHAUSTED="$DIR/exhausted" # lines: <name> <run> <kind>
+EXHAUSTED="$DIR/exhausted" # lines: <name> <run> <kind> <attempts>
+PAUSED="$DIR/paused"       # lines: <name> <reason>
+DEGRADED="$DIR/degraded"   # one line per automation whose read failed
 : > "$RETRIED"
 : > "$EXHAUSTED"
+: > "$PAUSED"
+: > "$DEGRADED"
 
 iso() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
 
@@ -90,13 +103,11 @@ retryable() { # retryable <phase> <kind>
   return 1
 }
 
-# The KV value for a failed run: the attempt count and when the last attempt
-# was. `meta=true` also returns the version, used to write optimistically. The
-# key is namespaced under the automation being retried, which is the scope the
-# ledger belongs to (and the `automation_id` a user-authenticated key requires).
-# A key that does not exist is 404 `key_not_found` — that is "no attempt yet",
-# NOT an unreadable KV. Without the status code check, `curl -f` makes a first
-# failure look unreadable and the run is never retried at all.
+# The KV value for an automation's retry episode: the attempt count and when the
+# last attempt was. `meta=true` also returns the version, used to write
+# optimistically. A key that does not exist is 404 `key_not_found` — that is "no
+# attempt yet", NOT an unreadable KV. Without the status code check, `curl -f`
+# makes a first failure look unreadable and the run is never retried at all.
 kv_get() { # kv_get <automation-id> <key>; prints "<attempts>\t<last_at>\t<version>"
   body=$("$CURL" -sS -o "$DIR/kv.body" -w '%{http_code}' "$API/kv/$2?meta=true&automation_id=$1" \
     -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
@@ -124,43 +135,81 @@ kv_put() { # kv_put <automation-id> <key> <attempts> <last_at> <version>
   fi
 }
 
-printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron" and (.enabled != false)) | [.id, .name] | @tsv' 2>/dev/null \
-  | while IFS="$(printf '\t')" read -r aid name; do
+# One key per automation, so the cap covers the whole failure episode rather
+# than a single run id. Deleting it (the API answers 200, and a later GET is
+# 404) makes the next failure a fresh episode with a full budget; a delete that
+# fails is not fatal — the count simply carries over.
+kv_reset() { # kv_reset <automation-id> <key>
+  "$CURL" -fsS -o /dev/null -X DELETE "$API/kv/$2?automation_id=$1" \
+    -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null || true
+}
+
+printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron") | [.id, .name, (.enabled | tostring), (.disabled_reason // "")] | @tsv' 2>/dev/null \
+  | while IFS="$(printf '\t')" read -r aid name enabled reason; do
     [ -n "${aid:-}" ] || continue
+    # A paused automation is paused for a reason. An auto-pause (the platform
+    # stopped it after repeated failures) is an outage to report; a manual stop
+    # is a person's decision and is left alone.
+    if [ "$enabled" = "false" ]; then
+      case "$reason" in
+        *automatically*) printf '%s\t%s\n' "$name" "$reason" >> "$PAUSED" ;;
+        *) echo "$name: disabled by hand; left alone." ;;
+      esac
+      continue
+    fi
     runs=$("$CURL" -fsS "$API/$aid/runs?limit=5" -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || {
       echo "::warning::$name: runs unreadable; skipped."
+      printf '%s\n' "$name" >> "$DEGRADED"
       continue
     }
+    key="retry-$aid"
     # The newest run only: an automation whose latest run succeeded needs no
     # retry, whatever failed before it.
     line=$(printf '%s' "$runs" | jq -r '.runs[0] // empty | [.id, .status, (.status_detail.phase // ""), (.status_detail.kind // ""), (.created_at // "")] | @tsv' 2>/dev/null)
-    [ -n "$line" ] || continue
+    if [ -z "$line" ]; then
+      kv_reset "$aid" "$key" # no run at all: nothing to retry, episode over
+      continue
+    fi
     run=$(printf '%s' "$line" | cut -f1)
     status=$(printf '%s' "$line" | cut -f2)
     phase=$(printf '%s' "$line" | cut -f3)
     kind=$(printf '%s' "$line" | cut -f4)
     created=$(printf '%s' "$line" | cut -f5)
-    [ "$status" = "FAILED" ] || continue
+    # A run still in flight: wait, do not stack a second run on the same slot.
+    case "$status" in
+      RUNNING | PENDING)
+        echo "$name: newest run is $status; waiting."
+        continue ;;
+    esac
+    # Recovered: the next failure starts a fresh episode with a full budget.
+    if [ "$status" != "FAILED" ]; then
+      kv_reset "$aid" "$key"
+      continue
+    fi
     retryable "$phase" "$kind" || {
       echo "$name: last run $run failed ($phase/$kind); not an infrastructure failure, not retried."
       continue
     }
-    since=$(( (NOW - $(epoch "$created")) / 60 ))
-    if [ "$since" -gt "$WINDOW_MINUTES" ]; then
-      echo "$name: last failure is ${since} min old; outside the ${WINDOW_MINUTES} min window."
-      continue
-    fi
-    key="retry-$aid-$run"
     if ! kv=$(kv_get "$aid" "$key"); then
       echo "::warning::$name: KV unreadable for $run; not retrying blind."
+      printf '%s\n' "$name" >> "$DEGRADED"
       continue
     fi
     attempts=$(printf '%s' "$kv" | cut -f1)
     last_at=$(printf '%s' "$kv" | cut -f2)
     version=$(printf '%s' "$kv" | cut -f3)
+    # Out of chances: report it, and keep reporting it until the automation
+    # recovers — the age of the failure does not make the outage go away.
     if [ "$attempts" -ge "$RETRY_MAX" ]; then
       echo "$name: $run already retried $attempts time(s); out of chances."
-      printf '%s\t%s\t%s\n' "$name" "$run" "$phase/$kind" >> "$EXHAUSTED"
+      printf '%s\t%s\t%s\t%s\n' "$name" "$run" "$phase/$kind" "$attempts" >> "$EXHAUSTED"
+      continue
+    fi
+    # The age window gates *dispatch* only; a failure older than the window is
+    # left for a person rather than retried blindly.
+    since=$(( (NOW - $(epoch "$created")) / 60 ))
+    if [ "$since" -gt "$WINDOW_MINUTES" ]; then
+      echo "$name: last failure is ${since} min old; outside the ${WINDOW_MINUTES} min window."
       continue
     fi
     if [ "$attempts" -gt 0 ] && [ $(( (NOW - last_at) / 60 )) -lt "$BACKOFF_MINUTES" ]; then
@@ -171,6 +220,7 @@ printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron" an
     # dispatch happens, so a double retry cannot occur.
     if ! kv_put "$aid" "$key" "$((attempts + 1))" "$NOW" "$version"; then
       echo "::warning::$name: could not claim a retry for $run; skipped."
+      printf '%s\n' "$name" >> "$DEGRADED"
       continue
     fi
     payload=$(jq -nc --arg run "$run" '{source: "retry-sweeper", retry_of: $run}')
@@ -191,6 +241,13 @@ printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron" an
     esac
   done
 
+# An incomplete scan is not proof that an outage is over: leave the issue as it
+# is and let the next hourly pass re-scan, rather than close or rewrite it.
+if [ -s "$DEGRADED" ]; then
+  echo "::warning::Read failures for: $(tr '\n' ' ' < "$DEGRADED"); leaving the health report unchanged."
+  exit 0
+fi
+
 # The one health issue, found by its marker among open `automation-health`
 # issues. An unreadable list is not "no issue open".
 if ! _issues=$(gh api --paginate "repos/$REPO/issues?state=open&labels=automation-health&per_page=100" \
@@ -200,9 +257,9 @@ if ! _issues=$(gh api --paginate "repos/$REPO/issues?state=open&labels=automatio
 fi
 ISSUE=$(printf '%s\n' "$_issues" | head -n1)
 
-if [ ! -s "$EXHAUSTED" ]; then
+if [ ! -s "$EXHAUSTED" ] && [ ! -s "$PAUSED" ]; then
   if [ -n "$ISSUE" ]; then
-    printf '%s\n' "Tidak ada lagi automation yang kehabisan kesempatan retry. Ditutup; issue ini dibuka lagi bila ada yang gagal infrastruktur melewati batas." > "$DIR/close"
+    printf '%s\n' "Tidak ada lagi automation yang kehabisan kesempatan retry atau dijeda otomatis. Ditutup; issue ini dibuka lagi bila ada yang gagal infrastruktur melewati batas." > "$DIR/close"
     gh issue comment "$ISSUE" --repo "$REPO" --body-file "$DIR/close" >/dev/null
     gh api -X PATCH "repos/$REPO/issues/$ISSUE" -f state=closed -f state_reason=completed >/dev/null
     echo "No automation out of retries; closed #$ISSUE."
@@ -213,15 +270,28 @@ if [ ! -s "$EXHAUSTED" ]; then
 fi
 
 {
-  printf '%s\n' "$ISSUE_MARK" "" \
-    "Automation cron di bawah ini gagal karena infrastruktur (timeout, sandbox tidak tersedia, 502, atau proxy LLM) dan sudah dicoba ulang $RETRY_MAX kali tanpa berhasil. Retry otomatis berhenti di sini; yang tersisa adalah keputusan orang: periksa run terakhir di riwayat automation, atau minta ulang secara manual." \
-    "" \
-    "| Automation | Run terakhir | Penyebab | Percobaan |" \
-    "|---|---|---|---|"
-  sort "$EXHAUSTED" | while IFS="$(printf '\t')" read -r name run kind; do
-    printf '| %s | `%s` | `%s` | %s |\n' "$name" "$(printf '%s' "$run" | cut -c1-8)" "$kind" "$RETRY_MAX"
-  done
-  printf '%s\n' "" "Diperbarui oleh \`automation-retry.yml\` setiap jam, hanya saat daftarnya berubah. Percobaan retry dicatat di KV store automation."
+  printf '%s\n' "$ISSUE_MARK"
+  if [ -s "$EXHAUSTED" ]; then
+    printf '%s\n' "" \
+      "Automation cron di bawah ini gagal karena infrastruktur (timeout, sandbox tidak tersedia, 502, atau proxy LLM) dan sudah dicoba ulang $RETRY_MAX kali tanpa berhasil. Retry otomatis berhenti di sini; yang tersisa adalah keputusan orang: periksa run terakhir di riwayat automation, atau minta ulang secara manual." \
+      "" \
+      "| Automation | Run terakhir | Penyebab | Percobaan |" \
+      "|---|---|---|---|"
+    sort "$EXHAUSTED" | while IFS="$(printf '\t')" read -r name run kind tries; do
+      printf '| %s | `%s` | `%s` | %s |\n' "$name" "$(printf '%s' "$run" | cut -c1-8)" "$kind" "$tries"
+    done
+  fi
+  if [ -s "$PAUSED" ]; then
+    printf '%s\n' "" \
+      "Automation cron di bawah ini **dijeda otomatis** oleh platform setelah kegagalan beruntun. Tidak ada yang di-dispatch ulang — menjeda otomatis berarti belum ada run sukses; yang perlu diputuskan adalah apakah akan mengaktifkannya kembali (mis. lewat \`PATCH /api/automation/v1/<id>\` body \`{\"enabled\":true}\`) atau membiarkannya mati." \
+      "" \
+      "| Automation | Alasan jeda |" \
+      "|---|---|"
+    sort "$PAUSED" | while IFS="$(printf '\t')" read -r name reason; do
+      printf '| %s | %s |\n' "$name" "$reason"
+    done
+  fi
+  printf '%s\n' "" "Diperbarui oleh \`automation-retry.yml\` setiap jam, hanya saat daftarnya berubah. Percobaan retry dicatat di KV store automation (satu kunci per automation)."
 } > "$DIR/body"
 
 if [ -n "$ISSUE" ]; then

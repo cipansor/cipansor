@@ -26,7 +26,7 @@ const WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'automation-retry.yml')
 
 const CURL = `#!/bin/sh
 log() { [ -n "\${CURL_STUB_LOG:-}" ] && echo "$*" >> "$CURL_STUB_LOG"; }
-out=""; url=""; method=GET; data=""
+out=""; url=""; method=GET; data=""; fail=0
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
@@ -34,16 +34,24 @@ while [ $# -gt 0 ]; do
     -X) method="$2"; shift 2 ;;
     -d) data="$2"; shift 2 ;;
     -H) shift 2 ;;
-    -*) shift ;;
+    -*) case "$1" in *f*) fail=1 ;; esac; shift ;;
     *) [ -z "$url" ] && url="$1"; shift ;;
   esac
 done
+# \`curl -f\` exits non-zero on 4xx/5xx and prints nothing to stdout. The real
+# script leans on that for the KV claim (a 409 means another pass won the race),
+# so the stub must fail the same way or that guard is untestable.
+code() { if [ "$fail" = 1 ] && [ "$1" -ge 400 ]; then exit 22; fi; printf '%s' "$1"; }
 case "$url" in
   *"/kv/"*)
     if [ "$method" = PUT ]; then
       log "KV_PUT $url $data"
       [ -n "$out" ] && printf '%s' '{}' > "$out"
-      printf '%s' "\${CURL_STUB_KV_PUT_CODE:-201}"
+      code "\${CURL_STUB_KV_PUT_CODE:-201}"
+    elif [ "$method" = DELETE ]; then
+      log "KV_DELETE $url"
+      [ -n "$out" ] && printf '%s' '{}' > "$out"
+      code "\${CURL_STUB_KV_DELETE_CODE:-200}"
     else
       [ "\${CURL_STUB_KV_FAIL:-}" = 1 ] && exit 1
       # A key that does not exist is 404, not an empty 200: the script tells
@@ -308,6 +316,77 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
     });
     expect(calls).not.toContain('/dispatch');
     expect(calls).not.toContain(`/v1/${CRON}/runs`);
+  });
+
+  it('reports an auto-paused automation instead of silently skipping it', () => {
+    // The platform stops an automation after repeated failures. Nothing can be
+    // re-dispatched, but that is an unresolved outage, not a person's decision.
+    const { calls, created } = run({
+      CURL_STUB_AUTOS: JSON.stringify({
+        automations: [
+          {
+            id: CRON,
+            name: 'SDLC 19 · Pemburu bug',
+            trigger: { type: 'cron' },
+            enabled: false,
+            disabled_reason: 'Paused automatically: the last 5 runs all failed.',
+          },
+        ],
+      }),
+    });
+    expect(calls).toContain('CREATE');
+    expect(created).toContain('dijeda otomatis');
+    expect(created).toContain('SDLC 19 · Pemburu bug');
+  });
+
+  it('deletes the ledger once the newest run is COMPLETED, so the next failure is fresh', () => {
+    // One key per automation bounds the whole episode; recovery must clear it,
+    // or the next unrelated failure would start already out of chances.
+    const { calls } = run({
+      [CRON_KEY]: runJson('COMPLETED', '', '', ago(30)),
+      CURL_STUB_KV_JSON: JSON.stringify({ value: { attempts: 2, last_at: NOW - 60 }, version: 5 }),
+    });
+    expect(calls).toContain('KV_DELETE');
+    expect(calls).toContain(`/kv/retry-${CRON}`);
+    expect(calls).not.toContain('/dispatch');
+  });
+
+  it('stands down when the claim loses the race (409), never dispatching', () => {
+    const { calls, out } = run({
+      [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
+      CURL_STUB_KV_CODE: '404',
+      CURL_STUB_KV_PUT_CODE: '409',
+    });
+    expect(calls).not.toContain('/dispatch');
+    expect(out).toContain('could not claim');
+  });
+
+  it('does not close the health issue when a read failed mid-scan', () => {
+    // An incomplete scan is not proof the outage is over: the report is left as
+    // it is, even though nothing landed in the exhausted list this pass.
+    const { calls, out } = run({
+      CURL_STUB_RUNS_FAIL: '1',
+      GH_STUB_OPEN_ISSUES: JSON.stringify([
+        { number: 41, body: '<!-- automation-retry:health -->' },
+      ]),
+    });
+    expect(calls).not.toContain('PATCH repos/o/r/issues/41');
+    expect(calls).not.toContain('CREATE');
+    expect(out).toContain('leaving the health report unchanged');
+  });
+
+  it('keeps reporting an exhausted failure past the retry window', () => {
+    // The age window gates dispatch, not the report: a daily cron that died
+    // Monday and has used its retries must stay visible on Wednesday.
+    const { created } = run({
+      [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(3 * 24 * 60)),
+      CURL_STUB_KV_JSON: JSON.stringify({
+        value: { attempts: 2, last_at: NOW - 2 * 86400 },
+        version: 3,
+      }),
+      RETRY_MAX: '2',
+    });
+    expect(created).toContain('SDLC 19 · Pemburu bug');
   });
 
   it('does not retry blind when the ledger cannot be read', () => {

@@ -67,19 +67,28 @@ esac
 exit 0
 `;
 
-// The re-dispatch: logs the call and its payload, answers GH_STUB_CURL_CODE.
+// The re-dispatch: logs the call and its payload, answers a run id.
 const CURL = `#!/bin/sh
 prev=""; for a in "$@"; do [ "$prev" = "-d" ] && echo "CURL $*" "PAYLOAD $a" >> "$GH_STUB_LOG"; prev="$a"; done
-# The gate's run history, read by gate_run_state. GH_STUB_GATE_RUNS is the JSON
-# body; a missing one means an empty history, and GH_STUB_RUNS_API_FAIL makes
-# the read fail (the "unreadable history" path).
+# The gate's run history, read by gate_run_status / gate_any_in_flight.
+# GH_STUB_GATE_RUNS is the JSON body; a missing one means an empty history, and
+# GH_STUB_RUNS_API_FAIL makes the read fail (the "unreadable history" path).
 case "$*" in
-  *"/runs?limit=10"*)
+  *"/runs?limit=20"* | *"/runs?limit=5"*)
     [ "\${GH_STUB_RUNS_API_FAIL:-}" = 1 ] && exit 1
     # The default is held in a variable: a literal \`}\` inside \${v:-...} would
     # close the expansion early and append a stray brace to the JSON.
     empty='{"runs":[]}'
     printf '%s' "\${GH_STUB_GATE_RUNS:-$empty}"
+    exit 0 ;;
+  *"/dispatch"*)
+    # A successful dispatch answers the new run id in the body, followed by the
+    # HTTP code on its own line (the script calls curl with a -w code format).
+    # GH_STUB_DISPATCH_CODE forces a refusal, in which case no run id comes back.
+    case "\${GH_STUB_DISPATCH_CODE:-201}" in
+      2??) printf '{"id":"%s","status":"PENDING"}\n%s' "\${GH_STUB_DISPATCH_ID:-run-9001}" "\${GH_STUB_DISPATCH_CODE:-201}" ;;
+      *) printf '\n%s' "\${GH_STUB_DISPATCH_CODE}" ;;
+    esac
     exit 0 ;;
 esac
 printf '%s' "\${GH_STUB_CURL_CODE:-202}"
@@ -471,7 +480,7 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
   });
 
   it('re-dispatches the gate once with the PR and its head, and says so', () => {
-    const { calls } = run({ OPENHANDS_API_KEY: 'k', GH_STUB_GATE_RUNS: INFRA_RUN });
+    const { calls } = run({ OPENHANDS_API_KEY: 'k' });
     expect(calls.match(/^CURL /gm)).toHaveLength(1);
     expect(calls).toContain('/dispatch');
     expect(calls).toContain('"source":"gate-watch"');
@@ -480,13 +489,21 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
     expect(calls).toContain('percobaan 1/3');
   });
 
-  it('leaves a head alone while a gate run is still RUNNING', () => {
-    const { calls } = run({
+  it('waits while the run it dispatched for this head is still RUNNING', () => {
+    // The run id is read back from the head's own comment, so another PR's
+    // in-flight run cannot hold this head back (nor its failure trigger a
+    // wrong retry).
+    const { calls, patched } = run({
       OPENHANDS_API_KEY: 'k',
-      GH_STUB_GATE_RUNS: JSON.stringify({ runs: [{ id: 'r1', status: 'RUNNING' }] }),
+      GH_STUB_GATE_RUNS: JSON.stringify({
+        runs: [{ id: 'run-77', status: 'RUNNING' }],
+      }),
+      GH_STUB_COMMENTS_7: JSON.stringify([
+        { id: 5, body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-run:${HEAD}:run-77 -->` },
+      ]),
     });
     expect(calls).not.toContain('CURL');
-    expect(calls).toContain('RUNNING/PENDING');
+    expect(patched).toContain('RUNNING/PENDING');
   });
 
   it('does not re-dispatch when the gate history is unreadable', () => {
@@ -503,7 +520,10 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
       GATE_MAX_ATTEMPTS: '3',
       GH_STUB_GATE_RUNS: INFRA_RUN,
       GH_STUB_COMMENTS_7: JSON.stringify([
-        { id: 5, body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-attempt:${HEAD}:3 -->` },
+        {
+          id: 5,
+          body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-attempt:${HEAD}:3 -->\n<!-- gate-watch-run:${HEAD}:r1 -->`,
+        },
       ]),
     });
     expect(calls).not.toContain('CURL');
@@ -515,7 +535,10 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
       OPENHANDS_API_KEY: 'k',
       GH_STUB_GATE_RUNS: INFRA_RUN,
       GH_STUB_COMMENTS_7: JSON.stringify([
-        { id: 5, body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-attempt:${HEAD}:1 -->` },
+        {
+          id: 5,
+          body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-attempt:${HEAD}:1 -->\n<!-- gate-watch-run:${HEAD}:r1 -->`,
+        },
       ]),
     });
     // The counter rides in the comment body, so the next run reads it there.
@@ -525,10 +548,72 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
     expect(calls).not.toContain('PCOMMENT');
   });
 
-  it('does not re-dispatch a head it already commented on', () => {
+  it('records the run id it dispatched in the head comment', () => {
+    const { calls } = run({ OPENHANDS_API_KEY: 'k' });
+    expect(calls).toContain('PCOMMENT 7');
+    expect(calls).toContain(`<!-- gate-watch-run:${HEAD}:run-9001 -->`);
+  });
+
+  it('re-dispatches a head that was never dispatched and has no run in flight', () => {
+    // An empty history with no marker is a head the gate never reached; it must
+    // still get a bounded attempt instead of only a warning.
+    const { calls } = run({ OPENHANDS_API_KEY: 'k' });
+    expect(calls).toContain('/dispatch');
+  });
+
+  it('re-dispatches a head whose earlier dispatch left no run id, until the cap', () => {
+    // The gate was told about this head but no run id was ever recorded, and
+    // nothing is in flight: the earlier dispatch was lost. One bounded attempt
+    // is owed; the marker's count keeps it from repeating forever.
+    const { calls, patched } = run({
+      OPENHANDS_API_KEY: 'k',
+      GATE_MAX_ATTEMPTS: '3',
+      GH_STUB_COMMENTS_7: JSON.stringify([
+        { id: 5, body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-attempt:${HEAD}:1 -->` },
+      ]),
+    });
+    expect(calls).toContain('/dispatch');
+    expect(patched).toContain(`<!-- gate-watch-attempt:${HEAD}:2 -->`);
+  });
+
+  it('does not re-dispatch a head whose recorded run completed without a review', () => {
+    // A run that finished but wrote no review is a person's call, not another
+    // run's: the head is told about and left alone.
+    const { calls, patched } = run({
+      OPENHANDS_API_KEY: 'k',
+      GH_STUB_GATE_RUNS: JSON.stringify({ runs: [{ id: 'r1', status: 'COMPLETED' }] }),
+      GH_STUB_COMMENTS_7: JSON.stringify([
+        {
+          id: 5,
+          body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-attempt:${HEAD}:1 -->\n<!-- gate-watch-run:${HEAD}:r1 -->`,
+        },
+      ]),
+    });
+    expect(calls).not.toContain('CURL');
+    expect(patched).toContain('tidak menulis review');
+  });
+
+  it('reads the attempt count across comment pages, not per page', () => {
+    // `gh api --paginate` prints one JSON array per page. Without slurping, the
+    // count becomes "3\n0" and the numeric cap comparison fails, so the head
+    // would be re-dispatched forever. The marker on page two must still count.
+    const page1 = JSON.stringify([{ id: 5, body: `<!-- gate-watch:${HEAD} -->` }]);
+    const page2 = JSON.stringify([
+      {
+        id: 6,
+        body: `<!-- gate-watch-attempt:${HEAD}:3 -->\n<!-- gate-watch-run:${HEAD}:r1 -->`,
+      },
+    ]);
     const { calls } = run({
       OPENHANDS_API_KEY: 'k',
-      GH_STUB_COMMENTS_7: JSON.stringify([{ id: 5, body: `<!-- gate-watch:${HEAD} -->` }]),
+      GATE_MAX_ATTEMPTS: '3',
+      GH_STUB_GATE_RUNS: JSON.stringify({
+        runs: [
+          { id: 'r1', status: 'FAILED', status_detail: { phase: 'execution', kind: 'timeout' } },
+        ],
+      }),
+      // Two pages, emitted as two documents the way gh prints them.
+      GH_STUB_COMMENTS_7: `${page1}\n${page2}`,
     });
     expect(calls).not.toContain('CURL');
   });
@@ -541,7 +626,7 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
   });
 
   it('does not retry a run that failed for a reason a retry cannot fix', () => {
-    const { calls } = run({
+    const { calls, patched } = run({
       OPENHANDS_API_KEY: 'k',
       GH_STUB_GATE_RUNS: JSON.stringify({
         runs: [
@@ -552,19 +637,25 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
           },
         ],
       }),
+      GH_STUB_COMMENTS_7: JSON.stringify([
+        { id: 5, body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-run:${HEAD}:r1 -->` },
+      ]),
     });
     expect(calls).not.toContain('CURL');
-    expect(calls).toContain('bukan karena infrastruktur');
+    expect(patched).toContain('bukan karena infrastruktur');
   });
 
   it('reports a refused re-dispatch rather than claiming it went out', () => {
-    const { calls } = run({
+    const { calls, patched } = run({
       OPENHANDS_API_KEY: 'k',
       GH_STUB_GATE_RUNS: INFRA_RUN,
-      GH_STUB_CURL_CODE: '401',
+      GH_STUB_COMMENTS_7: JSON.stringify([
+        { id: 5, body: `<!-- gate-watch:${HEAD} -->\n<!-- gate-watch-run:${HEAD}:r1 -->` },
+      ]),
+      GH_STUB_DISPATCH_CODE: '401',
     });
-    expect(calls).toContain('Dispatch ulang ditolak (HTTP 401)');
-    expect(calls).not.toContain('di-dispatch ulang');
+    expect(patched).toContain('Dispatch ulang ditolak (HTTP 401)');
+    expect(patched).not.toContain('di-dispatch ulang');
   });
 
   it('only comments when no key is available', () => {

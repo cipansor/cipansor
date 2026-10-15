@@ -225,8 +225,8 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | bila run gerbang terakhir masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head; satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
-| Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20); percobaan dicatat di KV store automation; bila habis, satu issue `automation-health` |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | bila run gerbang terakhir masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head (run id yang di-dispatch dicatat di penanda komentar head itu, jadi keputusannya per head); satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
+| Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20) per **automation** (kunci KV `retry-<aid>`; dihapus saat run terbaru COMPLETED agar episode berikutnya mulai lagi); bila habis, satu issue `automation-health` |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
@@ -247,12 +247,11 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
    masuk. Retry-nya kini terukur: run gerbang yang mati infrastruktur
    di-dispatch ulang sampai 3 kali per head, dan hanya selama run sebelumnya
-   tidak sedang berjalan. **Sisa yang diketahui:** riwayat run yang dibaca
-   `gate-watch.sh` adalah riwayat automation, bukan per-PR, jadi keputusan
-   retry mengikuti run terakhir gerbang **mana pun**. Aman hari ini (hanya
-   satu PR siap dalam satu waktu), tetapi dua PR siap serentak bisa membuat
-   satu head membaca run milik head lain; pemisahan per-PR menunggu API runs
-   mengekspos sasaran run (PR/head) — lihat catatan di `known-issues.md`.
+   tidak sedang berjalan. Skrip mencatat run id yang ia dispatch di penanda
+   komentar head itu dan membaca status id itu kembali, jadi keputusan retry
+   mengikuti run head itu sendiri meski beberapa PR siap serentak — API runs
+   tidak punya endpoint per-run id, dan tanpa pencatatan ini run terbaru milik
+   PR lain bisa salah menahan atau salah memicu retry.
 3. **Cron yang bertentangan dengan keputusan.** Matikan `Penjaga issue`
    (penutupan berdasarkan umur) dan `Uji beban` bulanan; k6 berjalan lewat
    `load-tests.yml` sebelum rilis.
@@ -528,7 +527,7 @@ menutup issue atau PR duplikat 7 hari setelah peringatan), `gate-watch`
 gerbang pada head-nya didispatch ulang — maksimum 3 kali per head, dan tidak
 saat run gerbang sebelumnya masih berjalan — lalu dicatat), dan
 `automation-retry` (tiap jam, menit ke-47: run automation cron yang mati
-infrastruktur didispatch ulang, maksimum 2 kali per run, lalu dilaporkan).
+infrastruktur didispatch ulang, maksimum 2 kali per automation, lalu dilaporkan).
 Actions berbasis
 event: `deploy-watch.yml`, sesudah tiap `Deploy staging`/`Deploy production`
 selesai. Manual: `load-tests.yml` (k6 vs staging), langkah wajib sebelum tiap
