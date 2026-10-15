@@ -95,9 +95,19 @@ retryable() { # retryable <phase> <kind>
 # was. `meta=true` also returns the version, used to write optimistically. The
 # key is namespaced under the automation being retried, which is the scope the
 # ledger belongs to (and the `automation_id` a user-authenticated key requires).
+# A key that does not exist is 404 `key_not_found` — that is "no attempt yet",
+# NOT an unreadable KV. Without the status code check, `curl -f` makes a first
+# failure look unreadable and the run is never retried at all.
 kv_get() { # kv_get <automation-id> <key>; prints "<attempts>\t<last_at>\t<version>"
-  v=$("$CURL" -fsS "$API/kv/$2?meta=true&automation_id=$1" -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
-  printf '%s' "$v" | jq -r '[(.value.attempts // 0), (.value.last_at // 0), (.version // 0)] | @tsv' 2>/dev/null
+  body=$("$CURL" -sS -o "$DIR/kv.body" -w '%{http_code}' "$API/kv/$2?meta=true&automation_id=$1" \
+    -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
+  case "$body" in
+    404) printf '0\t0\t0\n'; return 0 ;;
+    2??) : ;;
+    *) return 1 ;;
+  esac
+  jq -r '[(.value.attempts // 0), (.value.last_at // 0), (.version // 0)] | @tsv' \
+    "$DIR/kv.body" 2>/dev/null
 }
 
 kv_put() { # kv_put <automation-id> <key> <attempts> <last_at> <version>
