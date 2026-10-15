@@ -460,6 +460,21 @@ decision.
   (`<!-- gate-watch-run:<sha>:<id> -->`) and reads that id back; the global
   newest run is consulted only when a head has no recorded id, and then only to
   ask whether anything is in flight. No API change was needed.
+- **`gate-watch.sh` must not read the run history one page deep** (found
+  2026-10-15, #837 review; fixed the same day). `GET /{id}/runs` ignores
+  `?run_id=` and pages with `limit`/`offset`, so a single-page read calls a run
+  that merely fell past the page `gone` — and `gone` is retried, so a run still
+  in flight could be dispatched a second time on the same head. The read now
+  walks `limit`/`offset` until the id is found or the pages run out, and a page
+  whose `runs` is not an array (`null`, an object) is unreadable, not `gone`.
+- **A `COMPLETED` gate run that wrote no review is the silence, not a human's
+  call** (found 2026-10-15, #837 review; fixed the same day). `gate-watch.sh`
+  first treated `ok` as "a person's decision" and only commented. But a gate
+  that finished without posting a review is exactly the failure the watch
+  exists for, so it now earns the same bounded re-dispatch as an infrastructure
+  failure, capped by `GATE_MAX_ATTEMPTS`. Safe because the gate is idempotent:
+  it skips a head it already reviewed, so a stray extra run costs a sandbox
+  slot, not a wrong review.
 
 ## Performance
 
