@@ -25,11 +25,20 @@
 # green subset must not be read as the gate's silence.
 #
 # For those PRs:
-#   * one re-dispatch of the gate per head commit, when OPENHANDS_API_KEY is
-#     set: a run lost to the platform (a sandbox that never came up, a 429) is
-#     retried once, as docs/SDLC-FLOW.md planned; a second silence is a human's;
-#   * one comment per head commit (marker `gate-watch:<sha>`), never repeated,
-#     saying whether the re-dispatch was accepted;
+#   * a bounded re-dispatch of the gate per head commit, when OPENHANDS_API_KEY
+#     is set. The gate's own runs are read from the automation API: while one is
+#     RUNNING/PENDING the head is left alone (a second run would only compete for
+#     the same sandbox), and a run that FAILED for an infrastructure reason — a
+#     timeout, a sandbox that never came up, a 502, the LLM proxy's 503 — is
+#     retried. That is the fleet's missing retry for this automation: 14 of
+#     SDLC 18's last 50 runs died on infrastructure, each one lost, because
+#     `POST /{id}/dispatch` is fire-and-forget. Attempts are counted from the
+#     `gate-watch-attempt:<sha>:<n>` markers this script writes, so the count
+#     survives across hourly runs; at most GATE_MAX_ATTEMPTS of them, then it is
+#     a person's turn (the comment and the health issue say so);
+#   * one comment per head commit (marker `gate-watch:<sha>`), written once per
+#     attempt so the counter has a home, saying whether the re-dispatch was
+#     accepted;
 #   * one health issue (marker `gate-watch:health`, label `automation-health`)
 #     listing them, updated in place only when the list changes, and closed
 #     with a comment once the list is empty. One issue for the cause, not one
@@ -38,7 +47,8 @@
 # Usage: gate-watch.sh
 # Env:   GH_TOKEN, REPO (owner/name), WAIT_MINUTES (default 60),
 #        GATE_LOGIN (default cipansor-bot), NOW (epoch seconds; for tests),
-#        OPENHANDS_API_KEY and SDLC_REVIEW_GATE_ID (optional: the re-dispatch)
+#        GATE_MAX_ATTEMPTS (default 3),
+#        OPENHANDS_API_KEY and SDLC_REVIEW_GATE_ID (the re-dispatch)
 set -eu
 
 REPO="${REPO:?REPO is required}"
@@ -46,6 +56,10 @@ WAIT_MINUTES="${WAIT_MINUTES:-60}"
 GATE_LOGIN="${GATE_LOGIN:-cipansor-bot}"
 NOW="${NOW:-$(date -u +%s)}"
 GATE_ID="${SDLC_REVIEW_GATE_ID:-96eebf19-b64b-4035-9653-2d8b15b06ac4}"
+GATE_MAX_ATTEMPTS="${GATE_MAX_ATTEMPTS:-3}"
+# The gate's run history, for deciding whether a re-dispatch is worth it. The
+# same API gate-watch already calls to dispatch, so it needs no new secret.
+AUTOMATION_API="${AUTOMATION_API:-https://app.all-hands.dev/api/automation/v1}"
 ISSUE_MARK="<!-- gate-watch:health -->"
 # Automated comments carry no AI-disclosure footer: the anti-loop guard is the
 # comment's author (`cipansor-bot`), not the footer text — the account name
@@ -67,6 +81,37 @@ UNREADABLE="$DIR/unreadable"   # PR numbers that could not be fully read
 : > "$UNREADABLE"
 
 iso() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
+
+# Why the gate's newest run is not a review, or "" when it might still become
+# one. Prints:
+#   busy          a run is RUNNING/PENDING: the gate is working, or queued
+#   infra:<cause> the newest run FAILED on infrastructure — retryable
+#   failed        the newest run FAILED for a reason a retry will not fix
+#   ok            no run, or a COMPLETED one (which owed a review and did not
+#                 post one — a person's call, not another run's)
+# An unreadable history is `unknown` with a non-zero status: the caller must not
+# treat it as "no run", because that would dispatch a head already in flight.
+gate_run_state() { # gate_run_state
+  runs=$(curl -fsS "$AUTOMATION_API/$GATE_ID/runs?limit=10" \
+    -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
+  printf '%s' "$runs" | jq -r '
+    (.runs // []) as $r
+    | if ($r | length) == 0 then "ok"
+      else $r[0] as $x
+      | if $x.status == "RUNNING" or $x.status == "PENDING" then "busy"
+        elif $x.status == "FAILED" then
+          (($x.status_detail.phase // "") + "/" + ($x.status_detail.kind // "")) as $k
+          | if $k == "execution/timeout"
+               or $k == "verification/environment_unavailable"
+               or $k == "dispatch/unknown"
+               or $k == "dispatch/server_error"
+               or $k == "execution/execution_error"
+               or $k == "callback/execution_error"
+            then "infra:" + $k
+            else "failed" end
+        else "ok" end
+      end' 2>/dev/null
+}
 
 # Every open PR, paginated: `--limit 200` silently dropped the rest, so a PR
 # past the cutoff was neither flagged nor re-dispatched. The draft filter runs
@@ -225,35 +270,83 @@ fi
 # One comment per silent head, pointing at the issue.
 sort -n "$SILENT" | while read -r n sha since; do
   mark="<!-- gate-watch:$sha -->"
-  # A read failure here must not look like "no comment yet": re-dispatching the
-  # gate on every run for a head already told about would pile up dispatches.
-  have=$(gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" \
-    --jq ".[] | select((.body // \"\") | contains(\"$mark\")) | .id" 2>/dev/null || echo unread)
-  if [ "$have" = "unread" ]; then
+  # One read of the head's comments serves both answers: the marker comment to
+  # update in place, and the attempt count it carries.
+  if ! comments=$(gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" 2>/dev/null); then
     echo "::warning::PR #$n: comments unreadable; not re-dispatching $sha."
     continue
   fi
-  if [ -n "$have" ]; then
-    echo "PR #$n: already told about $sha."
+  # The marker comment for this head, if any, and how many re-dispatches it
+  # records. A read failure must not look like "no comment yet": re-dispatching
+  # the gate on every run for a head already told about would pile up dispatches.
+  cid=$(printf '%s' "$comments" | jq -r --arg m "$mark" \
+    '[.[] | select((.body // "") | contains($m))] | last | .id // empty' 2>/dev/null || echo unread)
+  if [ "$cid" = "unread" ]; then
+    echo "::warning::PR #$n: comments unreadable; not re-dispatching $sha."
     continue
   fi
-  # The same gate and payload as pr-lifecycle.sh; only the source differs.
+  attempts=$(printf '%s' "$comments" | jq -r --arg s "$sha" \
+    '[.[] | (.body // "") | scan("gate-watch-attempt:" + $s + ":([0-9]+)") | .[0] | tonumber] | max // 0' 2>/dev/null || echo 0)
+  [ -n "$attempts" ] || attempts=0
+
+  # Why a run is not a review, read from the gate's own history: a head whose run
+  # is still in flight is left alone, and a run lost to the platform is retried.
+  # An unreadable history is not "no run": dispatching then could double up on a
+  # head already being reviewed.
+  retry=""
   if [ -n "${OPENHANDS_API_KEY:-}" ]; then
-    payload=$(jq -nc --arg pr "$n" --arg sha "$sha" '{source: "gate-watch", pr: $pr, head_sha: $sha}')
-    code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
-        "https://app.all-hands.dev/api/automation/v1/$GATE_ID/dispatch" \
-        -H "Authorization: Bearer $OPENHANDS_API_KEY" \
-        -H "Content-Type: application/json" \
-        -d "$payload" 2>/dev/null || echo 000)
-    case "$code" in
-      2??) retry="Gerbang sudah di-dispatch ulang sekali (HTTP $code); bila tetap diam, periksa run-nya." ;;
-      *) retry="Dispatch ulang ditolak (HTTP $code); periksa kunci dan run-nya." ;;
-    esac
+    if state=$(gate_run_state); then
+      case "$state" in
+        busy) retry=" Run gerbang masih RUNNING/PENDING; menunggu, tidak dispatch lagi." ;;
+        infra:*)
+          if [ "$attempts" -ge "$GATE_MAX_ATTEMPTS" ]; then
+            retry=" Run terakhir gagal infrastruktur (${state#infra:}) dan sudah $attempts kali dicoba ulang — giliran manusia."
+          else
+            payload=$(jq -nc --arg pr "$n" --arg sha "$sha" '{source: "gate-watch", pr: $pr, head_sha: $sha}')
+            code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+                "$AUTOMATION_API/$GATE_ID/dispatch" \
+                -H "Authorization: Bearer $OPENHANDS_API_KEY" \
+                -H "Content-Type: application/json" \
+                -d "$payload" 2>/dev/null || echo 000)
+            case "$code" in
+              2??)
+                attempts=$((attempts + 1))
+                retry=" Run terakhir gagal infrastruktur (${state#infra:}); di-dispatch ulang (percobaan $attempts/$GATE_MAX_ATTEMPTS, HTTP $code)." ;;
+              *)
+                retry=" Dispatch ulang ditolak (HTTP $code); periksa kunci dan run-nya." ;;
+            esac
+          fi ;;
+        failed) retry=" Run terakhir gagal bukan karena infrastruktur; periksa run-nya, tidak dispatch lagi." ;;
+      esac
+    else
+      echo "::warning::PR #$n: the gate's run history is unreadable; not re-dispatching $sha."
+      continue
+    fi
   else
-    retry="Dispatch ulang tidak dicoba: \`OPENHANDS_API_KEY\` tidak tersedia untuk workflow ini."
+    retry=" Dispatch ulang tidak dicoba: \`OPENHANDS_API_KEY\` tidak tersedia untuk workflow ini."
+  fi
+
+  # One comment per head: it is created once and updated in place, and only when
+  # its text actually changes (an attempt, the escalation to a person, a run
+  # going from failed to in flight). The attempt marker rides in that comment, so
+  # the next hourly run reads the counter there instead of dispatching blindly.
+  old_body=""
+  if [ -n "$cid" ]; then
+    old_body=$(printf '%s' "$comments" | jq -r --argjson id "$cid" \
+      '[.[] | select(.id == $id)][0].body // ""' 2>/dev/null || true)
   fi
   printf '%s\n' "$mark" "" \
-    "Gerbang tinjau belum meninjau head \`$(printf '%s' "$sha" | cut -c1-9)\`, padahal semua check-nya selesai hijau sejak $(iso "$since") UTC. $retry Run \`Gerbang tinjau PR\` untuk PR ini ada di riwayat automation OpenHands Cloud; dicatat juga di #$ISSUE." > "$DIR/pr-$n"
-  gh pr comment "$n" --repo "$REPO" --body-file "$DIR/pr-$n" >/dev/null
-  echo "PR #$n: commented about $sha."
+    "Gerbang tinjau belum meninjau head \`$(printf '%s' "$sha" | cut -c1-9)\`, padahal semua check-nya selesai hijau sejak $(iso "$since") UTC.${retry} Run \`Gerbang tinjau PR\` untuk PR ini ada di riwayat automation OpenHands Cloud; dicatat juga di #$ISSUE." > "$DIR/pr-$n"
+  if [ "$attempts" -gt 0 ]; then
+    printf '%s\n' "<!-- gate-watch-attempt:$sha:$attempts -->" >> "$DIR/pr-$n"
+  fi
+  if [ -n "$cid" ] && [ "$old_body" = "$(cat "$DIR/pr-$n")" ]; then
+    echo "PR #$n: already told about $sha."
+  elif [ -n "$cid" ]; then
+    gh api -X PATCH "repos/$REPO/issues/comments/$cid" -F body=@"$DIR/pr-$n" >/dev/null
+    echo "PR #$n: updated the comment about $sha (attempt $attempts)."
+  else
+    gh pr comment "$n" --repo "$REPO" --body-file "$DIR/pr-$n" >/dev/null
+    echo "PR #$n: commented about $sha (attempt $attempts)."
+  fi
 done

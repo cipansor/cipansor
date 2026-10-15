@@ -1,0 +1,230 @@
+#!/bin/sh
+# Retry an automation run that died on infrastructure, a bounded number of
+# times. Run hourly by automation-retry.yml.
+#
+# Why this exists: every failure in the fleet's run history is infrastructure,
+# not content. Across the 24 automations, the failed runs are
+# `execution/timeout` (the run hit its wall-clock ceiling while doing real
+# work), `verification/environment_unavailable` ("Sandbox not available" — no
+# slot in the pool), `dispatch/unknown` (the sandbox never came up), a 502 from
+# the sandbox API, and the LLM proxy answering `503 Service Temporarily
+# Unavailable`. None of those say the task was wrong, and none of them are
+# retried today: `POST /{id}/dispatch` is fire-and-forget, so a run that dies
+# after the 201 is simply lost. This is the retry the fleet was missing.
+#
+# It is deliberately narrow and safe:
+#   * only **cron** automations are re-dispatched. A cron run is self-contained
+#     (it reads the repository, not an event payload), so a payload-less retry
+#     means the same thing as the original run. An event automation is NOT
+#     retried here: its payload names the issue or pull request, the runs API
+#     does not expose that payload, and re-running one blind could act on the
+#     wrong object. Event automations keep their own deterministic retriers
+#     (`gate-watch.yml` for the review gate, `issue-triage-bridge.sh` for
+#     triage).
+#   * only a failure whose `status_detail` is an infrastructure kind is retried;
+#     an `auth`, `quota` or `config` failure is a decision for a person.
+#   * the attempt count is kept in the automation KV store, keyed by the failed
+#     run id, so the same failure is retried at most RETRY_MAX times, never
+#     twice within BACKOFF_MINUTES, and never on a later hourly pass after the
+#     cap. A KV read/write failure skips the retry (never retries blind).
+#   * the one health issue (marker `automation-retry:health`, label
+#     `automation-health`) lists what was retried and what ran out of chances,
+#     is updated in place, and is closed once the list is empty — the same
+#     "a silence is also a failure" rule gate-watch follows (#776).
+#
+# Usage: automation-retry.sh
+# Env:   OPENHANDS_API_KEY (required), REPO (owner/name),
+#        AUTOMATION_API (default the cloud automation API),
+#        RETRY_MAX (default 2), BACKOFF_MINUTES (default 20),
+#        WINDOW_MINUTES (default 1440, ignore older failures),
+#        NOW (epoch seconds; for tests), CURL (default curl)
+set -eu
+
+REPO="${REPO:-cipansor/cipansor}"
+API="${AUTOMATION_API:-https://app.all-hands.dev/api/automation/v1}"
+CURL="${CURL:-curl}"
+RETRY_MAX="${RETRY_MAX:-2}"
+BACKOFF_MINUTES="${BACKOFF_MINUTES:-20}"
+WINDOW_MINUTES="${WINDOW_MINUTES:-1440}"
+NOW="${NOW:-$(date -u +%s)}"
+ISSUE_MARK="<!-- automation-retry:health -->"
+# Automated comments carry no AI-disclosure footer: the anti-loop guard is the
+# comment's author (`cipansor-bot`), not the footer text (#680).
+AI_FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers._"
+
+if [ -z "${OPENHANDS_API_KEY:-}" ]; then
+  echo "::error::OPENHANDS_API_KEY is not set; nothing can be retried."
+  exit 1
+fi
+
+DIR="$(mktemp -d)"
+trap 'rm -rf "$DIR"' EXIT HUP INT TERM
+RETRIED="$DIR/retried"     # lines: <name> <run> <kind> <attempt>
+EXHAUSTED="$DIR/exhausted" # lines: <name> <run> <kind>
+: > "$RETRIED"
+: > "$EXHAUSTED"
+
+iso() { date -u -d "@$1" +%Y-%m-%dT%H:%MZ; }
+
+# A UTC timestamp as epoch seconds (0 on a parse failure). The API returns
+# fractional seconds, which `date -d` accepts; strip any trailing `Z`.
+epoch() { date -u -d "$(printf '%s' "$1" | sed 's/Z$//')" +%s 2>/dev/null || echo 0; }
+
+# Read the automation list once. A failed read must stop the run: an empty list
+# would look like "nothing failed" and close the health issue while runs are
+# still broken.
+if ! AUTOS=$("$CURL" -fsS "$API" -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null); then
+  echo "::warning::Could not read the automation list; leaving the health report unchanged."
+  exit 1
+fi
+
+# True when a failed run's `status_detail` is an infrastructure cause worth
+# another attempt. `auth`/`quota`/`config` are a person's decision; a
+# user-cancelled run is never retried.
+retryable() { # retryable <phase> <kind>
+  case "$2" in
+    auth | quota | config) return 1 ;;
+  esac
+  case "$1/$2" in
+    execution/timeout | verification/environment_unavailable | dispatch/unknown | dispatch/server_error | execution/execution_error | callback/execution_error) return 0 ;;
+  esac
+  return 1
+}
+
+# The KV value for a failed run: the attempt count and when the last attempt
+# was. `meta=true` also returns the version, used to write optimistically. The
+# key is namespaced under the automation being retried, which is the scope the
+# ledger belongs to (and the `automation_id` a user-authenticated key requires).
+kv_get() { # kv_get <automation-id> <key>; prints "<attempts>\t<last_at>\t<version>"
+  v=$("$CURL" -fsS "$API/kv/$2?meta=true&automation_id=$1" -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || return 1
+  printf '%s' "$v" | jq -r '[(.value.attempts // 0), (.value.last_at // 0), (.version // 0)] | @tsv' 2>/dev/null
+}
+
+kv_put() { # kv_put <automation-id> <key> <attempts> <last_at> <version>
+  body=$(jq -nc --argjson a "$3" --argjson t "$4" '{attempts: $a, last_at: $t}')
+  # `version 0` means the key does not exist yet, so claim it with `nx=true`; a
+  # 409 there means another pass claimed it first. Otherwise match the version
+  # read above; a 409 means the ledger moved, so this pass stands down rather
+  # than risking a double dispatch.
+  if [ "$5" -gt 0 ]; then
+    "$CURL" -fsS -o /dev/null -X PUT "$API/kv/$2?if_version=$5&automation_id=$1" \
+      -H "Authorization: Bearer $OPENHANDS_API_KEY" -H "Content-Type: application/json" -d "$body" 2>/dev/null
+  else
+    "$CURL" -fsS -o /dev/null -X PUT "$API/kv/$2?nx=true&automation_id=$1" \
+      -H "Authorization: Bearer $OPENHANDS_API_KEY" -H "Content-Type: application/json" -d "$body" 2>/dev/null
+  fi
+}
+
+printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron") | [.id, .name] | @tsv' 2>/dev/null \
+  | while IFS="$(printf '\t')" read -r aid name; do
+    [ -n "${aid:-}" ] || continue
+    runs=$("$CURL" -fsS "$API/$aid/runs?limit=5" -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || {
+      echo "::warning::$name: runs unreadable; skipped."
+      continue
+    }
+    # The newest run only: an automation whose latest run succeeded needs no
+    # retry, whatever failed before it.
+    line=$(printf '%s' "$runs" | jq -r '.runs[0] // empty | [.id, .status, (.status_detail.phase // ""), (.status_detail.kind // ""), (.created_at // "")] | @tsv' 2>/dev/null)
+    [ -n "$line" ] || continue
+    run=$(printf '%s' "$line" | cut -f1)
+    status=$(printf '%s' "$line" | cut -f2)
+    phase=$(printf '%s' "$line" | cut -f3)
+    kind=$(printf '%s' "$line" | cut -f4)
+    created=$(printf '%s' "$line" | cut -f5)
+    [ "$status" = "FAILED" ] || continue
+    retryable "$phase" "$kind" || {
+      echo "$name: last run $run failed ($phase/$kind); not an infrastructure failure, not retried."
+      continue
+    }
+    since=$(( (NOW - $(epoch "$created")) / 60 ))
+    if [ "$since" -gt "$WINDOW_MINUTES" ]; then
+      echo "$name: last failure is ${since} min old; outside the ${WINDOW_MINUTES} min window."
+      continue
+    fi
+    key="retry-$aid-$run"
+    if ! kv=$(kv_get "$aid" "$key"); then
+      echo "::warning::$name: KV unreadable for $run; not retrying blind."
+      continue
+    fi
+    attempts=$(printf '%s' "$kv" | cut -f1)
+    last_at=$(printf '%s' "$kv" | cut -f2)
+    version=$(printf '%s' "$kv" | cut -f3)
+    if [ "$attempts" -ge "$RETRY_MAX" ]; then
+      echo "$name: $run already retried $attempts time(s); out of chances."
+      printf '%s\t%s\t%s\n' "$name" "$run" "$phase/$kind" >> "$EXHAUSTED"
+      continue
+    fi
+    if [ "$attempts" -gt 0 ] && [ $(( (NOW - last_at) / 60 )) -lt "$BACKOFF_MINUTES" ]; then
+      echo "$name: $run retried $(( (NOW - last_at) / 60 )) min ago; backing off ${BACKOFF_MINUTES} min."
+      continue
+    fi
+    # Claim the attempt before dispatching: if the KV write loses a race, no
+    # dispatch happens, so a double retry cannot occur.
+    if ! kv_put "$aid" "$key" "$((attempts + 1))" "$NOW" "$version"; then
+      echo "::warning::$name: could not claim a retry for $run; skipped."
+      continue
+    fi
+    payload=$(jq -nc --arg run "$run" '{source: "retry-sweeper", retry_of: $run}')
+    code=$("$CURL" -sS -o /dev/null -w '%{http_code}' -X POST "$API/$aid/dispatch" \
+      -H "Authorization: Bearer $OPENHANDS_API_KEY" -H "Content-Type: application/json" \
+      -d "$payload" 2>/dev/null || echo 000)
+    case "$code" in
+      2??)
+        echo "$name: retried $run ($phase/$kind), attempt $((attempts + 1))/$RETRY_MAX (HTTP $code)."
+        printf '%s\t%s\t%s\t%s\n' "$name" "$run" "$phase/$kind" "$((attempts + 1))" >> "$RETRIED"
+        ;;
+      *)
+        # The claim was written but the dispatch failed; roll it back so the
+        # next pass can try, instead of burning an attempt on a rejected call.
+        kv_put "$aid" "$key" "$attempts" "$last_at" "$((version + 1))" >/dev/null 2>&1 || true
+        echo "::warning::$name: dispatch for $run answered HTTP $code; attempt rolled back."
+        ;;
+    esac
+  done
+
+# The one health issue, found by its marker among open `automation-health`
+# issues. An unreadable list is not "no issue open".
+if ! _issues=$(gh api --paginate "repos/$REPO/issues?state=open&labels=automation-health&per_page=100" \
+    --jq ".[] | select(.pull_request == null) | select((.body // \"\") | contains(\"$ISSUE_MARK\")) | .number" 2>/dev/null); then
+  echo "::warning::Could not read the open automation-health issues; leaving the health report unchanged."
+  exit 1
+fi
+ISSUE=$(printf '%s\n' "$_issues" | head -n1)
+
+if [ ! -s "$EXHAUSTED" ]; then
+  if [ -n "$ISSUE" ]; then
+    printf '%s\n' "Tidak ada lagi automation yang kehabisan kesempatan retry. Ditutup; issue ini dibuka lagi bila ada yang gagal infrastruktur melewati batas." "" "$AI_FOOTER" > "$DIR/close"
+    gh issue comment "$ISSUE" --repo "$REPO" --body-file "$DIR/close" >/dev/null
+    gh api -X PATCH "repos/$REPO/issues/$ISSUE" -f state=closed -f state_reason=completed >/dev/null
+    echo "No automation out of retries; closed #$ISSUE."
+  else
+    echo "No automation out of retries."
+  fi
+  exit 0
+fi
+
+{
+  printf '%s\n' "$ISSUE_MARK" "" \
+    "Automation cron di bawah ini gagal karena infrastruktur (timeout, sandbox tidak tersedia, 502, atau proxy LLM) dan sudah dicoba ulang $RETRY_MAX kali tanpa berhasil. Retry otomatis berhenti di sini; yang tersisa adalah keputusan orang: periksa run terakhir di riwayat automation, atau minta ulang secara manual." \
+    "" \
+    "| Automation | Run terakhir | Penyebab | Percobaan |" \
+    "|---|---|---|---|"
+  sort "$EXHAUSTED" | while IFS="$(printf '\t')" read -r name run kind; do
+    printf '| %s | `%s` | `%s` | %s |\n' "$name" "$(printf '%s' "$run" | cut -c1-8)" "$kind" "$RETRY_MAX"
+  done
+  printf '%s\n' "" "Diperbarui oleh \`automation-retry.yml\` setiap jam, hanya saat daftarnya berubah. Percobaan retry dicatat di KV store automation." "" "$AI_FOOTER"
+} > "$DIR/body"
+
+if [ -n "$ISSUE" ]; then
+  old=$(gh api "repos/$REPO/issues/$ISSUE" --jq '.body // ""' 2>/dev/null || true)
+  if [ "$old" = "$(cat "$DIR/body")" ]; then
+    echo "Health issue #$ISSUE already lists these automations."
+  else
+    gh api -X PATCH "repos/$REPO/issues/$ISSUE" -F body=@"$DIR/body" >/dev/null
+    echo "Updated health issue #$ISSUE."
+  fi
+else
+  url=$(gh issue create --repo "$REPO" --title "Automation kehabisan retry infrastruktur" \
+    --label automation-health --body-file "$DIR/body")
+  echo "Opened health issue #${url##*/}."
+fi

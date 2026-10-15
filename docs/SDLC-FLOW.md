@@ -225,13 +225,14 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | dispatch ulang sekali per head, satu komentar per head, dan satu issue `automation-health` yang memuat semuanya (#776) |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | bila run gerbang terakhir masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head; satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
+| Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20); percobaan dicatat di KV store automation; bila habis, satu issue `automation-health` |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
 | Situs menurun tanpa deploy | Health check App Service + availability test | alert dari platform |
 | Anggaran terlampaui | laporan pemakaian | automation berhenti; maintainer memutuskan |
-| Bot memicu dirinya sendiri | guard footer pada setiap pemicu komentar | — (pencegahan) |
+| Bot memicu dirinya sendiri | guard penulis komentar pada setiap pemicu komentar | — (pencegahan) |
 
 ### Selisih dari keadaan sekarang
 
@@ -244,7 +245,9 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 2. **Gerbang tinjau diam.** Gerbang pernah tidak menjawab sebelas jam tanpa
    ada yang tahu, lalu sehari penuh pada lima PR (2026-10-10). Pemeriksa
    Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
-   masuk.
+   masuk. Retry-nya kini terukur: run gerbang yang mati infrastruktur
+   di-dispatch ulang sampai 3 kali per head, dan hanya selama run sebelumnya
+   tidak sedang berjalan.
 3. **Cron yang bertentangan dengan keputusan.** Matikan `Penjaga issue`
    (penutupan berdasarkan umur) dan `Uji beban` bulanan; k6 berjalan lewat
    `load-tests.yml` sebelum rilis.
@@ -515,9 +518,13 @@ flowchart TD
 | 08:30 tanggal 1 | Audit kematangan      | menilai 18 item → satu issue                                    |
 
 Actions terjadwal: `duplicate-sweep` (harian 01:30 UTC = 08:30 WIB,
-menutup issue atau PR duplikat 7 hari setelah peringatan) dan `gate-watch`
+menutup issue atau PR duplikat 7 hari setelah peringatan), `gate-watch`
 (tiap jam, menit ke-23: PR siap yang hijau lebih dari 60 menit tanpa review
-gerbang pada head-nya didispatch ulang sekali dan dicatat). Actions berbasis
+gerbang pada head-nya didispatch ulang — maksimum 3 kali per head, dan tidak
+saat run gerbang sebelumnya masih berjalan — lalu dicatat), dan
+`automation-retry` (tiap jam, menit ke-47: run automation cron yang mati
+infrastruktur didispatch ulang, maksimum 2 kali per run, lalu dilaporkan).
+Actions berbasis
 event: `deploy-watch.yml`, sesudah tiap `Deploy staging`/`Deploy production`
 selesai. Manual: `load-tests.yml` (k6 vs staging), langkah wajib sebelum tiap
 rilis produksi (`docs/deploy-azure.md` → "How a change is released").
