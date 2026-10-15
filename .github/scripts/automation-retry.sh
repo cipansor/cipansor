@@ -49,8 +49,7 @@ WINDOW_MINUTES="${WINDOW_MINUTES:-1440}"
 NOW="${NOW:-$(date -u +%s)}"
 ISSUE_MARK="<!-- automation-retry:health -->"
 # Automated comments carry no AI-disclosure footer: the anti-loop guard is the
-# comment's author (`cipansor-bot`), not the footer text (#680).
-AI_FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers._"
+# comment's author (`cipansor-bot`), not the footer text (#680, 2026-10-14).
 
 if [ -z "${OPENHANDS_API_KEY:-}" ]; then
   echo "::error::OPENHANDS_API_KEY is not set; nothing can be retried."
@@ -203,7 +202,7 @@ ISSUE=$(printf '%s\n' "$_issues" | head -n1)
 
 if [ ! -s "$EXHAUSTED" ]; then
   if [ -n "$ISSUE" ]; then
-    printf '%s\n' "Tidak ada lagi automation yang kehabisan kesempatan retry. Ditutup; issue ini dibuka lagi bila ada yang gagal infrastruktur melewati batas." "" "$AI_FOOTER" > "$DIR/close"
+    printf '%s\n' "Tidak ada lagi automation yang kehabisan kesempatan retry. Ditutup; issue ini dibuka lagi bila ada yang gagal infrastruktur melewati batas." > "$DIR/close"
     gh issue comment "$ISSUE" --repo "$REPO" --body-file "$DIR/close" >/dev/null
     gh api -X PATCH "repos/$REPO/issues/$ISSUE" -f state=closed -f state_reason=completed >/dev/null
     echo "No automation out of retries; closed #$ISSUE."
@@ -222,7 +221,7 @@ fi
   sort "$EXHAUSTED" | while IFS="$(printf '\t')" read -r name run kind; do
     printf '| %s | `%s` | `%s` | %s |\n' "$name" "$(printf '%s' "$run" | cut -c1-8)" "$kind" "$RETRY_MAX"
   done
-  printf '%s\n' "" "Diperbarui oleh \`automation-retry.yml\` setiap jam, hanya saat daftarnya berubah. Percobaan retry dicatat di KV store automation." "" "$AI_FOOTER"
+  printf '%s\n' "" "Diperbarui oleh \`automation-retry.yml\` setiap jam, hanya saat daftarnya berubah. Percobaan retry dicatat di KV store automation."
 } > "$DIR/body"
 
 if [ -n "$ISSUE" ]; then

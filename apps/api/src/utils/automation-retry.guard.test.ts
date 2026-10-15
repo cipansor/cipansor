@@ -352,6 +352,7 @@ describe('automation-retry.sh — the health issue', () => {
     expect(calls).not.toContain('CREATE');
     expect(calls).toContain('PATCH repos/o/r/issues/41');
     expect(patched).toContain('SDLC 19 · Pemburu bug');
+    expect(patched).not.toContain('This comment was created by an AI agent');
   });
 
   it('closes the health issue once nothing is out of chances', () => {
