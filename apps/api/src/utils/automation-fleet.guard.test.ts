@@ -862,14 +862,13 @@ describe('deploy-sdlc-agents.py', () => {
     'tells both PR reviewers to check the acceptance criteria as a checklist',
     () => {
       // The user asked twice (2026-10-14): a PR review must say whether every
-      // acceptance criterion of the linked issue is met, partly met or not, as a
-      // checklist — the diff, not the PR description, decides.
+      // acceptance criterion of the linked issue is met or not, as a simple
+      // markdown checkbox list — the diff, not the PR description, decides.
       for (const name of ['SDLC 08', 'SDLC 18']) {
         const out = newPrompt(name, `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`);
         expect(out, name).toContain('KRITERIA PENERIMAAN (WAJIB)');
-        expect(out, name).toContain('✅ terpenuhi');
-        expect(out, name).toContain('⚠️ sebagian');
-        expect(out, name).toContain('❌ belum');
+        expect(out, name).toContain('- [x] <kriteria>');
+        expect(out, name).toContain('- [ ] <kriteria>');
         expect(out, name).toMatch(/Fixes #n/);
       }
     }

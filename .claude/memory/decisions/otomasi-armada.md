@@ -186,10 +186,11 @@
 20. **Tinjauan PR menyertakan checklist kriteria penerimaan** (2026-10-14,
     pengguna; #787). `Peninjau kode` (SDLC 08) dan `Gerbang tinjau PR` (SDLC 18)
     wajib memeriksa setiap kriteria penerimaan issue tertaut **terhadap diff**
-    (bukan terhadap deskripsi PR) dan menyajikannya sebagai checklist
-    `✅ terpenuhi` / `⚠️ sebagian` / `❌ belum`, masing-masing dengan bukti
-    (path/baris atau tes). Kriteria `❌`/`⚠️` tanpa alasan yang meyakinkan
-    menghalangi `APPROVE`.
+    (bukan terhadap deskripsi PR) dan menyajikannya sebagai checklist markdown
+    sederhana — `- [x] <kriteria>` bila terpenuhi, `- [ ] <kriteria>` bila belum
+    — masing-masing dengan bukti (path/baris atau tes). Sama bentuknya dengan
+    `## Acceptance criteria` di deskripsi PR. Kriteria `- [ ]` tanpa alasan yang
+    meyakinkan menghalangi `APPROVE`.
 
 
 ## Sumber
