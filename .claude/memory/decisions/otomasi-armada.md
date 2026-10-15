@@ -244,14 +244,20 @@
       (meski sinyal berubah — pengecekan status tak bergantung sinyal), **FAILED**
       dicoba ulang, `pending` didispatch bila ada ruang, `inflight` dibiarkan
       (R474).
-    - **`run_status` membaca daftar run dan menyaring `.id`** — bukan
-      `?run_id=`: endpoint `/runs` **mengabaikan `run_id=`** dan selalu
-      mengembalikan halaman terbaru, jadi bentuk query akan membaca status run
-      terbaru untuk id apa pun, memfinalkan run gagal sebagai `COMPLETED` dan
-      tak pernah mencobanya ulang (cacat inti #836; dibuktikan terhadap API
-      produksi: run `1ab90892…` `FAILED` dibaca `COMPLETED` lewat `?run_id=`,
-      benar lewat saringan `.id`). Stub curl uji **wajib mencerminkan API**
-      (abaikan `run_id=`), atau uji hijau terhadap perilaku yang tak ada.
+    - **`run_status` membaca daftar run, menyaring `.id`, dan menelusuri
+      halaman** — bukan `?run_id=`: endpoint `/runs` **mengabaikan `run_id=`**
+      dan selalu mengembalikan halaman terbaru, jadi bentuk query akan membaca
+      status run terbaru untuk id apa pun, memfinalkan run gagal sebagai
+      `COMPLETED` dan tak pernah mencobanya ulang (cacat inti #836; dibuktikan
+      terhadap API produksi: run `1ab90892…` `FAILED` dibaca `COMPLETED` lewat
+      `?run_id=`, benar lewat saringan `.id`). Halaman ditelusuri dengan
+      `limit`/`offset` sampai id ditemukan (halaman-pertama-saja akan melewatkan
+      run yang tergeser >100 run lebih baru, lalu mendispatch ulang tiap sweep,
+      R220). Bila seluruh halaman habis tanpa id → status kosong → **retry**
+      (run hilang, triase idempoten); bila sebuah halaman **tak terbaca** →
+      `UNKNOWN` → **biarkan** penanda (jangan dispatch ulang karena hiccup).
+      Stub curl uji **wajib mencerminkan API** (abaikan `run_id=`, hormati
+      `limit`/`offset`), atau uji hijau terhadap perilaku yang tak ada.
     - Kegagalan dispatch (status 2) dikumpulkan dan menggagalkan langkah
       (non-nol), bukan hijau palsu (R481).
     - `process_one` **tidak** mengosongkan `prev_sig`/`prev_run` untuk penanda

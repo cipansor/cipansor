@@ -86,19 +86,25 @@ while [ $# -gt 0 ]; do
     *) [ -z "$url" ] && url="$1"; shift ;;
   esac
 done
-# A read of the triage owner's runs. The real API returns a *page of runs* and
-# IGNORES a run_id= query (it always returns the newest page) — so the stub
-# must too, or a test would pass on a run_id= read the API never answers. The
-# listing is fed by CURL_STUB_RUNS (JSON array of runs, newest first) and the
-# script filters it by .id; a run_id= query is dropped on the floor exactly as
-# the API drops it. Distinct log line so a test that asserts on DISPATCH is not
-# confused by a read.
+# A read of the triage owner's runs. The real API returns a *page of runs*, and
+# IGNORES a run_id= query (it always returns the newest page) — so the stub must
+# too, or a test would pass on a run_id= read the API never answers. The listing
+# is fed by CURL_STUB_RUNS (JSON object {runs:[...]}, newest first) and the
+# script filters it by .id, paging with limit/offset; the stub slices the array
+# by those params to emulate the real paging. CURL_STUB_RUNS_RAW, when set, is
+# returned verbatim (to model an unreadable page). Distinct log line so a test
+# that asserts on DISPATCH is not confused by a read.
 case "$url" in
   */runs*)
     log "RUNS $url"
+    if [ -n "\${CURL_STUB_RUNS_RAW:-}" ]; then printf '%s' "$CURL_STUB_RUNS_RAW"; exit 0; fi
     runs_json="\${CURL_STUB_RUNS:-}"
     if [ -z "$runs_json" ]; then runs_json='{"runs":[]}'; fi
-    printf '%s' "$runs_json"; exit 0 ;;
+    off=0; lim=100
+    case "$url" in *offset=*) off="\${url#*offset=}"; off="\${off%%&*}" ;; esac
+    case "$url" in *limit=*) lim="\${url#*limit=}"; lim="\${lim%%&*}" ;; esac
+    printf '%s' "$runs_json" | jq -c --argjson o "$off" --argjson l "$lim" '{runs: (.runs[$o:($o+$l)])}'
+    exit 0 ;;
 esac
 log "DISPATCH $url"
 [ -n "$out" ] && printf '{"status":"accepted","id":"%s"}' "\${CURL_STUB_RUN_ID-run-1}" > "$out"
@@ -1473,6 +1479,54 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).not.toContain('DISPATCH');
     expect(calls).not.toContain('POST_MARKER');
+  });
+
+  it('finds a marked run on a later page instead of re-dispatching it', () => {
+    // R220: the listing is paged. A run pushed past the first 100 newer ones must
+    // still be found, or its checkpoint never finalises and it re-dispatches on
+    // every sweep.
+    const fillers = Array.from({ length: 100 }, (_, i) => ({ id: `f${i}`, status: 'COMPLETED' }));
+    const runs = JSON.stringify({ runs: [...fillers, { id: 'run-x', status: 'COMPLETED' }] });
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS: runs,
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: `);
+  });
+
+  it('does not re-dispatch when the run listing cannot be read', () => {
+    // R220: a read hiccup must not masquerade as a failed run. The marker is left
+    // for the next sweep, and nothing is dispatched or rewritten.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS_RAW: 'not json',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('POST_MARKER');
+  });
+
+  it('retries when the marked run is absent from the whole listing', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS: '{"runs":[{"id":"other","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
   });
 
   it('records the run id in the sweep marker, not just the 201', () => {

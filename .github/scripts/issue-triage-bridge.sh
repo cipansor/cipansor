@@ -206,20 +206,33 @@ read_sweep_marker() { # read_sweep_marker <number>
   esac
 }
 
-# The status of a run (`GET …/runs`), or "" when it cannot be read. The marker
-# stores the run id so the next sweep can ask what actually happened — the point
-# of #841's correction: retry on the run's result, not on the moment the marker
-# was written. The list endpoint **ignores a `run_id=` query** (it always returns
-# the newest page), so the run is found by filtering the listing by `.id`; the
-# query form would report the newest run's status for any id, finalising a failed
-# run as completed and never retrying it (#836). Read through `$CURL`: the
-# automation API takes the OpenHands bearer token, not the GitHub one `gh api`
-# would send.
+# The status of a run, read from the run listing. The listing endpoint **ignores
+# a `run_id=` query** (it always returns the newest page), so the run is found by
+# filtering the pages by `.id` (#836). It is paged with `limit`/`offset` — the one
+# parameter the endpoint honours — until the id is found or the pages run out; a
+# first-page-only read would miss a run pushed past 100 newer ones and re-dispatch
+# it every sweep, never finalising its checkpoint (#837 R220). Echoes the status,
+# `""` when the id is absent from the whole listing (the run is gone; retry is
+# safe because triage is idempotent), or `UNKNOWN` when a page could not be read,
+# so an incomplete read does not masquerade as a finished run.
 run_status() { # run_status <run-id>
   [ -n "$1" ] || return 0
-  "$CURL" -s "$API_RUNS?limit=100" \
-    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null \
-    | jq -r --arg id "$1" '[.runs[] | select(.id == $id) | .status][0] // ""' 2>/dev/null || true
+  id="$1"; offset=0; limit=100
+  while :; do
+    page=$("$CURL" -s "$API_RUNS?limit=$limit&offset=$offset" \
+      -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null) || page=""
+    # A page that is not a runs object is unreadable, not "the run is absent":
+    # an incomplete read must not finalise a run or re-dispatch on a hiccup.
+    printf '%s' "$page" | jq -e 'type == "object" and has("runs")' >/dev/null 2>&1 \
+      || { printf 'UNKNOWN'; return 0; }
+    st=$(printf '%s' "$page" \
+      | jq -r --arg id "$id" '[.runs[] | select(.id == $id) | .status][0] // ""' 2>/dev/null) || st=""
+    if [ -n "$st" ]; then printf '%s' "$st"; return 0; fi
+    n=$(printf '%s' "$page" | jq -r '.runs | length' 2>/dev/null) || n=0
+    case "$n" in '' | *[!0-9]*) n=0 ;; esac
+    [ "$n" -ge "$limit" ] || { printf ''; return 0; }
+    offset=$((offset + limit))
+  done
 }
 
 # How many triage runs are RUNNING/PENDING right now, so the sweep can defer the
@@ -395,8 +408,9 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   # The marker names a run that answered this same activity. Read its outcome
   # instead of trusting the 201: only a COMPLETED run is a finished checkpoint; a
   # RUNNING/PENDING run is left in flight (and counted), and a FAILED/CANCELLED/
-  # SKIPPED one is retried below. A run id that cannot be read is treated as
-  # failed, so a read hiccup retries rather than silently finalises.
+  # SKIPPED one is retried below. A run id absent from the whole listing is
+  # treated as failed (the run is gone), so it retries; an *unreadable* listing is
+  # left alone rather than re-dispatched on a hiccup (run_status returns UNKNOWN).
   #
   # `prev_sig`/`prev_run` are left as read: the capacity check below dedups a
   # `pending` marker by comparing them, so clearing them here would make every
@@ -406,6 +420,10 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   if [ "$prev_sig" = "$sig" ] && [ -n "$prev_run" ] && [ "$prev_run" != "$PENDING_RUN" ]; then
     st=$(run_status "$prev_run")
     case "$st" in
+      UNKNOWN)
+        echo "#$n: the run listing could not be read; leaving the marker for the next sweep."
+        return 1
+        ;;
       RUNNING | PENDING)
         echo "#$n: run ${prev_run} is ${st}; leaving it in flight."
         return 1
