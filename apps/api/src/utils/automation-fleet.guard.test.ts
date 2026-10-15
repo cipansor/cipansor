@@ -128,6 +128,7 @@ case "$*" in
     fi
     [ -n "$m" ] && printf '%s' "$m" ;;
   *"| max //"*) printf '%s\\n' "\${GH_STUB_LASTTRIAGE:-}" ;;
+  *"test(\\"triage-bridge-sweep:\\")"*) printf '%s\\n' "\${GH_STUB_SWEEP_BODIES:-}" ;;
   *"join(\\"+\\")"*) printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
   *"/comments"*".[].body"*) printf '%s\\n' "\${GH_STUB_COMMENTS:-}" ;;
   *"/issues/comments/"*"-X PATCH"*) post "$@" ;;
@@ -576,6 +577,45 @@ describe('acknowledge.sh', () => {
     );
     expect(calls).not.toContain('REACT_COMMENT');
     expect(out).toContain('bot account');
+  });
+});
+
+describe('issue-triage-bridge.sh --recover-ready', () => {
+  const signal = (body: string, nonfleet = '') => {
+    const line1 = JSON.stringify({ body });
+    const line2 = nonfleet
+      ? JSON.stringify([{ login: 'reporter', updated: '2026-01-01T00:00:00Z', body: nonfleet }])
+      : '[]';
+    return createHash('sha256').update(`${line1}\n${line2}\n`).digest('hex').slice(0, 16);
+  };
+
+  it('recovers a deferred label dispatch on a ready issue, which the sweep skips', () => {
+    // R348: `on_label` defers on an issue that is (or becomes) `ready`; the sweep
+    // searches `-label:ready`, so a pending marker there is never retried. The
+    // recovery pass acts on it.
+    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+    expect(out).toContain('recovered on ready issues');
+  });
+
+  it('leaves a ready issue with no pending marker untouched in the recovery pass', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: `<!-- triage-bridge-sweep:820:${signal('x')}: -->`,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).not.toContain('DISPATCH');
   });
 });
 

@@ -224,6 +224,18 @@
     filter cloud yang membangunkan automation pemicu komentar menolak penulis
     tipe `Bot`, jadi memberi reaction 👀 pada komentar itu akan menampilkan
     "sedang dikerjakan" untuk komentar yang tak akan pernah ditanggapi armada.
+24. **Jalur pemulihan `--recover-ready` untuk dispatch label tertunda pada issue
+    `ready`** (2026-10-14, tinjauan #837 R348). Menunda dispatch label pada issue
+    yang `ready` (atau menjadi `ready`) tanpa jalur pemulihan berarti triase ulang
+    untuk perubahan prioritas **hilang permanen**: sweep mencari
+    `is:open -label:ready`, jadi penanda `pending` di sana tak pernah diambil.
+    Perbaikan: subperintah `--recover-ready` membaca semua penanda `pending` dan
+    memprosesnya lewat `process_one … 1` (izinkan `ready`); hanya menyentuh issue
+    berpenanda `pending`, jadi issue `ready` tanpa penanda tak tersentuh.
+    `process_one` memperlakukan `pending` bukan-sebagai-run-id (dispatch saat ada
+    ruang), dan workflow menjalankan langkah ini dengan `if: always()` agar
+    kegagalan sweep tidak menelantarkannya. Skrip berjalan `#!/bin/sh` di bawah
+    `dash`, jadi tanpa proses-substitusi — hasilnya lewat berkas sementara.
 
 
 ## Sumber

@@ -364,17 +364,23 @@ on_label() { # on_label <event-json>
 # One candidate issue: decide whether it needs a dispatch. Returns 0 when a
 # dispatch was accepted, 2 when a dispatch was attempted and failed, 3 when the
 # issue is deferred because the in-flight cap is reached, 1 otherwise.
-process_one() { # process_one <number> <inflight>
-  n="$1"; inflight="${2:-0}"
+# `ready_ok` = 1 lets a `ready` issue through: it is the recovery pass for a
+# label dispatch deferred while the pool was full (see `recover_ready`).
+process_one() { # process_one <number> <inflight> [ready_ok]
+  n="$1"; inflight="${2:-0}"; ready_ok="${3:-0}"
 
-  # A closed or `ready` issue is out of scope; drop any stale marker and stop.
+  # A closed issue — or a `ready` one on the ordinary pass — is out of scope;
+  # drop any stale marker and stop.
   state=$(gh api "repos/$REPO/issues/$n" \
     --jq '[.state, (.labels[].name)] | join(" ")' 2>/dev/null) \
     || { echo "::warning::could not read #$n; skipped this sweep."; return 1; }
   case " $state " in
-    *" closed "* | *" ready "*)
+    *" closed "*)
       remove_sweep_marker "$n"
       return 1
+      ;;
+    *" ready "*)
+      [ "$ready_ok" = "1" ] || { remove_sweep_marker "$n"; return 1; }
       ;;
   esac
 
@@ -387,6 +393,16 @@ process_one() { # process_one <number> <inflight>
 
   read_sweep_marker "$n"
   prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_form="$MARK_FORM"
+
+  # A `pending` marker is a deferred dispatch, not a run id. This pass has room
+  # (the caller checked the cap), so dispatch it: clear both fields so the
+  # checkpoint logic below does not read the marker as a run or as a finished
+  # checkpoint. Without this a same-signal pending marker would match the final
+  # branch and be skipped.
+  if [ "$prev_run" = "$PENDING_RUN" ]; then
+    echo "#$n: deferred dispatch; the pool has room in this pass."
+    prev_sig=""; prev_run=""
+  fi
 
   # The marker names a run that answered this same activity. Read its outcome
   # instead of trusting the 201: only a COMPLETED run is a finished checkpoint; a
@@ -441,6 +457,49 @@ process_one() { # process_one <number> <inflight>
   fi
   echo "::warning::dispatch failed for #$n; the checkpoint is unchanged, so the next sweep retries."
   return 2
+}
+
+# --recover-ready: the recovery pass for a label dispatch deferred while the pool
+# was full, on an issue that is (or has become) `ready`. The ordinary sweep
+# excludes `ready` issues, so without this pass a deferred label dispatch on a
+# `ready` issue is never retried — the pending marker would sit forever (#837
+# R348). It only acts on a marker left `pending`; a `ready` issue with no such
+# marker is not touched.
+recover_ready() {
+  count=0
+  inflight=$(inflight_count)
+  pend=$(mktemp)
+  pending_sweep_markers > "$pend"
+  while IFS=$(printf '\t') read -r n run; do
+    [ -n "${n:-}" ] || continue
+    [ "$run" = "$PENDING_RUN" ] || continue
+    [ "$count" -lt "$SWEEP_MAX" ] || break
+    [ "$inflight" -lt "$MAX_INFLIGHT" ] || {
+      echo "Recovery cap reached (MAX_INFLIGHT=$MAX_INFLIGHT); the rest wait for the next run."
+      break
+    }
+    rc=0
+    if process_one "$n" "$inflight" 1; then rc=0; else rc=$?; fi
+    case "$rc" in
+      0) count=$((count + 1)); inflight=$((inflight + 1)) ;;
+    esac
+  done < "$pend"
+  rm -f "$pend"
+  echo "$count deferred label dispatch(es) recovered on ready issues."
+}
+
+# The number and run field of every sweep marker currently `pending`, one per
+# line as `<number>\t<pending>`. Read from the stored marker comments so a sweep
+# run that starts fresh (or after a failure) still finds them.
+pending_sweep_markers() {
+  gh api --paginate "repos/$REPO/issues/comments?per_page=100" \
+    --jq '.[] | select(.body | test("triage-bridge-sweep:")) | .body' 2>/dev/null \
+    | while IFS= read -r body; do
+        n=${body#*triage-bridge-sweep:}; n=${n%%:*}
+        inner=${body#*triage-bridge-sweep:"$n":}; inner=${inner%% -->*}
+        run=${inner#*:}
+        [ "$run" = "$PENDING_RUN" ] && printf '%s\t%s\n' "$n" "$PENDING_RUN"
+      done || true
 }
 
 # --sweep: an open, not-`ready` issue whose activity changed since the checkpoint.
@@ -507,5 +566,6 @@ sweep() {
 case "${1:-}" in
   --stdin) on_label "$(cat)" ;;
   --sweep) sweep ;;
-  *) echo "usage: issue-triage-bridge.sh --stdin | --sweep" >&2; exit 2 ;;
+  --recover-ready) recover_ready ;;
+  *) echo "usage: issue-triage-bridge.sh --stdin | --sweep | --recover-ready" >&2; exit 2 ;;
 esac

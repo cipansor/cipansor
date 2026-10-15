@@ -14,6 +14,11 @@
 #              comments) changed since the bridge's last checkpoint, so an edited
 #              description or a new comment is caught without a trigger on
 #              `issues.edited`. The description is never touched by this workflow.
+#   recover -> a label dispatch the `labeled` job deferred because the pool was
+#              full, on an issue that is (or has become) `ready`. The sweep
+#              searches `-label:ready`, so without this pass the pending marker
+#              would never be retried (#837 R348). It acts only on a `pending`
+#              marker; a `ready` issue with no such marker is untouched.
 #
 # The signal is content, not a timestamp, so a same-second edit is still caught.
 # The triage owner is idempotent, so a duplicate dispatch is not a duplicate
@@ -71,3 +76,15 @@ jobs:
           REPO: ${{ github.repository }}
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: sh .github/scripts/issue-triage-bridge.sh --sweep
+
+      # The recovery pass for a label dispatch deferred while the pool was full
+      # on an issue that is (or has become) `ready`. The sweep excludes `ready`
+      # issues, so without this the pending marker would sit forever. It runs
+      # even when the sweep step failed, so a sweep failure does not strand it.
+      - name: Recover deferred label dispatches on ready issues
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: sh .github/scripts/issue-triage-bridge.sh --recover-ready
