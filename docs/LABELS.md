@@ -117,7 +117,10 @@ sync` workflow adds anything missing and **fails the check** when the type
    already visible on the PR, so a draft revert would only hide work in
    progress. It reads the checks exhaustively — every page, every required
    check present — and, once every required check passes, dispatches `Gerbang tinjau PR`
-   so the review gate runs the moment CI is green. A green draft PR gets an
+   so the review gate runs the moment CI is green. The dispatch is the gate's
+   **first** review only: once the gate has reviewed a PR, a later green head is
+   not dispatched again — the author asks for another pass with a manual review
+   request to `cipansor-bot`. A green draft PR gets an
    informational comment; it is never marked ready automatically.
 
 6. **Approval needs more than green CI.** `Gerbang tinjau PR` approves a

@@ -475,6 +475,15 @@ decision.
   failure, capped by `GATE_MAX_ATTEMPTS`. Safe because the gate is idempotent:
   it skips a head it already reviewed, so a stray extra run costs a sandbox
   slot, not a wrong review.
+- **`gate-watch.sh` flagged every new green head of an already-reviewed PR**
+  (found 2026-10-15, #837 review; fixed the same day). The watch asked only "no
+  gate review on this head", so a PR the gate had already reviewed — and whose
+  author had not asked again — got a false health-issue line and comment on
+  every new head, and a pointless re-dispatch. The automatic pass is now the
+  gate's **first** review only: a head is flagged only when the gate has never
+  reviewed the PR, or a manual re-review is pending for `cipansor-bot`
+  (`requested_reviewers`), and `pr-lifecycle.sh` no longer re-dispatches a
+  reviewed PR on a new green head — it points the author at a manual request.
 
 ## Performance
 
