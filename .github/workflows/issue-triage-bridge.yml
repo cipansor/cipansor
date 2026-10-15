@@ -14,11 +14,14 @@
 #              comments) changed since the bridge's last checkpoint, so an edited
 #              description or a new comment is caught without a trigger on
 #              `issues.edited`. The description is never touched by this workflow.
-#   recover -> a label dispatch the `labeled` job deferred because the pool was
-#              full, on an issue that is (or has become) `ready`. The sweep
-#              searches `-label:ready`, so without this pass the pending marker
-#              would never be retried (#837 R348). It acts only on a `pending`
-#              marker; a `ready` issue with no such marker is untouched.
+#   recover -> a `ready` issue with an unfinished sweep marker. The sweep
+#              searches `-label:ready`, so without this pass a marker on a
+#              `ready` issue is never examined again: a deferred label dispatch
+#              (`pending`) would sit forever, and a recovered run that then fails
+#              would never be retried (#837 R348, R474). It finalises a completed
+#              run, retries a failed one, dispatches a `pending` one, and leaves
+#              an in-flight one in flight. A `ready` issue with no sweep marker
+#              is untouched.
 #
 # The signal is content, not a timestamp, so a same-second edit is still caught.
 # The triage owner is idempotent, so a duplicate dispatch is not a duplicate

@@ -128,7 +128,6 @@ case "$*" in
     fi
     [ -n "$m" ] && printf '%s' "$m" ;;
   *"| max //"*) printf '%s\\n' "\${GH_STUB_LASTTRIAGE:-}" ;;
-  *"test(\\"triage-bridge-sweep:\\")"*) printf '%s\\n' "\${GH_STUB_SWEEP_BODIES:-}" ;;
   *"join(\\"+\\")"*) printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
   *"/comments"*".[].body"*) printf '%s\\n' "\${GH_STUB_COMMENTS:-}" ;;
   *"/issues/comments/"*"-X PATCH"*) post "$@" ;;
@@ -596,7 +595,8 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
     const { calls, out } = runBridge(
       {
-        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_MARKER_818: markup,
         GH_STUB_STATE_LABELS: 'open bug ready priority:high',
         GH_STUB_BODY: 'edited',
       },
@@ -607,15 +607,67 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     expect(out).toContain('recovered on ready issues');
   });
 
-  it('leaves a ready issue with no pending marker untouched in the recovery pass', () => {
+  it('retries a failed recovery run on a ready issue, which the sweep skips', () => {
+    // R474: a recovered dispatch turns the marker from `pending` into a run id;
+    // if that run fails, only the recovery pass can retry it (the sweep skips
+    // `ready`). Old logic only looked at `pending` markers, so it was stranded.
+    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:r1 -->`;
     const { calls } = runBridge(
       {
-        GH_STUB_SWEEP_BODIES: `<!-- triage-bridge-sweep:820:${signal('x')}: -->`,
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_MARKER_818: markup,
         GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUN_STATUS: 'FAILED',
       },
       ['--recover-ready']
     );
+    expect(calls).toContain('RUNS');
+    expect(calls).toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+  });
+
+  it('finalises a completed recovery run on a ready issue without re-dispatching', () => {
+    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:r1 -->`;
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_MARKER_818: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUN_STATUS: 'COMPLETED',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('RUNS');
     expect(calls).not.toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: -->`);
+  });
+
+  it('fails the recovery step when a dispatch is rejected, so it is visible', () => {
+    // R481: a rejected dispatch must not leave the workflow green.
+    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_MARKER_818: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_CODE: '503',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(out).toContain('recovery dispatch(es) failed');
+  });
+
+  it('leaves a ready issue with no marker untouched in the recovery pass', () => {
+    const { calls } = runBridge(
+      { GH_STUB_SEARCH: '2026-10-14T02:14:15Z 820', GH_STUB_STATE_LABELS: 'open bug ready' },
+      ['--recover-ready']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('run_id=');
   });
 });
 
@@ -1461,5 +1513,25 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(resumed.calls).toContain('DISPATCH');
     expect(resumed.calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+  });
+
+  it('does not rewrite an identical pending marker while the pool stays full', () => {
+    // R402: clearing the marker's fields before the capacity check made every
+    // full-pool sweep rewrite the same `pending` marker, bumping the issue's
+    // update time. With the fields preserved the marker is recognised as
+    // identical and left alone.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'pending'),
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(out).toContain('deferred');
+    expect(calls).not.toContain('POST_MARKER');
+    expect(calls).not.toContain('/issues/comments/');
   });
 });

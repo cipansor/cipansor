@@ -224,18 +224,24 @@
     filter cloud yang membangunkan automation pemicu komentar menolak penulis
     tipe `Bot`, jadi memberi reaction 👀 pada komentar itu akan menampilkan
     "sedang dikerjakan" untuk komentar yang tak akan pernah ditanggapi armada.
-24. **Jalur pemulihan `--recover-ready` untuk dispatch label tertunda pada issue
-    `ready`** (2026-10-14, tinjauan #837 R348). Menunda dispatch label pada issue
-    yang `ready` (atau menjadi `ready`) tanpa jalur pemulihan berarti triase ulang
-    untuk perubahan prioritas **hilang permanen**: sweep mencari
-    `is:open -label:ready`, jadi penanda `pending` di sana tak pernah diambil.
-    Perbaikan: subperintah `--recover-ready` membaca semua penanda `pending` dan
-    memprosesnya lewat `process_one … 1` (izinkan `ready`); hanya menyentuh issue
-    berpenanda `pending`, jadi issue `ready` tanpa penanda tak tersentuh.
-    `process_one` memperlakukan `pending` bukan-sebagai-run-id (dispatch saat ada
-    ruang), dan workflow menjalankan langkah ini dengan `if: always()` agar
-    kegagalan sweep tidak menelantarkannya. Skrip berjalan `#!/bin/sh` di bawah
-    `dash`, jadi tanpa proses-substitusi — hasilnya lewat berkas sementara.
+24. **Jalur pemulihan `--recover-ready` untuk issue `ready` (tinjauan #837
+    R348/R474/R481/R402).** Sweep mencari `is:open -label:ready`, jadi penanda
+    pada issue `ready` tak pernah diperiksa lagi. Perbaikan: subperintah
+    `--recover-ready` menelusuri **open `ready`** (jendela halaman sama dengan
+    sweep, `SWEEP_PAGES`) dan menyerahkan setiap issue **berpenanda sweep** ke
+    `process_one … 1` (izinkan `ready`) — sehingga hasil run pasca-dispatch
+    pemulihan tetap diperiksa: **selesai** difinalkan, **gagal** dicoba ulang,
+    `pending` didispatch bila ada ruang, `inflight` dibiarkan. Issue `ready`
+    tanpa penanda dilewati tanpa pembacaan tambahan. Kegagalan dispatch (status
+    2) dikumpulkan dan menggagalkan langkah (non-nol), bukan hijau palsu.
+    - `process_one` **tidak** mengosongkan `prev_sig`/`prev_run` untuk penanda
+      `pending`: dedup kapasitas membandingkannya, jadi mengosongkan membuat
+      sweep kolam-penuh menulis ulang penanda identik tiap kali (menaikkan
+      waktu update issue). Cabang hasil-run dilewati untuk `pending` lewat
+      kondisi `prev_run != pending`.
+    - Workflow menjalankan langkah ini `if: always()` agar kegagalan sweep tidak
+      menelantarkannya. Skrip `#!/bin/sh` (dash) — tanpa proses-substitusi;
+      hasilnya lewat berkas sementara.
 
 
 ## Sumber

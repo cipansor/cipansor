@@ -394,22 +394,18 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   read_sweep_marker "$n"
   prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_form="$MARK_FORM"
 
-  # A `pending` marker is a deferred dispatch, not a run id. This pass has room
-  # (the caller checked the cap), so dispatch it: clear both fields so the
-  # checkpoint logic below does not read the marker as a run or as a finished
-  # checkpoint. Without this a same-signal pending marker would match the final
-  # branch and be skipped.
-  if [ "$prev_run" = "$PENDING_RUN" ]; then
-    echo "#$n: deferred dispatch; the pool has room in this pass."
-    prev_sig=""; prev_run=""
-  fi
-
   # The marker names a run that answered this same activity. Read its outcome
   # instead of trusting the 201: only a COMPLETED run is a finished checkpoint; a
   # RUNNING/PENDING run is left in flight (and counted), and a FAILED/CANCELLED/
   # SKIPPED one is retried below. A run id that cannot be read is treated as
   # failed, so a read hiccup retries rather than silently finalises.
-  if [ "$prev_sig" = "$sig" ] && [ -n "$prev_run" ]; then
+  #
+  # `prev_sig`/`prev_run` are left as read: the capacity check below dedups a
+  # `pending` marker by comparing them, so clearing them here would make every
+  # sweep rewrite an identical marker (and bump the issue's update time) while the
+  # pool stays full (#837 R402). A `pending` run is not a run id, so the outcome
+  # branch is skipped for it; the capacity check decides it instead.
+  if [ "$prev_sig" = "$sig" ] && [ -n "$prev_run" ] && [ "$prev_run" != "$PENDING_RUN" ]; then
     st=$(run_status "$prev_run")
     case "$st" in
       RUNNING | PENDING)
@@ -432,6 +428,8 @@ process_one() { # process_one <number> <inflight> [ready_ok]
     # the run's outcome. The triage owner is idempotent, so this is one extra
     # run, not a duplicate comment (#837 follow-up).
     echo "#$n: legacy marker with no run recorded; re-dispatching once to migrate it."
+  elif [ "$prev_sig" = "$sig" ] && [ "$prev_run" = "$PENDING_RUN" ]; then
+    : # A deferred dispatch; the capacity check below dispatches or keeps it.
   elif [ "$prev_sig" = "$sig" ]; then
     # Same activity, a final checkpoint (run finished): already answered. Not a
     # reason to triage.
@@ -459,47 +457,63 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   return 2
 }
 
-# --recover-ready: the recovery pass for a label dispatch deferred while the pool
-# was full, on an issue that is (or has become) `ready`. The ordinary sweep
-# excludes `ready` issues, so without this pass a deferred label dispatch on a
-# `ready` issue is never retried — the pending marker would sit forever (#837
-# R348). It only acts on a marker left `pending`; a `ready` issue with no such
-# marker is not touched.
+# --recover-ready: the recovery pass for a `ready` issue whose sweep marker is
+# unfinished. The ordinary sweep excludes `ready` issues, so without this pass a
+# marker on one is never examined again: a deferred label dispatch (`pending`)
+# would sit forever, and a recovered run that later fails would never be retried
+# (#837 R348, R474). It finds open `ready` issues that carry a marker and hands
+# each to `process_one` (which finalises a completed run, retries a failed one,
+# dispatches a `pending` one, and leaves an in-flight one in flight). A `ready`
+# issue with no sweep marker is skipped without an extra read. A marker naming a
+# run needs no capacity (it checks an outcome); a `pending` one does.
 recover_ready() {
   count=0
+  fails=0
   inflight=$(inflight_count)
-  pend=$(mktemp)
-  pending_sweep_markers > "$pend"
-  while IFS=$(printf '\t') read -r n run; do
+  cand=$(mktemp)
+  page=1
+  # The same page window the sweep uses, so a `ready` issue past it waits for its
+  # next touch rather than costing an unbounded number of API calls.
+  while [ "$page" -le "$SWEEP_PAGES" ]; do
+    items=$(gh api -X GET search/issues \
+      -f q="repo:$REPO is:issue is:open label:ready" -f per_page=100 \
+      -f sort=updated -f order=desc -f page="$page" \
+      --jq '.items[] | "\(.updated_at) \(.number)"' 2>/dev/null || echo "")
+    [ -n "$items" ] || break
+    printf '%s\n' "$items" >> "$cand"
+    got=$(printf '%s\n' "$items" | grep -c . || true)
+    [ "$got" -ge 100 ] || break
+    page=$((page + 1))
+  done
+  sort -r -u -o "$cand" "$cand"
+
+  while read -r _ts n; do
     [ -n "${n:-}" ] || continue
-    [ "$run" = "$PENDING_RUN" ] || continue
-    [ "$count" -lt "$SWEEP_MAX" ] || break
-    [ "$inflight" -lt "$MAX_INFLIGHT" ] || {
-      echo "Recovery cap reached (MAX_INFLIGHT=$MAX_INFLIGHT); the rest wait for the next run."
-      break
-    }
+    [ "$count" -lt "$SWEEP_MAX" ] || { echo "Reached SWEEP_MAX=$SWEEP_MAX; the rest wait for the next run."; break; }
+    # Only a `ready` issue that actually carries a marker is in scope. A marker
+    # naming a run is checked for its outcome below and needs no capacity; a
+    # `pending` one is a dispatch and does.
+    read_sweep_marker "$n"
+    [ "$MARK_FORM" = "none" ] && continue
+    if [ "$MARK_RUN" = "$PENDING_RUN" ]; then
+      [ "$inflight" -lt "$MAX_INFLIGHT" ] || {
+        echo "Recovery cap reached (MAX_INFLIGHT=$MAX_INFLIGHT); the rest wait for the next run."
+        break
+      }
+    fi
     rc=0
     if process_one "$n" "$inflight" 1; then rc=0; else rc=$?; fi
     case "$rc" in
       0) count=$((count + 1)); inflight=$((inflight + 1)) ;;
+      2) fails=$((fails + 1)) ;;
     esac
-  done < "$pend"
-  rm -f "$pend"
-  echo "$count deferred label dispatch(es) recovered on ready issues."
-}
-
-# The number and run field of every sweep marker currently `pending`, one per
-# line as `<number>\t<pending>`. Read from the stored marker comments so a sweep
-# run that starts fresh (or after a failure) still finds them.
-pending_sweep_markers() {
-  gh api --paginate "repos/$REPO/issues/comments?per_page=100" \
-    --jq '.[] | select(.body | test("triage-bridge-sweep:")) | .body' 2>/dev/null \
-    | while IFS= read -r body; do
-        n=${body#*triage-bridge-sweep:}; n=${n%%:*}
-        inner=${body#*triage-bridge-sweep:"$n":}; inner=${inner%% -->*}
-        run=${inner#*:}
-        [ "$run" = "$PENDING_RUN" ] && printf '%s\t%s\n' "$n" "$PENDING_RUN"
-      done || true
+  done < "$cand"
+  rm -f "$cand"
+  echo "$count sweep checkpoint(s) finalised or recovered on ready issues."
+  if [ "$fails" -ne 0 ]; then
+    echo "::error::$fails recovery dispatch(es) failed; the next run retries them."
+    return 1
+  fi
 }
 
 # --sweep: an open, not-`ready` issue whose activity changed since the checkpoint.
