@@ -14,10 +14,21 @@
 #     each is completed and none is red, and a check from every known suite has
 #     published (a green subset — CI done before E2E — is still pending),
 #   * the last of them completed more than WAIT_MINUTES ago,
-#   * and GATE_LOGIN has left no review on that head commit.
+#   * GATE_LOGIN has left no review on that head commit, and
+#   * the gate owes that head a pass — see the first-review rule below.
 # It does not rely on the dispatch itself, which is recorded only in a workflow
 # log: a green, ready head with no gate review is the symptom, whatever the
 # cause.
+#
+# The gate's automatic pass is the FIRST review only (2026-10-15). Once the gate
+# has reviewed a PR, a later green head is not the gate's turn: another review is
+# a manual review request (the `Gerbang tinjau PR` automation is triggered by
+# `pull_request.review_requested`), and pr-lifecycle.sh points the author at one
+# instead of dispatching. So a head is "waiting on the gate" only when the gate
+# has never reviewed the PR (its first pass is owed) or a manual re-review is
+# pending for `cipansor-bot` (the request was made and the review did not come).
+# An already-reviewed head with no pending request is expected to have no new
+# review and is left alone — no comment, no health-issue line.
 #
 # The gate definition (REQUIRED_CHECKS, KNOWN_SUITE_SIGNS, the latest-run-per-
 # name rule, and red/pending restricted to the gate checks) is the same as
@@ -75,7 +86,7 @@ KNOWN_SUITE_SIGNS="${KNOWN_SUITE_SIGNS:-CI scope|E2E scope}"
 
 DIR="$(mktemp -d)"
 trap 'rm -rf "$DIR"' EXIT HUP INT TERM
-SILENT="$DIR/silent"   # lines: <pr> <sha> <green-since epoch>
+SILENT="$DIR/silent"   # lines: <pr> <sha> <green-since epoch> <pass:first|rereview>
 : > "$SILENT"
 UNREADABLE="$DIR/unreadable"   # PR numbers that could not be fully read
 : > "$UNREADABLE"
@@ -157,7 +168,7 @@ gate_any_in_flight() { # gate_any_in_flight
 # an empty list: an empty scan closes the active report, so a transient error
 # read as "nothing waiting" would close an incident that is still open.
 if ! PRS=$(gh api --paginate "repos/$REPO/pulls?state=open&per_page=100" \
-  --jq '.[] | select(.draft | not) | "\(.number) \(.head.sha)"' 2>/dev/null); then
+  --jq '.[] | select(.draft | not) | "\(.number) \(.head.sha) \(((.requested_reviewers // []) | map(.login) | join(",")))"' 2>/dev/null); then
   echo "::warning::Could not read open pull requests; leaving the health report unchanged."
   exit 1
 fi
@@ -181,22 +192,44 @@ gate_complete() { # gate_complete <present-lines>
   return 0
 }
 
-printf '%s\n' "$PRS" | while read -r n sha; do
+printf '%s\n' "$PRS" | while read -r n sha requested; do
   [ -n "${n:-}" ] || continue
-  # Reviewed already: any review by the gate on this very commit, whatever its
-  # verdict. An older commit's review does not count — the gate reviews heads.
-  # A read failure is recorded, not treated as "no review": it must not close
-  # the health issue while a PR is still waiting.
-  reviewed=$(gh api --paginate "repos/$REPO/pulls/$n/reviews?per_page=100" \
-    --jq ".[] | select(.user.login == \"$GATE_LOGIN\" and .commit_id == \"$sha\") | .id" 2>/dev/null || echo unread)
-  if [ "$reviewed" = "unread" ]; then
+  # One read of this PR's reviews answers both questions: has the gate EVER
+  # reviewed it (so its automatic first pass has run), and has it reviewed this
+  # very head. A read failure is recorded, not treated as "no review": it must
+  # not close the health issue while a PR is still waiting.
+  reviews=$(gh api --paginate "repos/$REPO/pulls/$n/reviews?per_page=100" 2>/dev/null || echo unread)
+  if [ "$reviews" = "unread" ]; then
     echo "::warning::PR #$n: reviews unreadable; skipped."
     echo "$n" >> "$UNREADABLE"
     continue
   fi
-  if [ -n "$reviewed" ]; then
+  # `--paginate` prints one JSON array per page, so the pages are slurped into
+  # one array before counting; a missing/!array body reads as a failed count
+  # (non-zero exit -> `unread`), never as "no review".
+  reviewed=$(printf '%s' "$reviews" | jq -s -r --arg g "$GATE_LOGIN" \
+    '[.[][]? | select(.user.login == $g) | .id] | length' 2>/dev/null || echo unread)
+  on_head=$(printf '%s' "$reviews" | jq -s -r --arg g "$GATE_LOGIN" --arg s "$sha" \
+    '[.[][]? | select(.user.login == $g and .commit_id == $s) | .id] | length' 2>/dev/null || echo unread)
+  if [ "$reviewed" = "unread" ] || [ "$on_head" = "unread" ]; then
+    echo "::warning::PR #$n: reviews unreadable; skipped."
+    echo "$n" >> "$UNREADABLE"
     continue
   fi
+  # The gate has reviewed this very head: nothing is owed, whatever the verdict,
+  # and a pending re-request is already answered by that review.
+  if [ "$on_head" != "0" ]; then
+    continue
+  fi
+  # Not reviewed on this head. Flag it only when the gate owes this head a pass:
+  # the first pass (the gate has never reviewed the PR), or a manual re-review
+  # the author requested and the gate has not delivered yet. An already-reviewed
+  # PR whose author has not asked again is expected to have no new review, so it
+  # is left alone rather than re-dispatched (2026-10-15).
+  case ",$requested," in
+    *",$GATE_LOGIN,"*) : ;;                        # re-review requested, not yet done
+    *) [ "$reviewed" = "0" ] || continue ;;        # reviewed before, no new request
+  esac
   # The latest run of every check name, as pr-lifecycle.sh picks it (sort by
   # started_at then id): a re-run in flight is the newest run and keeps the head
   # pending, instead of an old green run winning on completed_at. Tab separates
@@ -244,7 +277,8 @@ printf '%s\n' "$PRS" | while read -r n sha; do
     continue
   fi
   echo "PR #$n: green since $(iso "$since") with no gate review on $sha."
-  echo "$n $sha $since" >> "$SILENT"
+  if [ "$reviewed" != "0" ]; then pass=rereview; else pass=first; fi
+  echo "$n $sha $since $pass" >> "$SILENT"
 done
 
 # The health issue: found by its marker among open `automation-health` issues.
@@ -278,13 +312,13 @@ fi
 
 {
   printf '%s\n' "$ISSUE_MARK" "" \
-    "PR di bawah ini siap dan semua check di head-nya hijau lebih dari ${WAIT_MINUTES} menit, tetapi \`$GATE_LOGIN\` belum meninjau head itu. \`pr-lifecycle\` sudah men-dispatch \`Gerbang tinjau PR\`; jawaban 2xx hanya berarti permintaan diterima." \
+    "PR di bawah ini siap dan semua check di head-nya hijau lebih dari ${WAIT_MINUTES} menit, tetapi \`$GATE_LOGIN\` belum meninjau head itu. Ini hanya berlaku untuk tinjauan pertama gerbang, atau tinjauan ulang yang sudah diminta manual tetapi belum dijawab. \`pr-lifecycle\` sudah men-dispatch \`Gerbang tinjau PR\`; jawaban 2xx hanya berarti permintaan diterima." \
     "" \
     "Yang perlu dilakukan: buka riwayat run automation \`Gerbang tinjau PR\` di OpenHands Cloud dan cari run untuk PR itu. Kalau gagal karena infrastruktur, minta review ulang di PR atau dorong commit baru." \
     "" \
     "| PR | Head | Hijau sejak (UTC) |" \
     "|---|---|---|"
-  sort -n "$SILENT" | while read -r n sha since; do
+  sort -n "$SILENT" | while read -r n sha since pass; do
     printf '| #%s | `%s` | %s |\n' "$n" "$(printf '%s' "$sha" | cut -c1-9)" "$(iso "$since")"
   done
   printf '%s\n' "" "Diperbarui oleh \`gate-watch.yml\` setiap jam, hanya saat daftarnya berubah, dan ditutup saat daftarnya kosong (#776)."
@@ -306,7 +340,7 @@ else
 fi
 
 # One comment per silent head, pointing at the issue.
-sort -n "$SILENT" | while read -r n sha since; do
+sort -n "$SILENT" | while read -r n sha since pass; do
   mark="<!-- gate-watch:$sha -->"
   # One read of the head's comments serves both answers: the marker comment to
   # update in place, and the attempt count it carries. `--paginate` emits one
@@ -415,8 +449,16 @@ sort -n "$SILENT" | while read -r n sha since; do
     old_body=$(printf '%s' "$comments" | jq -rs --argjson id "$cid" \
       '[.[][] | select(.id == $id)][0].body // ""' 2>/dev/null || true)
   fi
+  # The lead sentence names which pass is owed: the gate's automatic first
+  # review, or a re-review the author already asked for by hand. The rest of the
+  # message (why no review came, the dispatch state) is the same for both.
+  if [ "$pass" = "rereview" ]; then
+    lead="Gerbang tinjau belum meninjau **ulang** head \`$(printf '%s' "$sha" | cut -c1-9)\`, padahal tinjauan ulang sudah diminta manual ke \`$GATE_LOGIN\`."
+  else
+    lead="Gerbang tinjau belum meninjau head \`$(printf '%s' "$sha" | cut -c1-9)\` (tinjauan pertama)."
+  fi
   printf '%s\n' "$mark" "" \
-    "Gerbang tinjau belum meninjau head \`$(printf '%s' "$sha" | cut -c1-9)\`.${retry} Semua check head ini sudah selesai hijau sejak $(iso "$since") UTC; dicatat juga di #$ISSUE." > "$DIR/pr-$n"
+    "${lead}${retry} Semua check head ini sudah selesai hijau sejak $(iso "$since") UTC; dicatat juga di #$ISSUE." > "$DIR/pr-$n"
   if [ "$attempts" -gt 0 ]; then
     printf '%s\n' "<!-- gate-watch-attempt:$sha:$attempts -->" >> "$DIR/pr-$n"
   fi

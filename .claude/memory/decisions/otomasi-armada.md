@@ -346,6 +346,32 @@
       kegagalannya murni infrastruktur. Tidak ada endpoint enable/disable
       terpisah.
 
+26. **Gerbang tinjau berjalan otomatis sekali; sesudahnya tinjauan ulang
+    manual** (2026-10-15, pengguna; #837). Dispatch otomatis #727 membuat setiap
+    siklus hijau+ready memicu tinjauan lagi, sehingga PR yang sedang diperbaiki
+    terus ditinjau tanpa diminta. Aturan baru:
+    - `pr-lifecycle.sh` men-dispatch gerbang **hanya** bila gerbang belum pernah
+      meninjau PR itu (`.user.login == cipansor-bot` pada **salah satu** review,
+      head apa pun). Bila sudah pernah: tidak ada dispatch. Head yang belum
+      ditinjau tetapi PR-nya sudah pernah → satu komentar penunjuk
+      (`<!-- pr-lifecycle:rereview -->`), "minta tinjauan ulang manual ke
+      `cipansor-bot`". Head yang **sudah** ditinjau pada head itu → diam.
+    - Jalur `CHANGES_REQUESTED` pada commit lama kini hanya "lanjut", bukan
+      "dispatch ulang": keputusan dispatch ada di jalur hijau di atas.
+    - Tinjauan ulang diminta lewat `pull_request.review_requested` (pemicu
+      gerbang), yaitu mengajukan permintaan tinjauan ke `cipansor-bot`. Itu juga
+      memperbaiki keluhan lama "gerbang meninjau sebelum diminta".
+    - `gate-watch.sh` hanya menandai head yang gerbang **berutang** pass:
+      (a) gerbang belum pernah meninjau PR itu (pass pertama), atau (b) tinjauan
+      ulang sudah diminta manual (`requested_reviewers` memuat `cipansor-bot`)
+      tetapi belum dijawab. Head yang sudah ditinjau tanpa permintaan baru
+      **diabaikan** — dulu ini baris health-issue palsu tiap kali head baru hijau.
+      Karena itu daftar PR kini membaca `requested_reviewers`, dan kata pembuka
+      komentar membedakan "tinjauan pertama" dari "belum meninjau **ulang**".
+    - Jebakan: `gh api --paginate` mencetak **satu array JSON per halaman**;
+      `jq -s` (slurp) wajib sebelum `any(.[][]?; …)`/hitungan, kalau tidak
+      deteksi "sudah pernah ditinjau" selalu salah (array tunggal pun gagal
+      tanpa `-s`).
 
 ## Sumber
 

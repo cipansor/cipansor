@@ -1,4 +1,4 @@
-# Post the CI result and dispatch the review gate.
+# Post the CI result and dispatch the review gate for a PR's FIRST review.
 #
 # Triggered by workflow_run so it sees the finished result of every workflow on
 # the PR's head. It never changes the draft/ready state and never approves or
@@ -6,15 +6,18 @@
 #
 #   green CI + draft PR              -> post the all-green comment, leave the
 #                                       draft decision to a human
-#   green CI + ready PR              -> dispatch the review gate (`Gerbang tinjau PR`)
+#   green CI + ready PR, never reviewed -> dispatch the review gate
+#   green CI + ready PR, already reviewed -> point the author at a manual
+#                                            re-review (no dispatch)
 #   red CI                           -> quiet (checks are visible on the PR)
 #   changes requested on the current head -> quiet (waiting for fixes)
-#   changes requested on an older commit + green head -> dispatch the gate again
 #
 # `pull_request_review` is also subscribed so a changes-requested review
-# submitted after CI finished is seen. A request on the current head is quiet;
-# once the author pushes a new head and it goes green, the gate is dispatched
-# again to review that head (#727).
+# submitted after CI finished is seen. The gate's automatic pass is the first
+# review only: once it has reviewed a PR, a later green head is not dispatched
+# again — a re-review is a manual review request (the `Gerbang tinjau PR`
+# automation is triggered by `pull_request.review_requested`). This replaces the
+# #727 auto re-dispatch (2026-10-15).
 #
 # `pull_request`/`ready_for_review` is subscribed because a documentation-only
 # PR never produces a `workflow_run` completion after it turns ready: its scope

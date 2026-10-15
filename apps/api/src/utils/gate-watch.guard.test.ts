@@ -333,14 +333,40 @@ describe('gate-watch.sh', () => {
     expect(calls).not.toContain('PCOMMENT');
   });
 
-  it("still flags a PR whose only gate review is on an older commit, or someone else's on the head", () => {
+  it('leaves a PR whose only gate review is on an older commit alone: its automatic pass already ran', () => {
+    // The gate's automatic pass is the first review only. A review on an older
+    // commit means the gate already ran; a later head is reviewed only on a
+    // manual re-request, so this head is expected to have no new review.
     const { calls } = run({
       GH_STUB_REVIEWS_7: JSON.stringify([
         { id: 1, user: { login: 'cipansor-bot' }, commit_id: 'old000', state: 'CHANGES_REQUESTED' },
         { id: 2, user: { login: 'a-person' }, commit_id: HEAD, state: 'COMMENTED' },
       ]),
     });
+    expect(calls).not.toContain('PCOMMENT');
+    expect(calls).not.toContain('CREATE');
+  });
+
+  it('flags a head whose manual re-review was requested and not delivered', () => {
+    // The author asked for another pass (requested_reviewers holds the gate) and
+    // the gate has reviewed before but not this head: the re-review is owed, so
+    // the watch re-dispatches it. The lead sentence names the re-review.
+    const { calls, created } = run({
+      GH_STUB_PRS: JSON.stringify([
+        {
+          number: 7,
+          draft: false,
+          head: { sha: HEAD },
+          requested_reviewers: [{ login: 'cipansor-bot' }],
+        },
+      ]),
+      GH_STUB_REVIEWS_7: JSON.stringify([
+        { id: 1, user: { login: 'cipansor-bot' }, commit_id: 'old000', state: 'CHANGES_REQUESTED' },
+      ]),
+    });
     expect(calls).toContain('PCOMMENT 7');
+    expect(calls).toContain('meninjau **ulang**');
+    expect(created).toContain('| #7 |');
   });
 
   it('skips a draft', () => {

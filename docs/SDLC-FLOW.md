@@ -188,8 +188,8 @@ flowchart TD
 | 4 | Keputusan | label `decision` | agen riset → maintainer | riset bersumber + pilihan ganda; maintainer memilih | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready` |
 | 5 | Implementasi | label `bot-implement` (`Bot sebutan`, atau maintainer); `ready` saja TIDAK memicu bot | `Tiket jadi PR` | PR draf dengan templat, uji, bukti, `Fixes #n` | daftar periksa penulis lengkap → ready for review |
 | 6 | CI | push | Actions | Build, Lint, Tests, Security, E2E | semua hijau |
-| 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`) | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion` | approve |
-| 8 | Perbaikan | review minta perubahan | `Tiket jadi PR` | ikuti atau tolak dengan alasan; ≤ 3 putaran | head baru hijau → tahap 7 |
+| 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`), otomatis **hanya sekali** per PR | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion` | approve |
+| 8 | Perbaikan | review minta perubahan | `Tiket jadi PR` | ikuti atau tolak dengan alasan; ≤ 3 putaran | head baru hijau → tahap 7, tetapi tinjauan ulang harus **diminta manual** (permintaan tinjauan ke `cipansor-bot`) |
 | 9 | Merge | approve + check hijau + cabang mutakhir | Actions (auto-merge) | squash ke `main` | — |
 | 10 | Staging | E2E hijau di `main` | `deploy-staging` → `deploy-watch` | staging menyajikan SHA itu, atau satu issue | — |
 | 11 | Calon rilis | jadwal mingguan, atau atas permintaan | `Pembuat catatan rilis` | pre-release `-rc` dengan catatan, hasil k6 smoke, daftar periksa (migrasi, loader data, langkah pasca-rilis) | maintainer menyetujui |
@@ -225,7 +225,7 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | bila run yang di-dispatch untuk head itu masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, run tercatat hilang dari riwayat, head belum pernah di-dispatch, atau run selesai tanpa menulis review (gerbang diam), dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head (run id yang di-dispatch dicatat di penanda komentar head itu, jadi keputusannya per head); satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu — dan hanya bila gerbang memang berutang pass ini: tinjauan pertama (belum pernah meninjau PR itu) atau tinjauan ulang yang sudah diminta manual tetapi belum dijawab | bila run yang di-dispatch untuk head itu masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, run tercatat hilang dari riwayat, head belum pernah di-dispatch, atau run selesai tanpa menulis review (gerbang diam), dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head (run id yang di-dispatch dicatat di penanda komentar head itu, jadi keputusannya per head); satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
 | Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20) per **automation** (kunci KV `retry-<aid>`; dihapus saat run terbaru COMPLETED agar episode berikutnya mulai lagi); bila habis, satu issue `automation-health` |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
@@ -671,9 +671,13 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   tetap terbuka dan check yang gagal terlihat padanya; gerbang memposting review
   minta-perubahan dan branch protection menahan merge. Mengembalikan ke draft
   pernah dicoba dan dihapus — itu menyembunyikan pekerjaan yang sedang berjalan.
+  Gerbang berjalan otomatis **hanya sekali** per PR, pada tinjauan pertamanya.
   Begitu penulis mendorong head baru dan head itu hijau, `pr-lifecycle.sh`
-  men-dispatch gerbang lagi; permintaan perubahan hanya menahan PR selama ia
-  masih pada head saat ini (#727).
+  **tidak** men-dispatch gerbang lagi: ia hanya menunjuk ke permintaan tinjauan
+  ulang manual. Tinjauan ulang diminta dengan mengajukan permintaan tinjauan ke
+  `cipansor-bot` (`pull_request.review_requested` adalah pemicu gerbang);
+  permintaan perubahan hanya menahan PR selama ia masih pada head saat ini
+  (2026-10-15, menggantikan dispatch otomatis #727).
 - **Catatan rilis hidup di GitHub Release, bukan di berkas.** `Pembuat catatan
 rilis` berjalan mingguan, memotong pre-release `-rc` berikutnya, dan menulis
   catatan ke body Release dari conventional commit sejak rilis resmi terakhir;

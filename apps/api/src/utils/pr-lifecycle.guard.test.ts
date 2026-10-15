@@ -48,7 +48,9 @@ case "$1" in
   api)
     case "$*" in
       *check-runs*) printf '%s\\n' "\${GH_STUB_CHECKS:-}" ;;
-      *"/reviews"*) printf '%s\\n' "\${GH_STUB_REVIEWS:-[]}" ;;
+      *"/reviews"*)
+        if [ -n "\${GH_STUB_REVIEWS_FAIL:-}" ]; then echo "gh: reviews unavailable" >&2; exit 1; fi
+        printf '%s\\n' "\${GH_STUB_REVIEWS:-[]}" ;;
       *"comments?per_page"*)
         printf '%s' "\${GH_STUB_COMMENTS_LIST:-[]}" \
           | jq -r '.[] | select(.body | contains("<!-- pr-lifecycle:")) | .id' ;;
@@ -264,10 +266,12 @@ describe('pr-lifecycle.sh', () => {
   });
 
   describe('after the gate requested changes', () => {
+    // Reviews carry their author: the script tells "the gate already reviewed
+    // this PR" from "never reviewed" by `.user.login`.
     const requested = (commit: string) =>
       JSON.stringify([
-        { state: 'COMMENTED', commit_id: 'old000' },
-        { state: 'CHANGES_REQUESTED', commit_id: commit },
+        { state: 'COMMENTED', commit_id: 'old000', user: { login: 'cipansor-bot' } },
+        { state: 'CHANGES_REQUESTED', commit_id: commit, user: { login: 'cipansor-bot' } },
       ]);
     const base = {
       GH_STUB_STATE: 'OPEN',
@@ -289,14 +293,18 @@ describe('pr-lifecycle.sh', () => {
       expect(out).toContain('leaving it open for fixes');
     });
 
-    it('sends a green head pushed after the request back to the gate', () => {
+    it('does not send a green head pushed after the request back to the gate on its own', () => {
+      // The gate's automatic pass is the first review only. It already reviewed
+      // this PR (changes requested), so a new green head is reviewed only when
+      // the author asks again by hand: no dispatch, just the re-review notice.
       const { calls, out } = run({
         ...base,
         GH_STUB_CHECKS: allGreen,
         GH_STUB_REVIEWS: requested('fff111'),
       });
-      expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
-      expect(out).toContain('Dispatched review gate for PR #7');
+      expect(calls).not.toContain('/dispatch');
+      expect(out).toContain('not re-dispatching');
+      expect(out).toContain('manual re-request required');
     });
 
     it('does not dispatch while that newer head is red', () => {
@@ -321,6 +329,64 @@ describe('pr-lifecycle.sh', () => {
     });
     expect(calls).toContain('curl');
     expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
+  });
+
+  it('does not re-dispatch a green ready PR the gate has already reviewed, and points at a manual re-review', () => {
+    // The automatic pass is the first review only: once the gate has reviewed
+    // the PR, a later green head must not be dispatched again. The author is
+    // told to request a re-review by hand instead (#837).
+    const { calls, out } = run({
+      GH_STUB_STATE: 'OPEN',
+      GH_STUB_DRAFT: 'false',
+      GH_STUB_HEAD: SHA,
+      GH_STUB_CHECKS: allGreen,
+      GH_STUB_COMMENTS_LIST: '[]',
+      GH_STUB_REVIEWS: JSON.stringify([
+        { state: 'CHANGES_REQUESTED', commit_id: 'old000', user: { login: 'cipansor-bot' } },
+      ]),
+      OPENHANDS_API_KEY: 'key',
+      GH_STUB_HTTP: '200',
+    });
+    expect(calls).not.toContain('/dispatch');
+    expect(out).toContain('not re-dispatching');
+    expect(out).toContain('manual re-request required');
+  });
+
+  it('stays quiet when the gate already reviewed the current head', () => {
+    // Nothing is owed: an approval is final, and a request for changes waits on
+    // the author. No dispatch, no re-review notice.
+    const { calls, out } = run({
+      GH_STUB_STATE: 'OPEN',
+      GH_STUB_DRAFT: 'false',
+      GH_STUB_HEAD: SHA,
+      GH_STUB_CHECKS: allGreen,
+      GH_STUB_COMMENTS_LIST: '[]',
+      GH_STUB_REVIEWS: JSON.stringify([
+        { state: 'CHANGES_REQUESTED', commit_id: SHA, user: { login: 'cipansor-bot' } },
+      ]),
+      OPENHANDS_API_KEY: 'key',
+      GH_STUB_HTTP: '200',
+    });
+    expect(calls).not.toContain('/dispatch');
+    expect(calls).not.toContain('COMMENT');
+    expect(out).toContain('already reviewed by the gate');
+  });
+
+  it('does not dispatch when the review list cannot be read', () => {
+    // A failed read is not "never reviewed": dispatching then would re-review a
+    // PR the gate already saw.
+    const { calls, out } = run({
+      GH_STUB_STATE: 'OPEN',
+      GH_STUB_DRAFT: 'false',
+      GH_STUB_HEAD: SHA,
+      GH_STUB_CHECKS: allGreen,
+      GH_STUB_COMMENTS_LIST: '[]',
+      GH_STUB_REVIEWS_FAIL: '1',
+      OPENHANDS_API_KEY: 'key',
+      GH_STUB_HTTP: '200',
+    });
+    expect(calls).not.toContain('/dispatch');
+    expect(out).toContain('reviews unreadable');
   });
 
   it('dispatches the review gate for a ready docs PR whose code checks are skipped', () => {
