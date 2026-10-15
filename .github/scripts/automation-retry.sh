@@ -124,7 +124,7 @@ kv_put() { # kv_put <automation-id> <key> <attempts> <last_at> <version>
   fi
 }
 
-printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron") | [.id, .name] | @tsv' 2>/dev/null \
+printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron" and (.enabled != false)) | [.id, .name] | @tsv' 2>/dev/null \
   | while IFS="$(printf '\t')" read -r aid name; do
     [ -n "${aid:-}" ] || continue
     runs=$("$CURL" -fsS "$API/$aid/runs?limit=5" -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null) || {

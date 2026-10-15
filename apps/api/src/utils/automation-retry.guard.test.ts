@@ -294,6 +294,22 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
     expect(calls).not.toContain('/v1/' + EVENT);
   });
 
+  it('never retries a disabled automation: a stopped one is a decision', () => {
+    // A paused automation is paused on purpose; re-dispatching it would restart
+    // exactly what a person stopped.
+    const { calls } = run({
+      CURL_STUB_AUTOS: JSON.stringify({
+        automations: [
+          { id: CRON, name: 'SDLC 19 · Pemburu bug', trigger: { type: 'cron' }, enabled: false },
+        ],
+      }),
+      [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
+      CURL_STUB_KV_JSON: JSON.stringify({ value: {}, version: 0 }),
+    });
+    expect(calls).not.toContain('/dispatch');
+    expect(calls).not.toContain(`/v1/${CRON}/runs`);
+  });
+
   it('does not retry blind when the ledger cannot be read', () => {
     const { calls, out } = run({
       [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
