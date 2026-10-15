@@ -273,6 +273,57 @@
       menelantarkannya. Skrip `#!/bin/sh` (dash) — tanpa proses-substitusi;
       hasilnya lewat berkas sementara.
 
+25. **Run yang mati infrastruktur mendapat kesempatan kedua yang terukur**
+    (2026-10-15, pengguna; #837). `POST /{id}/dispatch` fire-and-forget: run
+    yang mati setelah HTTP 201 hilang tanpa apa pun yang mengulangnya. Riwayat
+    run armada memang begitu — 14 dari 50 run terakhir SDLC 18 `FAILED` karena
+    infrastruktur (`execution/timeout` dominan, `environment_unavailable`,
+    `execution_error`, `unknown`), dan **gerbang tinjau PR #837 sendiri tidak
+    pernah selesai**: empat run terakhirnya mati `execution/timeout`
+    (`fingerprint: execution:agent_server:verify_run:timeout`). Menambah timeout
+    tidak menolong — 1800 s sudah plafon platform (field `timeout` automation),
+    jadi kegagalan timeout adalah run yang **hilang**, bukan run yang lambat.
+    Dua retrier, keduanya tiap jam:
+    - **`automation-retry.sh`** (+ `automation-retry.yml`, menit 47): run
+      terakhir sebuah automation **cron** yang gagal infrastruktur di-dispatch
+      ulang, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20).
+      Percobaan disimpan di **KV store automation** (kunci `retry-<aid>-<run>`,
+      tulis optimistis `nx`/`if_version`) sehingga tak ada dispatch ganda antar
+      run Actions, dan **klaim ditulis sebelum dispatch** — kalah balapan berarti
+      tidak ada dispatch. Dispatch yang ditolak **me-rollback** klaimnya agar
+      percobaan tidak terbakar sia-sia. Yang kehabisan kesempatan dilaporkan di
+      satu issue `automation-health` (ditutup lagi saat daftarnya kosong).
+      Automation **event** sengaja **tidak** di-retry di sini: payload-nya
+      (issue/PR mana) tidak diekspos API runs (`run_metadata` `null`, `trigger`
+      event tak menyimpan payload), jadi run ulang buta bisa salah sasaran —
+      mereka punya retrier deterministik sendiri (`gate-watch.yml`,
+      `issue-triage-bridge.sh`).
+    - **`gate-watch.sh`**: re-dispatch gerbang jadi terukur, bukan sekali.
+      Skrip membaca riwayat run gerbang lewat API automation dan mengklasifikasi
+      run terbaru: `RUNNING`/`PENDING` → **tunggu** (jangan tumpuk run di sandbox
+      yang sama); `FAILED` infrastruktur → dispatch ulang sampai
+      `GATE_MAX_ATTEMPTS` (3) per head; `FAILED` non-infrastruktur
+      (auth/quota/config) → tidak di-retry; `COMPLETED` → bukan urusan retry
+      (review-nya yang tidak datang, itu keputusan orang). Riwayat run yang
+      **tak terbaca** **tidak** dianggap "tak ada run": dispatch dilewati agar
+      tidak menumpuk run pada head yang sudah ditinjau. Hitungan percobaan ikut
+      di penanda komentar (`<!-- gate-watch-attempt:<sha>:<n> -->`) sehingga
+      bertahan antar-run, dan komentar diperbarui di tempat (PATCH) hanya saat
+      teksnya berubah — bukan ditumpuk.
+    - **`set -eu` + pipa ke `while` = subshell**: variabel yang di-set di dalam
+      `| while` tidak bertahan setelah loop. Karena itu hitungan percobaan
+      disimpan di **penanda komentar**, bukan variabel shell.
+    - Pelajaran shell yang sudah menggigit dua kali: `${v:-{...}}` dengan `}`
+      literal **menutup ekspansi lebih awal** dan menyisipkan `}` liar ke JSON
+      (default harus lewat variabel); dan `jq` `expr as $x | if …` mengikat `as`
+      hanya ke operand terakhir — bungkus `(expr) as $x`.
+    - Automation yang auto-paused karena kegagalan beruntun (SDLC 14,
+      `disabled_reason: "Paused automatically: the last 5 runs all failed and
+      nothing has succeeded in 24 hours."`) **diaktifkan kembali** dengan
+      `PATCH /api/automation/v1/<id>` body `{"enabled":true}`; kelima
+      kegagalannya murni infrastruktur. Tidak ada endpoint enable/disable
+      terpisah.
+
 
 ## Sumber
 
