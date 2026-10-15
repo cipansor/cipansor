@@ -128,7 +128,7 @@ case "$*" in
     fi
     [ -n "$m" ] && printf '%s' "$m" ;;
   *"| max //"*) printf '%s\\n' "\${GH_STUB_LASTTRIAGE:-}" ;;
-  *"test(\\"triage-bridge-sweep:\\")"*) printf '%s\\n' "\${GH_STUB_SWEEP_BODIES:-}" ;;
+  *"[0-9]+:[0-9a-f]+"*) printf '%s\\n' "\${GH_STUB_SWEEP_BODIES:-}" ;;
   *"join(\\"+\\")"*) printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
   *"/comments"*".[].body"*) printf '%s\\n' "\${GH_STUB_COMMENTS:-}" ;;
   *"/issues/comments/"*"-X PATCH"*) post "$@" ;;
@@ -678,6 +678,37 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     );
     expect(calls).not.toContain('DISPATCH');
     expect(calls).not.toContain('run_id=');
+  });
+
+  it('ignores a comment that only quotes the marker syntax', () => {
+    // R512: a comment on another issue that quotes a marker names an issue it
+    // does not belong to. The listing may name #818, but #818 has no marker of
+    // its own, so it must not be re-triaged.
+    const quoted = `Contoh: <!-- triage-bridge-sweep:818:abc123:pending -->`;
+    const { calls } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: quoted,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('run_id=');
+  });
+
+  it('ignores a stale marker when a newer final marker exists on the issue', () => {
+    const stale = `<!-- triage-bridge-sweep:818:${signal('old')}:pending -->`;
+    const current = `<!-- triage-bridge-sweep:818:${signal('new')}: -->`;
+    const { calls } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: stale,
+        GH_STUB_MARKER_818: current,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'new',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).not.toContain('DISPATCH');
   });
 
   it('fails the recovery step when a dispatch is rejected, so it is visible', () => {

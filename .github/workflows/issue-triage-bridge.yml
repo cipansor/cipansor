@@ -18,12 +18,14 @@
 #              searches `-label:ready`, so without this pass a marker on a
 #              `ready` issue is never examined again: a deferred label dispatch
 #              (`pending`) would sit forever, and a recovered run that then fails
-#              would never be retried (#837 R348, R474). It discovers markers by
-#              scanning the marker comments, not a `ready`-issue search bounded
-#              by update time (which would forget an old marker, #837 R475);
-#              only the dispatches per pass are capped. A final checkpoint is
-#              skipped, so a new comment on a `ready` issue is not re-triaged
-#              (#837 R496).
+#              would never be retried (#837 R348, R474). It discovers candidate
+#              issues by scanning the marker comments, not a `ready`-issue search
+#              bounded by update time (which would forget an old marker, #837
+#              R475), then re-reads each issue's *own* latest marker to confirm
+#              the marker belongs to it — a comment that merely quotes the
+#              syntax names an unrelated issue and is ignored (#837 R512). Only
+#              the dispatches per pass are capped. A final checkpoint is skipped,
+#              so a new comment on a `ready` issue is not re-triaged (#837 R496).
 #
 # The signal is content, not a timestamp, so a same-second edit is still caught.
 # The triage owner is idempotent, so a duplicate dispatch is not a duplicate

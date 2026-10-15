@@ -225,17 +225,21 @@
     tipe `Bot`, jadi memberi reaction 👀 pada komentar itu akan menampilkan
     "sedang dikerjakan" untuk komentar yang tak akan pernah ditanggapi armada.
 24. **Jalur pemulihan `--recover-ready` untuk issue `ready` (tinjauan #837
-    R348/R474/R475/R481/R496/R402).** Sweep mencari `is:open -label:ready`, jadi
-    penanda pada issue `ready` tak pernah diperiksa lagi. Perbaikan: subperintah
-    `--recover-ready` **memindai komentar penanda langsung** (`sweep_markers`,
+    R348/R474/R475/R481/R496/R512/R402).** Sweep mencari `is:open -label:ready`,
+    jadi penanda pada issue `ready` tak pernah diperiksa lagi. Perbaikan:
+    subperintah `--recover-ready` **memindai komentar penanda langsung** untuk
+    memperoleh daftar kandidat nomor issue (`sweep_markers`,
     `gh api .../issues/comments` — bukan `search/issues` berbatas waktu-update
     yang akan melupakan penanda lama begitu issue `ready` baru memenuhi jendela,
-    R475) dan menyerahkan tiap issue ber-penanda-non-final ke `process_one … 1`
-    (izinkan `ready`). **Penemuan tak dibatasi**; hanya jumlah dispatch per
-    eksekusi (`SWEEP_MAX`) dan plafon kolam (`MAX_INFLIGHT`) yang membatasi
-    kerja. Penanda **final** (field run ada-tapi-kosong) dilewati, jadi komentar
-    baru pada issue `ready` yang sudah difinalkan **tidak** men-triase ulang
-    (R496); penanda `legacy` (tanpa field run) tetap diproses (dimigrasi).
+    R475), lalu **membaca ulang penanda pada issue itu sendiri** untuk
+    memastikan penanda benar miliknya: komentar yang sekadar **mengutip** sintaks
+    meninggalkan `MARK_FORM=none` (dilewati), dan penanda basi (ada penanda final
+    yang lebih baru) meninggalkan `MARK_FORM=final` (dilewati) — R512. Baru tiap
+    kandidat non-final diserahkan ke `process_one … 1`. **Penemuan tak dibatasi**;
+    hanya jumlah dispatch per eksekusi (`SWEEP_MAX`) dan plafon kolam
+    (`MAX_INFLIGHT`) yang membatasi kerja. Penanda **final** dilewati, jadi
+    komentar baru pada issue `ready` yang sudah difinalkan **tidak** men-triase
+    ulang (R496); penanda `legacy` (tanpa field run) tetap diproses (dimigrasi).
     - Hasil run pasca-dispatch pemulihan tetap diperiksa: **COMPLETED** difinalkan
       (meski sinyal berubah — pengecekan status tak bergantung sinyal), **FAILED**
       dicoba ulang, `pending` didispatch bila ada ruang, `inflight` dibiarkan

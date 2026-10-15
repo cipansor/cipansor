@@ -474,18 +474,24 @@ recover_ready() {
   fails=0
   inflight=$(inflight_count)
   cand=$(mktemp)
-  sweep_markers > "$cand"
-  while IFS=$(printf '\t') read -r n run; do
+  sweep_markers | sort -u > "$cand"
+  while read -r n; do
     [ -n "${n:-}" ] || continue
-    # An empty run field is a final checkpoint (run field present and empty) or
-    # the legacy form; only the final form is done. `sweep_markers` emits
-    # `legacy` for the legacy form so it survives this test and is migrated.
-    [ -n "$run" ] || continue
     [ "$count" -lt "$SWEEP_MAX" ] || { echo "Reached SWEEP_MAX=$SWEEP_MAX; the rest wait for the next run."; break; }
+    # The listing is built from marker comments across the repository, so a
+    # comment that merely quotes the marker syntax names an issue it does not
+    # belong to (#837 R512). Re-read the marker from the issue's own comments:
+    # `read_sweep_marker` looks only there, so a quoted marker leaves MARK_FORM
+    # at `none`, and a stale one (a newer final marker exists) at `final` — both
+    # skipped. Only a marker actually on `n` and not final is a candidate.
+    read_sweep_marker "$n"
+    case "$MARK_FORM" in
+      none | final) continue ;;
+    esac
     # A marker naming a run needs no capacity (it checks an outcome); a pending
     # one is a dispatch, so it waits while the pool is full — but other markers
     # later in the list may still be checked.
-    if [ "$run" = "$PENDING_RUN" ] && [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    if [ "$MARK_RUN" = "$PENDING_RUN" ] && [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
       continue
     fi
     rc=0
@@ -503,21 +509,23 @@ recover_ready() {
   fi
 }
 
-# Every sweep marker in the repository, one per line as `<number>\t<run>`, where
-# `<run>` is the marker's run field, the literal `legacy` when the marker has no
-# run field at all (#837 follow-up), or empty for a final checkpoint. Read from
-# the marker comments rather than a per-issue marker lookup, so a marker the
-# search window would miss is still discovered.
+# The issue number of every comment whose body contains a sweep marker, one per
+# line. The number is taken from the marker text, not the comment's own issue, so
+# it is only a *candidate* list: `recover_ready` re-reads each issue's own marker
+# to confirm the marker really belongs to it (a comment that quotes the syntax
+# would otherwise name an unrelated issue, #837 R512). Read from the comments
+# rather than a per-issue lookup, so a marker the search window would miss is
+# still discovered (#837 R475).
 sweep_markers() {
   gh api --paginate "repos/$REPO/issues/comments?per_page=100" \
-    --jq '.[] | select(.body | test("triage-bridge-sweep:")) | .body' 2>/dev/null \
+    --jq '.[] | select(.body | test("<!-- triage-bridge-sweep:[0-9]+:[0-9a-f]+(:[A-Za-z0-9_-]*)? -->")) | .body' 2>/dev/null \
     | while IFS= read -r body; do
-        n=${body#*triage-bridge-sweep:}; n=${n%%:*}
-        inner=${body#*triage-bridge-sweep:"$n":}; inner=${inner%% -->*}
-        case "$inner" in
-          *:*) printf '%s\t%s\n' "$n" "${inner#*:}" ;;
-          *) printf '%s\t%s\n' "$n" legacy ;;
+        case "$body" in
+          *triage-bridge-sweep:*) ;;
+          *) continue ;;
         esac
+        n=${body#*triage-bridge-sweep:}; n=${n%%:*}
+        printf '%s\n' "$n"
       done || true
 }
 
