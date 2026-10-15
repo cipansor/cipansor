@@ -42,10 +42,14 @@ case "$url" in
   *"/kv/"*)
     if [ "$method" = PUT ]; then
       log "KV_PUT $url $data"
-      [ -n "$out" ] && printf '%s' "\${CURL_STUB_KV_PUT_CODE:-201}" || printf '{}'
+      [ -n "$out" ] && printf '%s' '{}' > "$out"
+      printf '%s' "\${CURL_STUB_KV_PUT_CODE:-201}"
     else
       [ "\${CURL_STUB_KV_FAIL:-}" = 1 ] && exit 1
-      [ -n "$out" ] && printf '200' || printf '%s' "\${CURL_STUB_KV_JSON:-}"
+      # A key that does not exist is 404, not an empty 200: the script tells
+      # "no attempt yet" from "KV unreadable" by the status code alone.
+      [ -n "$out" ] && printf '%s' "\${CURL_STUB_KV_JSON:-}" > "$out"
+      printf '%s' "\${CURL_STUB_KV_CODE:-200}"
     fi ;;
   */dispatch)
     log "DISPATCH $url $data"
@@ -164,7 +168,7 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
   it('re-dispatches a cron automation whose latest run timed out, once, with the run id', () => {
     const { status, calls, out } = run({
       [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
-      CURL_STUB_KV_JSON: JSON.stringify({ value: {}, version: 0 }),
+      CURL_STUB_KV_CODE: '404',
     });
     expect(status).toBe(0);
     expect(out).toContain('retried');
@@ -173,6 +177,18 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
     expect(calls).toContain(`/v1/${CRON}/dispatch`);
     expect(calls).toContain(`"source":"retry-sweeper"`);
     expect(calls).toContain(`"retry_of":"${RUN}"`);
+  });
+
+  it('reads a missing ledger as no attempt yet, not as an unreadable KV', () => {
+    // The real API answers 404 `key_not_found` for a key it has never seen. A
+    // `curl -f` read would treat that as a failure and never retry anything.
+    const { calls, out } = run({
+      [CRON_KEY]: runJson('FAILED', 'execution', 'timeout', ago(30)),
+      CURL_STUB_KV_CODE: '404',
+    });
+    expect(out).not.toContain('KV unreadable');
+    expect(calls).toContain('/dispatch');
+    expect(calls).toMatch(/KV_PUT .*nx=true/);
   });
 
   it('claims the attempt before dispatching, so a lost race cannot double-dispatch', () => {

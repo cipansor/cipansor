@@ -446,6 +446,20 @@ decision.
   column holds (`select x, count(*) … group by x`), then a Prisma enum or a
   CHECK, and `z.enum` at the edge
   (`lessons/student-status-case-mismatch.md`).
+- **`gate-watch.sh` reads the gate's run history, which is per automation, not
+  per pull request** (found 2026-10-15, #837). The automation runs API exposes
+  `status`, `status_detail`, `created_at`, `sandbox_id`, `cost` and
+  `trigger_source`, but **no payload**: `run_metadata` is `null` and an event
+  automation's `trigger` stores no payload, so a run cannot be tied to the PR or
+  head it was dispatched for. `gate_run_state()` therefore classifies the
+  newest run of the gate **automation**, whichever PR it belonged to. This is
+  safe while at most one ready PR waits at a time (the gate's usual cadence),
+  but two ready PRs could make one head read another head's run: a foreign
+  `FAILED timeout` would spend an attempt re-dispatching a head the gate has not
+  looked at yet, and a foreign `RUNNING` would skip a head whose own run is
+  dead. The comment and attempt markers are per head, so nothing is lost
+  permanently — the next hourly run corrects it — but the classification is not
+  per-PR until the runs API exposes the run's target. Revisit when it does.
 
 ## Performance
 

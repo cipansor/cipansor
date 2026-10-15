@@ -247,7 +247,12 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
    masuk. Retry-nya kini terukur: run gerbang yang mati infrastruktur
    di-dispatch ulang sampai 3 kali per head, dan hanya selama run sebelumnya
-   tidak sedang berjalan.
+   tidak sedang berjalan. **Sisa yang diketahui:** riwayat run yang dibaca
+   `gate-watch.sh` adalah riwayat automation, bukan per-PR, jadi keputusan
+   retry mengikuti run terakhir gerbang **mana pun**. Aman hari ini (hanya
+   satu PR siap dalam satu waktu), tetapi dua PR siap serentak bisa membuat
+   satu head membaca run milik head lain; pemisahan per-PR menunggu API runs
+   mengekspos sasaran run (PR/head) — lihat catatan di `known-issues.md`.
 3. **Cron yang bertentangan dengan keputusan.** Matikan `Penjaga issue`
    (penutupan berdasarkan umur) dan `Uji beban` bulanan; k6 berjalan lewat
    `load-tests.yml` sebelum rilis.
