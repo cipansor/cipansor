@@ -128,6 +128,7 @@ case "$*" in
     fi
     [ -n "$m" ] && printf '%s' "$m" ;;
   *"| max //"*) printf '%s\\n' "\${GH_STUB_LASTTRIAGE:-}" ;;
+  *"test(\\"triage-bridge-sweep:\\")"*) printf '%s\\n' "\${GH_STUB_SWEEP_BODIES:-}" ;;
   *"join(\\"+\\")"*) printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
   *"/comments"*".[].body"*) printf '%s\\n' "\${GH_STUB_COMMENTS:-}" ;;
   *"/issues/comments/"*"-X PATCH"*) post "$@" ;;
@@ -595,7 +596,7 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
     const { calls, out } = runBridge(
       {
-        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_SWEEP_BODIES: markup,
         GH_STUB_MARKER_818: markup,
         GH_STUB_STATE_LABELS: 'open bug ready priority:high',
         GH_STUB_BODY: 'edited',
@@ -607,14 +608,32 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     expect(out).toContain('recovered on ready issues');
   });
 
+  it('recovers a pending marker even when its issue is outside the search window', () => {
+    // R475: the recovery must find a marker by scanning markers, not a
+    // `ready`-issue search bounded by update time — else an old pending marker is
+    // forgotten once newer `ready` issues fill the page window.
+    const markup = `<!-- triage-bridge-sweep:99:${signal('old')}:pending -->`;
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_MARKER_99: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'old',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(out).toContain('recovered on ready issues');
+  });
+
   it('retries a failed recovery run on a ready issue, which the sweep skips', () => {
     // R474: a recovered dispatch turns the marker from `pending` into a run id;
     // if that run fails, only the recovery pass can retry it (the sweep skips
-    // `ready`). Old logic only looked at `pending` markers, so it was stranded.
+    // `ready`).
     const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:r1 -->`;
     const { calls } = runBridge(
       {
-        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_SWEEP_BODIES: markup,
         GH_STUB_MARKER_818: markup,
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'edited',
@@ -622,7 +641,7 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
       },
       ['--recover-ready']
     );
-    expect(calls).toContain('RUNS');
+    expect(calls).toContain('run_id=');
     expect(calls).toContain('DISPATCH');
     expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
   });
@@ -631,7 +650,7 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:r1 -->`;
     const { calls } = runBridge(
       {
-        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_SWEEP_BODIES: markup,
         GH_STUB_MARKER_818: markup,
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'edited',
@@ -639,17 +658,35 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
       },
       ['--recover-ready']
     );
-    expect(calls).toContain('RUNS');
+    expect(calls).toContain('run_id=');
     expect(calls).not.toContain('DISPATCH');
     expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: -->`);
   });
 
-  it('fails the recovery step when a dispatch is rejected, so it is visible', () => {
-    // R481: a rejected dispatch must not leave the workflow green.
-    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
-    const { calls, out } = runBridge(
+  it('does not re-triage a ready issue already finalised when a comment changes it', () => {
+    // R496: a new comment on a `ready` issue changes the signal; the marker is a
+    // final checkpoint, so the recovery must not dispatch again.
+    const markup = `<!-- triage-bridge-sweep:818:${signal('A')}: -->`;
+    const { calls } = runBridge(
       {
-        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_MARKER_818: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'B',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('run_id=');
+  });
+
+  it('fails the recovery step when a dispatch is rejected, so it is visible', () => {
+    // R481: a rejected dispatch must not leave the workflow green; the exit
+    // status (not only the message) proves it.
+    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
+    const { calls, out, status } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: markup,
         GH_STUB_MARKER_818: markup,
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'edited',
@@ -659,11 +696,12 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     );
     expect(calls).toContain('DISPATCH');
     expect(out).toContain('recovery dispatch(es) failed');
+    expect(status).not.toBe(0);
   });
 
   it('leaves a ready issue with no marker untouched in the recovery pass', () => {
     const { calls } = runBridge(
-      { GH_STUB_SEARCH: '2026-10-14T02:14:15Z 820', GH_STUB_STATE_LABELS: 'open bug ready' },
+      { GH_STUB_SWEEP_BODIES: '', GH_STUB_STATE_LABELS: 'open bug ready' },
       ['--recover-ready']
     );
     expect(calls).not.toContain('DISPATCH');

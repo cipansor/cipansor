@@ -225,20 +225,28 @@
     tipe `Bot`, jadi memberi reaction 👀 pada komentar itu akan menampilkan
     "sedang dikerjakan" untuk komentar yang tak akan pernah ditanggapi armada.
 24. **Jalur pemulihan `--recover-ready` untuk issue `ready` (tinjauan #837
-    R348/R474/R481/R402).** Sweep mencari `is:open -label:ready`, jadi penanda
-    pada issue `ready` tak pernah diperiksa lagi. Perbaikan: subperintah
-    `--recover-ready` menelusuri **open `ready`** (jendela halaman sama dengan
-    sweep, `SWEEP_PAGES`) dan menyerahkan setiap issue **berpenanda sweep** ke
-    `process_one … 1` (izinkan `ready`) — sehingga hasil run pasca-dispatch
-    pemulihan tetap diperiksa: **selesai** difinalkan, **gagal** dicoba ulang,
-    `pending` didispatch bila ada ruang, `inflight` dibiarkan. Issue `ready`
-    tanpa penanda dilewati tanpa pembacaan tambahan. Kegagalan dispatch (status
-    2) dikumpulkan dan menggagalkan langkah (non-nol), bukan hijau palsu.
+    R348/R474/R475/R481/R496/R402).** Sweep mencari `is:open -label:ready`, jadi
+    penanda pada issue `ready` tak pernah diperiksa lagi. Perbaikan: subperintah
+    `--recover-ready` **memindai komentar penanda langsung** (`sweep_markers`,
+    `gh api .../issues/comments` — bukan `search/issues` berbatas waktu-update
+    yang akan melupakan penanda lama begitu issue `ready` baru memenuhi jendela,
+    R475) dan menyerahkan tiap issue ber-penanda-non-final ke `process_one … 1`
+    (izinkan `ready`). **Penemuan tak dibatasi**; hanya jumlah dispatch per
+    eksekusi (`SWEEP_MAX`) dan plafon kolam (`MAX_INFLIGHT`) yang membatasi
+    kerja. Penanda **final** (field run ada-tapi-kosong) dilewati, jadi komentar
+    baru pada issue `ready` yang sudah difinalkan **tidak** men-triase ulang
+    (R496); penanda `legacy` (tanpa field run) tetap diproses (dimigrasi).
+    - Hasil run pasca-dispatch pemulihan tetap diperiksa: **COMPLETED** difinalkan
+      (meski sinyal berubah — pengecekan status tak bergantung sinyal), **FAILED**
+      dicoba ulang, `pending` didispatch bila ada ruang, `inflight` dibiarkan
+      (R474).
+    - Kegagalan dispatch (status 2) dikumpulkan dan menggagalkan langkah
+      (non-nol), bukan hijau palsu (R481).
     - `process_one` **tidak** mengosongkan `prev_sig`/`prev_run` untuk penanda
       `pending`: dedup kapasitas membandingkannya, jadi mengosongkan membuat
       sweep kolam-penuh menulis ulang penanda identik tiap kali (menaikkan
       waktu update issue). Cabang hasil-run dilewati untuk `pending` lewat
-      kondisi `prev_run != pending`.
+      kondisi `prev_run != pending` (R402).
     - Workflow menjalankan langkah ini `if: always()` agar kegagalan sweep tidak
       menelantarkannya. Skrip `#!/bin/sh` (dash) — tanpa proses-substitusi;
       hasilnya lewat berkas sementara.

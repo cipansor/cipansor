@@ -461,45 +461,32 @@ process_one() { # process_one <number> <inflight> [ready_ok]
 # unfinished. The ordinary sweep excludes `ready` issues, so without this pass a
 # marker on one is never examined again: a deferred label dispatch (`pending`)
 # would sit forever, and a recovered run that later fails would never be retried
-# (#837 R348, R474). It finds open `ready` issues that carry a marker and hands
-# each to `process_one` (which finalises a completed run, retries a failed one,
-# dispatches a `pending` one, and leaves an in-flight one in flight). A `ready`
-# issue with no sweep marker is skipped without an extra read. A marker naming a
-# run needs no capacity (it checks an outcome); a `pending` one does.
+# (#837 R348, R474). It discovers the markers by scanning the marker comments
+# directly — not by a `ready`-issue search bounded by update time, which would
+# forget an old pending marker once newer issues filled the page window (#837
+# R475). Discovery is unbounded; only the number of dispatches per pass
+# (`SWEEP_MAX`) and the pool cap (`MAX_INFLIGHT`) bound the work. A final
+# checkpoint is skipped, so a new comment on a `ready` issue is not re-triaged
+# (#837 R496); a `pending` or run-field marker is handed to `process_one`, which
+# dispatches it, finalises a completed run, or retries a failed one.
 recover_ready() {
   count=0
   fails=0
   inflight=$(inflight_count)
   cand=$(mktemp)
-  page=1
-  # The same page window the sweep uses, so a `ready` issue past it waits for its
-  # next touch rather than costing an unbounded number of API calls.
-  while [ "$page" -le "$SWEEP_PAGES" ]; do
-    items=$(gh api -X GET search/issues \
-      -f q="repo:$REPO is:issue is:open label:ready" -f per_page=100 \
-      -f sort=updated -f order=desc -f page="$page" \
-      --jq '.items[] | "\(.updated_at) \(.number)"' 2>/dev/null || echo "")
-    [ -n "$items" ] || break
-    printf '%s\n' "$items" >> "$cand"
-    got=$(printf '%s\n' "$items" | grep -c . || true)
-    [ "$got" -ge 100 ] || break
-    page=$((page + 1))
-  done
-  sort -r -u -o "$cand" "$cand"
-
-  while read -r _ts n; do
+  sweep_markers > "$cand"
+  while IFS=$(printf '\t') read -r n run; do
     [ -n "${n:-}" ] || continue
+    # An empty run field is a final checkpoint (run field present and empty) or
+    # the legacy form; only the final form is done. `sweep_markers` emits
+    # `legacy` for the legacy form so it survives this test and is migrated.
+    [ -n "$run" ] || continue
     [ "$count" -lt "$SWEEP_MAX" ] || { echo "Reached SWEEP_MAX=$SWEEP_MAX; the rest wait for the next run."; break; }
-    # Only a `ready` issue that actually carries a marker is in scope. A marker
-    # naming a run is checked for its outcome below and needs no capacity; a
-    # `pending` one is a dispatch and does.
-    read_sweep_marker "$n"
-    [ "$MARK_FORM" = "none" ] && continue
-    if [ "$MARK_RUN" = "$PENDING_RUN" ]; then
-      [ "$inflight" -lt "$MAX_INFLIGHT" ] || {
-        echo "Recovery cap reached (MAX_INFLIGHT=$MAX_INFLIGHT); the rest wait for the next run."
-        break
-      }
+    # A marker naming a run needs no capacity (it checks an outcome); a pending
+    # one is a dispatch, so it waits while the pool is full — but other markers
+    # later in the list may still be checked.
+    if [ "$run" = "$PENDING_RUN" ] && [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+      continue
     fi
     rc=0
     if process_one "$n" "$inflight" 1; then rc=0; else rc=$?; fi
@@ -514,6 +501,24 @@ recover_ready() {
     echo "::error::$fails recovery dispatch(es) failed; the next run retries them."
     return 1
   fi
+}
+
+# Every sweep marker in the repository, one per line as `<number>\t<run>`, where
+# `<run>` is the marker's run field, the literal `legacy` when the marker has no
+# run field at all (#837 follow-up), or empty for a final checkpoint. Read from
+# the marker comments rather than a per-issue marker lookup, so a marker the
+# search window would miss is still discovered.
+sweep_markers() {
+  gh api --paginate "repos/$REPO/issues/comments?per_page=100" \
+    --jq '.[] | select(.body | test("triage-bridge-sweep:")) | .body' 2>/dev/null \
+    | while IFS= read -r body; do
+        n=${body#*triage-bridge-sweep:}; n=${n%%:*}
+        inner=${body#*triage-bridge-sweep:"$n":}; inner=${inner%% -->*}
+        case "$inner" in
+          *:*) printf '%s\t%s\n' "$n" "${inner#*:}" ;;
+          *) printf '%s\t%s\n' "$n" legacy ;;
+        esac
+      done || true
 }
 
 # --sweep: an open, not-`ready` issue whose activity changed since the checkpoint.
