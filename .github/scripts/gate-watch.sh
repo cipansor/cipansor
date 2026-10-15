@@ -47,6 +47,10 @@ GATE_LOGIN="${GATE_LOGIN:-cipansor-bot}"
 NOW="${NOW:-$(date -u +%s)}"
 GATE_ID="${SDLC_REVIEW_GATE_ID:-96eebf19-b64b-4035-9653-2d8b15b06ac4}"
 ISSUE_MARK="<!-- gate-watch:health -->"
+# Every issue description opens with the basmalah (docs/LABELS.md rule 13).
+# basmalah.yml cannot add it to this one: GitHub starts no workflow for an
+# issue opened with GITHUB_TOKEN, so the watch writes it itself (#850).
+BASMALAH="بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ"
 # Every automated comment carries the AI-disclosure footer, so a
 # comment-triggered automation never mistakes it for a person (docs/LABELS.md,
 # the #680 loop guard).
@@ -195,7 +199,7 @@ if [ ! -s "$SILENT" ]; then
 fi
 
 {
-  printf '%s\n' "$ISSUE_MARK" "" \
+  printf '%s\n' "$BASMALAH" "" "$ISSUE_MARK" "" \
     "PR di bawah ini siap dan semua check di head-nya hijau lebih dari ${WAIT_MINUTES} menit, tetapi \`$GATE_LOGIN\` belum meninjau head itu. \`pr-lifecycle\` sudah men-dispatch \`Gerbang tinjau PR\`; jawaban 2xx hanya berarti permintaan diterima." \
     "" \
     "Yang perlu dilakukan: buka riwayat run automation \`Gerbang tinjau PR\` di OpenHands Cloud dan cari run untuk PR itu. Kalau gagal karena infrastruktur, minta review ulang di PR atau dorong commit baru." \

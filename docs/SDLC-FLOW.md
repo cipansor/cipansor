@@ -220,7 +220,7 @@ repositori privat:
 | Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | dispatch ulang sekali per head, satu komentar per head, dan satu issue `automation-health` yang memuat semuanya (#776) |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
-| Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
+| Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per workflow selama masih terbuka (run berikutnya menjadi komentar), ditutup saat deploy hijau dan situs sehat (#850); tanpa rollback otomatis |
 | Situs menurun tanpa deploy | Health check App Service + availability test | alert dari platform |
 | Anggaran terlampaui | laporan pemakaian | automation berhenti; maintainer memutuskan |
 | Bot memicu dirinya sendiri | guard footer pada setiap pemicu komentar | — (pencegahan) |
@@ -392,7 +392,7 @@ flowchart TB
     STG --> PROD["deploy-production.yml (manual · sha)"]:::human
     STG -. "selesai" .-> DW["deploy-watch.yml"]:::gh
     PROD -. "selesai" .-> DW
-    DW -- "gagal / macet / commit salah" --> DWI(["satu issue deploy-watch per run"]):::gh
+    DW -- "gagal / macet / commit salah" --> DWI(["satu issue deploy-watch per workflow"]):::gh
     MG -. "CI atau E2E gagal di main" .-> BR["main-failure-bridge.yml"]:::gh --> C12["Pemantau deployment"]:::cloud
     C13["Pembuat catatan rilis (cron Jum 22:00 WIB)"]:::cloud
     C13 -. "memotong pre-release -rc (catatan di body Release, tanpa changelog di repo)" .-> REL2(["GitHub Release (prerelease)"])
