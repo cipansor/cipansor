@@ -86,13 +86,14 @@ while [ $# -gt 0 ]; do
     *) [ -z "$url" ] && url="$1"; shift ;;
   esac
 done
-# A read of the triage owner's runs. A run_id= query asks one run's outcome;
-# the plain list feeds the in-flight count. Distinct log line so a test that
-# asserts on DISPATCH is not confused by a read.
+# A read of the triage owner's runs. The real API returns a *page of runs* and
+# IGNORES a run_id= query (it always returns the newest page) — so the stub
+# must too, or a test would pass on a run_id= read the API never answers. The
+# listing is fed by CURL_STUB_RUNS (JSON array of runs, newest first) and the
+# script filters it by .id; a run_id= query is dropped on the floor exactly as
+# the API drops it. Distinct log line so a test that asserts on DISPATCH is not
+# confused by a read.
 case "$url" in
-  *run_id=*)
-    log "RUNS $url"
-    printf '{"runs":[{"status":"%s"}]}' "\${CURL_STUB_RUN_STATUS:-}"; exit 0 ;;
   */runs*)
     log "RUNS $url"
     runs_json="\${CURL_STUB_RUNS:-}"
@@ -637,11 +638,11 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
         GH_STUB_MARKER_818: markup,
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'edited',
-        CURL_STUB_RUN_STATUS: 'FAILED',
+        CURL_STUB_RUNS: '{"runs":[{"id":"r1","status":"FAILED"}]}',
       },
       ['--recover-ready']
     );
-    expect(calls).toContain('run_id=');
+    expect(calls).toContain('RUNS');
     expect(calls).toContain('DISPATCH');
     expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
   });
@@ -654,11 +655,11 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
         GH_STUB_MARKER_818: markup,
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'edited',
-        CURL_STUB_RUN_STATUS: 'COMPLETED',
+        CURL_STUB_RUNS: '{"runs":[{"id":"r1","status":"COMPLETED"}]}',
       },
       ['--recover-ready']
     );
-    expect(calls).toContain('run_id=');
+    expect(calls).toContain('RUNS');
     expect(calls).not.toContain('DISPATCH');
     expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: -->`);
   });
@@ -1420,10 +1421,28 @@ describe('issue-triage-bridge.sh', () => {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
         GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
-        CURL_STUB_RUN_STATUS: 'FAILED',
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
       },
       ['--sweep']
     );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('reads the named run from the listing, not the newest run', () => {
+    // #836 regression: the runs endpoint ignores `run_id=`, so a read that
+    // trusted it would see the newest run (here COMPLETED) for any id and
+    // finalise a failed run without retrying. The read must select `.id`.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS:
+          '{"runs":[{"id":"newest","status":"COMPLETED"},{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    // The named run FAILED (not the newest, which COMPLETED), so it re-dispatches.
     expect(calls).toContain('DISPATCH');
   });
 
@@ -1433,7 +1452,7 @@ describe('issue-triage-bridge.sh', () => {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
         GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
-        CURL_STUB_RUN_STATUS: 'COMPLETED',
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
       },
       ['--sweep']
     );
@@ -1448,7 +1467,7 @@ describe('issue-triage-bridge.sh', () => {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
         GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
-        CURL_STUB_RUN_STATUS: 'RUNNING',
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"RUNNING"}]}',
       },
       ['--sweep']
     );

@@ -206,16 +206,20 @@ read_sweep_marker() { # read_sweep_marker <number>
   esac
 }
 
-# The status of a run (`GET …/runs?run_id=`), or "" when it cannot be read. The
-# marker stores the run id so the next sweep can ask what actually happened —
-# the point of #841's correction: retry on the run's result, not on the moment
-# the marker was written. Read through `$CURL`: the automation API takes the
-# OpenHands bearer token, not the GitHub one `gh api` would send.
+# The status of a run (`GET …/runs`), or "" when it cannot be read. The marker
+# stores the run id so the next sweep can ask what actually happened — the point
+# of #841's correction: retry on the run's result, not on the moment the marker
+# was written. The list endpoint **ignores a `run_id=` query** (it always returns
+# the newest page), so the run is found by filtering the listing by `.id`; the
+# query form would report the newest run's status for any id, finalising a failed
+# run as completed and never retrying it (#836). Read through `$CURL`: the
+# automation API takes the OpenHands bearer token, not the GitHub one `gh api`
+# would send.
 run_status() { # run_status <run-id>
   [ -n "$1" ] || return 0
-  "$CURL" -s "$API_RUNS?run_id=$1" \
+  "$CURL" -s "$API_RUNS?limit=100" \
     -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null \
-    | jq -r '.runs[0].status // ""' 2>/dev/null || true
+    | jq -r --arg id "$1" '[.runs[] | select(.id == $id) | .status][0] // ""' 2>/dev/null || true
 }
 
 # How many triage runs are RUNNING/PENDING right now, so the sweep can defer the
@@ -228,12 +232,6 @@ inflight_count() {
     -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null \
     | jq '[.runs[] | select(.status == "RUNNING" or .status == "PENDING")] | length' 2>/dev/null || echo 0)
   case "$n" in ''|*[!0-9]*) echo 0 ;; *) echo "$n" ;; esac
-}
-
-has_comment() { # has_comment <number> <marker>
-  n="$1"; m="$2"
-  gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" --jq '.[].body' 2>/dev/null \
-    | grep -Fq -- "$m"
 }
 
 # The issue's activity signal: a hash of the body plus every non-fleet comment's

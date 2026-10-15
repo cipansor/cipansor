@@ -244,6 +244,14 @@
       (meski sinyal berubah — pengecekan status tak bergantung sinyal), **FAILED**
       dicoba ulang, `pending` didispatch bila ada ruang, `inflight` dibiarkan
       (R474).
+    - **`run_status` membaca daftar run dan menyaring `.id`** — bukan
+      `?run_id=`: endpoint `/runs` **mengabaikan `run_id=`** dan selalu
+      mengembalikan halaman terbaru, jadi bentuk query akan membaca status run
+      terbaru untuk id apa pun, memfinalkan run gagal sebagai `COMPLETED` dan
+      tak pernah mencobanya ulang (cacat inti #836; dibuktikan terhadap API
+      produksi: run `1ab90892…` `FAILED` dibaca `COMPLETED` lewat `?run_id=`,
+      benar lewat saringan `.id`). Stub curl uji **wajib mencerminkan API**
+      (abaikan `run_id=`), atau uji hijau terhadap perilaku yang tak ada.
     - Kegagalan dispatch (status 2) dikumpulkan dan menggagalkan langkah
       (non-nol), bukan hijau palsu (R481).
     - `process_one` **tidak** mengosongkan `prev_sig`/`prev_run` untuk penanda
