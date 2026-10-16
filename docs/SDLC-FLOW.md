@@ -188,7 +188,7 @@ flowchart TD
 | 4 | Keputusan | label `decision` | agen riset → maintainer | riset bersumber + pilihan ganda; maintainer memilih | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready` |
 | 5 | Implementasi | label `bot-implement` (`Bot sebutan`, atau maintainer); `ready` saja TIDAK memicu bot | `Tiket jadi PR` | PR draf dengan templat, uji, bukti, `Fixes #n` | daftar periksa penulis lengkap → ready for review |
 | 6 | CI | push | Actions | Build, Lint, Tests, Security, E2E | semua hijau |
-| 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`), otomatis untuk **setiap head hijau yang belum ditinjau** | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion` | approve |
+| 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`), otomatis untuk **setiap head hijau yang belum ditinjau** | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion`; payload kosong → gerbang memilih sendiri satu PR yang `requested_reviewers` memuat `cipansor-bot` dan head-nya belum ditinjau, tiebreak **head paling baru hijau** | approve |
 | 8 | Perbaikan | review minta perubahan | `Tiket jadi PR` | ikuti atau tolak dengan alasan; ≤ 3 putaran | head baru hijau → tahap 7 otomatis (gerbang meninjau setiap head hijau yang belum ditinjau) |
 | 9 | Merge | approve + check hijau + cabang mutakhir | Actions (auto-merge) | squash ke `main` | — |
 | 10 | Staging | E2E hijau di `main` | `deploy-staging` → `deploy-watch` | staging menyajikan SHA itu, atau satu issue | — |

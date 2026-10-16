@@ -1100,6 +1100,22 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('1800');
     expect(out).toMatch(/JANGAN `pnpm install`/);
     expect(out).toMatch(/JANGAN menjalankan suite tes repo/);
+    // The tiebreak must pick the *freshest* owed head, not the oldest: a
+    // payload-less dispatch fires the moment a head turns green, so the newest
+    // green head is the one that asked for this run. With "oldest green" the
+    // gate kept choosing a stale PR (a big diff) and starved the head that had
+    // just triggered it (PR #837 review of SDLC 18).
+    expect(out).toContain('paling baru hijau');
+    expect(out).not.toContain('paling lama hijau');
+    // A single target and a bounded investigation, so a large diff cannot burn
+    // the whole budget before a review is posted.
+    expect(out).toMatch(/jangan meninjau lebih dari satu PR/);
+    expect(out).toContain('BATAS PENELUSURAN — WAJIB');
+    // The investigation cap is concrete and self-checked (count your own
+    // terminal commands): a soft "be brief" was ignored — a run spent 182
+    // commands / 36 min and never posted before the 1800s ceiling.
+    expect(out).toMatch(/Setelah \*\*30 perintah\*\*/);
+    expect(out).toMatch(/Jangan pernah melewati 30 perintah/);
   });
 });
 

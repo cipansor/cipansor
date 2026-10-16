@@ -486,6 +486,24 @@ decision.
   on that head, and the watch flags exactly that — the `requested_reviewers`
   read only chooses the comment's lead sentence. `pr-lifecycle.sh` re-dispatches
   a new green head instead of pointing the author at a manual request.
+- **A payload-less gate dispatch must pick the *freshest* owed head** (found
+  2026-10-16, #837; fixed the same day). `POST /{automation_id}/dispatch`
+  declares no request body (OpenAPI `requestBody: NONE`), so a bodyless
+  API-dispatch carries no target and the gate discovers its PR itself. The
+  deterministic rule first broke ties by **oldest** green head, which is exactly
+  backwards: `pr-lifecycle.sh` dispatches the gate the moment a head turns
+  green, so the newest green head is the one that asked for the run. With
+  "oldest", every dispatch picked a stale PR (e.g. #804, green since
+  2026-10-14, a 25-file diff) and never reached the triggering head (#837,
+  green 2026-10-16); the run re-read the stale diff in chunks, looped 140+
+  terminal commands, hit the 1800s ceiling and posted nothing. The rule now
+  picks one PR, ties by **freshest** green, and forces a bounded investigation
+  (`BATAS PENELUSURAN`: no repeated reads, ≤ 40 terminal commands, then post).
+  The residual limitation stands: the dispatch still cannot name the head, so
+  this is inference — two heads turning green within one dispatch interval are
+  disambiguated only by "newest", and the deeper fix (a run-scoped target the
+  runner reads) would need a change to the automation runner, not merely the
+  prompt.
 
 ## Performance
 

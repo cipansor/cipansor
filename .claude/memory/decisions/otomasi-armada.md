@@ -393,6 +393,22 @@
       head baru.
     - Aturan #840 tetap utuh: tidak ada dispatch pada transisi
       `ready_for_review`; hanya setelah semua check wajib hijau.
+    - **Sasaran saat payload kosong: pilih head paling BARU hijau, bukan paling
+      lama** (2026-10-16, #837). `POST /{id}/dispatch` tidak punya request body
+      (skema OpenAPI menyatakan `requestBody: NONE`; body proporsional apa pun
+      dibuang diam-diam — dibuktikan: body `{event:{pull_request:{number:837}}}`
+      tak sampai ke agen). Jadi run API-dispatch harus menemukan sasarannya
+      sendiri. Aturan awalnya "bila lebih dari satu, pilih head yang paling lama
+      hijau"; itu keliru: dispatch `pr-lifecycle` menyala tepat saat satu head
+      menjadi hijau, sehingga head yang **baru** hijau itulah yang memicu run
+      ini. Dengan "paling lama", setiap dispatch memilih PR basi (diff besar,
+      mis. #804 yang hijau sejak 2026-10-14) dan membiarkan head pemicunya
+      (#837, hijau 2026-10-16) tak pernah ditinjau; run menelusuri diff basi itu
+      berulang sampai plafon 1800 detik dan tak pernah mengirim review. Aturan
+      baru: satu PR saja, tiebreak **paling baru hijau**, dan lapor sasaran di
+      kalimat pertama sebelum menyelidiki. Ditambah `BATAS PENELUSURAN` (jangan
+      ulang baca; ≤ 40 perintah terminal lalu WAJIB kirim review) supaya diff
+      besar tak bisa menelan anggaran sebelum review terkirim.
 
 ## Sumber
 
