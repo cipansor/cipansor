@@ -231,10 +231,10 @@ printf '%s' "$AUTOS" | jq -r '.automations[] | select(.trigger.type == "cron") |
       printf '%s\n' "$name" >> "$DEGRADED"
       continue
     fi
-    payload=$(jq -nc --arg run "$run" '{source: "retry-sweeper", retry_of: $run}')
+    # POST /{id}/dispatch declares no request body and discards one, so nothing
+    # sent here reaches the agent — dispatch with no body.
     code=$("$CURL" -sS -o /dev/null -w '%{http_code}' -X POST "$API/$aid/dispatch" \
-      -H "Authorization: Bearer $OPENHANDS_API_KEY" -H "Content-Type: application/json" \
-      -d "$payload" 2>/dev/null || echo 000)
+      -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null || echo 000)
     case "$code" in
       2??)
         echo "$name: retried $run ($phase/$kind), attempt $((attempts + 1))/$RETRY_MAX (HTTP $code)."

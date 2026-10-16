@@ -208,8 +208,11 @@ describe('automation-retry.sh — retry an infrastructure failure', () => {
     const dispatches = calls.match(/^DISPATCH /gm) ?? [];
     expect(dispatches).toHaveLength(1);
     expect(calls).toContain(`/v1/${CRON}/dispatch`);
-    expect(calls).toContain(`"source":"retry-sweeper"`);
-    expect(calls).toContain(`"retry_of":"${RUN}"`);
+    // POST /{id}/dispatch declares no request body and discards one, so the
+    // retry must dispatch with no body (a payload here would be dead weight the
+    // agent never sees).
+    expect(calls).not.toContain('retry-sweeper');
+    expect(calls).not.toContain('retry_of');
   });
 
   it('reads a missing ledger as no attempt yet, not as an unreadable KV', () => {
