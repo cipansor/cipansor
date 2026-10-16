@@ -24,6 +24,11 @@ applies the 2026-10-13 changes to every automation:
      account's name already tells a reader the comment is automated, so the
      footer is redundant; the mandate paragraph is stripped from every prompt.
 
+The review gate (`SDLC 18`) additionally gets a target rule and a no-build
+budget: its runs died on the platform's 1800s ceiling because a large diff plus
+`pnpm install` and repeated `vitest` runs burned the budget before the review was
+posted, and a payload-less API dispatch carries no PR to review (2026-10-16).
+
 It rewrites `prompt.txt` inside each runner tarball, re-uploads it, and PATCHes
 the automation's `prompt` and `tarball_path`. `main.py`, `setup.sh` and
 `finish_tool_hook.py` are left byte-for-byte; only the prompt changes. Every
@@ -136,6 +141,10 @@ Bertindaklah sebagai gerbang tinjau resmi untuk PR ini dan kirim SATU review yan
 IDEMPOTEN (WAJIB, invarian 4): sebelum menilai, cari review gerbang yang sudah ada pada head ini. Setiap review/komentar yang Anda kirim WAJIB memuat penanda `<!-- sdlc:gerbang:<nomor-pr>:<head-sha> -->`. Bila review berpenanda itu sudah ada pada head SHA yang sama, JANGAN kirim review kedua — laporkan bahwa head ini sudah ditinjau lalu berhenti.
 
 GERBANG CI — JANGAN MENUNGGU: pemicu utama (dispatch `pr-lifecycle`) hanya menyala saat semua check wajib sudah hijau, jadi jangan pernah mengundi-undi check. Periksa `GET /repos/cipansor/cipansor/commits/<sha>/check-runs` SEKALI saja. Bila masih ada check wajib queued/in progress, berhenti tanpa menunggu dan laporkan `check belum selesai`. Bila ada check merah, JANGAN ubah PR ke draft; cukup kirim `REQUEST_CHANGES` yang menyebut check merah.
+
+SASARAN (WAJIB saat payload kosong): dispatch lewat `POST /dispatch` tidak membawa body apa pun (endpoint-nya tanpa request body), jadi run API-dispatch tidak tahu PR mana. Bila ada blok `## Event Payload`, pakai `pull_request.number` dan `pull_request.head.sha` di sana. Bila tidak ada, tetapkan sasaran secara deterministik — jangan menebak dari "PR yang tampak aktif": pilih PR terbuka di `cipansor/cipansor` yang `requested_reviewers` memuat `cipansor-bot` dan head-nya belum punya review berpenanda `<!-- sdlc:gerbang:`; bila lebih dari satu, pilih head yang paling lama hijau. Bila tidak ada yang cocok, berhenti dan laporkan `tak ada sasaran`, jangan meninjau PR yang tidak meminta.
+
+ANGGARAN WAKTU — JANGAN MEMBANGUN DI SANDBOX: run ini dibatasi **1800 detik** (plafon platform; `PATCH timeout` di atasnya ditolak 422). JANGAN `pnpm install`, JANGAN `npm install`, JANGAN menjalankan suite tes repo (`vitest`, `pnpm test`), dan JANGAN membangun apa pun: CI di GitHub sudah menjalankannya pada head ini dan hasilnya terbaca lewat `check-runs`. Ini pernah menghabiskan 140 detik pada pemasangan dependensi plus beberapa kali `vitest` pada diff besar sehingga run dibunuh sebelum review terkirim. Nilai tes dengan **membaca** berkas tes dan diff di head (`git show <sha>:<path>`), bukan dengan menjalankannya. Prioritaskan mengirim review: bila anggaran hampir habis, kirim putusan dengan temuan yang sudah ada — review tak terkirim berarti PR tak tertinjau.
 
 METODE: baca deskripsi PR, seluruh diff terhadap `main`, setiap thread, dan label terhadap issue tertaut; kritisi habis-habisan — kebenaran, risiko keamanan, cakupan tes, konsistensi dengan `.claude/memory/decisions/` dan AGENTS.md, dan apa yang akan pecah di produksi. Untuk tiap masalah lokal/mekanis, sertakan blok `suggestion`.
 

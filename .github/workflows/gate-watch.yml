@@ -4,11 +4,11 @@
 # not still in flight and did not already fail for a reason a retry cannot fix —
 # plus one comment and a line in the one health issue that lists them all (#776).
 #
-# Only a head the gate *owes* a pass is watched: the gate's automatic pass is the
-# first review only (2026-10-15), so a head is waiting when the gate has never
-# reviewed the PR, or when a manual re-review was requested for `cipansor-bot`
-# and not delivered. An already-reviewed head with no pending request is expected
-# to have no new review and is left alone.
+# Only a head the gate *owes* a pass is watched: every ready, green head the gate
+# has not reviewed on that head (2026-10-16, superseding the 2026-10-15 "first
+# review only" rule). `pr-lifecycle.sh` dispatches it when CI finishes green, so
+# an unreviewed head here is one that was never dispatched or whose dispatch was
+# lost — a re-request for `cipansor-bot` is no longer required.
 #
 # pr-lifecycle.sh dispatches the review gate (OpenHands Cloud) and only learns
 # that the request was accepted. This is the other half: it notices when the

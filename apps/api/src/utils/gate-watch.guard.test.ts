@@ -67,9 +67,11 @@ esac
 exit 0
 `;
 
-// The re-dispatch: logs the call and its payload, answers a run id.
+// The re-dispatch: logs the call (the script sends no body — the API endpoint
+// declares none), answers a run id. Only a dispatch is logged, so `CURL` in the
+// call log means "the gate was dispatched" — the run-history reads are noise.
 const CURL = `#!/bin/sh
-prev=""; for a in "$@"; do [ "$prev" = "-d" ] && echo "CURL $*" "PAYLOAD $a" >> "$GH_STUB_LOG"; prev="$a"; done
+case "$*" in *"/dispatch"*) echo "CURL $*" >> "$GH_STUB_LOG" ;; esac
 # The gate's run history, read by gate_run_status / gate_any_in_flight.
 # GH_STUB_GATE_RUNS is the JSON body; a missing one means an empty history, and
 # GH_STUB_RUNS_API_FAIL makes the read fail (the "unreadable history" path).
@@ -333,18 +335,18 @@ describe('gate-watch.sh', () => {
     expect(calls).not.toContain('PCOMMENT');
   });
 
-  it('leaves a PR whose only gate review is on an older commit alone: its automatic pass already ran', () => {
-    // The gate's automatic pass is the first review only. A review on an older
-    // commit means the gate already ran; a later head is reviewed only on a
-    // manual re-request, so this head is expected to have no new review.
+  it('flags a PR whose only gate review is on an older commit: the new head is owed a pass', () => {
+    // The gate reviews every ready, green head, not only the first (2026-10-16).
+    // A review on an older commit does not cover this head, so the watch flags
+    // it — the author need not re-request by hand.
     const { calls } = run({
       GH_STUB_REVIEWS_7: JSON.stringify([
         { id: 1, user: { login: 'cipansor-bot' }, commit_id: 'old000', state: 'CHANGES_REQUESTED' },
         { id: 2, user: { login: 'a-person' }, commit_id: HEAD, state: 'COMMENTED' },
       ]),
     });
-    expect(calls).not.toContain('PCOMMENT');
-    expect(calls).not.toContain('CREATE');
+    expect(calls).toContain('PCOMMENT 7');
+    expect(calls).toContain('CREATE');
   });
 
   it('flags a head whose manual re-review was requested and not delivered', () => {
@@ -512,13 +514,14 @@ describe('gate-watch.sh — one re-dispatch per silent head', () => {
     ],
   });
 
-  it('re-dispatches the gate once with the PR and its head, and says so', () => {
+  it('re-dispatches the gate once for a silent head, with no body the API ignores', () => {
+    // The dispatch endpoint declares no request body, so the script sends none:
+    // the gate discovers its own target from the prompt's SASARAN rule. Sending
+    // a `{pr, head_sha}` object would be silently dropped by the platform.
     const { calls } = run({ OPENHANDS_API_KEY: 'k' });
     expect(calls.match(/^CURL /gm)).toHaveLength(1);
     expect(calls).toContain('/dispatch');
-    expect(calls).toContain('"source":"gate-watch"');
-    expect(calls).toContain('"pr":"7"');
-    expect(calls).toContain(`"head_sha":"${HEAD}"`);
+    expect(calls).not.toContain('-d ');
     expect(calls).toContain('percobaan 1/3');
   });
 

@@ -1,18 +1,22 @@
 #!/bin/sh
-# Post the CI result and dispatch the review gate for a PR's FIRST review.
+# Post the CI result and dispatch the review gate for a ready PR.
 #
 #   green checks on a draft PR    -> post the all-green comment (informational)
-#   green checks on a ready PR, never reviewed yet -> dispatch the review gate
-#   green checks on a ready PR, already reviewed   -> point the author at a
-#                                                    manual re-review (no dispatch)
+#   green checks on a ready PR, head not yet reviewed -> dispatch the review gate
+#   green checks on a ready PR, head already reviewed -> do nothing (the gate is
+#                                                    idempotent; the review stands)
 #   red checks                      -> do nothing
 #   changes requested on the head   -> do nothing (waiting for fixes)
 #
-# The gate runs automatically only for the *first* review: once it has reviewed
-# a PR, every later review is a manual review request (the `Gerbang tinjau PR`
-# automation is triggered by `pull_request.review_requested`), so this bridge
-# never dispatches a reviewed PR again — a new green head does not go back to
-# the gate on its own (2026-10-15, replacing the #727 auto re-dispatch).
+# The gate runs a full review for every ready, green head it has not reviewed
+# yet — not only the first (2026-10-16, superseding the 2026-10-15 "first review
+# only" rule): a ready PR is what the gate exists for, so its author need not
+# ask a second time by hand. The automatic pass is bounded by the gate's own
+# idempotency (one review per head commit): a head already reviewed is skipped,
+# so re-running this workflow never stacks runs, and a dispatch happens only
+# after every required check is green (#840) — never on the `ready_for_review`
+# transition itself. A re-request of `cipansor-bot` as reviewer still works and
+# is what the `pull_request.review_requested` trigger serves.
 #
 # This script never approves, never merges and never changes the draft/ready
 # state. A maintainer decides when a PR is ready; the review gate (`Gerbang tinjau PR`)
@@ -32,7 +36,6 @@ GATE_LOGIN="${GATE_LOGIN:-cipansor-bot}"
 
 LIFE_MARK="<!-- pr-lifecycle:"
 GREEN_MARK="<!-- pr-lifecycle:green -->"
-REREVIEW_MARK="<!-- pr-lifecycle:rereview -->"
 
 # Automated comments carry no AI-disclosure footer: the anti-loop guard is the
 # comment's author (`cipansor-bot` or a `*[bot]` App), not the footer text. The
@@ -211,8 +214,9 @@ if [ "$REVIEW" = "CHANGES_REQUESTED" ]; then
   # The commit the most recent changes-requested review was made on. On the
   # current head, the PR waits for fixes and branch protection holds the merge.
   # On an older commit, the author has pushed since: carry on so the green-head
-  # path below runs. That path no longer re-dispatches a PR the gate has already
-  # reviewed — it points the author at a manual re-review instead (2026-10-15).
+  # path below runs. That path dispatches the gate for the new head — the gate's
+  # review of the *older* head does not count, so a fresh green head is reviewed
+  # without the author asking by hand (2026-10-16).
   REQUESTED_AT=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" 2>/dev/null \
     | jq -rs '[.[][] | select(.state == "CHANGES_REQUESTED")] | last | .commit_id // empty' 2>/dev/null || true)
   if [ -z "$REQUESTED_AT" ] || [ "$REQUESTED_AT" = "$HEAD" ]; then
@@ -246,46 +250,44 @@ if [ "$DRAFT" = "true" ]; then
   exit 0
 fi
 
-# Green and ready. The gate runs automatically only for the FIRST review: once
-# the gate has reviewed this PR (any review by GATE_LOGIN on any head), a later
-# green head is NOT dispatched again — a manual review request is the way to ask
-# for another pass (`pull_request.review_requested` is the gate's trigger). The
-# dispatch is best-effort: a missing key or an HTTP error must not fail the
-# workflow. The gate itself is idempotent (one review per head commit) and is
-# configured for no wake agent, so a dispatch starts a fresh, bounded
+# Green and ready. The gate runs a full review for every ready head that is
+# green and not yet reviewed on that head — not only the first (2026-10-16,
+# superseding the 2026-10-15 "first review only" rule): a ready PR is what the
+# gate exists for, so its author need not ask a second time by hand. What keeps
+# this bounded is the gate's own idempotency (one review per head commit): a
+# head already reviewed is skipped, so a re-run of this workflow on the same
+# head does not stack runs, and only a genuinely new green head dispatches. The
+# #840 rule is intact — a dispatch happens only after every required check is
+# green, never on the `ready_for_review` transition itself. The dispatch is
+# best-effort: a missing key or an HTTP error must not fail the workflow. The
+# gate is configured for no wake agent, so a dispatch starts a fresh, bounded
 # conversation.
 GATE_ID="${SDLC_REVIEW_GATE_ID:-96eebf19-b64b-4035-9653-2d8b15b06ac4}"
 GATE_REVIEWS=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" 2>/dev/null || echo unread)
 if [ "$GATE_REVIEWS" = "unread" ]; then
   # A failed read must not look like "never reviewed": dispatching then would
-  # re-review a PR the gate already saw. Stay quiet and let the next run decide.
+  # run the gate on a head it may already have reviewed. Stay quiet and let the
+  # next run decide.
   echo "::warning::PR #$PR: reviews unreadable; not dispatching the review gate."
 elif printf '%s' "$GATE_REVIEWS" | jq -s -e --arg g "$GATE_LOGIN" --arg s "$HEAD" \
     'any(.[][]?; .user.login == $g and .commit_id == $s)' >/dev/null 2>&1; then
   # The gate already reviewed this very head: nothing is owed, whatever the
   # verdict (an approval is final; a request for changes waits on the author).
   echo "PR #$PR head $HEAD was already reviewed by the gate; nothing to dispatch."
-elif printf '%s' "$GATE_REVIEWS" | jq -s -e --arg g "$GATE_LOGIN" \
-    'any(.[][]?; .user.login == $g)' >/dev/null 2>&1; then
-  # Already reviewed at least once, but not this head: the automatic pass is
-  # over, so a new green head is not dispatched. Point the author at a manual
-  # re-review instead. Idempotent — the same notice is not repeated.
-  comment_once "Semua check hijau. PR ini sudah pernah ditinjau **Gerbang tinjau PR**; gerbang tidak berjalan otomatis lagi untuk head baru. Untuk meminta tinjauan ulang, ajukan permintaan tinjauan manual ke \`cipansor-bot\` (Reviewers → cipansor-bot). ${REREVIEW_MARK}" "rereview"
-  echo "PR #$PR was reviewed by the gate; not re-dispatching (manual re-request required)."
 elif [ -n "${OPENHANDS_API_KEY:-}" ]; then
   # Acknowledge: the gate is about to run on this PR, so react 👀 on it. The
   # reporter sees the automation is working before the review lands (asked
   # 2026-10-13). Best-effort — a reaction must never fail the dispatch.
   sh "$(dirname "$0")/reaction.sh" "$PR" 2>/dev/null || true
-  body=$(jq -n --arg pr "$PR" --arg sha "$CHECK_SHA" \
-    '{source: "gate-bridge", pr: $pr, head_sha: $sha}')
+  # `POST /dispatch` has no request body (the API's schema declares none), so
+  # nothing sent here reaches the agent — the gate reads its target from the
+  # PR list itself (the `SASARAN` rule in its prompt). Send no body rather than
+  # a `{pr, head_sha}` object the platform silently drops.
   # curl exits 0 on any HTTP answer, a 401 included, so the status code is what
   # says whether the gate was dispatched — not curl's exit code.
   code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
       "https://app.all-hands.dev/api/automation/v1/$GATE_ID/dispatch" \
-      -H "Authorization: Bearer $OPENHANDS_API_KEY" \
-      -H "Content-Type: application/json" \
-      -d "$body" 2>/dev/null || echo 000)
+      -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null || echo 000)
   case "$code" in
     2??) echo "Dispatched review gate for PR #$PR at $CHECK_SHA (HTTP $code)." ;;
     *) echo "::warning::Review-gate dispatch for PR #$PR answered HTTP $code; CI is still green and a re-request will retrigger it." ;;

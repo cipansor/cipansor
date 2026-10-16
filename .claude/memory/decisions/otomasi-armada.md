@@ -347,7 +347,8 @@
       terpisah.
 
 26. **Gerbang tinjau berjalan otomatis sekali; sesudahnya tinjauan ulang
-    manual** (2026-10-15, pengguna; #837). Dispatch otomatis #727 membuat setiap
+    manual** (2026-10-15, pengguna; #837) — **DIGANTIKAN oleh #27 (2026-10-16)**;
+    disimpan sebagai riwayat. Dispatch otomatis #727 membuat setiap
     siklus hijau+ready memicu tinjauan lagi, sehingga PR yang sedang diperbaiki
     terus ditinjau tanpa diminta. Aturan baru:
     - `pr-lifecycle.sh` men-dispatch gerbang **hanya** bila gerbang belum pernah
@@ -372,6 +373,26 @@
       `jq -s` (slurp) wajib sebelum `any(.[][]?; …)`/hitungan, kalau tidak
       deteksi "sudah pernah ditinjau" selalu salah (array tunggal pun gagal
       tanpa `-s`).
+
+27. **Gerbang tinjau setiap head siap yang hijau, bukan hanya yang pertama**
+    (2026-10-16, pengguna; #837). Aturan #26 (2026-10-15) membuat penulis harus
+    meminta ulang secara manual setiap kali ia mendorong head baru, padahal PR
+    yang siap memang tugas gerbang. Aturan baru menggantikan #26:
+    - `pr-lifecycle.sh` men-dispatch gerbang untuk **setiap head hijau yang
+      belum ditinjau pada head itu** (`.user.login == cipansor-bot` pada
+      `commit_id == head`). Yang membatasinya adalah idempotensi gerbang sendiri
+      (satu review per head): re-run workflow pada head yang sama tidak
+      menumpuk run, dan hanya head baru yang memicu dispatch. Penanda
+      `<!-- pr-lifecycle:rereview -->` dan pesan "minta tinjauan ulang manual"
+      dihapus.
+    - `gate-watch.sh` menandai **setiap** head hijau tanpa review gerbang pada
+      head itu (bukan lagi hanya pass pertama atau re-review manual). Parameter
+      `requested` hanya memilih kata pembuka komentar.
+    - `pull_request.review_requested` tetap pemicu gerbang dan permintaan
+      tinjauan ke `cipansor-bot` tetap sah, tetapi **tidak lagi wajib** untuk
+      head baru.
+    - Aturan #840 tetap utuh: tidak ada dispatch pada transisi
+      `ready_for_review`; hanya setelah semua check wajib hijau.
 
 ## Sumber
 

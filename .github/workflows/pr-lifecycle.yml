@@ -1,4 +1,4 @@
-# Post the CI result and dispatch the review gate for a PR's FIRST review.
+# Post the CI result and dispatch the review gate for a ready PR.
 #
 # Triggered by workflow_run so it sees the finished result of every workflow on
 # the PR's head. It never changes the draft/ready state and never approves or
@@ -6,18 +6,20 @@
 #
 #   green CI + draft PR              -> post the all-green comment, leave the
 #                                       draft decision to a human
-#   green CI + ready PR, never reviewed -> dispatch the review gate
-#   green CI + ready PR, already reviewed -> point the author at a manual
-#                                            re-review (no dispatch)
+#   green CI + ready PR, head not reviewed -> dispatch the review gate
+#   green CI + ready PR, head already reviewed -> quiet (the gate is idempotent)
 #   red CI                           -> quiet (checks are visible on the PR)
 #   changes requested on the current head -> quiet (waiting for fixes)
 #
 # `pull_request_review` is also subscribed so a changes-requested review
-# submitted after CI finished is seen. The gate's automatic pass is the first
-# review only: once it has reviewed a PR, a later green head is not dispatched
-# again — a re-review is a manual review request (the `Gerbang tinjau PR`
-# automation is triggered by `pull_request.review_requested`). This replaces the
-# #727 auto re-dispatch (2026-10-15).
+# submitted after CI finished is seen. The gate runs a full review for every
+# ready, green head it has not reviewed yet — not only the first (2026-10-16,
+# superseding the 2026-10-15 "first review only" rule). What bounds it is the
+# gate's own idempotency (one review per head commit): a head already reviewed
+# is skipped, so a re-run never stacks runs and a dispatch happens only after
+# every required check is green. A re-request of `cipansor-bot` as reviewer
+# still works (the `pull_request.review_requested` trigger) but is no longer
+# required to get an updated head reviewed.
 #
 # `pull_request`/`ready_for_review` is subscribed because a documentation-only
 # PR never produces a `workflow_run` completion after it turns ready: its scope

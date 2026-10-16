@@ -19,7 +19,7 @@ import { join, resolve } from 'path';
  *    rather than relying on a `ready_for_review` transition that will not come;
  *  - a changes-requested review holds the PR only while it is on the current
  *    head: once the author has pushed and the head is green, the gate is
- *    dispatched again (#727).
+ *    dispatched again for the new head.
  *
  * Each check fails against the pre-review script and passes after it.
  */
@@ -293,18 +293,17 @@ describe('pr-lifecycle.sh', () => {
       expect(out).toContain('leaving it open for fixes');
     });
 
-    it('does not send a green head pushed after the request back to the gate on its own', () => {
-      // The gate's automatic pass is the first review only. It already reviewed
-      // this PR (changes requested), so a new green head is reviewed only when
-      // the author asks again by hand: no dispatch, just the re-review notice.
+    it('sends a green head pushed after the request back to the gate', () => {
+      // The gate reviews every ready, green head, not only the first (2026-10-16).
+      // It reviewed this PR's older head (changes requested); the new green head
+      // is dispatched on its own, without the author asking again by hand.
       const { calls, out } = run({
         ...base,
         GH_STUB_CHECKS: allGreen,
         GH_STUB_REVIEWS: requested('fff111'),
       });
-      expect(calls).not.toContain('/dispatch');
-      expect(out).toContain('not re-dispatching');
-      expect(out).toContain('manual re-request required');
+      expect(calls).toContain('/dispatch');
+      expect(out).toContain('Dispatched review gate');
     });
 
     it('does not dispatch while that newer head is red', () => {
@@ -331,10 +330,11 @@ describe('pr-lifecycle.sh', () => {
     expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
   });
 
-  it('does not re-dispatch a green ready PR the gate has already reviewed, and points at a manual re-review', () => {
-    // The automatic pass is the first review only: once the gate has reviewed
-    // the PR, a later green head must not be dispatched again. The author is
-    // told to request a re-review by hand instead (#837).
+  it('dispatches the gate for a green ready PR whose new head the gate has not reviewed', () => {
+    // The gate reviews every ready, green head — not only the first (2026-10-16).
+    // A head pushed after the gate's earlier review is dispatched without the
+    // author asking by hand; idempotency (one review per head commit) is what
+    // bounds it, so this is a genuinely new head, not a repeat of the old one.
     const { calls, out } = run({
       GH_STUB_STATE: 'OPEN',
       GH_STUB_DRAFT: 'false',
@@ -347,9 +347,9 @@ describe('pr-lifecycle.sh', () => {
       OPENHANDS_API_KEY: 'key',
       GH_STUB_HTTP: '200',
     });
-    expect(calls).not.toContain('/dispatch');
-    expect(out).toContain('not re-dispatching');
-    expect(out).toContain('manual re-request required');
+    expect(calls).toContain('curl');
+    expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
+    expect(out).toContain('Dispatched review gate');
   });
 
   it('stays quiet when the gate already reviewed the current head', () => {

@@ -476,14 +476,16 @@ decision.
   it skips a head it already reviewed, so a stray extra run costs a sandbox
   slot, not a wrong review.
 - **`gate-watch.sh` flagged every new green head of an already-reviewed PR**
-  (found 2026-10-15, #837 review; fixed the same day). The watch asked only "no
-  gate review on this head", so a PR the gate had already reviewed — and whose
-  author had not asked again — got a false health-issue line and comment on
-  every new head, and a pointless re-dispatch. The automatic pass is now the
-  gate's **first** review only: a head is flagged only when the gate has never
-  reviewed the PR, or a manual re-review is pending for `cipansor-bot`
-  (`requested_reviewers`), and `pr-lifecycle.sh` no longer re-dispatches a
-  reviewed PR on a new green head — it points the author at a manual request.
+  (found 2026-10-15, #837 review; the "flag every head" half fixed the same day,
+  then the whole once-only rule was **superseded 2026-10-16**). The watch asked
+  only "no gate review on this head", so a PR the gate had already reviewed —
+  and whose author had not asked again — got a false health-issue line and
+  comment on every new head. The first 2026-10-15 fix narrowed the flag to the
+  first pass or a pending manual re-review; **decision #27 (2026-10-16) replaced
+  that rule**: the gate now reviews every ready, green head it has not reviewed
+  on that head, and the watch flags exactly that — the `requested_reviewers`
+  read only chooses the comment's lead sentence. `pr-lifecycle.sh` re-dispatches
+  a new green head instead of pointing the author at a manual request.
 
 ## Performance
 

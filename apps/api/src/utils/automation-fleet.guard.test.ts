@@ -1082,6 +1082,25 @@ describe('deploy-sdlc-agents.py', () => {
       }
     }
   );
+
+  it.skipIf(!hasPy)('gives the review gate a target rule and a no-build budget', () => {
+    // The gate's own runs died on the 1800s platform ceiling (PATCH timeout
+    // above it is rejected 422): a 3224-line diff plus `pnpm install` and
+    // repeated `vitest` runs burned the budget before the review was posted.
+    // The prompt must (a) tell the gate where its target is when a payload-less
+    // API dispatch carries none, and (b) forbid building/testing in the
+    // sandbox — CI already did that, and reading check-runs is enough.
+    const out = newPrompt(
+      'SDLC 18',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(out).toContain('SASARAN (WAJIB saat payload kosong)');
+    expect(out).toContain('requested_reviewers');
+    expect(out).toContain('ANGGARAN WAKTU — JANGAN MEMBANGUN DI SANDBOX');
+    expect(out).toContain('1800');
+    expect(out).toMatch(/JANGAN `pnpm install`/);
+    expect(out).toMatch(/JANGAN menjalankan suite tes repo/);
+  });
 });
 
 describe('issue-triage-bridge.sh', () => {

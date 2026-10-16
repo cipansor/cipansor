@@ -15,20 +15,20 @@
 #     published (a green subset — CI done before E2E — is still pending),
 #   * the last of them completed more than WAIT_MINUTES ago,
 #   * GATE_LOGIN has left no review on that head commit, and
-#   * the gate owes that head a pass — see the first-review rule below.
+#   * the gate owes that head a pass — see the review rule below.
 # It does not rely on the dispatch itself, which is recorded only in a workflow
 # log: a green, ready head with no gate review is the symptom, whatever the
 # cause.
 #
-# The gate's automatic pass is the FIRST review only (2026-10-15). Once the gate
-# has reviewed a PR, a later green head is not the gate's turn: another review is
-# a manual review request (the `Gerbang tinjau PR` automation is triggered by
-# `pull_request.review_requested`), and pr-lifecycle.sh points the author at one
-# instead of dispatching. So a head is "waiting on the gate" only when the gate
-# has never reviewed the PR (its first pass is owed) or a manual re-review is
-# pending for `cipansor-bot` (the request was made and the review did not come).
-# An already-reviewed head with no pending request is expected to have no new
-# review and is left alone — no comment, no health-issue line.
+# The gate reviews EVERY ready, green head it has not reviewed on that head
+# (2026-10-16, superseding the 2026-10-15 "first review only" rule). So a head is
+# "waiting on the gate" whenever GATE_LOGIN has no review on that exact head
+# commit: `pr-lifecycle.sh` dispatches it when CI finishes green, and a head that
+# is still unreviewed is one that was never dispatched or whose dispatch was
+# lost. A re-request of `cipansor-bot` as reviewer is no longer required — it
+# only names the lead sentence of the comment (a manual re-review vs the
+# automatic pass). A head the gate *has* reviewed is left alone — no comment, no
+# health-issue line.
 #
 # The gate definition (REQUIRED_CHECKS, KNOWN_SUITE_SIGNS, the latest-run-per-
 # name rule, and red/pending restricted to the gate checks) is the same as
@@ -195,9 +195,9 @@ gate_complete() { # gate_complete <present-lines>
 printf '%s\n' "$PRS" | while read -r n sha requested; do
   [ -n "${n:-}" ] || continue
   # One read of this PR's reviews answers both questions: has the gate EVER
-  # reviewed it (so its automatic first pass has run), and has it reviewed this
-  # very head. A read failure is recorded, not treated as "no review": it must
-  # not close the health issue while a PR is still waiting.
+  # reviewed it, and has it reviewed this very head. A read failure is recorded,
+  # not treated as "no review": it must not close the health issue while a PR is
+  # still waiting.
   reviews=$(gh api --paginate "repos/$REPO/pulls/$n/reviews?per_page=100" 2>/dev/null || echo unread)
   if [ "$reviews" = "unread" ]; then
     echo "::warning::PR #$n: reviews unreadable; skipped."
@@ -221,15 +221,12 @@ printf '%s\n' "$PRS" | while read -r n sha requested; do
   if [ "$on_head" != "0" ]; then
     continue
   fi
-  # Not reviewed on this head. Flag it only when the gate owes this head a pass:
-  # the first pass (the gate has never reviewed the PR), or a manual re-review
-  # the author requested and the gate has not delivered yet. An already-reviewed
-  # PR whose author has not asked again is expected to have no new review, so it
-  # is left alone rather than re-dispatched (2026-10-15).
-  case ",$requested," in
-    *",$GATE_LOGIN,"*) : ;;                        # re-review requested, not yet done
-    *) [ "$reviewed" = "0" ] || continue ;;        # reviewed before, no new request
-  esac
+  # Not reviewed on this head. Flag it: the gate owes every ready, green head a
+  # pass — its automatic pass is no longer limited to the first review
+  # (2026-10-16, superseding the 2026-10-15 rule). `pr-lifecycle.sh` dispatches
+  # it when CI finishes green; the watch catches a head that was never dispatched
+  # or whose dispatch was lost. `requested` only chooses the lead sentence (a
+  # re-review the author asked for by hand vs the automatic pass).
   # The latest run of every check name, as pr-lifecycle.sh picks it (sort by
   # started_at then id): a re-run in flight is the newest run and keeps the head
   # pending, instead of an old green run winning on completed_at. Tab separates
@@ -277,7 +274,10 @@ printf '%s\n' "$PRS" | while read -r n sha requested; do
     continue
   fi
   echo "PR #$n: green since $(iso "$since") with no gate review on $sha."
-  if [ "$reviewed" != "0" ]; then pass=rereview; else pass=first; fi
+  # The lead sentence names whether a manual re-review was requested; the pass a
+  # head is owed no longer depends on it (every unreviewed green head is owed a
+  # pass), so `requested` is only cosmetic here.
+  if printf '%s' ",$requested," | grep -q ",$GATE_LOGIN,"; then pass=rereview; else pass=first; fi
   echo "$n $sha $since $pass" >> "$SILENT"
 done
 
@@ -312,7 +312,7 @@ fi
 
 {
   printf '%s\n' "$ISSUE_MARK" "" \
-    "PR di bawah ini siap dan semua check di head-nya hijau lebih dari ${WAIT_MINUTES} menit, tetapi \`$GATE_LOGIN\` belum meninjau head itu. Ini hanya berlaku untuk tinjauan pertama gerbang, atau tinjauan ulang yang sudah diminta manual tetapi belum dijawab. \`pr-lifecycle\` sudah men-dispatch \`Gerbang tinjau PR\`; jawaban 2xx hanya berarti permintaan diterima." \
+    "PR di bawah ini siap dan semua check di head-nya hijau lebih dari ${WAIT_MINUTES} menit, tetapi \`$GATE_LOGIN\` belum meninjau head itu. Gerbang berutang pass untuk setiap head hijau yang belum ditinjau, jadi cukup \`pr-lifecycle\` yang men-dispatch-nya; jawaban 2xx hanya berarti permintaan diterima, bukan bahwa review akan datang." \
     "" \
     "Yang perlu dilakukan: buka riwayat run automation \`Gerbang tinjau PR\` di OpenHands Cloud dan cari run untuk PR itu. Kalau gagal karena infrastruktur, minta review ulang di PR atau dorong commit baru." \
     "" \
@@ -417,13 +417,13 @@ sort -n "$SILENT" | while read -r n sha since pass; do
           esac
           retry=" Gerbang belum meninjau head ini ($cause) dan sudah $attempts kali dicoba ulang — giliran manusia."
         else
-          payload=$(jq -nc --arg pr "$n" --arg sha "$sha" '{source: "gate-watch", pr: $pr, head_sha: $sha}')
-          # One call: the body carries the new run id, and `-w` appends the HTTP
+          # `POST /dispatch` declares no request body, so a `{pr, head_sha}`
+          # object here never reaches the agent — the gate discovers its target
+          # itself (the `SASARAN` rule in its prompt). Send no body.
+          # One call: `-w` appends the HTTP
           # code so a refusal is reported with the code it actually returned.
           resp=$(curl -sS -w '\n%{http_code}' -X POST "$AUTOMATION_API/$GATE_ID/dispatch" \
-              -H "Authorization: Bearer $OPENHANDS_API_KEY" \
-              -H "Content-Type: application/json" \
-              -d "$payload" 2>/dev/null || echo '')
+              -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null || echo '')
           code=$(printf '%s' "$resp" | tail -n1)
           case "$code" in '' | *[!0-9]*) code=000 ;; esac
           newrun=$(printf '%s' "$resp" | sed '$d' | jq -r '.id // empty' 2>/dev/null)
