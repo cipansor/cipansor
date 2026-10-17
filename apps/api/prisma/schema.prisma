@@ -402,6 +402,7 @@ model User {
   givenMedications                  MedicationUsageLog[]        @relation("MedicationGiver")
   createdAnnouncements              Announcement[]              @relation("AnnouncementCreator")
   notifications                     Notification[]
+  notificationDeliveries            NotificationDelivery[]
   pushSubscriptions                 PushSubscription[]
   notificationPreference            NotificationPreference?
   sentMessages                      Message[]                   @relation("SentMessages")
@@ -2939,6 +2940,11 @@ model Notification {
   data        Json?              @map("data") // Additional data for extended types
   scheduledAt DateTime?          @map("scheduled_at")
   createdAt   DateTime           @default(now()) @map("created_at")
+  /// Delivery key of the recurring notification this bell row is the in-app
+  /// copy of (#802). Not a dedupe guard: the durable marker lives in
+  /// `NotificationDelivery`, so deleting this row (or a failed email) does not
+  /// lose the delivery state. NULL for one-shot notifications.
+  dedupeKey   String?            @map("dedupe_key")
   /// Web Push outbox state. New rows start PENDING and the dispatcher
   /// (`push-dispatch.service.ts`) claims them; rows older than Web Push are
   /// NULL and are never pushed.
@@ -2955,9 +2961,40 @@ model Notification {
   @@index([status])
   @@index([createdAt])
   @@index([scheduledAt])
+  /// Plain index, not unique: the delivery guard is now `NotificationDelivery`
+  /// (keyed on userId+dedupeKey). Kept so the bell row and its marker can be
+  /// looked up and cleaned up by key.
+  @@index([userId, dedupeKey])
   @@index([pushState])
   @@index([announcementId])
   @@map("notifications")
+}
+
+/// Per-recipient delivery state for a recurring notification slot (#802).
+///
+/// One row per (userId, dedupeKey). It is created BEFORE the in-app row and the
+/// external dispatch, so it survives both a bell-row deletion and a transport
+/// failure — the two ways the old row-as-marker approach lost delivery state.
+/// Each external channel carries its own state: a failed email leaves
+/// `EMAIL = FAILED` and is retried on the next run, while a delivered channel
+/// stays `SENT`. The marker is only removed when the subject recovers (a plan
+/// back under 120%, an event gone), never by a user action.
+model NotificationDelivery {
+  id        String   @id @default(uuid())
+  userId    String   @map("user_id")
+  /// Stable per-recipient/per-subject/per-episode key, e.g.
+  /// `payment-reminder:inv-1` or `budget-overrun:plan-1:admin-1`.
+  dedupeKey String   @map("dedupe_key")
+  /// Channel name (`EMAIL`, `WHATSAPP`, `SMS`, `IN_APP`, `PUSH`) → state.
+  channels  Json     @default("{}")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, dedupeKey])
+  @@index([dedupeKey])
+  @@map("notification_deliveries")
 }
 
 /// What a person wants to be notified about, and how (Pengaturan Notifikasi).

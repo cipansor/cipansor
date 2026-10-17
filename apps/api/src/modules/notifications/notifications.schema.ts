@@ -66,6 +66,17 @@ export const createNotificationSchema = z.object({
   imageUrl: z.string().url().optional(),
   data: z.record(z.string(), z.unknown()).optional(),
   scheduledAt: z.coerce.date().optional(),
+  /**
+   * Durable delivery key for recurring, idempotent notifications (#802).
+   *
+   * A scheduled task that reruns (a due invoice reminded daily, an over-budget
+   * plan alerted every Monday) must send each recipient/subject once per slot.
+   * When set, the row is skipped if a previous notification with the same
+   * `userId` + `dedupeKey` exists. Omit it for one-shot notifications so
+   * genuinely repeatable messages are never suppressed. Persisted in the
+   * `Notification.dedupe_key` column, whose unique index is the real backstop.
+   */
+  dedupeKey: z.string().min(1).max(255).optional(),
 });
 
 export const createBulkNotificationSchema = createNotificationSchema
