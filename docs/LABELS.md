@@ -117,7 +117,10 @@ sync` workflow adds anything missing and **fails the check** when the type
    already visible on the PR, so a draft revert would only hide work in
    progress. It reads the checks exhaustively — every page, every required
    check present — and, once every required check passes, dispatches `Gerbang tinjau PR`
-   so the review gate runs the moment CI is green. A green draft PR gets an
+   so the review gate runs the moment CI is green. The dispatch is the gate's
+   **first** review only: once the gate has reviewed a PR, a later green head is
+   not dispatched again — the author asks for another pass with a manual review
+   request to `cipansor-bot`. A green draft PR gets an
    informational comment; it is never marked ready automatically.
 
 6. **Approval needs more than green CI.** `Gerbang tinjau PR` approves a
@@ -182,8 +185,15 @@ sync` workflow adds anything missing and **fails the check** when the type
     (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`), read at run time — a
     new label is protected the moment it is created. A GitHub App (`*[bot]`) is
     exempt, because the Actions workflows label through `github-actions[bot]`.
-    A person states what they want and the bot records it; this is what keeps
-    the automations and the guards reading the same state.
+    **On an issue, the type label its form applies at open is also exempt:**
+    `bug_report.yml` sets `bug` and `feature_request.yml` sets `enhancement` the
+    moment the issue is created, and a type label is the reporter's declared
+    intent — the triage owner sets the correct type on top, revoking the wrong
+    one. On a **pull request** there is no such form, so a type label stays
+    protected there: a manually applied `bug` on a PR that closes an
+    `enhancement` issue would otherwise fail the type sync (`issue-label-sync`)
+    and redden the PR. A person states what they want and the bot records it;
+    this is what keeps the automations and the guards reading the same state.
 
 13. **Every main description opens with the basmalah.** Each issue and pull
     request body starts with «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»
@@ -230,23 +240,25 @@ cannot tell the automation's own comment from a reporter's. Issue #680 showed
 the consequence: `Penjernih issue` re-armed itself and posted eleven comments in 27
 minutes, each a full LLM run.
 
-The only marker is the AI-disclosure footer every automated comment carries:
-
-```
-This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers.
-```
+The marker is the comment's **author**. Every automated comment is posted as
+`cipansor-bot` (the fleet's account, `user.type: User`) or as a GitHub App
+(`github-actions[bot]`, `openhands-ai[bot]`, `user.type: Bot`, login ending in
+`[bot]`). No comment carries an AI-disclosure footer — the account name already
+tells a reader the comment is automated, so the footer was dropped on
+2026-10-14.
 
 Every automation whose trigger is `issue_comment.created` **must** add this
 negative filter, or it will loop:
 
 ```
-!icontains(comment.body, 'This comment was created by an AI agent')
+comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'
 ```
 
-The automations live outside this repository, so the guard is enforced where
-they are deployed: each comment trigger is validated against a sample automated
-comment before it is enabled, and every automated comment ends with the footer
-above.
+The filter must key on the author, never on body text: a footer match is
+fragile (an edited or reworded comment evades it) and it makes the account's own
+name redundant. The automations live outside this repository, so the guard is
+enforced where they are deployed: each comment trigger is validated against a
+sample automated comment before it is enabled.
 
 ## Templates feed these labels
 

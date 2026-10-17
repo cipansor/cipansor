@@ -136,10 +136,13 @@ describe('duplicate-sweep.sh', () => {
     expect(out).toContain('reply after the warning');
   });
 
-  it('still closes when only an automated comment followed the warning', () => {
+  it('still closes when only the automation account commented after the warning', () => {
+    // The anti-loop guard is the author, not a footer: a `cipansor-bot` comment
+    // (a plain User account, not a `*[bot]` App) is automated and must not
+    // count as a person's reply.
     const { calls } = run(SWEEP, {
       GH_STUB_ISSUE_LIST: '7',
-      GH_STUB_COMMENTS: `${warningLine}\n2020-01-02T00:00:00Z\treporter\tAutomated triage ${AI} on behalf of the maintainers.`,
+      GH_STUB_COMMENTS: `${warningLine}\n2020-01-02T00:00:00Z\tcipansor-bot\tTriase selesai.`,
       GH_STUB_BODY: BODY,
     });
     expect(calls).toContain('CLOSE 7');
@@ -154,14 +157,15 @@ describe('duplicate-sweep.sh', () => {
     expect(calls).toContain('CLOSE 7');
   });
 
-  it('records the body hash and the AI footer in its warning', () => {
+  it('records the body hash and no AI footer in its warning', () => {
     const { calls } = run(SWEEP, {
       GH_STUB_ISSUE_LIST: '7',
       GH_STUB_COMMENTS: '',
       GH_STUB_BODY: BODY,
     });
     expect(calls).toContain('COMMENT');
-    expect(calls).toContain(AI);
+    // No AI-disclosure footer: the account name marks the comment automated.
+    expect(calls).not.toContain(AI);
     expect(calls).toContain(`duplicate-sweep:hash:${sha(BODY)}`);
   });
 

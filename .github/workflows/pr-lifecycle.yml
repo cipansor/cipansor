@@ -1,4 +1,4 @@
-# Post the CI result and dispatch the review gate.
+# Post the CI result and dispatch the review gate for a ready PR.
 #
 # Triggered by workflow_run so it sees the finished result of every workflow on
 # the PR's head. It never changes the draft/ready state and never approves or
@@ -6,15 +6,20 @@
 #
 #   green CI + draft PR              -> post the all-green comment, leave the
 #                                       draft decision to a human
-#   green CI + ready PR              -> dispatch the review gate (`Gerbang tinjau PR`)
+#   green CI + ready PR, head not reviewed -> dispatch the review gate
+#   green CI + ready PR, head already reviewed -> quiet (the gate is idempotent)
 #   red CI                           -> quiet (checks are visible on the PR)
 #   changes requested on the current head -> quiet (waiting for fixes)
-#   changes requested on an older commit + green head -> dispatch the gate again
 #
 # `pull_request_review` is also subscribed so a changes-requested review
-# submitted after CI finished is seen. A request on the current head is quiet;
-# once the author pushes a new head and it goes green, the gate is dispatched
-# again to review that head (#727).
+# submitted after CI finished is seen. The gate runs a full review for every
+# ready, green head it has not reviewed yet — not only the first (2026-10-16,
+# superseding the 2026-10-15 "first review only" rule). What bounds it is the
+# gate's own idempotency (one review per head commit): a head already reviewed
+# is skipped, so a re-run never stacks runs and a dispatch happens only after
+# every required check is green. A re-request of `cipansor-bot` as reviewer
+# still works (the `pull_request.review_requested` trigger) but is no longer
+# required to get an updated head reviewed.
 #
 # `pull_request`/`ready_for_review` is subscribed because a documentation-only
 # PR never produces a `workflow_run` completion after it turns ready: its scope

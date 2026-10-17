@@ -14,6 +14,18 @@
 #              comments) changed since the bridge's last checkpoint, so an edited
 #              description or a new comment is caught without a trigger on
 #              `issues.edited`. The description is never touched by this workflow.
+#   recover -> a `ready` issue whose sweep marker is not final. The sweep
+#              searches `-label:ready`, so without this pass a marker on a
+#              `ready` issue is never examined again: a deferred label dispatch
+#              (`pending`) would sit forever, and a recovered run that then fails
+#              would never be retried (#837 R348, R474). It discovers candidate
+#              issues by scanning the marker comments, not a `ready`-issue search
+#              bounded by update time (which would forget an old marker, #837
+#              R475), then re-reads each issue's *own* latest marker to confirm
+#              the marker belongs to it — a comment that merely quotes the
+#              syntax names an unrelated issue and is ignored (#837 R512). Only
+#              the dispatches per pass are capped. A final checkpoint is skipped,
+#              so a new comment on a `ready` issue is not re-triaged (#837 R496).
 #
 # The signal is content, not a timestamp, so a same-second edit is still caught.
 # The triage owner is idempotent, so a duplicate dispatch is not a duplicate
@@ -71,3 +83,15 @@ jobs:
           REPO: ${{ github.repository }}
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: sh .github/scripts/issue-triage-bridge.sh --sweep
+
+      # The recovery pass for a label dispatch deferred while the pool was full
+      # on an issue that is (or has become) `ready`. The sweep excludes `ready`
+      # issues, so without this the pending marker would sit forever. It runs
+      # even when the sweep step failed, so a sweep failure does not strand it.
+      - name: Recover deferred label dispatches on ready issues
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: sh .github/scripts/issue-triage-bridge.sh --recover-ready

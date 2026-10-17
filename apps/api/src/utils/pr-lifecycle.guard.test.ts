@@ -19,7 +19,7 @@ import { join, resolve } from 'path';
  *    rather than relying on a `ready_for_review` transition that will not come;
  *  - a changes-requested review holds the PR only while it is on the current
  *    head: once the author has pushed and the head is green, the gate is
- *    dispatched again (#727).
+ *    dispatched again for the new head.
  *
  * Each check fails against the pre-review script and passes after it.
  */
@@ -48,7 +48,9 @@ case "$1" in
   api)
     case "$*" in
       *check-runs*) printf '%s\\n' "\${GH_STUB_CHECKS:-}" ;;
-      *"/reviews"*) printf '%s\\n' "\${GH_STUB_REVIEWS:-[]}" ;;
+      *"/reviews"*)
+        if [ -n "\${GH_STUB_REVIEWS_FAIL:-}" ]; then echo "gh: reviews unavailable" >&2; exit 1; fi
+        printf '%s\\n' "\${GH_STUB_REVIEWS:-[]}" ;;
       *"comments?per_page"*)
         printf '%s' "\${GH_STUB_COMMENTS_LIST:-[]}" \
           | jq -r '.[] | select(.body | contains("<!-- pr-lifecycle:")) | .id' ;;
@@ -264,10 +266,12 @@ describe('pr-lifecycle.sh', () => {
   });
 
   describe('after the gate requested changes', () => {
+    // Reviews carry their author: the script tells "the gate already reviewed
+    // this PR" from "never reviewed" by `.user.login`.
     const requested = (commit: string) =>
       JSON.stringify([
-        { state: 'COMMENTED', commit_id: 'old000' },
-        { state: 'CHANGES_REQUESTED', commit_id: commit },
+        { state: 'COMMENTED', commit_id: 'old000', user: { login: 'cipansor-bot' } },
+        { state: 'CHANGES_REQUESTED', commit_id: commit, user: { login: 'cipansor-bot' } },
       ]);
     const base = {
       GH_STUB_STATE: 'OPEN',
@@ -290,13 +294,16 @@ describe('pr-lifecycle.sh', () => {
     });
 
     it('sends a green head pushed after the request back to the gate', () => {
+      // The gate reviews every ready, green head, not only the first (2026-10-16).
+      // It reviewed this PR's older head (changes requested); the new green head
+      // is dispatched on its own, without the author asking again by hand.
       const { calls, out } = run({
         ...base,
         GH_STUB_CHECKS: allGreen,
         GH_STUB_REVIEWS: requested('fff111'),
       });
-      expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
-      expect(out).toContain('Dispatched review gate for PR #7');
+      expect(calls).toContain('/dispatch');
+      expect(out).toContain('Dispatched review gate');
     });
 
     it('does not dispatch while that newer head is red', () => {
@@ -321,6 +328,65 @@ describe('pr-lifecycle.sh', () => {
     });
     expect(calls).toContain('curl');
     expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
+  });
+
+  it('dispatches the gate for a green ready PR whose new head the gate has not reviewed', () => {
+    // The gate reviews every ready, green head — not only the first (2026-10-16).
+    // A head pushed after the gate's earlier review is dispatched without the
+    // author asking by hand; idempotency (one review per head commit) is what
+    // bounds it, so this is a genuinely new head, not a repeat of the old one.
+    const { calls, out } = run({
+      GH_STUB_STATE: 'OPEN',
+      GH_STUB_DRAFT: 'false',
+      GH_STUB_HEAD: SHA,
+      GH_STUB_CHECKS: allGreen,
+      GH_STUB_COMMENTS_LIST: '[]',
+      GH_STUB_REVIEWS: JSON.stringify([
+        { state: 'CHANGES_REQUESTED', commit_id: 'old000', user: { login: 'cipansor-bot' } },
+      ]),
+      OPENHANDS_API_KEY: 'key',
+      GH_STUB_HTTP: '200',
+    });
+    expect(calls).toContain('curl');
+    expect(calls).toContain('96eebf19-b64b-4035-9653-2d8b15b06ac4/dispatch');
+    expect(out).toContain('Dispatched review gate');
+  });
+
+  it('stays quiet when the gate already reviewed the current head', () => {
+    // Nothing is owed: an approval is final, and a request for changes waits on
+    // the author. No dispatch, no re-review notice.
+    const { calls, out } = run({
+      GH_STUB_STATE: 'OPEN',
+      GH_STUB_DRAFT: 'false',
+      GH_STUB_HEAD: SHA,
+      GH_STUB_CHECKS: allGreen,
+      GH_STUB_COMMENTS_LIST: '[]',
+      GH_STUB_REVIEWS: JSON.stringify([
+        { state: 'CHANGES_REQUESTED', commit_id: SHA, user: { login: 'cipansor-bot' } },
+      ]),
+      OPENHANDS_API_KEY: 'key',
+      GH_STUB_HTTP: '200',
+    });
+    expect(calls).not.toContain('/dispatch');
+    expect(calls).not.toContain('COMMENT');
+    expect(out).toContain('already reviewed by the gate');
+  });
+
+  it('does not dispatch when the review list cannot be read', () => {
+    // A failed read is not "never reviewed": dispatching then would re-review a
+    // PR the gate already saw.
+    const { calls, out } = run({
+      GH_STUB_STATE: 'OPEN',
+      GH_STUB_DRAFT: 'false',
+      GH_STUB_HEAD: SHA,
+      GH_STUB_CHECKS: allGreen,
+      GH_STUB_COMMENTS_LIST: '[]',
+      GH_STUB_REVIEWS_FAIL: '1',
+      OPENHANDS_API_KEY: 'key',
+      GH_STUB_HTTP: '200',
+    });
+    expect(calls).not.toContain('/dispatch');
+    expect(out).toContain('reviews unreadable');
   });
 
   it('dispatches the review gate for a ready docs PR whose code checks are skipped', () => {
@@ -380,7 +446,7 @@ describe('pr-lifecycle.sh', () => {
     expect(out).toContain('HTTP 401');
   });
 
-  it('carries the AI-disclosure footer on the all-green notice', () => {
+  it('carries no AI-disclosure footer on the all-green notice', () => {
     const { calls } = run({
       GH_STUB_STATE: 'OPEN',
       GH_STUB_DRAFT: 'true',
@@ -388,6 +454,7 @@ describe('pr-lifecycle.sh', () => {
       GH_STUB_CHECKS: allGreen,
       GH_STUB_COMMENTS_LIST: '[]',
     });
-    expect(calls).toContain('This comment was created by an AI agent');
+    // The anti-loop guard is the comment's author (`cipansor-bot`), not a footer.
+    expect(calls).not.toContain('This comment was created by an AI agent');
   });
 });

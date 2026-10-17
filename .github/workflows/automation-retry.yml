@@ -1,0 +1,52 @@
+# Retry a cron automation whose latest run died on infrastructure — a timeout,
+# a sandbox that never came up, a 502, or the LLM proxy answering 503 — a
+# bounded number of times, and say so when it runs out of chances.
+#
+# Every failure in the fleet's run history is infrastructure, not content:
+# `execution/timeout`, `verification/environment_unavailable` ("Sandbox not
+# available"), `dispatch/unknown`, a 502 from the sandbox API, and the proxy's
+# `503 Service Temporarily Unavailable`. `POST /{id}/dispatch` is
+# fire-and-forget, so a run that dies after the 201 is lost with nothing to
+# retry it. This is that retry. It complements the two event-side retriers that
+# already exist (`gate-watch.yml` for the review gate, `issue-triage-bridge.sh`
+# for triage); a cron run is self-contained, so a payload-less re-dispatch means
+# the same thing as the original.
+#
+# The rules live in .github/scripts/automation-retry.sh so they can be run by
+# hand. Attempts are kept in the automation KV store under one key per
+# automation, so a failing automation is retried at most RETRY_MAX times with a
+# backoff, and one health issue lists the ones that ran out.
+name: Automation retry
+
+on:
+  schedule:
+    - cron: '47 * * * *' # hourly, at minute 47, off the other sweeps
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: automation-retry
+  cancel-in-progress: false
+
+jobs:
+  retry:
+    name: Retry cron runs lost to infrastructure
+    if: github.repository == 'cipansor/cipansor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Re-dispatch infrastructure failures and keep the health issue current
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+          RETRY_MAX: '2'
+          BACKOFF_MINUTES: '20'
+        run: sh .github/scripts/automation-retry.sh

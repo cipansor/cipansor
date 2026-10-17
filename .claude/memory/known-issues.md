@@ -31,8 +31,8 @@ workers refused on a closed day. Still open:
   (`decisions/absensi-pegawai.md`).
 - **Non-teaching employees have no staff record.** The migration makes a
   `staff` row from every `teachers` row; TU, bendahara, pustakawan, perawat,
-  keamanan, a kepala sekolah without a teacher row and others get none. *Absen
-  Saya* now says so, but admins have no "employees without a record" list.
+  keamanan, a kepala sekolah without a teacher row and others get none. _Absen
+  Saya_ now says so, but admins have no "employees without a record" list.
   Prepare the records before self-attendance is switched on.
 - **The staff privacy notice is not built** (decision D1, 2026-10-09, in
   `persetujuan-pengguna.md`). Until it is, selfie and location stay off in
@@ -48,7 +48,7 @@ workers refused on a closed day. Still open:
   attendance deductions only.
 - **`WorkWeekConfig` falls back to Monday–Saturday, 7 hours** when a unit has no
   row, and no seed writes one.
-- **No review queue.** *Absensi Pegawai* now marks a punch outside the site and
+- **No review queue.** _Absensi Pegawai_ now marks a punch outside the site and
   a photo from a file, but there is no "needs review" filter and no record
   that a punch was reviewed.
 - **Corrections have no UI**, and `delete` still removes the row (and its
@@ -84,10 +84,10 @@ workers refused on a closed day. Still open:
   "minimal 8 karakter" (the full 15-or-8 rule is only checked on submit). And
   `Settings → Keamanan Akun` says password handling belongs to an administrator
   and to "IT Support", while the change form lives on Profile.
-- **Wrong language in the portal chrome.** The avatar menu reads *Profile*,
-  *Settings*, *Logout* (`components/layout/header.tsx`) in a portal decided to be
-  Indonesian only, and several screens still say *Siswa* / *Daftar Siswa*
-  (attendance record, menu group *Mengajar*) where the decision is *santri*.
+- **Wrong language in the portal chrome.** The avatar menu reads _Profile_,
+  _Settings_, _Logout_ (`components/layout/header.tsx`) in a portal decided to be
+  Indonesian only, and several screens still say _Siswa_ / _Daftar Siswa_
+  (attendance record, menu group _Mengajar_) where the decision is _santri_.
   The manuals quote the screen as it is.
 - **The web calls API paths that do not exist — 184 distinct calls left**
   (212 when measured on 2026-09-25; Perizinan fixed in #564, the asrama pages
@@ -105,12 +105,12 @@ workers refused on a closed day. Still open:
   by area; the guard (#563) stops new ones.
 - **An extracurricular's members, attendance and achievements do not work**
   (found 2026-10-04; the extracurricular itself — create, edit, list,
-  detail — was fixed in the same week). On the detail page the *Anggota*,
-  *Absensi* and *Prestasi* tabs, and a student's own enrolment, call
+  detail — was fixed in the same week). On the detail page the _Anggota_,
+  _Absensi_ and _Prestasi_ tabs, and a student's own enrolment, call
   `/extracurricular/{id}/enrollments`, `/{id}/attendance`, `/{id}/enroll`
   and `/enrollments/{id}/approve|reject`, which the router does not serve
   (they are in the contract baseline), and `GET /extracurricular/achievements`
-  and `/my-enrollments`, which it *does* answer — through `/:id`, as "not
+  and `/my-enrollments`, which it _does_ answer — through `/:id`, as "not
   found". That is the error toast on every detail page, and the contract
   guard cannot see these two because `/:id` matches them. The served routes
   are `/enrollments/list`, `/attendance/list`, `/achievements/list` and
@@ -127,17 +127,18 @@ workers refused on a closed day. Still open:
 
   Show a figure only when a query produced it, and an asrama tile only for a
   santri with a placement (`lessons/teacher-dashboard-fake-stats.md`).
+
 - **The profile names a kepala sekolah "Guru/Ustadz".** The badge under the
-  name on *avatar → Profile* labels the legacy bucket (`getEffectiveRole`),
+  name on _avatar → Profile_ labels the legacy bucket (`getEffectiveRole`),
   so every kepala and the Pimpinan Pesantren read as teachers, and organs as
   "Admin Unit"; the role picker in the header already shows the role's name.
 - **Homeroom pages that still do not work** (after #579–#581).
-  *Wali Kelas → Pesan Orang Tua* calls `/homeroom/classes/{id}/messages` and
+  _Wali Kelas → Pesan Orang Tua_ calls `/homeroom/classes/{id}/messages` and
   `POST /homeroom/messages`, which do not exist; the `messages` module
   (`/messages`, a recipient per message) is the place to wire it, with the
   pupils' wali as recipients. The pupil page (`/homeroom/students/[id]`)
-  shows figures that are not data: *Pramuka — Aktif* for every pupil, rank
-  #0, average 0, "0 / 30 Juz", *Invalid Date*. The kepala sekolah reads a
+  shows figures that are not data: _Pramuka — Aktif_ for every pupil, rank
+  #0, average 0, "0 / 30 Juz", _Invalid Date_. The kepala sekolah reads a
   class's dashboard through the API but has no menu path to it.
 - **Class and teacher schedules.** The web calls
   `/curriculum/schedules/class/{id}`, `/curriculum/schedules/teacher/{id}`
@@ -185,14 +186,14 @@ workers refused on a closed day. Still open:
   header, which the API requires. Its broadcast tab went with Pengumuman
   (`decisions/siaran-pengumuman.md`); what is left — send one message, a
   provider check, a scheduler trigger — is admin tooling nobody reaches.
-- **A unit's operator sees every unit's subjects.** *Classes → Mata
-  Pelajaran & Jadwal* for Admin SD IT lists SMP IT's subjects (seen
-  2026-09-28), and its *Tanpa Guru Pengampu* card counts them.
+- **A unit's operator sees every unit's subjects.** _Classes → Mata
+  Pelajaran & Jadwal_ for Admin SD IT lists SMP IT's subjects (seen
+  2026-09-28), and its _Tanpa Guru Pengampu_ card counts them.
 - **Small wrong labels and filters seen 2026-09-28:** the Kehadiran list
   (`/attendance`) offers teachers a "Semua Unit" filter and its pager is in
-  English; *Catat Donasi* shows an English date format and "Campaign"; the
+  English; _Catat Donasi_ shows an English date format and "Campaign"; the
   TK daily-report table and check-in say "No results found", "Pick a date",
-  "Apply"; *Kurikulum Merdeka* raises a "Route GET /api/hr/employees not
+  "Apply"; _Kurikulum Merdeka_ raises a "Route GET /api/hr/employees not
   found" toast on load; `GET /parent/children` still uses
   `include: { student }` (see `lessons/prisma-include-leaks-pii.md`).
 - **Some stored notification preferences have no reader yet.** Since #626 the
@@ -203,7 +204,7 @@ workers refused on a closed day. Still open:
 - **Every save error is shown twice, app-wide.** The axios interceptor in
   `apps/web/src/lib/api.ts` toasts every error response, and
   `components/providers/query-provider.tsx` sets `mutations.onError:
-  handleQueryError`, which toasts again. Pick one place; do not patch per page.
+handleQueryError`, which toasts again. Pick one place; do not patch per page.
 - **SPMB decision buttons are disabled for the unit admins who may use them.**
   `apps/web/src/app/spmb/registrations/[id]/page.tsx` compares the primary
   role code with `"UNIT_ADMIN"`, which no role code is (`SDIT_ADMIN`,
@@ -302,7 +303,7 @@ workers refused on a closed day. Still open:
   the account is what revokes access, within the 15-minute token life.
 
 - **Laporan harian: the TK guru and kepala sekolah have no path to it.**
-  A TK guru's menu has *Mutabaah Yaumiyah* only; the *TK / PAUD* group
+  A TK guru's menu has _Mutabaah Yaumiyah_ only; the _TK / PAUD_ group
   (Laporan Harian, its class and parent views, check-in, edit) is the unit
   admin's, and the middleware sends TEACHER away from `/tk`. The TK kepala
   sekolah has no daily-report item at all, though the API lets principals
@@ -373,7 +374,7 @@ decision.
   modules (`takhosus` re-exposes murojaah, simaan, sanad and halaqoh on the same
   tables), report cards in five places, lesson plans in three models, P5 in two
   modules (the term was retired by Permendikdasmen 13/2025 — now
-  *kokurikuler*), chart of accounts and journals in `finance` and
+  _kokurikuler_), chart of accounts and journals in `finance` and
   `finance-enhancement`, two monthly-depreciation implementations
   (`jobs/asset-depreciation.job.ts` runs; `inventory/depreciation.service.ts`
   never did), three daily santri logs (`daily-report`, `ibadah`, `muhasabah`),
@@ -446,6 +447,81 @@ decision.
   column holds (`select x, count(*) … group by x`), then a Prisma enum or a
   CHECK, and `z.enum` at the edge
   (`lessons/student-status-case-mismatch.md`).
+- **`gate-watch.sh` attributes a gate run to a head by recording the run id it
+  dispatched** (found 2026-10-15, #837; fixed the same day). The automation runs
+  API exposes `status`, `status_detail`, `created_at`, `sandbox_id`, `cost` and
+  `trigger_source`, but **no payload**: `run_metadata` is `null`, an event
+  automation's `trigger` stores no payload, and there is no run-by-id endpoint,
+  so a run cannot be tied to the PR or head it was dispatched for from the API
+  alone. Reading the gate's newest run therefore risked two failures once two
+  PRs waited at once: a foreign `FAILED timeout` would spend an attempt
+  re-dispatching a head the gate had not looked at, and a foreign `RUNNING`
+  would skip a head whose own run was dead. The script now writes the run id it
+  dispatched into the head's own comment marker
+  (`<!-- gate-watch-run:<sha>:<id> -->`) and reads that id back; the global
+  newest run is consulted only when a head has no recorded id, and then only to
+  ask whether anything is in flight. No API change was needed.
+- **`gate-watch.sh` must not read the run history one page deep** (found
+  2026-10-15, #837 review; fixed the same day). `GET /{id}/runs` ignores
+  `?run_id=` and pages with `limit`/`offset`, so a single-page read calls a run
+  that merely fell past the page `gone` — and `gone` is retried, so a run still
+  in flight could be dispatched a second time on the same head. The read now
+  walks `limit`/`offset` until the id is found or the pages run out, and a page
+  whose `runs` is not an array (`null`, an object) is unreadable, not `gone`.
+- **A `COMPLETED` gate run that wrote no review is the silence, not a human's
+  call** (found 2026-10-15, #837 review; fixed the same day). `gate-watch.sh`
+  first treated `ok` as "a person's decision" and only commented. But a gate
+  that finished without posting a review is exactly the failure the watch
+  exists for, so it now earns the same bounded re-dispatch as an infrastructure
+  failure, capped by `GATE_MAX_ATTEMPTS`. Safe because the gate is idempotent:
+  it skips a head it already reviewed, so a stray extra run costs a sandbox
+  slot, not a wrong review.
+- **`gate-watch.sh` flagged every new green head of an already-reviewed PR**
+  (found 2026-10-15, #837 review; the "flag every head" half fixed the same day,
+  then the whole once-only rule was **superseded 2026-10-16**). The watch asked
+  only "no gate review on this head", so a PR the gate had already reviewed —
+  and whose author had not asked again — got a false health-issue line and
+  comment on every new head. The first 2026-10-15 fix narrowed the flag to the
+  first pass or a pending manual re-review; **decision #27 (2026-10-16) replaced
+  that rule**: the gate now reviews every ready, green head it has not reviewed
+  on that head, and the watch flags exactly that — the `requested_reviewers`
+  read only chooses the comment's lead sentence. `pr-lifecycle.sh` re-dispatches
+  a new green head instead of pointing the author at a manual request.
+- **A payload-less gate dispatch must pick the _freshest_ owed head** (found
+  2026-10-16, #837; fixed the same day). `POST /{automation_id}/dispatch`
+  declares no request body (OpenAPI `requestBody: NONE`), so a bodyless
+  API-dispatch carries no target and the gate discovers its PR itself. The
+  deterministic rule first broke ties by **oldest** green head, which is exactly
+  backwards: `pr-lifecycle.sh` dispatches the gate the moment a head turns
+  green, so the newest green head is the one that asked for the run. With
+  "oldest", every dispatch picked a stale PR (e.g. #804, green since
+  2026-10-14, a 25-file diff) and never reached the triggering head (#837,
+  green 2026-10-16); the run re-read the stale diff in chunks, looped 140+
+  terminal commands, hit the 1800s ceiling and posted nothing. The rule now
+  picks one PR, ties by **freshest** green, and forces a bounded investigation
+  (`BATAS PENELUSURAN`: no repeated reads, a self-counted cap — 10 commands to
+  know the target and read its files, 20 to stop exploring and start writing, 30
+  to have posted — then post). A _soft_ "be brief" was already ignored: the run
+  after the tiebreak fix still spent 182 commands / 36 min reading the triggering
+  PR's diff in chunks and never posted. Making the cap concrete and
+  self-checkable (count your own terminal commands) is what worked — the next run
+  finished in **32 commands / ~7 min** and posted a full review, and the head
+  pushed afterwards was auto-reviewed the same way, so the "review every new
+  green head" rule (decision #27) fired end to end.
+  The residual limitation stands: the dispatch still cannot name the head, so
+  this is inference — two heads turning green within one dispatch interval are
+  disambiguated only by "newest", and the deeper fix (a run-scoped target the
+  runner reads) would need a change to the automation runner, not merely the
+  prompt.
+- **Any payload sent to `POST /{id}/dispatch` is silently dropped** (found
+  2026-10-16, #837 review). The endpoint declares no request body
+  (`requestBody: NONE`) and discards whatever a caller sends, so
+  `automation-retry.sh`'s `{source,retry_of}` payload never reached the agent —
+  dead weight that also read as if the run knew what it was retrying. The retry
+  now dispatches with no body. The rule for the whole fleet: an API-dispatch
+  carries no target or reason; a run that needs one must discover it
+  deterministically (the gate's `SASARAN` rule) or be dispatched with its
+  target discoverable another way.
 
 ## Performance
 
@@ -498,7 +574,7 @@ decision.
 - **The PWA install prompt on `portal.cipansor.or.id`.** The apex ships no PWA
   on purpose (#401). On the portal, whether Chrome fires
   `beforeinstallprompt` is unproven. Next step: DevTools → Application →
-  Manifest → *Installability* on a real device. Suspects, in order: Chrome's
+  Manifest → _Installability_ on a real device. Suspects, in order: Chrome's
   engagement threshold (a fresh Incognito window has none), then the manifest's
   `"id": "/"`.
 - **The maskable icons and `screenshots` are generated, then committed.**
@@ -531,7 +607,7 @@ decision.
   marks the endpoint and drops the `PushSubscription` it still holds, so its
   reconcile cannot re-create the row. The marker itself is still per tab (a tab
   that was closed and reopened starts clean, which is correct — the server row
-  is gone), only the *change* is broadcast.
+  is gone), only the _change_ is broadcast.
 
 ## Deliberate — do not "fix"
 
@@ -544,7 +620,7 @@ decision.
   with a line telling the reader. `config/i18n-coverage.test.ts` holds the
   allowlist, each exception with its reason.
 - **No self-service "lupa password".** An admin starts a reset (Pengguna → ⋯ →
-  *Kirim tautan reset password*), so nothing unauthenticated can make the
+  _Kirim tautan reset password_), so nothing unauthenticated can make the
   system send mail or reveal which addresses have accounts.
 - **The apex has no PWA.** `pwaEnabledForHost` withholds the manifest there,
   because `start_url` is the landing page and the shortcuts 404 on that host.

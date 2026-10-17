@@ -1,10 +1,21 @@
 # A ready pull request whose checks have all been green for an hour, with no
-# review from the gate on its head, gets the gate re-dispatched once, one
-# comment, and a line in the one health issue that lists them all (#776).
+# review from the gate on its head, gets the gate re-dispatched — up to
+# GATE_MAX_ATTEMPTS times, and only while the run dispatched for *that* head is
+# not still in flight and did not already fail for a reason a retry cannot fix —
+# plus one comment and a line in the one health issue that lists them all (#776).
+#
+# Only a head the gate *owes* a pass is watched: every ready, green head the gate
+# has not reviewed on that head (2026-10-16, superseding the 2026-10-15 "first
+# review only" rule). `pr-lifecycle.sh` dispatches it when CI finishes green, so
+# an unreviewed head here is one that was never dispatched or whose dispatch was
+# lost — a re-request for `cipansor-bot` is no longer required.
 #
 # pr-lifecycle.sh dispatches the review gate (OpenHands Cloud) and only learns
 # that the request was accepted. This is the other half: it notices when the
-# review never came, and says where to look (the gate's run history).
+# review never came, retries the run the platform lost — a lost run is an
+# infrastructure failure, an id that fell out of the history window, or a run
+# that completed without writing a review (the gate went silent) — and says
+# where to look (the gate's run history).
 #
 # The rules live in .github/scripts/gate-watch.sh so they can be run by hand.
 name: Gate watch
@@ -40,6 +51,8 @@ jobs:
           REPO: ${{ github.repository }}
           WAIT_MINUTES: '60'
           GATE_LOGIN: cipansor-bot
-          # The same key pr-lifecycle uses: one re-dispatch per silent head.
+          # How many lost runs a silent head is worth before it is a person's.
+          GATE_MAX_ATTEMPTS: '3'
+          # The same key pr-lifecycle uses: it also reads the gate's run history.
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: sh .github/scripts/gate-watch.sh
