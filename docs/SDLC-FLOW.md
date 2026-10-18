@@ -148,7 +148,23 @@ pertentangan itu dilaporkan sebagai issue.
     satu issue yang tak perlu dispatch menghentikannya, dan membaca sampai
     `SWEEP_PAGES` halaman (urut aktivitas terbaru) sementara `SWEEP_MAX`
     membatasi jumlah dispatch per run.
-20. **Deskripsi PR tidak ditanggapi otomatis.** Tidak ada pemicu
+20. **Dinding jam setiap automation adalah 1800 detik — platform tidak
+    menerima lebih.** Sebuah run yang melewati `timeout`-nya mati sebagai
+    `execution/timeout`, bukan karena tugasnya salah. Batas itu bukan pilihan
+    gaya: API menolak `timeout` di atas **1800** dengan
+    `422 timeout must not exceed 1800 seconds` (terverifikasi 2026-10-18).
+    Karena itu **setiap** automation diset tepat `1800`, bukan angka yang lebih
+    kecil: yang lebih kecil tidak menghemat apa pun dan hanya memindahkan
+    kematian ke run yang tugasnya jujur (lima automation pernah dijeda otomatis
+    platform setelah lima `execution/timeout` beruntun — SDLC 01/15 dengan
+    `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
+    setiap automation ber-`timeout` < 1800 adalah cacat `config` yang
+    dilaporkan, dan `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat
+    prompt di-deploy. Kegagalan yang **bukan** dinding jam tetap ditangani
+    seperti biasa: `environment_unavailable` (burst dispatch) oleh antrean
+    `MAX_INFLIGHT` di `issue-triage-bridge.sh`, dan kegagalan infra lain oleh
+    `automation-retry.yml`.
+21. **Deskripsi PR tidak ditanggapi otomatis.** Tidak ada pemicu
     `pull_request.edited`; gerbang tinjau yang sudah ada membaca deskripsi PR,
     issue tertaut, seluruh diff, dan semua komentar. Sebuah pemicu edit akan
     bertabrakan dengan `basmalah.yml` yang mem-PATCH body sebagai
@@ -228,6 +244,7 @@ repositori privat:
 | Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu (gerbang berutang pass untuk **setiap** head hijau yang belum ditinjau, 2026-10-16) | bila run yang di-dispatch untuk head itu masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, run tercatat hilang dari riwayat, head belum pernah di-dispatch, atau run selesai tanpa menulis review (gerbang diam), dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head (run id yang di-dispatch dicatat di penanda komentar head itu, jadi keputusannya per head); satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
 | Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20) per **automation** (kunci KV `retry-<aid>`; dihapus saat run terbaru COMPLETED agar episode berikutnya mulai lagi); bila habis, satu issue `automation-health` |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
+| `timeout` di bawah 1800 pada sebuah automation | `Pengawas armada` membaca `timeout` tiap automation | satu issue `automation-health` (`config`): set ke 1800. Angka lebih kecil tidak menghemat apa pun dan hanya memindahkan kematian ke run yang tugasnya jujur (invarian 20) |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
 | Situs menurun tanpa deploy | Health check App Service + availability test | alert dari platform |
@@ -266,6 +283,12 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 7. **WIP dan batas putaran.** Belum ada. Tambahkan pada `Tiket jadi PR` dan
    `Gerbang tinjau PR`.
 8. **Laporan pemakaian.** Belum ada. Tambahkan pada `Pengawas armada`.
+9. **Dinding jam seragam.** Lima automation pernah dijeda otomatis platform
+   (lima `execution/timeout` beruntun): SDLC 01 dan 15 diset `timeout=900`,
+   SDLC 23 `1500`, padahal tugasnya ~1000–2000 detik dan platform menerima
+   sampai **1800**. Selesai 2026-10-18: seluruh armada diset `1800`, dan
+   `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat prompt di-deploy
+   (invarian 20).
 
 ### Instruksi pelaksanaan
 

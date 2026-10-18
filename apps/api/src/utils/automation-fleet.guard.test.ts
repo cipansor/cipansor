@@ -971,6 +971,60 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('BODY ISSUE/PR — KOMENTAR DULU');
   });
 
+  // Call the real apply_timeout(aid, name, old_timeout, dry) from the script.
+  // It returns True on a change, prints the plan on a dry run, and only ever
+  // raises a value below the ceiling — never lowers one.
+  const applyTimeout = (
+    oldTimeout: number | null,
+    dry = true
+  ): { changed: boolean; out: string } => {
+    const driver = [
+      'import importlib.util, sys, json',
+      'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'old = None if sys.argv[2] == "null" else int(sys.argv[2])',
+      'dry = sys.argv[3] == "1"',
+      'changed = m.apply_timeout("aid", "SDLC 03", old, dry)',
+      'sys.stdout.write("CHANGED=" + str(changed))',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', driver, DEPLOY, String(oldTimeout), dry ? '1' : '0'], {
+      encoding: 'utf8',
+    });
+    if (r.status !== 0) throw new Error(r.stderr || 'python failed');
+    return { changed: r.stdout.includes('CHANGED=True'), out: r.stdout + r.stderr };
+  };
+
+  it.skipIf(!hasPy)('raises a timeout below the ceiling to 1800 (invariant 20)', () => {
+    const r = applyTimeout(900);
+    expect(r.changed).toBe(true);
+    expect(r.out).toContain('1800');
+  });
+
+  it.skipIf(!hasPy)('leaves a timeout already at the ceiling alone', () => {
+    expect(applyTimeout(1800).changed).toBe(false);
+  });
+
+  it.skipIf(!hasPy)('never lowers a timeout the API somehow accepted above the ceiling', () => {
+    // The API refuses > 1800 with a 422, so this is defensive: a value above the
+    // ceiling must not be silently rewritten downward.
+    expect(applyTimeout(3600).changed).toBe(false);
+  });
+
+  it.skipIf(!hasPy)('sets a missing timeout to the ceiling', () => {
+    expect(applyTimeout(null).changed).toBe(true);
+  });
+
+  it.skipIf(!hasPy)('tells the fleet watchdog to flag a timeout below the ceiling', () => {
+    // The watchdog is the runtime checker for invariant 20: the deploy script
+    // sets the value, but only the watchdog can notice a hand edit in the cloud.
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD watchdog`;
+    const out = newPrompt('SDLC 23', original);
+    expect(out).not.toContain('OLD watchdog');
+    expect(out).toContain('tepat 1800');
+    expect(out).toContain('timeout` < 1800 adalah cacat `config`');
+  });
+
   it.skipIf(!hasPy)('keeps the original tail when it has no replacement tail', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nAturan khusus yang harus utuh`;
     const out = newPrompt('SDLC 03', original);

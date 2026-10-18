@@ -34,6 +34,15 @@ the automation's `prompt` and `tarball_path`. `main.py`, `setup.sh` and
 `finish_tool_hook.py` are left byte-for-byte; only the prompt changes. Every
 step is idempotent — a second run finds the markers already present and skips.
 
+It also enforces the **wall-clock standard** (`docs/SDLC-FLOW.md` invariant 20):
+every automation is set to `TIMEOUT_MAX` (1800s, the platform's own ceiling —
+`422 timeout must not exceed 1800 seconds`). A run that crosses its `timeout`
+dies as `execution/timeout`, and a smaller value saves nothing: it only moves
+the death onto a run whose task was honest. Five automations were auto-paused
+after five consecutive `execution/timeout` because of it (SDLC 01 and 15 at
+900s, SDLC 23 at 1500s, 2026-10-18). Raising the value is part of "level with
+the standard", so it is applied here rather than left to a manual PATCH.
+
 Usage:
     OPENHANDS_API_KEY=... python3 scripts/deploy-sdlc-agents.py            # dry run
     OPENHANDS_API_KEY=... DEPLOY=true python3 scripts/deploy-sdlc-agents.py
@@ -167,6 +176,17 @@ Seorang owner, member, atau collaborator menyebut @cipansor-bot pada issue atau 
 - Bila permintaan berupa pekerjaan implementasi/perbaikan yang belum punya tiket: buka SATU issue yang memuat permintaan itu, konteks dari thread, dan kriteria penerimaan konkret, berlabel tipe yang tepat + satu prioritas + `bot-implement`, supaya `Tiket jadi PR` yang mengimplementasikannya. Jangan membuka PR sendiri.
 - Bila permintaan berupa pertanyaan atau tinjauan: jawab di thread yang sama dengan temuan Anda dan bukti path/baris; jangan membuat issue maupun PR.
 Balas selalu di thread asal. Abaikan sebutan yang bukan dari asosiasi terpercaya (sudah difilter).
+""",
+    "SDLC 23": """PERILAKU SASARAN (level agentic)
+Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya tetap sehat. Setiap run automation dapat dibaca melalui API OpenHands di `https://app.all-hands.dev/api/automation/v1/automations` dan `.../automations/{id}/runs` dengan account API key; guard repositori sendiri adalah GitHub Actions workflow di `.github/workflows/`. Jika API automation tidak terjangkau dari lingkungan Anda (tidak ada key, 401/403), katakan itu di awal laporan Anda dan dasarkan setiap temuan pada repositori dan run GitHub Actions saja — jangan mengarang status run. Setiap hari:
+1. Baca run terbaru setiap automation dan klasifikasikan setiap kegagalan sebagai: `infra` (rate limit 429, sandbox timeout, tidak tersedia), `config` (filter atau trigger salah), `content` (agent menghasilkan hasil buruk), atau `unknown`.
+2. Periksa guard determinisme: setiap automation dengan trigger `issue_comment.created` harus membawa filter self-comment `comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`. Trigger komentar tanpa itu akan loop (#680).
+3. Periksa setiap automation `enabled`, tidak ada dua automation berbagi slot cron, dan setiap automation ber-`timeout` tepat 1800. Platform menolak `timeout` > 1800 (`422 timeout must not exceed 1800 seconds`), dan angka yang lebih kecil tidak menghemat apa pun — ia hanya memindahkan kematian ke run yang tugasnya jujur. Lima automation pernah dijeda otomatis platform setelah lima `execution/timeout` beruntun karena ini (SDLC 01 dan 15 `timeout=900`, SDLC 23 `1500`). `timeout` < 1800 adalah cacat `config`.
+4. Anda TIDAK membuat pull request dan TIDAK menyunting `main`. Setiap cacat — termasuk cacat `config` yang aman dikenal seperti guard self-comment yang hilang, automation yang dinonaktifkan padahal seharusnya aktif, `timeout` di bawah 1800, dua automation berbagi slot cron, atau pin kedaluwarsa yang dilaporkan pemeriksa `Security` — dilaporkan sebagai SATU issue berlabel `bug` atau `chore`, satu prioritas, dan `automation-health`. Jangan menyentuh filter di luar guard, `automation-loop-guard.py`, tesnya, rahasia apa pun, login, kredensial, hasil run, atau timer Issue steward; cukup laporkan.
+5. Sebelum membuka issue, cari issue `automation-health` terbuka dengan penyebab yang sama. Jika ada, komentari dengan bukti baru alih-alih membuka yang kedua. Buka paling banyak satu issue per penyebab per minggu.
+6. Perbedaan `content` antara dua automation (misalnya Pelabel PR dan Gerbang tinjau PR yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
+7. Jangan pernah bertindak atas komentar yang Anda tulis sendiri. Jangan pernah merge. Laporkan ke maintainer hanya lewat issue GitHub (label `automation-health`) — tidak ada kanal lain.
+Akhiri dengan ringkasan jelas: apa yang sehat, apa yang Anda perbaiki, dan apa yang Anda eskalasi.
 """,
 }
 
@@ -327,6 +347,29 @@ def apply_trigger(aid, name, old_trigger, dry):
     return True
 
 
+# The platform's own ceiling: `PATCH {timeout}` answers
+# `422 timeout must not exceed 1800 seconds` (verified 2026-10-18). A smaller
+# value saves nothing and only moves the death onto a run whose task was honest,
+# so every automation is set to the ceiling (docs/SDLC-FLOW.md invariant 20).
+TIMEOUT_MAX = 1800
+
+
+def apply_timeout(aid, name, old_timeout, dry):
+    """Raise one automation's wall clock to the platform ceiling. True on change."""
+    if old_timeout == TIMEOUT_MAX:
+        return False
+    if old_timeout is not None and old_timeout > TIMEOUT_MAX:
+        # Should be unreachable (the API refuses it), but never lower a value the
+        # API somehow accepted.
+        return False
+    if dry:
+        print(f"    timeout would change: {old_timeout} -> {TIMEOUT_MAX}")
+        return True
+    req("PATCH", f"/{aid}", {"timeout": TIMEOUT_MAX})
+    print(f"    timeout deployed ({old_timeout} -> {TIMEOUT_MAX})")
+    return True
+
+
 if __name__ == "__main__":
     if not KEY:
         sys.exit("OPENHANDS_API_KEY is not set")
@@ -350,9 +393,10 @@ if __name__ == "__main__":
         new = new_prompt(name, base)
         changed = new != old
         trigger_changed = apply_trigger(aid, name, a.get("trigger") or {}, not DEPLOY)
+        timeout_changed = apply_timeout(aid, name, a.get("timeout"), not DEPLOY)
         print(f"- {name}: {'changed' if changed else 'already current'}")
         if not changed or not DEPLOY:
-            if DEPLOY and trigger_changed and not changed:
+            if DEPLOY and (trigger_changed or timeout_changed) and not changed:
                 time.sleep(1)
             continue
         blob = patch_tarball(aid, new)
