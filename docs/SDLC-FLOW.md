@@ -160,10 +160,14 @@ pertentangan itu dilaporkan sebagai issue.
     `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
     setiap automation ber-`timeout` < 1800 adalah cacat `config` yang
     dilaporkan, dan `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat
-    prompt di-deploy. Kegagalan yang **bukan** dinding jam tetap ditangani
-    seperti biasa: `environment_unavailable` (burst dispatch) oleh antrean
-    `MAX_INFLIGHT` di `issue-triage-bridge.sh`, dan kegagalan infra lain oleh
-    `automation-retry.yml`.
+    prompt di-deploy. Plafon hanya membatasi **kapan** sebuah run dibunuh,
+    bukan **kapan ia berhenti**: sebuah tugas yang menjelajah tanpa batas tetap
+    mati di dinding (2026-10-18: `Pengawas armada` mati 1800 detik delapan run
+    beruntun, tanpa satu pun laporan), jadi setiap automation semacam itu juga
+    membawa anggaran kerja sendiri. Kegagalan yang **bukan** dinding jam tetap
+    ditangani seperti biasa: `environment_unavailable` (burst dispatch) oleh
+    antrean `MAX_INFLIGHT` di `issue-triage-bridge.sh`, dan kegagalan infra lain
+    oleh `automation-retry.yml`.
 21. **Deskripsi PR tidak ditanggapi otomatis.** Tidak ada pemicu
     `pull_request.edited`; gerbang tinjau yang sudah ada membaca deskripsi PR,
     issue tertaut, seluruh diff, dan semua komentar. Sebuah pemicu edit akan
@@ -283,12 +287,21 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 7. **WIP dan batas putaran.** Belum ada. Tambahkan pada `Tiket jadi PR` dan
    `Gerbang tinjau PR`.
 8. **Laporan pemakaian.** Belum ada. Tambahkan pada `Pengawas armada`.
-9. **Dinding jam seragam.** Lima automation pernah dijeda otomatis platform
-   (lima `execution/timeout` beruntun): SDLC 01 dan 15 diset `timeout=900`,
-   SDLC 23 `1500`, padahal tugasnya ~1000–2000 detik dan platform menerima
-   sampai **1800**. Selesai 2026-10-18: seluruh armada diset `1800`, dan
+9. **Dinding jam seragam, dan anggaran kerja untuk yang panjang.** Lima
+   automation pernah dijeda otomatis platform (lima `execution/timeout`
+   beruntun): SDLC 01 dan 15 diset `timeout=900`, SDLC 23 `1500`, padahal
+   tugasnya ~1000–2000 detik dan platform menerima sampai **1800**. Selesai
+   2026-10-18: seluruh armada diset `1800`, dan
    `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat prompt di-deploy
-   (invarian 20).
+   (invarian 20). **Menaikkan plafon saja tidak cukup** untuk tugas yang
+   menjelajah tanpa batas: `Pengawas armada` tetap mati 1800 detik setelahnya,
+   delapan run beruntun tanpa satu pun laporan terkirim, karena membaca riwayat
+   run ke-24 automation satu per satu memakan seluruh anggaran. Ia kini membawa
+   **anggaran kerja** sendiri (daftar sekali, tiap automation satu bacaan,
+   berhenti mengumpulkan pada ~20 panggilan API dan menulis laporan dari yang
+   ada) — pola yang sama dengan `Gerbang tinjau PR`. Setiap automation yang
+   tugasnya bisa meluas tanpa batas wajib punya anggaran seperti itu; plafon
+   platform hanya membatasi kapan ia dibunuh, bukan kapan ia berhenti.
 
 ### Instruksi pelaksanaan
 

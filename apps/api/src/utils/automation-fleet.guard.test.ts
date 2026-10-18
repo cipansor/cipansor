@@ -1023,6 +1023,7 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).not.toContain('OLD watchdog');
     expect(out).toContain('tepat 1800');
     expect(out).toContain('timeout` < 1800 adalah cacat `config`');
+    expect(out).toContain('ANGGARAN WAKTU');
   });
 
   it.skipIf(!hasPy)('keeps the original tail when it has no replacement tail', () => {
