@@ -1026,6 +1026,19 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('ANGGARAN WAKTU');
   });
 
+  it.skipIf(!hasPy)('tells the watchdog to classify failures by sandbox evidence', () => {
+    // The dominant fleet failure is sandbox starvation under burst dispatch, not
+    // a wrong task: 220 of 235 FAILED runs never got a sandbox
+    // (`conversation_id` null). A watchdog that called that "content" would send
+    // maintainers to rewrite prompts that were never at fault, so the
+    // classification must key on `conversation_id`.
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD watchdog`;
+    const out = newPrompt('SDLC 23', original);
+    expect(out).toContain('conversation_id` **null**');
+    expect(out).toContain('`sandbox`');
+    expect(out).toContain('kolam sandbox kehabisan slot');
+  });
+
   it.skipIf(!hasPy)('keeps the original tail when it has no replacement tail', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nAturan khusus yang harus utuh`;
     const out = newPrompt('SDLC 03', original);
