@@ -249,6 +249,7 @@ repositori privat:
 | Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20) per **automation** (kunci KV `retry-<aid>`; dihapus saat run terbaru COMPLETED agar episode berikutnya mulai lagi); bila habis, satu issue `automation-health` |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
 | Dinding jam pada sebuah automation | `Pengawas armada` mengklasifikasi `wall` bila `error_detail` "command timed out or was killed" **dan** `completed_at >= timeout_at` (tenggat run itu sendiri, bukan ambang durasi tetap — riwayat memuat era `timeout=900` yang mati ~1000 detik) | masuk ringkasan `wall`; saran menambah/memperketat ANGGARAN WAKTU prompt. Riwayat run diperiksa **berotasi** (`start = hari-ke-%j % jumlah automation`, melingkar) supaya ekor daftar tidak luput; konfigurasi seluruh daftar selalu disapu tanpa panggilan run |
+| Perintah yang menggantung (timeout sebelum tenggat run) | `Pengawas armada` mengklasifikasi `wall-short` bila `error_detail` "command timed out or was killed" tetapi `completed_at < timeout_at` | dilaporkan **terpisah** dari `wall`, karena saran `wall` (menambah anggaran) tidak berlaku untuk satu perintah yang menggantung — perbaikan sebenarnya adalah membatasi perintah itu, bukan menambah anggaran. Setiap run "command timed out" punya kelas; tidak ada yang jatuh tanpa kelas |
 | `timeout` di bawah 1800 pada sebuah automation | `Pengawas armada` membaca `timeout` tiap automation | satu issue `automation-health` (`config`): set ke 1800. Angka lebih kecil tidak menghemat apa pun dan hanya memindahkan kematian ke run yang tugasnya jujur (invarian 20) |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
@@ -328,6 +329,24 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    lebih banyak daripada anggaran ~19 bacaan run — tanpa rotasi ekor daftar
    tak pernah diperiksa. Konfigurasi seluruh daftar (enabled, timeout, guard,
    tabrakan cron) tetap disapu penuh setiap hari tanpa satu pun panggilan run.
+   **Kelas kelima (`wall-short`).** Sebuah run ber-`error_detail` "command
+   timed out or was killed" yang mati **sebelum** tenggatnya sendiri
+   (`completed_at < timeout_at`) bukan `wall`: run-nya tidak menabrak plafon,
+   perintahnya yang menggantung (atau tenggat run berubah di tengah jalan).
+   `wall-short` dilaporkan terpisah, karena saran `wall` — menambah anggaran —
+   justru salah untuk satu perintah yang menggantung. Dengan kelas ini setiap
+   run "command timed out" punya kelas; tak ada yang jatuh tanpa kelas.
+   **Prompt terpotong ditolak, bukan ditambal.** Sebuah prompt tanpa penanda
+   `PERILAKU SASARAN` telah kehilangan ekornya. Untuk automation ber-ekor
+   terkelola (`TAILS`) kerugiannya tak berbahaya — ekornya (instruksi tugas)
+   dipasang ulang dari skrip, jadi automation itu dibangun utuh. Untuk yang
+   **tanpa** ekor terkelola, ekor itu adalah instruksi tugasnya sendiri dan
+   hilang: menempelkan anggaran ke kepala yang tersisa hanya mengirim prompt
+   yang tak bisa menjalankan tugasnya. Karena itu `new_prompt` **menolak**
+   (`TruncatedPromptError`) alih-alih mengirimnya, dan menyebut satu-satunya
+   basis yang memulihkannya — `ORIGINALS=<json>` (prompt asli sebelum
+   terpotong). Satu automation yang ditolak tidak menghentikan deploy 23
+   lainnya; skrip keluar dengan kode 2 dan mencetak daftar yang ditolak.
 
 
 ### Instruksi pelaksanaan

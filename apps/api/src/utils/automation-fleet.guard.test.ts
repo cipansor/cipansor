@@ -946,7 +946,10 @@ describe('deploy-sdlc-agents.py', () => {
 
   // Call the real new_prompt(name, prompt) from the script (its __main__ is
   // guarded, so importing it does nothing else).
-  const newPrompt = (name: string, prompt: string): string => {
+  const runNewPrompt = (
+    name: string,
+    prompt: string
+  ): { status: number | null; stdout: string; stderr: string } => {
     const driver = [
       'import importlib.util, sys',
       'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
@@ -958,9 +961,19 @@ describe('deploy-sdlc-agents.py', () => {
       encoding: 'utf8',
       input: prompt,
     });
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+  };
+
+  const newPrompt = (name: string, prompt: string): string => {
+    const r = runNewPrompt(name, prompt);
     if (r.status !== 0) throw new Error(r.stderr || 'python failed');
     return r.stdout;
   };
+
+  // A distinctive line from SDLC 01's managed tail (`TAILS` in the deploy
+  // script). Its presence proves the tail — the task instructions — was
+  // re-attached, not merely that a budget was appended.
+  const TAILS_SDLC_01_MARKER = 'Triase bug ini dengan KRITIS dan habis-habisan.';
 
   it.skipIf(!hasPy)('strips the AI-disclosure footer mandate from the head', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nTail`;
@@ -1045,17 +1058,41 @@ describe('deploy-sdlc-agents.py', () => {
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
   });
 
-  it.skipIf(!hasPy)('still adds a work budget to a previously truncated prompt', () => {
+  it.skipIf(!hasPy)('refuses a truncated prompt whose task instructions are gone', () => {
     // A live prompt truncated by the old head-slicing bug carries no
-    // `PERILAKU SASARAN` marker, so there is nothing to insert before. The
-    // budget must still land, or the recovered prompt can die at the wall
-    // having shipped nothing. The deploy script has a recovery path for the
-    // truncation itself; this covers the ordinary deploy finding such a prompt.
-    const truncated = newPrompt('SDLC 04', 'Header tanpa ekor');
-    expect(truncated).toContain('BODY ISSUE/PR');
-    expect(truncated).toContain('ANGGARAN WAKTU — JAM PASIR');
-    // And it is idempotent on that result.
-    expect(newPrompt('SDLC 04', truncated).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    // `PERILAKU SASARAN` marker. For an automation with no managed tail
+    // (`TAILS`), that marker held the task's own instructions — appending a
+    // budget to the surviving head would ship a prompt that cannot do its job.
+    // The deploy must refuse and name the repair (`ORIGINALS`), not deploy it.
+    const r = runNewPrompt('SDLC 04', 'Header tanpa ekor');
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('no ');
+    expect(r.stderr).toContain('ORIGINALS');
+  });
+
+  it.skipIf(!hasPy)('rebuilds a truncated prompt whole when given the original', () => {
+    // The repair path: `ORIGINALS` supplies the untruncated prompt as the base,
+    // so the head is rebuilt and the tail (the task instructions) is restored —
+    // not merely given a budget. The tail's own instruction text must come back.
+    const original =
+      'Header\n\nSertakan tes bersama perubahan kode.\n\n' +
+      'PERILAKU SASARAN (level agentic)\nInstruksi tugas yang hilang saat terpotong.';
+    const out = newPrompt('SDLC 04', original);
+    expect(out).toContain('Instruksi tugas yang hilang saat terpotong.');
+    expect(out).toContain('BODY ISSUE/PR');
+    expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
+    // Idempotent on that result.
+    expect(newPrompt('SDLC 04', out).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+  });
+
+  it.skipIf(!hasPy)('rebuilds a managed-tail automation whole even from a truncated head', () => {
+    // For an automation with a managed tail (`TAILS`), a missing live tail is
+    // harmless: the tail is re-attached from the script, so the automation is
+    // rebuilt whole and its instructions are not lost. No refusal.
+    const out = newPrompt('SDLC 01', 'Header tanpa ekor');
+    expect(out).toContain('BODY ISSUE/PR');
+    expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
+    expect(out).toContain(TAILS_SDLC_01_MARKER);
   });
 
   it.skipIf(!hasPy)('cites the automation API endpoints the retry script actually uses', () => {
@@ -1076,6 +1113,11 @@ describe('deploy-sdlc-agents.py', () => {
       // A fixed 1780s threshold misclassifies the ~1000s deaths from the era of
       // `timeout=900`; the run's own deadline is the robust discriminator.
       expect(out).toContain('completed_at >= timeout_at');
+      // A `command timed out` run that dies *before* its own deadline is a
+      // distinct class (`wall-short`), not lumped into `wall`: the `wall` advice
+      // (add budget) is wrong for a hung command. No timed-out run is classless.
+      expect(out).toContain('wall-short');
+      expect(out).toContain('Lima kelas');
       // 24 automations, ~19 run reads: without rotation the tail is never seen.
       expect(out).toContain('ROTASI WAJIB');
       expect(out).toContain('%j');
@@ -1149,8 +1191,9 @@ describe('deploy-sdlc-agents.py', () => {
     const truncated = `Header\n\n${FOOTER}\n\nBODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)\n- x`;
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nAturan khusus`;
     expect(newPrompt('SDLC 03', original)).toContain('Aturan khusus');
-    // And the buggy base would not have recovered it (idempotent head only).
-    expect(newPrompt('SDLC 03', truncated)).not.toContain('Aturan khusus');
+    // The truncated base is refused outright (its task instructions are gone),
+    // rather than silently rebuilt as a head-only prompt.
+    expect(runNewPrompt('SDLC 03', truncated).status).not.toBe(0);
   });
 
   it.skipIf(!hasPy)('inserts the comment-first body block exactly once', () => {
