@@ -11,6 +11,26 @@ vi.mock('../../../lib/logger', () => ({
   logger: { info: vi.fn(), error: vi.fn(), warn: vi.fn() },
 }));
 
+// Nodemailer is mocked so the SMTP transport's options can be inspected without
+// opening a socket. `composeRawMessage` still needs the real stream transport
+// (it builds the raw MIME message with one), so that call is delegated through.
+vi.mock('nodemailer', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('nodemailer')>();
+  return {
+    default: {
+      ...actual,
+      createTransport: vi.fn((options: { streamTransport?: boolean }) => {
+        if (options?.streamTransport) {
+          return actual.createTransport(options);
+        }
+        return { sendMail: vi.fn(async () => ({ messageId: 'smtp-msg-1' })), close: vi.fn() };
+      }),
+    },
+  };
+});
+
+import nodemailer from 'nodemailer';
+
 /**
  * A throwaway RSA key, generated once here.
  *
@@ -155,6 +175,46 @@ describe('email transport selection', () => {
 
     expect(fetchMock).not.toHaveBeenCalled();
     vi.unstubAllGlobals();
+  });
+});
+
+describe('SMTP transport bounds', () => {
+  const createTransport = nodemailer.createTransport as unknown as ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    clearTransports();
+    resetEmailTransport();
+    (config.smtp as { host: string }).host = 'smtp.gmail.com';
+  });
+
+  afterEach(() => {
+    clearTransports();
+    resetEmailTransport();
+  });
+
+  it('bounds every SMTP phase so a send cannot outlive the delivery claim', async () => {
+    await deliverEmail({ to: 'wali@example.test', subject: 's', html: '<p>x</p>' });
+
+    expect(createTransport).toHaveBeenCalledTimes(1);
+    const options = createTransport.mock.calls[0][0] as Record<string, unknown>;
+
+    // Nodemailer's defaults (2 min connect, 10 min idle, 30 s greet, requeued
+    // up to five times) let one sendMail run for minutes. The delivery claim
+    // only tolerates a send that finishes well inside the 60 s provider fetch.
+    expect(options.connectionTimeout).toBeGreaterThan(0);
+    expect(options.greetingTimeout).toBeGreaterThan(0);
+    expect(options.socketTimeout).toBeGreaterThan(0);
+    expect(options.connectionTimeout as number).toBeLessThanOrEqual(60_000);
+    expect(options.greetingTimeout as number).toBeLessThanOrEqual(60_000);
+    expect(options.socketTimeout as number).toBeLessThanOrEqual(60_000);
+  });
+
+  it('reuses one transporter across sends rather than rebuilding it per message', async () => {
+    await deliverEmail({ to: 'a@example.test', subject: 's', html: '<p>a</p>' });
+    await deliverEmail({ to: 'b@example.test', subject: 's', html: '<p>b</p>' });
+
+    expect(createTransport).toHaveBeenCalledTimes(1);
   });
 });
 

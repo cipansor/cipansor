@@ -12,6 +12,7 @@ import { webPushKeys } from './push-dispatch.service';
 import { Errors } from '../../middleware/error';
 import { whatsAppService } from './whatsapp.service';
 import { notificationScheduler } from './scheduler.service';
+import { SCHEDULED_TASK_IDS } from './scheduler.tasks';
 import { z } from 'zod';
 import { prisma } from '../../lib/prisma';
 import { describeEmailTransport } from './email-transport';
@@ -225,13 +226,7 @@ export async function getWhatsAppStatus(req: Request, res: Response, next: NextF
 // ==================== SCHEDULER ====================
 
 const triggerScheduleSchema = z.object({
-  task: z.enum([
-    'payment-reminder',
-    'attendance-summary',
-    'tahfidz-progress',
-    'event-reminder',
-    'monthly-report',
-  ]),
+  task: z.enum(SCHEDULED_TASK_IDS),
 });
 
 export async function triggerScheduledTask(req: Request, res: Response, next: NextFunction) {
