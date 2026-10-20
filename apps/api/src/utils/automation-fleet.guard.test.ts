@@ -1045,6 +1045,43 @@ describe('deploy-sdlc-agents.py', () => {
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
   });
 
+  it.skipIf(!hasPy)('still adds a work budget to a previously truncated prompt', () => {
+    // A live prompt truncated by the old head-slicing bug carries no
+    // `PERILAKU SASARAN` marker, so there is nothing to insert before. The
+    // budget must still land, or the recovered prompt can die at the wall
+    // having shipped nothing. The deploy script has a recovery path for the
+    // truncation itself; this covers the ordinary deploy finding such a prompt.
+    const truncated = newPrompt('SDLC 04', 'Header tanpa ekor');
+    expect(truncated).toContain('BODY ISSUE/PR');
+    expect(truncated).toContain('ANGGARAN WAKTU — JAM PASIR');
+    // And it is idempotent on that result.
+    expect(newPrompt('SDLC 04', truncated).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+  });
+
+  it.skipIf(!hasPy)('cites the automation API endpoints the retry script actually uses', () => {
+    // The fleet's own integration (`.github/scripts/automation-retry.sh`) reads
+    // the list at the API root and runs at `/{id}/runs`. `/automations` answers
+    // 422 and `/automations/{id}/runs` answers 404, so a watchdog told to use
+    // them gets no data at all.
+    const out = newPrompt('SDLC 23', `x\n\nPERILAKU SASARAN (level agentic)\ny`);
+    expect(out).not.toContain('/api/automation/v1/automations');
+    expect(out).toContain('GET https://app.all-hands.dev/api/automation/v1`');
+    expect(out).toContain('/api/automation/v1/{id}/runs?limit=5');
+  });
+
+  it.skipIf(!hasPy)(
+    'tells the watchdog to classify wall failures by timeout_at, and to rotate coverage',
+    () => {
+      const out = newPrompt('SDLC 23', `x\n\nPERILAKU SASARAN (level agentic)\ny`);
+      // A fixed 1780s threshold misclassifies the ~1000s deaths from the era of
+      // `timeout=900`; the run's own deadline is the robust discriminator.
+      expect(out).toContain('completed_at >= timeout_at');
+      // 24 automations, ~19 run reads: without rotation the tail is never seen.
+      expect(out).toContain('ROTASI WAJIB');
+      expect(out).toContain('%j');
+    }
+  );
+
   it.skipIf(!hasPy)(
     'tells the watchdog to classify failures from error_detail, not conversation_id',
     () => {
@@ -1053,13 +1090,13 @@ describe('deploy-sdlc-agents.py', () => {
       // keyed on `conversation_id` would mislabel them — that field is null on
       // almost every run that dies at the wall (234 of 253 FAILED runs still had
       // a `sandbox_id`), so the classification must key on `error_detail` plus
-      // duration.
+      // time.
       const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD watchdog`;
       const out = newPrompt('SDLC 23', original);
       expect(out).toContain('`conversation_id` **bukan** penanda sandbox');
       expect(out).toContain('Timed out: command timed out or was killed');
       expect(out).toContain('Timed out: Sandbox not available');
-      expect(out).toContain('1780 detik');
+      expect(out).toContain('Failed to get execution context');
     }
   );
 

@@ -248,6 +248,7 @@ repositori privat:
 | Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu (gerbang berutang pass untuk **setiap** head hijau yang belum ditinjau, 2026-10-16) | bila run yang di-dispatch untuk head itu masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, run tercatat hilang dari riwayat, head belum pernah di-dispatch, atau run selesai tanpa menulis review (gerbang diam), dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head (run id yang di-dispatch dicatat di penanda komentar head itu, jadi keputusannya per head); satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
 | Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20) per **automation** (kunci KV `retry-<aid>`; dihapus saat run terbaru COMPLETED agar episode berikutnya mulai lagi); bila habis, satu issue `automation-health` |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
+| Dinding jam pada sebuah automation | `Pengawas armada` mengklasifikasi `wall` bila `error_detail` "command timed out or was killed" **dan** `completed_at >= timeout_at` (tenggat run itu sendiri, bukan ambang durasi tetap — riwayat memuat era `timeout=900` yang mati ~1000 detik) | masuk ringkasan `wall`; saran menambah/memperketat ANGGARAN WAKTU prompt. Riwayat run diperiksa **berotasi** (`start = hari-ke-%j % jumlah automation`, melingkar) supaya ekor daftar tidak luput; konfigurasi seluruh daftar selalu disapu tanpa panggilan run |
 | `timeout` di bawah 1800 pada sebuah automation | `Pengawas armada` membaca `timeout` tiap automation | satu issue `automation-health` (`config`): set ke 1800. Angka lebih kecil tidak menghemat apa pun dan hanya memindahkan kematian ke run yang tugasnya jujur (invarian 20) |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
@@ -314,7 +315,19 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    `conversation_id` **bukan** penanda sandbox dan tidak boleh dipakai untuk
    mengklasifikasi kegagalan: ia null pada hampir setiap run yang mati di
    dinding (234 dari 253 run FAILED tetap punya `sandbox_id`). Klasifikasi
-   `Pengawas armada` memakai `error_detail` + durasi.
+   `Pengawas armada` memakai `error_detail` + **tenggat run itu sendiri**
+   (`completed_at >= timeout_at`), bukan ambang durasi tetap: riwayat memuat era
+   `timeout=900` yang matinya ~1000 detik, dan ambang 1780 detik salah
+   mengkelaskannya. Dua koreksi lain pada `Pengawas armada` (2026-10-20):
+   endpoint-nya adalah **akar API** (`GET /api/automation/v1`, `GET
+   /api/automation/v1/{id}/runs?limit=5`) seperti
+   `.github/scripts/automation-retry.sh` — `/automations` menjawab `422` dan
+   `/automations/{id}/runs` menjawab `404`, jadi watchdog yang memakai bentuk
+   itu tidak membaca apa pun; dan riwayat run diperiksa **berotasi**
+   (`start = hari-ke-%j % jumlah automation`, melingkar) karena 24 automation
+   lebih banyak daripada anggaran ~19 bacaan run — tanpa rotasi ekor daftar
+   tak pernah diperiksa. Konfigurasi seluruh daftar (enabled, timeout, guard,
+   tabrakan cron) tetap disapu penuh setiap hari tanpa satu pun panggilan run.
 
 
 ### Instruksi pelaksanaan
