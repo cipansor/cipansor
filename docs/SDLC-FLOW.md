@@ -299,9 +299,23 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    run ke-24 automation satu per satu memakan seluruh anggaran. Ia kini membawa
    **anggaran kerja** sendiri (daftar sekali, tiap automation satu bacaan,
    berhenti mengumpulkan pada ~20 panggilan API dan menulis laporan dari yang
-   ada) — pola yang sama dengan `Gerbang tinjau PR`. Setiap automation yang
-   tugasnya bisa meluas tanpa batas wajib punya anggaran seperti itu; plafon
-   platform hanya membatasi kapan ia dibunuh, bukan kapan ia berhenti.
+   ada) — pola yang sama dengan `Gerbang tinjau PR`.
+
+   **Diperluas ke seluruh armada 2026-10-20.** Dinding jam adalah kegagalan
+   armada yang dominan, dan ia bukan tugas yang salah: 128 dari 253 run FAILED
+   mati pada ≥1780 detik dengan `current_phase` "Agent is working on the task" —
+   agen masih bekerja ketika plafon menabraknya. Bukti bahwa anggaran kerjanya
+   yang bekerja, bukan plafonnya: `Gerbang tinjau PR` membawa anggaran dan
+   mencatat **0** kematian dinding setelahnya, sedangkan `Triase bug` tidak
+   membawa dan mencatat **23** pada jendela yang sama. Karena plafon tidak bisa
+   dinaikkan, `scripts/deploy-sdlc-agents.py` kini menyisipkan satu anggaran
+   jam pasir (`ANGGARAN WAKTU — JAM PASIR`) ke **setiap** prompt yang belum
+   membawa anggaran sendiri (10/25/35 perintah, berhenti dan kirim hasil).
+   `conversation_id` **bukan** penanda sandbox dan tidak boleh dipakai untuk
+   mengklasifikasi kegagalan: ia null pada hampir setiap run yang mati di
+   dinding (234 dari 253 run FAILED tetap punya `sandbox_id`). Klasifikasi
+   `Pengawas armada` memakai `error_detail` + durasi.
+
 
 ### Instruksi pelaksanaan
 

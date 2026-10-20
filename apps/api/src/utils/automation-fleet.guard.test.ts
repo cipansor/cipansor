@@ -1026,18 +1026,42 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('ANGGARAN WAKTU');
   });
 
-  it.skipIf(!hasPy)('tells the watchdog to classify failures by sandbox evidence', () => {
-    // The dominant fleet failure is sandbox starvation under burst dispatch, not
-    // a wrong task: 220 of 235 FAILED runs never got a sandbox
-    // (`conversation_id` null). A watchdog that called that "content" would send
-    // maintainers to rewrite prompts that were never at fault, so the
-    // classification must key on `conversation_id`.
-    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD watchdog`;
-    const out = newPrompt('SDLC 23', original);
-    expect(out).toContain('conversation_id` **null**');
-    expect(out).toContain('`sandbox`');
-    expect(out).toContain('kolam sandbox kehabisan slot');
+  it.skipIf(!hasPy)('gives every automation a work budget', () => {
+    // Invariant 20 / §9: the 1800s ceiling cannot be raised, so an automation
+    // whose task can sprawl needs an hourglass of its own. Gerbang tinjau PR
+    // carries one and shows 0 wall deaths after it; Triase bug carried none and
+    // shows 23 in the same window (measured 2026-10-20).
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOriginal tail`;
+    // An automation with a managed tail but no tailored budget.
+    expect(newPrompt('SDLC 01', original)).toContain('ANGGARAN WAKTU — JAM PASIR');
+    // An automation with no managed tail keeps its tail and gains the budget.
+    const plain = newPrompt('SDLC 04', original);
+    expect(plain).toContain('ANGGARAN WAKTU — JAM PASIR');
+    expect(plain).toContain('Original tail');
+    // Idempotent: a redeploy must not stack a second copy.
+    expect(newPrompt('SDLC 04', plain).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    // A tailored budget is not doubled with the generic one.
+    expect(newPrompt('SDLC 18', original)).not.toContain('JAM PASIR');
+    expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
   });
+
+  it.skipIf(!hasPy)(
+    'tells the watchdog to classify failures from error_detail, not conversation_id',
+    () => {
+      // The dominant fleet failure is the wall clock, not a wrong task: 128 of
+      // 253 FAILED runs died at >=1780s with the agent still working. A watchdog
+      // keyed on `conversation_id` would mislabel them — that field is null on
+      // almost every run that dies at the wall (234 of 253 FAILED runs still had
+      // a `sandbox_id`), so the classification must key on `error_detail` plus
+      // duration.
+      const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD watchdog`;
+      const out = newPrompt('SDLC 23', original);
+      expect(out).toContain('`conversation_id` **bukan** penanda sandbox');
+      expect(out).toContain('Timed out: command timed out or was killed');
+      expect(out).toContain('Timed out: Sandbox not available');
+      expect(out).toContain('1780 detik');
+    }
+  );
 
   it.skipIf(!hasPy)('keeps the original tail when it has no replacement tail', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nAturan khusus yang harus utuh`;

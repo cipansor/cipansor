@@ -84,6 +84,25 @@ FOOTER_LINE_PREFIX = "_This comment was created by an AI agent"
 LEGACY_GUARD_FILTER = "!icontains(comment.body, 'This comment was created by an AI agent')"
 AUTHOR_GUARD_FILTER = "comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'"
 
+# The wall clock is the fleet's dominant failure, and it is not a wrong task:
+# 128 of 253 FAILED runs died at >=1780s with `current_phase` "Agent is working
+# on the task" — the agent was still exploring when the 1800s ceiling killed it
+# (measured 2026-10-20). A cap cannot be raised (the API refuses `timeout` > 1800
+# with `422`), so the fix is a work budget: an hourglass the agent watches so it
+# stops exploring and ships what it has. `Gerbang tinjau PR` carries one and
+# shows 0 wall deaths after it; `Triase bug` carries none and shows 23 in the
+# same window. Every automation without a tailored budget gets this generic one.
+WORK_BUDGET_MARK = "ANGGARAN WAKTU — JAM PASIR"
+WORK_BUDGET = """ANGGARAN WAKTU — JAM PASIR (WAJIB)
+Run ini dibunuh pada 1800 detik oleh plafon platform (`execution/timeout`), dan plafon itu tidak bisa dinaikkan. Perlakukan anggaran seperti jam pasir:
+- Setelah **10 perintah**, kamu harus sudah tahu sasarannya dan apa yang harus dibaca.
+- Setelah **25 perintah**, hentikan setiap penelusuran baru dan mulai menulis hasilnya.
+- Setelah **35 perintah**, kamu WAJIB sudah mengirim hasilnya (komentar, issue, review, atau laporan) lalu berhenti.
+- Jangan mengulang perintah yang sudah dijalankan, jangan membaca berkas atau objek yang sama dua kali, dan jangan menelusuri riwayat yang sama dengan cara lain.
+- Untuk API GitHub: daftar sekali, satu bacaan per objek; jangan membaca halaman tanpa batas. Untuk berkas: baca yang substantif saja (lewati lockfile dan snapshot).
+Hasil yang terkirim dengan temuan yang ada jauh lebih bernilai daripada penelusuran menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, kirim apa yang sudah kamu punya lalu berhenti.
+"""
+
 BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
 - Setiap body issue atau PR yang Anda tulis WAJIB dibuka dengan baris persis ini, lalu satu baris kosong, baru isinya:
   بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
@@ -179,12 +198,12 @@ Balas selalu di thread asal. Abaikan sebutan yang bukan dari asosiasi terpercaya
 """,
     "SDLC 23": """PERILAKU SASARAN (level agentic)
 Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya tetap sehat. Setiap run automation dapat dibaca melalui API OpenHands di `https://app.all-hands.dev/api/automation/v1/automations` dan `.../automations/{id}/runs` dengan account API key; guard repositori sendiri adalah GitHub Actions workflow di `.github/workflows/`. Jika API automation tidak terjangkau dari lingkungan Anda (tidak ada key, 401/403), katakan itu di awal laporan Anda dan dasarkan setiap temuan pada repositori dan run GitHub Actions saja — jangan mengarang status run. Setiap hari:
-1. Baca run terbaru setiap automation dan klasifikasikan setiap kegagalan **dari buktinya**, bukan dari namanya. Bukti paling menentukan ada di objek run: `conversation_id` **null** berarti sandbox tidak pernah dialokasikan — run mati sebelum agen mulai bekerja; `conversation_id` terisi berarti agen benar-benar berjalan lalu gagal. Empat kelas:
-   - `sandbox` — `conversation_id` null dengan `status_detail.operation` `verify_run`/`get_execution_context` (`kind` `timeout` atau `environment_unavailable`). Ini bukan tugas yang salah, melainkan kolam sandbox kehabisan slot saat banyak dispatch serentak (#841). Kelas inilah yang mendominasi armada ini; laporkan jumlahnya, jangan menyalahkan prompt.
-   - `llm` — `execution_error` berisi `OpenAIError` dengan `<!DOCTYPE`/`Connection`/`503`: proxy LLM menjawab halaman HTML alih-alih API. Transien, ditangani `automation-retry.yml`; hanya laporkan bila beruntun.
-   - `wall` — `execution/timeout` pada run yang **punya** `conversation_id`: tugasnya benar-benar melewati 1800 detik. Ini satu-satunya kelas yang menunjuk ke anggaran kerja prompt, dan hanya ini yang boleh memicu saran menyunting prompt.
-   - `config` — filter atau trigger salah, guard self-comment hilang, `timeout` bukan 1800, dua automation berbagi slot cron.
-   Jangan menyebut `content` (agent menghasilkan hasil buruk) kecuali Anda memegang keluaran agent yang salah sebagai bukti; kegagalan `sandbox`/`llm` bukan `content`.
+1. Baca run terbaru setiap automation dan klasifikasikan setiap kegagalan **dari `error_detail` dan durasinya**, bukan dari nama atau dari `conversation_id`. `conversation_id` **bukan** penanda sandbox: ia null pada hampir setiap run yang mati di dinding jam (hanya terisi saat run selesai bersih), padahal run itu tetap punya `sandbox_id` dan `current_phase` "Agent is working on the task" — artinya agen memang bekerja. Hitung durasi `completed_at - started_at`; dinding sesungguhnya ~1922 detik (plafon 1800 + overhead), jadi run yang mati pada ≥1780 detik mati **di** dinding jam. Empat kelas:
+   - `wall` — `error_detail` diawali "Timed out: command timed out or was killed" **dan** durasi ≥1780 detik. Agen masih bekerja saat plafon menabraknya; tugasnya lebih panjang daripada 1800 detik (sering: perintah yang menggantung — `pnpm install`, suite tes, atau build). **Ini kelas yang mendominasi armada**, dan satu-satunya yang menunjuk ke anggaran kerja prompt: saran yang benar adalah menambahkan/memperketat ANGGARAN WAKTU, bukan menyalahkan isi tugas.
+   - `sandbox` — `error_detail` "Timed out: Sandbox not available": kolam sandbox kehabisan slot saat banyak dispatch serentak (#841). Laporkan jumlahnya; perbaikannya di sisi penjadwalan, bukan prompt.
+   - `dispatch` — `error_detail` "Failed to get execution context": sandbox tidak pernah siap. Transien.
+   - `llm` — `error_detail` memuat `OpenAIError` dengan `<!DOCTYPE`/`Connection`/`503`: proxy LLM menjawab halaman HTML alih-alih API. Transien, ditangani `automation-retry.yml`; laporkan hanya bila beruntun.
+   Jangan menyebut `content` (agent menghasilkan hasil buruk) kecuali Anda memegang keluaran agent yang salah sebagai bukti; kegagalan `wall`/`sandbox`/`dispatch`/`llm` bukan `content`.
 2. Periksa guard determinisme: setiap automation dengan trigger `issue_comment.created` harus membawa filter self-comment `comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`. Trigger komentar tanpa itu akan loop (#680).
 3. Periksa setiap automation `enabled`, tidak ada dua automation berbagi slot cron, dan setiap automation ber-`timeout` tepat 1800. Platform menolak `timeout` > 1800 (`422 timeout must not exceed 1800 seconds`), dan angka yang lebih kecil tidak menghemat apa pun — ia hanya memindahkan kematian ke run yang tugasnya jujur. Lima automation pernah dijeda otomatis platform setelah lima `execution/timeout` beruntun karena ini (SDLC 01 dan 15 `timeout=900`, SDLC 23 `1500`). `timeout` < 1800 adalah cacat `config`.
 4. Anda TIDAK membuat pull request dan TIDAK menyunting `main`. Setiap cacat — termasuk cacat `config` yang aman dikenal seperti guard self-comment yang hilang, automation yang dinonaktifkan padahal seharusnya aktif, `timeout` di bawah 1800, dua automation berbagi slot cron, atau pin kedaluwarsa yang dilaporkan pemeriksa `Security` — dilaporkan sebagai SATU issue berlabel `bug` atau `chore`, satu prioritas, dan `automation-health`. Jangan menyentuh filter di luar guard, `automation-loop-guard.py`, tesnya, rahasia apa pun, login, kredensial, hasil run, atau timer Issue steward; cukup laporkan.
@@ -271,8 +290,18 @@ def new_prompt(name, prompt):
         # head gained the body/reaction reminders that apply to every automation.
         # The one exception: a tail that still describes the legacy footer filter
         # gets the author filter, because the footer no longer exists.
-        return (head + orig_tail).replace(LEGACY_GUARD_FILTER, AUTHOR_GUARD_FILTER)
-    return head + tail
+        result = (head + orig_tail).replace(LEGACY_GUARD_FILTER, AUTHOR_GUARD_FILTER)
+    else:
+        result = head + tail
+    # Every automation needs a work budget (docs/SDLC-FLOW.md invariant 20, §9):
+    # the 1800s ceiling cannot be raised, and an agent that explores without a
+    # bound dies at it having shipped nothing. A tailored budget (`Gerbang tinjau
+    # PR`, `Pengawas armada`) already carries the phrase; everyone else gets the
+    # generic hourglass. Inserted at the end of the head — before the target
+    # behaviour — and guarded so a redeploy does not stack a second copy.
+    if "ANGGARAN WAKTU" not in result:
+        result = result.replace(TAIL_MARK, WORK_BUDGET + TAIL_MARK, 1)
+    return result
 
 
 def patch_tarball(aid, prompt):
