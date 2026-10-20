@@ -148,7 +148,27 @@ pertentangan itu dilaporkan sebagai issue.
     satu issue yang tak perlu dispatch menghentikannya, dan membaca sampai
     `SWEEP_PAGES` halaman (urut aktivitas terbaru) sementara `SWEEP_MAX`
     membatasi jumlah dispatch per run.
-20. **Deskripsi PR tidak ditanggapi otomatis.** Tidak ada pemicu
+20. **Dinding jam setiap automation adalah 1800 detik — platform tidak
+    menerima lebih.** Sebuah run yang melewati `timeout`-nya mati sebagai
+    `execution/timeout`, bukan karena tugasnya salah. Batas itu bukan pilihan
+    gaya: API menolak `timeout` di atas **1800** dengan
+    `422 timeout must not exceed 1800 seconds` (terverifikasi 2026-10-18).
+    Karena itu **setiap** automation diset tepat `1800`, bukan angka yang lebih
+    kecil: yang lebih kecil tidak menghemat apa pun dan hanya memindahkan
+    kematian ke run yang tugasnya jujur (lima automation pernah dijeda otomatis
+    platform setelah lima `execution/timeout` beruntun — SDLC 01/15 dengan
+    `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
+    setiap automation ber-`timeout` < 1800 adalah cacat `config` yang
+    dilaporkan, dan `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat
+    prompt di-deploy. Plafon hanya membatasi **kapan** sebuah run dibunuh,
+    bukan **kapan ia berhenti**: sebuah tugas yang menjelajah tanpa batas tetap
+    mati di dinding (2026-10-18: `Pengawas armada` mati 1800 detik delapan run
+    beruntun, tanpa satu pun laporan), jadi setiap automation semacam itu juga
+    membawa anggaran kerja sendiri. Kegagalan yang **bukan** dinding jam tetap
+    ditangani seperti biasa: `environment_unavailable` (burst dispatch) oleh
+    antrean `MAX_INFLIGHT` di `issue-triage-bridge.sh`, dan kegagalan infra lain
+    oleh `automation-retry.yml`.
+21. **Deskripsi PR tidak ditanggapi otomatis.** Tidak ada pemicu
     `pull_request.edited`; gerbang tinjau yang sudah ada membaca deskripsi PR,
     issue tertaut, seluruh diff, dan semua komentar. Sebuah pemicu edit akan
     bertabrakan dengan `basmalah.yml` yang mem-PATCH body sebagai
@@ -228,6 +248,9 @@ repositori privat:
 | Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu (gerbang berutang pass untuk **setiap** head hijau yang belum ditinjau, 2026-10-16) | bila run yang di-dispatch untuk head itu masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, run tercatat hilang dari riwayat, head belum pernah di-dispatch, atau run selesai tanpa menulis review (gerbang diam), dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head (run id yang di-dispatch dicatat di penanda komentar head itu, jadi keputusannya per head); satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
 | Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20) per **automation** (kunci KV `retry-<aid>`; dihapus saat run terbaru COMPLETED agar episode berikutnya mulai lagi); bila habis, satu issue `automation-health` |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
+| Dinding jam pada sebuah automation | `Pengawas armada` mengklasifikasi `wall` bila `error_detail` "command timed out or was killed" **dan** `completed_at >= timeout_at` (tenggat run itu sendiri, bukan ambang durasi tetap — riwayat memuat era `timeout=900` yang mati ~1000 detik) | masuk ringkasan `wall`; saran menambah/memperketat ANGGARAN WAKTU prompt. Riwayat run diperiksa **berotasi** (`start = hari-ke-%j % jumlah automation`, melingkar) supaya ekor daftar tidak luput; konfigurasi seluruh daftar selalu disapu tanpa panggilan run |
+| Perintah yang menggantung (timeout sebelum tenggat run) | `Pengawas armada` mengklasifikasi `wall-short` bila `error_detail` "command timed out or was killed" tetapi `completed_at < timeout_at` | dilaporkan **terpisah** dari `wall`, karena saran `wall` (menambah anggaran) tidak berlaku untuk satu perintah yang menggantung — perbaikan sebenarnya adalah membatasi perintah itu, bukan menambah anggaran. Setiap run "command timed out" punya kelas; tidak ada yang jatuh tanpa kelas |
+| `timeout` di bawah 1800 pada sebuah automation | `Pengawas armada` membaca `timeout` tiap automation | satu issue `automation-health` (`config`): set ke 1800. Angka lebih kecil tidak menghemat apa pun dan hanya memindahkan kematian ke run yang tugasnya jujur (invarian 20) |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
 | Situs menurun tanpa deploy | Health check App Service + availability test | alert dari platform |
@@ -266,6 +289,69 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 7. **WIP dan batas putaran.** Belum ada. Tambahkan pada `Tiket jadi PR` dan
    `Gerbang tinjau PR`.
 8. **Laporan pemakaian.** Belum ada. Tambahkan pada `Pengawas armada`.
+9. **Dinding jam seragam, dan anggaran kerja untuk yang panjang.** Lima
+   automation pernah dijeda otomatis platform (lima `execution/timeout`
+   beruntun): SDLC 01 dan 15 diset `timeout=900`, SDLC 23 `1500`, padahal
+   tugasnya ~1000–2000 detik dan platform menerima sampai **1800**. Selesai
+   2026-10-18: seluruh armada diset `1800`, dan
+   `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat prompt di-deploy
+   (invarian 20). **Menaikkan plafon saja tidak cukup** untuk tugas yang
+   menjelajah tanpa batas: `Pengawas armada` tetap mati 1800 detik setelahnya,
+   delapan run beruntun tanpa satu pun laporan terkirim, karena membaca riwayat
+   run ke-24 automation satu per satu memakan seluruh anggaran. Ia kini membawa
+   **anggaran kerja** sendiri (daftar sekali, tiap automation satu bacaan,
+   berhenti mengumpulkan pada ~20 panggilan API dan menulis laporan dari yang
+   ada) — pola yang sama dengan `Gerbang tinjau PR`.
+
+   **Diperluas ke seluruh armada 2026-10-20.** Dinding jam adalah kegagalan
+   armada yang dominan, dan ia bukan tugas yang salah: 128 dari 253 run FAILED
+   mati pada ≥1780 detik dengan `current_phase` "Agent is working on the task" —
+   agen masih bekerja ketika plafon menabraknya. Bukti bahwa anggaran kerjanya
+   yang bekerja, bukan plafonnya: `Gerbang tinjau PR` membawa anggaran dan
+   mencatat **0** kematian dinding setelahnya, sedangkan `Triase bug` tidak
+   membawa dan mencatat **23** pada jendela yang sama. Karena plafon tidak bisa
+   dinaikkan, `scripts/deploy-sdlc-agents.py` kini menyisipkan satu anggaran
+   jam pasir (`ANGGARAN WAKTU — JAM PASIR`) ke **setiap** prompt yang belum
+   membawa anggaran sendiri (10/25/35 perintah, berhenti dan kirim hasil).
+   `conversation_id` **bukan** penanda sandbox dan tidak boleh dipakai untuk
+   mengklasifikasi kegagalan: ia null pada hampir setiap run yang mati di
+   dinding (234 dari 253 run FAILED tetap punya `sandbox_id`). Klasifikasi
+   `Pengawas armada` memakai `error_detail` + **tenggat run itu sendiri**
+   (`completed_at >= timeout_at`), bukan ambang durasi tetap: riwayat memuat era
+   `timeout=900` yang matinya ~1000 detik, dan ambang 1780 detik salah
+   mengkelaskannya. Dua koreksi lain pada `Pengawas armada` (2026-10-20):
+   endpoint-nya adalah **akar API** (`GET /api/automation/v1`, `GET
+   /api/automation/v1/{id}/runs?limit=5`) seperti
+   `.github/scripts/automation-retry.sh` — `/automations` menjawab `422` dan
+   `/automations/{id}/runs` menjawab `404`, jadi watchdog yang memakai bentuk
+   itu tidak membaca apa pun; dan riwayat run diperiksa **berotasi**
+   (`start = hari-ke-%j % jumlah automation`, melingkar) karena 24 automation
+   lebih banyak daripada anggaran ~19 bacaan run — tanpa rotasi ekor daftar
+   tak pernah diperiksa. Konfigurasi seluruh daftar (enabled, timeout, guard,
+   tabrakan cron) tetap disapu penuh setiap hari tanpa satu pun panggilan run.
+   **Kelas kelima (`wall-short`).** Sebuah run ber-`error_detail` "command
+   timed out or was killed" yang mati **sebelum** tenggatnya sendiri
+   (`completed_at < timeout_at`) bukan `wall`: run-nya tidak menabrak plafon,
+   perintahnya yang menggantung (atau tenggat run berubah di tengah jalan).
+   `wall-short` dilaporkan terpisah, karena saran `wall` — menambah anggaran —
+   justru salah untuk satu perintah yang menggantung. Dengan kelas ini setiap
+   run "command timed out" punya kelas; tak ada yang jatuh tanpa kelas.
+   **Prompt terpotong ditolak, bukan ditambal.** Sebuah prompt tanpa penanda
+   `PERILAKU SASARAN` telah kehilangan ekornya. Untuk automation ber-ekor
+   terkelola (`TAILS`) kerugiannya tak berbahaya — ekornya (instruksi tugas)
+   dipasang ulang dari skrip, jadi automation itu dibangun utuh. Untuk yang
+   **tanpa** ekor terkelola, ekor itu adalah instruksi tugasnya sendiri dan
+   hilang: menempelkan anggaran ke kepala yang tersisa hanya mengirim prompt
+   yang tak bisa menjalankan tugasnya. Karena itu `new_prompt` **menolak**
+   (`TruncatedPromptError`) alih-alih mengirimnya, dan menyebut satu-satunya
+   basis yang memulihkannya — `ORIGINALS=<json>` (prompt asli sebelum
+   terpotong). Satu automation yang ditolak tidak menghentikan deploy 23
+   lainnya; skrip keluar dengan kode 2 dan mencetak daftar yang ditolak.
+   **Perbaikan config tetap ditegakkan walau prompt ditolak:** `timeout` (dinding
+   jam 1800 detik) dan guard trigger tidak bergantung pada isi prompt, jadi
+   keduanya diterapkan lebih dulu — automation yang promptnya ditolak tetap
+   dinaikkan ke `timeout=1800`, hanya prompt-nya yang ditahan.
+
 
 ### Instruksi pelaksanaan
 

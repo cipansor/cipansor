@@ -946,7 +946,10 @@ describe('deploy-sdlc-agents.py', () => {
 
   // Call the real new_prompt(name, prompt) from the script (its __main__ is
   // guarded, so importing it does nothing else).
-  const newPrompt = (name: string, prompt: string): string => {
+  const runNewPrompt = (
+    name: string,
+    prompt: string
+  ): { status: number | null; stdout: string; stderr: string } => {
     const driver = [
       'import importlib.util, sys',
       'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
@@ -958,9 +961,19 @@ describe('deploy-sdlc-agents.py', () => {
       encoding: 'utf8',
       input: prompt,
     });
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+  };
+
+  const newPrompt = (name: string, prompt: string): string => {
+    const r = runNewPrompt(name, prompt);
     if (r.status !== 0) throw new Error(r.stderr || 'python failed');
     return r.stdout;
   };
+
+  // A distinctive line from SDLC 01's managed tail (`TAILS` in the deploy
+  // script). Its presence proves the tail — the task instructions — was
+  // re-attached, not merely that a budget was appended.
+  const TAILS_SDLC_01_MARKER = 'Triase bug ini dengan KRITIS dan habis-habisan.';
 
   it.skipIf(!hasPy)('strips the AI-disclosure footer mandate from the head', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nTail`;
@@ -970,6 +983,216 @@ describe('deploy-sdlc-agents.py', () => {
     // The body block still lands, now anchored on the task paragraph.
     expect(out).toContain('BODY ISSUE/PR — KOMENTAR DULU');
   });
+
+  // Call the real apply_timeout(aid, name, old_timeout, dry) from the script.
+  // It returns True on a change, prints the plan on a dry run, and only ever
+  // raises a value below the ceiling — never lowers one.
+  const applyTimeout = (
+    oldTimeout: number | null,
+    dry = true
+  ): { changed: boolean; out: string } => {
+    const driver = [
+      'import importlib.util, sys, json',
+      'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'old = None if sys.argv[2] == "null" else int(sys.argv[2])',
+      'dry = sys.argv[3] == "1"',
+      'changed = m.apply_timeout("aid", "SDLC 03", old, dry)',
+      'sys.stdout.write("CHANGED=" + str(changed))',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', driver, DEPLOY, String(oldTimeout), dry ? '1' : '0'], {
+      encoding: 'utf8',
+    });
+    if (r.status !== 0) throw new Error(r.stderr || 'python failed');
+    return { changed: r.stdout.includes('CHANGED=True'), out: r.stdout + r.stderr };
+  };
+
+  it.skipIf(!hasPy)('raises a timeout below the ceiling to 1800 (invariant 20)', () => {
+    const r = applyTimeout(900);
+    expect(r.changed).toBe(true);
+    expect(r.out).toContain('1800');
+  });
+
+  it.skipIf(!hasPy)('leaves a timeout already at the ceiling alone', () => {
+    expect(applyTimeout(1800).changed).toBe(false);
+  });
+
+  it.skipIf(!hasPy)('never lowers a timeout the API somehow accepted above the ceiling', () => {
+    // The API refuses > 1800 with a 422, so this is defensive: a value above the
+    // ceiling must not be silently rewritten downward.
+    expect(applyTimeout(3600).changed).toBe(false);
+  });
+
+  it.skipIf(!hasPy)('sets a missing timeout to the ceiling', () => {
+    expect(applyTimeout(null).changed).toBe(true);
+  });
+
+  it.skipIf(!hasPy)('tells the fleet watchdog to flag a timeout below the ceiling', () => {
+    // The watchdog is the runtime checker for invariant 20: the deploy script
+    // sets the value, but only the watchdog can notice a hand edit in the cloud.
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD watchdog`;
+    const out = newPrompt('SDLC 23', original);
+    expect(out).not.toContain('OLD watchdog');
+    expect(out).toContain('tepat 1800');
+    expect(out).toContain('timeout` < 1800 adalah cacat `config`');
+    expect(out).toContain('ANGGARAN WAKTU');
+  });
+
+  it.skipIf(!hasPy)('gives every automation a work budget', () => {
+    // Invariant 20 / §9: the 1800s ceiling cannot be raised, so an automation
+    // whose task can sprawl needs an hourglass of its own. Gerbang tinjau PR
+    // carries one and shows 0 wall deaths after it; Triase bug carried none and
+    // shows 23 in the same window (measured 2026-10-20).
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOriginal tail`;
+    // An automation with a managed tail but no tailored budget.
+    expect(newPrompt('SDLC 01', original)).toContain('ANGGARAN WAKTU — JAM PASIR');
+    // An automation with no managed tail keeps its tail and gains the budget.
+    const plain = newPrompt('SDLC 04', original);
+    expect(plain).toContain('ANGGARAN WAKTU — JAM PASIR');
+    expect(plain).toContain('Original tail');
+    // Idempotent: a redeploy must not stack a second copy.
+    expect(newPrompt('SDLC 04', plain).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    // A tailored budget is not doubled with the generic one.
+    expect(newPrompt('SDLC 18', original)).not.toContain('JAM PASIR');
+    expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
+  });
+
+  it.skipIf(!hasPy)('refuses a truncated prompt whose task instructions are gone', () => {
+    // A live prompt truncated by the old head-slicing bug carries no
+    // `PERILAKU SASARAN` marker. For an automation with no managed tail
+    // (`TAILS`), that marker held the task's own instructions — appending a
+    // budget to the surviving head would ship a prompt that cannot do its job.
+    // The deploy must refuse and name the repair (`ORIGINALS`), not deploy it.
+    const r = runNewPrompt('SDLC 04', 'Header tanpa ekor');
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('no ');
+    expect(r.stderr).toContain('ORIGINALS');
+  });
+
+  it.skipIf(!hasPy)('rebuilds a truncated prompt whole when given the original', () => {
+    // The repair path: `ORIGINALS` supplies the untruncated prompt as the base,
+    // so the head is rebuilt and the tail (the task instructions) is restored —
+    // not merely given a budget. The tail's own instruction text must come back.
+    const original =
+      'Header\n\nSertakan tes bersama perubahan kode.\n\n' +
+      'PERILAKU SASARAN (level agentic)\nInstruksi tugas yang hilang saat terpotong.';
+    const out = newPrompt('SDLC 04', original);
+    expect(out).toContain('Instruksi tugas yang hilang saat terpotong.');
+    expect(out).toContain('BODY ISSUE/PR');
+    expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
+    // Idempotent on that result.
+    expect(newPrompt('SDLC 04', out).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+  });
+
+  it.skipIf(!hasPy)('rebuilds a managed-tail automation whole even from a truncated head', () => {
+    // For an automation with a managed tail (`TAILS`), a missing live tail is
+    // harmless: the tail is re-attached from the script, so the automation is
+    // rebuilt whole and its instructions are not lost. No refusal.
+    const out = newPrompt('SDLC 01', 'Header tanpa ekor');
+    expect(out).toContain('BODY ISSUE/PR');
+    expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
+    expect(out).toContain(TAILS_SDLC_01_MARKER);
+  });
+
+  it.skipIf(!hasPy)('still enforces the 1800s timeout when a truncated prompt is refused', () => {
+    // Config fixes do not depend on the prompt: when new_prompt refuses a
+    // truncated prompt, the automation must still get `timeout=1800` (and its
+    // trigger guard) — otherwise it stays on the old, too-short wall clock
+    // that caused the wall deaths in the first place. And the refused prompt
+    // itself must NOT be deployed (no PATCH carrying `prompt`).
+    const driver = [
+      'import importlib.util, sys, os, json',
+      "os.environ['DEPLOY'] = 'true'",
+      "os.environ['OPENHANDS_API_KEY'] = 'test-key'",
+      'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'calls = []',
+      'def fake_req(method, path, data=None, raw=False):',
+      '    calls.append({"method": method, "path": path, "data": data})',
+      '    if method == "GET" and path == "/":',
+      '        return {"automations": [{"id": "aid-1", "name": "SDLC 04",',
+      '            "prompt": "Header tanpa ekor", "timeout": 900, "trigger": {}}]}',
+      '    return {}',
+      'm.req = fake_req',
+      'm.patch_tarball = lambda aid, prompt: b""',
+      'm.upload = lambda blob, name: {"tarball_path": "x"}',
+      'code = 0',
+      'try:',
+      '    m.main()',
+      'except SystemExit as e:',
+      '    code = e.code if e.code is not None else 0',
+      'print("RESULT " + json.dumps({"code": code, "calls": calls}))',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', driver, DEPLOY], { encoding: 'utf8' });
+    const line = r.stdout.split('\n').find((l) => l.startsWith('RESULT '));
+    if (!line) throw new Error(`no RESULT line: ${r.stdout}\n${r.stderr}`);
+    const result = JSON.parse(line.slice('RESULT '.length)) as {
+      code: number;
+      calls: { method: string; path: string; data: unknown }[];
+    };
+    // The prompt was refused, so the script reports failure.
+    expect(result.code).toBe(2);
+    // The wall clock was still raised to the ceiling.
+    expect(result.calls).toContainEqual({
+      method: 'PATCH',
+      path: '/aid-1',
+      data: { timeout: 1800 },
+    });
+    // No PATCH carried the prompt: a refused prompt is never deployed.
+    const promptPatches = result.calls.filter(
+      (c) => c.method === 'PATCH' && c.data && 'prompt' in (c.data as object)
+    );
+    expect(promptPatches).toHaveLength(0);
+  });
+
+  it.skipIf(!hasPy)('cites the automation API endpoints the retry script actually uses', () => {
+    // The fleet's own integration (`.github/scripts/automation-retry.sh`) reads
+    // the list at the API root and runs at `/{id}/runs`. `/automations` answers
+    // 422 and `/automations/{id}/runs` answers 404, so a watchdog told to use
+    // them gets no data at all.
+    const out = newPrompt('SDLC 23', `x\n\nPERILAKU SASARAN (level agentic)\ny`);
+    expect(out).not.toContain('/api/automation/v1/automations');
+    expect(out).toContain('GET https://app.all-hands.dev/api/automation/v1`');
+    expect(out).toContain('/api/automation/v1/{id}/runs?limit=5');
+  });
+
+  it.skipIf(!hasPy)(
+    'tells the watchdog to classify wall failures by timeout_at, and to rotate coverage',
+    () => {
+      const out = newPrompt('SDLC 23', `x\n\nPERILAKU SASARAN (level agentic)\ny`);
+      // A fixed 1780s threshold misclassifies the ~1000s deaths from the era of
+      // `timeout=900`; the run's own deadline is the robust discriminator.
+      expect(out).toContain('completed_at >= timeout_at');
+      // A `command timed out` run that dies *before* its own deadline is a
+      // distinct class (`wall-short`), not lumped into `wall`: the `wall` advice
+      // (add budget) is wrong for a hung command. No timed-out run is classless.
+      expect(out).toContain('wall-short');
+      expect(out).toContain('Lima kelas');
+      // 24 automations, ~19 run reads: without rotation the tail is never seen.
+      expect(out).toContain('ROTASI WAJIB');
+      expect(out).toContain('%j');
+    }
+  );
+
+  it.skipIf(!hasPy)(
+    'tells the watchdog to classify failures from error_detail, not conversation_id',
+    () => {
+      // The dominant fleet failure is the wall clock, not a wrong task: 128 of
+      // 253 FAILED runs died at >=1780s with the agent still working. A watchdog
+      // keyed on `conversation_id` would mislabel them — that field is null on
+      // almost every run that dies at the wall (234 of 253 FAILED runs still had
+      // a `sandbox_id`), so the classification must key on `error_detail` plus
+      // time.
+      const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD watchdog`;
+      const out = newPrompt('SDLC 23', original);
+      expect(out).toContain('`conversation_id` **bukan** penanda sandbox');
+      expect(out).toContain('Timed out: command timed out or was killed');
+      expect(out).toContain('Timed out: Sandbox not available');
+      expect(out).toContain('Failed to get execution context');
+    }
+  );
 
   it.skipIf(!hasPy)('keeps the original tail when it has no replacement tail', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nAturan khusus yang harus utuh`;
@@ -1020,8 +1243,9 @@ describe('deploy-sdlc-agents.py', () => {
     const truncated = `Header\n\n${FOOTER}\n\nBODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)\n- x`;
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nAturan khusus`;
     expect(newPrompt('SDLC 03', original)).toContain('Aturan khusus');
-    // And the buggy base would not have recovered it (idempotent head only).
-    expect(newPrompt('SDLC 03', truncated)).not.toContain('Aturan khusus');
+    // The truncated base is refused outright (its task instructions are gone),
+    // rather than silently rebuilt as a head-only prompt.
+    expect(runNewPrompt('SDLC 03', truncated).status).not.toBe(0);
   });
 
   it.skipIf(!hasPy)('inserts the comment-first body block exactly once', () => {

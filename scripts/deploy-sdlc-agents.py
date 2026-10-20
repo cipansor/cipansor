@@ -34,6 +34,15 @@ the automation's `prompt` and `tarball_path`. `main.py`, `setup.sh` and
 `finish_tool_hook.py` are left byte-for-byte; only the prompt changes. Every
 step is idempotent — a second run finds the markers already present and skips.
 
+It also enforces the **wall-clock standard** (`docs/SDLC-FLOW.md` invariant 20):
+every automation is set to `TIMEOUT_MAX` (1800s, the platform's own ceiling —
+`422 timeout must not exceed 1800 seconds`). A run that crosses its `timeout`
+dies as `execution/timeout`, and a smaller value saves nothing: it only moves
+the death onto a run whose task was honest. Five automations were auto-paused
+after five consecutive `execution/timeout` because of it (SDLC 01 and 15 at
+900s, SDLC 23 at 1500s, 2026-10-18). Raising the value is part of "level with
+the standard", so it is applied here rather than left to a manual PATCH.
+
 Usage:
     OPENHANDS_API_KEY=... python3 scripts/deploy-sdlc-agents.py            # dry run
     OPENHANDS_API_KEY=... DEPLOY=true python3 scripts/deploy-sdlc-agents.py
@@ -62,6 +71,24 @@ BODY_MARK = "BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)"
 OLD_BODY_MARKS = ("BODY ISSUE/PR — SATU DESKRIPSI (WAJIB)",)
 TAIL_MARK = "PERILAKU SASARAN (level agentic)"
 
+
+class TruncatedPromptError(RuntimeError):
+    """A live prompt lost the tail that carried its task instructions.
+
+    Raised when an automation with no managed tail (`TAILS`) is handed a prompt
+    without `TAIL_MARK`: the instructions are unrecoverable from the live copy,
+    so the deploy must not proceed with that base. Supply `ORIGINALS=<json>`
+    (the untruncated prompts) to rebuild it.
+    """
+
+    def __init__(self, name):
+        super().__init__(
+            f"{name}: prompt has no {TAIL_MARK!r} marker and no managed tail, so "
+            "its task instructions are missing. Rebuild it from the original "
+            "with ORIGINALS=<json>; refusing to deploy a prompt that cannot do "
+            "its job."
+        )
+
 # The footer mandate paragraph. It used to anchor the BODY block, but the
 # AI-disclosure footer is gone (2026-10-14): the anti-loop guard is the comment's
 # author, so the mandate is stripped on every redeploy and must not anchor the
@@ -74,6 +101,26 @@ FOOTER_LINE_PREFIX = "_This comment was created by an AI agent"
 # gone and a text match would now match nothing.
 LEGACY_GUARD_FILTER = "!icontains(comment.body, 'This comment was created by an AI agent')"
 AUTHOR_GUARD_FILTER = "comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'"
+
+# The wall clock is the fleet's dominant failure, and it is not a wrong task:
+# 163 of 253 FAILED runs died at their own deadline (`completed_at >=
+# timeout_at`) with `current_phase` "Agent is working on the task" — the agent
+# was still exploring when the 1800s ceiling killed it (measured 2026-10-20).
+# A cap cannot be raised (the API refuses `timeout` > 1800 with `422`), so the
+# fix is a work budget: an hourglass the agent watches so it stops exploring and
+# ships what it has. `Gerbang tinjau PR` carries one and shows 0 wall deaths
+# after it; `Triase bug` carries none and shows 23 in the same window. Every
+# automation without a tailored budget gets this generic one.
+WORK_BUDGET_MARK = "ANGGARAN WAKTU — JAM PASIR"
+WORK_BUDGET = """ANGGARAN WAKTU — JAM PASIR (WAJIB)
+Run ini dibunuh pada 1800 detik oleh plafon platform (`execution/timeout`), dan plafon itu tidak bisa dinaikkan. Perlakukan anggaran seperti jam pasir:
+- Setelah **10 perintah**, kamu harus sudah tahu sasarannya dan apa yang harus dibaca.
+- Setelah **25 perintah**, hentikan setiap penelusuran baru dan mulai menulis hasilnya.
+- Setelah **35 perintah**, kamu WAJIB sudah mengirim hasilnya (komentar, issue, review, atau laporan) lalu berhenti.
+- Jangan mengulang perintah yang sudah dijalankan, jangan membaca berkas atau objek yang sama dua kali, dan jangan menelusuri riwayat yang sama dengan cara lain.
+- Untuk API GitHub: daftar sekali, satu bacaan per objek; jangan membaca halaman tanpa batas. Untuk berkas: baca yang substantif saja (lewati lockfile dan snapshot).
+Hasil yang terkirim dengan temuan yang ada jauh lebih bernilai daripada penelusuran menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, kirim apa yang sudah kamu punya lalu berhenti.
+"""
 
 BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
 - Setiap body issue atau PR yang Anda tulis WAJIB dibuka dengan baris persis ini, lalu satu baris kosong, baru isinya:
@@ -168,6 +215,26 @@ Seorang owner, member, atau collaborator menyebut @cipansor-bot pada issue atau 
 - Bila permintaan berupa pertanyaan atau tinjauan: jawab di thread yang sama dengan temuan Anda dan bukti path/baris; jangan membuat issue maupun PR.
 Balas selalu di thread asal. Abaikan sebutan yang bukan dari asosiasi terpercaya (sudah difilter).
 """,
+    "SDLC 23": """PERILAKU SASARAN (level agentic)
+Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya tetap sehat. Setiap run automation dapat dibaca melalui API OpenHands dengan account API key: `GET https://app.all-hands.dev/api/automation/v1` (daftar automation) dan `GET https://app.all-hands.dev/api/automation/v1/{id}/runs?limit=5` (riwayat run). **Akar API itu tanpa segmen `/automations`** — `GET /automations` menjawab `422` (dibaca sebagai UUID) dan `GET /automations/{id}/runs` menjawab `404`; bentuk yang benar sama dengan yang dipakai `.github/scripts/automation-retry.sh`. Guard repositori sendiri adalah GitHub Actions workflow di `.github/workflows/`. Jika API automation tidak terjangkau dari lingkungan Anda (tidak ada key, 401/403), katakan itu di awal laporan Anda dan dasarkan setiap temuan pada repositori dan run GitHub Actions saja — jangan mengarang status run. Setiap hari:
+1. Baca run terbaru setiap automation dan klasifikasikan setiap kegagalan **dari `error_detail` dan waktu**, bukan dari nama atau dari `conversation_id`. `conversation_id` **bukan** penanda sandbox: ia null pada hampir setiap run yang mati di dinding jam (hanya terisi saat run selesai bersih), padahal run itu tetap punya `sandbox_id` dan `current_phase` "Agent is working on the task" — artinya agen memang bekerja. Lima kelas:
+   - `wall` — `error_detail` diawali "Timed out: command timed out or was killed" **dan** run itu mati di tenggatnya sendiri: `completed_at >= timeout_at` (bila `timeout_at` tidak ada, jatuhkan ke durasi `completed_at - started_at` ≥ 1780 detik). Pakai `timeout_at`, **bukan** ambang durasi tetap: tenggat tiap run berbeda sepanjang riwayat (dulu ada `timeout=900`, sebelum armada diseragamkan 1800), sehingga run yang mati pada ~1000 detik dulu tetap `wall`, bukan kelas lain. Agen masih bekerja saat tenggat menabraknya; tugasnya lebih panjang daripada tenggatnya (sering: perintah yang menggantung — `pnpm install`, suite tes, atau build). **Ini kelas yang mendominasi armada**, dan satu-satunya yang menunjuk ke anggaran kerja prompt: saran yang benar adalah menambahkan/memperketat ANGGARAN WAKTU, bukan menyalahkan isi tugas.
+   - `wall-short` — `error_detail` "Timed out: command timed out or was killed" tetapi run mati **sebelum** tenggatnya sendiri (`completed_at < timeout_at`). Perintahnya yang kehabisan waktu, bukan run-nya; agen mungkin menggantung pada satu perintah, atau tenggat run berubah di tengah jalan. Laporkan jumlahnya terpisah dari `wall` — jangan campur ke `wall`, karena saran `wall` (menambah anggaran) tidak berlaku untuk perintah yang menggantung.
+   - `sandbox` — `error_detail` "Timed out: Sandbox not available": kolam sandbox kehabisan slot saat banyak dispatch serentak (#841). Laporkan jumlahnya; perbaikannya di sisi penjadwalan, bukan prompt.
+   - `dispatch` — `error_detail` "Failed to get execution context": sandbox tidak pernah siap. Transien.
+   - `llm` — `error_detail` memuat `OpenAIError` dengan `<!DOCTYPE`/`Connection`/`503`: proxy LLM menjawab halaman HTML alih-alih API. Transien, ditangani `automation-retry.yml`; laporkan hanya bila beruntun.
+   Jangan menyebut `content` (agent menghasilkan hasil buruk) kecuali Anda memegang keluaran agent yang salah sebagai bukti; kegagalan `wall`/`wall-short`/`sandbox`/`dispatch`/`llm` bukan `content`.
+2. Periksa guard determinisme: setiap automation dengan trigger `issue_comment.created` harus membawa filter self-comment `comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`. Trigger komentar tanpa itu akan loop (#680).
+3. Periksa setiap automation `enabled`, tidak ada dua automation berbagi slot cron, dan setiap automation ber-`timeout` tepat 1800. Platform menolak `timeout` > 1800 (`422 timeout must not exceed 1800 seconds`), dan angka yang lebih kecil tidak menghemat apa pun — ia hanya memindahkan kematian ke run yang tugasnya jujur. Lima automation pernah dijeda otomatis platform setelah lima `execution/timeout` beruntun karena ini (SDLC 01 dan 15 `timeout=900`, SDLC 23 `1500`). `timeout` < 1800 adalah cacat `config`.
+4. Anda TIDAK membuat pull request dan TIDAK menyunting `main`. Setiap cacat — termasuk cacat `config` yang aman dikenal seperti guard self-comment yang hilang, automation yang dinonaktifkan padahal seharusnya aktif, `timeout` di bawah 1800, dua automation berbagi slot cron, atau pin kedaluwarsa yang dilaporkan pemeriksa `Security` — dilaporkan sebagai SATU issue berlabel `bug` atau `chore`, satu prioritas, dan `automation-health`. Jangan menyentuh filter di luar guard, `automation-loop-guard.py`, tesnya, rahasia apa pun, login, kredensial, hasil run, atau timer Issue steward; cukup laporkan.
+5. Sebelum membuka issue, cari issue `automation-health` terbuka dengan penyebab yang sama. Jika ada, komentari dengan bukti baru alih-alih membuka yang kedua. Buka paling banyak satu issue per penyebab per minggu.
+6. Perbedaan `content` antara dua automation (misalnya Pelabel PR dan Gerbang tinjau PR yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
+7. Jangan pernah bertindak atas komentar yang Anda tulis sendiri. Jangan pernah merge. Laporkan ke maintainer hanya lewat issue GitHub (label `automation-health`) — tidak ada kanal lain.
+8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run ke-24 automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir: `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, buka issue/komentar dengan apa yang sudah Anda punya.
+
+   ROTASI WAJIB — JANGAN BIARKAN EKOR ARMADA LUPUT. Daftar berisi 24 automation dan anggaran hanya cukup untuk ~19 riwayat run, jadi dengan urutan tetap automation terakhir tak pernah diperiksa. Pilih titik mulai secara bergilir memakai hari-dalam-tahun UTC (`date -u +%j`) sebagai indeks: `start = (%j) % jumlah_automation`, lalu periksa riwayat berurutan **melingkar** dari `start` sampai anggaran habis. Setiap hari titik mulainya bergeser, sehingga setiap automation akhirnya masuk laporan. Tulis di laporan automation mana saja yang diperiksa pada run ini dan mana yang ditunda ke run berikutnya, supaya cakupan hari itu jujur dan bisa dilacak. Yang **selalu** diperiksa lebih dulu, sebelum rotasi: konfigurasi seluruh daftar (langkah 2 dan 3 — `enabled`, `timeout`, guard self-comment, tabrakan cron) tidak butuh satu pun panggilan run, jadi ke-24 automation selalu tersapu untuk kelas cacat `config`; yang dirotasi hanya pemeriksaan riwayat run.
+Akhiri dengan ringkasan jelas: apa yang sehat, apa yang Anda perbaiki, dan apa yang Anda eskalasi.
+""",
 }
 
 
@@ -217,6 +284,16 @@ def new_prompt(name, prompt):
     tail_start = prompt.find(TAIL_MARK)
     orig_tail = prompt[tail_start:] if tail_start >= 0 else ""
     head = prompt[:tail_start] if tail_start >= 0 else prompt
+    managed_tail = next((v for k, v in TAILS.items() if k in name), None)
+    # A prompt with no `PERILAKU SASARAN` marker has lost its tail. For an
+    # automation with a managed tail the loss is harmless — the tail (the task's
+    # instructions) is re-attached below from `TAILS`, so the automation is
+    # rebuilt whole. For one *without* a managed tail the tail was the task's
+    # own instructions, and they are gone: appending a budget to that head would
+    # ship a prompt that cannot do its job. Refuse instead of shipping it, and
+    # name the one base that repairs it (`ORIGINALS`, the untruncated prompt).
+    if tail_start < 0 and managed_tail is None:
+        raise TruncatedPromptError(name)
     # Replace an older body block so the insert below does not stack the new one
     # above it. The current marker is left untouched, so a second pass is a
     # no-op (idempotent) rather than re-inserting and shifting the separators.
@@ -239,14 +316,23 @@ def new_prompt(name, prompt):
             head = head[:end] + "\n" + BODY_BLOCK + head[end:]
         else:
             head = BODY_BLOCK + "\n" + head
-    tail = next((v for k, v in TAILS.items() if k in name), None)
-    if tail is None:
+    if managed_tail is None:
         # Keep the original tail verbatim (its behaviour is unchanged); only the
         # head gained the body/reaction reminders that apply to every automation.
         # The one exception: a tail that still describes the legacy footer filter
         # gets the author filter, because the footer no longer exists.
-        return (head + orig_tail).replace(LEGACY_GUARD_FILTER, AUTHOR_GUARD_FILTER)
-    return head + tail
+        result = (head + orig_tail).replace(LEGACY_GUARD_FILTER, AUTHOR_GUARD_FILTER)
+    else:
+        result = head + managed_tail
+    # Every automation needs a work budget (docs/SDLC-FLOW.md invariant 20, §9):
+    # the 1800s ceiling cannot be raised, and an agent that explores without a
+    # bound dies at it having shipped nothing. A tailored budget (`Gerbang tinjau
+    # PR`, `Pengawas armada`) already carries the phrase; everyone else gets the
+    # generic hourglass. Inserted before the target behaviour, and guarded so a
+    # redeploy does not stack a second copy.
+    if "ANGGARAN WAKTU" not in result:
+        result = result.replace(TAIL_MARK, WORK_BUDGET + TAIL_MARK, 1)
+    return result
 
 
 def patch_tarball(aid, prompt):
@@ -327,7 +413,30 @@ def apply_trigger(aid, name, old_trigger, dry):
     return True
 
 
-if __name__ == "__main__":
+# The platform's own ceiling: `PATCH {timeout}` answers
+# `422 timeout must not exceed 1800 seconds` (verified 2026-10-18). A smaller
+# value saves nothing and only moves the death onto a run whose task was honest,
+# so every automation is set to the ceiling (docs/SDLC-FLOW.md invariant 20).
+TIMEOUT_MAX = 1800
+
+
+def apply_timeout(aid, name, old_timeout, dry):
+    """Raise one automation's wall clock to the platform ceiling. True on change."""
+    if old_timeout == TIMEOUT_MAX:
+        return False
+    if old_timeout is not None and old_timeout > TIMEOUT_MAX:
+        # Should be unreachable (the API refuses it), but never lower a value the
+        # API somehow accepted.
+        return False
+    if dry:
+        print(f"    timeout would change: {old_timeout} -> {TIMEOUT_MAX}")
+        return True
+    req("PATCH", f"/{aid}", {"timeout": TIMEOUT_MAX})
+    print(f"    timeout deployed ({old_timeout} -> {TIMEOUT_MAX})")
+    return True
+
+
+def main():
     if not KEY:
         sys.exit("OPENHANDS_API_KEY is not set")
     # A JSON map {name: original prompt}. When the live prompt has already lost
@@ -340,6 +449,7 @@ if __name__ == "__main__":
             originals = json.load(f)
     autos = req("GET", "/")["automations"]
     print(f"{len(autos)} automation(s); DEPLOY={DEPLOY} ONLY={ONLY or '(all)'}")
+    refused = []
     for a in autos:
         name = a["name"]
         if ONLY and ONLY not in name:
@@ -347,12 +457,26 @@ if __name__ == "__main__":
         aid = a["id"]
         old = a.get("prompt") or ""
         base = originals.get(name, old)
-        new = new_prompt(name, base)
-        changed = new != old
+        # Config fixes (the self-comment trigger guard, the 1800s wall clock)
+        # do not depend on the prompt, so they are applied even when the prompt
+        # is refused below.
         trigger_changed = apply_trigger(aid, name, a.get("trigger") or {}, not DEPLOY)
+        timeout_changed = apply_timeout(aid, name, a.get("timeout"), not DEPLOY)
+        try:
+            new = new_prompt(name, base)
+        except TruncatedPromptError as e:
+            # Refuse this automation, not the whole run: the other 23 still
+            # deploy, and the message names the fix for this one. The config
+            # fixes above already landed, so only the prompt is held back.
+            print(f"- {name}: REFUSED — {e}")
+            refused.append(name)
+            if DEPLOY and (trigger_changed or timeout_changed):
+                time.sleep(1)
+            continue
+        changed = new != old
         print(f"- {name}: {'changed' if changed else 'already current'}")
         if not changed or not DEPLOY:
-            if DEPLOY and trigger_changed and not changed:
+            if DEPLOY and (trigger_changed or timeout_changed) and not changed:
                 time.sleep(1)
             continue
         blob = patch_tarball(aid, new)
@@ -360,4 +484,11 @@ if __name__ == "__main__":
         req("PATCH", f"/{aid}", {"prompt": new, "tarball_path": up.get("tarball_path")})
         print(f"    deployed (tarball {up.get('tarball_path')})")
         time.sleep(1)
+    if refused:
+        print(f"done — {len(refused)} refused: {', '.join(refused)}")
+        sys.exit(2)
     print("done")
+
+
+if __name__ == "__main__":
+    main()
