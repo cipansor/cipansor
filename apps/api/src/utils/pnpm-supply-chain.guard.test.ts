@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { parse } from 'yaml';
+import { parse, parseAllDocuments } from 'yaml';
 
 /**
  * The dependency build allowlist in `pnpm-workspace.yaml` is only a real
@@ -79,6 +79,38 @@ function dockerfilePins(file: string): string[] {
 
 function workspace(): Record<string, unknown> {
   return parse(readFileSync(WORKSPACE, 'utf8')) as Record<string, unknown>;
+}
+
+/** The version shape `scripts/audit-deps.mjs` keeps (`semver.valid`). */
+const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/**
+ * How many distinct package names `scripts/audit-deps.mjs` should report: the
+ * union of `packages:` across every YAML document of the lockfile, filtered to
+ * real versions. It recomputes the number from the lockfile instead of pinning
+ * a literal, so it stays correct as the tree grows — and, because it reads
+ * **all** documents, it drops to ~15 (only the package-manager document) if the
+ * script ever regresses to a single `parse()`, which is the failure the test
+ * below exists to catch.
+ */
+function auditedPackageNames(): number {
+  const docs = parseAllDocuments(readFileSync(LOCKFILE, 'utf8'));
+  const packages = docs.reduce<Record<string, unknown>>((merged, doc) => {
+    for (const [key, value] of Object.entries(doc.toJSON() ?? {})) {
+      if (key === 'packages' && value && typeof value === 'object') {
+        Object.assign(merged, value as Record<string, unknown>);
+      }
+    }
+    return merged;
+  }, {});
+  const names = new Set<string>();
+  for (const key of Object.keys(packages)) {
+    const bare = key.replace(/\(.*$/, '');
+    const at = bare.lastIndexOf('@');
+    if (at <= 0 || !RELEASE_VERSION.test(bare.slice(at + 1))) continue;
+    names.add(bare.slice(0, at));
+  }
+  return names.size;
 }
 
 describe('pnpm supply-chain control', () => {
@@ -214,8 +246,13 @@ describe('pnpm supply-chain control', () => {
     // this fails the whole supply-chain check rather than one line of output.
     const result = await runAuditDeps();
     expect(result.code, `audit-deps failed:\n${result.stderr}\n${result.stdout}`).toBe(0);
-    expect(result.stdout).toMatch(/Audited \d+ packages/);
-    expect(result.stdout).not.toContain('0 packages');
+    // The exact number, recomputed from the lockfile: it proves the script read
+    // every document (a single `parse()` reports only the ~15 packages of the
+    // package-manager document) and that it did not read zero. An anchored,
+    // exact match replaces the old `not.toContain('0 packages')`, whose
+    // substring also matched "1070 packages" and failed the check on any tree
+    // whose package count ends in 0 (#871).
+    expect(result.stdout).toContain(`Audited ${auditedPackageNames()} packages`);
   });
 
   it('the scan is not blind — it reads the files it guards', () => {
