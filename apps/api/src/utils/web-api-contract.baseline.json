@@ -103,7 +103,6 @@
     "POST /extracurricular/{id}/attendance  apps/web/src/hooks/use-extracurricular.ts",
     "POST /extracurricular/{id}/enroll  apps/web/src/hooks/use-extracurricular.ts",
     "POST /finance-enhancement/manual-journals  apps/web/src/app/finance/accounting/journals/create/page.tsx",
-    "POST /finance/invoices/bulk  apps/web/src/hooks/use-finance.ts",
     "POST /finance/invoices/{id}/cancel  apps/web/src/services/finance.service.ts",
     "POST /finance/invoices/{id}/remind  apps/web/src/services/finance.service.ts",
     "POST /health  apps/web/src/hooks/use-staff-dashboard.ts",

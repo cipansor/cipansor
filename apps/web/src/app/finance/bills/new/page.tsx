@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { useRouter } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
@@ -46,23 +46,18 @@ import { toast } from "sonner";
 import {
   useCreateBill,
   useCreateBulkBills,
-  BILL_TYPES,
-  BillType,
+  useBillPaymentTypes,
 } from "@/hooks/use-finance";
-import {
-  useAcademicYears,
-  useActiveAcademicYear,
-} from "@/hooks/use-academic-years";
 import { useStudents } from "@/hooks/use-students";
 import { useClasses } from "@/hooks/use-classes";
 
 import { MainLayout } from "@/components/layout";
 const formSchema = z.object({
-  billType: z.string().min(1, "Jenis tagihan wajib dipilih"),
+  paymentTypeId: z.string().min(1, "Jenis tagihan wajib dipilih"),
   amount: z.coerce.number().min(1, "Jumlah minimal Rp 1"),
   dueDate: z.string().min(1, "Tanggal jatuh tempo wajib diisi"),
-  academicYearId: z.string().min(1, "Tahun ajaran wajib dipilih"),
-  description: z.string().optional(),
+  period: z.string().optional(),
+  notes: z.string().optional(),
 });
 
 type FormData = z.infer<typeof formSchema>;
@@ -72,13 +67,11 @@ function NewBillPageContent() {
   const [search, setSearch] = useState("");
   const [classId, setClassId] = useState<string>("");
   const [selectedStudents, setSelectedStudents] = useState<string[]>([]);
-  const [isBulk, setIsBulk] = useState(false);
 
   const createBillMutation = useCreateBill();
   const createBulkBillsMutation = useCreateBulkBills();
 
-  const { data: activeYear } = useActiveAcademicYear();
-  const { data: academicYears } = useAcademicYears({ limit: 20 });
+  const { data: paymentTypes } = useBillPaymentTypes();
   const { data: classesData } = useClasses({ limit: 100 });
   const { data: studentsData, isLoading: studentsLoading } = useStudents({
     search: search || undefined,
@@ -89,22 +82,13 @@ function NewBillPageContent() {
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      billType: "",
+      paymentTypeId: "",
       amount: 0,
       dueDate: "",
-      academicYearId: activeYear?.id || "",
-      description: "",
+      period: "",
+      notes: "",
     },
   });
-
-  // Update academicYearId when activeYear loads. This must run in an effect:
-  // calling `form.setValue` during render updates a component while another one
-  // renders, which React reports as an error and which can drop the value.
-  useEffect(() => {
-    if (activeYear?.id && !form.getValues("academicYearId")) {
-      form.setValue("academicYearId", activeYear.id);
-    }
-  }, [activeYear?.id, form]);
 
   const toggleStudent = (studentId: string) => {
     setSelectedStudents((prev) =>
@@ -134,11 +118,11 @@ function NewBillPageContent() {
       if (selectedStudents.length === 1) {
         await createBillMutation.mutateAsync({
           studentId: selectedStudents[0],
-          academicYearId: data.academicYearId,
-          billType: data.billType as BillType,
+          paymentTypeId: data.paymentTypeId,
           amount: data.amount,
           dueDate: data.dueDate,
-          description: data.description,
+          period: data.period || undefined,
+          notes: data.notes || undefined,
         });
         toast.success(
           "Tagihan berhasil dibuat dan notifikasi dikirim ke santri",
@@ -146,11 +130,11 @@ function NewBillPageContent() {
       } else {
         await createBulkBillsMutation.mutateAsync({
           studentIds: selectedStudents,
-          academicYearId: data.academicYearId,
-          billType: data.billType as BillType,
+          paymentTypeId: data.paymentTypeId,
           amount: data.amount,
           dueDate: data.dueDate,
-          description: data.description,
+          period: data.period || undefined,
+          notes: data.notes || undefined,
         });
         toast.success(`${selectedStudents.length} tagihan berhasil dibuat`);
       }
@@ -192,7 +176,7 @@ function NewBillPageContent() {
               <form className="space-y-4">
                 <FormField
                   control={form.control}
-                  name="billType"
+                  name="paymentTypeId"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Jenis Tagihan</FormLabel>
@@ -206,13 +190,17 @@ function NewBillPageContent() {
                           </SelectTrigger>
                         </FormControl>
                         <SelectContent>
-                          {BILL_TYPES.map((type) => (
-                            <SelectItem key={type.value} value={type.value}>
-                              {type.label}
+                          {paymentTypes?.map((type) => (
+                            <SelectItem key={type.id} value={type.id}>
+                              {type.name}
                             </SelectItem>
                           ))}
                         </SelectContent>
                       </Select>
+                      <FormDescription>
+                        Jenis tagihan mengikuti daftar unit (mis. SPP, Uang
+                        Gedung)
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -251,27 +239,16 @@ function NewBillPageContent() {
 
                 <FormField
                   control={form.control}
-                  name="academicYearId"
+                  name="period"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Tahun Ajaran</FormLabel>
-                      <Select
-                        onValueChange={field.onChange}
-                        value={field.value}
-                      >
-                        <FormControl>
-                          <SelectTrigger>
-                            <SelectValue placeholder="Pilih tahun ajaran" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {academicYears?.data.map((year) => (
-                            <SelectItem key={year.id} value={year.id}>
-                              {year.name} {year.isActive && "(Aktif)"}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
+                      <FormLabel>Periode (Opsional)</FormLabel>
+                      <FormControl>
+                        <Input placeholder="mis. September 2026" {...field} />
+                      </FormControl>
+                      <FormDescription>
+                        Untuk tagihan bulanan atau tahunan
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -279,7 +256,7 @@ function NewBillPageContent() {
 
                 <FormField
                   control={form.control}
-                  name="description"
+                  name="notes"
                   render={({ field }) => (
                     <FormItem>
                       <FormLabel>Keterangan (Opsional)</FormLabel>

@@ -264,6 +264,51 @@ router.post(
 
 /**
  * @swagger
+ * /api/finance/invoices/bulk:
+ *   post:
+ *     summary: Create the same bill for many santri
+ *     tags: [Finance]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required:
+ *               - studentIds
+ *               - paymentTypeId
+ *               - amount
+ *               - dueDate
+ *             properties:
+ *               studentIds:
+ *                 type: array
+ *                 items:
+ *                   type: string
+ *               paymentTypeId:
+ *                 type: string
+ *               amount:
+ *                 type: number
+ *               dueDate:
+ *                 type: string
+ *                 format: date
+ *               period:
+ *                 type: string
+ *               notes:
+ *                 type: string
+ *     responses:
+ *       201:
+ *         description: Invoices created
+ */
+router.post(
+  '/invoices/bulk',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.STAFF),
+  controller.createBulkInvoices
+);
+
+/**
+ * @swagger
  * /api/finance/invoices/{id}:
  *   get:
  *     summary: Get invoice by ID

@@ -6,6 +6,7 @@ import {
   updatePaymentTypeSchema,
   queryPaymentTypeSchema,
   createInvoiceSchema,
+  createBulkInvoicesSchema,
   updateInvoiceSchema,
   queryInvoiceSchema,
   createPaymentSchema,
@@ -113,6 +114,20 @@ export async function createInvoice(req: Request, res: Response, next: NextFunct
       success: true,
       message: 'Invoice created successfully',
       data: invoice,
+    });
+  } catch (error) {
+    next(error);
+  }
+}
+
+export async function createBulkInvoices(req: Request, res: Response, next: NextFunction) {
+  try {
+    const data = createBulkInvoicesSchema.parse(req.body);
+    const result = await financeService.createBulkInvoices(data);
+    res.status(201).json({
+      success: true,
+      message: `${result.created} invoice(s) created successfully`,
+      data: result,
     });
   } catch (error) {
     next(error);

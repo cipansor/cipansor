@@ -16,6 +16,7 @@ import {
   UpdatePaymentTypeDto,
   QueryPaymentTypeDto,
   CreateInvoiceDto,
+  CreateBulkInvoicesDto,
   UpdateInvoiceDto,
   QueryInvoiceDto,
   CreatePaymentDto,
@@ -244,6 +245,26 @@ export async function createInvoice(data: CreateInvoiceDto, tx?: Prisma.Transact
   }
 
   return invoice;
+}
+
+/**
+ * One bill for many santri: the same kind, amount and deadline for each. Every
+ * bill goes through `createInvoice`, so it carries the same scholarship
+ * discount, invoice numbering and notification as a bill made one at a time.
+ *
+ * Not the SPP matrix: `generateBulkSppInvoices` bills every active santri of a
+ * unit or class for a month and skips the ones already billed, while this takes
+ * the santri the caller picked.
+ */
+export async function createBulkInvoices(data: CreateBulkInvoicesDto) {
+  const { studentIds, ...bill } = data;
+  const invoices = [];
+
+  for (const studentId of studentIds) {
+    invoices.push(await createInvoice({ ...bill, studentId }));
+  }
+
+  return { created: invoices.length, invoices };
 }
 
 /**

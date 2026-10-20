@@ -218,6 +218,52 @@ describe('Finance Service Unit Tests', () => {
   });
 });
 
+describe('createBulkInvoices', () => {
+  beforeEach(() => vi.clearAllMocks());
+
+  it('makes one bill per selected santri through createInvoice', async () => {
+    // The "Tagihan Massal" screen picks santri one by one, not a whole unit or
+    // class (that is the SPP matrix). Each pick must become its own bill with
+    // the shared kind, amount and deadline.
+    vi.mocked(prisma.invoice.findFirst).mockResolvedValue(null);
+    vi.mocked(prisma.invoice.create).mockResolvedValue({
+      id: 'inv-1',
+      student: { user: { id: 'u1' }, unit: { id: 'unit-1' } },
+      paymentType: { id: 'pt-1', name: 'SPP' },
+      amount: new Prisma.Decimal(350000),
+      dueDate: new Date('2026-08-10T00:00:00.000Z'),
+    } as any);
+    vi.mocked(notificationService.createNotification).mockResolvedValue({} as any);
+
+    const result = await financeService.createBulkInvoices({
+      studentIds: ['stud-1', 'stud-2'],
+      paymentTypeId: 'pt-1',
+      amount: 350000,
+      dueDate: '2026-08-10',
+    });
+
+    expect(prisma.invoice.create).toHaveBeenCalledTimes(2);
+    const studentConnects = vi
+      .mocked(prisma.invoice.create)
+      .mock.calls.map(([arg]) => arg.data.student);
+    expect(studentConnects).toEqual([{ connect: { id: 'stud-1' } }, { connect: { id: 'stud-2' } }]);
+    expect(result.created).toBe(2);
+    expect(result.invoices).toHaveLength(2);
+  });
+
+  it('bills nobody and creates nothing for an empty list', async () => {
+    const result = await financeService.createBulkInvoices({
+      studentIds: [],
+      paymentTypeId: 'pt-1',
+      amount: 350000,
+      dueDate: '2026-08-10',
+    });
+
+    expect(prisma.invoice.create).not.toHaveBeenCalled();
+    expect(result).toEqual({ created: 0, invoices: [] });
+  });
+});
+
 describe('generateBulkSppInvoices', () => {
   beforeEach(() => vi.clearAllMocks());
 

@@ -40,22 +40,18 @@ import {
 } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
-import { useCreateBulkBills, BILL_TYPES, BillType } from "@/hooks/use-finance";
+import { useCreateBulkBills, useBillPaymentTypes } from "@/hooks/use-finance";
 import { useUnits } from "@/hooks/use-units";
 import { useClasses } from "@/hooks/use-classes";
 import { useStudents } from "@/hooks/use-students";
-import {
-  useAcademicYears,
-  useActiveAcademicYear,
-} from "@/hooks/use-academic-years";
 import { STUDENT_STATUS } from "@cipansor/shared";
 
 const bulkBillSchema = z.object({
-  academicYearId: z.string().min(1, "Pilih tahun ajaran"),
-  billType: z.string().min(1, "Pilih jenis tagihan"),
+  paymentTypeId: z.string().min(1, "Pilih jenis tagihan"),
   amount: z.coerce.number().min(1, "Jumlah harus lebih dari 0"),
   dueDate: z.string().min(1, "Pilih tanggal jatuh tempo"),
-  description: z.string().optional(),
+  period: z.string().optional(),
+  notes: z.string().optional(),
 });
 
 type BulkBillFormData = z.infer<typeof bulkBillSchema>;
@@ -93,9 +89,7 @@ export default function BulkBillsPage() {
   });
   const students = studentsData?.data || [];
 
-  const { data: academicYearsData } = useAcademicYears({ limit: 10 });
-  const { data: activeYear } = useActiveAcademicYear();
-
+  const { data: paymentTypes } = useBillPaymentTypes();
   const createBulkBills = useCreateBulkBills();
 
   const {
@@ -107,18 +101,13 @@ export default function BulkBillsPage() {
   } = useForm<BulkBillFormData>({
     resolver: zodResolver(bulkBillSchema),
     defaultValues: {
-      academicYearId: activeYear?.id || "",
-      billType: "SPP",
+      paymentTypeId: "",
       amount: 0,
       dueDate: format(addMonths(new Date(), 1), "yyyy-MM-dd"),
-      description: "",
+      period: "",
+      notes: "",
     },
   });
-
-  // Set active year when it's loaded
-  if (activeYear?.id && !watch("academicYearId")) {
-    setValue("academicYearId", activeYear.id);
-  }
 
   const handleSelectAll = (checked: boolean) => {
     setSelectAll(checked);
@@ -150,16 +139,16 @@ export default function BulkBillsPage() {
     try {
       await createBulkBills.mutateAsync({
         studentIds: selectedStudentIds,
-        academicYearId: data.academicYearId,
-        billType: data.billType as BillType,
+        paymentTypeId: data.paymentTypeId,
         amount: data.amount,
         dueDate: data.dueDate,
-        description: data.description,
+        period: data.period || undefined,
+        notes: data.notes || undefined,
       });
 
       toast.success(`Berhasil membuat ${selectedStudentIds.length} tagihan`);
       router.push("/finance");
-    } catch (error) {
+    } catch {
       toast.error("Gagal membuat tagihan");
     } finally {
       setIsSubmitting(false);
@@ -197,49 +186,25 @@ export default function BulkBillsPage() {
           </CardHeader>
           <CardContent className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
             <div className="space-y-2">
-              <Label htmlFor="academicYearId">Tahun Ajaran</Label>
+              <Label htmlFor="paymentTypeId">Jenis Tagihan</Label>
               <Select
-                value={watch("academicYearId")}
-                onValueChange={(v) => setValue("academicYearId", v)}
+                value={watch("paymentTypeId")}
+                onValueChange={(v) => setValue("paymentTypeId", v)}
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Pilih tahun ajaran" />
-                </SelectTrigger>
-                <SelectContent>
-                  {academicYearsData?.data.map((year) => (
-                    <SelectItem key={year.id} value={year.id}>
-                      {year.name} {year.isActive && "(Aktif)"}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-              {errors.academicYearId && (
-                <p className="text-sm text-destructive">
-                  {errors.academicYearId.message}
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="billType">Jenis Tagihan</Label>
-              <Select
-                value={watch("billType")}
-                onValueChange={(v) => setValue("billType", v)}
-              >
-                <SelectTrigger>
+                <SelectTrigger id="paymentTypeId">
                   <SelectValue placeholder="Pilih jenis tagihan" />
                 </SelectTrigger>
                 <SelectContent>
-                  {BILL_TYPES.map((type) => (
-                    <SelectItem key={type.value} value={type.value}>
-                      {type.label}
+                  {paymentTypes?.map((type) => (
+                    <SelectItem key={type.id} value={type.id}>
+                      {type.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              {errors.billType && (
+              {errors.paymentTypeId && (
                 <p className="text-sm text-destructive">
-                  {errors.billType.message}
+                  {errors.paymentTypeId.message}
                 </p>
               )}
             </div>
@@ -269,11 +234,20 @@ export default function BulkBillsPage() {
               )}
             </div>
 
+            <div className="space-y-2">
+              <Label htmlFor="period">Periode (Opsional)</Label>
+              <Input
+                id="period"
+                {...register("period")}
+                placeholder="mis. September 2026"
+              />
+            </div>
+
             <div className="space-y-2 sm:col-span-2">
-              <Label htmlFor="description">Keterangan</Label>
+              <Label htmlFor="notes">Keterangan</Label>
               <Textarea
-                id="description"
-                {...register("description")}
+                id="notes"
+                {...register("notes")}
                 placeholder="Keterangan tagihan (opsional)"
                 rows={2}
               />

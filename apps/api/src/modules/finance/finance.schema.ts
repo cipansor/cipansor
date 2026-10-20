@@ -59,6 +59,23 @@ export const updateInvoiceSchema = z.object({
   notes: z.string().optional(),
 });
 
+/**
+ * One bill for many santri: the same kind, amount and deadline, chosen one by
+ * one on the "Tagihan Massal" screen. It is not the SPP matrix (`POST
+ * /finance/spp-matrix/generate`), which bills a whole unit or class for one
+ * month and skips what already exists.
+ */
+export const createBulkInvoicesSchema = z.object({
+  studentIds: z
+    .array(z.string().uuid('Invalid student ID'))
+    .min(1, 'At least one student is required'),
+  paymentTypeId: z.string().uuid('Invalid payment type ID'),
+  amount: z.number().positive('Amount must be positive'),
+  dueDate: dueDateField,
+  period: z.string().optional(),
+  notes: z.string().optional(),
+});
+
 export const queryInvoiceSchema = z.object({
   studentId: z.string().uuid().optional(),
   paymentTypeId: z.string().uuid().optional(),
@@ -107,6 +124,7 @@ export type UpdatePaymentTypeDto = z.infer<typeof updatePaymentTypeSchema>;
 export type QueryPaymentTypeDto = z.infer<typeof queryPaymentTypeSchema>;
 
 export type CreateInvoiceDto = z.infer<typeof createInvoiceSchema>;
+export type CreateBulkInvoicesDto = z.infer<typeof createBulkInvoicesSchema>;
 export type UpdateInvoiceDto = z.infer<typeof updateInvoiceSchema>;
 export type QueryInvoiceDto = z.infer<typeof queryInvoiceSchema>;
 

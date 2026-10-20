@@ -41,25 +41,6 @@ export interface Bill {
   updatedAt: string;
 }
 
-export type BillType =
-  | "SPP"
-  | "REGISTRATION"
-  | "BUILDING"
-  | "UNIFORM"
-  | "BOOK"
-  | "ACTIVITY"
-  | "OTHER";
-
-export const BILL_TYPES: { value: BillType; label: string }[] = [
-  { value: "SPP", label: "SPP Bulanan" },
-  { value: "REGISTRATION", label: "Biaya Pendaftaran" },
-  { value: "BUILDING", label: "Biaya Gedung" },
-  { value: "UNIFORM", label: "Seragam" },
-  { value: "BOOK", label: "Buku" },
-  { value: "ACTIVITY", label: "Kegiatan" },
-  { value: "OTHER", label: "Lainnya" },
-];
-
 export type BillStatus =
   "PENDING" | "PARTIAL" | "PAID" | "OVERDUE" | "CANCELLED";
 
@@ -222,11 +203,39 @@ export function useStudentBills(studentId: string) {
 
 export interface CreateBillData {
   studentId: string;
-  academicYearId: string;
-  billType: BillType;
+  /** The concrete PaymentType row — a bill's kind is a per-unit row, not an enum. */
+  paymentTypeId: string;
   amount: number;
+  /** A calendar day, "YYYY-MM-DD"; the API stores it as that day's midnight UTC. */
   dueDate: string;
-  description?: string;
+  /** e.g. "September 2026". */
+  period?: string;
+  notes?: string;
+}
+
+/**
+ * The payment types a bill can be made for, with their ids. `usePaymentTypeOptions`
+ * above dedupes by code for the list's filter; a create form needs the real row,
+ * because `createInvoice` connects the bill to a `paymentTypeId`.
+ */
+export function useBillPaymentTypes() {
+  return useQuery({
+    queryKey: ["payment-types", "choices"],
+    queryFn: async () => {
+      const response = await api.get<
+        PaginatedResponse<{
+          id: string;
+          code: string;
+          name: string;
+          unitId: string;
+        }>
+      >("/finance/payment-types", { params: { isActive: true, limit: 100 } });
+      return [...response.data.data].sort((a, b) =>
+        a.name.localeCompare(b.name, "id"),
+      );
+    },
+    staleTime: 5 * 60 * 1000,
+  });
 }
 
 export function useCreateBill() {
@@ -249,22 +258,28 @@ export function useCreateBill() {
   });
 }
 
+export interface CreateBulkBillsData {
+  studentIds: string[];
+  paymentTypeId: string;
+  amount: number;
+  dueDate: string;
+  period?: string;
+  notes?: string;
+}
+
+/**
+ * The same bill for many santri. The API answers `{ created, invoices }`; the
+ * SPP matrix is a different route (`POST /finance/spp-matrix/generate`), which
+ * bills a whole unit or class for one month and skips what already exists.
+ */
 export function useCreateBulkBills() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: {
-      studentIds: string[];
-      academicYearId: string;
-      billType: BillType;
-      amount: number;
-      dueDate: string;
-      description?: string;
-    }) => {
-      const response = await api.post<ApiResponse<Bill[]>>(
-        "/finance/invoices/bulk",
-        data,
-      );
+    mutationFn: async (data: CreateBulkBillsData) => {
+      const response = await api.post<
+        ApiResponse<{ created: number; invoices: Bill[] }>
+      >("/finance/invoices/bulk", data);
       return response.data.data;
     },
     onSuccess: () => {
