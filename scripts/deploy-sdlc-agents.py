@@ -436,7 +436,7 @@ def apply_timeout(aid, name, old_timeout, dry):
     return True
 
 
-if __name__ == "__main__":
+def main():
     if not KEY:
         sys.exit("OPENHANDS_API_KEY is not set")
     # A JSON map {name: original prompt}. When the live prompt has already lost
@@ -457,17 +457,23 @@ if __name__ == "__main__":
         aid = a["id"]
         old = a.get("prompt") or ""
         base = originals.get(name, old)
+        # Config fixes (the self-comment trigger guard, the 1800s wall clock)
+        # do not depend on the prompt, so they are applied even when the prompt
+        # is refused below.
+        trigger_changed = apply_trigger(aid, name, a.get("trigger") or {}, not DEPLOY)
+        timeout_changed = apply_timeout(aid, name, a.get("timeout"), not DEPLOY)
         try:
             new = new_prompt(name, base)
         except TruncatedPromptError as e:
             # Refuse this automation, not the whole run: the other 23 still
-            # deploy, and the message names the fix for this one.
+            # deploy, and the message names the fix for this one. The config
+            # fixes above already landed, so only the prompt is held back.
             print(f"- {name}: REFUSED — {e}")
             refused.append(name)
+            if DEPLOY and (trigger_changed or timeout_changed):
+                time.sleep(1)
             continue
         changed = new != old
-        trigger_changed = apply_trigger(aid, name, a.get("trigger") or {}, not DEPLOY)
-        timeout_changed = apply_timeout(aid, name, a.get("timeout"), not DEPLOY)
         print(f"- {name}: {'changed' if changed else 'already current'}")
         if not changed or not DEPLOY:
             if DEPLOY and (trigger_changed or timeout_changed) and not changed:
@@ -482,3 +488,7 @@ if __name__ == "__main__":
         print(f"done — {len(refused)} refused: {', '.join(refused)}")
         sys.exit(2)
     print("done")
+
+
+if __name__ == "__main__":
+    main()

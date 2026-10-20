@@ -1095,6 +1095,58 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain(TAILS_SDLC_01_MARKER);
   });
 
+  it.skipIf(!hasPy)('still enforces the 1800s timeout when a truncated prompt is refused', () => {
+    // Config fixes do not depend on the prompt: when new_prompt refuses a
+    // truncated prompt, the automation must still get `timeout=1800` (and its
+    // trigger guard) — otherwise it stays on the old, too-short wall clock
+    // that caused the wall deaths in the first place. And the refused prompt
+    // itself must NOT be deployed (no PATCH carrying `prompt`).
+    const driver = [
+      'import importlib.util, sys, os, json',
+      "os.environ['DEPLOY'] = 'true'",
+      "os.environ['OPENHANDS_API_KEY'] = 'test-key'",
+      'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'calls = []',
+      'def fake_req(method, path, data=None, raw=False):',
+      '    calls.append({"method": method, "path": path, "data": data})',
+      '    if method == "GET" and path == "/":',
+      '        return {"automations": [{"id": "aid-1", "name": "SDLC 04",',
+      '            "prompt": "Header tanpa ekor", "timeout": 900, "trigger": {}}]}',
+      '    return {}',
+      'm.req = fake_req',
+      'm.patch_tarball = lambda aid, prompt: b""',
+      'm.upload = lambda blob, name: {"tarball_path": "x"}',
+      'code = 0',
+      'try:',
+      '    m.main()',
+      'except SystemExit as e:',
+      '    code = e.code if e.code is not None else 0',
+      'print("RESULT " + json.dumps({"code": code, "calls": calls}))',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', driver, DEPLOY], { encoding: 'utf8' });
+    const line = r.stdout.split('\n').find((l) => l.startsWith('RESULT '));
+    if (!line) throw new Error(`no RESULT line: ${r.stdout}\n${r.stderr}`);
+    const result = JSON.parse(line.slice('RESULT '.length)) as {
+      code: number;
+      calls: { method: string; path: string; data: unknown }[];
+    };
+    // The prompt was refused, so the script reports failure.
+    expect(result.code).toBe(2);
+    // The wall clock was still raised to the ceiling.
+    expect(result.calls).toContainEqual({
+      method: 'PATCH',
+      path: '/aid-1',
+      data: { timeout: 1800 },
+    });
+    // No PATCH carried the prompt: a refused prompt is never deployed.
+    const promptPatches = result.calls.filter(
+      (c) => c.method === 'PATCH' && c.data && 'prompt' in (c.data as object)
+    );
+    expect(promptPatches).toHaveLength(0);
+  });
+
   it.skipIf(!hasPy)('cites the automation API endpoints the retry script actually uses', () => {
     // The fleet's own integration (`.github/scripts/automation-retry.sh`) reads
     // the list at the API root and runs at `/{id}/runs`. `/automations` answers

@@ -347,6 +347,10 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    basis yang memulihkannya — `ORIGINALS=<json>` (prompt asli sebelum
    terpotong). Satu automation yang ditolak tidak menghentikan deploy 23
    lainnya; skrip keluar dengan kode 2 dan mencetak daftar yang ditolak.
+   **Perbaikan config tetap ditegakkan walau prompt ditolak:** `timeout` (dinding
+   jam 1800 detik) dan guard trigger tidak bergantung pada isi prompt, jadi
+   keduanya diterapkan lebih dulu — automation yang promptnya ditolak tetap
+   dinaikkan ke `timeout=1800`, hanya prompt-nya yang ditahan.
 
 
 ### Instruksi pelaksanaan
