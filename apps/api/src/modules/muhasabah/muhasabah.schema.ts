@@ -6,6 +6,13 @@ import { z } from 'zod';
 
 export const MuhasabahMoodEnum = z.enum(['EXCELLENT', 'GOOD', 'NEUTRAL', 'LOW', 'STRUGGLING']);
 
+/**
+ * A muhasabah day, "yyyy-MM-dd". The column is `@db.Date` and every reader
+ * builds it with `dayOf()` on the WIB calendar, so a datetime here (or a bare
+ * `z.string()`) would reach `new Date()` and shift the day.
+ */
+export const muhasabahDay = z.iso.date('Tanggal tidak valid (yyyy-MM-dd)');
+
 // =====================================
 // LIST/QUERY SCHEMAS
 // =====================================
@@ -25,7 +32,7 @@ export const listMuhasabahQuerySchema = z.object({
 
 export const createMuhasabahSchema = z.object({
   studentId: z.string().uuid(),
-  date: z.string(), // Date string YYYY-MM-DD
+  date: muhasabahDay,
   // Ibadah Wajib
   sholatSubuh: z.boolean().default(false),
   sholatDzuhur: z.boolean().default(false),
@@ -114,9 +121,17 @@ export const groupStatsQuerySchema = z.object({
 });
 
 export const dailyReportQuerySchema = z.object({
-  date: z.string(), // Date string YYYY-MM-DD
+  date: muhasabahDay.optional(),
   halaqohId: z.string().uuid().optional(),
 });
+
+/**
+ * `POST /muhasabah/me` — the student's own entry. `date` is optional: omitted,
+ * the server files it under today's WIB calendar day (`todayWib()`).
+ */
+export const createMineMuhasabahSchema = createMuhasabahSchema
+  .omit({ studentId: true })
+  .extend({ date: muhasabahDay.optional() });
 
 // =====================================
 // TYPE EXPORTS
@@ -124,6 +139,7 @@ export const dailyReportQuerySchema = z.object({
 
 export type ListMuhasabahQuery = z.infer<typeof listMuhasabahQuerySchema>;
 export type CreateMuhasabahInput = z.infer<typeof createMuhasabahSchema>;
+export type CreateMineMuhasabahInput = z.infer<typeof createMineMuhasabahSchema>;
 export type UpdateMuhasabahInput = z.infer<typeof updateMuhasabahSchema>;
 export type MuhasabahStatsQuery = z.infer<typeof muhasabahStatsQuerySchema>;
 export type GroupStatsQuery = z.infer<typeof groupStatsQuerySchema>;

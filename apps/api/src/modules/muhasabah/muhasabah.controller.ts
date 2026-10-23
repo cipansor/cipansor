@@ -3,6 +3,7 @@ import muhasabahService from './muhasabah.service';
 import { ApiResponse } from '@/utils/response';
 import { requireStudentId } from '@/middleware/auth';
 import { dayOf, todayWib } from '@/utils/wib';
+import { DailyReportQuery } from './muhasabah.schema';
 
 export const muhasabahController = {
   /**
@@ -221,8 +222,8 @@ export const muhasabahController = {
    */
   async getDailyReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const { date, halaqohId } = req.query;
-      const reportDate = (date as string) || todayWib();
+      const { date, halaqohId } = (res.locals.validatedQuery || req.query) as DailyReportQuery;
+      const reportDate = date || todayWib();
 
       const report = await muhasabahService.getDailyReport(reportDate, halaqohId as string);
       res.json(ApiResponse.success(report));

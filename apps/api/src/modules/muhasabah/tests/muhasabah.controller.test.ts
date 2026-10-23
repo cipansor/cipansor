@@ -22,6 +22,7 @@ function mockReqRes(overrides: Partial<Request> = {}) {
   const res = {
     statusCode: 200,
     jsonPayload: undefined as unknown,
+    locals: {} as Record<string, unknown>,
     status(code: number) {
       (this as any).statusCode = code;
       return this;
