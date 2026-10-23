@@ -12,6 +12,8 @@ import {
 import { ACCOUNT_MAPPING_KEYS, getAccountOrFallback } from '../finance/accounting-config.service';
 import { JournalReferenceType } from '@cipansor/shared';
 import { CLASS_ENROLLMENT_STATUS } from '@cipansor/shared';
+import { todayWib } from '../../utils/wib';
+import { wibDayStart } from '../../utils/wib-day';
 
 export class WalletService {
   /**
@@ -542,8 +544,10 @@ export class WalletService {
       walletWhere.student = { unitId };
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // The three "today" cards are read by a person on the WIB clock, and the
+    // container runs UTC: `setHours(0, 0, 0, 0)` bounds them with midnight UTC,
+    // so a 06:30 WIB transaction lands in yesterday's card. Bound with WIB.
+    const today = wibDayStart(todayWib());
 
     const [wallets, todayTransactions] = await Promise.all([
       prisma.santriWallet.findMany({
