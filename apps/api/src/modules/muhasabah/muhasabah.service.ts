@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma, MuhasabahMood } from '@prisma/client';
+import { dayOf } from '@/utils/wib';
 import { CreateMuhasabahInput, UpdateMuhasabahInput } from './muhasabah.schema';
 
 export const muhasabahService = {
@@ -99,8 +100,10 @@ export const muhasabahService = {
    * Create muhasabah
    */
   async create(input: CreateMuhasabahInput) {
-    const dateObj = new Date(input.date);
-    dateObj.setHours(0, 0, 0, 0);
+    // `date` is a "yyyy-MM-dd" calendar day; the `@db.Date` column holds it as
+    // midnight UTC. `setHours(0,0,0,0)` would floor to *UTC* midnight on the
+    // server's clock, which on a UTC container is the previous WIB day.
+    const dateObj = dayOf(input.date);
 
     // Check if already exists for this day
     const existing = await this.findByStudentAndDate(input.studentId, dateObj);
@@ -398,9 +401,8 @@ export const muhasabahService = {
   /**
    * Get daily report for musyrif
    */
-  async getDailyReport(date: Date, halaqohId?: string) {
-    const startOfDay = new Date(date);
-    startOfDay.setHours(0, 0, 0, 0);
+  async getDailyReport(day: string, halaqohId?: string) {
+    const startOfDay = dayOf(day);
 
     let studentIds: string[] | undefined;
 

@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import muhasabahService from './muhasabah.service';
 import { ApiResponse } from '@/utils/response';
 import { requireStudentId } from '@/middleware/auth';
+import { dayOf, todayWib } from '@/utils/wib';
 
 export const muhasabahController = {
   /**
@@ -81,9 +82,7 @@ export const muhasabahController = {
     try {
       const studentId = await requireStudentId(req);
 
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const muhasabah = await muhasabahService.findByStudentAndDate(studentId, today);
+      const muhasabah = await muhasabahService.findByStudentAndDate(studentId, dayOf(todayWib()));
 
       if (!muhasabah) {
         return res.json(ApiResponse.success(null, 'No muhasabah recorded for today'));
@@ -133,13 +132,10 @@ export const muhasabahController = {
     try {
       const studentId = await requireStudentId(req);
 
-      // Get today's date in YYYY-MM-DD format
-      const today = new Date().toISOString().split('T')[0];
-
       const muhasabah = await muhasabahService.create({
         ...req.body,
         studentId,
-        date: req.body.date || today,
+        date: req.body.date || todayWib(),
       });
       res.status(201).json(ApiResponse.success(muhasabah, 'Muhasabah recorded successfully'));
     } catch (error: any) {
@@ -226,7 +222,7 @@ export const muhasabahController = {
   async getDailyReport(req: Request, res: Response, next: NextFunction) {
     try {
       const { date, halaqohId } = req.query;
-      const reportDate = date ? new Date(date as string) : new Date();
+      const reportDate = (date as string) || todayWib();
 
       const report = await muhasabahService.getDailyReport(reportDate, halaqohId as string);
       res.json(ApiResponse.success(report));
