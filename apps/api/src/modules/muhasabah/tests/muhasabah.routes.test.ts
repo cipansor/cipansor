@@ -8,10 +8,6 @@ import request from 'supertest';
 // yang tidak ada dijawab 400, bukan disimpan pada hari lain. Lihat issue #888.
 
 vi.mock('@/lib/jwt', () => ({ verifyToken: vi.fn() }));
-vi.mock('@prisma/client', () => ({
-  UserRole: new Proxy({}, { get: (_t, p) => String(p) }),
-  RoleCode: new Proxy({}, { get: (_t, p) => String(p) }),
-}));
 vi.mock('@/lib/redis', () => ({
   redis: { get: vi.fn(), set: vi.fn(), setex: vi.fn(), del: vi.fn() },
 }));
