@@ -23,6 +23,8 @@ import type {
 } from '@cipansor/shared';
 import { DAY_OF_WEEK_BY_INDEX } from '@cipansor/shared';
 import { studentInUnitAt } from '@/utils/student-unit-history';
+import { dayOf, shiftWibDay, todayWib } from '@/utils/wib';
+import { wibDayStart } from '@/utils/wib-day';
 import { memorizedJuz } from '@/modules/tahfidz/quran-surahs';
 import { STUDENT_STATUS } from '@cipansor/shared';
 
@@ -631,8 +633,9 @@ export class DashboardService {
    */
   private async getActiveAlerts(unitId?: string): Promise<DashboardAlert[]> {
     const alerts: DashboardAlert[] = [];
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // The day the alert speaks about is the WIB day; `Attendance.date` holds it
+    // as a `@db.Date` value, so it is compared for equality, not `>=`.
+    const today = dayOf(todayWib());
 
     try {
       const unitFilter = unitId ? { unitId } : {};
@@ -644,7 +647,7 @@ export class DashboardService {
         }),
         prisma.attendance.count({
           where: {
-            date: { gte: today },
+            date: today,
             status: 'PRESENT',
             ...(unitId ? { student: studentInUnitAt(unitId, new Date()) } : {}),
           },
@@ -872,13 +875,15 @@ export class DashboardService {
   async getTeacherStats(teacherId: string, userId: string): Promise<TeacherDashboard> {
     const classIds = await this.getTeacherClassIds(teacherId);
 
-    const startOfToday = new Date();
-    startOfToday.setHours(0, 0, 0, 0);
-    const startOfYesterday = new Date(startOfToday);
-    startOfYesterday.setDate(startOfYesterday.getDate() - 1);
-    const startOfWeek = new Date(startOfToday);
-    startOfWeek.setDate(startOfWeek.getDate() - 6);
-    const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
+    // Setoran bounds follow the WIB calendar day: `TahfidzRecord.recordedAt` is a
+    // real `DateTime`, so a WIB midnight keeps a 00:00–06:59 WIB setoran in
+    // "hari ini" instead of dropping it (`dayOf(todayWib())` would be in the
+    // future then, and the count would read zero).
+    const today = todayWib();
+    const startOfToday = wibDayStart(today);
+    const startOfYesterday = wibDayStart(shiftWibDay(today, -1));
+    const startOfWeek = wibDayStart(shiftWibDay(today, -6));
+    const startOfMonth = wibDayStart(`${today.slice(0, 7)}-01`);
 
     const recordedByMe = { recordedById: userId };
 
@@ -1104,12 +1109,15 @@ export class DashboardService {
    * Get today's attendance count
    */
   private async getTodayAttendanceCount(unitId?: string): Promise<number> {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // `Attendance.date` is a `@db.Date` filled with the WIB day
+    // (`dayOf(todayWib(...))`), so the bound has to be that same day. A local
+    // `setHours(0,0,0,0)` on a UTC container yields the UTC day, one earlier
+    // between 00:00 and 06:59 WIB.
+    const today = dayOf(todayWib());
 
     return prisma.attendance.count({
       where: {
-        date: { gte: today },
+        date: today,
         status: 'PRESENT',
         ...(unitId ? { student: studentInUnitAt(unitId, new Date()) } : {}),
       },
