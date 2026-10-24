@@ -11,8 +11,32 @@ import {
   StudentPackage,
 } from '@cipansor/shared';
 import { Errors } from '../../middleware/error';
+import { todayWib } from '../../utils/wib';
+import { wibDayStart, wibDayEnd } from '../../utils/wib-day';
 // DB enums are the source of truth from Prisma, not the shared package.
 import { Prisma, VisitStatus, PackageStatus } from '@prisma/client';
+
+/**
+ * The instant window of a WIB calendar day, the form a `DateTime` column
+ * compares to. The container runs UTC and `checkIn` is a real instant, so
+ * `new Date().setHours(0, 0, 0, 0)` bounded the *UTC* day: every morning between
+ * 00:00 and 06:59 WIB the front desk counted the previous day's guests. WIB is
+ * a fixed UTC+7, so the day is 17:00Z the day before to 16:59:59.999Z.
+ */
+const wibDayWindow = (day: string) => ({ gte: wibDayStart(day), lte: wibDayEnd(day) });
+
+/**
+ * The WIB calendar day a `?date=` parameter names. The web client sends a
+ * `yyyy-MM-dd` from a date picker, so a date-only value is taken literally; any
+ * other form (a full instant, from another client) is converted to the WIB day
+ * it falls on. The match is anchored at both ends on purpose — matching only the
+ * leading `yyyy-MM-dd` of an instant would read its *UTC* day, the same defect
+ * one layer down.
+ */
+const wibDayOfParam = (date: string): string => {
+  const day = /^(\d{4}-\d{2}-\d{2})$/.exec(date);
+  return day ? day[1] : todayWib(new Date(date));
+};
 
 // --- DTO mappers ---
 // Prisma returns the student name via the `user` relation and class via the
@@ -44,19 +68,11 @@ const toStudentPackage = (
 // --- Stats ---
 
 export const getStats = async (unitId: string): Promise<ReceptionStats> => {
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const tomorrow = new Date(today);
-  tomorrow.setDate(tomorrow.getDate() + 1);
-
   const [guestsToday, activeVisits, pendingPackages] = await Promise.all([
     prisma.guestBook.count({
       where: {
         unitId,
-        checkIn: {
-          gte: today,
-          lt: tomorrow,
-        },
+        checkIn: wibDayWindow(todayWib()),
       },
     }),
     prisma.studentVisit.count({
@@ -86,15 +102,7 @@ export const getGuestBooks = async (unitId: string, params: { date?: string }) =
   const where: Prisma.GuestBookWhereInput = { unitId };
 
   if (params.date) {
-    const startDate = new Date(params.date);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 1);
-
-    where.checkIn = {
-      gte: startDate,
-      lt: endDate,
-    };
+    where.checkIn = wibDayWindow(wibDayOfParam(params.date));
   }
 
   return prisma.guestBook.findMany({
@@ -161,15 +169,7 @@ export const getStudentVisits = async (
   const where: Prisma.StudentVisitWhereInput = { unitId };
 
   if (params.date) {
-    const startDate = new Date(params.date);
-    startDate.setHours(0, 0, 0, 0);
-    const endDate = new Date(startDate);
-    endDate.setDate(endDate.getDate() + 1);
-
-    where.checkIn = {
-      gte: startDate,
-      lt: endDate,
-    };
+    where.checkIn = wibDayWindow(wibDayOfParam(params.date));
   }
 
   if (params.studentId) {
