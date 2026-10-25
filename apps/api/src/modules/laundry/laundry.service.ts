@@ -8,7 +8,7 @@ import {
   STUDENT_ROLE_CODES,
 } from '@cipansor/shared';
 import { seesAllUnits } from '../../utils/resolve-unit-id';
-import { todayWib, wibTimeOnDay } from '../../utils/wib';
+import { todayWib } from '../../utils/wib';
 import { studentScope, type ScopeActor } from '../../utils/student-scope';
 import { getAccountOrFallback, ACCOUNT_MAPPING_KEYS } from '../finance/accounting-config.service';
 import { isPeriodOpen } from '../finance-enhancement/period.service';
@@ -731,9 +731,7 @@ export const transactionService = {
           }
         : {
             createdAt: {
-              // WIB midnight, not the container's UTC midnight: otherwise every
-              // 00:00–06:59 WIB transaction is counted with yesterday's figures.
-              gte: wibTimeOnDay(todayWib(), '00:00'),
+              gte: new Date(new Date().setHours(0, 0, 0, 0)),
             },
           };
 
@@ -758,8 +756,8 @@ export const transactionService = {
 
     return {
       period: {
-        startDate: startDate || todayWib(),
-        endDate: endDate || todayWib(),
+        startDate: startDate || new Date().toISOString().slice(0, 10),
+        endDate: endDate || new Date().toISOString().slice(0, 10),
       },
       summary: {
         totalRevenue: periodStats._sum.total?.toNumber() || 0,

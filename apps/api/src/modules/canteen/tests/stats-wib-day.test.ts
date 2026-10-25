@@ -71,7 +71,7 @@ describe('canteen getStats bounds "today" on the WIB calendar', () => {
     expect(stats.period.startDate).toBe('2026-10-31');
   });
 
-  it('leaves an explicit date range untouched', async () => {
+  it('bounds an explicit range on the WIB days too', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-10-31T17:30:00.000Z'));
     try {
@@ -80,9 +80,10 @@ describe('canteen getStats bounds "today" on the WIB calendar', () => {
       vi.useRealTimers();
     }
 
-    expect(gteOfLastAggregate()).toEqual(new Date('2026-10-01'));
+    // 2026-10-01 00:00 WIB .. 2026-10-31 23:59:59.999 WIB, not the UTC midnight pair.
+    expect(gteOfLastAggregate()).toEqual(new Date('2026-09-30T17:00:00.000Z'));
     expect(
       prismaMock.canteenTransaction.aggregate.mock.calls.at(-1)![0].where.createdAt.lte
-    ).toEqual(new Date('2026-10-31T23:59:59.999Z'));
+    ).toEqual(new Date('2026-10-31T16:59:59.999Z'));
   });
 });

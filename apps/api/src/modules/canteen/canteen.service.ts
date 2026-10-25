@@ -1,7 +1,8 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { JournalReferenceType } from '@cipansor/shared';
-import { todayWib, wibTimeOnDay } from '../../utils/wib';
+import { todayWib } from '../../utils/wib';
+import { wibDayStart, wibDayEnd } from '../../utils/wib-day';
 import { getAccountOrFallback, ACCOUNT_MAPPING_KEYS } from '../finance/accounting-config.service';
 import { isPeriodOpen } from '../finance-enhancement/period.service';
 import type {
@@ -1173,15 +1174,18 @@ export const transactionService = {
       startDate && endDate
         ? {
             createdAt: {
-              gte: new Date(startDate),
-              lte: new Date(endDate + 'T23:59:59.999Z'),
+              // Both ends are WIB calendar days, not UTC: `new Date('2026-11-01')`
+              // is 07:00 WIB that day, which would drop the 00:00–06:59 WIB sales
+              // of the first day and pull in those of the day after the last.
+              gte: wibDayStart(startDate),
+              lte: wibDayEnd(endDate),
             },
           }
         : {
             createdAt: {
               // WIB midnight, not the container's UTC midnight: otherwise every
               // 00:00–06:59 WIB sale is counted with yesterday's figures.
-              gte: wibTimeOnDay(todayWib(), '00:00'),
+              gte: wibDayStart(todayWib()),
             },
           };
 
