@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { UserRole, Prisma, MealType, MealAttendanceStatus } from '@prisma/client';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { dayOf, todayWib } from '@/utils/wib';
 
 // User type from JwtPayload
 interface AuthenticatedUser {
@@ -233,13 +234,10 @@ export class MealsService {
       throw Errors.forbidden('Access denied');
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     const menus = await prisma.mealMenu.findMany({
       where: {
         unitId,
-        date: today,
+        date: dayOf(todayWib()),
       },
       orderBy: { mealType: 'asc' },
     });

@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { UserRole, Prisma, DutyCategory, DutyStatus, DayOfWeek } from '@prisma/client';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { dayOf, todayWib } from '@/utils/wib';
 
 // User type from JwtPayload
 interface AuthenticatedUser {
@@ -400,13 +401,10 @@ export class DutyRosterService {
       throw Errors.forbidden('Access denied');
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
     const rosters = await prisma.dutyRoster.findMany({
       where: {
         dutyType: { unitId },
-        date: today,
+        date: dayOf(todayWib()),
       },
       orderBy: { dutyType: { name: 'asc' } },
       include: {
