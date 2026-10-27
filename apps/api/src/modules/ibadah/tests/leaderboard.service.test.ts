@@ -161,4 +161,20 @@ describe('the ibadah ranking', () => {
     expect(sma.completionRate).toBeCloseTo((1 / (1 * days)) * 100, 1);
     expect(smp.completionRate).toBeCloseTo((2 / (2 * days)) * 100, 1);
   });
+
+  it('starts a DAILY period on the WIB calendar day, not the UTC one', async () => {
+    // 2026-07-04T22:00:00Z == 2026-07-05 05:00 WIB, inside the 00:00-06:59 WIB
+    // window. The period must open on 2026-07-05, the day the santri is in.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-04T22:00:00Z'));
+    try {
+      const result = await getLeaderboard(
+        { periodType: 'DAILY', limit: 10 } as never,
+        ACTORS.musyrif as never
+      );
+      expect(new Date(result.startDate).toISOString()).toBe('2026-07-05T00:00:00.000Z');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

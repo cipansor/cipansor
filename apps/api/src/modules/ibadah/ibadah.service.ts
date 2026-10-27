@@ -32,6 +32,7 @@ import {
   studentScope,
   type ScopeActor,
 } from '@/utils/student-scope';
+import { wibDayOf, dayDate } from '@/utils/wib-day';
 
 /**
  * The santri an account reads here: `studentScope` (a santri their own, a wali
@@ -516,8 +517,10 @@ export async function getLeaderboard(
     dateEnd = now;
     switch (periodType) {
       case 'DAILY':
-        dateStart = new Date(now);
-        dateStart.setHours(0, 0, 0, 0);
+        // The WIB day, so the range the completion rate divides by matches the
+        // `@db.Date` rows it counts: `setHours(0,0,0,0)` used the UTC day, which
+        // is the previous day between 00:00 and 06:59 WIB.
+        dateStart = dayDate(wibDayOf(now));
         break;
       case 'WEEKLY':
         dateStart = new Date(now);
@@ -678,11 +681,14 @@ export function calculateStreak(dates: Date[], now: Date = new Date()): number {
   if (dates.length === 0) return 0;
 
   const dayMs = 24 * 60 * 60 * 1000;
-  const toDayNumber = (d: Date) => {
-    const copy = new Date(d);
-    copy.setHours(0, 0, 0, 0);
-    return Math.floor(copy.getTime() / dayMs);
-  };
+  // Both a stored `@db.Date` value (UTC midnight of its calendar day) and the
+  // current instant map to their WIB calendar day: the +7h shift keeps a
+  // midnight-UTC value inside its own day, and reads the correct day for `now`
+  // (a 05:00 WIB check-in is still 22:00Z the day before). `setHours(0,0,0,0)`
+  // used the server's UTC day, so the streak broke or survived wrongly between
+  // 00:00 and 06:59 WIB.
+  const toDayNumber = (d: Date) =>
+    Math.floor(new Date(`${wibDayOf(d)}T00:00:00.000Z`).getTime() / dayMs);
 
   const today = toDayNumber(now);
   let cursor = toDayNumber(dates[0]);
