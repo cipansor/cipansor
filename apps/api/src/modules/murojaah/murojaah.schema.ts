@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+/**
+ * A murojaah day as a date input writes it ("2026-10-28") or as a full
+ * datetime. `murojaahDate` is a `@db.Date` column and the form's picker
+ * produces a date-only string, so requiring a datetime made every create —
+ * and every date filter — fail with 400 before it reached the service.
+ */
+const murojaahDay = z.union([
+  z.iso.date({ message: 'Format tanggal harus yyyy-MM-dd' }),
+  z.iso.datetime({ offset: true, message: 'Format tanggal tidak valid' }),
+]);
+
 // Murojaah Type enum
 export const MurojaahTypeEnum = z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'EXAM_PREP']);
 
@@ -25,8 +36,8 @@ export const listMurojaahQuerySchema = z.object({
   halaqohId: z.string().uuid().optional(),
   unitId: z.string().uuid().optional(),
   murojaahType: MurojaahTypeEnum.optional(),
-  dateFrom: z.string().datetime().optional(),
-  dateTo: z.string().datetime().optional(),
+  dateFrom: murojaahDay.optional(),
+  dateTo: murojaahDay.optional(),
   juz: z.coerce.number().int().min(1).max(30).optional(),
   search: z.string().optional(),
 });
@@ -41,7 +52,7 @@ export const createMurojaahSchema = z
     enrollmentId: z.string().uuid().optional().nullable(),
     halaqohId: z.string().uuid().optional().nullable(),
     murojaahType: MurojaahTypeEnum,
-    murojaahDate: z.string().datetime(),
+    murojaahDate: murojaahDay,
     juzStart: z.number().int().min(1).max(30),
     juzEnd: z.number().int().min(1).max(30),
     pagesReviewed: z.number().int().min(1).max(620),
@@ -101,8 +112,8 @@ export const createMistakeSchema = z.object({
 
 export const studentMurojaahSummarySchema = z.object({
   studentId: z.string().uuid(),
-  startDate: z.string().datetime().optional(),
-  endDate: z.string().datetime().optional(),
+  startDate: murojaahDay.optional(),
+  endDate: murojaahDay.optional(),
   murojaahType: MurojaahTypeEnum.optional(),
 });
 
@@ -110,8 +121,8 @@ export const halaqohMurojaahQuerySchema = z.object({
   halaqohId: z.string().uuid(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
-  dateFrom: z.string().datetime().optional(),
-  dateTo: z.string().datetime().optional(),
+  dateFrom: murojaahDay.optional(),
+  dateTo: murojaahDay.optional(),
 });
 
 // ============================================
