@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { studentScope, type ScopeActor } from '@/utils/student-scope';
+import { dayDate, wibDayOf } from '@/utils/wib-day';
 import { Prisma, MurojaahType, TahfidzMistakeType } from '@prisma/client';
 import type {
   ListMurojaahQuery,
@@ -13,6 +14,16 @@ import type {
 // ============================================
 // Murojaah Service
 // ============================================
+
+/**
+ * The WIB calendar day a murojaah date names, as the `@db.Date` column holds
+ * it. A date input writes "2026-10-28" (that day directly); the form's picker
+ * sends a full datetime whose instant is WIB midnight, so its UTC day is the
+ * day before. Both must land on the same calendar day.
+ */
+function murojaahDayDate(value: string): Date {
+  return dayDate(/^\d{4}-\d{2}-\d{2}$/.test(value) ? value : wibDayOf(new Date(value)));
+}
 
 export const murojaahService = {
   // ============================================
@@ -58,8 +69,8 @@ export const murojaahService = {
     // Date filters
     if (dateFrom || dateTo) {
       where.murojaahDate = {};
-      if (dateFrom) where.murojaahDate.gte = new Date(dateFrom);
-      if (dateTo) where.murojaahDate.lte = new Date(dateTo);
+      if (dateFrom) where.murojaahDate.gte = murojaahDayDate(dateFrom);
+      if (dateTo) where.murojaahDate.lte = murojaahDayDate(dateTo);
     }
 
     // Filter by juz
@@ -151,8 +162,7 @@ export const murojaahService = {
   // ============================================
 
   async create(data: CreateMurojaahInput, userId: string) {
-    const murojaahDate = new Date(data.murojaahDate);
-    murojaahDate.setHours(0, 0, 0, 0);
+    const murojaahDate = murojaahDayDate(data.murojaahDate);
 
     const record = await prisma.murojaahRecord.create({
       data: {
@@ -292,8 +302,8 @@ export const murojaahService = {
 
     if (startDate || endDate) {
       where.murojaahDate = {};
-      if (startDate) where.murojaahDate.gte = new Date(startDate);
-      if (endDate) where.murojaahDate.lte = new Date(endDate);
+      if (startDate) where.murojaahDate.gte = murojaahDayDate(startDate);
+      if (endDate) where.murojaahDate.lte = murojaahDayDate(endDate);
     }
 
     if (murojaahType) {
@@ -409,8 +419,8 @@ export const murojaahService = {
 
     if (dateFrom || dateTo) {
       where.murojaahDate = {};
-      if (dateFrom) where.murojaahDate.gte = new Date(dateFrom);
-      if (dateTo) where.murojaahDate.lte = new Date(dateTo);
+      if (dateFrom) where.murojaahDate.gte = murojaahDayDate(dateFrom);
+      if (dateTo) where.murojaahDate.lte = murojaahDayDate(dateTo);
     }
 
     const [records, total, halaqoh] = await Promise.all([
@@ -552,8 +562,8 @@ export const murojaahService = {
 
     if (query.dateFrom || query.dateTo) {
       where.murojaahDate = {};
-      if (query.dateFrom) where.murojaahDate.gte = new Date(query.dateFrom);
-      if (query.dateTo) where.murojaahDate.lte = new Date(query.dateTo);
+      if (query.dateFrom) where.murojaahDate.gte = murojaahDayDate(query.dateFrom);
+      if (query.dateTo) where.murojaahDate.lte = murojaahDayDate(query.dateTo);
     }
 
     if (query.halaqohId) where.halaqohId = query.halaqohId;
@@ -607,8 +617,8 @@ export const murojaahService = {
 
     if (query.dateFrom || query.dateTo) {
       where.murojaahDate = {};
-      if (query.dateFrom) where.murojaahDate.gte = new Date(query.dateFrom);
-      if (query.dateTo) where.murojaahDate.lte = new Date(query.dateTo);
+      if (query.dateFrom) where.murojaahDate.gte = murojaahDayDate(query.dateFrom);
+      if (query.dateTo) where.murojaahDate.lte = murojaahDayDate(query.dateTo);
     }
 
     if (query.halaqohId) where.halaqohId = query.halaqohId;
@@ -651,9 +661,9 @@ export const murojaahService = {
    */
   async getConsistencyScore(query: { dateFrom?: string; dateTo?: string; halaqohId?: string }) {
     const dateFrom = query.dateFrom
-      ? new Date(query.dateFrom)
+      ? murojaahDayDate(query.dateFrom)
       : new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
-    const dateTo = query.dateTo ? new Date(query.dateTo) : new Date();
+    const dateTo = query.dateTo ? murojaahDayDate(query.dateTo) : new Date();
 
     const where: Prisma.MurojaahRecordWhereInput = {
       murojaahDate: { gte: dateFrom, lte: dateTo },
@@ -716,8 +726,8 @@ export const murojaahService = {
 
     if (query.dateFrom || query.dateTo) {
       where.murojaahDate = {};
-      if (query.dateFrom) where.murojaahDate.gte = new Date(query.dateFrom);
-      if (query.dateTo) where.murojaahDate.lte = new Date(query.dateTo);
+      if (query.dateFrom) where.murojaahDate.gte = murojaahDayDate(query.dateFrom);
+      if (query.dateTo) where.murojaahDate.lte = murojaahDayDate(query.dateTo);
     }
 
     if (query.halaqohId) where.halaqohId = query.halaqohId;
