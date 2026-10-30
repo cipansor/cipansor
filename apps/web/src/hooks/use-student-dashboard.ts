@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 import { DAY_OF_WEEK_BY_INDEX } from "@cipansor/shared";
+import { wibWeekdayOf } from "@/lib/wib";
 
 // Types
 export interface HafalanProgress {
@@ -157,8 +158,10 @@ export function useStudentTodaySchedule() {
     queryFn: async (): Promise<TodayScheduleItem[]> => {
       try {
         const today = new Date();
-        // The API filters on the DayOfWeek enum, not the numeric index.
-        const dayOfWeek = DAY_OF_WEEK_BY_INDEX[today.getDay()];
+        // The API filters on the WIB school day, not the device's day: a device
+        // west of WIB would otherwise ask for the previous day between 17:00 and
+        // midnight UTC.
+        const dayOfWeek = DAY_OF_WEEK_BY_INDEX[wibWeekdayOf(today)];
 
         const response = await api.get("/curriculum/schedules", {
           params: {

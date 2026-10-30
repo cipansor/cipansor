@@ -281,3 +281,26 @@ describe('dashboardService.getTeacherStats — shape', () => {
     expect(stats.todaySchedule).toEqual([]);
   });
 });
+
+describe('dashboardService.getTeacherStats — “today” is the WIB day', () => {
+  beforeEach(() => vi.resetAllMocks());
+
+  afterEach(() => vi.useRealTimers());
+
+  it('asks for the WIB weekday, not the UTC weekday, early in the WIB morning', async () => {
+    // 2026-10-29T22:30Z is Friday 30 October 05:30 WIB. A UTC server that reads
+    // `new Date().getDay()` would ask for THURSDAY and show the previous day's
+    // lessons during the whole 00:00–06:59 WIB window.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-29T22:30:00.000Z'));
+
+    arrange({ homeroom: [{ id: 'c1' }] });
+
+    await dashboardService.getTeacherStats(TEACHER, USER);
+
+    // The second `schedule.findMany` is today's timetable; the first collects
+    // the teacher's class ids.
+    const todayQuery = mocked.schedule.findMany.mock.calls[1][0];
+    expect(todayQuery.where).toMatchObject({ dayOfWeek: 'FRIDAY' });
+  });
+});
