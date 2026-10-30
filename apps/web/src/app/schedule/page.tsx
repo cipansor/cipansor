@@ -25,6 +25,7 @@ import {
   useDeleteSchedule,
 } from "@/hooks/use-schedule";
 import { useAuth } from "@/hooks/use-auth";
+import { wibWeekdayOf } from "@/lib/wib";
 import { DayOfWeek } from "@cipansor/shared";
 import {
   Dialog,
@@ -58,7 +59,9 @@ function SchedulePageContent() {
   const role = getEffectiveRole(user);
   const isAdminOrTeacher =
     role === "SUPER_ADMIN" || role === "UNIT_ADMIN" || role === "TEACHER";
-  const [selectedDay, setSelectedDay] = useState<number>(new Date().getDay()); // 0 = Sunday
+  const [selectedDay, setSelectedDay] = useState<number>(
+    wibWeekdayOf(new Date()),
+  ); // 0 = Sunday, on the WIB school calendar
 
   const days = [
     { label: "Minggu", value: "SUNDAY", index: 0 },
