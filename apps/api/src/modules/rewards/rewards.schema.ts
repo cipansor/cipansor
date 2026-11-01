@@ -17,6 +17,11 @@ export const queryRewardSchema = z.object({
   studentId: z.string().uuid().optional(),
   category: z.string().optional(),
   categoryId: z.string().optional(),
+  // A single day (YYYY-MM-DD, WIB) — the shorthand the staff dashboard's
+  // "Penghargaan Hari Ini" card sends. Zod used to drop it as an unknown key,
+  // so the service saw no date filter at all and counted every row ever
+  // recorded instead of today's.
+  date: z.string().optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
   page: z.coerce.number().int().positive().default(1),

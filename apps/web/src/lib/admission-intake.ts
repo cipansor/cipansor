@@ -8,14 +8,16 @@
  * (test, results, re-registration) are plain calendar days.
  */
 
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+import { wibDayOf } from "./date";
 
-/** The WIB day a stored registration moment falls on, as a date input shows it. */
+/**
+ * The WIB day a stored registration moment falls on, as a date input shows it.
+ * Null/blank and unparseable values read as "" — a form field's empty state —
+ * where `wibDayOf` would answer "" only for an unparseable instant.
+ */
 export function wibDay(iso: string | null | undefined): string {
   if (!iso) return "";
-  const time = new Date(iso).getTime();
-  if (Number.isNaN(time)) return "";
-  return new Date(time + WIB_OFFSET_MS).toISOString().slice(0, 10);
+  return wibDayOf(iso);
 }
 
 /** A stored calendar day (`2026-12-20T00:00:00.000Z`) as a date input shows it. */
