@@ -197,6 +197,18 @@ export function isToday(date: Date | string): boolean {
 }
 
 /**
+ * The WIB calendar day (YYYY-MM-DD) a moment falls on. WIB is a fixed UTC+7
+ * with no daylight saving, so shifting the instant and reading the UTC fields
+ * derives the pesantren's day from any clock — `new Date().toISOString()` reads
+ * the UTC day, which is still yesterday in Tasikmalaya until 07:00 local.
+ */
+export function wibDayOf(moment: Date | string = new Date()): string {
+  const d = typeof moment === "string" ? new Date(moment) : moment;
+  if (isNaN(d.getTime())) return "";
+  return new Date(d.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
+}
+
+/**
  * Check if date is in the past
  */
 export function isPast(date: Date | string): boolean {

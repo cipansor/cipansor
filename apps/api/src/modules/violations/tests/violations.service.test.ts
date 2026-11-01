@@ -267,3 +267,56 @@ describe('violations service — names the santri, nothing more', () => {
     await expect(getViolationById('violation-1', teacher)).resolves.toBeNull();
   });
 });
+
+describe('violations service — the single-day filter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.student.findFirst.mockResolvedValue({ id: studentId });
+    mocked.violation.findMany.mockResolvedValue([]);
+    mocked.violation.count.mockResolvedValue(0);
+  });
+
+  /**
+   * `occurredAt` is a timestamp, so "today" is a range on the WIB clock, not
+   * `new Date('2026-10-05')` — that is midnight UTC, which would put a 06:30
+   * WIB violation on the previous day. Without any bound the card counted
+   * every row ever recorded (issue #920).
+   */
+  it('bounds occurredAt to the requested WIB day', async () => {
+    await getViolations({ page: 1, limit: 1, date: '2026-10-05' }, teacher);
+
+    const where = mocked.violation.findMany.mock.calls[0][0].where;
+    expect(where.occurredAt).toEqual({
+      gte: new Date('2026-10-05T00:00:00.000+07:00'),
+      lte: new Date('2026-10-05T23:59:59.999+07:00'),
+    });
+  });
+
+  it('leaves occurredAt unbound when no day is asked for', async () => {
+    await getViolations({ page: 1, limit: 20 }, teacher);
+
+    const where = mocked.violation.findMany.mock.calls[0][0].where;
+    expect(where.occurredAt).toBeUndefined();
+  });
+
+  it('counts the same day as the list it paginates', async () => {
+    await getViolations({ page: 1, limit: 1, date: '2026-10-05' }, teacher);
+
+    const listWhere = mocked.violation.findMany.mock.calls[0][0].where;
+    const countWhere = mocked.violation.count.mock.calls[0][0].where;
+    expect(countWhere.occurredAt).toEqual(listWhere.occurredAt);
+  });
+
+  it('prefers the single day over a start/end range when both arrive', async () => {
+    await getViolations(
+      { page: 1, limit: 1, date: '2026-10-05', startDate: '2026-01-01', endDate: '2026-12-31' },
+      teacher
+    );
+
+    const where = mocked.violation.findMany.mock.calls[0][0].where;
+    expect(where.occurredAt).toEqual({
+      gte: new Date('2026-10-05T00:00:00.000+07:00'),
+      lte: new Date('2026-10-05T23:59:59.999+07:00'),
+    });
+  });
+});

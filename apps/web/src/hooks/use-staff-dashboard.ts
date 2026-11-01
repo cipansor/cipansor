@@ -13,6 +13,7 @@ import {
   type PermitSummary,
 } from "@cipansor/shared";
 import { getActiveRoleCode, type RbacUser } from "@/lib/rbac";
+import { wibDayOf } from "@/lib/date";
 import { PERMIT_TYPE_LABELS } from "./use-permits";
 
 // ============================================
@@ -121,7 +122,7 @@ export function useStaffDashboardStats() {
   return useQuery({
     queryKey: ["staff-dashboard-stats", user?.unitId],
     queryFn: async (): Promise<StaffDashboardStats> => {
-      const today = new Date().toISOString().split("T")[0];
+      const today = wibDayOf();
 
       // Fetch multiple stats in parallel
       const [
