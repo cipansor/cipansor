@@ -1,4 +1,5 @@
 import { prisma } from '../../lib/prisma';
+import { wibMonthYear, wibMonthRange } from '../../utils/wib-day';
 import {
   FoundationExecutiveSummary,
   FoundationFinancialOverview,
@@ -81,11 +82,18 @@ export async function getExecutiveSummary(): Promise<FoundationExecutiveSummary>
  */
 export async function getFinancialOverview(): Promise<FoundationFinancialOverview> {
   const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const endOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0);
-
-  const startOfLastMonth = new Date(now.getFullYear(), now.getMonth() - 1, 1);
-  const endOfLastMonth = new Date(now.getFullYear(), now.getMonth(), 0);
+  // The month windows are WIB calendar months, not the server's: the container
+  // runs UTC, and a `JournalEntry.date` is a real instant, so bounding it at
+  // midnight UTC (`new Date(y, m, 0)`) dropped the whole last day of the month
+  // and the first hours of the 1st (00:00–07:00 WIB, stored the previous UTC
+  // day). `wibMonthRange` closes both ends on the WIB clock.
+  const { year, month } = wibMonthYear(now);
+  const { start: startOfMonth, end: endOfMonth } = wibMonthRange(year, month);
+  const lastMonth = month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 };
+  const { start: startOfLastMonth, end: endOfLastMonth } = wibMonthRange(
+    lastMonth.year,
+    lastMonth.month
+  );
 
   // Helper to get totals from journal entries
   const getTotals = async (start: Date, end: Date) => {
@@ -184,14 +192,17 @@ export async function getFinancialOverview(): Promise<FoundationFinancialOvervie
     balanceFor('2', 'credit'),
   ]);
 
-  // Revenue/expense for the trailing 6 months (oldest first).
+  // Revenue/expense for the trailing 6 months (oldest first). Each window is a
+  // WIB calendar month, the same bounds the current-month totals use.
   const monthlyTrend = await Promise.all(
     Array.from({ length: 6 }, (_, i) => 5 - i).map(async (back) => {
-      const mStart = new Date(now.getFullYear(), now.getMonth() - back, 1);
-      const mEnd = new Date(now.getFullYear(), now.getMonth() - back + 1, 0);
+      const monthIndex = month - back;
+      const mYear = year + Math.floor(monthIndex / 12);
+      const mMonth = ((monthIndex % 12) + 12) % 12;
+      const { start: mStart, end: mEnd } = wibMonthRange(mYear, mMonth);
       const totals = await getTotals(mStart, mEnd);
       return {
-        month: mStart.toLocaleString('id-ID', { month: 'short' }),
+        month: mStart.toLocaleString('id-ID', { month: 'short', timeZone: 'Asia/Jakarta' }),
         revenue: totals.revenue,
         expense: totals.expense,
       };
