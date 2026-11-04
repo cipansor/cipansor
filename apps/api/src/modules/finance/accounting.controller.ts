@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as service from './accounting.service';
 import * as reportsService from './reports.service';
 import * as configService from './accounting-config.service';
+import { wibDayBound, wibDayOf, wibMonthBounds, wibYearBounds } from '../../utils/wib-day';
 import {
   CreateAccountDto,
   CreateJournalDto,
@@ -153,8 +154,8 @@ export async function getJournals(req: Request, res: Response, next: NextFunctio
     const query = req.query as any;
     const result = await service.getJournals({
       ...query,
-      startDate: query.startDate ? new Date(query.startDate) : undefined,
-      endDate: query.endDate ? new Date(query.endDate) : undefined,
+      startDate: query.startDate ? wibDayBound(query.startDate, 'start') : undefined,
+      endDate: query.endDate ? wibDayBound(query.endDate, 'end') : undefined,
       page: Number(query.page) || 1,
       limit: Number(query.limit) || 20,
     });
@@ -173,8 +174,8 @@ export async function getTrialBalance(req: Request, res: Response, next: NextFun
     const query = req.query as any;
     const result = await service.getTrialBalance({
       unitId: query.unitId,
-      startDate: query.startDate ? new Date(query.startDate) : undefined,
-      endDate: query.endDate ? new Date(query.endDate) : undefined,
+      startDate: query.startDate ? wibDayBound(query.startDate, 'start') : undefined,
+      endDate: query.endDate ? wibDayBound(query.endDate, 'end') : undefined,
     });
     res.json({ data: result });
   } catch (error) {
@@ -185,8 +186,10 @@ export async function getTrialBalance(req: Request, res: Response, next: NextFun
 export async function getBalanceSheet(req: Request, res: Response, next: NextFunction) {
   try {
     const query = req.query as any;
-    // Default to today if not specified
-    const endDate = query.endDate ? new Date(query.endDate) : new Date();
+    // Default to the end of today WIB if not specified
+    const endDate = query.endDate
+      ? wibDayBound(query.endDate, 'end')
+      : wibDayBound(wibDayOf(new Date()), 'end');
 
     const result = await service.getBalanceSheet({
       unitId: query.unitId,
@@ -201,14 +204,10 @@ export async function getBalanceSheet(req: Request, res: Response, next: NextFun
 export async function getIncomeStatement(req: Request, res: Response, next: NextFunction) {
   try {
     const query = req.query as any;
-    // Default to current month if not specified
-    const now = new Date();
-    const startDate = query.startDate
-      ? new Date(query.startDate)
-      : new Date(now.getFullYear(), now.getMonth(), 1);
-    const endDate = query.endDate
-      ? new Date(query.endDate)
-      : new Date(now.getFullYear(), now.getMonth() + 1, 0);
+    // Default to the current WIB month if not specified
+    const bounds = wibMonthBounds(new Date());
+    const startDate = query.startDate ? wibDayBound(query.startDate, 'start') : bounds.start;
+    const endDate = query.endDate ? wibDayBound(query.endDate, 'end') : bounds.end;
 
     const result = await service.getIncomeStatement({
       unitId: query.unitId,
@@ -228,11 +227,13 @@ export async function getIncomeStatement(req: Request, res: Response, next: Next
 export async function getStatementOfActivities(req: Request, res: Response, next: NextFunction) {
   try {
     const query = req.query as any;
-    const now = new Date();
+    // Default to the current WIB year so far if not specified
     const startDate = query.startDate
-      ? new Date(query.startDate)
-      : new Date(now.getFullYear(), 0, 1);
-    const endDate = query.endDate ? new Date(query.endDate) : now;
+      ? wibDayBound(query.startDate, 'start')
+      : wibYearBounds(new Date()).start;
+    const endDate = query.endDate
+      ? wibDayBound(query.endDate, 'end')
+      : wibDayBound(wibDayOf(new Date()), 'end');
 
     const result = await reportsService.getStatementOfActivities({
       unitId: query.unitId,
@@ -248,11 +249,13 @@ export async function getStatementOfActivities(req: Request, res: Response, next
 export async function getZiswafReport(req: Request, res: Response, next: NextFunction) {
   try {
     const query = req.query as any;
-    const now = new Date();
+    // Default to the current WIB year so far if not specified
     const startDate = query.startDate
-      ? new Date(query.startDate)
-      : new Date(now.getFullYear(), 0, 1);
-    const endDate = query.endDate ? new Date(query.endDate) : now;
+      ? wibDayBound(query.startDate, 'start')
+      : wibYearBounds(new Date()).start;
+    const endDate = query.endDate
+      ? wibDayBound(query.endDate, 'end')
+      : wibDayBound(wibDayOf(new Date()), 'end');
 
     const result = await reportsService.getZiswafReport({
       unitId: query.unitId,

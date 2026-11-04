@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
+import { wibDayOf } from '../../utils/wib-day';
 import {
   AccountType,
   BalanceSheetReport,
@@ -11,8 +12,10 @@ import {
   GeneralLedgerEntry,
 } from '@cipansor/shared';
 
-// Helper to format Date for SQL
-const formatDate = (date: Date) => date.toISOString().split('T')[0];
+// A report period is shown on the pesantren's clock. The bounds arrive as WIB
+// instants (see `wibDayBound`), so reading them back with `toISOString()` would
+// render the day before the one the user picked.
+const formatDate = (date: Date) => wibDayOf(date);
 
 export async function getBalanceSheet(unitId: string, date: Date): Promise<BalanceSheetReport> {
   // Get all accounts
