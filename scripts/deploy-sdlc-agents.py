@@ -49,10 +49,14 @@ Usage:
     OPENHANDS_API_KEY=... DEPLOY=true ONLY="SDLC 15" python3 scripts/deploy-sdlc-agents.py
     # Rebuild from untruncated prompts (repairs a prompt that already lost its tail):
     OPENHANDS_API_KEY=... DEPLOY=true ORIGINALS=/tmp/originals.json python3 scripts/deploy-sdlc-agents.py
+    # Archive the fleet source (runner + prompt.txt) that only lives in the API:
+    OPENHANDS_API_KEY=... EXTRACT=/tmp/fleet-source python3 scripts/deploy-sdlc-agents.py
 """
+import hashlib
 import io
 import json
 import os
+import re
 import sys
 import tarfile
 import time
@@ -360,6 +364,122 @@ def upload(data, name):
         return json.loads(resp.read() or b"{}")
 
 
+# ---------------------------------------------------------------------------
+# EXTRACT — archive the fleet source that only lives in the automation API.
+#
+# The runner (`main.py`, `setup.sh`, `finish_tool_hook.py`), `prompt.txt` and
+# the prompt head ("Anda adalah sebuah automation …") are not in this repository:
+# they exist only inside each automation's tarball, under `tarball_path:
+# oh-internal://uploads/…`. `patch_tarball()` above already downloads the whole
+# tarball on every deploy; this mode is the same download, kept instead of
+# thrown away. It writes one directory per automation so the source can be
+# reviewed, versioned and diffed like any other code.
+#
+# `EXTRACT` takes the destination directory and prints a machine-readable report
+# (JSON) so a caller can decide whether the copies agree. It never writes to the
+# API: extraction is read-only.
+# ---------------------------------------------------------------------------
+
+EXTRACT_FIELD = "EXTRACT"
+
+
+def slugify(name):
+    """`SDLC 01 · Triase bug` -> `sdlc-01-triase-bug` (stable, filesystem-safe)."""
+    slug = name.lower()
+    slug = re.sub(r"[^a-z0-9]+", "-", slug)
+    return slug.strip("-")
+
+
+def tarball_members(aid):
+    """The tarball's members as {name: bytes}, downloaded once."""
+    r = req("GET", f"/{aid}/tarball", raw=True)
+    src = tarfile.open(fileobj=io.BytesIO(r), mode="r:gz")
+    members = {}
+    for m in src.getmembers():
+        if not m.isfile():
+            continue
+        data = src.extractfile(m)
+        members[m.name] = b"" if data is None else data.read()
+    return members
+
+
+def extract_one(dest, name, members):
+    """Write one automation's members under `dest/<slug>/`, return its report."""
+    slug = slugify(name)
+    root = os.path.join(dest, slug)
+    os.makedirs(root, exist_ok=True)
+    digests = {}
+    for member, data in sorted(members.items()):
+        # A tarball member is a relative path by construction; reject anything
+        # that would escape the destination (a `..` or an absolute path).
+        target = os.path.normpath(os.path.join(root, member))
+        if not target.startswith(os.path.abspath(root) + os.sep):
+            print(f"- {name}: skipped member outside the destination: {member}")
+            continue
+        os.makedirs(os.path.dirname(target), exist_ok=True)
+        with open(target, "wb") as f:
+            f.write(data)
+        digests[member] = hashlib.sha256(data).hexdigest()
+    runner = sorted(m for m in digests if m != "prompt.txt")
+    return {
+        "name": name,
+        "slug": slug,
+        "prompt_bytes": len(members.get("prompt.txt", b"")),
+        "members": digests,
+        "runner": runner,
+        # One digest over the runner members only: two automations with the same
+        # value share a runner, which is the assumption a single source-of-truth
+        # runner rests on. `prompt.txt` is excluded because it is per-automation.
+        "runner_digest": hashlib.sha256(
+            "\n".join(f"{m}:{digests[m]}" for m in runner).encode()
+        ).hexdigest(),
+    }
+
+
+def extract(dest):
+    """Archive every automation's source under `dest`; print a JSON report."""
+    autos = req("GET", "/")["automations"]
+    os.makedirs(dest, exist_ok=True)
+    report = []
+    for a in sorted(autos, key=lambda a: a["name"]):
+        name, aid = a["name"], a["id"]
+        try:
+            members = tarball_members(aid)
+        except Exception as e:  # noqa: BLE001 — report the failure, keep going
+            print(f"- {name}: REFUSED — tarball download failed: {e}")
+            report.append({"name": name, "error": str(e)})
+            continue
+        entry = extract_one(dest, name, members)
+        report.append(entry)
+        print(f"- {name}: {len(entry['members'])} member(s), runner {entry['runner_digest'][:12]}")
+
+    # A single runner for the whole fleet is the premise of one source of truth.
+    # Group by digest so a divergence is named, not merely counted.
+    by_runner = {}
+    for entry in report:
+        if "error" in entry:
+            continue
+        by_runner.setdefault(entry["runner_digest"], []).append(entry["name"])
+    print(f"\n{len(by_runner)} distinct runner digest(s) across {len(autos)} automation(s).")
+    if len(by_runner) > 1:
+        print("::warning::the fleet does not share one runner; the copies below differ.")
+        for digest, names in sorted(by_runner.items(), key=lambda kv: -len(kv[1])):
+            print(f"  {digest[:12]}: {', '.join(sorted(names))}")
+    report_path = os.path.join(dest, "manifest.json")
+    with open(report_path, "w") as f:
+        json.dump(
+            {
+                "runner_digests": {d: sorted(n) for d, n in by_runner.items()},
+                "automations": report,
+            },
+            f,
+            indent=2,
+            sort_keys=True,
+        )
+        f.write("\n")
+    print(f"manifest: {report_path}")
+
+
 # Trigger configuration that lives OUTSIDE the tarball and therefore outside this
 # script's prompt/tarball PATCH. It is applied here as a separate `PATCH {trigger}`
 # so the claim "SDLC 07/16/22 filter updated" (and SDLC 18's `on`) can be made,
@@ -439,6 +559,11 @@ def apply_timeout(aid, name, old_timeout, dry):
 def main():
     if not KEY:
         sys.exit("OPENHANDS_API_KEY is not set")
+    # EXTRACT is read-only and short-circuits the deploy: it archives the source
+    # that only lives in the API, so a caller can commit it elsewhere.
+    if os.environ.get(EXTRACT_FIELD):
+        extract(os.environ[EXTRACT_FIELD])
+        return
     # A JSON map {name: original prompt}. When the live prompt has already lost
     # its tail (the bug this script used to have), the live prompt cannot be the
     # base — new_prompt is idempotent and would keep the truncated head. Passing
