@@ -403,17 +403,20 @@ def tarball_members(aid):
     return members
 
 
-def extract_one(dest, name, members):
+def extract_one(dest, name, slug, members):
     """Write one automation's members under `dest/<slug>/`, return its report."""
-    slug = slugify(name)
-    root = os.path.join(dest, slug)
+    # `realpath` on both sides: a relative `dest` (EXTRACT=fleet-source) would
+    # otherwise leave `target` relative and fail every comparison, writing an
+    # empty archive while reporting success. Resolving symlinks too keeps a
+    # destination reached through one (e.g. /tmp on macOS) consistent.
+    root = os.path.realpath(os.path.join(dest, slug))
     os.makedirs(root, exist_ok=True)
     digests = {}
     for member, data in sorted(members.items()):
         # A tarball member is a relative path by construction; reject anything
         # that would escape the destination (a `..` or an absolute path).
-        target = os.path.normpath(os.path.join(root, member))
-        if not target.startswith(os.path.abspath(root) + os.sep):
+        target = os.path.realpath(os.path.join(root, member))
+        if not target.startswith(root + os.sep):
             print(f"- {name}: skipped member outside the destination: {member}")
             continue
         os.makedirs(os.path.dirname(target), exist_ok=True)
@@ -440,16 +443,29 @@ def extract(dest):
     """Archive every automation's source under `dest`; print a JSON report."""
     autos = req("GET", "/")["automations"]
     os.makedirs(dest, exist_ok=True)
+    # Two names can slugify to one directory ("SDLC 01 · Bug" and "SDLC 01 Bug"):
+    # they would overwrite each other's members, and two automations reporting the
+    # same `runner_digest` would fake the shared runner this report exists to
+    # check. Assign each automation its own slug up front.
+    assigned, taken = [], set()
+    for name in sorted(a["name"] for a in autos):
+        base = slugify(name) or "automation"
+        slug, n = base, 2
+        while slug in taken:
+            slug, n = f"{base}-{n}", n + 1
+        taken.add(slug)
+        assigned.append((name, slug))
+
+    ids = {a["name"]: a["id"] for a in autos}
     report = []
-    for a in sorted(autos, key=lambda a: a["name"]):
-        name, aid = a["name"], a["id"]
+    for name, slug in assigned:
         try:
-            members = tarball_members(aid)
+            members = tarball_members(ids[name])
         except Exception as e:  # noqa: BLE001 — report the failure, keep going
             print(f"- {name}: REFUSED — tarball download failed: {e}")
             report.append({"name": name, "error": str(e)})
             continue
-        entry = extract_one(dest, name, members)
+        entry = extract_one(dest, name, slug, members)
         report.append(entry)
         print(f"- {name}: {len(entry['members'])} member(s), runner {entry['runner_digest'][:12]}")
 
