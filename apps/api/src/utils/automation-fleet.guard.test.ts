@@ -1406,11 +1406,7 @@ describe('deploy-sdlc-agents.py --EXTRACT', () => {
       ].join('\n')
     ) as { dirs: string[] };
 
-    expect(result.dirs).toEqual([
-      'manifest.json',
-      'sdlc-01-bug',
-      'sdlc-01-bug-2',
-    ]);
+    expect(result.dirs).toEqual(['manifest.json', 'sdlc-01-bug', 'sdlc-01-bug-2']);
   });
 });
 
