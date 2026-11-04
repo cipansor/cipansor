@@ -1,0 +1,107 @@
+# Archive the fleet source that only lives in the OpenHands automation API.
+#
+# The runner (`main.py`, `setup.sh`, `finish_tool_hook.py`), `prompt.txt` and the
+# prompt head ("Anda adalah sebuah automation …") are not in this repository.
+# They exist only inside each automation's tarball (`tarball_path:
+# oh-internal://uploads/…`), so they cannot be reviewed, diffed or recovered.
+# `scripts/deploy-sdlc-agents.py --EXTRACT` downloads them read-only; this
+# workflow runs that and, when asked, pushes the result to the source-of-truth
+# repository `cipansor/cipansor-bot` (#927).
+#
+# It also answers the question the plan rests on: do the automations share ONE
+# runner? `patch_tarball()` re-uploads every member it did not touch, so the
+# copies are expected to be identical — but that has never been checked, and a
+# single source-of-truth runner is only meaningful if they are. The run prints
+# the distinct runner digests and warns when they diverge.
+#
+# `dry_run` defaults to true: the first run only extracts and reports. Set it to
+# false to push the archive to `cipansor/cipansor-bot` on `target_branch`.
+name: Fleet source bootstrap
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: 'Only extract and report; do not push'
+        type: boolean
+        default: true
+      target_branch:
+        description: 'Branch to push the archive to on cipansor/cipansor-bot'
+        type: string
+        default: 'bootstrap/fleet-source'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fleet-source-bootstrap
+  cancel-in-progress: false
+
+jobs:
+  extract:
+    name: Extract the fleet source from the automation API
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+
+      - name: Extract the source of every automation
+        env:
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+          EXTRACT: ${{ runner.temp }}/fleet-source
+        run: |
+          if [ -z "$OPENHANDS_API_KEY" ]; then
+            echo "::error::OPENHANDS_API_KEY is not set; the fleet source cannot be extracted."
+            exit 1
+          fi
+          python3 scripts/deploy-sdlc-agents.py
+
+      - name: Summarise the archive
+        env:
+          EXTRACT: ${{ runner.temp }}/fleet-source
+        run: |
+          cat > "$RUNNER_TEMP/summary.py" <<'PY'
+          import json, sys
+          data = json.load(open(sys.argv[1]))
+          print("### Fleet source archive\n")
+          print("| Automation | Members | Prompt bytes |")
+          print("| --- | --- | --- |")
+          for a in data["automations"]:
+              if "error" in a:
+                  print(f"| {a['name']} | FAILED | {a['error'][:60]} |")
+                  continue
+              print(f"| {a['name']} | {len(a['members'])} | {a['prompt_bytes']} |")
+          digests = data["runner_digests"]
+          print(f"\n**{len(digests)} distinct runner digest(s)**")
+          for d, names in digests.items():
+              print(f"- `{d[:12]}` — {len(names)} automation(s)")
+          PY
+          python3 "$RUNNER_TEMP/summary.py" "$EXTRACT/manifest.json" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Push the archive to cipansor/cipansor-bot
+        if: ${{ inputs.dry_run == false }}
+        env:
+          # A token that can write to cipansor/cipansor-bot. The Actions
+          # `GITHUB_TOKEN` is scoped to this repository and cannot push there;
+          # the runner-only `GITHUB_BOT_TOKEN` is not available to Actions. Add
+          # this repository secret before the first non-dry run.
+          FLEET_SOURCE_TOKEN: ${{ secrets.FLEET_SOURCE_TOKEN }}
+          EXTRACT: ${{ runner.temp }}/fleet-source
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+        run: |
+          if [ -z "$FLEET_SOURCE_TOKEN" ]; then
+            echo "::error::FLEET_SOURCE_TOKEN is not set; cannot push to cipansor/cipansor-bot."
+            exit 1
+          fi
+          cd "$EXTRACT"
+          rm -rf .git
+          git init -q -b "$TARGET_BRANCH"
+          git config user.name 'cipansor-bot'
+          git config user.email 'cipansor-bot@users.noreply.github.com'
+          git add -A
+          git commit -q -m 'chore: arsip sumber armada dari API automation (#927)'
+          git push --force \
+            "https://x-access-token:${FLEET_SOURCE_TOKEN}@github.com/cipansor/cipansor-bot.git" \
+            "HEAD:refs/heads/$TARGET_BRANCH"
