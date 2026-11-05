@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import { dashboardService } from '@/modules/dashboard-enhancement/dashboard.service';
+import { dayOf, todayWib } from '@/utils/wib';
 import { Prisma } from '@prisma/client';
 
 /**
@@ -47,8 +48,9 @@ export async function createDailySnapshots(): Promise<void> {
       return;
     }
 
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // The job runs at 01:00 WIB (18:00 UTC the day before), so the UTC day is
+    // a day behind: stamp the WIB calendar day the snapshot represents.
+    const today = dayOf(todayWib());
 
     let successCount = 0;
     let errorCount = 0;
