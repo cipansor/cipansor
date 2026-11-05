@@ -44,3 +44,28 @@ export function wibTimeOnDay(day: string, hhmm: string): Date {
   const midnight = dayOf(day).getTime();
   return new Date(midnight + (h * 60 + m - WIB_OFFSET_MINUTES) * 60_000);
 }
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The WIB Monday–Sunday week a calendar day belongs to, as `[start, end)`
+ * instants: Monday 00:00 WIB → the following Monday 00:00 WIB, with the same
+ * bounds for the week before (`prevStart`).
+ *
+ * The bounds are WIB midnights, which also select the right days from a
+ * `@db.Date` column: a day D is stored at UTC midnight, and that instant always
+ * falls inside the WIB day D window `[D-1 17:00Z, D 17:00Z)`. Computing the
+ * week from the server clock instead (`setDate`/`setHours` on a UTC container)
+ * lands on the previous Monday for the whole 00:00–07:00 WIB stretch, because
+ * the clock is still on the day before.
+ */
+export function wibWeekRange(day: string): { start: Date; end: Date; prevStart: Date } {
+  const dow = (wibWeekday(day) + 6) % 7; // 0 = Monday
+  const monday = dayString(new Date(dayOf(day).getTime() - dow * DAY_MS));
+  const start = new Date(`${monday}T00:00:00.000+07:00`);
+  return {
+    start,
+    end: new Date(start.getTime() + 7 * DAY_MS),
+    prevStart: new Date(start.getTime() - 7 * DAY_MS),
+  };
+}
