@@ -14,6 +14,7 @@ import {
 } from "@cipansor/shared";
 import { getActiveRoleCode, type RbacUser } from "@/lib/rbac";
 import { PERMIT_TYPE_LABELS } from "./use-permits";
+import { todayWibDay } from "@/lib/date";
 
 // ============================================
 // TYPES
@@ -121,7 +122,9 @@ export function useStaffDashboardStats() {
   return useQuery({
     queryKey: ["staff-dashboard-stats", user?.unitId],
     queryFn: async (): Promise<StaffDashboardStats> => {
-      const today = new Date().toISOString().split("T")[0];
+      // The day these cards speak about is the WIB day: a UTC day would ask
+      // for yesterday's attendance, violations and rewards until 07:00 WIB.
+      const today = todayWibDay();
 
       // Fetch multiple stats in parallel
       const [
