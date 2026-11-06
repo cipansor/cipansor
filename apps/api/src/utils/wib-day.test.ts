@@ -1,5 +1,14 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { wibMonthYear, wibDate, dayDate, calendarDate, utcMonthRange } from './wib-day';
+import {
+  wibMonthYear,
+  wibDate,
+  dayDate,
+  calendarDate,
+  utcMonthRange,
+  wibDayBound,
+  wibMonthBounds,
+  wibYearBounds,
+} from './wib-day';
 
 // The WIB helpers must derive the calendar from the instant alone, never from
 // the host clock. Production runs the API container in UTC; a developer's
@@ -115,5 +124,103 @@ describe('dayDate / calendarDate', () => {
     expect(calendarDate(undefined)).toBeUndefined();
     expect(calendarDate('')).toBeNull();
     expect(calendarDate(null)).toBeNull();
+  });
+});
+
+describe('wibDayBound', () => {
+  beforeAll(() => {
+    process.env.TZ = 'UTC';
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+
+  it('takes a date-only bound to the first and last instant of that WIB day', () => {
+    // `new Date('2026-01-31')` is 07:00 WIB — the bug this helper exists for.
+    expect(wibDayBound('2026-01-31', 'start').toISOString()).toBe('2026-01-30T17:00:00.000Z');
+    expect(wibDayBound('2026-01-31', 'end').toISOString()).toBe('2026-01-31T16:59:59.999Z');
+  });
+
+  it('keeps an entry made in the last WIB hours of the day inside the end bound', () => {
+    // 31 January 14:00 WIB — the reproduction in the report, dropped by
+    // `new Date('2026-01-31')`.
+    const entry = new Date('2026-01-31T14:00:00+07:00');
+    expect(entry.getTime()).toBeLessThanOrEqual(wibDayBound('2026-01-31', 'end').getTime());
+  });
+
+  it('resolves an instant to the WIB day it falls on', () => {
+    // 2026-01-31 23:30 WIB is 2026-01-31T16:30Z; the end bound stays on 31 Jan.
+    expect(wibDayBound('2026-01-31T16:30:00Z', 'end').toISOString()).toBe(
+      '2026-01-31T16:59:59.999Z'
+    );
+    // 2026-01-31 00:30 WIB is 2026-01-30T17:30Z — still 31 January WIB.
+    expect(wibDayBound('2026-01-30T17:30:00Z', 'end').toISOString()).toBe(
+      '2026-01-31T16:59:59.999Z'
+    );
+  });
+
+  it('is the same instant on any server timezone', () => {
+    const utc = wibDayBound('2026-01-31', 'end');
+    process.env.TZ = 'Asia/Makassar';
+    const makassar = wibDayBound('2026-01-31', 'end');
+    process.env.TZ = 'America/New_York';
+    const newYork = wibDayBound('2026-01-31', 'end');
+    process.env.TZ = 'UTC';
+
+    expect(makassar.getTime()).toBe(utc.getTime());
+    expect(newYork.getTime()).toBe(utc.getTime());
+  });
+});
+
+describe('wibMonthBounds', () => {
+  beforeAll(() => {
+    process.env.TZ = 'UTC';
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+
+  it('spans the WIB month, ending on the last millisecond of its final day', () => {
+    const { start, end } = wibMonthBounds(new Date('2026-01-15T10:00:00Z'));
+    expect(start.toISOString()).toBe('2025-12-31T17:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-01-31T16:59:59.999Z');
+  });
+
+  it('reads the month WIB is in, not the month UTC is in', () => {
+    // 2026-07-31 21:00Z is 2026-08-01 04:00 WIB — the auto-billing cron instant.
+    const august = wibMonthBounds(new Date('2026-07-31T21:00:00Z'));
+    expect(august.start.toISOString()).toBe('2026-07-31T17:00:00.000Z');
+    expect(august.end.toISOString()).toBe('2026-08-31T16:59:59.999Z');
+  });
+
+  it('ends on the real last day of February', () => {
+    const { end } = wibMonthBounds(new Date('2026-02-10T10:00:00Z'));
+    expect(end.toISOString()).toBe('2026-02-28T16:59:59.999Z');
+    const leap = wibMonthBounds(new Date('2028-02-10T10:00:00Z'));
+    expect(leap.end.toISOString()).toBe('2028-02-29T16:59:59.999Z');
+  });
+});
+
+describe('wibYearBounds', () => {
+  beforeAll(() => {
+    process.env.TZ = 'UTC';
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+
+  it('spans the WIB year, ending on the last millisecond of 31 December', () => {
+    const { start, end } = wibYearBounds(new Date('2026-06-15T10:00:00Z'));
+    expect(start.toISOString()).toBe('2025-12-31T17:00:00.000Z');
+    expect(end.toISOString()).toBe('2026-12-31T16:59:59.999Z');
+  });
+
+  it('reads the year WIB is in, not the year UTC is in', () => {
+    // 2025-12-31 19:00Z is 2026-01-01 02:00 WIB — the year rolls.
+    const { start } = wibYearBounds(new Date('2025-12-31T19:00:00Z'));
+    expect(start.toISOString()).toBe('2025-12-31T17:00:00.000Z');
   });
 });
