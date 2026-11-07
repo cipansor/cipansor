@@ -1,6 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { AssetStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
+import { wibMonthYear } from '../utils/wib-day';
 
 // Use same ID as in seed.ts
 const SYSTEM_USER_UUID = '00000000-0000-0000-0000-000000000000';
@@ -61,7 +62,14 @@ export async function runMonthlyDepreciation(unitId?: string, executorId?: strin
       const journalEntries: Prisma.JournalEntryCreateManyInput[] = [];
 
       const now = new Date();
-      const yearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`; // YYYY-MM
+      // The reference is both the period label and the idempotence key, so it
+      // must follow the WIB calendar (UTC+7), like the other monthly jobs. The
+      // API container sets no TZ, so `getMonth()`/`getFullYear()` read UTC: a
+      // run at 00:00–06:59 WIB would stamp the month that just ended (and in
+      // January the previous year) and never match the previous run's key,
+      // writing the same month's journal twice.
+      const { year, month } = wibMonthYear(now);
+      const yearMonth = `${year}-${String(month + 1).padStart(2, '0')}`; // YYYY-MM (WIB)
 
       for (const asset of assets) {
         if (!asset.purchaseDate) continue; // Should be covered by query, but for type safety
@@ -72,10 +80,11 @@ export async function runMonthlyDepreciation(unitId?: string, executorId?: strin
         const lifeMonths = asset.usefulLife || 0;
         const monthlyDepreciation = (cost - residual) / lifeMonths;
 
-        // Skip if fully depreciated (approx)
+        // Skip if fully depreciated (approx). Both sides are read in the same
+        // calendar: the WIB month for "now", and the UTC fields of the date-only
+        // `purchaseDate` column, which stores its day at midnight UTC.
         const ageMonths =
-          (now.getFullYear() - asset.purchaseDate.getFullYear()) * 12 +
-          (now.getMonth() - asset.purchaseDate.getMonth());
+          (year - asset.purchaseDate.getFullYear()) * 12 + (month - asset.purchaseDate.getMonth());
 
         if (ageMonths > lifeMonths) {
           skippedCount++;
