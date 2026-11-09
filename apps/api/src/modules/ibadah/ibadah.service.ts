@@ -519,8 +519,11 @@ export async function getLeaderboard(
       case 'DAILY':
         // The WIB day, so the range the completion rate divides by matches the
         // `@db.Date` rows it counts: `setHours(0,0,0,0)` used the UTC day, which
-        // is the previous day between 00:00 and 06:59 WIB.
+        // is the previous day between 00:00 and 06:59 WIB. Both ends are that
+        // day: in those hours `now` (still the previous UTC day) is earlier
+        // than the WIB day's midnight-UTC value, so `lte: now` matched nothing.
         dateStart = dayDate(wibDayOf(now));
+        dateEnd = dateStart;
         break;
       case 'WEEKLY':
         dateStart = new Date(now);

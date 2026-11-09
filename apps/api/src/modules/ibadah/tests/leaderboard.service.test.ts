@@ -173,6 +173,14 @@ describe('the ibadah ranking', () => {
         ACTORS.musyrif as never
       );
       expect(new Date(result.startDate).toISOString()).toBe('2026-07-05T00:00:00.000Z');
+      // The period closes on the same WIB day, never before it opens: at 05:00
+      // WIB `now` (22:00Z the day before) precedes the day's stored value.
+      expect(new Date(result.endDate).toISOString()).toBe('2026-07-05T00:00:00.000Z');
+      const { where } = prismaMock.dailyIbadahRecord.groupBy.mock.calls[0][0];
+      expect(where.date.gte.getTime()).toBeLessThanOrEqual(where.date.lte.getTime());
+      // One day in the period: one SMA record of its one target is 100%.
+      const sma = result.data.find((r) => r.studentId === SANTRI_SMA.id)!;
+      expect(sma.completionRate).toBeCloseTo(100, 1);
     } finally {
       vi.useRealTimers();
     }
