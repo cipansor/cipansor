@@ -151,8 +151,13 @@ job's log lines; a human decides what to do (step 3 or step 4 above).
 
 **One open issue per workflow, not one per run** (#850). While a workflow has an
 open `deploy-watch` issue, a later failed, stuck or degraded run of it is added
-to that issue as a comment, and once the workflow's latest run is green and its
-site serves that commit the issue is closed with the evidence. A run is never
+to that issue as a comment, and once the workflow's latest run deployed, is
+green and its site serves that commit, the issue is closed with the evidence. A
+green run that deployed nothing (its `Update …` job skipped because no code
+changed) never reached `azure/login` or the release, so it leaves the issue
+open. The log lines come from the job that failed, not a sibling the workflow
+cancelled after it (#861). If the existing issues cannot be listed, the watch
+reports nothing and ends red rather than opening a duplicate. A run is never
 reported twice: its `deploy-watch:run=<id>` marker is looked for in the issue
 bodies and in the comments written since the run started, closed issues
 included, so closing a report by hand does not bring the same run back. Before

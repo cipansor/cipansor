@@ -41,6 +41,10 @@ type Scenario = {
   logsRedirect?: boolean;
   /** HTTP status of the runs listing (403 = a token without actions: read). */
   runsStatus?: number;
+  /** HTTP status of the `deploy-watch` issues listing. */
+  issuesStatus?: number;
+  /** A job's own log, by job id; a job not listed gets the default failure log. */
+  jobLogs?: Record<number, string>;
 };
 type Issue = { number: number; state: 'open' | 'closed'; body: string; updated_at?: string };
 let issuesQuery = '';
@@ -118,7 +122,11 @@ function handler(req: IncomingMessage, res: ServerResponse) {
     res.writeHead(302, { Location: `${baseUrl}/blob/job-7.log`, 'Content-Length': 0 });
     return res.end();
   }
-  if (/\/actions\/jobs\/\d+\/logs$/.test(path) || path === '/blob/job-7.log') {
+  const jobLog = /\/actions\/jobs\/(\d+)\/logs$/.exec(path);
+  if (jobLog && scenario.jobLogs?.[Number(jobLog[1])] !== undefined) {
+    return text(200, scenario.jobLogs[Number(jobLog[1])]);
+  }
+  if (jobLog || path === '/blob/job-7.log') {
     return text(
       200,
       '2026-10-07T00:00:00Z waiting for release\n' +
@@ -128,6 +136,9 @@ function handler(req: IncomingMessage, res: ServerResponse) {
   }
   if (path.endsWith('/issues') && req.method === 'GET') {
     issuesQuery = (req.url || '').split('?')[1] ?? '';
+    if (scenario.issuesStatus && scenario.issuesStatus !== 200) {
+      return json(scenario.issuesStatus, { message: 'Server Error' });
+    }
     const state = new URLSearchParams(issuesQuery).get('state');
     return json(
       200,
@@ -346,6 +357,54 @@ describe('deploy-watch.sh', () => {
     );
   });
 
+  // #861: when one job fails, the workflow cancels its siblings, and the API
+  // can list a cancelled one first. Its log holds no error, so the issue must
+  // quote the job that failed. Each job answers its own log here, or the case
+  // would pass with the bug in place.
+  it("quotes the failed job's log, not a cancelled sibling listed before it", async () => {
+    resetScenario({
+      conclusion: 'failure',
+      jobs: [
+        { id: 5, name: 'Build api', conclusion: 'cancelled' },
+        { id: 6, name: 'Build nginx', conclusion: 'failure' },
+      ],
+      jobLogs: {
+        5: '2026-11-05T02:40:00Z ##[error]The operation was canceled.\n',
+        6: '2026-11-05T02:40:00Z ##[error]AADSTS700213: No matching federated identity record found\n',
+      },
+    });
+    await runWatch();
+    expect(openedBodies).toHaveLength(1);
+    expect(openedBodies[0]).toContain('AADSTS700213');
+    expect(openedBodies[0]).not.toContain('The operation was canceled');
+  });
+
+  it('…and falls back to a timed-out or cancelled job when none failed', async () => {
+    resetScenario({
+      conclusion: 'cancelled',
+      jobs: [
+        { id: 4, name: 'CI and E2E passed', conclusion: 'success' },
+        { id: 5, name: 'Update staging', conclusion: 'cancelled' },
+      ],
+      jobLogs: { 5: '2026-11-05T02:40:00Z ##[error]The operation was canceled.\n' },
+    });
+    await runWatch();
+    expect(openedBodies[0]).toContain('The operation was canceled');
+  });
+
+  // An unreadable report list must not read as "no reports": every API hiccup
+  // would then open a duplicate issue for a run already reported.
+  it('reports nothing and fails when the existing reports cannot be listed', async () => {
+    resetScenario({
+      conclusion: 'failure',
+      issuesStatus: 502,
+      issues: [report(800, 'deploy-staging.yml')],
+    });
+    await expect(runWatch()).rejects.toMatchObject({ code: 1 });
+    expect(openedBodies).toEqual([]);
+    expect(commented).toEqual([]);
+  });
+
   it('never mutates the deployment — a human decides', () => {
     const script = readFileSync(SCRIPT, 'utf8');
     // No rollback, rerun, or container repoint: those are human actions.
@@ -377,7 +436,7 @@ describe('deploy-watch.sh — one report per workflow', () => {
     expect(commented[0].n).toBe(800);
     expect(commented[0].body).toContain('<!-- deploy-watch:run=424242 -->');
     expect(commented[0].body).toContain('staging not answering with commit deadbeef');
-    expect(commented[0].body).toContain(AI_FOOTER);
+    expect(commented[0].body).not.toContain(AI_FOOTER);
     expect(out).toContain('added run 424242');
   });
 
@@ -427,7 +486,7 @@ describe('deploy-watch.sh — one report per workflow', () => {
     expect(commented).toHaveLength(1);
     expect(commented[0].body).toContain('Recovered');
     expect(commented[0].body).toContain(SHA);
-    expect(commented[0].body).toContain(AI_FOOTER);
+    expect(commented[0].body).not.toContain(AI_FOOTER);
     expect(out).toContain('closed #800');
   });
 
@@ -438,6 +497,21 @@ describe('deploy-watch.sh — one report per workflow', () => {
     expect(openedBodies).toEqual([]);
     expect(commented).toHaveLength(1);
     expect(commented[0].body).toContain('degraded');
+  });
+
+  // A docs-only merge skips `Update staging`: the run is green without having
+  // logged in to Azure or released anything, so it proves nothing about the
+  // cause of the open report (#800 was AADSTS700213 at `azure/login`).
+  it('…but a green run that deployed nothing leaves the report open', async () => {
+    resetScenario({
+      healthCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      jobs: [{ id: 7, name: 'Update staging', conclusion: 'skipped' }],
+      issues: [report(800, 'deploy-staging.yml')],
+    });
+    const out = await runWatch();
+    expect(patched).toEqual([]);
+    expect(commented).toEqual([]);
+    expect(out).toContain('open reports stay open');
   });
 
   it("…and leaves another workflow's report alone", async () => {

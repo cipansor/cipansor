@@ -37,10 +37,9 @@ NOW=$(date -u +%s)
 # basmalah.yml cannot add it here: GitHub starts no workflow for an issue opened
 # with GITHUB_TOKEN, so the watchdog writes it itself.
 BASMALAH="بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ"
-# Every automated comment carries the AI-disclosure footer, so a
-# comment-triggered automation never mistakes it for a person (docs/LABELS.md,
-# the #680 loop guard).
-AI_FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers._"
+# Automated comments carry no AI-disclosure footer: the anti-loop guard is the
+# comment's author, not the footer text (docs/LABELS.md, #680; dropped
+# 2026-10-14).
 
 # name|workflow file|public base url — the two workflows that reach a site.
 WORKFLOWS=${DEPLOY_WATCH_WORKFLOWS:-'Deploy staging|deploy-staging.yml|https://staging.cipansor.or.id
@@ -141,7 +140,16 @@ collect_logs() {
   local rid=$1 jobs jid logs raw matched
   jobs=$(req GET "$API/repos/$REPO/actions/runs/$rid/jobs")
   [ "$(httpcode)" = 200 ] || return 0
-  jid=$(printf '%s' "$jobs" | jq -r '(.jobs // []) | map(select(.conclusion != null and .conclusion != "success")) | .[0].id // empty')
+  # The job that failed, then one that timed out or was cancelled, then any
+  # other that did not succeed. When one job fails, the workflow cancels its
+  # siblings, and the API can list a cancelled one first: its log holds no
+  # error, only "The operation was canceled" (#861).
+  jid=$(printf '%s' "$jobs" | jq -r '(.jobs // []) as $j
+    | ([$j[] | select(.conclusion == "failure")]
+       + [$j[] | select(.conclusion == "timed_out")]
+       + [$j[] | select(.conclusion == "cancelled")]
+       + [$j[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped")])
+    | .[0].id // empty')
   [ -n "$jid" ] || jid=$(printf '%s' "$jobs" | jq -r '(.jobs // []) | .[0].id // empty')
   [ -n "$jid" ] || return 0
   logs=$(req GET "$API/repos/$REPO/actions/jobs/$jid/logs")
@@ -192,7 +200,14 @@ report() {
   # Closed ones too: closing a report while its run is still the latest must
   # not raise the same report again on the next check.
   existing=$(req GET "$API/repos/$REPO/issues?state=all&labels=$LABEL&per_page=100")
-  [ "$(httpcode)" = 200 ] || existing='[]'
+  # Fail closed: without the list, the watch cannot tell a new run from one it
+  # already reported, and an empty list would open a duplicate report on every
+  # API hiccup. Report nothing, and end the run red (BLIND_FILE).
+  if [ "$(httpcode)" != 200 ]; then
+    log "$name: could not list the existing reports (HTTP $(httpcode)) — run $id not reported"
+    printf '%s reports (HTTP %s)\n' "$name" "$(httpcode)" >> "$BLIND_FILE"
+    return 0
+  fi
   if printf '%s' "$existing" \
     | jq -e --arg m "$marker" '[.[]? | (.body // "") | contains($m)] | any' >/dev/null 2>&1; then
     log "$name: run $id already reported (an issue carries $marker) — nothing to do"
@@ -235,9 +250,7 @@ report() {
       "" \
       "$details" \
       "" \
-      "> Added by the deploy watchdog to the open report for \`$wf\` instead of opening another issue. The report is closed automatically once a run of this workflow is green and its site serves that commit." \
-      "" \
-      "$AI_FOOTER")
+      "> Added by the deploy watchdog to the open report for \`$wf\` instead of opening another issue. The report is closed automatically once a run of this workflow is green and its site serves that commit.")
     if [ "$DRY_RUN" = 1 ]; then
       echo "----- would comment on issue #$open"
       printf '%s\n' "$body"
@@ -295,10 +308,7 @@ resolve() {
     return 0
   fi
   for n in $(open_reports "$existing" "$wf"); do
-    body=$(printf '%s\n' \
-      "Recovered: run [$id]($url) on commit \`$sha\` is green and $base answers with \`$serving\` (api and web). Closing this report; a new failure of \`$wf\` opens a fresh one." \
-      "" \
-      "$AI_FOOTER")
+    body="Recovered: run [$id]($url) on commit \`$sha\` is green and $base answers with \`$serving\` (api and web). Closing this report; a new failure of \`$wf\` opens a fresh one."
     if [ "$DRY_RUN" = 1 ]; then
       echo "----- would close issue #$n"
       printf '%s\n' "$body"
@@ -394,10 +404,13 @@ body: $(printf '%s' "$health" | head -c 400)"
 
   if [ -n "$expected" ]; then
     log "$name: run $id success — $base is serving $sha (api and web)"
+    resolve "$name" "$wf" "$latest" "$base" "${hcommit:-?}"
   else
-    log "$name: run $id deployed nothing (no code changed) — $base answers, serving ${hcommit:-?}"
+    # A run that deployed nothing never exercised the release path (login,
+    # build, container update), so it cannot prove the reported cause is fixed:
+    # an open report stays open until a run that deployed is green.
+    log "$name: run $id deployed nothing (no code changed) — $base answers, serving ${hcommit:-?}; open reports stay open"
   fi
-  resolve "$name" "$wf" "$latest" "$base" "${hcommit:-?}"
 }
 
 main() {
@@ -408,7 +421,7 @@ main() {
     check "$name" "$wf" "$base"
   done
   if [ -s "$BLIND_FILE" ]; then
-    echo "::error::deploy-watch could not read the runs of: $(paste -sd, "$BLIND_FILE"). Nothing was checked for them (does the token have actions: read?)."
+    echo "::error::deploy-watch could not read: $(paste -sd, "$BLIND_FILE"). Nothing was checked or reported for them (does the token have actions: read and issues: write?)."
     exit 1
   fi
 }
