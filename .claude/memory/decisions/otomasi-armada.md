@@ -433,6 +433,28 @@
     promptnya. Armada menyusut 24 -> 23 automation. Dijaga tes
     `automation-fleet.guard.test.ts` (dua kasus baru).
 
+29. **Pemisahan identitas: `adminypc` menulis, `cipansor-bot` berkomunikasi**
+    (2026-11-09, pengguna). Satu akun untuk dua peran adalah cacat: issue dan PR
+    baru teratribusi ke `cipansor-bot`, sehingga riwayat repo memperlihatkan bot
+    membuka pekerjaannya sendiri, dan label/review yang seharusnya milik bot bisa
+    jatuh ke `adminypc` (kelas yang sama dengan #806). Aturan yang berlaku:
+    - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS: `POST /issues`, `POST /pulls`,
+      push commit. Hanya automation pembuat artefak yang memakainya.
+    - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR: semua komentar,
+      label, review, reaction.
+    Akarnya bukan niat agen, melainkan **prompt**: kalimat "Catatan lingkungan"
+    menyuruh memakai token yang tertanam di remote `origin` untuk "operasi baca
+    dan tulis apa pun", dan blok IDENTITAS lama hanya menyebut `cipansor-bot`
+    tanpa pernah mengatakan token mana yang membuat issue/PR. Keduanya diperbaiki
+    di `scripts/deploy-sdlc-agents.py` (`AMBIENT_TOKEN_NOTE` ->
+    `IDENTITY_TOKEN_NOTE`, `OLD_IDENTITY_LINE` -> `NEW_IDENTITY_LINE`) supaya
+    deploy berikutnya memperbarui seluruh armada. Runner `main.py` sudah benar
+    (`REQUIRED_SECRETS = ["GITHUB_TOKEN"]` + `GITHUB_BOT_TOKEN` bila prompt
+    memintanya), jadi tidak perlu diubah.
+    Catatan: automation yang **tidak** membuat artefak juga memegang
+    `GITHUB_TOKEN` (grant otomatis platform), jadi larangan itu harus eksplisit
+    di prompt, bukan diasumsikan dari ketiadaan token.
+
 ## Sumber
 
 - Google SRE, "Monitoring Distributed Systems" —

@@ -1005,6 +1005,50 @@ describe('deploy-sdlc-agents.py', () => {
   // re-attached, not merely that a budget was appended.
   const TAILS_SDLC_01_MARKER = 'Triase bug ini dengan KRITIS dan habis-habisan.';
 
+  // The pre-fix environment note, as the live prompts still carry it verbatim.
+  const AMBIENT =
+    'Catatan lingkungan: `gh` mungkin belum terautentikasi; gunakan REST API GitHub (https://api.github.com) dengan token yang tertanam di remote git `origin` untuk operasi baca dan tulis apa pun pada GitHub.';
+
+  it('tells a writer automation to author issues/PRs as adminypc, not the bot', () => {
+    // The environment note used to authorise the `origin` token (the writer's,
+    // `adminypc`) for "any read and write on GitHub". An automation that opened
+    // an issue or PR through it produced the artifact under the wrong account.
+    // The identity block is now the single source of truth: GITHUB_TOKEN authors
+    // issues/PRs, GITHUB_BOT_TOKEN comments/labels/reviews.
+    const script = readFileSync(DEPLOY, 'utf8');
+    expect(script).toContain('IDENTITY_TOKEN_NOTE');
+    expect(script).toContain('AMBIENT_TOKEN_NOTE');
+    expect(script).toContain('head.replace(AMBIENT_TOKEN_NOTE, IDENTITY_TOKEN_NOTE)');
+    const original = `Header\n\n${AMBIENT}\n\nPERILAKU SASARAN (level agentic)\nTail`;
+    const out = newPrompt('SDLC 04', original);
+    // The old authorisation is gone; the identity-aware note replaces it.
+    expect(out).not.toContain('untuk operasi baca dan tulis apa pun pada GitHub');
+    expect(out).toContain('JANGAN memakai token yang tertanam di remote git `origin`');
+    // The identity block names both tokens and their jobs.
+    expect(out).toContain('IDENTITAS — DUA AKUN, JANGAN DITUKAR');
+    expect(out).toContain('`GITHUB_TOKEN` (akun `adminypc`) — PENULIS');
+    expect(out).toContain('`GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR');
+    // Drift guard: the replacement text must be the bullet the block actually
+    // carries, or the deploy would rewrite the fleet with a bullet that differs
+    // from the block inserted into a fresh prompt.
+    const drift = spawnSync(
+      'python3',
+      [
+        '-c',
+        [
+          'import importlib.util, sys',
+          'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
+          'm = importlib.util.module_from_spec(spec)',
+          'spec.loader.exec_module(m)',
+          'sys.exit(0 if m.NEW_IDENTITY_LINE in m.BODY_BLOCK else 1)',
+        ].join('\n'),
+        DEPLOY,
+      ],
+      { encoding: 'utf8' }
+    );
+    expect(drift.status).toBe(0);
+  });
+
   it.skipIf(!hasPy)('strips the AI-disclosure footer mandate from the head', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nTail`;
     const out = newPrompt('SDLC 03', original);

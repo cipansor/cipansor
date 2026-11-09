@@ -106,6 +106,53 @@ FOOTER_LINE_PREFIX = "_This comment was created by an AI agent"
 LEGACY_GUARD_FILTER = "!icontains(comment.body, 'This comment was created by an AI agent')"
 AUTHOR_GUARD_FILTER = "comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'"
 
+# The environment note used to tell the agent to do "any read and write on
+# GitHub" with the token baked into the `origin` remote. That token is the
+# writer's (`adminypc`), so an automation that opened an issue or a pull request
+# through it produced the artifact under the WRONG account — the defect the
+# identity block fixes (#806 is the same mislabel for labels). The token choice
+# now belongs to the identity block alone; this note only keeps the REST-API
+# advice and forbids the `origin` token for anything but a push.
+AMBIENT_TOKEN_NOTE = (
+    "Catatan lingkungan: `gh` mungkin belum terautentikasi; gunakan REST API GitHub "
+    "(https://api.github.com) dengan token yang tertanam di remote git `origin` untuk "
+    "operasi baca dan tulis apa pun pada GitHub."
+)
+IDENTITY_TOKEN_NOTE = (
+    "Catatan lingkungan: `gh` mungkin belum terautentikasi; gunakan REST API GitHub "
+    "(https://api.github.com). Token mana yang dipakai ditentukan blok IDENTITAS di bawah "
+    "— JANGAN memakai token yang tertanam di remote git `origin` untuk komentar, label, "
+    "review, issue, atau pull request; token itu hanya untuk push commit."
+)
+
+# The identity bullet as the live prompts still carry it: it named only the bot
+# account and never said which token authors an issue or a pull request. The new
+# bullet is inserted only when the BODY block is missing, so an already-deployed
+# prompt would keep the old one; replacing it by text is what actually upgrades
+# the fleet in place.
+OLD_IDENTITY_LINE = (
+    "- IDENTITAS: semua komentar, label, dan review dikirim sebagai `cipansor-bot` "
+    "(lewat `GITHUB_BOT_TOKEN`). Jangan pernah menanggapi komentar, review, atau reaction "
+    "milik `cipansor-bot` sendiri — guard anti-loop (#680) memakai penulis komentar, bukan "
+    "teks footer, jadi tidak ada footer AI-disclosure yang perlu ditulis. Nama akun "
+    "`cipansor-bot` sudah menandai komentar itu otomatis."
+)
+
+# Must match the IDENTITAS bullet inside BODY_BLOCK verbatim.
+NEW_IDENTITY_LINE = (
+    "- IDENTITAS — DUA AKUN, JANGAN DITUKAR. Anda memegang dua token GitHub:\n"
+    "  - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS. Bila tugas ini MEMBUAT issue atau pull request, "
+    "pakai token ini untuk `POST /repos/<owner>/<repo>/issues` dan `/pulls`, serta untuk push commit, "
+    "supaya issue/PR teratribusi ke `adminypc`. Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` "
+    "salah pemilik — jangan.\n"
+    "  - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, "
+    "label, review, dan reaction, supaya terbaca sebagai `cipansor-bot`. Jangan memasang label atau "
+    "mengirim review lewat `GITHUB_TOKEN`.\n"
+    "  - Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` sendiri — guard "
+    "anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-disclosure "
+    "yang perlu ditulis."
+)
+
 # The wall clock is the fleet's dominant failure, and it is not a wrong task:
 # 163 of 253 FAILED runs died at their own deadline (`completed_at >=
 # timeout_at`) with `current_phase` "Agent is working on the task" — the agent
@@ -130,7 +177,10 @@ BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
 - Setiap body issue atau PR yang Anda tulis WAJIB dibuka dengan baris persis ini, lalu satu baris kosong, baru isinya:
   بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
   (Bismillaahirrohmaanirrohiim bila tidak bisa menulis Arab.)
-- IDENTITAS: semua komentar, label, dan review dikirim sebagai `cipansor-bot` (lewat `GITHUB_BOT_TOKEN`). Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` sendiri — guard anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-disclosure yang perlu ditulis. Nama akun `cipansor-bot` sudah menandai komentar itu otomatis.
+- IDENTITAS — DUA AKUN, JANGAN DITUKAR. Anda memegang dua token GitHub:
+  - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS. Bila tugas ini MEMBUAT issue atau pull request, pakai token ini untuk `POST /repos/<owner>/<repo>/issues` dan `/pulls`, serta untuk push commit, supaya issue/PR teratribusi ke `adminypc`. Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` salah pemilik — jangan.
+  - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, label, review, dan reaction, supaya terbaca sebagai `cipansor-bot`. Jangan memasang label atau mengirim review lewat `GITHUB_TOKEN`.
+  - Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` sendiri — guard anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-disclosure yang perlu ditulis.
 - ISSUE — komentar dulu, body saat `ready`. Selama issue belum `ready`, triase, estimasi, kriteria, dan pertanyaan terbuka ditulis sebagai KOMENTAR BARU, bukan ke body. Body issue hanya diperbarui saat Anda memasang `ready`: saat itu tulis ringkasan final ke body lewat `PATCH /repos/<owner>/<repo>/issues/<n>` (body adalah field `body`) di bawah penanda tetap (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. Sebelum memasang `ready`, cabut dulu `question`/`needs-info`/`pending-maintainer` yang bertentangan. Bila belum `ready`, jangan mengubah body issue.
 - PR — kesimpulan final (putusan tinjauan, hasil QA) tetap ditulis ke DESKRIPSI UTAMA PR di bawah penanda tetap (mis. `<!-- sdlc:gerbang -->`), diperbarui di tempat.
 - Idempoten (invarian 4): satu pemicu = satu tulisan; perbarui komentar berpenanda Anda, jangan menumpuk. Jangan menanggapi komentar atau reaction milik Anda sendiri.
@@ -332,6 +382,17 @@ def new_prompt(name, prompt):
             head = head[:end] + "\n" + BODY_BLOCK + head[end:]
         else:
             head = BODY_BLOCK + "\n" + head
+    # Replace the ambient-token note with the identity-aware one. It used to
+    # authorise the `origin` token for "any read and write on GitHub", which is
+    # how an issue or PR ended up under the writer account instead of the one the
+    # task meant. Applied to the head, so the identity block is the single source
+    # of truth for which token does what.
+    head = head.replace(AMBIENT_TOKEN_NOTE, IDENTITY_TOKEN_NOTE)
+    # A live prompt already carries the BODY block, so the insert above is a
+    # no-op for it and the old one-line identity bullet would survive. Replace
+    # that bullet by text so the fleet actually gains the writer/communicator
+    # split on the next deploy.
+    head = head.replace(OLD_IDENTITY_LINE, NEW_IDENTITY_LINE)
     if managed_tail is None:
         # Keep the original tail verbatim (its behaviour is unchanged); only the
         # head gained the body/reaction reminders that apply to every automation.
