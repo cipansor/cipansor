@@ -104,10 +104,23 @@ describe('BusinessUnitService', () => {
 
       await businessUnitService.list({});
 
-      expect(monthStartOf(0).toISOString()).toBe('2026-11-01T00:00:00.000Z');
+      // 00:00 WIB on 1 Nov, the first instant of the WIB month.
+      expect(monthStartOf(0).toISOString()).toBe('2026-10-31T17:00:00.000Z');
       const laundryStart = (prisma.laundryTransaction.groupBy as any).mock.calls[0][0].where
         .createdAt.gte as Date;
-      expect(laundryStart.toISOString()).toBe('2026-11-01T00:00:00.000Z');
+      expect(laundryStart.toISOString()).toBe('2026-10-31T17:00:00.000Z');
+    });
+
+    it('counts a sale made at 00:30 WIB on the 1st in the new month', async () => {
+      vi.setSystemTime(new Date('2026-11-15T03:00:00Z')); // mid-November
+
+      await businessUnitService.list({});
+
+      const firstNightSale = new Date('2026-10-31T17:30:00Z'); // 1 Nov 00:30 WIB
+      expect(firstNightSale.getTime()).toBeGreaterThanOrEqual(monthStartOf(0).getTime());
+      // ...and a sale at 23:30 WIB on 31 Oct stays in October.
+      const lastNightOfOctober = new Date('2026-10-31T16:30:00Z');
+      expect(lastNightOfOctober.getTime()).toBeLessThan(monthStartOf(0).getTime());
     });
 
     it('on 1 Jan 2027 00:30 WIB bounds January 2027, not December 2026', async () => {
@@ -115,7 +128,7 @@ describe('BusinessUnitService', () => {
 
       await businessUnitService.list({});
 
-      expect(monthStartOf(0).toISOString()).toBe('2027-01-01T00:00:00.000Z');
+      expect(monthStartOf(0).toISOString()).toBe('2026-12-31T17:00:00.000Z');
     });
   });
 });
