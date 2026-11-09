@@ -29,20 +29,6 @@ export function wibDayBound(value: string, edge: 'start' | 'end'): Date {
 }
 
 /**
- * The WIB calendar month a moment falls in, as the `[start, end]` instants a
- * `DateTime` filter needs: the first millisecond of the 1st and the last
- * millisecond of the month's final day. A default range derived from the
- * server clock would otherwise sit on the UTC month, which is still the
- * previous month for the first seven hours of a WIB day.
- */
-export function wibMonthBounds(moment: Date): { start: Date; end: Date } {
-  const { year, month } = wibMonthYear(moment);
-  const first = wibDate(year, month, 1);
-  const last = wibDate(year, month + 1, 0);
-  return { start: wibDayStart(wibDayOf(first)), end: wibDayEnd(wibDayOf(last)) };
-}
-
-/**
  * The WIB calendar year a moment falls in, as the `[start, end]` instants a
  * `DateTime` filter needs. Year-to-date reports default to it, so a default
  * derived from the server clock must not land on the previous UTC year.
@@ -121,6 +107,25 @@ export function utcMonthRange(year: number, month: number): { start: Date; end: 
   return {
     start: new Date(Date.UTC(year, month, 1)),
     end: new Date(Date.UTC(nextYear, nextMonth, 1)),
+  };
+}
+
+/**
+ * A calendar month as the real-instant bounds a `DateTime` column holding a
+ * wall-clock moment uses: `[00:00:00.000 WIB on the 1st, 23:59:59.999 WIB on
+ * the last day]`. `utcMonthRange` bounds a *date-only* column at midnight UTC;
+ * this bounds a *timestamp* column (`JournalEntry.date`, the moment an entry
+ * was posted). Using the UTC bounds there drops the whole last day and the
+ * first hours of the 1st (00:00–07:00 WIB, stored the previous UTC day).
+ *
+ * `month` is zero-based (0-11), as in `wibMonthYear`.
+ */
+export function wibMonthRange(year: number, month: number): { start: Date; end: Date } {
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const mm = String(month + 1).padStart(2, '0');
+  return {
+    start: wibDayStart(`${year}-${mm}-01`),
+    end: wibDayEnd(`${year}-${mm}-${String(lastDay).padStart(2, '0')}`),
   };
 }
 

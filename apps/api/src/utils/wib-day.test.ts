@@ -5,8 +5,8 @@ import {
   dayDate,
   calendarDate,
   utcMonthRange,
+  wibMonthRange,
   wibDayBound,
-  wibMonthBounds,
   wibYearBounds,
 } from './wib-day';
 
@@ -90,6 +90,47 @@ describe('utcMonthRange', () => {
   });
 });
 
+describe('wibMonthRange', () => {
+  beforeAll(() => {
+    process.env.TZ = 'UTC';
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+
+  it('closes the month on the WIB clock, whole last day included', () => {
+    const { start, end } = wibMonthRange(2026, 10); // November 2026
+    expect(start.toISOString()).toBe('2026-10-31T17:00:00.000Z'); // 1 Nov 00:00 WIB
+    expect(end.toISOString()).toBe('2026-11-30T16:59:59.999Z'); // 30 Nov 23:59:59.999 WIB
+  });
+
+  it('covers the whole of the last day, not just its midnight', () => {
+    const { start, end } = wibMonthRange(2026, 10);
+    // 30 Nov 10:00 WIB — the payment the UTC-midnight bound used to drop.
+    const lastDayPayment = new Date('2026-11-30T03:00:00.000Z');
+    expect(lastDayPayment >= start && lastDayPayment <= end).toBe(true);
+  });
+
+  it('includes the first hours of the 1st, stored on the previous UTC day', () => {
+    const { start, end } = wibMonthRange(2026, 10);
+    // 1 Nov 02:00 WIB is 31 Oct 19:00Z.
+    const earlyFirstDay = new Date('2026-10-31T19:00:00.000Z');
+    expect(earlyFirstDay >= start && earlyFirstDay <= end).toBe(true);
+  });
+
+  it('handles February and a leap year', () => {
+    expect(wibMonthRange(2026, 1).end.toISOString()).toBe('2026-02-28T16:59:59.999Z');
+    expect(wibMonthRange(2024, 1).end.toISOString()).toBe('2024-02-29T16:59:59.999Z');
+  });
+
+  it('rolls over from December to January of the next year', () => {
+    const { start, end } = wibMonthRange(2026, 11);
+    expect(start.toISOString()).toBe('2026-11-30T17:00:00.000Z'); // 1 Dec 00:00 WIB
+    expect(end.toISOString()).toBe('2026-12-31T16:59:59.999Z'); // 31 Dec 23:59:59.999 WIB
+  });
+});
+
 describe('dayDate / calendarDate', () => {
   beforeAll(() => {
     process.env.TZ = 'UTC';
@@ -170,36 +211,6 @@ describe('wibDayBound', () => {
 
     expect(makassar.getTime()).toBe(utc.getTime());
     expect(newYork.getTime()).toBe(utc.getTime());
-  });
-});
-
-describe('wibMonthBounds', () => {
-  beforeAll(() => {
-    process.env.TZ = 'UTC';
-  });
-  afterAll(() => {
-    if (prevTz === undefined) delete process.env.TZ;
-    else process.env.TZ = prevTz;
-  });
-
-  it('spans the WIB month, ending on the last millisecond of its final day', () => {
-    const { start, end } = wibMonthBounds(new Date('2026-01-15T10:00:00Z'));
-    expect(start.toISOString()).toBe('2025-12-31T17:00:00.000Z');
-    expect(end.toISOString()).toBe('2026-01-31T16:59:59.999Z');
-  });
-
-  it('reads the month WIB is in, not the month UTC is in', () => {
-    // 2026-07-31 21:00Z is 2026-08-01 04:00 WIB — the auto-billing cron instant.
-    const august = wibMonthBounds(new Date('2026-07-31T21:00:00Z'));
-    expect(august.start.toISOString()).toBe('2026-07-31T17:00:00.000Z');
-    expect(august.end.toISOString()).toBe('2026-08-31T16:59:59.999Z');
-  });
-
-  it('ends on the real last day of February', () => {
-    const { end } = wibMonthBounds(new Date('2026-02-10T10:00:00Z'));
-    expect(end.toISOString()).toBe('2026-02-28T16:59:59.999Z');
-    const leap = wibMonthBounds(new Date('2028-02-10T10:00:00Z'));
-    expect(leap.end.toISOString()).toBe('2028-02-29T16:59:59.999Z');
   });
 });
 
