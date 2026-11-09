@@ -4,6 +4,7 @@ import { Prisma, AttendanceStatus, Invoice, StudentParent } from '@prisma/client
 import { getStudentIbadahStats } from '../ibadah/ibadah.service';
 import * as DormitoryService from '../dormitories/dormitories.service';
 import { recentAnnouncements as announcementsAddressedTo } from '@/modules/announcements';
+import { todayWib, wibWeekRange } from '../../utils/wib';
 
 type StudentParentWithStudent = Awaited<ReturnType<typeof prisma.studentParent.findMany>>[0];
 type GradeWithRelations = Awaited<ReturnType<typeof prisma.grade.findMany>>[0];
@@ -277,16 +278,11 @@ export class ParentService {
   ) {
     await this.verifyParentAccess(parentId, studentId);
 
-    // Monday 00:00 of the reference week → exclusive next Monday.
-    const ref = query.weekStart ? new Date(query.weekStart) : new Date();
-    const start = new Date(ref);
-    const dow = (start.getDay() + 6) % 7; // 0 = Monday
-    start.setDate(start.getDate() - dow);
-    start.setHours(0, 0, 0, 0);
-    const end = new Date(start);
-    end.setDate(start.getDate() + 7);
-    const prevStart = new Date(start);
-    prevStart.setDate(start.getDate() - 7);
+    // Monday 00:00 WIB of the reference week → exclusive next Monday. The
+    // reference is the WIB calendar day, so 00:00–06:59 WIB (still the previous
+    // day on the UTC server clock) does not roll the window back a week.
+    const refDay = todayWib(query.weekStart ? new Date(query.weekStart) : new Date());
+    const { start, end, prevStart } = wibWeekRange(refDay);
 
     const [attendanceGroups, tahfidzRecords, weekGrades, prevGrades, rewards, violations] =
       await Promise.all([
@@ -368,10 +364,12 @@ export class ParentService {
     const weekLabel = `${start.toLocaleDateString('id-ID', {
       day: 'numeric',
       month: 'short',
+      timeZone: 'Asia/Jakarta',
     })} – ${new Date(end.getTime() - 1).toLocaleDateString('id-ID', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
+      timeZone: 'Asia/Jakarta',
     })}`;
 
     return {

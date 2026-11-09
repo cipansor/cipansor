@@ -193,6 +193,11 @@ describe('gate-watch.sh', () => {
     expect(status).toBe(0);
     expect(calls).toContain('CREATE');
     expect(created).toContain('<!-- gate-watch:health -->');
+    // docs/LABELS.md rule 13; basmalah.yml never sees an issue opened with
+    // GITHUB_TOKEN, so the watch writes it itself (#850).
+    expect(
+      created.startsWith('بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ\n\n<!-- gate-watch:health -->')
+    ).toBe(true);
     expect(created).toContain('| #7 | `abc123def` |');
     // No AI-disclosure footer: the anti-loop guard is the comment's author.
     expect(created).not.toContain('This comment was created by an AI agent');

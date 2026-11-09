@@ -252,7 +252,7 @@ repositori privat:
 | Perintah yang menggantung (timeout sebelum tenggat run) | `Pengawas armada` mengklasifikasi `wall-short` bila `error_detail` "command timed out or was killed" tetapi `completed_at < timeout_at` | dilaporkan **terpisah** dari `wall`, karena saran `wall` (menambah anggaran) tidak berlaku untuk satu perintah yang menggantung — perbaikan sebenarnya adalah membatasi perintah itu, bukan menambah anggaran. Setiap run "command timed out" punya kelas; tidak ada yang jatuh tanpa kelas |
 | `timeout` di bawah 1800 pada sebuah automation | `Pengawas armada` membaca `timeout` tiap automation | satu issue `automation-health` (`config`): set ke 1800. Angka lebih kecil tidak menghemat apa pun dan hanya memindahkan kematian ke run yang tugasnya jujur (invarian 20) |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
-| Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per run; tanpa rollback otomatis |
+| Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per workflow selama masih terbuka (run berikutnya menjadi komentar), ditutup saat deploy hijau dan situs sehat (#850); tanpa rollback otomatis |
 | Situs menurun tanpa deploy | Health check App Service + availability test | alert dari platform |
 | Anggaran terlampaui | laporan pemakaian | automation berhenti; maintainer memutuskan |
 | Bot memicu dirinya sendiri | guard penulis komentar pada setiap pemicu komentar | — (pencegahan) |
@@ -495,7 +495,7 @@ flowchart TB
     STG --> PROD["deploy-production.yml (manual · sha)"]:::human
     STG -. "selesai" .-> DW["deploy-watch.yml"]:::gh
     PROD -. "selesai" .-> DW
-    DW -- "gagal / macet / commit salah" --> DWI(["satu issue deploy-watch per run"]):::gh
+    DW -- "gagal / macet / commit salah" --> DWI(["satu issue deploy-watch per workflow"]):::gh
     MG -. "CI atau E2E gagal di main" .-> BR["main-failure-bridge.yml"]:::gh --> C12["Pemantau deployment"]:::cloud
     C13["Pembuat catatan rilis (cron Jum 22:00 WIB)"]:::cloud
     C13 -. "memotong pre-release -rc (catatan di body Release, tanpa changelog di repo)" .-> REL2(["GitHub Release (prerelease)"])
