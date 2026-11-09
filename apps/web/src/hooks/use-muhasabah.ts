@@ -153,19 +153,6 @@ export function useMuhasabahRecord(id: string) {
   });
 }
 
-export function useMuhasabahByDate(date: string) {
-  return useQuery({
-    queryKey: ["muhasabah", "date", date],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<DailyMuhasabah>>(
-        `/muhasabah/date/${date}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!date,
-  });
-}
-
 export function useMyMuhasabahToday() {
   return useQuery({
     queryKey: ["muhasabah", "today"],

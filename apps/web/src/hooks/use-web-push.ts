@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { toast } from "sonner";
 import type { WebPushSubscriptionPayload } from "@cipansor/shared";
-import { notificationsService } from "@/services/notifications.service";
+import { notificationsApi } from "@/lib/notifications-api";
 import { useAuthStore } from "@/stores/auth";
 import { isAxiosError } from "axios";
 import {
@@ -174,7 +174,7 @@ export function useWebPush() {
   // per session is enough: a key changes only with a redeploy.
   const configQuery = useQuery({
     queryKey: ["web-push-config"],
-    queryFn: () => notificationsService.pushConfig(),
+    queryFn: () => notificationsApi.pushConfig(),
     enabled: supported && !!userId,
     staleTime: 60 * 60 * 1000,
     retry: false,
@@ -259,14 +259,14 @@ export function useWebPush() {
   // silently unable to receive anything.
   const statusQuery = useQuery({
     queryKey: pushStatusQueryKey(userId, endpoint),
-    queryFn: () => notificationsService.pushStatus(endpoint as string),
+    queryFn: () => notificationsApi.pushStatus(endpoint as string),
     enabled: supported && !!publicKey && !!endpoint && !!userId,
     retry: false,
   });
 
   const registerMutation = useMutation({
     mutationFn: (sub: PushSubscription) =>
-      notificationsService.subscribePush(
+      notificationsApi.subscribePush(
         sub.toJSON() as WebPushSubscriptionPayload,
       ),
     retry: false,
@@ -286,7 +286,7 @@ export function useWebPush() {
     // succeeds, so a failed API call could never be retried and the row would
     // linger, still pushing to this device (CWE-200).
     mutationFn: async (sub: PushSubscription) => {
-      await notificationsService.unsubscribePush(sub.endpoint);
+      await notificationsApi.unsubscribePush(sub.endpoint);
       const unsubscribed = await sub.unsubscribe();
       // `unsubscribe()` resolves false if the browser still holds the
       // subscription; don't report success we did not achieve.

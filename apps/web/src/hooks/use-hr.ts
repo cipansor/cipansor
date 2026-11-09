@@ -829,17 +829,6 @@ export function usePayrolls(params?: {
   });
 }
 
-export function usePayroll(id: string) {
-  return useQuery({
-    queryKey: ["payroll", id],
-    queryFn: async () => {
-      const response = await api.get(`/payroll/slips/${id}`);
-      return response.data.data as Payroll;
-    },
-    enabled: !!id,
-  });
-}
-
 export function useGeneratePayrollSlips() {
   const queryClient = useQueryClient();
 
@@ -863,49 +852,6 @@ export function useGeneratePayrollSlips() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payrolls"] });
       queryClient.invalidateQueries({ queryKey: ["payroll-periods"] });
-    },
-  });
-}
-
-export function useUpdatePayroll() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: Partial<Payroll>;
-    }) => {
-      const response = await api.put(`/payroll/slips/${id}`, data);
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payrolls"] });
-      queryClient.invalidateQueries({ queryKey: ["payroll"] });
-    },
-  });
-}
-
-export function useApprovePayroll() {
-  const queryClient = useQueryClient();
-
-  // Assuming approval is done via Period or individual Slip status update
-  return useMutation({
-    mutationFn: async (id: string) => {
-      // Using adjust route or we need a status update route on slips?
-      // Check routes: only PUT /slips/:id exists for update, and PUT /slips/:id/adjust
-      // Status update is not explicitly exposed for single slip in routes.ts except via update
-      // But period approve exists: POST /periods/:id/approve
-      const response = await api.put(`/payroll/slips/${id}`, {
-        status: "APPROVED",
-      });
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payrolls"] });
-      queryClient.invalidateQueries({ queryKey: ["payroll"] });
     },
   });
 }
@@ -941,26 +887,6 @@ export function useProcessPayroll() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["payrolls"] });
-    },
-  });
-}
-
-export function useCancelPayroll() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (ids: string | string[]) => {
-      const idArray = Array.isArray(ids) ? ids : [ids];
-      const results = await Promise.all(
-        idArray.map((id) =>
-          api.put(`/payroll/slips/${id}`, { status: "CANCELLED" }),
-        ),
-      );
-      return results.map((r) => r.data.data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["payrolls"] });
-      queryClient.invalidateQueries({ queryKey: ["payroll"] });
     },
   });
 }
@@ -1365,31 +1291,6 @@ export function useStaffSalaries(params?: {
         };
       };
     },
-  });
-}
-
-export function useStaffSalary(id: string) {
-  return useQuery({
-    queryKey: ["staff-salary", id],
-    queryFn: async () => {
-      const response = await api.get(`/payroll/staff-salary/${id}`);
-      return response.data.data as StaffSalary;
-    },
-    enabled: !!id,
-  });
-}
-
-export function useStaffSalaryByStaffId(staffId: string) {
-  return useQuery({
-    queryKey: ["staff-salary-by-staff", staffId],
-    queryFn: async () => {
-      const response = await api.get(`/payroll/staff-salary`, {
-        params: { staffId },
-      });
-      const salaries = response.data.data as StaffSalary[];
-      return salaries.find((s) => s.isActive) || salaries[0];
-    },
-    enabled: !!staffId,
   });
 }
 

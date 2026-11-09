@@ -55,19 +55,3 @@ export function useTeachers(params?: UseTeachersParams) {
     },
   });
 }
-
-/**
- * Get single teacher details
- */
-export function useTeacher(teacherId: string) {
-  return useQuery({
-    queryKey: ["teachers", teacherId],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<Teacher>>(
-        `/hr/teachers/${teacherId}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!teacherId,
-  });
-}

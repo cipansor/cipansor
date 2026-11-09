@@ -3,9 +3,12 @@
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useCreateActivity, useUpdateActivity } from "@/hooks/use-perencanaan";
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import {
+  useActivityBudgetOptions,
+  useActivityPicOptions,
+  useCreateActivity,
+  useUpdateActivity,
+} from "@/hooks/use-perencanaan";
 import {
   Dialog,
   DialogContent,
@@ -61,24 +64,8 @@ export function ActivityDialog({
   const updateActivity = useUpdateActivity();
   const isEdit = !!editData;
 
-  // Fetch Budgets for selection
-  const { data: budgets } = useQuery({
-    queryKey: ["budgets-lookup"],
-    queryFn: async () => {
-      const res = await api.get("/api/finance/budgets");
-      return res.data.data || [];
-    },
-  });
-
-  // Fetch Users for PIC selection
-  const { data: users } = useQuery({
-    queryKey: ["users-lookup"],
-    queryFn: async () => {
-      const res = await api.get("/api/users");
-      return res.data.data || [];
-    },
-  });
-
+  const { data: budgets } = useActivityBudgetOptions();
+  const { data: users } = useActivityPicOptions();
   const form = useForm<ActivityFormValues>({
     resolver: zodResolver(activitySchema),
     defaultValues: {

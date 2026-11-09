@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { safeFormat } from "@/lib/date";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
 import {
@@ -68,11 +67,12 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useClasses } from "@/hooks/use-classes";
+import { useClassEnrollments } from "@/hooks/use-class-enrollments";
+import { useCreateGrowthRecord, useGrowthRecords } from "@/hooks/use-health";
 import { MainLayout } from "@/components/layout";
 
 function GrowthTrackingPageContent() {
   const { user } = useAuthStore();
-  const queryClient = useQueryClient();
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(
     null,
@@ -92,72 +92,37 @@ function GrowthTrackingPageContent() {
   const { data: classesData } = useClasses({ unitId: user?.unitId });
 
   // Fetch Students for Class
-  const { data: studentsData } = useQuery({
-    queryKey: ["class-enrollments", selectedClassId],
-    queryFn: async () => {
-      if (!selectedClassId) return null;
-      const res = await fetch(`/api/classes/${selectedClassId}/enrollments`);
-      if (!res.ok) throw new Error("Failed to fetch students");
-      const json = await res.json();
-      return json.data;
-    },
-    enabled: !!selectedClassId,
-  });
-
-  // Fetch Growth Records
-  const { data: growthData, isLoading } = useQuery({
-    queryKey: ["growth-records", selectedStudentId],
-    queryFn: async () => {
-      if (!selectedStudentId) return null;
-      const res = await fetch(
-        `/api/health/growth?studentId=${selectedStudentId}`,
-      );
-      if (!res.ok) throw new Error("Failed to fetch growth records");
-      const json = await res.json();
-      return json.data;
-    },
-    enabled: !!selectedStudentId,
-  });
-
-  // Create Mutation
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await fetch("/api/health/growth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to save record");
-      return res.json();
-    },
-    onSuccess: () => {
-      toast.success("Data tumbuh kembang berhasil disimpan");
-      setIsAddOpen(false);
-      setFormData({
-        date: new Date(),
-        weight: "",
-        height: "",
-        headCircumference: "",
-        notes: "",
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["growth-records", selectedStudentId],
-      });
-    },
-    onError: () => toast.error("Gagal menyimpan data"),
-  });
-
+  const { data: studentsData } = useClassEnrollments(selectedClassId ?? "");
+  const { data: growthData, isLoading } = useGrowthRecords(
+    selectedStudentId ?? undefined,
+  );
+  const createMutation = useCreateGrowthRecord();
   const handleSubmit = () => {
     if (!selectedStudentId) return;
-    createMutation.mutate({
-      studentId: selectedStudentId,
-      unitId: user?.unitId,
-      recordDate: formData.date,
-      weight: parseFloat(formData.weight) || undefined,
-      height: parseFloat(formData.height) || undefined,
-      headCircumference: parseFloat(formData.headCircumference) || undefined,
-      notes: formData.notes,
-    });
+    createMutation.mutate(
+      {
+        studentId: selectedStudentId,
+        unitId: user?.unitId,
+        recordDate: formData.date,
+        weight: parseFloat(formData.weight) || undefined,
+        height: parseFloat(formData.height) || undefined,
+        headCircumference: parseFloat(formData.headCircumference) || undefined,
+        notes: formData.notes,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Data tumbuh kembang berhasil disimpan");
+          setIsAddOpen(false);
+          setFormData({
+            date: new Date(),
+            weight: "",
+            height: "",
+            headCircumference: "",
+            notes: "",
+          });
+        },
+      },
+    );
   };
 
   // Prepare chart data (reverse to show chronological order left to right)

@@ -62,7 +62,6 @@ import { TwoFactorVerify } from "@/components/auth/TwoFactorVerify";
 
 import { toast } from "sonner";
 import { useAuthStore } from "@/stores/auth";
-import { authService } from "@/services/auth.service";
 import { cn } from "@/lib/utils";
 import { getErrorMessage } from "@/lib/api-error";
 
@@ -223,12 +222,13 @@ export default function UsersPage() {
   const handleSendPasswordReset = async (userId: string, name: string) => {
     setSendingResetFor(userId);
     try {
-      const result = await authService.sendPasswordReset({ userId });
+      const { data } = await authApi.sendPasswordReset({ userId });
+      const result = data.data as { message: string; expiresInHours: number };
       toast.success(result.message, {
         description: `Tautan berlaku ${result.expiresInHours} jam. ${name} harus membukanya sebelum kedaluwarsa.`,
       });
     } catch {
-      toast.error("Gagal mengirim tautan reset password");
+      // The API's reason is already on screen: the shared client toasts it.
     } finally {
       setSendingResetFor(null);
     }

@@ -201,9 +201,9 @@ name of every module are in
 ## Web standard
 
 - Data layer: Axios instance in `src/lib/api.ts` (+ `lib/api-error.ts`), consumed
-  through React Query hooks in `src/hooks/*` — not from pages, not from the
-  legacy `src/services/*` or the `lib/api-client.ts` alias (both are being
-  removed). **No mock/placeholder data in pages** — wire to the API.
+  through React Query hooks in `src/hooks/*` — not from pages. (The legacy
+  `src/services/*` layer and the `lib/api-client.ts` alias are gone; do not
+  bring either back.) **No mock/placeholder data in pages** — wire to the API.
 - Share request/response types from `@cipansor/shared`; don't redefine `any`.
 - Route protection / nav visibility must reflect real `RoleCode` + permissions.
 - **Language:** the portal is **Indonesian only**. The public site

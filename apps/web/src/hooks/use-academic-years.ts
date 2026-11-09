@@ -102,7 +102,7 @@ export function useUpdateAcademicYear() {
       id: string;
       data: Partial<CreateAcademicYearData>;
     }) => {
-      const response = await api.patch<ApiResponse<AcademicYear>>(
+      const response = await api.put<ApiResponse<AcademicYear>>(
         `/academic-years/${id}`,
         data,
       );
@@ -135,8 +135,11 @@ export function useActivateAcademicYear() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await api.patch<ApiResponse<AcademicYear>>(
-        `/academic-years/${id}/activate`,
+      // The API has no activate route: setting `isActive` on the update makes
+      // this year the active one and deactivates the others in one write.
+      const response = await api.put<ApiResponse<AcademicYear>>(
+        `/academic-years/${id}`,
+        { isActive: true },
       );
       return response.data.data;
     },

@@ -148,19 +148,6 @@ export function useCalendarEvents(params: CalendarEventParams = {}) {
   });
 }
 
-export function useCalendarEvent(id: string) {
-  return useQuery({
-    queryKey: ["calendar-events", id],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<CalendarEvent>>(
-        `/calendar/${id}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!id,
-  });
-}
-
 export function useMonthEvents(year: number, month: number, unitId?: string) {
   return useQuery({
     queryKey: ["calendar-events", "month", year, month, unitId],
@@ -171,22 +158,6 @@ export function useMonthEvents(year: number, month: number, unitId?: string) {
         "/calendar",
         {
           params: { startDate, endDate, unitId, limit: 100 },
-        },
-      );
-      return response.data.data;
-    },
-  });
-}
-
-export function useUpcomingEvents(limit: number = 10) {
-  return useQuery({
-    queryKey: ["calendar-events", "upcoming", limit],
-    queryFn: async () => {
-      const today = new Date().toISOString().split("T")[0];
-      const response = await api.get<ApiResponse<CalendarEvent[]>>(
-        "/calendar/events/upcoming",
-        {
-          params: { startDate: today, limit },
         },
       );
       return response.data.data;
@@ -225,32 +196,6 @@ export function useCreateCalendarEvent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-    },
-  });
-}
-
-export function useUpdateCalendarEvent() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: Partial<CreateCalendarEventData>;
-    }) => {
-      const response = await api.patch<ApiResponse<CalendarEvent>>(
-        `/calendar/${id}`,
-        data,
-      );
-      return response.data.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
-      queryClient.invalidateQueries({
-        queryKey: ["calendar-events", variables.id],
-      });
     },
   });
 }

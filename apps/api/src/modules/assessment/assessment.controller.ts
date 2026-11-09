@@ -4,6 +4,7 @@ import { AssessmentAnalyticsService } from './analytics.service';
 import {
   createExamSchema,
   updateExamSchema,
+  updateExamStatusSchema,
   examQuerySchema,
   createGradeSchema,
   updateGradeSchema,
@@ -186,7 +187,8 @@ export async function deleteExam(req: Request, res: Response, next: NextFunction
 export async function updateExamStatus(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    const { status } = req.body;
+    // An unknown status used to reach Prisma and answer 500; refuse it as 400.
+    const { status } = updateExamStatusSchema.parse(req.body);
     const exam = await assessmentService.updateExamStatus(id, status);
     res.json({ success: true, data: exam });
   } catch (error) {

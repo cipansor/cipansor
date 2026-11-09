@@ -269,6 +269,28 @@ export function useRemoveTeacherFromSubject() {
   });
 }
 
+/**
+ * The API names a slot's day `dayOfWeek`; these pages read and write `day`.
+ * Rows are mapped on the way in, and writes on the way out, so a saved day
+ * is not dropped by the API's schema (which strips the unknown `day`).
+ */
+function fromApiSchedule(
+  row: Schedule & { dayOfWeek?: ScheduleDay },
+): Schedule {
+  return { ...row, day: row.day ?? (row.dayOfWeek as ScheduleDay) };
+}
+
+function toApiSchedule(data: Partial<Schedule>) {
+  const {
+    day,
+    class: _class,
+    subject: _subject,
+    teacher: _teacher,
+    ...rest
+  } = data;
+  return { ...rest, ...(day ? { dayOfWeek: day } : {}) };
+}
+
 // Schedule queries
 export function useSchedules(params?: {
   classId?: string;
@@ -280,8 +302,11 @@ export function useSchedules(params?: {
   return useQuery({
     queryKey: ["schedules", params],
     queryFn: async () => {
-      const response = await api.get("/curriculum/schedules", { params });
-      return response.data.data as Schedule[];
+      const { day, ...rest } = params ?? {};
+      const response = await api.get("/curriculum/schedules", {
+        params: { ...rest, ...(day ? { dayOfWeek: day } : {}) },
+      });
+      return (response.data.data as Schedule[]).map(fromApiSchedule);
     },
   });
 }
@@ -290,28 +315,13 @@ export function useClassSchedule(classId: string, academicYearId?: string) {
   return useQuery({
     queryKey: ["class-schedule", classId, academicYearId],
     queryFn: async () => {
-      const response = await api.get(`/curriculum/schedules/class/${classId}`, {
-        params: { academicYearId },
-      });
-      return response.data.data as Schedule[];
+      const response = await api.get(
+        `/curriculum/classes/${classId}/schedule`,
+        { params: { academicYearId } },
+      );
+      return (response.data.data as Schedule[]).map(fromApiSchedule);
     },
     enabled: !!classId,
-  });
-}
-
-export function useTeacherSchedule(teacherId: string, academicYearId?: string) {
-  return useQuery({
-    queryKey: ["teacher-schedule", teacherId, academicYearId],
-    queryFn: async () => {
-      const response = await api.get(
-        `/curriculum/schedules/teacher/${teacherId}`,
-        {
-          params: { academicYearId },
-        },
-      );
-      return response.data.data as Schedule[];
-    },
-    enabled: !!teacherId,
   });
 }
 
@@ -320,7 +330,10 @@ export function useCreateSchedule() {
 
   return useMutation({
     mutationFn: async (data: Partial<Schedule>) => {
-      const response = await api.post("/curriculum/schedules", data);
+      const response = await api.post(
+        "/curriculum/schedules",
+        toApiSchedule(data),
+      );
       return response.data.data;
     },
     onSuccess: () => {
@@ -342,7 +355,10 @@ export function useUpdateSchedule() {
       id: string;
       data: Partial<Schedule>;
     }) => {
-      const response = await api.put(`/curriculum/schedules/${id}`, data);
+      const response = await api.patch(
+        `/curriculum/schedules/${id}`,
+        toApiSchedule(data),
+      );
       return response.data.data;
     },
     onSuccess: () => {

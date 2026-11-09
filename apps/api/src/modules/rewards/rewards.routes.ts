@@ -3,7 +3,7 @@ import { UserRole } from '@prisma/client';
 import * as controller from './rewards.controller';
 import { authenticate, authorize } from '../../middleware/auth';
 import { validateQuery } from '../../middleware/error';
-import { queryRewardSchema } from './rewards.schema';
+import { queryRewardSchema, rewardSummaryQuerySchema } from './rewards.schema';
 
 const router = Router();
 
@@ -45,6 +45,35 @@ router.get(
   controller.getRewards
 );
 
+/**
+ * @swagger
+ * /api/rewards/summary:
+ *   get:
+ *     summary: Reward figures in the caller's scope (cards of the Penghargaan page)
+ *     tags: [Rewards]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: Totals, counts by category, top santri by points
+ */
+router.get(
+  '/summary',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
+  validateQuery(rewardSummaryQuerySchema),
+  controller.getRewardsSummary
+);
 /**
  * @swagger
  * /api/rewards/categories:

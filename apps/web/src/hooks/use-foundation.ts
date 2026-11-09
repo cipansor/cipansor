@@ -6,30 +6,39 @@ import type {
 import api from "@/lib/api";
 
 // Types
+/** The yayasan's record, as `foundations` stores it. */
 export interface Foundation {
   id: string;
   name: string;
   legalName: string;
-  registrationNumber: string;
-  taxId?: string;
+  foundingDate?: string | null;
+  taxId?: string | null;
   address: string;
-  city: string;
-  province: string;
-  postalCode: string;
-  phone: string;
-  email: string;
-  website?: string;
-  foundedDate: string;
-  chairman: string;
-  secretary: string;
-  treasurer: string;
-  logo?: string;
-  description?: string;
-  vision?: string;
-  mission?: string;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  logoUrl?: string | null;
+  vision?: string | null;
+  mission?: string | null;
   createdAt: string;
   updatedAt: string;
 }
+
+/** The fields the profile form edits (`PUT /foundation/:id`). */
+export type FoundationProfileInput = Partial<
+  Pick<
+    Foundation,
+    | "name"
+    | "legalName"
+    | "taxId"
+    | "address"
+    | "phone"
+    | "email"
+    | "website"
+    | "vision"
+    | "mission"
+  >
+> & { foundingDate?: string };
 
 export interface FoundationDocument {
   id: string;
@@ -93,12 +102,16 @@ export interface FoundationBoardMemberInput {
 }
 
 // Foundation queries
+/**
+ * The yayasan's own record. `GET /foundation` lists foundations; the yayasan
+ * has exactly one, so the first row is it.
+ */
 export function useFoundation() {
   return useQuery({
     queryKey: ["foundation"],
     queryFn: async () => {
-      const response = await api.get("/foundation");
-      return response.data.data as Foundation;
+      const response = await api.get<{ data: Foundation[] }>("/foundation");
+      return (response.data.data?.[0] ?? null) as Foundation | null;
     },
   });
 }
@@ -107,9 +120,15 @@ export function useUpdateFoundation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: Partial<Foundation>) => {
-      const response = await api.put("/foundation", data);
-      return response.data.data;
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: FoundationProfileInput;
+    }) => {
+      const response = await api.put(`/foundation/${id}`, data);
+      return response.data.data as Foundation;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["foundation"] });

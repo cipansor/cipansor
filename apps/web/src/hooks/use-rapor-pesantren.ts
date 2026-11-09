@@ -528,10 +528,8 @@ async function getRaporConfig(unitId: string) {
 }
 
 async function saveRaporConfig(config: RaporConfig) {
-  const { data } = await api.put(
-    `/rapor-pesantren/config/${config.unitId}`,
-    config,
-  );
+  // The unit is in the body (`raporConfigSchema.unitId`), not the path.
+  const { data } = await api.put("/rapor-pesantren/config", config);
   return data.data as RaporConfig;
 }
 

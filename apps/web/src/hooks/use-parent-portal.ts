@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
+import api, { ApiResponse } from "@/lib/api";
 
 // ==================== TYPES ====================
 
@@ -132,22 +132,24 @@ export interface ParentDashboardData {
   }>;
 }
 
+/**
+ * A message as the `messages` module returns it (`GET /messages`,
+ * `GET /messages/:id`). A thread is a top-level message and its `replies`.
+ */
 export interface ParentPortalMessage {
   id: string;
   senderId: string;
-  sender: {
-    id: string;
-    name: string;
-    role: string;
-    avatarUrl?: string;
-  };
-  receiverId: string;
-  studentId?: string;
+  recipientId: string;
+  parentId?: string | null;
+  sender?: { id: string; name: string; role: string };
+  recipient?: { id: string; name: string; role: string };
   subject: string;
   content: string;
+  category?: string;
   isRead: boolean;
   createdAt: string;
   replies?: ParentPortalMessage[];
+  _count?: { replies: number };
 }
 
 // ==================== HOOKS: CHILDREN ====================
@@ -164,40 +166,6 @@ export function useParentChildren() {
       return response.data.data;
     },
     staleTime: 5 * 60 * 1000, // 5 minutes
-  });
-}
-
-/**
- * Get single child details
- */
-export function useParentChild(studentId: string) {
-  return useQuery({
-    queryKey: ["parent", "children", studentId],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<ParentChild>>(
-        `/parent/children/${studentId}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!studentId,
-  });
-}
-
-/**
- * Get child summary with all relevant data
- */
-export function useChildSummary(studentId: string) {
-  return useQuery({
-    queryKey: ["parent", "children", studentId, "summary"],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<ChildSummary>>(
-        `/parent/children/${studentId}/summary`,
-      );
-      return response.data.data;
-    },
-    enabled: !!studentId,
-    staleTime: 2 * 60 * 1000, // 2 minutes
-    refetchInterval: 5 * 60 * 1000, // auto-refresh every 5 minutes
   });
 }
 
@@ -219,60 +187,41 @@ export function useParentDashboard() {
   });
 }
 
-/**
- * Get quick stats for parent header
- */
-export function useParentQuickStats() {
-  return useQuery({
-    queryKey: ["parent", "quick-stats"],
-    queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<{
-          unreadNotifications: number;
-          unreadMessages: number;
-          pendingPayments: number;
-          upcomingEvents: number;
-        }>
-      >("/parent/quick-stats");
-      return response.data.data;
-    },
-    staleTime: 60 * 1000, // 1 minute
-    refetchInterval: 2 * 60 * 1000, // auto-refresh every 2 minutes
-  });
-}
-
 // ==================== HOOKS: MESSAGES ====================
 
 /**
- * Get parent messages/inbox
+ * The wali's messages, sent and received, from the `messages` module — the
+ * same store the wali kelas writes to, so both sides read one conversation.
  */
 export function useParentPortalMessages(params?: {
-  isRead?: boolean;
-  studentId?: string;
   page?: number;
   limit?: number;
 }) {
   return useQuery({
-    queryKey: ["parent", "messages", params],
+    queryKey: ["messages", "parent-portal", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<ParentPortalMessage>>(
-        "/parent/messages",
-        { params },
-      );
+      const response = await api.get<{
+        success: boolean;
+        data: ParentPortalMessage[];
+        pagination: {
+          page: number;
+          limit: number;
+          total: number;
+          totalPages: number;
+        };
+      }>("/messages", { params: { type: "all", ...params } });
       return response.data;
     },
   });
 }
 
-/**
- * Get single message with replies
- */
+/** One thread: the message and its replies. Opening it marks it read. */
 export function useParentMessage(messageId: string) {
   return useQuery({
-    queryKey: ["parent", "messages", messageId],
+    queryKey: ["messages", "thread", messageId],
     queryFn: async () => {
       const response = await api.get<ApiResponse<ParentPortalMessage>>(
-        `/parent/messages/${messageId}`,
+        `/messages/${messageId}`,
       );
       return response.data.data;
     },
@@ -280,46 +229,36 @@ export function useParentMessage(messageId: string) {
   });
 }
 
-/**
- * Send message to teacher/staff
- */
+/** Reply in a thread; the API addresses it to the other person in it. */
 export function useSendParentPortalMessage() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: {
-      receiverId: string;
-      studentId?: string;
-      subject: string;
-      content: string;
-      replyToId?: string;
-    }) => {
+    mutationFn: async (data: { messageId: string; content: string }) => {
       const response = await api.post<ApiResponse<ParentPortalMessage>>(
-        "/parent/messages",
-        data,
+        `/messages/${data.messageId}/reply`,
+        { content: data.content },
       );
       return response.data.data;
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["parent", "messages"] });
-      queryClient.invalidateQueries({ queryKey: ["parent", "quick-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["messages"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-messages-count"] });
     },
   });
 }
 
-/**
- * Mark message as read
- */
+/** Mark a message read (only its recipient can). */
 export function useMarkParentMessageAsRead() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async (messageId: string) => {
-      await api.put(`/parent/messages/${messageId}/read`);
+      await api.patch(`/messages/${messageId}/read`);
     },
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["parent", "messages"] });
-      queryClient.invalidateQueries({ queryKey: ["parent", "quick-stats"] });
+      queryClient.invalidateQueries({ queryKey: ["messages"] });
+      queryClient.invalidateQueries({ queryKey: ["unread-messages-count"] });
     },
   });
 }
@@ -420,75 +359,6 @@ export function useChildReportCards(studentId: string) {
           }>
         >
       >(`/parent/children/${studentId}/report-cards`);
-      return response.data.data;
-    },
-    enabled: !!studentId,
-  });
-}
-
-// ==================== HOOKS: FINANCE ====================
-
-/**
- * Get child pending payments
- */
-export function useChildPayments(
-  studentId: string,
-  params?: {
-    status?: "PENDING" | "PAID" | "OVERDUE";
-    type?: string;
-  },
-) {
-  return useQuery({
-    queryKey: ["parent", "children", studentId, "payments", params],
-    queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<{
-          payments: Array<{
-            id: string;
-            name: string;
-            amount: number;
-            dueDate: string;
-            status: "PENDING" | "PAID" | "OVERDUE" | "PARTIAL";
-            paidAmount?: number;
-            paidAt?: string;
-          }>;
-          totalPending: number;
-          totalPaid: number;
-        }>
-      >(`/parent/children/${studentId}/payments`, { params });
-      return response.data.data;
-    },
-    enabled: !!studentId,
-  });
-}
-
-/**
- * Get child wallet transactions
- */
-export function useChildWallet(
-  studentId: string,
-  params?: {
-    startDate?: string;
-    endDate?: string;
-    type?: "DEBIT" | "CREDIT";
-    limit?: number;
-  },
-) {
-  return useQuery({
-    queryKey: ["parent", "children", studentId, "wallet", params],
-    queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<{
-          balance: number;
-          transactions: Array<{
-            id: string;
-            type: "DEBIT" | "CREDIT";
-            amount: number;
-            description: string;
-            date: string;
-          }>;
-        }>
-      >(`/parent/children/${studentId}/wallet`, { params });
       return response.data.data;
     },
     enabled: !!studentId,

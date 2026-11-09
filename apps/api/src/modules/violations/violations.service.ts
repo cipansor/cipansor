@@ -8,7 +8,7 @@ import {
   type ScopeActor,
 } from '../../utils/student-scope';
 import { STUDENT_SUMMARY_SELECT, withStudentSummary } from '../../utils/student-summary';
-import { wibDayEnd, wibDayStart } from '../../utils/wib-day';
+import { wibDayBound, wibDayEnd, wibDayStart } from '../../utils/wib-day';
 
 /**
  * `studentScope` returns the santri the caller may see; folding it into the
@@ -128,6 +128,76 @@ export async function deleteViolation(id: string, actor: ScopeActor) {
   if (!existing) return false;
   await prisma.violation.delete({ where: { id } });
   return true;
+}
+
+/** `occurredAt` between two WIB days, either end optional. */
+function occurredBetween(range: { startDate?: string; endDate?: string }) {
+  if (!range.startDate && !range.endDate) return {};
+  return {
+    occurredAt: {
+      ...(range.startDate && { gte: wibDayBound(range.startDate, 'start') }),
+      ...(range.endDate && { lte: wibDayBound(range.endDate, 'end') }),
+    },
+  };
+}
+
+/**
+ * The figures behind the Pelanggaran page's cards, counted over the santri the
+ * caller may see: how many, how many points, how many of each severity, the
+ * commonest categories, and the santri with the most points.
+ *
+ * Served at `GET /violations/summary`. Before it existed the request fell
+ * through to `/:id` and answered "not found", so every card read 0 (#764).
+ */
+export async function getViolationsSummary(
+  actor: ScopeActor,
+  range: { startDate?: string; endDate?: string } = {}
+) {
+  const where = scopedWhere(actor, occurredBetween(range));
+  const [totalViolations, points, byType, byCategory, byStudent] = await Promise.all([
+    prisma.violation.count({ where }),
+    prisma.violation.aggregate({ where, _sum: { points: true } }),
+    prisma.violation.groupBy({ by: ['type'], where, _count: { _all: true } }),
+    prisma.violation.groupBy({
+      by: ['category'],
+      where,
+      _count: { _all: true },
+      _sum: { points: true },
+      orderBy: { _count: { category: 'desc' } },
+      take: 10,
+    }),
+    prisma.violation.groupBy({
+      by: ['studentId'],
+      where,
+      _count: { _all: true },
+      _sum: { points: true },
+      orderBy: { _sum: { points: 'desc' } },
+      take: 5,
+    }),
+  ]);
+  const students = byStudent.length
+    ? await prisma.student.findMany({
+        where: { id: { in: byStudent.map((s) => s.studentId) } },
+        select: { id: true, user: { select: { name: true } } },
+      })
+    : [];
+  const nameOf = new Map(students.map((s) => [s.id, s.user?.name ?? '']));
+  return {
+    totalViolations,
+    totalPoints: points._sum.points ?? 0,
+    byType: byType.map((g) => ({ type: g.type, count: g._count._all })),
+    byCategory: byCategory.map((g) => ({
+      category: g.category,
+      count: g._count._all,
+      points: g._sum.points ?? 0,
+    })),
+    topStudents: byStudent.map((g) => ({
+      studentId: g.studentId,
+      name: nameOf.get(g.studentId) ?? '',
+      count: g._count._all,
+      points: g._sum.points ?? 0,
+    })),
+  };
 }
 
 export async function getStudentViolationPoints(studentId: string) {

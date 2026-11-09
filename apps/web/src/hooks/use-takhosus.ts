@@ -503,20 +503,6 @@ export function useSanadRecords(params: SanadParams = {}) {
   });
 }
 
-export function useSanadRecord(id: string) {
-  return useQuery({
-    queryKey: ["takhosus", "sanad", id],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<SanadRecord>>(
-        `/takhosus/sanad/${id}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!id,
-    staleTime: 10 * 60 * 1000,
-  });
-}
-
 export interface CreateSanadData {
   enrollmentId: string;
   juz: number;
@@ -538,49 +524,6 @@ export function useCreateSanad() {
         data,
       );
       return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["takhosus", "sanad"] });
-      queryClient.invalidateQueries({ queryKey: ["takhosus", "enrollment"] });
-      queryClient.invalidateQueries({ queryKey: ["takhosus", "progress"] });
-    },
-  });
-}
-
-export function useUpdateSanad() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: Partial<CreateSanadData>;
-    }) => {
-      const response = await api.put<ApiResponse<SanadRecord>>(
-        `/takhosus/sanad/${id}`,
-        data,
-      );
-      return response.data.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["takhosus", "sanad"] });
-      queryClient.invalidateQueries({
-        queryKey: ["takhosus", "sanad", variables.id],
-      });
-      queryClient.invalidateQueries({ queryKey: ["takhosus", "enrollment"] });
-      queryClient.invalidateQueries({ queryKey: ["takhosus", "progress"] });
-    },
-  });
-}
-
-export function useDeleteSanad() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (id: string) => {
-      await api.delete(`/takhosus/sanad/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["takhosus", "sanad"] });

@@ -319,6 +319,23 @@ export const authApi = {
   changePassword: (data: { currentPassword: string; newPassword: string }) =>
     api.put("/auth/password", data),
 
+  // An admin e-mails a reset link to a user (Pengguna → ⋯ → Kirim tautan
+  // reset password). Keyed on a user id: there is deliberately no public
+  // "lupa password" form.
+  sendPasswordReset: (data: { userId: string }) =>
+    api.post<ApiResponse<{ message: string; expiresInHours: number }>>(
+      "/auth/send-password-reset",
+      data,
+    ),
+
+  // The link's page sets the new password. The page shows one message for
+  // every refusal, so the interceptor's toast would say it twice.
+  resetPassword: (data: {
+    token: string;
+    newPassword: string;
+    turnstileToken?: string;
+  }) => api.post("/auth/reset-password", data, { skipErrorToast: true }),
+
   // 2FA methods
   generate2FA: () =>
     api.post<ApiResponse<TwoFactorGenerateResponse>>("/auth/2fa/generate"),

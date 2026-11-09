@@ -1,7 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { useTalentAnalytics } from "@/hooks/use-talenta";
 import { PageHeader } from "@/components/shared/page-header";
 import {
   Card,
@@ -26,13 +25,7 @@ import {
 import { MainLayout } from "@/components/layout";
 
 function TalentAnalyticsPageContent() {
-  const { data: analytics, isLoading } = useQuery({
-    queryKey: ["talent-analytics"],
-    queryFn: async () => {
-      const res = await api.get("/api/talenta/analytics");
-      return res.data.data;
-    },
-  });
+  const { data: analytics, isLoading } = useTalentAnalytics();
 
   if (isLoading) {
     return (

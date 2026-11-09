@@ -458,3 +458,49 @@ export const useDeletePlan = () => {
     },
   });
 };
+
+/**
+ * The people an activity's PIC may be picked from (`GET /users`). Only an
+ * administrator may list users; for anyone else the picker offers "Tanpa PIC"
+ * only, so a refusal is not an error worth a toast.
+ */
+export function useActivityPicOptions() {
+  return useQuery({
+    queryKey: ["perencanaan", "pic-options"],
+    queryFn: async () => {
+      const res = await api.get<{ data: Array<{ id: string; name: string }> }>(
+        "/users",
+        { params: { limit: 100, isActive: true }, skipErrorToast: true },
+      );
+      return res.data.data ?? [];
+    },
+    retry: false,
+  });
+}
+
+/**
+ * The finance budget lines an activity may be linked to
+ * (`GET /finance-enhancement/budgets`, finance administrators only — the same
+ * quiet refusal as above).
+ */
+export function useActivityBudgetOptions() {
+  return useQuery({
+    queryKey: ["perencanaan", "budget-options"],
+    queryFn: async () => {
+      const res = await api.get<{
+        data: {
+          data: Array<{
+            id: string;
+            amount: number;
+            account?: { code: string; name: string };
+          }>;
+        };
+      }>("/finance-enhancement/budgets", {
+        params: { limit: 100 },
+        skipErrorToast: true,
+      });
+      return res.data.data?.data ?? [];
+    },
+    retry: false,
+  });
+}

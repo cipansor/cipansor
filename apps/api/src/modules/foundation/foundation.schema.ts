@@ -5,7 +5,8 @@ import { boardMemberFields } from '@cipansor/shared';
 export const createFoundationSchema = z.object({
   name: z.string().min(3).max(200),
   legalName: z.string().min(3).max(200),
-  foundingDate: z.string().datetime().optional(),
+  // A calendar day from the portal's date picker, or a full timestamp.
+  foundingDate: z.union([z.iso.date(), z.iso.datetime()]).optional(),
   taxId: z.string().max(30).optional(),
   address: z.string().min(5),
   phone: z.string().max(20).optional(),

@@ -3,7 +3,7 @@ import { UserRole } from '@prisma/client';
 import * as controller from './violations.controller';
 import { authenticate, authorize } from '../../middleware/auth';
 import { validateQuery } from '../../middleware/error';
-import { queryViolationSchema } from './violations.schema';
+import { queryViolationSchema, violationSummaryQuerySchema } from './violations.schema';
 
 const router = Router();
 
@@ -50,6 +50,35 @@ router.get(
   controller.getViolations
 );
 
+/**
+ * @swagger
+ * /api/violations/summary:
+ *   get:
+ *     summary: Violation figures in the caller's scope (cards of the Pelanggaran page)
+ *     tags: [Violations]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: Totals, counts by severity and category, top santri by points
+ */
+router.get(
+  '/summary',
+  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
+  validateQuery(violationSummaryQuerySchema),
+  controller.getViolationsSummary
+);
 /**
  * @swagger
  * /api/violations/categories:

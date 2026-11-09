@@ -189,3 +189,43 @@ export function useHealthSummary() {
     },
   });
 }
+
+// ==================== TUMBUH KEMBANG ====================
+
+/** A santri's growth records (`GET /health/growth?studentId=`), newest first. */
+export function useGrowthRecords(studentId?: string) {
+  return useQuery({
+    queryKey: ["growth-records", studentId],
+    queryFn: async () => {
+      const res = await api.get<{ data: any[] }>("/health/growth", {
+        params: { studentId, limit: 100 },
+      });
+      return res.data.data ?? [];
+    },
+    enabled: !!studentId,
+  });
+}
+
+/** Record a weighing (`POST /health/growth`). */
+export function useCreateGrowthRecord() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: {
+      studentId: string;
+      unitId?: string | null;
+      recordDate: Date | string;
+      weight?: number;
+      height?: number;
+      headCircumference?: number;
+      notes?: string;
+    }) => {
+      const res = await api.post("/health/growth", data);
+      return res.data;
+    },
+    onSuccess: (_data, variables) => {
+      queryClient.invalidateQueries({
+        queryKey: ["growth-records", variables.studentId],
+      });
+    },
+  });
+}

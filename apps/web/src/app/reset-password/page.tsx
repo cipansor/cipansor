@@ -37,7 +37,7 @@ import {
 } from "@/components/ui/card";
 import { Loader2, Eye, EyeOff, ShieldAlert } from "lucide-react";
 import { toast } from "sonner";
-import { authService } from "@/services/auth.service";
+import { authApi } from "@/lib/api";
 import { PASSWORD_HINT, PASSWORD_MIN_LENGTH_WITH_2FA } from "@cipansor/shared";
 
 /**
@@ -81,7 +81,7 @@ function ResetPasswordForm() {
   const onSubmit = async (values: FormValues) => {
     setFailure(null);
     try {
-      await authService.confirmPasswordReset({
+      await authApi.resetPassword({
         token,
         newPassword: values.newPassword,
         turnstileToken: turnstile.token ?? undefined,

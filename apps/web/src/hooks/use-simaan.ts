@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api-client";
+import { api } from "@/lib/api";
 
 // Enums
 export const SIMAAN_TYPES = [
@@ -177,7 +177,7 @@ export function useSimaanExams(filters: SimaanFilters = {}) {
           params.append(key, String(value));
         }
       });
-      const response = await apiClient.get(`/simaan?${params.toString()}`);
+      const response = await api.get(`/simaan?${params.toString()}`);
       return response.data as SimaanResponse;
     },
   });
@@ -187,7 +187,7 @@ export function useSimaanExam(id: string) {
   return useQuery({
     queryKey: simaanKeys.detail(id),
     queryFn: async () => {
-      const response = await apiClient.get(`/simaan/${id}`);
+      const response = await api.get(`/simaan/${id}`);
       return response.data.data as SimaanExam;
     },
     enabled: !!id,
@@ -199,7 +199,7 @@ export function useCreateSimaan() {
 
   return useMutation({
     mutationFn: async (data: CreateSimaanData) => {
-      const response = await apiClient.post("/simaan", data);
+      const response = await api.post("/simaan", data);
       return response.data;
     },
     onSuccess: () => {
@@ -219,7 +219,7 @@ export function useUpdateSimaan() {
       id: string;
       data: UpdateSimaanData;
     }) => {
-      const response = await apiClient.put(`/simaan/${id}`, data);
+      const response = await api.patch(`/simaan/${id}`, data);
       return response.data;
     },
     onSuccess: (_, { id }) => {
@@ -234,7 +234,7 @@ export function useDeleteSimaan() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await apiClient.delete(`/simaan/${id}`);
+      const response = await api.delete(`/simaan/${id}`);
       return response.data;
     },
     onSuccess: () => {
@@ -254,7 +254,11 @@ export function useSubmitSimaanScores() {
       id: string;
       data: SubmitScoresData;
     }) => {
-      const response = await apiClient.put(`/simaan/${id}/grade`, data);
+      // Scores go to `POST /simaan/scores`, which names the simaan in the body.
+      const response = await api.post("/simaan/scores", {
+        simaanId: id,
+        ...data,
+      });
       return response.data;
     },
     onSuccess: (_, { id }) => {
@@ -275,8 +279,9 @@ export function useCompleteSimaan() {
       id: string;
       data: { passed: boolean; notes?: string };
     }) => {
-      // Assuming a complete endpoint or update
-      const response = await apiClient.patch(`/simaan/${id}/complete`, data);
+      // Completing a simaan is recording its result: `passed` and the notes
+      // are fields of the record (`PATCH /simaan/:id`).
+      const response = await api.patch(`/simaan/${id}`, data);
       return response.data;
     },
     onSuccess: (_, { id }) => {
@@ -290,7 +295,7 @@ export function useUpcomingSimaan(days: number = 7) {
   return useQuery({
     queryKey: [...simaanKeys.upcoming(), days],
     queryFn: async () => {
-      const response = await apiClient.get(`/simaan/upcoming?days=${days}`);
+      const response = await api.get(`/simaan/upcoming?days=${days}`);
       return response.data.data as SimaanExam[];
     },
   });

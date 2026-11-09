@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   Card,
   CardContent,
@@ -10,11 +9,9 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { Textarea } from "@/components/ui/textarea";
 import { Skeleton } from "@/components/ui/skeleton";
 import { toast } from "sonner";
@@ -22,17 +19,14 @@ import {
   MessageSquare,
   Send,
   ArrowLeft,
-  User,
-  Users,
   Clock,
   Check,
   CheckCheck,
-  Loader2,
-  AlertCircle,
 } from "lucide-react";
 import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { id } from "date-fns/locale";
+import { useAuthStore } from "@/stores/auth";
 import {
   useParentPortalMessages,
   useParentMessage,
@@ -45,21 +39,20 @@ interface Message {
   id: string;
   senderId: string;
   senderName: string;
-  senderRole: "parent" | "teacher" | "admin";
+  isMe: boolean;
   content: string;
   createdAt: string;
   read: boolean;
 }
 
+/** A thread: a top-level message, seen from the signed-in wali's side. */
 interface Conversation {
   id: string;
-  teacherId: string;
-  teacherName: string;
-  teacherRole: string;
-  childName: string;
+  otherName: string;
+  subject: string;
   lastMessage: string;
   lastMessageAt: string;
-  unreadCount: number;
+  unread: boolean;
 }
 
 export default function ParentMessagesPage() {
@@ -67,130 +60,84 @@ export default function ParentMessagesPage() {
     useState<Conversation | null>(null);
   const [newMessage, setNewMessage] = useState("");
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const queryClient = useQueryClient();
+  const me = useAuthStore((state) => state.user?.id);
 
-  // Load messages from API
   const { data: messagesData, isLoading: loadingMessages } =
-    useParentPortalMessages({
-      limit: 100,
-    });
-
-  // Get single message with replies when selected
+    useParentPortalMessages({ limit: 100 });
   const { data: selectedMessageDetail } = useParentMessage(
     selectedConversation?.id || "",
   );
-
-  // Send message mutation
   const sendMutation = useSendParentPortalMessage();
-
-  // Mark as read mutation
   const markAsReadMutation = useMarkParentMessageAsRead();
 
-  // Convert API messages to conversations format
+  // One row per thread (a top-level message); replies are read inside it.
   const conversations = useMemo((): Conversation[] => {
-    if (!messagesData?.data) return [];
-
-    // Group messages by sender to create conversations
-    const convMap = new Map<string, Conversation>();
-
-    messagesData.data.forEach((msg: ParentPortalMessage) => {
-      const key = msg.senderId;
-      const existing = convMap.get(key);
-
-      if (!existing) {
-        convMap.set(key, {
+    const rows = messagesData?.data ?? [];
+    return rows
+      .filter((msg: ParentPortalMessage) => !msg.parentId)
+      .map((msg: ParentPortalMessage) => {
+        const other = msg.senderId === me ? msg.recipient : msg.sender;
+        return {
           id: msg.id,
-          teacherId: msg.senderId,
-          teacherName: msg.sender?.name || "Unknown",
-          teacherRole: msg.sender?.role || "Teacher",
-          childName: "-",
+          otherName: other?.name || "—",
+          subject: msg.subject,
           lastMessage: msg.content,
           lastMessageAt: msg.createdAt,
-          unreadCount: msg.isRead ? 0 : 1,
-        });
-      } else if (new Date(msg.createdAt) > new Date(existing.lastMessageAt)) {
-        existing.lastMessage = msg.content;
-        existing.lastMessageAt = msg.createdAt;
-        if (!msg.isRead) existing.unreadCount++;
-      }
-    });
+          unread: !msg.isRead && msg.recipientId === me,
+        };
+      })
+      .sort(
+        (a, b) =>
+          new Date(b.lastMessageAt).getTime() -
+          new Date(a.lastMessageAt).getTime(),
+      );
+  }, [messagesData, me]);
 
-    return Array.from(convMap.values()).sort(
-      (a, b) =>
-        new Date(b.lastMessageAt).getTime() -
-        new Date(a.lastMessageAt).getTime(),
-    );
-  }, [messagesData]);
-
-  // Get messages for selected conversation
   const messages = useMemo((): Message[] => {
     if (!selectedMessageDetail) return [];
-
-    const allMessages: Message[] = [
-      {
-        id: selectedMessageDetail.id,
-        senderId: selectedMessageDetail.senderId,
-        senderName: selectedMessageDetail.sender?.name || "Unknown",
-        senderRole:
-          selectedMessageDetail.sender?.role?.toLowerCase() === "parent"
-            ? "parent"
-            : "teacher",
-        content: selectedMessageDetail.content,
-        createdAt: selectedMessageDetail.createdAt,
-        read: selectedMessageDetail.isRead,
-      },
+    const thread = [
+      selectedMessageDetail,
+      ...(selectedMessageDetail.replies ?? []),
     ];
+    return thread
+      .map((msg) => ({
+        id: msg.id,
+        senderId: msg.senderId,
+        senderName: msg.sender?.name || "—",
+        isMe: msg.senderId === me,
+        content: msg.content,
+        createdAt: msg.createdAt,
+        read: msg.isRead,
+      }))
+      .sort(
+        (a, b) =>
+          new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
+      );
+  }, [selectedMessageDetail, me]);
 
-    // Add replies if any
-    if (selectedMessageDetail.replies) {
-      selectedMessageDetail.replies.forEach((reply) => {
-        allMessages.push({
-          id: reply.id,
-          senderId: reply.senderId,
-          senderName: reply.sender?.name || "Unknown",
-          senderRole:
-            reply.sender?.role?.toLowerCase() === "parent"
-              ? "parent"
-              : "teacher",
-          content: reply.content,
-          createdAt: reply.createdAt,
-          read: reply.isRead,
-        });
-      });
-    }
-
-    return allMessages.sort(
-      (a, b) =>
-        new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime(),
-    );
-  }, [selectedMessageDetail]);
-
-  // Mark conversation as read when selected
+  // Opening a thread the wali received marks it read.
   useEffect(() => {
-    if (selectedConversation && selectedConversation.unreadCount > 0) {
+    if (selectedConversation?.unread) {
       markAsReadMutation.mutate(selectedConversation.id);
     }
-  }, [selectedConversation]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedConversation?.id]);
 
-  // Scroll to bottom when new messages
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
   const handleSend = async () => {
     if (!newMessage.trim() || !selectedConversation) return;
-
     try {
       await sendMutation.mutateAsync({
-        receiverId: selectedConversation.teacherId,
-        subject: "Re: " + selectedConversation.teacherName,
+        messageId: selectedConversation.id,
         content: newMessage,
-        replyToId: selectedConversation.id,
       });
       setNewMessage("");
       toast.success("Pesan terkirim");
-    } catch (error) {
-      toast.error("Gagal mengirim pesan");
+    } catch {
+      // The shared client already shows the API's reason.
     }
   };
 
@@ -249,6 +196,19 @@ export default function ParentMessagesPage() {
           </CardHeader>
           <CardContent className="p-0">
             <ScrollArea className="h-[500px]">
+              {conversations.length === 0 && (
+                <div className="p-6 text-center text-sm text-muted-foreground">
+                  Belum ada pesan. Pesan dari wali kelas muncul di sini; untuk
+                  menulis lebih dulu, buka{" "}
+                  <Link
+                    href="/parent/buku-penghubung"
+                    className="text-primary underline"
+                  >
+                    Buku Penghubung
+                  </Link>
+                  .
+                </div>
+              )}
               {conversations.map((conv) => (
                 <div
                   key={conv.id}
@@ -259,22 +219,16 @@ export default function ParentMessagesPage() {
                 >
                   <Avatar>
                     <AvatarFallback className="bg-primary/10 text-primary">
-                      {getInitials(conv.teacherName)}
+                      {getInitials(conv.otherName)}
                     </AvatarFallback>
                   </Avatar>
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center justify-between">
-                      <p className="font-medium truncate">{conv.teacherName}</p>
-                      {conv.unreadCount > 0 && (
-                        <Badge className="ml-2">{conv.unreadCount}</Badge>
-                      )}
+                      <p className="font-medium truncate">{conv.otherName}</p>
+                      {conv.unread && <Badge className="ml-2">Baru</Badge>}
                     </div>
-                    <p className="text-xs text-muted-foreground">
-                      {conv.teacherRole}
-                    </p>
-                    <p className="text-xs text-muted-foreground mt-1">
-                      <Users className="inline h-3 w-3 mr-1" />
-                      {conv.childName}
+                    <p className="text-xs text-muted-foreground truncate">
+                      {conv.subject}
                     </p>
                     <p className="text-sm text-muted-foreground truncate mt-1">
                       {conv.lastMessage}
@@ -295,16 +249,15 @@ export default function ParentMessagesPage() {
                 <div className="flex items-center gap-3">
                   <Avatar>
                     <AvatarFallback className="bg-primary/10 text-primary">
-                      {getInitials(selectedConversation.teacherName)}
+                      {getInitials(selectedConversation.otherName)}
                     </AvatarFallback>
                   </Avatar>
                   <div>
                     <CardTitle className="text-lg">
-                      {selectedConversation.teacherName}
+                      {selectedConversation.otherName}
                     </CardTitle>
                     <CardDescription>
-                      {selectedConversation.teacherRole} •{" "}
-                      {selectedConversation.childName}
+                      {selectedConversation.subject}
                     </CardDescription>
                   </div>
                 </div>
@@ -315,7 +268,7 @@ export default function ParentMessagesPage() {
                 <ScrollArea className="h-[350px] pr-4">
                   <div className="space-y-4">
                     {messages.map((msg) => {
-                      const isMe = msg.senderRole === "parent";
+                      const isMe = msg.isMe;
                       return (
                         <div
                           key={msg.id}

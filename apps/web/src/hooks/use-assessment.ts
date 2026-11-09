@@ -206,7 +206,7 @@ export function useUpdateExam() {
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: UpdateExamInput }) => {
-      const response = await api.put(`/assessment/exams/${id}`, data);
+      const response = await api.patch(`/assessment/exams/${id}`, data);
       return response.data.data;
     },
     onSuccess: () => {
@@ -248,8 +248,12 @@ export function usePublishExam() {
   const queryClient = useQueryClient();
 
   return useMutation({
+    // Publishing takes an exam out of DRAFT; the API has one route for every
+    // state change of an exam.
     mutationFn: async (id: string) => {
-      const response = await api.patch(`/assessment/exams/${id}/publish`);
+      const response = await api.patch(`/assessment/exams/${id}/status`, {
+        status: "SCHEDULED",
+      });
       return response.data.data;
     },
     onSuccess: () => {
@@ -361,7 +365,7 @@ export function useUpdateGrade() {
       id: string;
       data: UpdateGradeInput;
     }) => {
-      const response = await api.put(`/assessment/grades/${id}`, data);
+      const response = await api.patch(`/assessment/grades/${id}`, data);
       return response.data.data;
     },
     onSuccess: (_, variables) => {
@@ -443,7 +447,7 @@ export function useUpdateReportCard() {
       id: string;
       data: UpdateReportCardInput;
     }) => {
-      const response = await api.put(`/assessment/report-cards/${id}`, data);
+      const response = await api.patch(`/assessment/report-cards/${id}`, data);
       return response.data.data;
     },
     onSuccess: () => {

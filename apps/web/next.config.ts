@@ -85,6 +85,13 @@ const nextConfig: NextConfig = {
         destination: "/notifications/me",
         permanent: true,
       },
+      // A second, unlinked GRC page that asked `/api/api/...` and showed
+      // nothing; the yayasan's GRC board is /grc-dashboard.
+      {
+        source: "/analytics/grc",
+        destination: "/grc-dashboard",
+        permanent: true,
+      },
       {
         source: "/ppdb",
         destination: "/spmb",

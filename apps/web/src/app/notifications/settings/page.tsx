@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery } from "@tanstack/react-query";
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
   type NotificationPreferencesInput,
@@ -29,11 +28,11 @@ import {
 } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
-import { notificationsService } from "@/services/notifications.service";
 import { useWebPush } from "@/hooks/use-web-push";
 import { useAuthStore } from "@/stores/auth";
 import { getEffectiveRole } from "@/lib/rbac";
 import {
+  useEmailTransport,
   useNotificationPreferences,
   useUpdateNotificationPreferences,
 } from "@/hooks/use-notification-preferences";
@@ -147,11 +146,8 @@ export default function NotificationSettingsPage() {
   );
 
   // What the server is actually configured to send with.
-  const { data: transport, isLoading: transportLoading } = useQuery({
-    queryKey: ["email-transport"],
-    queryFn: () => notificationsService.getEmailTransport(),
-    enabled: isAdmin,
-  });
+  const { data: transport, isLoading: transportLoading } =
+    useEmailTransport(isAdmin);
 
   // What the server has stored for this person (defaults until first saved).
   const { isLoading, data: fetchedPreferences } = useNotificationPreferences();
