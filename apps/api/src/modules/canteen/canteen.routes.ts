@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { RoleCode } from '@prisma/client';
 import { authenticate, authorize } from '../../middleware/auth';
-import { validate } from '../../middleware/validate';
+import { validate, validateQuery } from '../../middleware/validate';
 import {
   CreateCategorySchema,
   UpdateCategorySchema,
@@ -10,6 +10,7 @@ import {
   CreateTransactionSchema,
   UpdateTransactionStatusSchema,
   CreateStockMovementSchema,
+  TransactionStatsQuerySchema,
 } from './canteen.schema';
 import * as controller from './canteen.controller';
 
@@ -82,7 +83,12 @@ router.delete('/items/:id', authorize(...ADMIN_ROLES), controller.deleteItem);
 
 // ==================== TRANSACTION ====================
 router.get('/transactions', controller.listTransactions);
-router.get('/transactions/stats', authorize(...MANAGE_ROLES), controller.getTransactionStats);
+router.get(
+  '/transactions/stats',
+  authorize(...MANAGE_ROLES),
+  validateQuery(TransactionStatsQuerySchema),
+  controller.getTransactionStats
+);
 router.get('/transactions/:id', controller.getTransaction);
 router.post(
   '/transactions',
