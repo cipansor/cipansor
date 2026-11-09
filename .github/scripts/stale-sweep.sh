@@ -37,6 +37,16 @@
 # second time, rather than reading the same old reply on every run and never
 # closing anything.
 #
+# An edit that ends a cycle also restarts the clock. The idle timer counts from
+# the last human comment or the creation date, and an edit leaves neither, so an
+# edited issue would otherwise carry its old idle age into the new cycle and be
+# closed on the next run — closing a description that was updated today. Because
+# no GitHub field dates a *description* edit specifically (`lastEditedAt` is
+# bumped by label changes too, and `updatedAt` by any comment), the sweep records
+# the moment it first notices an edit in a `seen` marker on its own comment and
+# measures the new cycle from there. `updatedAt` is not used as the clock: a
+# routine bot comment would push the clock forward without a person acting.
+#
 # Usage: stale-sweep.sh
 # Env:   GH_TOKEN, REPO, BOT_LOGIN (default cipansor-bot)
 #        STALE_SWEEP_GRACE_DAYS (default 7, the minimum notice a warning buys)
@@ -60,6 +70,7 @@ MARK="<!-- stale-sweep:warned -->"
 AT_MARK="stale-sweep:at:"
 STALE_MARK="stale-sweep:stale"
 HASH_MARK="stale-sweep:hash:"
+SEEN_MARK="stale-sweep:seen"
 
 # Days of quiet before the warning, and before the close. The close day is what
 # the retired prompt named; the warn day is that minus the grace window.
@@ -102,6 +113,13 @@ write_warning() { # write_warning <number> <body-text> <marked-stale:0|1> <hash>
   if [ "$3" = "1" ]; then stale_marker=" <!-- $STALE_MARK -->"; else stale_marker=""; fi
   write_comment "$1" "$2 $MARK
 <!-- $AT_MARK$(date -u +%Y-%m-%dT%H:%M:%SZ) -->$stale_marker <!-- $HASH_MARK$4 -->"
+}
+
+# A one-line marker recording when an edit was first seen, and the description
+# hash it was seen at. It opens the new cycle's clock without a warning: warning
+# an issue that was just updated would be the same bug one step later.
+write_seen() { # write_seen <number> <hash>
+  write_comment "$1" "<!-- $SEEN_MARK:at:$(date -u +%Y-%m-%dT%H:%M:%SZ) hash:$2 -->"
 }
 
 # --- the rule for one issue -------------------------------------------------
@@ -154,13 +172,23 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
   LAST_HUMAN=$(printf '%s\n' "$RAW" \
     | awk -F '\t' -v bot="$BOT_LOGIN" '$2 != bot && $2 !~ /\[bot\]$/ && $1 != "" { t = $1 } END { print t }' || true)
   LAST_HUMAN="${LAST_HUMAN:-$CREATED}"
-  IDLE=$(days_since "$LAST_HUMAN")
 
   # The newest warning this sweep posted, if any. Newest, not first: after a
   # reply the sweep warns again, and the fresh warning is the one in force. The
   # oldest would keep the original marker alive forever.
   WARNED_LINE=$(printf '%s\n' "$RAW" | grep -F "$MARK" | tail -1 || true)
   WARNED_AT=$(printf '%s\n' "$WARNED_LINE" | cut -f1 || true)
+
+  # The newest `seen` marker: the edit the sweep last recorded. Newest wins for
+  # the same reason the warning does.
+  SEEN_LINE=$(printf '%s\n' "$RAW" | grep -F "$SEEN_MARK" | tail -1 || true)
+  SEEN_AT=$(printf '%s\n' "$SEEN_LINE" | cut -f1 || true)
+  SEEN_HASH=$(printf '%s\n' "$SEEN_LINE" | grep -oE "hash:[0-9a-f]+" | head -1 | cut -d: -f2 || true)
+
+  # The description, fetched once per judged issue: the hash decides an edit, and
+  # the warning records it. One call is the cost of holding no state.
+  BODY=$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)
+  BODY_HASH=$(body_hash "$BODY")
 
   # A warning governs only while no person has acted since it was posted. A
   # human comment after the warning ends the cycle it opened; so does an edit to
@@ -174,13 +202,39 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
         '$1 > warned && $2 != bot && $2 !~ /\[bot\]$/ { line = $1 } END { print line }' || true)
 
   RECORDED=$(printf '%s\n' "$WARNED_LINE" | grep -oE "$HASH_MARK[0-9a-f]+" | head -1 | cut -d: -f3 || true)
+
+  # A `seen` marker that still describes the current body is the live record of
+  # the edit that opened this cycle.
+  SEEN_MATCH=""
+  [ -n "$SEEN_HASH" ] && [ "$BODY_HASH" = "$SEEN_HASH" ] && SEEN_MATCH=1
+
+  # An edit is new when the body matches neither hash on record — the warning's
+  # and the live `seen` marker's. Comparing against the warning alone would
+  # re-detect the same edit on every run (its hash is never rewritten), so the
+  # issue would restart its clock forever and never close.
   EDITED=""
-  if [ -n "$RECORDED" ]; then
-    BODY=$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)
-    [ "$(body_hash "$BODY")" = "$RECORDED" ] || EDITED=1
+  if [ -n "$RECORDED" ] || [ -n "$SEEN_HASH" ]; then
+    [ "$BODY_HASH" != "$RECORDED" ] && [ "$BODY_HASH" != "$SEEN_HASH" ] && EDITED=1
   fi
 
-  if [ -n "$WARNED_AT" ] && [ -z "$REPLY" ] && [ -z "$EDITED" ]; then
+  # An edit seen after a warning spends that warning: a warning governs only the
+  # cycle it opened, so the cycle the edit began must warn afresh before anything
+  # closes. Without this the old warning would close an issue whose new cycle had
+  # never been warned about.
+  SEEN_SPENT=""
+  [ -n "$SEEN_MATCH" ] && [ -n "$WARNED_AT" ] && [ "$SEEN_AT" \> "$WARNED_AT" ] && SEEN_SPENT=1
+
+  # The clock is the latest human comment, or the live edit, or the creation
+  # date. The edit is included so an edited issue carries the age of its edit,
+  # not the age that made it look closeable.
+  CLOCK="${LAST_HUMAN:-$CREATED}"
+  if [ -n "$SEEN_MATCH" ] && [ "$SEEN_AT" \> "$CLOCK" ]; then CLOCK="$SEEN_AT"; fi
+  IDLE=$(days_since "$CLOCK")
+
+  # The warning may close only a cycle it still governs: no reply, no unseen
+  # edit, and no edit recorded after it (which began a cycle that must be warned
+  # afresh first).
+  if [ -n "$WARNED_AT" ] && [ -z "$REPLY" ] && [ -z "$EDITED" ] && [ -z "$SEEN_SPENT" ]; then
     # A warning that applied `stale` and whose `stale` label is now gone was
     # cancelled by a maintainer: removing the label is the documented way to say
     # "keep it open". Do not close on a decision that was already reversed.
@@ -209,11 +263,21 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
   # when the issue goes quiet a second time, rather than reading the same old
   # reply (or the same stale hash) on every run.
   if [ -n "$WARNED_AT" ]; then
-    if [ -n "$EDITED" ]; then
+    if [ -n "$EDITED" ] || [ -n "$SEEN_SPENT" ]; then
       echo "Issue #$n was edited after the warning; the cycle restarts."
     else
       echo "Issue #$n has a reply after the warning; the cycle restarts."
     fi
+  fi
+
+  # Record the edit the first time it is seen, so the new cycle's clock starts
+  # here rather than at the pre-edit idle age. Without this the next run would
+  # read the old age and close a description that was updated today. The run that
+  # records the edit treats the issue as idle zero: the edit just happened.
+  if [ -n "$EDITED" ]; then
+    write_seen "$n" "$BODY_HASH"
+    echo "Recorded the edit to #$n; its idle clock restarts now."
+    IDLE=0
   fi
 
   # Whether `stale` is set now, so the branch below can tell an actual change
@@ -229,14 +293,14 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
   # if missing and its marker records that it is present.
   if [ "$IDLE" -ge "$CLOSE_DAYS" ]; then
     [ -n "$STALE_NOW" ] && write_labels "$n" --remove-label 'stale'
-    write_warning "$n" "Issue ini tidak ada aktivitas selama $IDLE hari dan akan ditutup otomatis pada pemeriksaan berikutnya. Balas, atau hapus labelnya, untuk menjaganya tetap terbuka." "0" "$(body_hash "$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)")"
+    write_warning "$n" "Issue ini tidak ada aktivitas selama $IDLE hari dan akan ditutup otomatis pada pemeriksaan berikutnya. Balas, atau hapus labelnya, untuk menjaganya tetap terbuka." "0" "$BODY_HASH"
     echo "Warned issue #$n (idle ${IDLE}d, past the ${CLOSE_DAYS}d close day)."
     continue
   fi
 
   if [ "$IDLE" -ge "$WARN_DAYS" ]; then
     [ -z "$STALE_NOW" ] && write_labels "$n" --add-label 'stale'
-    write_warning "$n" "Issue ini tidak ada aktivitas selama $IDLE hari, jadi ditandai \`stale\` dan akan ditutup otomatis setelah $CLOSE_DAYS hari tanpa balasan. Balas, atau hapus label \`stale\`, untuk menjaganya tetap terbuka." "1" "$(body_hash "$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)")"
+    write_warning "$n" "Issue ini tidak ada aktivitas selama $IDLE hari, jadi ditandai \`stale\` dan akan ditutup otomatis setelah $CLOSE_DAYS hari tanpa balasan. Balas, atau hapus label \`stale\`, untuk menjaganya tetap terbuka." "1" "$BODY_HASH"
     echo "Warned issue #$n (idle ${IDLE}d, marked stale)."
     continue
   fi

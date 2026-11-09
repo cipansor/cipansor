@@ -12,9 +12,11 @@
 #   anything else `stale` at 90 days, closed not-planned at 104
 #
 # A maintainer's reply, or removing the label, keeps the issue open — every run
-# re-reads both. Never closed: `pending-maintainer`, `ready`, `blocked`,
-# `in-progress`, and anything labelled `duplicate` (duplicate-sweep.yml owns
-# those). Never a pull request. See .github/scripts/stale-sweep.sh.
+# re-reads both. An edit to the description is an answer too, and it restarts the
+# idle clock, so an issue updated today is not closed on its pre-edit age. Never
+# closed: `pending-maintainer`, `ready`, `blocked`, `in-progress`, and anything
+# labelled `duplicate` (duplicate-sweep.yml owns those). Never a pull request.
+# See .github/scripts/stale-sweep.sh.
 name: Stale sweep
 
 on:

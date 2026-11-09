@@ -105,6 +105,10 @@ const warned = (at = daysAgo(30), hash = EMPTY_HASH) =>
   `${at}\tcipansor-bot\tWarning ${MARK} <!-- stale-sweep:at:${at} --> <!-- stale-sweep:hash:${hash} -->`;
 const warnedStale = (at = daysAgo(30), hash = EMPTY_HASH) =>
   `${at}\tcipansor-bot\tWarning ${MARK} <!-- stale-sweep:at:${at} --> <!-- stale-sweep:stale --> <!-- stale-sweep:hash:${hash} -->`;
+// The one-line marker the sweep posts when it first notices an edit, so the new
+// cycle's clock starts at the edit rather than at the pre-edit idle age.
+const seen = (at = daysAgo(20), hash = EMPTY_HASH) =>
+  `${at}\tcipansor-bot\t<!-- stale-sweep:seen:at:${at} hash:${hash} -->`;
 
 describe('stale-sweep.sh', () => {
   it('closes a needs-info issue warned about and left unanswered past the grace window', () => {
@@ -184,6 +188,48 @@ describe('stale-sweep.sh', () => {
     expect(out).toContain('edited after the warning');
   });
 
+  it('records the edit and restarts the clock, so a fresh edit is not closed', () => {
+    // The bug this guards: the idle timer counts from the last human comment or
+    // the creation date, and an edit leaves neither. Without recording the edit,
+    // the next run would read the pre-edit age (50d here) and close a description
+    // that was updated today.
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: row(7, 50, 'question,priority:low'),
+      GH_STUB_COMMENTS: warned(daysAgo(42)),
+      GH_STUB_BODY: 'detail added today',
+    });
+    expect(calls).not.toContain('CLOSE 7');
+    expect(calls).toContain('COMMENT 7');
+    expect(out).toContain('Recorded the edit to #7');
+    expect(out).toContain('idle 0d');
+  });
+
+  it('does not let an old warning close the cycle an edit restarted', () => {
+    // The warning is 90 days old and the issue looks idle, but the edit recorded
+    // after it began a cycle that was never warned about. Closing here would skip
+    // the warning the author is owed for the new cycle, so it warns instead.
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: row(7, 200, 'question,stale,priority:low'),
+      GH_STUB_COMMENTS: `${warned(daysAgo(90), 'deadbeef')}\n${seen(daysAgo(20), sha('edited body'))}`,
+      GH_STUB_BODY: 'edited body',
+    });
+    expect(calls).not.toContain('CLOSE 7');
+    expect(out).toContain('edited after the warning');
+    expect(calls).toContain('COMMENT 7');
+  });
+
+  it('closes the cycle an edit opened once that cycle has been warned and gone quiet', () => {
+    // The full life of a restarted cycle: the edit (recorded 80 days ago) spent
+    // the first warning; a fresh warning 20 days ago (whose hash matches the body,
+    // so no newer edit) has now run its grace window.
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: row(7, 200, 'question,stale,priority:low'),
+      GH_STUB_COMMENTS: `${warned(daysAgo(90), 'deadbeef')}\n${seen(daysAgo(80), sha('edited body'))}\n${warnedStale(daysAgo(20), sha('edited body'))}`,
+      GH_STUB_BODY: 'edited body',
+    });
+    expect(calls).toContain('CLOSE 7');
+  });
+
   it('keeps an issue open when its stale label was removed after the warning', () => {
     // The warning says removing `stale` keeps the issue open; a maintainer who
     // did so already reversed the decision, and the sweep must not close on it.
@@ -253,14 +299,42 @@ describe('stale-sweep.sh', () => {
   it('warns again after an edit goes quiet, instead of never closing', () => {
     // An edit ends the cycle (like a reply), so the stale hash cannot exempt the
     // issue forever: after the issue goes quiet a second time it is warned again.
+    // The recorded edit is 40 days old (past question's 15-day close day), so the
+    // cycle it opened is warned afresh rather than closed with no notice.
     const { out, calls } = run({
       GH_STUB_ISSUE_LIST: row(7, 50, 'question,priority:low'),
-      GH_STUB_COMMENTS: warned(daysAgo(42)),
+      GH_STUB_COMMENTS: `${warned(daysAgo(60))}\n${seen(daysAgo(40), sha('detail added on day 9'))}`,
       GH_STUB_BODY: 'detail added on day 9',
     });
     expect(calls).not.toContain('CLOSE 7');
     expect(calls).toContain('COMMENT 7');
     expect(out).toContain('past the 15d close day');
+  });
+
+  it('spends the recorded edit when the description changes again, starting a new cycle', () => {
+    // The `seen` marker is bound to the body it recorded. A second edit makes the
+    // hash mismatch, so it is a new cycle: the clock restarts again rather than
+    // reusing the first edit's age.
+    const { out, calls } = run({
+      GH_STUB_ISSUE_LIST: row(7, 200, 'question,priority:low'),
+      GH_STUB_COMMENTS: `${warned(daysAgo(90), 'deadbeef')}\n${seen(daysAgo(40), sha('first edit'))}`,
+      GH_STUB_BODY: 'a second edit',
+    });
+    expect(calls).not.toContain('CLOSE 7');
+    expect(out).toContain('Recorded the edit to #7');
+    expect(out).toContain('idle 0d');
+  });
+
+  it('does not treat a bot comment or a label change as an edit', () => {
+    // Only the description hash decides an edit. A bot comment and a label change
+    // both bump `updatedAt`, which is why it is not the signal; neither may
+    // restart the clock.
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: row(7, 40, 'bug,needs-info,priority:medium'),
+      GH_STUB_COMMENTS: `${warned()}\n${daysAgo(2)}\tcipansor-bot\tTriase selesai.`,
+      GH_STUB_BODY: '',
+    });
+    expect(calls).toContain('CLOSE 7');
   });
 
   it('keeps the stale label a restarted cycle still needs, so the new warning matches it', () => {
