@@ -633,9 +633,17 @@ TRIGGERS = {
 # comment (`docs/SDLC-FLOW.md` invariant 3), and its runs were one more thing
 # that could die on the 1800s wall clock. Re-enable it only by deleting this
 # entry and restoring the `TAILS` entry the merge removed.
+#
+# `SDLC 21` (`Penjaga issue`) moved to a GitHub Action on 2026-11-09
+# (`.github/workflows/stale-sweep.yml`): its job is a label and a timestamp,
+# which needs no LLM and must not spend a sandbox. The timers are unchanged, so
+# there is nothing here to redeploy — re-enabling the automation would restore
+# the exact 1800s wall-clock death that got it paused five runs in a row.
 RETIRED = {
     "SDLC 02": "dilebur ke SDLC 15 (Pelabel issue) pada 2026-11-09 — estimasi "
     "kini satu bagian dari komentar triase tunggal (invarian 3).",
+    "SDLC 21": "diport ke .github/workflows/stale-sweep.yml pada 2026-11-09 — "
+    "timer label/stempel waktu, deterministik, tanpa sandbox.",
 }
 
 
