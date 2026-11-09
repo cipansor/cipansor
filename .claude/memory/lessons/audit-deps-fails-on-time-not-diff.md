@@ -29,7 +29,8 @@ Example (2026-09-02): `fast-uri >=4.1.2` → `>=4.1.3` and `qs ^6.15.2` →
 A pin cannot clear an advisory with no patched release (`first_patched_version:
 null` in `gh api /advisories/<GHSA>`). First found 2026-10-03: `braces <=3.0.3`
 (GHSA-vfj7-8cjw-p6xm), updated on the 2nd, red on every PR; 3.0.3 was the
-newest release.
+newest release. (Historical: the advisory was withdrawn on 2026-10-23 and the
+waiver removed in #953; `ACCEPTED_RISKS` is empty again.)
 
 - `pnpm why <pkg> -r` — is any path a `dependencies` one? If yes, there is no
   waiver: replace or patch what pulls it in.
