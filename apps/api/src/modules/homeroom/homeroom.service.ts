@@ -4,6 +4,43 @@ import { Prisma, ViolationType } from '@prisma/client';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
 import { assertMayWrite, classAccess, notFound, studentAccess, viewerOf } from './homeroom.access';
 import type { HomeroomNote, HomeroomNoteInput } from '@cipansor/shared';
+import { wibDayOf } from '@/utils/wib-day';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * The class's birthdays in the next 30 WIB calendar days, soonest first, with
+ * `daysUntil` 0 for a birthday today (#948).
+ *
+ * Both sides are calendar days. "Today" is the WIB day the moment falls on —
+ * the UTC container's `new Date()` is still yesterday between 00:00 and 06:59
+ * WIB — and a birth date is the calendar day it holds at midnight UTC, the form
+ * a date input writes, so it is read by its UTC fields. Comparing the birthday's
+ * midnight with the current instant made a birthday later today count as
+ * already past, so it dropped out of the list until next year.
+ *
+ * A 29 February birthday falls on 1 March in a common year (`Date.UTC` rolls
+ * the day over), as the previous `new Date(year, 1, 29)` did.
+ */
+export function upcomingBirthdaysOf<
+  T extends { id: string; nis: string | null; birthDate: Date; user: { name: string } },
+>(students: T[], now: Date) {
+  const [y, m, d] = wibDayOf(now).split('-').map(Number);
+  const today = Date.UTC(y, m - 1, d);
+  return students
+    .map((student) => {
+      const dob = new Date(student.birthDate);
+      let next = Date.UTC(y, dob.getUTCMonth(), dob.getUTCDate());
+      if (next < today) next = Date.UTC(y + 1, dob.getUTCMonth(), dob.getUTCDate());
+      return {
+        student: { id: student.id, name: student.user.name, nis: student.nis },
+        date: dob,
+        daysUntil: Math.round((next - today) / DAY_MS),
+      };
+    })
+    .filter((item) => item.daysUntil >= 0 && item.daysUntil <= 30)
+    .sort((a, b) => a.daysUntil - b.daysUntil);
+}
 
 /**
  * A pupil as the homeroom pages show them. Never the whole row: a Student
@@ -200,37 +237,7 @@ export class HomeroomService {
       },
     });
 
-    const today = new Date();
-    const thirtyDaysFromNow = new Date();
-    thirtyDaysFromNow.setDate(today.getDate() + 30);
-
-    const upcomingBirthdays = studentsWithBirthdays
-      .map((student) => {
-        const dob = new Date(student.birthDate);
-        // Set current year to check upcoming
-        const nextBirthday = new Date(today.getFullYear(), dob.getMonth(), dob.getDate());
-
-        // If birthday has passed this year, check next year (though usually we only care about 'soon')
-        // For simple "upcoming in next 30 days", we handle year wrap around
-        if (nextBirthday < today) {
-          nextBirthday.setFullYear(today.getFullYear() + 1);
-        }
-
-        const diffTime = nextBirthday.getTime() - today.getTime();
-        const diffDays = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
-
-        return {
-          student: {
-            id: student.id,
-            name: student.user.name,
-            nis: student.nis,
-          },
-          date: dob,
-          daysUntil: diffDays,
-        };
-      })
-      .filter((item) => item.daysUntil >= 0 && item.daysUntil <= 30)
-      .sort((a, b) => a.daysUntil - b.daysUntil);
+    const upcomingBirthdays = upcomingBirthdaysOf(studentsWithBirthdays, new Date());
 
     const { enrollments, ...classInfo } = classData;
     return {

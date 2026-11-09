@@ -20,6 +20,7 @@ import { escapeHtml } from '@/utils/html';
 import { Errors } from '@/middleware/error';
 import { unitDocumentName } from '@cipansor/shared';
 import { studentScope } from '@/utils/student-scope';
+import { wibMonthYear } from '@/utils/wib-day';
 
 const JUZ_NAMES: Record<number, string> = {
   1: 'Juz Amma',
@@ -31,8 +32,11 @@ const JUZ_NAMES: Record<number, string> = {
 // ============================================
 
 function generateCertificateNumber(): string {
-  const year = new Date().getFullYear();
-  const month = String(new Date().getMonth() + 1).padStart(2, '0');
+  // The WIB month the sanad is issued in: the API container runs in UTC, so
+  // `getMonth()` stamped the previous month (and, in January, the previous
+  // year) on a sanad issued between 00:00 and 06:59 WIB on the 1st.
+  const { year, month: m } = wibMonthYear(new Date());
+  const month = String(m + 1).padStart(2, '0');
   const random = crypto.randomBytes(4).toString('hex').toUpperCase();
   return `SANAD-${year}${month}-${random}`;
 }

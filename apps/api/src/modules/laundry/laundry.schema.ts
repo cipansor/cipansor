@@ -78,6 +78,18 @@ export const ListTransactionsQuerySchema = z.object({
   limit: z.string().regex(/^\d+$/).optional().default('20'),
 });
 
+/**
+ * `GET /transactions/stats`: the range is two WIB calendar days (`YYYY-MM-DD`).
+ * The service bounds them with `wibDayStart`/`wibDayEnd`, which turn a full ISO
+ * instant into `Invalid Date`, so anything else is a 400 here rather than a
+ * Prisma error.
+ */
+export const TransactionStatsQuerySchema = z.object({
+  startDate: z.iso.date('Tanggal mulai harus berformat YYYY-MM-DD').optional(),
+  endDate: z.iso.date('Tanggal akhir harus berformat YYYY-MM-DD').optional(),
+  unitId: z.string().optional(),
+});
+
 // =============================================================================
 // TYPE EXPORTS
 // =============================================================================
@@ -91,3 +103,4 @@ export type CreateTransactionInput = z.infer<typeof CreateTransactionSchema>;
 export type UpdateStatusInput = z.infer<typeof UpdateStatusSchema>;
 export type ProcessPaymentInput = z.infer<typeof ProcessPaymentSchema>;
 export type ListTransactionsQuery = z.infer<typeof ListTransactionsQuerySchema>;
+export type TransactionStatsQuery = z.infer<typeof TransactionStatsQuerySchema>;

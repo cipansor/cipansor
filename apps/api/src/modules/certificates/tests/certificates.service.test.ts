@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -119,6 +119,37 @@ describe('certificates service', () => {
     expect(arg.data.certificateNumber).toMatch(/^TAH\/\d{2}\/\d{4}\/[0-9A-F]{10}$/);
     expect(arg.data.verificationUrl).toContain('/public/verify-sanad?code=');
     expect(arg.data.verificationUrl).toContain(encodeURIComponent(arg.data.certificateNumber));
+  });
+
+  // #884: the number is the public verification key and carries the issue
+  // month. On the UTC container `getMonth()` stamped the previous month (and
+  // on 1 January the previous year) between 00:00 and 06:59 WIB on the 1st.
+  describe('the number carries the WIB month', () => {
+    const prevTz = process.env.TZ;
+    beforeEach(() => {
+      process.env.TZ = 'UTC';
+      vi.useFakeTimers({ toFake: ['Date'] });
+      mocked.digitalCertificate.create.mockResolvedValue(scopedRow);
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      if (prevTz === undefined) delete process.env.TZ;
+      else process.env.TZ = prevTz;
+    });
+    const minted = async () => {
+      await createCertificate(base, 'user-1', teacher);
+      return mocked.digitalCertificate.create.mock.calls[0][0].data.certificateNumber as string;
+    };
+
+    it('reads November at 00:30 WIB on 1 November', async () => {
+      vi.setSystemTime(new Date('2026-10-31T17:30:00.000Z'));
+      expect(await minted()).toMatch(/^TAH\/11\/2026\//);
+    });
+
+    it('reads January of the new year at 00:30 WIB on 1 January', async () => {
+      vi.setSystemTime(new Date('2026-12-31T17:30:00.000Z'));
+      expect(await minted()).toMatch(/^TAH\/01\/2027\//);
+    });
   });
 
   it('refuses to issue a certificate for a santri outside the writer\u2019s reach', async () => {

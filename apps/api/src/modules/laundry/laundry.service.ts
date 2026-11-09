@@ -9,6 +9,7 @@ import {
 } from '@cipansor/shared';
 import { seesAllUnits } from '../../utils/resolve-unit-id';
 import { todayWib } from '../../utils/wib';
+import { wibDayStart, wibDayEnd } from '../../utils/wib-day';
 import { studentScope, type ScopeActor } from '../../utils/student-scope';
 import { getAccountOrFallback, ACCOUNT_MAPPING_KEYS } from '../finance/accounting-config.service';
 import { isPeriodOpen } from '../finance-enhancement/period.service';
@@ -725,13 +726,18 @@ export const transactionService = {
       startDate && endDate
         ? {
             createdAt: {
-              gte: new Date(startDate),
-              lte: new Date(endDate + 'T23:59:59.999Z'),
+              // Both ends are WIB calendar days: `new Date('2026-11-01')` is
+              // 07:00 WIB, which dropped the first day's 00:00–06:59 WIB orders
+              // and pulled in those of the morning after the last day.
+              gte: wibDayStart(startDate),
+              lte: wibDayEnd(endDate),
             },
           }
         : {
             createdAt: {
-              gte: new Date(new Date().setHours(0, 0, 0, 0)),
+              // WIB midnight, not the UTC container's: otherwise every order
+              // taken 00:00–06:59 WIB counted towards yesterday's figures.
+              gte: wibDayStart(todayWib()),
             },
           };
 
@@ -756,8 +762,8 @@ export const transactionService = {
 
     return {
       period: {
-        startDate: startDate || new Date().toISOString().slice(0, 10),
-        endDate: endDate || new Date().toISOString().slice(0, 10),
+        startDate: startDate || todayWib(),
+        endDate: endDate || todayWib(),
       },
       summary: {
         totalRevenue: periodStats._sum.total?.toNumber() || 0,
