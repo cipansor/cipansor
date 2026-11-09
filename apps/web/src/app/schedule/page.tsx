@@ -25,7 +25,7 @@ import {
   useDeleteSchedule,
 } from "@/hooks/use-schedule";
 import { useAuth } from "@/hooks/use-auth";
-import { wibWeekdayOf } from "@/lib/wib";
+import { wibWeekdayOf } from "@/lib/date";
 import { DayOfWeek } from "@cipansor/shared";
 import {
   Dialog,

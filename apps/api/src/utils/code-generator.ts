@@ -1,4 +1,5 @@
 import { prisma, type Db } from '@/lib/prisma';
+import { wibMonthYear } from '@/utils/wib-day';
 
 export const generateUniqueCode = async (
   prefix: string,
@@ -17,10 +18,13 @@ export const generateBulkUniqueCodes = async (
 ): Promise<string[]> => {
   if (count < 1) return [];
 
-  const date = new Date();
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const codePrefix = `${prefix}-${year}${month}-`;
+  // The code is printed on documents and asset labels, so the month and year
+  // follow the WIB calendar (UTC+7), not the host clock — the API container
+  // sets no TZ, so `getMonth()`/`getFullYear()` read UTC and a code minted at
+  // 00:00–06:59 WIB would carry the previous month, and in January the
+  // previous year.
+  const { year, month } = wibMonthYear(new Date());
+  const codePrefix = `${prefix}-${year}${String(month + 1).padStart(2, '0')}-`;
 
   let lastRecord: { code: string } | null = null;
 

@@ -82,6 +82,25 @@ export function utcMonthRange(year: number, month: number): { start: Date; end: 
   };
 }
 
+/**
+ * A calendar month as the real-instant bounds a `DateTime` column holding a
+ * wall-clock moment uses: `[00:00:00.000 WIB on the 1st, 23:59:59.999 WIB on
+ * the last day]`. `utcMonthRange` bounds a *date-only* column at midnight UTC;
+ * this bounds a *timestamp* column (`JournalEntry.date`, the moment an entry
+ * was posted). Using the UTC bounds there drops the whole last day and the
+ * first hours of the 1st (00:00–07:00 WIB, stored the previous UTC day).
+ *
+ * `month` is zero-based (0-11), as in `wibMonthYear`.
+ */
+export function wibMonthRange(year: number, month: number): { start: Date; end: Date } {
+  const lastDay = new Date(Date.UTC(year, month + 1, 0)).getUTCDate();
+  const mm = String(month + 1).padStart(2, '0');
+  return {
+    start: wibDayStart(`${year}-${mm}-01`),
+    end: wibDayEnd(`${year}-${mm}-${String(lastDay).padStart(2, '0')}`),
+  };
+}
+
 /** A `@db.Date` value as a date input shows it. */
 export function dayOf(date: Date | null): string | null {
   return date ? date.toISOString().slice(0, 10) : null;

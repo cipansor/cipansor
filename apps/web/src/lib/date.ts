@@ -23,6 +23,32 @@ export function safeFormat(
 }
 
 /**
+ * Today's calendar day in WIB (Asia/Jakarta, UTC+7), "yyyy-MM-dd".
+ *
+ * The app runs on a UTC server, so `new Date().toISOString().split("T")[0]`
+ * yields the UTC day: between 00:00 and 06:59 WIB it is still yesterday, and a
+ * dashboard asking the API for "today" gets the previous day's figures. WIB has
+ * no daylight saving, so the offset is a constant and no tz lookup is needed.
+ */
+export function todayWibDay(now: Date = new Date()): string {
+  return new Date(now.getTime() + 7 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10);
+}
+
+/**
+ * Day of week (0=Sunday … 6=Saturday) an instant falls on in WIB.
+ *
+ * `Schedule.dayOfWeek` is filled from the WIB week, but `new Date().getDay()`
+ * reads the device clock: a device set to UTC, or any zone west of WIB, would
+ * ask for the previous weekday between 00:00 and 06:59 WIB and show
+ * yesterday's lessons as "Jadwal Hari Ini".
+ */
+export function wibWeekdayOf(instant: Date = new Date()): number {
+  return new Date(`${todayWibDay(instant)}T00:00:00.000Z`).getUTCDay();
+}
+
+/**
  * Format date to Indonesian locale
  */
 export function formatDate(

@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import api from "@/lib/api";
 import { useAuthStore } from "@/stores/auth";
 import { DAY_OF_WEEK_BY_INDEX } from "@cipansor/shared";
-import { wibWeekdayOf } from "@/lib/wib";
+import { wibWeekdayOf } from "@/lib/date";
 
 // Types
 export interface HafalanProgress {
