@@ -71,13 +71,15 @@ templat PR yang terikat ke sistem label, bukan prosa bebas:
   berisi reproduksi + kriteria penerimaan, otomatis memasang label tipe
   `bug`/`enhancement`; `config.yml` mengarahkan pembaca ke `docs/LABELS.md` dan
   berkas ini.
-- `.github/pull_request_template.md` — pemisahan `HUMAN`/`AGENT`, wajib
-  `Fixes #<n>` ke issue `ready`, dan kriteria penerimaan yang disalin sebagai
-  kotak centang.
+- `.github/pull_request_template.md` — bagian `Why`, `What changed`, `Linked
+  issue`, `Acceptance criteria`, `How to test`, `Risk and rollback`, `Evidence`,
+  `Notes`; wajib `Fixes #<n>` ke issue `ready`/`bot-implement` dan kriteria
+  penerimaan yang disalin sebagai kotak centang. Bagian `HUMAN`/`AGENT` dan
+  `Type` dihapus pada 2026-11-09 (#965): tipe sudah datang dari label issue.
 
-Tautan yang menjaganya jujur: OpenHands sendiri menggerbangi PR-nya pada label
-`ready-for-dev` yang dikelola workflow, jadi **sebuah issue hanya mendapat
-`ready` saat kriteria penerimaannya nyata**, dan PR harus menunjuk ke salah
+Tautan yang menjaganya jujur (polanya dari OpenHands upstream, yang memakai
+label `ready-for-dev`; di repo ini `ready`/`bot-implement`): **sebuah issue
+hanya mendapat `ready` saat kriteria penerimaannya nyata**, dan PR harus menunjuk ke salah
 satunya. `Pelabel issue` adalah gerbang itu.
 
 ### Penegakan keras (di-deploy)
@@ -87,21 +89,23 @@ Dipilih **gate keras pada job `template`**:
 - `.github/workflows/pr-description-checks.yml` berjalan pada
   `pull_request_target` (PR fork tetap bisa dikomentari; tidak ada kode PR yang
   di-checkout):
-  - job **template** **gagal** selama deskripsi belum lengkap (catatan `HUMAN` pada PR berisiko,
-    `Why`/`What changed`/`How to test`/`Acceptance criteria`, `Fixes #<n>` ke
-    issue `ready`/`bot-implement`, dan prosa Bahasa Indonesia);
+  - job **template** **gagal** selama deskripsi belum lengkap:
+    `Why`/`What changed`/`How to test`/`Acceptance criteria`, `Risk and
+    rollback` pada PR berisiko, minimal satu `Fixes #<n>` dengan **setiap**
+    nomor berupa issue terbuka berlabel `ready`/`bot-implement` (PR tanpa issue
+    gagal, #772), PR menuju cabang default, dan prosa Bahasa Indonesia.
+    Dependabot saja yang dilewati, berdasarkan penulis PR;
   - job **visual** memasang pengingat **sebelum/sesudah** bila PR mengubah
     `apps/web` dan body-nya tidak punya gambar atau video — ini tetap advisory.
 - Hanya job `template` yang memblokir; ia tidak memberi label atau mengubah
-  status draft. Check-nya bernama `PR template reminder`. Agar merge benar-benar
-  tertahan, check itu harus ditambahkan ke required status checks ruleset `main`
-  — langkah maintainer dengan akses admin; sampai itu dilakukan, job hanya merah
-  tanpa memblokir. Aturannya adalah skrip shell di `.github/scripts/` dan dicakup
+  status draft. Check-nya bernama `PR template reminder` dan termasuk required
+  status checks ruleset `main` sejak 2026-10-11 (#772), jadi PR merah tidak
+  bisa di-merge. Aturannya adalah skrip shell di `.github/scripts/` dan dicakup
   oleh `apps/api/src/utils/pr-description.guard.test.ts` (stub `gh`, `jq` asli),
   pola yang sama dengan guard lain.
 
-Gate ini menyamakan repo dengan standar OpenHands: PR wajib punya bagian
-Why/Summary/How to test dan menunjuk issue `ready-for-dev`.
+Gate ini mengikuti pola OpenHands upstream (bagian Why/Summary/How to test dan
+issue `ready-for-dev`); di repo ini issue-nya berlabel `ready`/`bot-implement`.
 
 ### Issue bug yang datang tidak lengkap (`Reproduksi bug`)
 

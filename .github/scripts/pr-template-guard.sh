@@ -7,8 +7,9 @@
 #
 # The template is a rule, not a nudge (upstream OpenHands enforces the same
 # shape: a linked, ready issue and the Why/Summary/How-to-test sections). The
-# required parts are: a `## HUMAN` note on a risky PR (see RISKY_PATHS), `## Why`, `## What changed`,
-# `## Acceptance criteria`, `## How to test`, and at least one linked issue —
+# required parts are: `## Why`, `## What changed`, `## Acceptance criteria`,
+# `## How to test`, a `## Risk and rollback` statement on a risky PR (see
+# RISKY_PATHS), and at least one linked issue —
 # `Fixes #<n>`, once per issue the PR resolves. Every number it closes must be
 # an open issue (not a pull request) labelled `ready` or `bot-implement`. There
 # is no "no linked issue" way out: a PR without an issue starts with an issue
@@ -39,12 +40,16 @@ trap 'rm -rf "$DIR"' EXIT EXIT HUP INT TERM
 gh pr view "$PR" --repo "$REPO" --json body --jq .body > "$RAW"
 
 # Visible text: strip HTML comments (including multi-line ones and the template
-# placeholders) and fenced code, so placeholders do not count as content.
+# placeholders), so placeholders do not count as content. Fenced code stays: a
+# `## How to test` that is only a block of commands is complete — stripping it
+# read that section as empty and kept a required check red (#866, #965).
 # Normalise CRLF/CR first: a body written through a Windows editor arrives with
 # `## Why\r`, which never equals the `## Why` the section matcher compares
 # against — every section then reads empty and a complete body is refused.
-perl -0777 -pe 's/\r\n?/\n/g; s/<!--.*?-->//gs; s/```.*?```//gs' "$RAW" > "$CLEAN"
-BODY="$(cat "$CLEAN")"
+perl -0777 -pe 's/\r\n?/\n/g; s/<!--.*?-->//gs' "$RAW" > "$CLEAN"
+# The prose alone, for the language rule: commands and code in fences are
+# English by nature and say nothing about the language of the description.
+BODY="$(perl -0777 -pe 's/```.*?```//gs' "$CLEAN")"
 
 # The visible text of the section starting at "## <heading>", blank lines and
 # bare list markers dropped. Operates on the cleaned body. A lone "-" is the
@@ -62,15 +67,15 @@ visible_len() { printf '%s' "$1" | tr -d '\n' | wc -c | tr -d ' '; }
 
 missing=""
 
-# The human note is required only where a human must look before the merge: a
-# PR labelled `security`, or one that touches the schema, migrations and data
-# scripts, the production data scripts, or auth/RBAC. Every other PR is reviewed
-# by the gate, and a human approves the weekly release (docs/SDLC-FLOW.md: four
-# human gates). Decided by the owner on 2026-10-10 (#760). A guard that cannot
-# read the labels or the files treats the PR as risky: it never waves through
-# what it could not see. A Markdown file is never risky, even under one of these
-# paths: apps/api/prisma/AGENTS.md is a guide, not a schema or a data script
-# (#765).
+# A risky PR states its risk and its way back: one labelled `security`, or one
+# that touches the schema, migrations and data scripts, the production data
+# scripts, or auth/RBAC. That is what a reviewer of such a change needs before
+# approving it; the approval itself is required on `main` for every PR. Decided
+# by the owner on 2026-11-09 (#965), replacing the free-form `## HUMAN` note of
+# #760. A guard that cannot read the labels or the files treats the PR as
+# risky: it never waves through what it could not see. A Markdown file is never
+# risky, even under one of these paths: apps/api/prisma/AGENTS.md is a guide,
+# not a schema or a data script (#765).
 RISKY_PATHS='^(apps/api/prisma/|apps/api/scripts/|apps/api/src/middleware/auth\.ts$|apps/api/src/modules/(auth|roles)/|apps/api/src/utils/(student-scope|resolve-unit-id)\.ts$|apps/web/middleware\.ts$|apps/web/src/lib/rbac\.ts$|packages/shared/src/roles\.ts$)'
 risk=""
 if PR_LABELS="$(gh pr view "$PR" --repo "$REPO" --json labels --jq '[.labels[].name] | join(",")')"; then
@@ -87,9 +92,9 @@ if [ -z "$risk" ]; then
   fi
 fi
 
-if [ -n "$risk" ] && [ "$(visible_len "$(section HUMAN)")" -lt 20 ]; then
+if [ -n "$risk" ] && [ "$(visible_len "$(section 'Risk and rollback')")" -lt 20 ]; then
   missing="$missing
-- catatan manusia singkat di bawah \`## HUMAN\` (minimal 20 karakter, apa yang Anda uji) — wajib karena PR ini berisiko: $risk"
+- \`## Risk and rollback\` (minimal 20 karakter: apa yang bisa rusak dan cara mengembalikannya) — wajib karena PR ini berisiko: $risk"
 fi
 
 [ -n "$(section Why)" ] || missing="$missing
