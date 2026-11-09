@@ -72,19 +72,12 @@ const isBackported = (name, version, range) =>
  *
  * Say in `note` why the risk does not reach a running system.
  */
-const ACCEPTED_RISKS = [
-  {
-    name: "braces",
-    version: "3.0.3",
-    advisory: "https://github.com/advisories/GHSA-vfj7-8cjw-p6xm",
-    until: "2026-11-03",
-    note:
-      "No patched release (micromatch/braces#70). Installed only through dev " +
-      "tooling — tsc-alias (chokidar, globby) and eslint-config-next " +
-      "(fast-glob) — which expand the repository's own glob patterns; the " +
-      "stack exhaustion needs attacker-supplied nesting.",
-  },
-];
+//
+// The braces 3.0.3 entry (GHSA-vfj7-8cjw-p6xm, until 2026-11-03) is gone: the
+// advisory was withdrawn on 2026-10-23 and the npm bulk endpoint no longer
+// returns it, so the waiver matched nothing (#953). The list is empty and waits
+// for the next dev-only advisory that genuinely has no patched release.
+const ACCEPTED_RISKS = [];
 
 const levelArgIdx = process.argv.indexOf("--audit-level");
 const threshold =
