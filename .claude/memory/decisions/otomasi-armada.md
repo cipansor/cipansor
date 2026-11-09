@@ -455,6 +455,20 @@
     `GITHUB_TOKEN` (grant otomatis platform), jadi larangan itu harus eksplisit
     di prompt, bukan diasumsikan dari ketiadaan token.
 
+30. **Penomoran ulang armada dibatalkan — dokumen menyebut peran, bukan nomor**
+    (2026-11-09, pengguna). #710/#711 (Okt 2026) sudah menomori ulang armada
+    01–23, tetapi keputusan yang bertahan dari PR itu adalah bagian lainnya:
+    `docs/SDLC-FLOW.md` menyebut automation lewat **peran** (namanya), bukan
+    nomor `SDLC NN`. Usulan menomor-ulang lagi — nomor = urutan tahap, sehingga
+    `Pelabel issue` menjadi `06` — **dibatalkan** atas keputusan pengguna.
+    Alasan: nomor adalah penanda tampilan yang bergeser setiap kali automation
+    ditambah, dilebur, atau dihapus (SDLC 02 baru saja dilebur 2026-11-09),
+    sedangkan peran stabil dan sudah menjadi rujukan dokumen serta tes. Dampak:
+    jangan mengusulkan penomoran ulang lagi; referensi `SDLC NN` di dokumen
+    hanya boleh muncul sebagai **riwayat** (mis. "SDLC 02 dilebur ke SDLC 15"),
+    bukan sebagai rujukan normatif. Nama automation di API tetap boleh membawa
+    nomor (itu identitasnya di layanan), tetapi dokumen dan tes merujuk peran.
+
 ## Sumber
 
 - Google SRE, "Monitoring Distributed Systems" —

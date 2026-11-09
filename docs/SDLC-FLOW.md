@@ -156,8 +156,8 @@ pertentangan itu dilaporkan sebagai issue.
     Karena itu **setiap** automation diset tepat `1800`, bukan angka yang lebih
     kecil: yang lebih kecil tidak menghemat apa pun dan hanya memindahkan
     kematian ke run yang tugasnya jujur (lima automation pernah dijeda otomatis
-    platform setelah lima `execution/timeout` beruntun — SDLC 01/15 dengan
-    `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
+    platform setelah lima `execution/timeout` beruntun — `Triase bug` dan
+    `Pelabel issue` dengan `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
     setiap automation ber-`timeout` < 1800 adalah cacat `config` yang
     dilaporkan, dan `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat
     prompt di-deploy. Plafon hanya membatasi **kapan** sebuah run dibunuh,
@@ -294,7 +294,7 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 8. **Laporan pemakaian.** Belum ada. Tambahkan pada `Pengawas armada`.
 9. **Dinding jam seragam, dan anggaran kerja untuk yang panjang.** Lima
    automation pernah dijeda otomatis platform (lima `execution/timeout`
-   beruntun): SDLC 01 dan 15 diset `timeout=900`, SDLC 23 `1500`, padahal
+   beruntun): `Triase bug` dan `Pelabel issue` diset `timeout=900`, `Pengawas armada` `1500`, padahal
    tugasnya ~1000–2000 detik dan platform menerima sampai **1800**. Selesai
    2026-10-18: seluruh armada diset `1800`, dan
    `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat prompt di-deploy
