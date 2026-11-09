@@ -147,9 +147,23 @@ repository.
 
 It is read-only with respect to the deployment: **it never rolls back, reruns or
 repoints a container.** The issue carries the run id, the commit and the failing
-job's log lines; a human decides what to do (step 3 or step 4 above). A failure
-it has already reported is not reported twice — the open issue is matched on a
-`deploy-watch:run=<id>` marker in its body.
+job's log lines; a human decides what to do (step 3 or step 4 above).
+
+**One open issue per workflow, not one per run** (#850). While a workflow has an
+open `deploy-watch` issue, a later failed, stuck or degraded run of it is added
+to that issue as a comment, and once the workflow's latest run deployed, is
+green and its site serves that commit, the issue is closed with the evidence. A
+green run that deployed nothing (its `Update …` job skipped because no code
+changed) never reached `azure/login` or the release, so it leaves the issue
+open. The log lines come from the job that failed, not a sibling the workflow
+cancelled after it (#861). If the existing issues cannot be listed, the watch
+reports nothing and ends red rather than opening a duplicate. A run is never
+reported twice: its `deploy-watch:run=<id>` marker is looked for in the issue
+bodies and in the comments written since the run started, closed issues
+included, so closing a report by hand does not bring the same run back. Before
+this, one cause (an OIDC subject Azure no longer matched, 2026-10-12) opened
+eleven issues, one per run. The issue opens with the basmalah itself:
+`basmalah.yml` never sees an issue opened with `GITHUB_TOKEN`.
 
 Run it by hand against the real repository with
 `GITHUB_REPOSITORY=cipansor/cipansor GH_TOKEN=… bash .github/scripts/deploy-watch.sh`,

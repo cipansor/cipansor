@@ -2,9 +2,11 @@ name: Deploy watchdog
 
 # Watches the two workflows that reach a site ("Deploy staging", "Deploy
 # production"). If the latest run failed, hung past the threshold, or finished
-# green while the site it released is not answering with its commit, it opens an
-# issue carrying the run id and the failing log lines. It never rolls back,
-# reruns or repoints a container — a human decides (the release flow is
+# green while the site it released is not answering with its commit, it reports
+# the run id and the failing log lines on the workflow's one open issue: a new
+# issue, or a comment on the one already open, which it closes once the workflow
+# is green and its site healthy again (#850). It never rolls back, reruns or
+# repoints a container — a human decides (the release flow is
 # `docs/deploy-azure.md` → "How a change is released").
 #
 # Why on completion and not on a schedule (decided 2026-10-10): the deploys are
