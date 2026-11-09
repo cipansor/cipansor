@@ -12,6 +12,9 @@ vi.mock('../hr.service', () => ({
   readPunchPhoto: vi.fn(),
   resolveDelegatedStaffId: vi.fn(),
   scopedUnitId: vi.fn((_user: unknown, requested?: string | null) => requested ?? null),
+  updateAttendanceSite: vi.fn(),
+  updateWorkShift: vi.fn(),
+  updateShiftRotation: vi.fn(),
 }));
 
 import * as service from '../hr.service';
@@ -21,6 +24,9 @@ import {
   getMyAttendanceToday,
   uploadPunchPhoto,
   getPunchPhoto,
+  updateAttendanceSite,
+  updateWorkShift,
+  updateShiftRotation,
 } from '../attendance-settings.controller';
 
 function mockReqRes(overrides: Partial<Request> = {}) {
@@ -191,5 +197,63 @@ describe('punch photos', () => {
     );
     expect((res as any).headers['Cache-Control']).toBe('private, no-store');
     expect((res as any).headers['Content-Type']).toBe('image/jpeg');
+  });
+});
+
+// Regression: a PATCH must carry only the keys actually sent. In Zod 4 a raw
+// `.partial()` still runs each field's `.default()`, so the controller used to
+// hand the service `{ label, radiusMeters: 200, isActive: true }` for a body of
+// `{ label }` — silently resetting the columns the caller never mentioned.
+describe('PATCH attendance settings — omitted fields must not be defaulted', () => {
+  it('attendance site update passes only the sent keys to the service', async () => {
+    (service.updateAttendanceSite as any).mockResolvedValue({ id: 'site-1' });
+    const { req, res } = mockReqRes({
+      params: { id: 'site-1' },
+      body: { label: 'Gerbang Utama' },
+    });
+    await run(updateAttendanceSite, req, res);
+
+    expect(service.updateAttendanceSite).toHaveBeenCalledWith(
+      'site-1',
+      { label: 'Gerbang Utama' },
+      null
+    );
+  });
+
+  it('work shift update passes only the sent keys to the service', async () => {
+    (service.updateWorkShift as any).mockResolvedValue({ id: 'shift-1' });
+    const { req, res } = mockReqRes({
+      params: { id: 'shift-1' },
+      body: { name: 'Pagi' },
+    });
+    await run(updateWorkShift, req, res);
+
+    expect(service.updateWorkShift).toHaveBeenCalledWith('shift-1', { name: 'Pagi' }, null);
+  });
+
+  it('shift rotation update passes only the sent keys to the service', async () => {
+    (service.updateShiftRotation as any).mockResolvedValue({ id: 'rot-1' });
+    const { req, res } = mockReqRes({
+      params: { id: 'rot-1' },
+      body: { name: 'Rotasi A' },
+    });
+    await run(updateShiftRotation, req, res);
+
+    expect(service.updateShiftRotation).toHaveBeenCalledWith('rot-1', { name: 'Rotasi A' }, null);
+  });
+
+  it('still keeps a value the caller did send, including one that has a default', async () => {
+    (service.updateAttendanceSite as any).mockResolvedValue({ id: 'site-1' });
+    const { req, res } = mockReqRes({
+      params: { id: 'site-1' },
+      body: { isActive: false, radiusMeters: 500 },
+    });
+    await run(updateAttendanceSite, req, res);
+
+    expect(service.updateAttendanceSite).toHaveBeenCalledWith(
+      'site-1',
+      { isActive: false, radiusMeters: 500 },
+      null
+    );
   });
 });

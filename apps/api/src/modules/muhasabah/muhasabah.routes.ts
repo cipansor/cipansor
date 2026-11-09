@@ -1,9 +1,14 @@
 import { Router } from 'express';
 import muhasabahController from './muhasabah.controller';
 import { authenticate, authorize } from '@/middleware/auth';
-import { validate } from '@/middleware/validate';
+import { validate, validateQuery } from '@/middleware/validate';
 import { UserRole } from '@prisma/client';
-import { createMuhasabahSchema, updateMuhasabahSchema } from './muhasabah.schema';
+import {
+  createMuhasabahSchema,
+  createMineMuhasabahSchema,
+  dailyReportQuerySchema,
+  updateMuhasabahSchema,
+} from './muhasabah.schema';
 
 const router = Router();
 
@@ -43,7 +48,7 @@ router.get('/me/stats', authorize(UserRole.STUDENT), muhasabahController.getMySt
 router.post(
   '/me',
   authorize(UserRole.STUDENT),
-  validate(createMuhasabahSchema.omit({ studentId: true })),
+  validate(createMineMuhasabahSchema),
   muhasabahController.createMine
 );
 
@@ -59,6 +64,7 @@ router.post(
 router.get(
   '/daily-report',
   authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
+  validateQuery(dailyReportQuerySchema),
   muhasabahController.getDailyReport
 );
 

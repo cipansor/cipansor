@@ -17,6 +17,7 @@ import { STUDENT_STATUS } from '@cipansor/shared';
 import { logger } from '@/lib/logger';
 import { prisma } from '@/lib/prisma';
 import { redis } from '@/lib/redis';
+import { dayOf, todayWib } from '@/utils/wib';
 
 export type { DashboardMetrics, DashboardAlert };
 
@@ -62,10 +63,12 @@ export async function getCurrentDashboardMetrics(
   });
   const totalTeachers = await prisma.teacher.count({ where: unitFilter });
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
+  // `Attendance.date` is a `@db.Date` holding the WIB day, so the day it is
+  // compared against is the WIB day too — a local `setHours(0,0,0,0)` on the
+  // UTC container yields the previous one until 07:00 WIB.
+  const today = dayOf(todayWib());
   const todayAttendance = await prisma.attendance.count({
-    where: { date: { gte: today }, status: 'PRESENT', ...studentInUnit },
+    where: { date: today, status: 'PRESENT', ...studentInUnit },
   });
   const attendanceRate =
     activeStudents > 0 ? Math.round((todayAttendance / activeStudents) * 100) : 0;
