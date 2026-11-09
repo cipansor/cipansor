@@ -9,6 +9,28 @@ import {
 import { isProductionApi } from "./helpers/api-env";
 import { gotoAuthedPage } from "./helpers/page-helpers";
 
+// Same default as helpers/auth-api.ts.
+const API_URL = process.env.API_URL || "http://localhost:3001/api";
+
+/**
+ * POST the page's body and return the record. `apiRequest` keeps only the
+ * first 200 characters of an error, which cuts a Prisma message before its
+ * cause; this reports the whole response so a failure names what is wrong.
+ */
+async function postMurojaah(session: AuthSession, body: unknown) {
+  const res = await fetch(`${API_URL}/murojaah`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `Bearer ${session.accessToken}`,
+    },
+    body: JSON.stringify(body),
+  });
+  const text = await res.text();
+  if (!res.ok) throw new Error(`POST /murojaah → ${res.status}: ${text}`);
+  return JSON.parse(text) as { data: Murojaah };
+}
+
 /**
  * Tahfidz → Murojaah → Tambah (#908).
  *
@@ -66,28 +88,23 @@ test.describe("Murojaah - Tambah", () => {
 
     // The page spreads its form values and adds the fixed fields (page.tsx,
     // `onSubmit`): the same shape, field for field.
-    const res = await apiRequest<{ data: Murojaah }>(
-      session,
-      "POST",
-      "/murojaah",
-      {
-        studentId,
-        teacherId,
-        date: new Date().toISOString(),
-        surahId: "1",
-        startAyat: 1,
-        endAyat: 7,
-        repetitions: 3,
-        notes: "e2e #908",
-        murojaahDate: day,
-        murojaahType: "DAILY",
-        juzStart: 1,
-        juzEnd: 1,
-        pagesReviewed: 1,
-        durationMinutes: 30,
-        qualityScore: 0,
-      },
-    );
+    const res = await postMurojaah(session, {
+      studentId,
+      teacherId,
+      date: new Date().toISOString(),
+      surahId: "1",
+      startAyat: 1,
+      endAyat: 7,
+      repetitions: 3,
+      notes: "e2e #908",
+      murojaahDate: day,
+      murojaahType: "DAILY",
+      juzStart: 1,
+      juzEnd: 1,
+      pagesReviewed: 1,
+      durationMinutes: 30,
+      qualityScore: 0,
+    });
     created.push(res.data.id);
 
     // A `@db.Date` column: the stored day is the one the form showed.
