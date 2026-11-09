@@ -463,13 +463,6 @@
     keputusan maintainer: satu akun manusia (`adminypc`) sekaligus penulis
     armada melemahkan guard anti-loop berbasis penulis dan pemisahan tugas
     (penulis tidak bisa meng-approve PR-nya sendiri); alternatifnya machine
-    user atau GitHub App khusus penulis. Runner `main.py` **tidak ada di repo**
-    — ia hanya hidup di dalam tarball automation (arsip #934 belum dijalankan),
-    jadi "sudah benar" diverifikasi langsung dari `GET
-    /api/automation/v1/{id}/tarball` pada 2026-11-09: baris 29 memuat
-    `REQUIRED_SECRETS = ["GITHUB_TOKEN"]`, baris 48 menjelaskan `GITHUB_BOT_TOKEN`
-    diberikan ke automation mana pun yang promptnya meminta. Runner memang tidak
-    perlu diubah; yang salah promptnya.
     Catatan: automation yang **tidak** membuat artefak juga memegang
     `GITHUB_TOKEN` (grant otomatis platform), jadi larangan itu harus eksplisit
     di prompt, bukan diasumsikan dari ketiadaan token.
