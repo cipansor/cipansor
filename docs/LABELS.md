@@ -221,14 +221,13 @@ sync` workflow adds anything missing and **fails the check** when the type
 | `Gerbang tinjau PR` | PR ready for review, or CI-green dispatch      | tidak ada — ia meninjau atau menyetujui                            |
 | `Pemburu bug`       | daily cron                                     | membuka issue `bug`, satu prioritas, `bug-hunter`, `bot-implement` |
 | `Pemindai standar`  | weekly cron                                    | membuka issue dengan tipe, prioritas, `pending-maintainer`         |
-| `Penjaga issue`     | daily cron                                     | `stale`, dan menutup issue menganggur `not planned`                |
 | `Diskusi`           | comment on `pending-maintainer` / `needs-info` | `ready`, `wontfix`, `needs-info`                                   |
 | `Pengawas armada`   | daily cron                                     | `automation-health` pada laporannya                                |
 
 The deterministic consequences are GitHub Actions workflows
 (`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-sweep.yml`,
-`gate-watch.yml`, `label-guard.yml`, `basmalah.yml`, `acknowledge.yml`,
-`issue-triage-bridge.yml`), not automations: they must fire every time and cost
+`stale-sweep.yml`, `gate-watch.yml`, `label-guard.yml`, `basmalah.yml`,
+`acknowledge.yml`, `issue-triage-bridge.yml`), not automations: they must fire every time and cost
 no tokens. `label-guard.yml` enforces rule 12, `basmalah.yml` rule 13,
 `acknowledge.yml` rule 14, and `issue-triage-bridge.yml` rule 11.
 

@@ -282,9 +282,13 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    tergeser ke halaman berikutnya tidak salah disebut hilang) — API runs tidak
    punya endpoint per-run id, dan tanpa pencatatan ini run terbaru milik PR
    lain bisa salah menahan atau salah memicu retry.
-3. **Cron yang bertentangan dengan keputusan.** Matikan `Penjaga issue`
-   (penutupan berdasarkan umur) dan `Uji beban` bulanan; k6 berjalan lewat
-   `load-tests.yml` sebelum rilis.
+3. **Cron yang bertentangan dengan keputusan — selesai 2026-11-09.** `Penjaga
+   issue` dan `Uji beban` dimatikan; k6 berjalan lewat `load-tests.yml` sebelum
+   rilis. Penutupan berdasarkan umur **dihidupkan kembali sebagai GitHub Action**
+   (`.github/workflows/stale-sweep.yml` + `.github/scripts/stale-sweep.sh`),
+   timer sama: `needs-info` 20 hari, `question` 8+7, lain-lain 90+14. Ia
+   deterministik, jadi tidak memakai sandbox — akar masalah automation LLM yang
+   mati lima kali beruntun lalu dijeda platform.
 4. **Persetujuan rilis.** Kini lewat perintah di percakapan. Ganti dengan
    label `rilis-disetujui` yang diperiksa workflow-nya.
 5. **Temuan keamanan.** Kini ditulis netral di issue publik. Pindahkan ke
@@ -534,7 +538,7 @@ flowchart TD
 
   R --> C6["Tiket jadi PR"]:::cloud --> DPR([Draft PR])
 
-  C21["Penjaga issue (cron 01:30 WIB)"]:::cloud
+  C21["Penjaga issue → stale-sweep.yml (Actions, 01:30 WIB)"]:::gh
   C21 -. "timer" .-> NI
   C21 -. "timer" .-> Q
   C21 -- "20h / 8+7h / 90+14h" --> CL(["ditutup sebagai not planned"])
@@ -659,7 +663,7 @@ nyata.
 | Gerbang tinjau PR     | **satu-satunya yang boleh APPROVE**; menunggu CI hijau                                                         |
 | Pemburu bug           | bug proaktif yang bisa direproduksi → issue berbukti                                                           |
 | Pemindai standar      | standar/regulasi terbaru → issue `pending-maintainer`                                                          |
-| Penjaga issue         | timer usang untuk `needs-info`/`question`/lainnya                                                              |
+| Penjaga issue         | timer usang untuk `needs-info`/`question`/lainnya — **kini `stale-sweep.yml`** (deterministik, 2026-11-09)     |
 | Diskusi               | berdiskusi dengan maintainer; setuju → `ready`, tolak → `wontfix`                                              |
 | Pengawas armada       | kesehatan armada → satu issue `automation-health`                                                              |
 | Audit kematangan      | menilai 18 item kerangka → satu issue laporan                                                                  |
@@ -672,7 +676,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 | Akun           | Peran                                          | Automation                                                                                                                                                                                          |
 | -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `adminypc`     | Penulis — membuat issue dan pull request       | Peta basis kode, Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar, Pengawas armada, Audit kematangan       |
-| `cipansor-bot` | Komunikator — komentar, label, review, approve | Triase bug, Peninjau arsitektur, Peninjau kode, Otomasi QA, Uji beban, Pembuat catatan rilis, Pelabel issue (triase + estimasi + label), Penjernih issue, Pelabel PR, Gerbang tinjau PR, Penjaga issue, Diskusi |
+| `cipansor-bot` | Komunikator — komentar, label, review, approve | Triase bug, Peninjau arsitektur, Peninjau kode, Otomasi QA, Pembuat catatan rilis, Pelabel issue (triase + estimasi + label), Penjernih issue, Pelabel PR, Gerbang tinjau PR, Diskusi |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
   memakai `GITHUB_TOKEN` (`adminypc`). Selebihnya memposting lewat

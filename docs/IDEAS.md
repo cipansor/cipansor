@@ -22,7 +22,12 @@ yang berlaku untuk sistem manajemen sekolah, lalu membuka issue
 `pending-maintainer` dengan sitasi untuk tiap penyimpangan konkret. Maintainer
 menambahkan `ready` untuk memulai implementasi.
 
-## 3. Penjaga issue
+## 3. Penjaga issue — **diimplementasikan 2026-11-09**
+
+> Kini GitHub Action, bukan automation LLM: `.github/workflows/stale-sweep.yml` +
+> `.github/scripts/stale-sweep.sh`. Tugasnya label + stempel waktu, jadi tidak
+> perlu sandbox; automation `SDLC 21` dipensiunkan. Timer di bawah dipertahankan;
+> hari peringatan (13/8/90) ditambahkan agar penutupan tidak datang tanpa kabar.
 
 Mengusangkan issue yang macet. Timer, dari yang dipakai proyek sebanding:
 
