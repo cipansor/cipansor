@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { PDFDocument, StandardFonts } from 'pdf-lib';
 import zlib from 'node:zlib';
 import { generateCertificatePdfBuffer, CertificatePdfInput } from './generate-certificate-pdf';
@@ -111,10 +111,35 @@ describe('generateCertificatePdfBuffer', () => {
     expect(await pageCount(buffer)).toBeGreaterThan(1);
   });
 
-  it('is byte-identical for the same input', async () => {
-    const a = await generateCertificatePdfBuffer(base({ description: 'Hafal 5 juz.' }));
-    const b = await generateCertificatePdfBuffer(base({ description: 'Hafal 5 juz.' }));
-    expect(a.equals(b)).toBe(true);
+  describe('byte determinism', () => {
+    afterEach(() => vi.useRealTimers());
+
+    it('is byte-identical for the same input', async () => {
+      const a = await generateCertificatePdfBuffer(base({ description: 'Hafal 5 juz.' }));
+      const b = await generateCertificatePdfBuffer(base({ description: 'Hafal 5 juz.' }));
+      expect(a.equals(b)).toBe(true);
+    });
+
+    // #969: pdf-lib stamps the metadata dates with the current time, so the case
+    // above failed whenever its two renders straddled a second. Pin that
+    // moment instead of hoping to miss it.
+    it('stays byte-identical across a second boundary', async () => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.setSystemTime(new Date('2026-11-09T08:16:03.900Z'));
+      const a = await generateCertificatePdfBuffer(base({ description: 'Hafal 5 juz.' }));
+      vi.setSystemTime(new Date('2026-11-09T08:16:05.100Z'));
+      const b = await generateCertificatePdfBuffer(base({ description: 'Hafal 5 juz.' }));
+      expect(a.equals(b)).toBe(true);
+    });
+
+    it('pins the document dates, not the issue date it prints', async () => {
+      const buffer = await generateCertificatePdfBuffer(base());
+      const doc = await PDFDocument.load(buffer, { updateMetadata: false });
+      expect(doc.getCreationDate()?.getTime()).toBe(0);
+      expect(doc.getModificationDate()?.getTime()).toBe(0);
+      // The issue date the reader sees is still the certificate's own.
+      expect(pdfText(buffer)).toContain('1 September 2026');
+    });
   });
 
   it('renders without a student, grade or rank', async () => {
