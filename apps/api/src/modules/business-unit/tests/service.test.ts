@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { businessUnitService } from '../business-unit.service';
 import { prisma } from '@/lib/prisma';
 
@@ -77,5 +77,45 @@ describe('BusinessUnitService', () => {
     (prisma.businessUnit.findFirst as any).mockResolvedValue(null);
 
     await expect(businessUnitService.getById('bu1', 'other-unit')).rejects.toThrow();
+  });
+
+  describe('current-month window follows the WIB calendar (not the host clock)', () => {
+    const prevTz = process.env.TZ;
+
+    beforeEach(() => {
+      process.env.TZ = 'UTC';
+      vi.useFakeTimers({ toFake: ['Date'] });
+      (prisma.businessUnit.findMany as any).mockResolvedValue([]);
+      (prisma.canteenTransaction.groupBy as any).mockResolvedValue([]);
+      (prisma.laundryTransaction.groupBy as any).mockResolvedValue([]);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+      if (prevTz === undefined) delete process.env.TZ;
+      else process.env.TZ = prevTz;
+    });
+
+    const monthStartOf = (call: number) =>
+      (prisma.canteenTransaction.groupBy as any).mock.calls[call][0].where.createdAt.gte as Date;
+
+    it('on 1 Nov 2026 00:30 WIB bounds November, not October', async () => {
+      vi.setSystemTime(new Date('2026-10-31T17:30:00Z')); // 1 Nov 2026 00:30 WIB
+
+      await businessUnitService.list({});
+
+      expect(monthStartOf(0).toISOString()).toBe('2026-11-01T00:00:00.000Z');
+      const laundryStart = (prisma.laundryTransaction.groupBy as any).mock.calls[0][0].where
+        .createdAt.gte as Date;
+      expect(laundryStart.toISOString()).toBe('2026-11-01T00:00:00.000Z');
+    });
+
+    it('on 1 Jan 2027 00:30 WIB bounds January 2027, not December 2026', async () => {
+      vi.setSystemTime(new Date('2026-12-31T17:30:00Z')); // 1 Jan 2027 00:30 WIB
+
+      await businessUnitService.list({});
+
+      expect(monthStartOf(0).toISOString()).toBe('2027-01-01T00:00:00.000Z');
+    });
   });
 });

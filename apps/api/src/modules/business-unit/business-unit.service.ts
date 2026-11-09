@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma, BusinessUnitType } from '@prisma/client';
 import { Errors } from '@/middleware/error';
+import { wibMonthYear, utcMonthRange } from '@/utils/wib-day';
 
 export const businessUnitService = {
   async list(params: { unitId?: string; type?: BusinessUnitType; isActive?: boolean }) {
@@ -10,8 +11,11 @@ export const businessUnitService = {
       ...(params.isActive !== undefined && { isActive: params.isActive }),
     };
 
-    const now = new Date();
-    const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+    // Current WIB month, not the host clock's month: at 00:00–06:59 WIB on the
+    // 1st a UTC server is still in the previous month (and, in January, the
+    // previous year), which would show last month's revenue.
+    const { year, month } = wibMonthYear(new Date());
+    const monthStart = utcMonthRange(year, month).start;
 
     const [units, canteenMonth, laundryMonth] = await Promise.all([
       prisma.businessUnit.findMany({
