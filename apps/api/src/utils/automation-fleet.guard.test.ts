@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
@@ -1004,6 +1004,38 @@ describe('fleet contracts', () => {
     expect(flow).toMatch(/Triase ganda — SELESAI/);
     expect(flow).toMatch(/Triase satu pemilik\*\* — SELESAI/);
     expect(flow).not.toMatch(/Triase ganda — sebagian/);
+  });
+
+  it('records that the rc tags have no consumer (release-notes finding)', () => {
+    // 2026-11-09 finding while deciding SDLC 13's fate. Two things had to be
+    // verified before proposing release-please, and both came back negative for
+    // the current design:
+    //   - no workflow triggers on a tag, so a `-rc` tag gates nothing;
+    //   - production is a manual `workflow_dispatch(sha)`, and no workflow reads
+    //     the `rilis-disetujui` label (that label does not exist in the repo).
+    // The conclusion is written down so the next person does not re-litigate it.
+    const wfDir = join(REPO_ROOT, '.github', 'workflows');
+    const workflows = readdirSync(wfDir).filter((f) => f.endsWith('.yml'));
+    for (const f of workflows) {
+      const yml = readFileSync(join(wfDir, f), 'utf8');
+      // A `tags:` filter only ever appears under `on:`; the one place `tags:`
+      // is legitimate is an image push, which has no `on:` above it.
+      expect(yml, `${f} must not be triggered by a tag`).not.toMatch(
+        /^\s{2,}tags:\s*\n?\s*-\s*['"]?v\*/m
+      );
+    }
+    // Production stays a human-triggered dispatch with an explicit SHA.
+    const deploy = readFileSync(join(wfDir, 'deploy-production.yml'), 'utf8');
+    expect(deploy).toMatch(/workflow_dispatch:/);
+    expect(deploy).toMatch(/sha:/);
+    // No release-please configuration has been adopted.
+    for (const name of ['release-please-config.json', '.release-please-manifest.json']) {
+      expect(existsSync(join(REPO_ROOT, name))).toBe(false);
+    }
+    // The corrected rationale (including the two wrong first reasons) is kept.
+    const ideas = read(join(REPO_ROOT, 'docs', 'IDEAS.md'));
+    expect(ideas).toContain('telusuran lanjutan 2026-11-09');
+    expect(ideas).toContain('tidak ada yang **mengonsumsi** tag');
   });
 
   it('writes no fleet size into the prompts or the flow doc', () => {

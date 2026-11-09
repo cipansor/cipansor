@@ -186,18 +186,42 @@ kalau keluarannya sebuah **daftar, label, atau stempel waktu**, itu kerja
 deterministik dan tidak boleh memakai sandbox; kalau keluarannya **penilaian**,
 ia tetap LLM.
 
-- **`Pembuat catatan rilis` (SDLC 13) — dipertahankan sebagai LLM, tetapi
-  sebagian dipindahkan.** Usul "ganti dengan release-please" **ditolak**: yang
-  deterministik hanya separuh, yaitu pemetaan Conventional Commits → semver.
-  release-please tidak menjalankan k6 smoke, tidak memeriksa SHA yang sedang
-  disajikan staging, dan tidak membuka **satu issue rilis mingguan** yang
-  persetujuannya lewat label `rilis-disetujui`/`rilis-ditolak` (keputusan
-  `otomasi-armada.md` 3) — sedangkan label itu dipasang pada **issue**, yang
-  bukan keluaran release-please. release-please juga menulis `CHANGELOG.md`,
-  yang bertentangan dengan keputusan 4 ("tidak ada berkas CHANGELOG"). Jadi:
-  semver boleh dihitung deterministik, tetapi **pemotongan rilis tetap milik
-  `Pembuat catatan rilis`**. Jangan usulkan release-please utuh lagi tanpa
-  memindahkan k6, pemeriksaan SHA staging, dan issue rilis label-driven.
+- **`Pembuat catatan rilis` (SDLC 13) — telusuran lanjutan 2026-11-09. Dua
+  alasan pertama saya SALAH, dan buktinya mengubah arah.** Koreksi yang jujur:
+
+  1. ~~"release-please menulis `CHANGELOG.md`, bertentangan dengan keputusan 4"~~
+     — **salah.** release-please punya `skip-changelog` dan `skip-github-release`
+     (docs/manifest-releaser.md), jadi ia bisa tidak menyentuh berkas apa pun.
+  2. ~~"label `rilis-disetujui` dipasang pada issue, bukan keluaran
+     release-please"~~ — **salah, dan bukan karena release-please.** Label
+     `rilis-disetujui`/`rilis-ditolak` **tidak ada di repositori ini** (`gh label
+     list` tidak memuatnya), tidak ada workflow yang membacanya, dan tidak ada
+     satu pun issue `rilis-*` yang pernah dibuat. `deploy-production.yml` memakai
+     `workflow_dispatch` dengan input SHA, dipicu manusia. Jadi "alur rilis
+     berlabel" itu adalah **dokumen, bukan kode** — dan `Pembuat catatan rilis`
+     memang tidak pernah membuka issue rilis.
+
+  Yang bertahan sebagai alasan: (a) tidak ada yang **mengonsumsi** tag `-rc`
+  (tidak ada workflow `on: tags`, tidak ada `git describe` di skrip mana pun);
+  (b) k6 smoke tetap manual; (c) pemeriksaan SHA staging tidak ada di mana pun.
+
+  **Dan kenyataannya lebih buruk dari "tidak ada yang mengonsumsi": ia membingungkan.**
+  `Pembuat catatan rilis` menaikkan N hanya bila ada commit *relevan* sejak tag
+  terakhir (promptnya: "tidak ada perubahan relevan → tidak melakukan apa pun").
+  Repo ini didominasi `chore(deps)` (bump Dependabot, tidak menaikkan versi), jadi
+  commit `fix:`/`feat:` jarang — rc4 bertanggal 2026-10-30, dan run berikutnya
+  (2026-11-06) berakhir `SKIPPED`. Akibatnya **tag `-rc` tidak lagi menandai
+  "kode yang sudah diverifikasi"**; ia hanya menandai "commit fix/feat terakhir
+  yang kebetulan jatuh pada Jumat".
+
+  Rekomendasi (penilaian, bukan fakta terukur): (1) jangan pasang release-please
+  untuk perhitungan semver saja — nilainya kecil dibanding satu automation;
+  (2) yang layak deterministik adalah **pemicu produksi**: prasyarat "staging
+  menyajikan SHA ini + k6 smoke hijau" adalah diff SHA + kode keluar, bukan
+  penilaian, dan `load-tests.yml` sudah `workflow_dispatch` (bisa ditambah
+  `workflow_call`). Ganti `workflow_dispatch(sha)` dengan gerbang deterministik
+  itu; (3) entah buat alur issue-rilis berlabel itu nyata, atau hapus dari
+  dokumen — sekarang ia menyesatkan pembaca dan agen.
 - **`Peta basis kode` (SDLC 03) — dipensiunkan; `Pengelola dokumentasi` (SDLC 14)
   — DIPERTAHANKAN.** Koreksi 2026-11-09, beberapa jam setelah keputusan pertama.
   SDLC 03 memang separuh besar terukur (jumlah modul, model, rute, entri cron,
