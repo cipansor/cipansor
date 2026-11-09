@@ -1,13 +1,13 @@
 # Acknowledge a request so the person can see an automation picked it up.
 #
-# A maintainer who comments `@openhands …` on an issue or pull request, or who
+# A maintainer who comments `@cipansor-bot …` on an issue or pull request, or who
 # answers a `needs-info` / `pending-maintainer` issue, otherwise has no signal
 # that anything is happening until the bot answers minutes later. Reacting 👀 on
 # that comment says "the automation is looking at this" (asked 2026-10-13). The
 # bot's own comments are skipped, so a reply never acknowledges itself.
 #
 # It reacts only when a comment-triggered automation will actually run — `Bot
-# sebutan` (an `@openhands` mention) or `Penjernih issue` / `Diskusi` (a
+# sebutan` (an `@cipansor-bot` mention) or `Penjernih issue` / `Diskusi` (a
 # maintainer answering a `needs-info` / `pending-maintainer` issue) — so an
 # ordinary comment thread is not spammed. The automations react on the objects
 # they work on themselves; this covers the comment trigger, which only the

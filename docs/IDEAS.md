@@ -130,10 +130,13 @@ jadi memasang `ready` atau `needs-info` saat meninjau tidak memicunya ulang.
 
 ## Aturan yang dibagi semua
 
-Setiap automation yang mengomentari issue harus mengakhiri komentarnya dengan
-footer AI-disclosure dan menjaga pemicu `issue_comment.created` dengan
-`!icontains(comment.body, 'This comment was created by an AI agent')`. Tanpa itu
-automation memicu ulang dirinya sendiri — issue #680. Lihat `docs/LABELS.md`.
+Setiap automation yang mengomentari issue memakai akun `cipansor-bot`, dan
+menjaga pemicu `issue_comment.created` dengan
+`comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`. Guard-nya
+penulis komentar, bukan teks footer — nama akunnya sudah menandai komentar itu
+otomatis, jadi tidak ada footer AI-disclosure yang ditulis (dihapus 2026-10-14).
+Tanpa guard itu automation memicu ulang dirinya sendiri — issue #680. Lihat
+`docs/LABELS.md`.
 
 Sejak 2026-10-13 armada juga berbagi lima aturan (diminta pengguna, terpasang di
 setiap prompt dan dijaga workflow deterministik):

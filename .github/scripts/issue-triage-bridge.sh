@@ -23,9 +23,22 @@
 # (the bot and GitHub Actions) are excluded, so a bot reply never re-triages the
 # issue — that is what keeps the loop closed.
 #
-# The checkpoint is written only after the dispatch is accepted (HTTP 2xx): a
-# failed dispatch leaves the old checkpoint, so the next sweep retries it and the
-# run fails loudly instead of looking like a quiet, completed sweep.
+# The checkpoint is NOT written when the dispatch is accepted. A 2xx only means
+# the run was *created*; it can still die for lack of a sandbox (#836: 15 runs
+# started at once, 14 died with `Sandbox not available`, and a marker written at
+# 2xx made the sweep skip them forever). Instead the marker records the run id as
+# *pending* (`<!-- triage-bridge-sweep:<n>:<signal>:<run-id> -->`) and the next
+# sweep reads that run's outcome: COMPLETED finalises the checkpoint,
+# FAILED/CANCELLED/SKIPPED re-dispatches, RUNNING/PENDING leaves it in flight. A
+# checkpoint therefore means "a run finished", never merely "a request was
+# accepted" — retrying on the run's result, not on when the marker was written.
+#
+# The sweep also caps how many triage runs may be RUNNING/PENDING at once
+# (MAX_INFLIGHT). A sweep that finds the cap reached defers the rest to the next
+# run instead of starting runs the sandbox pool cannot host; the runs are not
+# lost, the next sweep picks them up. This is the fleet-side queue (#841): the
+# platform's own dispatch queue waits and then times out under a burst, so the
+# fleet never forms the burst in the first place.
 #
 # An issue whose summary lives in the body with no marker comment (triaged before
 # this bridge existed) has no checkpoint, so it is dispatched once as a migration
@@ -39,6 +52,7 @@
 # Env:   GH_TOKEN, REPO, OPENHANDS_API_KEY, SDLC_TRIAGE_ID (default `SDLC 01`),
 #        CURL (default curl), SWEEP_MAX (default 15, dispatches per sweep),
 #        SWEEP_PAGES (default 5, search pages read per sweep),
+#        MAX_INFLIGHT (default 3, triage runs allowed RUNNING/PENDING at once),
 #        BURST_WINDOW (default 300, seconds a label burst stays collapsed)
 set -eu
 
@@ -47,12 +61,24 @@ REPO="${REPO:?REPO is required}"
 # need a workflow edit.
 TRIAGE_ID="${SDLC_TRIAGE_ID:-d648595e-b0d9-4120-bbc4-07395cdbe6bf}"
 API="https://app.all-hands.dev/api/automation/v1"
+# The runs endpoint of the triage owner: the sweep reads its own run outcomes
+# (retry on the result) and counts how many are in flight (the queue cap).
+API_RUNS="$API/$TRIAGE_ID/runs"
 CURL="${CURL:-curl}"
 TYPE_LABELS="bug enhancement documentation refactor chore security"
 # SWEEP_MAX caps dispatches (cost); SWEEP_PAGES caps the API calls. The sweep
 # reads up to SWEEP_PAGES pages, sorts by activity, then stops dispatching after
 # SWEEP_MAX so the freshest issues go first and the rest wait for the next run.
 SWEEP_MAX="${SWEEP_MAX:-15}"
+# MAX_INFLIGHT caps triage runs that may be RUNNING/PENDING at once. A sweep that
+# finds the cap reached defers the remaining candidates to the next run instead
+# of starting runs the sandbox pool cannot host (#841). The runs are not lost.
+MAX_INFLIGHT="${MAX_INFLIGHT:-3}"
+# The run field of a sweep checkpoint whose dispatch was deferred (the pool was
+# full). It is not a run id and not the empty (finished) form, so the next sweep
+# dispatches it when capacity frees instead of reading it as a finished
+# checkpoint.
+PENDING_RUN="pending"
 # Pages of 100 read per sweep, requested one at a time so the cap actually bounds
 # the API calls (`gh api --paginate` would read every page). An issue past this
 # window is not lost — the next sweep's `sort` by activity moves it in front once
@@ -62,10 +88,10 @@ SWEEP_PAGES="${SWEEP_PAGES:-5}"
 # than this collapses the burst to one dispatch. A later change to a type or
 # priority the issue held before still dispatches once the window has passed.
 BURST_WINDOW="${BURST_WINDOW:-300}"
-# Every marker comment carries the AI-disclosure footer: without it a
-# comment-triggered automation (Penjernih issue on `needs-info`, or
-# acknowledge.yml) would read the marker as a reporter's reply and fire.
-FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers._"
+# Every marker comment is posted as `github-actions[bot]`, so the comment-triggered
+# automations (Penjernih issue on `needs-info`, acknowledge.yml) already tell it
+# from a reporter by its author — the `*[bot]` login — and no AI-disclosure
+# footer is needed (#680).
 MARK_PREFIX="<!-- triage-bridge-sweep:"
 
 
@@ -73,10 +99,14 @@ MARK_PREFIX="<!-- triage-bridge-sweep:"
 epoch() { date -u -d "$1" +%s 2>/dev/null || echo 0; }
 
 # Dispatch the triage owner for one issue. The body is built with jq so an issue
-# number or a marker can never break out of its JSON string. Returns non-zero on
-# a non-2xx answer so the caller can withhold the marker and retry later.
+# number or a marker can never break out of its JSON string. On a 2xx answer the
+# run id is captured in RUN_ID (the marker records it so the next sweep can read
+# the run's outcome); returns non-zero on a non-2xx answer so the caller can
+# withhold the marker and retry later.
+RUN_ID=""
 dispatch() { # dispatch <number> <reason> <key>
   n="$1"; reason="$2"; key="$3"
+  RUN_ID=""
   if [ -z "${OPENHANDS_API_KEY:-}" ]; then
     echo "::error::OPENHANDS_API_KEY is not set; the triage owner cannot be dispatched for #$n."
     return 1
@@ -89,11 +119,22 @@ dispatch() { # dispatch <number> <reason> <key>
     -H "Authorization: Bearer $OPENHANDS_API_KEY" \
     -H "Content-Type: application/json" \
     -d "$body")
-  cat /tmp/triage-bridge.out 2>/dev/null; echo
+  resp=$(cat /tmp/triage-bridge.out 2>/dev/null || true); echo "$resp"
   # A dispatch that is not accepted must be visible and retryable: a silent
-  # triage is the failure this bridge exists to prevent.
+  # triage is the failure this bridge exists to prevent. A 2xx that names no run
+  # is not accepted either — the checkpoint would name an empty run and the
+  # sweep could never read whether it finished, so it is treated as failed and
+  # retried (the triage owner is idempotent, so a duplicate dispatch is not a
+  # duplicate comment).
   case "$code" in
-    2??) echo "Dispatched the triage owner for #$n ($reason, HTTP $code)." ;;
+    2??)
+      RUN_ID=$(printf '%s' "$resp" | jq -r '.id // empty' 2>/dev/null || true)
+      if [ -z "$RUN_ID" ]; then
+        echo "::error::Dispatch for #$n was accepted (HTTP $code) but named no run; treating it as failed so the checkpoint is not finalised blind."
+        return 1
+      fi
+      echo "Dispatched the triage owner for #$n ($reason, HTTP $code, run $RUN_ID)."
+      ;;
     *) echo "::error::Dispatching the triage owner for #$n failed (HTTP $code)."; return 1 ;;
   esac
 }
@@ -125,23 +166,88 @@ state_marker_age() { # state_marker_age <number> <marker>
 post_marker() { # post_marker <number> <marker>
   n="$1"; m="$2"
   tmp=$(mktemp)
-  # The marker stays greppable (has_comment matches it as a substring); the
-  # footer is appended so the marker is not mistaken for a reporter's reply.
-  jq -n --arg body "$m
-
-$FOOTER" '{body: $body}' > "$tmp"
+  # The marker stays greppable (has_comment matches it as a substring).
+  jq -n --arg body "$m" '{body: $body}' > "$tmp"
   gh api "repos/$REPO/issues/$n/comments" -X POST --input "$tmp" >/dev/null 2>&1 \
     || echo "::warning::could not record the triage-bridge marker on #$n."
   rm -f "$tmp"
 }
 
-# The sweep marker's checkpoint signal (`<!-- triage-bridge-sweep:<n>:<signal> -->`),
-# or "" when there is no marker.
-marker_signal() { # marker_signal <number>
-  gh api --paginate "repos/$REPO/issues/$1/comments?per_page=100" \
+# The sweep marker's checkpoint. Three forms share the prefix:
+#   `…:<n>:<signal>`         — the legacy form (before #836): written at the 201
+#                              with no run recorded, so its outcome is unknown;
+#   `…:<n>:<signal>:<run>`    — the run that is answering the signal, in flight;
+#   `…:<n>:<signal>: -->`     — the final form: the run finished, run field empty.
+# `read_sweep_marker` sets SIGNAL, MARK_RUN (the run, or "") and MARK_FORM
+# (`legacy`/`inflight`/`final`), so a legacy marker is never mistaken for a run
+# that finished — its `run` was never written, not cleared.
+SIGNAL=""
+MARK_RUN=""
+MARK_FORM="none"
+read_sweep_marker() { # read_sweep_marker <number>
+  SIGNAL=""; MARK_RUN=""; MARK_FORM="none"
+  body=$(gh api --paginate "repos/$REPO/issues/$1/comments?per_page=100" \
     --jq "[.[] | select(.body | startswith(\"$MARK_PREFIX$1:\"))] | last | .body // \"\"" \
-    2>/dev/null \
-    | sed -n "s/^$MARK_PREFIX[0-9]*:\([^ ]*\) -->.*/\1/p" | head -n1
+    2>/dev/null || true) || return 0
+  [ -n "$body" ] || return 0
+  inner=${body#"$MARK_PREFIX$1:"}
+  inner=${inner%% -->*}
+  SIGNAL=${inner%%:*}
+  case "$inner" in
+    *:*) MARK_RUN=${inner#*:} ;;
+    *) MARK_RUN="" ;;
+  esac
+  # Distinguish the legacy form (no run field at all) from the new final form
+  # (a run field that is present and empty). Both leave MARK_RUN empty, so the
+  # field's *presence* is what tells them apart.
+  case "$inner" in
+    *:*) [ -n "$MARK_RUN" ] && MARK_FORM="inflight" || MARK_FORM="final" ;;
+    *) MARK_FORM="legacy" ;;
+  esac
+}
+
+# The status of a run, read from the run listing. The listing endpoint **ignores
+# a `run_id=` query** (it always returns the newest page), so the run is found by
+# filtering the pages by `.id` (#836). It is paged with `limit`/`offset` — the one
+# parameter the endpoint honours — until the id is found or the pages run out; a
+# first-page-only read would miss a run pushed past 100 newer ones and re-dispatch
+# it every sweep, never finalising its checkpoint (#837 R220). Echoes the status,
+# `""` when the id is absent from the whole listing (the run is gone; retry is
+# safe because triage is idempotent), or `UNKNOWN` when a page could not be read,
+# so an incomplete read does not masquerade as a finished run.
+run_status() { # run_status <run-id>
+  [ -n "$1" ] || return 0
+  id="$1"; offset=0; limit=100
+  while :; do
+    page=$("$CURL" -s "$API_RUNS?limit=$limit&offset=$offset" \
+      -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null) || page=""
+    # A page whose `runs` is not an array (missing, null, an object) is
+    # unreadable, not "the run is absent": an incomplete read must not finalise a
+    # run or re-dispatch on a hiccup. `has("runs")` alone lets `{"runs":null}`
+    # through — `.runs[]` then fails and `length` reads 0, which looks like the
+    # run is gone and would re-dispatch a run that may still be in flight.
+    printf '%s' "$page" | jq -e 'type == "object" and (.runs | type == "array")' >/dev/null 2>&1 \
+      || { printf 'UNKNOWN'; return 0; }
+    st=$(printf '%s' "$page" \
+      | jq -r --arg id "$id" '[.runs[] | select(.id == $id) | .status][0] // ""' 2>/dev/null) || st=""
+    if [ -n "$st" ]; then printf '%s' "$st"; return 0; fi
+    n=$(printf '%s' "$page" | jq -r '.runs | length' 2>/dev/null) || n=0
+    case "$n" in '' | *[!0-9]*) n=0 ;; esac
+    [ "$n" -ge "$limit" ] || { printf ''; return 0; }
+    offset=$((offset + limit))
+  done
+}
+
+# How many triage runs are RUNNING/PENDING right now, so the sweep can defer the
+# rest instead of starting more than the sandbox pool can host. Returns 0 on a
+# read failure, which makes the cap permissive rather than stalling every sweep
+# (a wrong "defer everything" would starve triage; a wrong "dispatch" is what the
+# per-run retry above already recovers from).
+inflight_count() {
+  n=$("$CURL" -s "$API_RUNS?limit=100" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null \
+    | jq '[.runs[] | select(.status == "RUNNING" or .status == "PENDING")] | length' 2>/dev/null || echo 0)
+  case "$n" in ''|*[!0-9]*) echo 0 ;; *) echo "$n" ;; esac
 }
 
 # The issue's activity signal: a hash of the body plus every non-fleet comment's
@@ -170,16 +276,18 @@ activity_signal() { # activity_signal <number>; non-zero when a read fails
 }
 
 # Create or update the single sweep marker, editing the existing one in place.
-write_sweep_marker() { # write_sweep_marker <number> <signal>
-  n="$1"; sig="$2"
+# `run` is the run that is answering the signal: it is written while the run is in
+# flight (so the next sweep can read its outcome) and cleared once the run
+# COMPLETED (a final checkpoint). An empty `run` is the finished form.
+write_sweep_marker() { # write_sweep_marker <number> <signal> <run>
+  n="$1"; sig="$2"; run="${3:-}"
   cid=$(gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" \
     --jq "[.[] | select(.body | startswith(\"$MARK_PREFIX$n:\"))] | last | .id // \"\"" 2>/dev/null || echo "")
   tmp=$(mktemp)
   # The signal is the checkpoint: it is the activity this run has answered, so
-  # the next sweep only re-dispatches when the signal changes again.
-  jq -n --arg body "$MARK_PREFIX$n:$sig -->
-
-$FOOTER" '{body: $body}' > "$tmp"
+  # the next sweep only re-dispatches when the signal changes again — or when the
+  # run this marker names did not finish.
+  jq -n --arg body "$MARK_PREFIX$n:$sig:$run -->" '{body: $body}' > "$tmp"
   if [ -n "$cid" ]; then
     gh api "repos/$REPO/issues/comments/$cid" -X PATCH --input "$tmp" >/dev/null 2>&1 \
       || echo "::warning::could not update the triage-bridge marker on #$n."
@@ -246,9 +354,21 @@ on_label() { # on_label <event-json>
   # change and re-dispatch every sweep); the label still dispatches, the sweep
   # catches the activity up later.
   sig=$(activity_signal "$number") || sig=""
+  # Honour the same in-flight cap the sweep uses (#837 follow-up): many issues
+  # labelled at once each run their own labelled job, so without this the label
+  # path forms the very burst the sweep cap prevents. The issue is deferred and
+  # the sweep picks it up next run — the label is not lost.
+  inflight=$(inflight_count)
+  if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    echo "#$number: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the sweep retries it."
+    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
+    exit 0
+  fi
   if dispatch "$number" labeled "$marker"; then
     post_marker "$number" "$marker"
-    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig"; fi
+    # Record the run while it is in flight, so the next sweep reads its outcome
+    # instead of trusting the 201 (#836).
+    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
   else
     echo "::warning::#${number}'s label state stays unmarked; a later label or the sweep retries."
     exit 1
@@ -256,18 +376,25 @@ on_label() { # on_label <event-json>
 }
 
 # One candidate issue: decide whether it needs a dispatch. Returns 0 when a
-# dispatch was accepted, 2 when a dispatch was attempted and failed, 1 otherwise.
-process_one() { # process_one <number>
-  n="$1"
+# dispatch was accepted, 2 when a dispatch was attempted and failed, 3 when the
+# issue is deferred because the in-flight cap is reached, 1 otherwise.
+# `ready_ok` = 1 lets a `ready` issue through: it is the recovery pass for a
+# label dispatch deferred while the pool was full (see `recover_ready`).
+process_one() { # process_one <number> <inflight> [ready_ok]
+  n="$1"; inflight="${2:-0}"; ready_ok="${3:-0}"
 
-  # A closed or `ready` issue is out of scope; drop any stale marker and stop.
+  # A closed issue — or a `ready` one on the ordinary pass — is out of scope;
+  # drop any stale marker and stop.
   state=$(gh api "repos/$REPO/issues/$n" \
     --jq '[.state, (.labels[].name)] | join(" ")' 2>/dev/null) \
     || { echo "::warning::could not read #$n; skipped this sweep."; return 1; }
   case " $state " in
-    *" closed "* | *" ready "*)
+    *" closed "*)
       remove_sweep_marker "$n"
       return 1
+      ;;
+    *" ready "*)
+      [ "$ready_ok" = "1" ] || { remove_sweep_marker "$n"; return 1; }
       ;;
   esac
 
@@ -277,19 +404,148 @@ process_one() { # process_one <number>
   sig=$(activity_signal "$n") \
     || { echo "::warning::could not read the activity of #$n; skipped this sweep."; return 1; }
   [ -n "$sig" ] || return 1
-  # Nothing moved since the checkpoint: not a reason to triage.
-  if [ "$sig" = "$(marker_signal "$n")" ]; then
+
+  read_sweep_marker "$n"
+  prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_form="$MARK_FORM"
+
+  # The marker names a run that answered this same activity. Read its outcome
+  # instead of trusting the 201: only a COMPLETED run is a finished checkpoint; a
+  # RUNNING/PENDING run is left in flight (and counted), and a FAILED/CANCELLED/
+  # SKIPPED one is retried below. A run id absent from the whole listing is
+  # treated as failed (the run is gone), so it retries; an *unreadable* listing is
+  # left alone rather than re-dispatched on a hiccup (run_status returns UNKNOWN).
+  #
+  # `prev_sig`/`prev_run` are left as read: the capacity check below dedups a
+  # `pending` marker by comparing them, so clearing them here would make every
+  # sweep rewrite an identical marker (and bump the issue's update time) while the
+  # pool stays full (#837 R402). A `pending` run is not a run id, so the outcome
+  # branch is skipped for it; the capacity check decides it instead.
+  if [ "$prev_sig" = "$sig" ] && [ -n "$prev_run" ] && [ "$prev_run" != "$PENDING_RUN" ]; then
+    st=$(run_status "$prev_run")
+    case "$st" in
+      UNKNOWN)
+        echo "#$n: the run listing could not be read; leaving the marker for the next sweep."
+        return 1
+        ;;
+      RUNNING | PENDING)
+        echo "#$n: run ${prev_run} is ${st}; leaving it in flight."
+        return 1
+        ;;
+      COMPLETED)
+        echo "#$n: run ${prev_run} completed; the checkpoint is final."
+        write_sweep_marker "$n" "$sig" ""
+        return 1
+        ;;
+      *)
+        echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying."
+        ;;
+    esac
+  elif [ "$prev_sig" = "$sig" ] && [ "$prev_form" = "legacy" ]; then
+    # A legacy marker (no run field) was written at the 201, so whether its run
+    # finished was never recorded. It is not a finished checkpoint: re-dispatch
+    # once, which rewrites the marker in the new form so the next sweep can read
+    # the run's outcome. The triage owner is idempotent, so this is one extra
+    # run, not a duplicate comment (#837 follow-up).
+    echo "#$n: legacy marker with no run recorded; re-dispatching once to migrate it."
+  elif [ "$prev_sig" = "$sig" ] && [ "$prev_run" = "$PENDING_RUN" ]; then
+    : # A deferred dispatch; the capacity check below dispatches or keeps it.
+  elif [ "$prev_sig" = "$sig" ]; then
+    # Same activity, a final checkpoint (run finished): already answered. Not a
+    # reason to triage.
     return 1
   fi
 
-  # The activity changed. Dispatch; only a 2xx earns the new checkpoint, so a
-  # failure keeps the old one and the next sweep retries.
+  # The activity needs a dispatch. Defer while the pool is full so a burst is not
+  # formed (#841): the next sweep picks the issue up, so nothing is lost.
+  if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    # Record a pending checkpoint. It is not written when the marker is already
+    # this exact pending one, so a busy sweep does not re-PATCH it every run.
+    if [ "$prev_sig" != "$sig" ] || [ "$prev_run" != "$PENDING_RUN" ]; then
+      write_sweep_marker "$n" "$sig" "$PENDING_RUN"
+    fi
+    echo "#$n: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT)."
+    return 3
+  fi
+
+  # Dispatch; record the run so the next sweep reads its result, not the 201.
   if dispatch "$n" sweep-activity "$sig"; then
-    write_sweep_marker "$n" "$sig"
+    write_sweep_marker "$n" "$sig" "$RUN_ID"
     return 0
   fi
   echo "::warning::dispatch failed for #$n; the checkpoint is unchanged, so the next sweep retries."
   return 2
+}
+
+# --recover-ready: the recovery pass for a `ready` issue whose sweep marker is
+# unfinished. The ordinary sweep excludes `ready` issues, so without this pass a
+# marker on one is never examined again: a deferred label dispatch (`pending`)
+# would sit forever, and a recovered run that later fails would never be retried
+# (#837 R348, R474). It discovers the markers by scanning the marker comments
+# directly — not by a `ready`-issue search bounded by update time, which would
+# forget an old pending marker once newer issues filled the page window (#837
+# R475). Discovery is unbounded; only the number of dispatches per pass
+# (`SWEEP_MAX`) and the pool cap (`MAX_INFLIGHT`) bound the work. A final
+# checkpoint is skipped, so a new comment on a `ready` issue is not re-triaged
+# (#837 R496); a `pending` or run-field marker is handed to `process_one`, which
+# dispatches it, finalises a completed run, or retries a failed one.
+recover_ready() {
+  count=0
+  fails=0
+  inflight=$(inflight_count)
+  cand=$(mktemp)
+  sweep_markers | sort -u > "$cand"
+  while read -r n; do
+    [ -n "${n:-}" ] || continue
+    [ "$count" -lt "$SWEEP_MAX" ] || { echo "Reached SWEEP_MAX=$SWEEP_MAX; the rest wait for the next run."; break; }
+    # The listing is built from marker comments across the repository, so a
+    # comment that merely quotes the marker syntax names an issue it does not
+    # belong to (#837 R512). Re-read the marker from the issue's own comments:
+    # `read_sweep_marker` looks only there, so a quoted marker leaves MARK_FORM
+    # at `none`, and a stale one (a newer final marker exists) at `final` — both
+    # skipped. Only a marker actually on `n` and not final is a candidate.
+    read_sweep_marker "$n"
+    case "$MARK_FORM" in
+      none | final) continue ;;
+    esac
+    # A marker naming a run needs no capacity (it checks an outcome); a pending
+    # one is a dispatch, so it waits while the pool is full — but other markers
+    # later in the list may still be checked.
+    if [ "$MARK_RUN" = "$PENDING_RUN" ] && [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+      continue
+    fi
+    rc=0
+    if process_one "$n" "$inflight" 1; then rc=0; else rc=$?; fi
+    case "$rc" in
+      0) count=$((count + 1)); inflight=$((inflight + 1)) ;;
+      2) fails=$((fails + 1)) ;;
+    esac
+  done < "$cand"
+  rm -f "$cand"
+  echo "$count sweep checkpoint(s) finalised or recovered on ready issues."
+  if [ "$fails" -ne 0 ]; then
+    echo "::error::$fails recovery dispatch(es) failed; the next run retries them."
+    return 1
+  fi
+}
+
+# The issue number of every comment whose body contains a sweep marker, one per
+# line. The number is taken from the marker text, not the comment's own issue, so
+# it is only a *candidate* list: `recover_ready` re-reads each issue's own marker
+# to confirm the marker really belongs to it (a comment that quotes the syntax
+# would otherwise name an unrelated issue, #837 R512). Read from the comments
+# rather than a per-issue lookup, so a marker the search window would miss is
+# still discovered (#837 R475).
+sweep_markers() {
+  gh api --paginate "repos/$REPO/issues/comments?per_page=100" \
+    --jq '.[] | select(.body | test("<!-- triage-bridge-sweep:[0-9]+:[0-9a-f]+(:[A-Za-z0-9_-]*)? -->")) | .body' 2>/dev/null \
+    | while IFS= read -r body; do
+        case "$body" in
+          *triage-bridge-sweep:*) ;;
+          *) continue ;;
+        esac
+        n=${body#*triage-bridge-sweep:}; n=${n%%:*}
+        printf '%s\n' "$n"
+      done || true
 }
 
 # --sweep: an open, not-`ready` issue whose activity changed since the checkpoint.
@@ -318,6 +574,13 @@ sweep() {
   done
   sort -r -u -o "$cand" "$cand"
 
+  # The pool cap: how many triage runs are already RUNNING/PENDING. Each dispatch
+  # in this sweep adds one, so the count is tracked locally as well — the API is
+  # read once, not once per candidate. A sweep that reaches the cap defers the
+  # rest to the next run instead of forming a burst the sandbox pool cannot host.
+  inflight=$(inflight_count)
+  deferred=0
+
   while read -r _ts n; do
     [ -n "${n:-}" ] || continue
     [ "$count" -lt "$SWEEP_MAX" ] || { echo "Reached SWEEP_MAX=$SWEEP_MAX; the rest wait for the next run."; break; }
@@ -325,14 +588,18 @@ sweep() {
     # in an `if` so `set -e` does not abort the sweep on that status (a bare call
     # would stop at the first already-handled issue and fail the run).
     rc=0
-    if process_one "$n"; then rc=0; else rc=$?; fi
+    if process_one "$n" "$inflight"; then rc=0; else rc=$?; fi
     case "$rc" in
-      0) count=$((count + 1)) ;;
+      0) count=$((count + 1)); inflight=$((inflight + 1)) ;;
       2) fails=$((fails + 1)) ;;
+      3) deferred=$((deferred + 1)) ;;
     esac
   done < "$cand"
   rm -f "$cand"
 
+  if [ "$deferred" -ne 0 ]; then
+    echo "$deferred issue(s) deferred: $inflight triage run(s) in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the next sweep retries them."
+  fi
   echo "sweep done"
   # A failed dispatch must fail the run so it is visible and retried, not left
   # looking like a quiet, completed sweep.
@@ -345,5 +612,6 @@ sweep() {
 case "${1:-}" in
   --stdin) on_label "$(cat)" ;;
   --sweep) sweep ;;
-  *) echo "usage: issue-triage-bridge.sh --stdin | --sweep" >&2; exit 2 ;;
+  --recover-ready) recover_ready ;;
+  *) echo "usage: issue-triage-bridge.sh --stdin | --sweep | --recover-ready" >&2; exit 2 ;;
 esac

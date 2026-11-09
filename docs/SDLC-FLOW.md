@@ -14,13 +14,21 @@ untuknya:
   `.github/scripts/` supaya bisa dijalankan manual.
 
 Jadwal cron cloud dalam **Asia/Jakarta (WIB)**; jadwal GHA dalam **UTC**.
-Setiap pemicu komentar membawa guard footer
-`!icontains(comment.body, 'This comment was created by an AI agent')`, karena
+Setiap pemicu komentar membawa guard penulis
+`comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`, karena
 automation memposting lewat akun yang sama dengan pelapor dan tanpa itu akan
-memicu dirinya sendiri (insiden #680). `Bot sebutan` tidak memakai guard itu;
-ia memakai `destination: continue_conversation`, sehingga setiap sebutan tentang
-satu PR/issue berbagi satu conversation dan ledakan sebutan tidak menghabiskan
-kolam sandbox.
+memicu dirinya sendiri (insiden #680). Guard-nya penulis komentar, bukan teks
+footer: nama akun `cipansor-bot` sudah menandai komentar itu otomatis, jadi
+tidak ada footer AI-disclosure yang ditulis (dihapus 2026-10-14). `Bot sebutan`
+tidak memakai guard itu; ia memakai `destination: continue_conversation`,
+sehingga setiap sebutan tentang satu PR/issue berbagi satu conversation dan
+ledakan sebutan tidak menghabiskan kolam sandbox.
+
+**Dua sebutan, dua penanggap.** `@cipansor-bot` membangunkan armada repositori
+ini (automation `Bot sebutan` dan kerabatnya). `@openhands` membangunkan
+OpenHands GitHub App (`openhands-ai[bot]`), yang membuka conversation OpenHands
+Cloud sendiri dan membuka PR. Keduanya dulu menanggapi `@openhands`, sehingga
+satu sebutan memicu dua penanggap; dipisah 2026-10-14.
 
 **Satu penulis, satu gerbang.** Hanya `Tiket jadi PR` yang membuka pull request.
 Automation lain yang menemukan masalah membuka **issue**, lalu maintainer
@@ -140,7 +148,27 @@ pertentangan itu dilaporkan sebagai issue.
     satu issue yang tak perlu dispatch menghentikannya, dan membaca sampai
     `SWEEP_PAGES` halaman (urut aktivitas terbaru) sementara `SWEEP_MAX`
     membatasi jumlah dispatch per run.
-20. **Deskripsi PR tidak ditanggapi otomatis.** Tidak ada pemicu
+20. **Dinding jam setiap automation adalah 1800 detik — platform tidak
+    menerima lebih.** Sebuah run yang melewati `timeout`-nya mati sebagai
+    `execution/timeout`, bukan karena tugasnya salah. Batas itu bukan pilihan
+    gaya: API menolak `timeout` di atas **1800** dengan
+    `422 timeout must not exceed 1800 seconds` (terverifikasi 2026-10-18).
+    Karena itu **setiap** automation diset tepat `1800`, bukan angka yang lebih
+    kecil: yang lebih kecil tidak menghemat apa pun dan hanya memindahkan
+    kematian ke run yang tugasnya jujur (lima automation pernah dijeda otomatis
+    platform setelah lima `execution/timeout` beruntun — SDLC 01/15 dengan
+    `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
+    setiap automation ber-`timeout` < 1800 adalah cacat `config` yang
+    dilaporkan, dan `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat
+    prompt di-deploy. Plafon hanya membatasi **kapan** sebuah run dibunuh,
+    bukan **kapan ia berhenti**: sebuah tugas yang menjelajah tanpa batas tetap
+    mati di dinding (2026-10-18: `Pengawas armada` mati 1800 detik delapan run
+    beruntun, tanpa satu pun laporan), jadi setiap automation semacam itu juga
+    membawa anggaran kerja sendiri. Kegagalan yang **bukan** dinding jam tetap
+    ditangani seperti biasa: `environment_unavailable` (burst dispatch) oleh
+    antrean `MAX_INFLIGHT` di `issue-triage-bridge.sh`, dan kegagalan infra lain
+    oleh `automation-retry.yml`.
+21. **Deskripsi PR tidak ditanggapi otomatis.** Tidak ada pemicu
     `pull_request.edited`; gerbang tinjau yang sudah ada membaca deskripsi PR,
     issue tertaut, seluruh diff, dan semua komentar. Sebuah pemicu edit akan
     bertabrakan dengan `basmalah.yml` yang mem-PATCH body sebagai
@@ -180,8 +208,8 @@ flowchart TD
 | 4 | Keputusan | label `decision` | agen riset → maintainer | riset bersumber + pilihan ganda; maintainer memilih | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready` |
 | 5 | Implementasi | label `bot-implement` (`Bot sebutan`, atau maintainer); `ready` saja TIDAK memicu bot | `Tiket jadi PR` | PR draf dengan templat, uji, bukti, `Fixes #n` | daftar periksa penulis lengkap → ready for review |
 | 6 | CI | push | Actions | Build, Lint, Tests, Security, E2E | semua hijau |
-| 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`) | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion` | approve |
-| 8 | Perbaikan | review minta perubahan | `Tiket jadi PR` | ikuti atau tolak dengan alasan; ≤ 3 putaran | head baru hijau → tahap 7 |
+| 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`), otomatis untuk **setiap head hijau yang belum ditinjau** | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion`; payload kosong → gerbang memilih sendiri satu PR yang `requested_reviewers` memuat `cipansor-bot` dan head-nya belum ditinjau, tiebreak **head paling baru hijau** | approve |
+| 8 | Perbaikan | review minta perubahan | `Tiket jadi PR` | ikuti atau tolak dengan alasan; ≤ 3 putaran | head baru hijau → tahap 7 otomatis (gerbang meninjau setiap head hijau yang belum ditinjau) |
 | 9 | Merge | approve + check hijau + cabang mutakhir | Actions (auto-merge) | squash ke `main` | — |
 | 10 | Staging | E2E hijau di `main` | `deploy-staging` → `deploy-watch` | staging menyajikan SHA itu, atau satu issue | — |
 | 11 | Calon rilis | jadwal mingguan, atau atas permintaan | `Pembuat catatan rilis` | pre-release `-rc` dengan catatan, hasil k6 smoke, daftar periksa (migrasi, loader data, langkah pasca-rilis) | maintainer menyetujui |
@@ -217,13 +245,17 @@ repositori privat:
 
 | Kegagalan | Deteksi | Tindakan |
 |---|---|---|
-| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu | dispatch ulang sekali per head, satu komentar per head, dan satu issue `automation-health` yang memuat semuanya (#776) |
+| Gerbang tinjau tidak menjawab | `gate-watch.yml` (tiap jam): PR ready, seluruh check gerbang (set yang sama dengan `pr-lifecycle`) hadir di head, selesai tanpa merah > 60 menit, tanpa review gerbang pada head itu (gerbang berutang pass untuk **setiap** head hijau yang belum ditinjau, 2026-10-16) | bila run yang di-dispatch untuk head itu masih RUNNING/PENDING, tunggu; bila gagal infrastruktur, run tercatat hilang dari riwayat, head belum pernah di-dispatch, atau run selesai tanpa menulis review (gerbang diam), dispatch ulang sampai `GATE_MAX_ATTEMPTS` (3) per head (run id yang di-dispatch dicatat di penanda komentar head itu, jadi keputusannya per head); satu komentar per head (diperbarui di tempat), dan satu issue `automation-health` yang memuat semuanya (#776) |
+| Run automation gagal infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | `automation-retry.yml` (tiap jam) membaca riwayat run tiap automation cron | dispatch ulang run terakhir yang gagal, maksimum `RETRY_MAX` (2) kali dengan jeda `BACKOFF_MINUTES` (20) per **automation** (kunci KV `retry-<aid>`; dihapus saat run terbaru COMPLETED agar episode berikutnya mulai lagi); bila habis, satu issue `automation-health` |
 | Automation cloud gagal atau diam | `Pengawas armada` membaca riwayat run; heartbeat yang hilang | satu issue per automation |
+| Dinding jam pada sebuah automation | `Pengawas armada` mengklasifikasi `wall` bila `error_detail` "command timed out or was killed" **dan** `completed_at >= timeout_at` (tenggat run itu sendiri, bukan ambang durasi tetap — riwayat memuat era `timeout=900` yang mati ~1000 detik) | masuk ringkasan `wall`; saran menambah/memperketat ANGGARAN WAKTU prompt. Riwayat run diperiksa **berotasi** (`start = hari-ke-%j % jumlah automation`, melingkar) supaya ekor daftar tidak luput; konfigurasi seluruh daftar selalu disapu tanpa panggilan run |
+| Perintah yang menggantung (timeout sebelum tenggat run) | `Pengawas armada` mengklasifikasi `wall-short` bila `error_detail` "command timed out or was killed" tetapi `completed_at < timeout_at` | dilaporkan **terpisah** dari `wall`, karena saran `wall` (menambah anggaran) tidak berlaku untuk satu perintah yang menggantung — perbaikan sebenarnya adalah membatasi perintah itu, bukan menambah anggaran. Setiap run "command timed out" punya kelas; tidak ada yang jatuh tanpa kelas |
+| `timeout` di bawah 1800 pada sebuah automation | `Pengawas armada` membaca `timeout` tiap automation | satu issue `automation-health` (`config`): set ke 1800. Angka lebih kecil tidak menghemat apa pun dan hanya memindahkan kematian ke run yang tugasnya jujur (invarian 20) |
 | CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
 | Deploy gagal, macet, atau commit salah | `deploy-watch.yml` | satu issue per workflow selama masih terbuka (run berikutnya menjadi komentar), ditutup saat deploy hijau dan situs sehat (#850); tanpa rollback otomatis |
 | Situs menurun tanpa deploy | Health check App Service + availability test | alert dari platform |
 | Anggaran terlampaui | laporan pemakaian | automation berhenti; maintainer memutuskan |
-| Bot memicu dirinya sendiri | guard footer pada setiap pemicu komentar | — (pencegahan) |
+| Bot memicu dirinya sendiri | guard penulis komentar pada setiap pemicu komentar | — (pencegahan) |
 
 ### Selisih dari keadaan sekarang
 
@@ -236,7 +268,15 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 2. **Gerbang tinjau diam.** Gerbang pernah tidak menjawab sebelas jam tanpa
    ada yang tahu, lalu sehari penuh pada lima PR (2026-10-10). Pemeriksa
    Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
-   masuk.
+   masuk. Retry-nya kini terukur: run gerbang yang mati infrastruktur,
+   tercatat hilang dari riwayat, atau selesai tanpa menulis review di-dispatch
+   ulang sampai 3 kali per head, dan hanya selama run yang di-dispatch untuk
+   head itu tidak sedang berjalan. Skrip mencatat run id yang ia dispatch di
+   penanda komentar head itu dan membaca status id itu kembali dari listing
+   run (ditelusuri `limit`/`offset` sampai id ditemukan, jadi run yang
+   tergeser ke halaman berikutnya tidak salah disebut hilang) — API runs tidak
+   punya endpoint per-run id, dan tanpa pencatatan ini run terbaru milik PR
+   lain bisa salah menahan atau salah memicu retry.
 3. **Cron yang bertentangan dengan keputusan.** Matikan `Penjaga issue`
    (penutupan berdasarkan umur) dan `Uji beban` bulanan; k6 berjalan lewat
    `load-tests.yml` sebelum rilis.
@@ -249,6 +289,69 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 7. **WIP dan batas putaran.** Belum ada. Tambahkan pada `Tiket jadi PR` dan
    `Gerbang tinjau PR`.
 8. **Laporan pemakaian.** Belum ada. Tambahkan pada `Pengawas armada`.
+9. **Dinding jam seragam, dan anggaran kerja untuk yang panjang.** Lima
+   automation pernah dijeda otomatis platform (lima `execution/timeout`
+   beruntun): SDLC 01 dan 15 diset `timeout=900`, SDLC 23 `1500`, padahal
+   tugasnya ~1000–2000 detik dan platform menerima sampai **1800**. Selesai
+   2026-10-18: seluruh armada diset `1800`, dan
+   `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat prompt di-deploy
+   (invarian 20). **Menaikkan plafon saja tidak cukup** untuk tugas yang
+   menjelajah tanpa batas: `Pengawas armada` tetap mati 1800 detik setelahnya,
+   delapan run beruntun tanpa satu pun laporan terkirim, karena membaca riwayat
+   run ke-24 automation satu per satu memakan seluruh anggaran. Ia kini membawa
+   **anggaran kerja** sendiri (daftar sekali, tiap automation satu bacaan,
+   berhenti mengumpulkan pada ~20 panggilan API dan menulis laporan dari yang
+   ada) — pola yang sama dengan `Gerbang tinjau PR`.
+
+   **Diperluas ke seluruh armada 2026-10-20.** Dinding jam adalah kegagalan
+   armada yang dominan, dan ia bukan tugas yang salah: 128 dari 253 run FAILED
+   mati pada ≥1780 detik dengan `current_phase` "Agent is working on the task" —
+   agen masih bekerja ketika plafon menabraknya. Bukti bahwa anggaran kerjanya
+   yang bekerja, bukan plafonnya: `Gerbang tinjau PR` membawa anggaran dan
+   mencatat **0** kematian dinding setelahnya, sedangkan `Triase bug` tidak
+   membawa dan mencatat **23** pada jendela yang sama. Karena plafon tidak bisa
+   dinaikkan, `scripts/deploy-sdlc-agents.py` kini menyisipkan satu anggaran
+   jam pasir (`ANGGARAN WAKTU — JAM PASIR`) ke **setiap** prompt yang belum
+   membawa anggaran sendiri (10/25/35 perintah, berhenti dan kirim hasil).
+   `conversation_id` **bukan** penanda sandbox dan tidak boleh dipakai untuk
+   mengklasifikasi kegagalan: ia null pada hampir setiap run yang mati di
+   dinding (234 dari 253 run FAILED tetap punya `sandbox_id`). Klasifikasi
+   `Pengawas armada` memakai `error_detail` + **tenggat run itu sendiri**
+   (`completed_at >= timeout_at`), bukan ambang durasi tetap: riwayat memuat era
+   `timeout=900` yang matinya ~1000 detik, dan ambang 1780 detik salah
+   mengkelaskannya. Dua koreksi lain pada `Pengawas armada` (2026-10-20):
+   endpoint-nya adalah **akar API** (`GET /api/automation/v1`, `GET
+   /api/automation/v1/{id}/runs?limit=5`) seperti
+   `.github/scripts/automation-retry.sh` — `/automations` menjawab `422` dan
+   `/automations/{id}/runs` menjawab `404`, jadi watchdog yang memakai bentuk
+   itu tidak membaca apa pun; dan riwayat run diperiksa **berotasi**
+   (`start = hari-ke-%j % jumlah automation`, melingkar) karena 24 automation
+   lebih banyak daripada anggaran ~19 bacaan run — tanpa rotasi ekor daftar
+   tak pernah diperiksa. Konfigurasi seluruh daftar (enabled, timeout, guard,
+   tabrakan cron) tetap disapu penuh setiap hari tanpa satu pun panggilan run.
+   **Kelas kelima (`wall-short`).** Sebuah run ber-`error_detail` "command
+   timed out or was killed" yang mati **sebelum** tenggatnya sendiri
+   (`completed_at < timeout_at`) bukan `wall`: run-nya tidak menabrak plafon,
+   perintahnya yang menggantung (atau tenggat run berubah di tengah jalan).
+   `wall-short` dilaporkan terpisah, karena saran `wall` — menambah anggaran —
+   justru salah untuk satu perintah yang menggantung. Dengan kelas ini setiap
+   run "command timed out" punya kelas; tak ada yang jatuh tanpa kelas.
+   **Prompt terpotong ditolak, bukan ditambal.** Sebuah prompt tanpa penanda
+   `PERILAKU SASARAN` telah kehilangan ekornya. Untuk automation ber-ekor
+   terkelola (`TAILS`) kerugiannya tak berbahaya — ekornya (instruksi tugas)
+   dipasang ulang dari skrip, jadi automation itu dibangun utuh. Untuk yang
+   **tanpa** ekor terkelola, ekor itu adalah instruksi tugasnya sendiri dan
+   hilang: menempelkan anggaran ke kepala yang tersisa hanya mengirim prompt
+   yang tak bisa menjalankan tugasnya. Karena itu `new_prompt` **menolak**
+   (`TruncatedPromptError`) alih-alih mengirimnya, dan menyebut satu-satunya
+   basis yang memulihkannya — `ORIGINALS=<json>` (prompt asli sebelum
+   terpotong). Satu automation yang ditolak tidak menghentikan deploy 23
+   lainnya; skrip keluar dengan kode 2 dan mencetak daftar yang ditolak.
+   **Perbaikan config tetap ditegakkan walau prompt ditolak:** `timeout` (dinding
+   jam 1800 detik) dan guard trigger tidak bergantung pada isi prompt, jadi
+   keduanya diterapkan lebih dulu — automation yang promptnya ditolak tetap
+   dinaikkan ke `timeout=1800`, hanya prompt-nya yang ditahan.
+
 
 ### Instruksi pelaksanaan
 
@@ -337,10 +440,10 @@ butir mengikuti aturan emas di `AGENTS.md`):
 
 **Setiap kali membuat atau mengubah automation yang dipicu komentar**
 (`issue_comment.created`), sebelum menyalakannya: pastikan filternya memuat
-`!icontains(comment.body, 'This comment was created by an AI agent')`, lalu
-uji dengan satu komentar contoh yang berfooter itu. Komentar itu **tidak boleh**
-memicunya. Ini satu-satunya titik yang mencegah loop #680. Pemeriksaan berkala
-datang sesudah anggarannya habis, jadi tidak dipasang
+`comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`, lalu
+uji dengan satu komentar contoh dari `cipansor-bot` (tanpa footer). Komentar itu
+**tidak boleh** memicunya. Ini satu-satunya titik yang mencegah loop #680.
+Pemeriksaan berkala datang sesudah anggarannya habis, jadi tidak dipasang
 (`.claude/memory/decisions/otomasi-armada.md` butir 8).
 
 ## Menyeluruh
@@ -366,7 +469,7 @@ flowchart TB
 
   subgraph PRL["2 · Pull request"]
     R --> C6["Tiket jadi PR"]:::cloud --> DPR([Draft PR])
-    MENT(["komentar @openhands"]):::human -. "penulis terpercaya" .-> C7["Bot sebutan"]:::cloud
+    MENT(["komentar @cipansor-bot"]):::human -. "penulis terpercaya" .-> C7["Bot sebutan"]:::cloud
     C7 -. "tugas kode" .-> BOT(["issue + bot-implement"]):::cloud -.-> C6
     DPR --> C17["Pelabel PR"]:::cloud
     DPR --> C8["Peninjau kode"]:::cloud
@@ -507,9 +610,13 @@ flowchart TD
 | 08:30 tanggal 1 | Audit kematangan      | menilai 18 item → satu issue                                    |
 
 Actions terjadwal: `duplicate-sweep` (harian 01:30 UTC = 08:30 WIB,
-menutup issue atau PR duplikat 7 hari setelah peringatan) dan `gate-watch`
+menutup issue atau PR duplikat 7 hari setelah peringatan), `gate-watch`
 (tiap jam, menit ke-23: PR siap yang hijau lebih dari 60 menit tanpa review
-gerbang pada head-nya didispatch ulang sekali dan dicatat). Actions berbasis
+gerbang pada head-nya didispatch ulang — maksimum 3 kali per head, dan tidak
+saat run gerbang sebelumnya masih berjalan — lalu dicatat), dan
+`automation-retry` (tiap jam, menit ke-47: run automation cron yang mati
+infrastruktur didispatch ulang, maksimum 2 kali per automation, lalu dilaporkan).
+Actions berbasis
 event: `deploy-watch.yml`, sesudah tiap `Deploy staging`/`Deploy production`
 selesai. Manual: `load-tests.yml` (k6 vs staging), langkah wajib sebelum tiap
 rilis produksi (`docs/deploy-azure.md` → "How a change is released").
@@ -533,7 +640,7 @@ nyata.
 | Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                |
 | Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                  |
 | Tiket jadi PR         | **satu-satunya pembuat PR**; label `bot-implement` memicunya                                                   |
-| Bot sebutan           | menyerahkan permintaan `@openhands` yang berupa pekerjaan ke issue + `bot-implement`, atau menjawab pertanyaan |
+| Bot sebutan           | menyerahkan permintaan `@cipansor-bot` yang berupa pekerjaan ke issue + `bot-implement`, atau menjawab pertanyaan |
 | Peninjau kode         | tinjauan baris demi baris + blok `suggestion`                                                                  |
 | Pemindai celah uji    | satu celah pengujian berisiko → issue                                                                          |
 | Otomasi QA            | menjalankan alur yang berubah, melaporkan lulus/gagal                                                          |
@@ -581,12 +688,22 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   juga menerima `workflow_run`, tetapi pengantarannya belum terbukti, jadi ia
   bukan sandaran. Karena itu `Gerbang tinjau PR` tidak _menunggu_ CI: ia
   bertindak saat dipicu dan memeriksa check-run sendiri, tidak melakukan apa pun
-  selama masih ada yang berjalan, dan `pr-lifecycle.yml` men-dispatch-nya begitu
-  semua check wajib lulus: pada `workflow_run` (CI, E2E selesai) dan pada
-  `pull_request: ready_for_review`. Pemicu kedua ada karena PR yang hanya berisi
-  dokumen men-skip Lint/Build/Tests/E2E, sehingga tidak pernah menghasilkan
-  `workflow_run` sesudah ditandai siap; tanpa pemicu itu PR dokumen tidak pernah
-  ditinjau (#708). `Pemantau deployment` memakai
+  selama masih ada yang berjalan. Dispatch-nya milik `pr-lifecycle.yml`, yang
+  menyala begitu semua check wajib lulus: pada `workflow_run` (CI, E2E selesai)
+  dan pada `pull_request: ready_for_review`. Jalur kedua ada karena PR yang
+  hanya berisi dokumen men-skip Lint/Build/Tests/E2E, sehingga tidak pernah
+  menghasilkan `workflow_run` sesudah ditandai siap; tanpa jalur itu PR dokumen
+  tidak pernah ditinjau (#708). Gerbang **tidak** memakai pemicu event
+  `pull_request.ready_for_review` sendiri (#840): pemicu itu menyala saat PR
+  ditandai siap tanpa tahu check-nya sudah hijau, sehingga run bisa dimulai lalu
+  berhenti tanpa meninjau. Pemicu event gerbang kini hanya
+  `pull_request.review_requested`, disaring ke `requested_reviewer.login ==
+  'cipansor-bot'`. Gerbang berjalan untuk **setiap head siap yang hijau dan belum
+  ditinjau** — bukan hanya tinjauan pertama (2026-10-16, menggantikan aturan
+  "hanya sekali" 2026-10-15): PR siap memang tugas gerbang, jadi penulis tidak
+  perlu meminta ulang secara manual. Yang membatasinya adalah idempotensi gerbang
+  sendiri (satu review per head), sehingga dispatch hanya terjadi pada head yang
+  benar-benar baru dan hijau. `Pemantau deployment` memakai
   pola yang sama: `main-failure-bridge.yml` men-dispatch-nya saat CI atau E2E di
   `main` selesai gagal dan run yang gagal itu masih menjadi tip `main`; event `workflow_run` di automation
   itu hanya pelengkap best-effort, dan promptnya melakukan dedupe per run ID agar
@@ -645,9 +762,16 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   tetap terbuka dan check yang gagal terlihat padanya; gerbang memposting review
   minta-perubahan dan branch protection menahan merge. Mengembalikan ke draft
   pernah dicoba dan dihapus — itu menyembunyikan pekerjaan yang sedang berjalan.
-  Begitu penulis mendorong head baru dan head itu hijau, `pr-lifecycle.sh`
-  men-dispatch gerbang lagi; permintaan perubahan hanya menahan PR selama ia
-  masih pada head saat ini (#727).
+  Gerbang berjalan otomatis untuk **setiap head hijau yang belum ditinjau** per
+  PR — bukan hanya tinjauan pertama (2026-10-16, menggantikan aturan "hanya
+  sekali" 2026-10-15). Begitu penulis mendorong head baru dan head itu hijau,
+  `pr-lifecycle.sh` men-dispatch gerbang lagi untuk head itu; yang membatasinya
+  adalah idempotensi gerbang (satu review per head), sehingga dispatch hanya
+  terjadi pada head yang benar-benar baru. Tinjauan ulang tetap bisa diminta
+  dengan mengajukan permintaan tinjauan ke `cipansor-bot`
+  (`pull_request.review_requested` adalah pemicu gerbang), tetapi ini tidak lagi
+  wajib untuk head baru; permintaan perubahan hanya menahan PR selama ia masih
+  pada head saat ini.
 - **Catatan rilis hidup di GitHub Release, bukan di berkas.** `Pembuat catatan
 rilis` berjalan mingguan, memotong pre-release `-rc` berikutnya, dan menulis
   catatan ke body Release dari conventional commit sejak rilis resmi terakhir;
@@ -667,7 +791,7 @@ PR` (item 1–18) memetakan satu-ke-satu ke 18 item Agentic SDLC; `Pelabel issue
 arsitektur`/`Gerbang tinjau PR` memposting blok `suggestion` GitHub sehingga
   perbaikan berlaku dengan satu klik.
 - **Guard self-comment wajib.** Setiap automation yang dipicu komentar menjaga
-  pemeriksaan footer `This comment was created by an AI agent` (#680).
+  pemeriksaan penulis `comment.user.login != 'cipansor-bot'` (#680).
 
 ## Rujukan
 

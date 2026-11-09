@@ -1,7 +1,7 @@
 #!/bin/sh
 # React to an issue, a pull request, or a comment so the person can see an
 # automation has picked it up. A reporter who opens an issue, or a maintainer
-# who comments `@openhands …`, otherwise has no signal that anything is
+# who comments `@cipansor-bot …`, otherwise has no signal that anything is
 # happening until a bot comment appears minutes later — the reporter asked for
 # this (2026-10-13). The `eyes` reaction means "the automation is looking at
 # this"; the automated comment that follows carries the substance.

@@ -7,18 +7,30 @@
 # person states what they want and the bot records it.
 #
 # The protected set is every label that exists in the repository minus the few
-# human-decision labels in EXEMPT_LABELS. It is read from the repository, never
-# hardcoded, so a new label is protected the moment it is created and the set
-# cannot drift from `gh label list`.
+# human-decision labels in EXEMPT_LABELS and the provenance labels in
+# ALLOWED_LABELS. It is read from the repository, never hardcoded, so a new label
+# is protected the moment it is created and the set cannot drift from
+# `gh label list`.
 #
 # A GitHub App (`*[bot]`) is exempt: the Actions workflows (`issue-label-sync`,
 # `deploy-watch`, the label sync itself) label through `github-actions[bot]`, and
 # revoking those would break the guards. The automations post as `cipansor-bot`
 # (the runner injects GITHUB_BOT_TOKEN), so they are covered by BOT_LOGIN.
 #
+# ALLOWED_LABELS holds labels the *issue* template applies by itself, not a
+# person or a PR claiming a state: `bug_report.yml` sets `bug` and
+# `feature_request.yml` sets `enhancement` the moment an issue is created, so
+# revoking them fights the template and posts a notice on every new issue (#842).
+# A type label is the reporter's declared intent — the triage owner sets the
+# *correct* type on top of it — so the guard leaves it on an **issue**. A pull
+# request has no such form, so on a PR the type labels stay protected: a PR that
+# closes an `enhancement` issue but carries `bug` would fail the type sync
+# (`issue-label-sync.sh`), which reads a PR's type as a claim to match. Everything
+# else (`ready`, `priority:*`, the workflow labels) stays the bot's everywhere.
+#
 # Usage: label-guard.sh --stdin          # a `labeled` webhook event on stdin
 #        label-guard.sh <number> <label> [actor]   # by hand
-# Env:   GH_TOKEN, REPO (owner/name), BOT_LOGIN, EXEMPT_LABELS
+# Env:   GH_TOKEN, REPO (owner/name), BOT_LOGIN, EXEMPT_LABELS, ALLOWED_LABELS
 set -eu
 
 REPO="${REPO:?REPO is required}"
@@ -27,14 +39,21 @@ BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
 # the whole point of the label), and `bot-implement` is the maintainer's choice
 # to hand an issue to the bot. Everything else is the bot's.
 EXEMPT_LABELS="${EXEMPT_LABELS:-rilis-disetujui rilis-ditolak bot-implement}"
+# Labels the issue template applies by itself. Left in place so a fresh issue is
+# not met with a revocation notice (#842).
+ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement}"
 
-AI_FOOTER="_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._"
 REVOKE_MARK="<!-- label-guard:revoked -->"
 
-# Every existing label except the human-decision ones. Read once per run.
+# Every existing label except the human-decision ones and, on an issue, the
+# repository's own template labels. Read once per run. On a pull request the
+# template labels are *not* exempt, so `bug`/`enhancement` applied to a PR are
+# protected and revoked like any other type claim.
 protected_labels() {
-  gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null \
-    | grep -vxF "$(printf '%s\n' $EXEMPT_LABELS)" || true
+  exempt="$EXEMPT_LABELS"
+  [ "$IS_PR" = "1" ] || exempt="$exempt $ALLOWED_LABELS"
+  { gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null || true; } \
+    | grep -vxF "$(printf '%s\n' $exempt)" || true
 }
 
 # The `labeled` event, read from stdin.
@@ -111,7 +130,6 @@ if [ -n "$conflict" ]; then
       --jq '.[].body' 2>/dev/null | grep -qF "$READY_MARK"; then
     RBODY="Label \`ready\` dicabut dari #$NUMBER karena bertentangan dengan \`$conflict\`: issue yang masih punya pertanyaan terbuka atau menunggu keputusan belum siap dikerjakan. \`ready\` hanya diberikan bila sangat yakin — tanpa pertanyaan terbuka. Hilangkan dulu \`$conflict\`-nya (jawab pertanyaannya, atau putuskan), lalu \`ready\` boleh dipasang lagi.
 
-$AI_FOOTER
 $READY_MARK"
     gh api "repos/$REPO/issues/$NUMBER/comments" -f body="$RBODY" >/dev/null \
       || echo "::warning::could not post the ready-conflict notice on #$NUMBER."
@@ -163,7 +181,6 @@ esac
 
 BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Sebutkan apa yang Anda inginkan dan bot akan memasangnya. Label keputusan manusia (\`rilis-disetujui\`, \`rilis-ditolak\`, \`bot-implement\`) tetap boleh dipasang manual.$ALERT
 
-$AI_FOOTER
 $REVOKE_MARK"
 
 # One notice per item: a repeat run must not stack comments.

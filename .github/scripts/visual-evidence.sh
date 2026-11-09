@@ -63,8 +63,6 @@ visual. Please add:
 Paste them with GitHub's uploader (they become \`user-images.githubusercontent.com\`
 links) or link the files. This is a reminder, not a merge gate — it exists so a
 reviewer can see the change without checking out the branch.
-
-_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._
 EOF
   if [ -n "$CID" ]; then
     # -F, not -f: only a typed field reads `@file` (see pr-template-guard.sh).

@@ -9,6 +9,7 @@ import {
   startWebPushDispatcher,
   stopWebPushDispatcher,
 } from '@/jobs';
+import { notificationScheduler } from '@/modules/notifications/scheduler.service';
 import { redis } from '@/lib/redis';
 import { initializeEventBus } from '@/lib/event-bus';
 import { createServer } from 'http';
@@ -46,6 +47,11 @@ async function bootstrap() {
     if (config.env !== 'test') {
       if (config.scheduler.enabled) {
         initializeScheduler();
+        // The notification scheduler (payment reminders, attendance/tahfidz
+        // summaries, event reminders, monthly report, budget-overrun alerts) is
+        // a second, separate scheduler. Nothing called it before, so none of its
+        // tasks ever ran; start it under the same switch.
+        notificationScheduler.initialize();
       } else {
         logger.warn(
           '⏸️  Scheduler disabled (SCHEDULER_ENABLED=false): no cron jobs run in this process'
@@ -62,6 +68,7 @@ async function bootstrap() {
       // Stop scheduled jobs
       stopScheduler();
       stopWebPushDispatcher();
+      notificationScheduler.stopAll();
 
       // Close the Redis connection (dashboard, chatbot and permission caches)
       await redis.quit().catch(() => undefined);

@@ -27,6 +27,15 @@ import { logger } from './logger';
 const TOKEN_ENDPOINT = 'https://oauth2.googleapis.com/token';
 const JWT_BEARER_GRANT = 'urn:ietf:params:oauth:grant-type:jwt-bearer';
 
+/**
+ * Bound the token exchange so it cannot outlive the delivery claim that guards
+ * the send (review finding on #804). An unbounded `fetch` to the token endpoint
+ * could hang past the one-hour channel lease, and the send holding the claim
+ * would never report an outcome. Well under that lease, so a stalled exchange
+ * fails cleanly and the channel is retried.
+ */
+const TOKEN_REQUEST_TIMEOUT_MS = 30_000;
+
 /** Google rejects an assertion whose lifetime exceeds one hour. */
 const ASSERTION_LIFETIME_SECONDS = 3600;
 
@@ -126,6 +135,7 @@ export class ServiceAccountTokenSource {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body: new URLSearchParams({ grant_type: JWT_BEARER_GRANT, assertion }).toString(),
+      signal: AbortSignal.timeout(TOKEN_REQUEST_TIMEOUT_MS),
     });
 
     const body = (await response.json().catch(() => null)) as {

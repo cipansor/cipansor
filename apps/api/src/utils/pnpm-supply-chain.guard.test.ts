@@ -4,7 +4,7 @@ import { resolve } from 'node:path';
 import { spawn, execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
 import type { AddressInfo } from 'node:net';
-import { parse } from 'yaml';
+import { parse, parseAllDocuments } from 'yaml';
 
 /**
  * The dependency build allowlist in `pnpm-workspace.yaml` is only a real
@@ -52,6 +52,25 @@ const MUST_ALLOW = [
   'unrs-resolver',
 ];
 
+/**
+ * The lowest override a package may carry before `Security` goes red again.
+ *
+ * `overrides` is a *floor*, not a pin: `>=2.3.0` still resolves to the
+ * vulnerable 2.3.0, so a floor written one patch too low leaves the lockfile on
+ * the vulnerable release and the required `Security` check red on every PR and
+ * on `main` — the 2026-11-02 failure that blocked all 12 open PRs (#910). A
+ * floor is correct only at or above the first fixed release, and this list is
+ * what says so; it is the dependency-side twin of the pnpm-pin guard above.
+ * When an advisory's fixed release moves, raise the floor here and in
+ * `pnpm-workspace.yaml` together.
+ */
+const MIN_OVERRIDES: Record<string, string> = {
+  'body-parser': '2.4.0', // GHSA-27r3-jxmh-p828 — DoS via trailing bytes (high)
+  dompurify: '3.4.17', // GHSA-cg2g-xh64-v4q7 (critical) + GHSA-mrv2-3pqr-j5jr (high)
+  'follow-redirects': '1.16.2', // GHSA-mrwp-f3q8-3g9p (high)
+  multer: '2.5.0', // GHSA-q7qp-rjg7-q26m — DoS via async fileFilter (high)
+};
+
 function pinnedVersion(): string {
   const pkg = JSON.parse(readFileSync(PACKAGE_JSON, 'utf8')) as { packageManager?: string };
   const match = /^pnpm@(\d+\.\d+\.\d+)$/.exec(pkg.packageManager ?? '');
@@ -79,6 +98,98 @@ function dockerfilePins(file: string): string[] {
 
 function workspace(): Record<string, unknown> {
   return parse(readFileSync(WORKSPACE, 'utf8')) as Record<string, unknown>;
+}
+
+/** The versions a `packages:`/`snapshots:` map holds for `name`, peer suffix stripped. */
+function lockedVersions(section: Record<string, string>, name: string): string[] {
+  const prefix = `${name}@`;
+  return Object.keys(section)
+    .filter((key) => key.startsWith(prefix))
+    .map((key) => key.slice(prefix.length).replace(/\(.*$/, ''));
+}
+
+/** Both YAML documents of the lockfile, merged per top-level map (see audit-deps). */
+function lockfileMaps(): Record<string, Record<string, string>> {
+  return parseAllDocuments(readFileSync(LOCKFILE, 'utf8')).reduce(
+    (merged, doc) => {
+      for (const [key, value] of Object.entries(doc.toJSON() ?? {})) {
+        if (value && typeof value === 'object' && !Array.isArray(value)) {
+          merged[key] = { ...(merged[key] ?? {}), ...value };
+        }
+      }
+      return merged;
+    },
+    {} as Record<string, Record<string, string>>
+  );
+}
+
+/** The lower bound an override declares, or the value itself for an exact pin. */
+function overrideLowerBound(declared: unknown): string {
+  const match = /^\s*>=\s*(\S+)\s*$/.exec(String(declared ?? ''));
+  return match ? match[1] : String(declared ?? '');
+}
+
+/** `a >= b` for release versions, compared numerically field by field. */
+function versionAtLeast(version: string, floor: string): boolean {
+  const fields = (v: string) => {
+    const release = /^\d+(?:\.\d+)*/.exec(v)?.[0];
+    return release ? release.split('.').map(Number) : null;
+  };
+  const a = fields(version);
+  const b = fields(floor);
+  if (!a || !b) return false;
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    const x = a[i] ?? 0;
+    const y = b[i] ?? 0;
+    if (x !== y) return x > y;
+  }
+  return true;
+}
+
+/**
+ * Overrides whose floor sits below the first fixed release, as
+ * "name: declared X, must be >= Y". Extracted so the guard below and the
+ * blind-spot check share one implementation.
+ */
+function overrideFloorViolations(
+  overrides: Record<string, unknown>,
+  floors: Record<string, string> = MIN_OVERRIDES
+): string[] {
+  return Object.entries(floors)
+    .filter(([name, floor]) => !versionAtLeast(overrideLowerBound(overrides[name]), floor))
+    .map(([name, floor]) => `${name}: declared ${overrides[name]}, must be >= ${floor}`);
+}
+
+/** The version shape `scripts/audit-deps.mjs` keeps (`semver.valid`). */
+const RELEASE_VERSION = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?(?:\+[0-9A-Za-z.-]+)?$/;
+
+/**
+ * How many distinct package names `scripts/audit-deps.mjs` should report: the
+ * union of `packages:` across every YAML document of the lockfile, filtered to
+ * real versions. It recomputes the number from the lockfile instead of pinning
+ * a literal, so it stays correct as the tree grows — and, because it reads
+ * **all** documents, it drops to ~15 (only the package-manager document) if the
+ * script ever regresses to a single `parse()`, which is the failure the test
+ * below exists to catch.
+ */
+function auditedPackageNames(): number {
+  const docs = parseAllDocuments(readFileSync(LOCKFILE, 'utf8'));
+  const packages = docs.reduce<Record<string, unknown>>((merged, doc) => {
+    for (const [key, value] of Object.entries(doc.toJSON() ?? {})) {
+      if (key === 'packages' && value && typeof value === 'object') {
+        Object.assign(merged, value as Record<string, unknown>);
+      }
+    }
+    return merged;
+  }, {});
+  const names = new Set<string>();
+  for (const key of Object.keys(packages)) {
+    const bare = key.replace(/\(.*$/, '');
+    const at = bare.lastIndexOf('@');
+    if (at <= 0 || !RELEASE_VERSION.test(bare.slice(at + 1))) continue;
+    names.add(bare.slice(0, at));
+  }
+  return names.size;
 }
 
 describe('pnpm supply-chain control', () => {
@@ -152,6 +263,30 @@ describe('pnpm supply-chain control', () => {
     ).toBeGreaterThan(0);
   });
 
+  it('floors each overridden dependency at or above its first fixed release', () => {
+    expect(
+      overrideFloorViolations(workspace().overrides as Record<string, unknown>),
+      'an override floor sits below the first release that fixes its advisory; ' +
+        'the lockfile then keeps resolving the vulnerable version and the required Security check stays red (#910)'
+    ).toEqual([]);
+  });
+
+  it('resolves every overridden dependency to at or above its fixed release', () => {
+    const { packages = {}, snapshots = {} } = lockfileMaps();
+
+    const stale = Object.entries(MIN_OVERRIDES).flatMap(([name, floor]) => {
+      const resolved = [...lockedVersions(packages, name), ...lockedVersions(snapshots, name)];
+      return resolved
+        .filter((version) => !versionAtLeast(version, floor))
+        .map((version) => `${name}@${version} (must be >= ${floor})`);
+    });
+
+    expect(
+      stale,
+      'the lockfile still resolves an override below its fixed release; run `pnpm install` after raising the floor'
+    ).toEqual([]);
+  });
+
   it("decides pnpm 12's second permission surface (agent skills), not just build scripts", () => {
     // pnpm 12 links a dependency's `skills/<name>/` into `.claude/skills` once
     // it is approved — a surface `allowBuilds` does not govern. Leaving it
@@ -214,8 +349,13 @@ describe('pnpm supply-chain control', () => {
     // this fails the whole supply-chain check rather than one line of output.
     const result = await runAuditDeps();
     expect(result.code, `audit-deps failed:\n${result.stderr}\n${result.stdout}`).toBe(0);
-    expect(result.stdout).toMatch(/Audited \d+ packages/);
-    expect(result.stdout).not.toContain('0 packages');
+    // The exact number, recomputed from the lockfile: it proves the script read
+    // every document (a single `parse()` reports only the ~15 packages of the
+    // package-manager document) and that it did not read zero. An anchored,
+    // exact match replaces the old `not.toContain('0 packages')`, whose
+    // substring also matched "1070 packages" and failed the check on any tree
+    // whose package count ends in 0 (#871).
+    expect(result.stdout).toContain(`Audited ${auditedPackageNames()} packages`);
   });
 
   it('the scan is not blind — it reads the files it guards', () => {
@@ -231,6 +371,24 @@ describe('pnpm supply-chain control', () => {
     >;
     expect(dead.onlyBuiltDependencies).toBeDefined();
     expect(dead.allowBuilds).toBeUndefined();
+
+    // Same for the override floors: a floor one patch below the fixed release
+    // must be reported, an absent one too, and a floor at the fix must not.
+    const floor = { dompurify: '3.4.17' };
+    expect(overrideFloorViolations({ dompurify: '>=3.4.16' }, floor)).toContain(
+      'dompurify: declared >=3.4.16, must be >= 3.4.17'
+    );
+    expect(overrideFloorViolations({}, floor)).toContain(
+      'dompurify: declared undefined, must be >= 3.4.17'
+    );
+    expect(overrideFloorViolations({ dompurify: '>=3.4.17' }, floor)).toEqual([]);
+    // An exact pin (as YAML writes `5.1.0`) is read the same way as a range.
+    expect(overrideFloorViolations({ dompurify: '3.4.17' }, floor)).toEqual([]);
+
+    // The lockfile scan must actually find the packages it checks; a change in
+    // the lockfile key shape would otherwise make that assertion vacuous.
+    const maps = lockfileMaps();
+    expect(lockedVersions(maps.packages ?? {}, 'dompurify').length).toBeGreaterThan(0);
   });
 });
 

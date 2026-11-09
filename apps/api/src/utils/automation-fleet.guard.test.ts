@@ -86,8 +86,28 @@ while [ $# -gt 0 ]; do
     *) [ -z "$url" ] && url="$1"; shift ;;
   esac
 done
+# A read of the triage owner's runs. The real API returns a *page of runs*, and
+# IGNORES a run_id= query (it always returns the newest page) — so the stub must
+# too, or a test would pass on a run_id= read the API never answers. The listing
+# is fed by CURL_STUB_RUNS (JSON object {runs:[...]}, newest first) and the
+# script filters it by .id, paging with limit/offset; the stub slices the array
+# by those params to emulate the real paging. CURL_STUB_RUNS_RAW, when set, is
+# returned verbatim (to model an unreadable page). Distinct log line so a test
+# that asserts on DISPATCH is not confused by a read.
+case "$url" in
+  */runs*)
+    log "RUNS $url"
+    if [ -n "\${CURL_STUB_RUNS_RAW:-}" ]; then printf '%s' "$CURL_STUB_RUNS_RAW"; exit 0; fi
+    runs_json="\${CURL_STUB_RUNS:-}"
+    if [ -z "$runs_json" ]; then runs_json='{"runs":[]}'; fi
+    off=0; lim=100
+    case "$url" in *offset=*) off="\${url#*offset=}"; off="\${off%%&*}" ;; esac
+    case "$url" in *limit=*) lim="\${url#*limit=}"; lim="\${lim%%&*}" ;; esac
+    printf '%s' "$runs_json" | jq -c --argjson o "$off" --argjson l "$lim" '{runs: (.runs[$o:($o+$l)])}'
+    exit 0 ;;
+esac
 log "DISPATCH $url"
-[ -n "$out" ] && printf '{"status":"accepted"}' > "$out"
+[ -n "$out" ] && printf '{"status":"accepted","id":"%s"}' "\${CURL_STUB_RUN_ID-run-1}" > "$out"
 printf '%s' "$code"
 `;
 
@@ -115,6 +135,7 @@ case "$*" in
     fi
     [ -n "$m" ] && printf '%s' "$m" ;;
   *"| max //"*) printf '%s\\n' "\${GH_STUB_LASTTRIAGE:-}" ;;
+  *"[0-9]+:[0-9a-f]+"*) printf '%s\\n' "\${GH_STUB_SWEEP_BODIES:-}" ;;
   *"join(\\"+\\")"*) printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
   *"/comments"*".[].body"*) printf '%s\\n' "\${GH_STUB_COMMENTS:-}" ;;
   *"/issues/comments/"*"-X PATCH"*) post "$@" ;;
@@ -195,7 +216,7 @@ const runBridge = (env: Record<string, string>, args: string[], stdin?: string) 
   run(BRIDGE, env, args, stdin, bridgeDir);
 
 const LABELS =
-  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nrilis-disetujui\nrilis-ditolak\nbot-implement';
+  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nrilis-disetujui\nrilis-ditolak\nbot-implement\nsource:template';
 
 const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
   JSON.stringify({
@@ -252,6 +273,37 @@ describe('label-guard.sh', () => {
     }
   });
 
+  it('leaves the issue template’s type label, applied when the issue opens', () => {
+    // #842: `bug_report.yml` sets `bug` (and `feature_request.yml` sets
+    // `enhancement`) the moment an issue is created, so revoking it fights the
+    // template and posts a notice on every new issue. The type label is the
+    // reporter's declared intent; the triage owner sets the correct one on top.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS },
+      ['--stdin'],
+      labeledEvent('adminypc', 'bug')
+    );
+    expect(calls).not.toContain('UNLABEL');
+    expect(calls).not.toContain('COMMENT');
+    expect(out).toContain('not a protected label');
+  });
+
+  it('revokes a template type label applied to a pull request', () => {
+    // The template exemption is for issues: a PR has no issue form, and
+    // `issue-label-sync.sh` reads a PR's type as a claim to match the linked
+    // issue — a manually applied `bug` on an `enhancement` PR fails that check.
+    // So on a PR the type label is protected and revoked.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'admin' },
+      ['--stdin'],
+      labeledEvent('adminypc', 'bug', { pr: true })
+    );
+    expect(calls).toContain('/issues/7/labels/bug');
+    expect(out).toContain('Removed label');
+  });
+
   it('leaves a label that is not in the repository', () => {
     const { calls } = run(
       LABEL_GUARD,
@@ -267,9 +319,9 @@ describe('label-guard.sh', () => {
       LABEL_GUARD,
       { GH_STUB_LABELS: LABELS },
       ['--stdin'],
-      labeledEvent('someone', 'bug', { pr: true })
+      labeledEvent('someone', 'priority:high', { pr: true })
     );
-    expect(calls).toContain('/issues/7/labels/bug');
+    expect(calls).toContain('/issues/7/labels/priority:high');
   });
 
   it('does not stack a second notice', () => {
@@ -405,36 +457,53 @@ describe('reaction.sh', () => {
 });
 
 describe('acknowledge.sh', () => {
-  const event = (opts: { association?: string; labels?: string[]; body?: string; bot?: boolean }) =>
+  const event = (opts: {
+    association?: string;
+    labels?: string[];
+    body?: string;
+    login?: string;
+    type?: string;
+  }) =>
     JSON.stringify({
       action: 'created',
       comment: {
         id: 555,
-        body: opts.bot
-          ? 'Reply\n\n_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._'
-          : (opts.body ?? 'A reply'),
+        body: opts.body ?? 'A reply',
         author_association: opts.association ?? 'NONE',
+        user: { login: opts.login ?? 'reporter', type: opts.type ?? 'User' },
       },
       issue: { number: 7, labels: (opts.labels ?? []).map((name) => ({ name })) },
     });
 
-  it('acknowledges an @openhands mention', () => {
+  it('acknowledges an @cipansor-bot mention', () => {
     const { calls } = run(
       ACKNOWLEDGE,
       { GH_STUB_LOGIN: 'cipansor-bot' },
       ['--stdin'],
-      event({ association: 'OWNER', body: '@openhands please look' })
+      event({ association: 'OWNER', body: '@cipansor-bot please look' })
     );
     expect(calls).toContain('REACT_COMMENT');
   });
 
-  it('does not acknowledge an outsider’s @openhands mention', () => {
+  it('does not acknowledge an outsider’s @cipansor-bot mention', () => {
     // `Bot sebutan` is maintainer-triggered; a stray mention starts nothing.
     const { calls } = run(
       ACKNOWLEDGE,
       { GH_STUB_LOGIN: 'cipansor-bot' },
       ['--stdin'],
-      event({ association: 'NONE', body: '@openhands please look' })
+      event({ association: 'NONE', body: '@cipansor-bot please look' })
+    );
+    expect(calls).not.toContain('REACT_COMMENT');
+  });
+
+  it('does not acknowledge an @openhands mention', () => {
+    // `@openhands` wakes the OpenHands GitHub App, not the fleet; the fleet's
+    // summon is `@cipansor-bot`, so an `@openhands` comment is not acknowledged.
+    const { calls } = run(
+      ACKNOWLEDGE,
+      { GH_STUB_LOGIN: 'cipansor-bot' },
+      ['--stdin'],
+      event({ association: 'OWNER', body: '@openhands please look' })
     );
     expect(calls).not.toContain('REACT_COMMENT');
   });
@@ -470,12 +539,19 @@ describe('acknowledge.sh', () => {
     expect(calls).not.toContain('REACT_COMMENT');
   });
 
-  it("never acknowledges the bot's own comment", () => {
+  it("never acknowledges the bot's own comment, by author", () => {
+    // The guard is the author, not a footer: the bot's comment carries no
+    // AI-disclosure footer any more, and it is still not acknowledged.
     const { calls } = run(
       ACKNOWLEDGE,
       { GH_STUB_LOGIN: 'cipansor-bot' },
       ['--stdin'],
-      event({ association: 'OWNER', labels: ['needs-info'], bot: true })
+      event({
+        association: 'COLLABORATOR',
+        labels: ['needs-info'],
+        login: 'cipansor-bot',
+        body: 'Triase selesai.',
+      })
     );
     expect(calls).not.toContain('REACT_COMMENT');
   });
@@ -488,6 +564,186 @@ describe('acknowledge.sh', () => {
       event({ association: 'OWNER', labels: ['bug'] })
     );
     expect(calls).not.toContain('REACT_COMMENT');
+  });
+
+  it('does not acknowledge a comment authored by a bot account', () => {
+    // The cloud filter that wakes the comment-triggered automations rejects a
+    // `Bot` author, so reacting here would show 👀 on a comment the fleet never
+    // answers — the fleet's own comment-triggered loop (#680) and this guard
+    // must agree on the author.
+    const { calls, out } = run(
+      ACKNOWLEDGE,
+      { GH_STUB_LOGIN: 'cipansor-bot' },
+      ['--stdin'],
+      event({
+        association: 'OWNER',
+        body: '@cipansor-bot please look',
+        login: 'some-app[bot]',
+        type: 'Bot',
+      })
+    );
+    expect(calls).not.toContain('REACT_COMMENT');
+    expect(out).toContain('bot account');
+  });
+});
+
+describe('issue-triage-bridge.sh --recover-ready', () => {
+  const signal = (body: string, nonfleet = '') => {
+    const line1 = JSON.stringify({ body });
+    const line2 = nonfleet
+      ? JSON.stringify([{ login: 'reporter', updated: '2026-01-01T00:00:00Z', body: nonfleet }])
+      : '[]';
+    return createHash('sha256').update(`${line1}\n${line2}\n`).digest('hex').slice(0, 16);
+  };
+
+  it('recovers a deferred label dispatch on a ready issue, which the sweep skips', () => {
+    // R348: `on_label` defers on an issue that is (or becomes) `ready`; the sweep
+    // searches `-label:ready`, so a pending marker there is never retried. The
+    // recovery pass acts on it.
+    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_MARKER_818: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+    expect(out).toContain('recovered on ready issues');
+  });
+
+  it('recovers a pending marker even when its issue is outside the search window', () => {
+    // R475: the recovery must find a marker by scanning markers, not a
+    // `ready`-issue search bounded by update time — else an old pending marker is
+    // forgotten once newer `ready` issues fill the page window.
+    const markup = `<!-- triage-bridge-sweep:99:${signal('old')}:pending -->`;
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_MARKER_99: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'old',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(out).toContain('recovered on ready issues');
+  });
+
+  it('retries a failed recovery run on a ready issue, which the sweep skips', () => {
+    // R474: a recovered dispatch turns the marker from `pending` into a run id;
+    // if that run fails, only the recovery pass can retry it (the sweep skips
+    // `ready`).
+    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:r1 -->`;
+    const { calls } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_MARKER_818: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"id":"r1","status":"FAILED"}]}',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('RUNS');
+    expect(calls).toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+  });
+
+  it('finalises a completed recovery run on a ready issue without re-dispatching', () => {
+    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:r1 -->`;
+    const { calls } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_MARKER_818: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"id":"r1","status":"COMPLETED"}]}',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('RUNS');
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: -->`);
+  });
+
+  it('does not re-triage a ready issue already finalised when a comment changes it', () => {
+    // R496: a new comment on a `ready` issue changes the signal; the marker is a
+    // final checkpoint, so the recovery must not dispatch again.
+    const markup = `<!-- triage-bridge-sweep:818:${signal('A')}: -->`;
+    const { calls } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_MARKER_818: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'B',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('run_id=');
+  });
+
+  it('ignores a comment that only quotes the marker syntax', () => {
+    // R512: a comment on another issue that quotes a marker names an issue it
+    // does not belong to. The listing may name #818, but #818 has no marker of
+    // its own, so it must not be re-triaged.
+    const quoted = `Contoh: <!-- triage-bridge-sweep:818:abc123:pending -->`;
+    const { calls } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: quoted,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('run_id=');
+  });
+
+  it('ignores a stale marker when a newer final marker exists on the issue', () => {
+    const stale = `<!-- triage-bridge-sweep:818:${signal('old')}:pending -->`;
+    const current = `<!-- triage-bridge-sweep:818:${signal('new')}: -->`;
+    const { calls } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: stale,
+        GH_STUB_MARKER_818: current,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'new',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('fails the recovery step when a dispatch is rejected, so it is visible', () => {
+    // R481: a rejected dispatch must not leave the workflow green; the exit
+    // status (not only the message) proves it.
+    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
+    const { calls, out, status } = runBridge(
+      {
+        GH_STUB_SWEEP_BODIES: markup,
+        GH_STUB_MARKER_818: markup,
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_CODE: '503',
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(out).toContain('recovery dispatch(es) failed');
+    expect(status).not.toBe(0);
+  });
+
+  it('leaves a ready issue with no marker untouched in the recovery pass', () => {
+    const { calls } = runBridge(
+      { GH_STUB_SWEEP_BODIES: '', GH_STUB_STATE_LABELS: 'open bug ready' },
+      ['--recover-ready']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('run_id=');
   });
 });
 
@@ -618,8 +874,10 @@ describe('fleet contracts', () => {
     expect(read(join(WORKFLOWS, 'label-guard.yml'))).toContain('"$GITHUB_EVENT_PATH"');
   });
 
-  it('keeps the AI-disclosure footer in the label-guard notice', () => {
-    expect(read(LABEL_GUARD)).toContain(AI_FOOTER);
+  it('keeps no AI-disclosure footer in the label-guard notice', () => {
+    // The anti-loop guard is the author (`cipansor-bot`), not a footer; the
+    // notice carries none.
+    expect(read(LABEL_GUARD)).not.toContain(AI_FOOTER);
   });
 
   it('wires the triage bridge into a workflow that fires on labels and a sweep', () => {
@@ -681,12 +939,17 @@ describe('fleet contracts', () => {
 
 describe('deploy-sdlc-agents.py', () => {
   const hasPy = spawnSync('python3', ['--version']).status === 0;
+  // The mandate paragraph and the footer line it mandates, as a live prompt
+  // still carries them. The redeploy must strip both (2026-10-14).
   const FOOTER =
-    '_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._';
+    'Setiap komentar yang Anda tulis ke GitHub WAJIB diakhiri dengan baris footer persis ini, kata demi kata, dalam bahasa Inggris (guard anti-loop bergantung pada teksnya):\n_This comment was created by an AI agent (OpenHands) on behalf of the maintainer._';
 
   // Call the real new_prompt(name, prompt) from the script (its __main__ is
   // guarded, so importing it does nothing else).
-  const newPrompt = (name: string, prompt: string): string => {
+  const runNewPrompt = (
+    name: string,
+    prompt: string
+  ): { status: number | null; stdout: string; stderr: string } => {
     const driver = [
       'import importlib.util, sys',
       'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
@@ -698,9 +961,238 @@ describe('deploy-sdlc-agents.py', () => {
       encoding: 'utf8',
       input: prompt,
     });
+    return { status: r.status, stdout: r.stdout, stderr: r.stderr };
+  };
+
+  const newPrompt = (name: string, prompt: string): string => {
+    const r = runNewPrompt(name, prompt);
     if (r.status !== 0) throw new Error(r.stderr || 'python failed');
     return r.stdout;
   };
+
+  // A distinctive line from SDLC 01's managed tail (`TAILS` in the deploy
+  // script). Its presence proves the tail — the task instructions — was
+  // re-attached, not merely that a budget was appended.
+  const TAILS_SDLC_01_MARKER = 'Triase bug ini dengan KRITIS dan habis-habisan.';
+
+  it.skipIf(!hasPy)('strips the AI-disclosure footer mandate from the head', () => {
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nTail`;
+    const out = newPrompt('SDLC 03', original);
+    expect(out).not.toContain('This comment was created by an AI agent');
+    expect(out).not.toContain('WAJIB diakhiri dengan baris footer');
+    // The body block still lands, now anchored on the task paragraph.
+    expect(out).toContain('BODY ISSUE/PR — KOMENTAR DULU');
+  });
+
+  // Call the real apply_timeout(aid, name, old_timeout, dry) from the script.
+  // It returns True on a change, prints the plan on a dry run, and only ever
+  // raises a value below the ceiling — never lowers one.
+  const applyTimeout = (
+    oldTimeout: number | null,
+    dry = true
+  ): { changed: boolean; out: string } => {
+    const driver = [
+      'import importlib.util, sys, json',
+      'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'old = None if sys.argv[2] == "null" else int(sys.argv[2])',
+      'dry = sys.argv[3] == "1"',
+      'changed = m.apply_timeout("aid", "SDLC 03", old, dry)',
+      'sys.stdout.write("CHANGED=" + str(changed))',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', driver, DEPLOY, String(oldTimeout), dry ? '1' : '0'], {
+      encoding: 'utf8',
+    });
+    if (r.status !== 0) throw new Error(r.stderr || 'python failed');
+    return { changed: r.stdout.includes('CHANGED=True'), out: r.stdout + r.stderr };
+  };
+
+  it.skipIf(!hasPy)('raises a timeout below the ceiling to 1800 (invariant 20)', () => {
+    const r = applyTimeout(900);
+    expect(r.changed).toBe(true);
+    expect(r.out).toContain('1800');
+  });
+
+  it.skipIf(!hasPy)('leaves a timeout already at the ceiling alone', () => {
+    expect(applyTimeout(1800).changed).toBe(false);
+  });
+
+  it.skipIf(!hasPy)('never lowers a timeout the API somehow accepted above the ceiling', () => {
+    // The API refuses > 1800 with a 422, so this is defensive: a value above the
+    // ceiling must not be silently rewritten downward.
+    expect(applyTimeout(3600).changed).toBe(false);
+  });
+
+  it.skipIf(!hasPy)('sets a missing timeout to the ceiling', () => {
+    expect(applyTimeout(null).changed).toBe(true);
+  });
+
+  it.skipIf(!hasPy)('tells the fleet watchdog to flag a timeout below the ceiling', () => {
+    // The watchdog is the runtime checker for invariant 20: the deploy script
+    // sets the value, but only the watchdog can notice a hand edit in the cloud.
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD watchdog`;
+    const out = newPrompt('SDLC 23', original);
+    expect(out).not.toContain('OLD watchdog');
+    expect(out).toContain('tepat 1800');
+    expect(out).toContain('timeout` < 1800 adalah cacat `config`');
+    expect(out).toContain('ANGGARAN WAKTU');
+  });
+
+  it.skipIf(!hasPy)('gives every automation a work budget', () => {
+    // Invariant 20 / §9: the 1800s ceiling cannot be raised, so an automation
+    // whose task can sprawl needs an hourglass of its own. Gerbang tinjau PR
+    // carries one and shows 0 wall deaths after it; Triase bug carried none and
+    // shows 23 in the same window (measured 2026-10-20).
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOriginal tail`;
+    // An automation with a managed tail but no tailored budget.
+    expect(newPrompt('SDLC 01', original)).toContain('ANGGARAN WAKTU — JAM PASIR');
+    // An automation with no managed tail keeps its tail and gains the budget.
+    const plain = newPrompt('SDLC 04', original);
+    expect(plain).toContain('ANGGARAN WAKTU — JAM PASIR');
+    expect(plain).toContain('Original tail');
+    // Idempotent: a redeploy must not stack a second copy.
+    expect(newPrompt('SDLC 04', plain).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    // A tailored budget is not doubled with the generic one.
+    expect(newPrompt('SDLC 18', original)).not.toContain('JAM PASIR');
+    expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
+  });
+
+  it.skipIf(!hasPy)('refuses a truncated prompt whose task instructions are gone', () => {
+    // A live prompt truncated by the old head-slicing bug carries no
+    // `PERILAKU SASARAN` marker. For an automation with no managed tail
+    // (`TAILS`), that marker held the task's own instructions — appending a
+    // budget to the surviving head would ship a prompt that cannot do its job.
+    // The deploy must refuse and name the repair (`ORIGINALS`), not deploy it.
+    const r = runNewPrompt('SDLC 04', 'Header tanpa ekor');
+    expect(r.status).not.toBe(0);
+    expect(r.stderr).toContain('no ');
+    expect(r.stderr).toContain('ORIGINALS');
+  });
+
+  it.skipIf(!hasPy)('rebuilds a truncated prompt whole when given the original', () => {
+    // The repair path: `ORIGINALS` supplies the untruncated prompt as the base,
+    // so the head is rebuilt and the tail (the task instructions) is restored —
+    // not merely given a budget. The tail's own instruction text must come back.
+    const original =
+      'Header\n\nSertakan tes bersama perubahan kode.\n\n' +
+      'PERILAKU SASARAN (level agentic)\nInstruksi tugas yang hilang saat terpotong.';
+    const out = newPrompt('SDLC 04', original);
+    expect(out).toContain('Instruksi tugas yang hilang saat terpotong.');
+    expect(out).toContain('BODY ISSUE/PR');
+    expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
+    // Idempotent on that result.
+    expect(newPrompt('SDLC 04', out).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+  });
+
+  it.skipIf(!hasPy)('rebuilds a managed-tail automation whole even from a truncated head', () => {
+    // For an automation with a managed tail (`TAILS`), a missing live tail is
+    // harmless: the tail is re-attached from the script, so the automation is
+    // rebuilt whole and its instructions are not lost. No refusal.
+    const out = newPrompt('SDLC 01', 'Header tanpa ekor');
+    expect(out).toContain('BODY ISSUE/PR');
+    expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
+    expect(out).toContain(TAILS_SDLC_01_MARKER);
+  });
+
+  it.skipIf(!hasPy)('still enforces the 1800s timeout when a truncated prompt is refused', () => {
+    // Config fixes do not depend on the prompt: when new_prompt refuses a
+    // truncated prompt, the automation must still get `timeout=1800` (and its
+    // trigger guard) — otherwise it stays on the old, too-short wall clock
+    // that caused the wall deaths in the first place. And the refused prompt
+    // itself must NOT be deployed (no PATCH carrying `prompt`).
+    const driver = [
+      'import importlib.util, sys, os, json',
+      "os.environ['DEPLOY'] = 'true'",
+      "os.environ['OPENHANDS_API_KEY'] = 'test-key'",
+      'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
+      'm = importlib.util.module_from_spec(spec)',
+      'spec.loader.exec_module(m)',
+      'calls = []',
+      'def fake_req(method, path, data=None, raw=False):',
+      '    calls.append({"method": method, "path": path, "data": data})',
+      '    if method == "GET" and path == "/":',
+      '        return {"automations": [{"id": "aid-1", "name": "SDLC 04",',
+      '            "prompt": "Header tanpa ekor", "timeout": 900, "trigger": {}}]}',
+      '    return {}',
+      'm.req = fake_req',
+      'm.patch_tarball = lambda aid, prompt: b""',
+      'm.upload = lambda blob, name: {"tarball_path": "x"}',
+      'code = 0',
+      'try:',
+      '    m.main()',
+      'except SystemExit as e:',
+      '    code = e.code if e.code is not None else 0',
+      'print("RESULT " + json.dumps({"code": code, "calls": calls}))',
+    ].join('\n');
+    const r = spawnSync('python3', ['-c', driver, DEPLOY], { encoding: 'utf8' });
+    const line = r.stdout.split('\n').find((l) => l.startsWith('RESULT '));
+    if (!line) throw new Error(`no RESULT line: ${r.stdout}\n${r.stderr}`);
+    const result = JSON.parse(line.slice('RESULT '.length)) as {
+      code: number;
+      calls: { method: string; path: string; data: unknown }[];
+    };
+    // The prompt was refused, so the script reports failure.
+    expect(result.code).toBe(2);
+    // The wall clock was still raised to the ceiling.
+    expect(result.calls).toContainEqual({
+      method: 'PATCH',
+      path: '/aid-1',
+      data: { timeout: 1800 },
+    });
+    // No PATCH carried the prompt: a refused prompt is never deployed.
+    const promptPatches = result.calls.filter(
+      (c) => c.method === 'PATCH' && c.data && 'prompt' in (c.data as object)
+    );
+    expect(promptPatches).toHaveLength(0);
+  });
+
+  it.skipIf(!hasPy)('cites the automation API endpoints the retry script actually uses', () => {
+    // The fleet's own integration (`.github/scripts/automation-retry.sh`) reads
+    // the list at the API root and runs at `/{id}/runs`. `/automations` answers
+    // 422 and `/automations/{id}/runs` answers 404, so a watchdog told to use
+    // them gets no data at all.
+    const out = newPrompt('SDLC 23', `x\n\nPERILAKU SASARAN (level agentic)\ny`);
+    expect(out).not.toContain('/api/automation/v1/automations');
+    expect(out).toContain('GET https://app.all-hands.dev/api/automation/v1`');
+    expect(out).toContain('/api/automation/v1/{id}/runs?limit=5');
+  });
+
+  it.skipIf(!hasPy)(
+    'tells the watchdog to classify wall failures by timeout_at, and to rotate coverage',
+    () => {
+      const out = newPrompt('SDLC 23', `x\n\nPERILAKU SASARAN (level agentic)\ny`);
+      // A fixed 1780s threshold misclassifies the ~1000s deaths from the era of
+      // `timeout=900`; the run's own deadline is the robust discriminator.
+      expect(out).toContain('completed_at >= timeout_at');
+      // A `command timed out` run that dies *before* its own deadline is a
+      // distinct class (`wall-short`), not lumped into `wall`: the `wall` advice
+      // (add budget) is wrong for a hung command. No timed-out run is classless.
+      expect(out).toContain('wall-short');
+      expect(out).toContain('Lima kelas');
+      // 24 automations, ~19 run reads: without rotation the tail is never seen.
+      expect(out).toContain('ROTASI WAJIB');
+      expect(out).toContain('%j');
+    }
+  );
+
+  it.skipIf(!hasPy)(
+    'tells the watchdog to classify failures from error_detail, not conversation_id',
+    () => {
+      // The dominant fleet failure is the wall clock, not a wrong task: 128 of
+      // 253 FAILED runs died at >=1780s with the agent still working. A watchdog
+      // keyed on `conversation_id` would mislabel them — that field is null on
+      // almost every run that dies at the wall (234 of 253 FAILED runs still had
+      // a `sandbox_id`), so the classification must key on `error_detail` plus
+      // time.
+      const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD watchdog`;
+      const out = newPrompt('SDLC 23', original);
+      expect(out).toContain('`conversation_id` **bukan** penanda sandbox');
+      expect(out).toContain('Timed out: command timed out or was killed');
+      expect(out).toContain('Timed out: Sandbox not available');
+      expect(out).toContain('Failed to get execution context');
+    }
+  );
 
   it.skipIf(!hasPy)('keeps the original tail when it has no replacement tail', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nAturan khusus yang harus utuh`;
@@ -726,14 +1218,34 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('KRITIS dan habis-habisan');
   });
 
+  it.skipIf(!hasPy)('rewrites the legacy footer filter in a kept tail to the author filter', () => {
+    // A tail with no replacement keeps its text, except the self-comment filter:
+    // the footer is gone, so a body-text match would match nothing.
+    const legacy = "!icontains(comment.body, 'This comment was created by an AI agent')";
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nPeriksa filter ${legacy} pada tiap trigger.`;
+    const out = newPrompt('SDLC 03', original);
+    expect(out).not.toContain(legacy);
+    expect(out).toContain("comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'");
+  });
+
+  it.skipIf(!hasPy)('summons @cipansor-bot in the Bot sebutan tail, not @openhands', () => {
+    // `@openhands` wakes the OpenHands GitHub App; the fleet's summon is
+    // `@cipansor-bot` (split 2026-10-14, one mention must not fire two agents).
+    const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD tail`;
+    const out = newPrompt('SDLC 07', original);
+    expect(out).toContain('menyebut @cipansor-bot');
+    expect(out).toContain('`@openhands` bukan pemicu Anda');
+  });
+
   it.skipIf(!hasPy)('rebuilds from an original even when the live prompt lost its tail', () => {
     // The repair path: the truncated live prompt is not the base when the
     // original is supplied, so the tail comes back.
     const truncated = `Header\n\n${FOOTER}\n\nBODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)\n- x`;
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nAturan khusus`;
     expect(newPrompt('SDLC 03', original)).toContain('Aturan khusus');
-    // And the buggy base would not have recovered it (idempotent head only).
-    expect(newPrompt('SDLC 03', truncated)).not.toContain('Aturan khusus');
+    // The truncated base is refused outright (its task instructions are gone),
+    // rather than silently rebuilt as a head-only prompt.
+    expect(runNewPrompt('SDLC 03', truncated).status).not.toBe(0);
   });
 
   it.skipIf(!hasPy)('inserts the comment-first body block exactly once', () => {
@@ -773,6 +1285,62 @@ describe('deploy-sdlc-agents.py', () => {
       expect(out).toContain('Jangan menginflasi `critical`');
     }
   );
+
+  it.skipIf(!hasPy)(
+    'tells both PR reviewers to check the acceptance criteria as a checklist',
+    () => {
+      // The user asked twice (2026-10-14): a PR review must say whether every
+      // acceptance criterion of the linked issue is met or not, as a simple
+      // markdown checkbox list — the diff, not the PR description, decides.
+      for (const name of ['SDLC 08', 'SDLC 18']) {
+        const out = newPrompt(name, `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`);
+        expect(out, name).toContain('KRITERIA PENERIMAAN (WAJIB)');
+        expect(out, name).toContain('- [x] <kriteria>');
+        expect(out, name).toContain('- [ ] <kriteria>');
+        // Two states only, and a derived criterion is marked as derived — the
+        // prompt, the PR body and the reviewer's output must agree (finding:
+        // the body promised a `sebagian` state the prompt never had).
+        expect(out, name).not.toContain('sebagian');
+        expect(out, name).toContain('(turunan)');
+        expect(out, name).toMatch(/Fixes #n/);
+      }
+    }
+  );
+
+  it.skipIf(!hasPy)('gives the review gate a target rule and a no-build budget', () => {
+    // The gate's own runs died on the 1800s platform ceiling (PATCH timeout
+    // above it is rejected 422): a 3224-line diff plus `pnpm install` and
+    // repeated `vitest` runs burned the budget before the review was posted.
+    // The prompt must (a) tell the gate where its target is when a payload-less
+    // API dispatch carries none, and (b) forbid building/testing in the
+    // sandbox — CI already did that, and reading check-runs is enough.
+    const out = newPrompt(
+      'SDLC 18',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(out).toContain('SASARAN (WAJIB saat payload kosong)');
+    expect(out).toContain('requested_reviewers');
+    expect(out).toContain('ANGGARAN WAKTU — JANGAN MEMBANGUN DI SANDBOX');
+    expect(out).toContain('1800');
+    expect(out).toMatch(/JANGAN `pnpm install`/);
+    expect(out).toMatch(/JANGAN menjalankan suite tes repo/);
+    // The tiebreak must pick the *freshest* owed head, not the oldest: a
+    // payload-less dispatch fires the moment a head turns green, so the newest
+    // green head is the one that asked for this run. With "oldest green" the
+    // gate kept choosing a stale PR (a big diff) and starved the head that had
+    // just triggered it (PR #837 review of SDLC 18).
+    expect(out).toContain('paling baru hijau');
+    expect(out).not.toContain('paling lama hijau');
+    // A single target and a bounded investigation, so a large diff cannot burn
+    // the whole budget before a review is posted.
+    expect(out).toMatch(/jangan meninjau lebih dari satu PR/);
+    expect(out).toContain('BATAS PENELUSURAN — WAJIB');
+    // The investigation cap is concrete and self-checked (count your own
+    // terminal commands): a soft "be brief" was ignored — a run spent 182
+    // commands / 36 min and never posted before the 1800s ceiling.
+    expect(out).toMatch(/Setelah \*\*30 perintah\*\*/);
+    expect(out).toMatch(/Jangan pernah melewati 30 perintah/);
+  });
 });
 
 describe('issue-triage-bridge.sh', () => {
@@ -795,8 +1363,8 @@ describe('issue-triage-bridge.sh', () => {
       : '[]';
     return createHash('sha256').update(`${line1}\n${line2}\n`).digest('hex').slice(0, 16);
   };
-  const sweepMarker = (n: number, sig: string) =>
-    `<!-- triage-bridge-sweep:${n}:${sig} -->\n\n_This comment was created by an AI agent (OpenHands) on behalf of the repository maintainers._`;
+  const sweepMarker = (n: number, sig: string, run = '') =>
+    `<!-- triage-bridge-sweep:${n}:${sig}:${run} -->`;
 
   it('dispatches the triage owner when a bot applies a type label', () => {
     const { calls, out } = runBridge(
@@ -837,15 +1405,15 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).not.toContain('DISPATCH');
   });
 
-  it('marks its own marker comment with the AI-disclosure footer', () => {
-    // Without the footer, a comment-triggered automation (Penjernih issue on
-    // `needs-info`, or acknowledge.yml) would read the marker as a reply.
+  it('carries no AI-disclosure footer on its marker comment', () => {
+    // The marker posts as `github-actions[bot]`; a comment-triggered automation
+    // tells it from a reporter by that `*[bot]` author, so no footer is needed.
     const { calls } = runBridge(
       { GH_STUB_ISSUE_LABELS: 'bug+priority:high' },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'bug')
     );
-    expect(calls).toContain(AI_FOOTER);
+    expect(calls).not.toContain(AI_FOOTER);
   });
 
   it('collapses the labeler’s burst to one dispatch per type+priority state', () => {
@@ -906,7 +1474,7 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).toContain('POST_MARKER');
     const sweepMarkers = calls.match(/triage-bridge-sweep:818:[0-9a-f]{16}/g) ?? [];
     expect(sweepMarkers.length).toBe(1);
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('triaged')}`);
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('triaged')}:run-1`);
   });
 
   it('snapshots the signal before the label dispatch, so an edit during it is not lost', () => {
@@ -925,9 +1493,11 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).toContain('DISPATCH');
     // The checkpoint is the activity the label dispatch actually answered...
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('before')}`);
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('before')}:run-1`);
     // ...not the post-dispatch edit, which would have hidden it.
-    expect(calls).not.toContain(`triage-bridge-sweep:818:${signal('edited-during-dispatch')}`);
+    expect(calls).not.toContain(
+      `triage-bridge-sweep:818:${signal('edited-during-dispatch')}:run-1`
+    );
   });
 
   it('skips an issue whose state read fails, instead of sweeping it', () => {
@@ -1103,5 +1673,283 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).toContain('DELETE_MARKER');
     expect(calls).not.toContain('DISPATCH');
+  });
+
+  // --- #836/#841: retry on the run's result, and cap the burst ---------------
+
+  it('retries an issue whose marked run did not complete, instead of skipping it', () => {
+    // #836: the marker was written at the 201, so an unchanged signal made the
+    // sweep skip an issue whose run then died. The marker now names the run; a
+    // FAILED run must re-dispatch the same activity.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('reads the named run from the listing, not the newest run', () => {
+    // #836 regression: the runs endpoint ignores `run_id=`, so a read that
+    // trusted it would see the newest run (here COMPLETED) for any id and
+    // finalise a failed run without retrying. The read must select `.id`.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS:
+          '{"runs":[{"id":"newest","status":"COMPLETED"},{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    // The named run FAILED (not the newest, which COMPLETED), so it re-dispatches.
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('finalises the checkpoint, without re-dispatching, when the marked run completed', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    // The run field is cleared, so a later sweep sees a finished checkpoint.
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: `);
+  });
+
+  it('leaves an in-flight run alone rather than dispatching it again', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"RUNNING"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('POST_MARKER');
+  });
+
+  it('finds a marked run on a later page instead of re-dispatching it', () => {
+    // R220: the listing is paged. A run pushed past the first 100 newer ones must
+    // still be found, or its checkpoint never finalises and it re-dispatches on
+    // every sweep.
+    const fillers = Array.from({ length: 100 }, (_, i) => ({ id: `f${i}`, status: 'COMPLETED' }));
+    const runs = JSON.stringify({ runs: [...fillers, { id: 'run-x', status: 'COMPLETED' }] });
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS: runs,
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: `);
+  });
+
+  it('does not re-dispatch when the run listing cannot be read', () => {
+    // R220: a read hiccup must not masquerade as a failed run. The marker is left
+    // for the next sweep, and nothing is dispatched or rewritten.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS_RAW: 'not json',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('POST_MARKER');
+  });
+
+  it('treats a page with runs:null as unreadable, not as a missing run', () => {
+    // R226: `has("runs")` passed for `{"runs":null}`, then `.runs[]` failed and
+    // length read 0 — the run looked gone and was re-dispatched though it may
+    // still be in flight. A non-array `runs` is an unreadable page.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS_RAW: '{"runs":null}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).not.toContain('POST_MARKER');
+  });
+
+  it('retries when the marked run is absent from the whole listing', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        CURL_STUB_RUNS: '{"runs":[{"id":"other","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('records the run id in the sweep marker, not just the 201', () => {
+    const { calls } = runBridge(
+      { GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818', GH_STUB_BODY: 'edited' },
+      ['--sweep']
+    );
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+  });
+
+  it('defers a candidate once MAX_INFLIGHT triage runs are already in flight', () => {
+    // #841: the fleet never forms the burst. With the pool already full, the
+    // candidate is deferred to the next sweep, not dispatched into a dead run.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"},{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '2',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('deferred');
+  });
+
+  it('dispatches when the in-flight count is below the cap', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '2',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('re-dispatches a legacy marker with no run field, migrating it to the new form', () => {
+    // R378: a marker written at the 201 before #836 has no run field, so whether
+    // its run finished was never recorded. It must not be read as a finished
+    // checkpoint; the sweep re-dispatches once and rewrites the marker with the
+    // run id, so the next sweep can read the outcome.
+    const legacy = `<!-- triage-bridge-sweep:818:${signal('edited')} -->`;
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: legacy,
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+    expect(out).toContain('legacy marker');
+  });
+
+  it('reads the new final form (empty run field) as a finished checkpoint', () => {
+    // The final form is `…:<signal>: -->`; the run field is present and empty.
+    // It is a finished checkpoint, not a legacy marker.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited')),
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('treats a 2xx dispatch that names no run as failed, so the checkpoint is not finalised blind', () => {
+    // R121: a 2xx without `.id` wrote an empty run field, which the next sweep
+    // read as finished and skipped — a silent failure. It is now a failure: no
+    // marker, a non-zero exit, and a retry.
+    const { calls, status, out } = runBridge(
+      { GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818', GH_STUB_BODY: 'edited', CURL_STUB_RUN_ID: '' },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(calls).not.toContain('POST_MARKER');
+    expect(status).not.toBe(0);
+    expect(out).toContain('named no run');
+  });
+
+  it('defers a labelled issue once MAX_INFLIGHT triage runs are in flight', () => {
+    // R319: the label path bypassed the cap, so a burst of labels formed the
+    // burst the sweep cap prevents. It honours the same cap.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"},{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '2',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('deferred');
+  });
+
+  it('records a pending checkpoint when it defers, and dispatches it once capacity frees', () => {
+    // A deferred issue must not be lost: the pending run field keeps it
+    // re-triable, and once the pool has room the sweep dispatches it.
+    const deferred = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(deferred.calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:pending`);
+
+    const resumed = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'pending'),
+        CURL_STUB_RUNS: '{"runs":[]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(resumed.calls).toContain('DISPATCH');
+    expect(resumed.calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+  });
+
+  it('does not rewrite an identical pending marker while the pool stays full', () => {
+    // R402: clearing the marker's fields before the capacity check made every
+    // full-pool sweep rewrite the same `pending` marker, bumping the issue's
+    // update time. With the fields preserved the marker is recognised as
+    // identical and left alone.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'pending'),
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(out).toContain('deferred');
+    expect(calls).not.toContain('POST_MARKER');
+    expect(calls).not.toContain('/issues/comments/');
   });
 });
