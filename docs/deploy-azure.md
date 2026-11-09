@@ -102,9 +102,16 @@ from the backup, as the VM runbook describes, not on staging.
       release — validate every new constraint against live data, because a
       migration that fails halfway leaves a failed row in `_prisma_migrations`
       that blocks every later one;
-   4. `gh workflow run deploy-production.yml -f sha=<full sha>` — it refuses
-      a SHA whose images staging never built, points `cipansor-produksi` at
-      them and waits until `https://cipansor.or.id/healthz` reports that SHA;
+   4. `gh workflow run deploy-production.yml -f sha=<full sha>` — its first job,
+      `gate`, re-checks the facts of 3.1 and 3.2 mechanically
+      (`.github/scripts/release-gate.sh`): the SHA is 40 lowercase hex, staging
+      is **already serving** it, and a `load-tests.yml` run for that SHA finished
+      green. The `deploy` job waits on it (`needs: gate`), so a forgotten load
+      test or a SHA staging never ran can no longer be released by hand. The gate
+      does not decide *whether* to release — that stays the maintainer's call —
+      only that the prerequisites are in place. `deploy` then refuses a SHA whose
+      images staging never built, points `cipansor-produksi` at them and waits
+      until `https://cipansor.or.id/healthz` reports that SHA;
    5. verifies behaviour (a real page and an authenticated API call), not just
       that the containers started.
 4. **Rollback** — run `deploy-production.yml` again with the previous SHA.

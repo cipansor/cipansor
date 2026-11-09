@@ -4,6 +4,12 @@
 # and pushed, and points the production app at those exact images. Nothing is
 # rebuilt here: production runs byte-for-byte what staging ran.
 #
+# The prerequisites in docs/deploy-azure.md are enforced by `gate` below, not
+# remembered by the operator: the SHA is well-formed, staging is already serving
+# it, and a k6 smoke run for that SHA finished green (`.github/scripts/release-gate.sh`).
+# The gate does not decide whether a release SHOULD happen — that is the
+# maintainer's call — it only refuses one whose facts are not in place.
+#
 # The api container applies pending migrations as it starts
 # (MIGRATE_ON_START=true), so the release procedure in docs/deploy-azure.md —
 # backup and pre-checks against the live data — happens BEFORE this runs.
@@ -25,6 +31,7 @@ on:
 permissions:
   contents: read
   id-token: write
+  actions: read
 
 concurrency:
   group: deploy-production
@@ -38,8 +45,26 @@ env:
   SHA: ${{ inputs.sha }}
 
 jobs:
+  # The mechanical half of the release decision: facts a script can read. Runs
+  # without the `production` environment, so it needs no Azure identity.
+  gate:
+    name: Check release prerequisites
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Refuse a SHA staging has not run, or that skipped the load test
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          STAGING_URL: https://staging.cipansor.or.id
+        run: sh .github/scripts/release-gate.sh
+
   deploy:
     name: Release ${{ inputs.sha }}
+    needs: gate
     runs-on: ubuntu-latest
     environment: production
     steps:
