@@ -46,7 +46,7 @@ const router: Router = Router();
  *         name: murojaahType
  *         schema:
  *           type: string
- *           enum: [DAILY, WEEKLY, MONTHLY, EXAM_PREP]
+ *           enum: [YAUMIYAH, USBUIYAH, SYAHRIYAH, TASMI]
  *     responses:
  *       200:
  *         description: List of murojaah records

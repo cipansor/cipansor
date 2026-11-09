@@ -158,7 +158,7 @@ export default function CreateMurojaahPage() {
       await createMutation.mutateAsync({
         ...data,
         murojaahDate: format(data.date, "yyyy-MM-dd"),
-        murojaahType: "DAILY", // Default type
+        murojaahType: "YAUMIYAH", // Harian, the default type
         juzStart: 1, // Placeholder as form only has surah/ayat
         juzEnd: 1, // Placeholder
         pagesReviewed: 1, // Placeholder
