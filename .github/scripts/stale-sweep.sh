@@ -203,18 +203,31 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
 
   RECORDED=$(printf '%s\n' "$WARNED_LINE" | grep -oE "$HASH_MARK[0-9a-f]+" | head -1 | cut -d: -f3 || true)
 
-  # A `seen` marker that still describes the current body is the live record of
+  # A `seen` marker governs only while no warning is newer. A warning posted
+  # after it belongs to a later cycle, and its own hash is then the record that
+  # decides whether the description changed since. Trusting an older `seen` hash
+  # would read a description reverted to that old text as "unedited" and close an
+  # issue that was edited today.
+  SEEN_LIVE=""
+  if [ -n "$SEEN_HASH" ]; then
+    if [ -z "$WARNED_AT" ] || [ "$SEEN_AT" \> "$WARNED_AT" ]; then SEEN_LIVE=1; fi
+  fi
+
+  # A live `seen` marker that still describes the current body is the record of
   # the edit that opened this cycle.
   SEEN_MATCH=""
-  [ -n "$SEEN_HASH" ] && [ "$BODY_HASH" = "$SEEN_HASH" ] && SEEN_MATCH=1
+  [ -n "$SEEN_LIVE" ] && [ "$BODY_HASH" = "$SEEN_HASH" ] && SEEN_MATCH=1
 
-  # An edit is new when the body matches neither hash on record — the warning's
-  # and the live `seen` marker's. Comparing against the warning alone would
-  # re-detect the same edit on every run (its hash is never rewritten), so the
-  # issue would restart its clock forever and never close.
+  # An edit is new when the body matches neither hash on record: the live `seen`
+  # marker's, or — once that marker is spent — the newest warning's. Comparing
+  # against a hash the body already matches would re-detect the same edit on
+  # every run (the hash is never rewritten), so the issue would restart its clock
+  # forever and never close.
   EDITED=""
-  if [ -n "$RECORDED" ] || [ -n "$SEEN_HASH" ]; then
-    [ "$BODY_HASH" != "$RECORDED" ] && [ "$BODY_HASH" != "$SEEN_HASH" ] && EDITED=1
+  if [ -n "$SEEN_LIVE" ]; then
+    [ "$BODY_HASH" != "$SEEN_HASH" ] && EDITED=1
+  elif [ -n "$RECORDED" ]; then
+    [ "$BODY_HASH" != "$RECORDED" ] && EDITED=1
   fi
 
   # An edit seen after a warning spends that warning: a warning governs only the
@@ -222,7 +235,7 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
   # closes. Without this the old warning would close an issue whose new cycle had
   # never been warned about.
   SEEN_SPENT=""
-  [ -n "$SEEN_MATCH" ] && [ -n "$WARNED_AT" ] && [ "$SEEN_AT" \> "$WARNED_AT" ] && SEEN_SPENT=1
+  [ -n "$SEEN_MATCH" ] && [ -n "$WARNED_AT" ] && SEEN_SPENT=1
 
   # The clock is the latest human comment, or the live edit, or the creation
   # date. The edit is included so an edited issue carries the age of its edit,

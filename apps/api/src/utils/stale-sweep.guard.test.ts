@@ -218,6 +218,21 @@ describe('stale-sweep.sh', () => {
     expect(calls).toContain('COMMENT 7');
   });
 
+  it('restarts the clock when the description is reverted to an older seen hash', () => {
+    // A `seen` marker older than the newest warning no longer governs: the
+    // warning's hash is the record in force. Reverting the description to the
+    // text an old `seen` marker recorded must not read as "unedited" — that
+    // would close an issue edited today on its pre-edit age.
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: row(7, 40, 'question,priority:low'),
+      GH_STUB_COMMENTS: `${seen(daysAgo(20), sha('body A'))}\n${warned(daysAgo(10), sha('body B'))}`,
+      GH_STUB_BODY: 'body A',
+    });
+    expect(calls).not.toContain('CLOSE 7');
+    expect(out).toContain('Recorded the edit to #7');
+    expect(out).toContain('idle 0d');
+  });
+
   it('closes the cycle an edit opened once that cycle has been warned and gone quiet', () => {
     // The full life of a restarted cycle: the edit (recorded 80 days ago) spent
     // the first warning; a fresh warning 20 days ago (whose hash matches the body,
