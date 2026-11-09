@@ -35,7 +35,7 @@ const UNIT_ID = '33333333-3333-4333-8333-333333333333';
 /** A minimal valid create body, as the form sends it. */
 const createBody = (murojaahDate: string) => ({
   studentId: STUDENT_ID,
-  murojaahType: 'DAILY',
+  murojaahType: 'YAUMIYAH',
   murojaahDate,
   juzStart: 1,
   juzEnd: 1,

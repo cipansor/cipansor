@@ -2,11 +2,13 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { apiClient } from "@/lib/api-client";
 
 // Enums
+// The API's `MurojaahType` values (Prisma enum). The English values this list
+// used to carry were rejected by the database, so no murojaah could be saved.
 export const MUROJAAH_TYPES = [
-  { value: "DAILY", label: "Harian (Yaumiyah)" },
-  { value: "WEEKLY", label: "Mingguan (Usbuiyah)" },
-  { value: "MONTHLY", label: "Bulanan (Syahriyah)" },
-  { value: "EXAM_PREP", label: "Persiapan Ujian" },
+  { value: "YAUMIYAH", label: "Harian (Yaumiyah)" },
+  { value: "USBUIYAH", label: "Mingguan (Usbuiyah)" },
+  { value: "SYAHRIYAH", label: "Bulanan (Syahriyah)" },
+  { value: "TASMI", label: "Tasmi' (Uji Acak)" },
 ] as const;
 
 export const MISTAKE_TYPES = [
@@ -48,7 +50,7 @@ export interface MurojaahRecord {
   enrollmentId?: string;
   halaqohId?: string;
   recordedById: string;
-  murojaahType: "DAILY" | "WEEKLY" | "MONTHLY" | "EXAM_PREP";
+  murojaahType: (typeof MUROJAAH_TYPES)[number]["value"];
   murojaahDate: string; // ISO Date
   date?: string; // Frontend might expect 'date'
   juzStart: number;

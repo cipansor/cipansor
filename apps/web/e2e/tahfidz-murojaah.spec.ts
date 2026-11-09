@@ -98,7 +98,7 @@ test.describe("Murojaah - Tambah", () => {
       repetitions: 3,
       notes: "e2e #908",
       murojaahDate: day,
-      murojaahType: "DAILY",
+      murojaahType: "YAUMIYAH",
       juzStart: 1,
       juzEnd: 1,
       pagesReviewed: 1,
@@ -125,7 +125,7 @@ test.describe("Murojaah - Tambah", () => {
       apiRequest(session, "POST", "/murojaah", {
         studentId,
         murojaahDate: "28/10/2026",
-        murojaahType: "DAILY",
+        murojaahType: "YAUMIYAH",
         juzStart: 1,
         juzEnd: 1,
         pagesReviewed: 1,

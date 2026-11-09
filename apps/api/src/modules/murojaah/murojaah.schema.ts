@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MurojaahType } from '@prisma/client';
 
 /**
  * A murojaah day as a date input writes it ("2026-10-28") or as a full
@@ -11,8 +12,11 @@ const murojaahDay = z.union([
   z.iso.datetime({ offset: true, message: 'Format tanggal tidak valid' }),
 ]);
 
-// Murojaah Type enum
-export const MurojaahTypeEnum = z.enum(['DAILY', 'WEEKLY', 'MONTHLY', 'EXAM_PREP']);
+// Murojaah Type enum: the database's own values (Prisma is the source of
+// truth, AGENTS.md rule 2). This list used to read DAILY/WEEKLY/MONTHLY/
+// EXAM_PREP, which passed validation and then failed at Prisma with a 500 on
+// every save and every type filter (#908).
+export const MurojaahTypeEnum = z.enum(MurojaahType);
 
 // Tahfidz Mistake Type enum
 export const TahfidzMistakeTypeEnum = z.enum([

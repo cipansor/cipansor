@@ -122,7 +122,7 @@ export function MurojaahFormDialog({
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      murojaahType: initialData?.murojaahType || "DAILY",
+      murojaahType: initialData?.murojaahType || "YAUMIYAH",
       murojaahDate: initialData?.murojaahDate
         ? new Date(initialData.murojaahDate)
         : new Date(),
