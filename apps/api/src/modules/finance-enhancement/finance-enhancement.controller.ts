@@ -1,4 +1,5 @@
 import { requireUser } from '../../middleware/auth';
+import { wibDayBound } from '../../utils/wib-day';
 import { Request, Response, NextFunction } from 'express';
 import { financeEnhancementService } from './finance-enhancement.service';
 import {
@@ -108,8 +109,8 @@ export class FinanceEnhancementController {
       const result = await financeEnhancementService.getJournalEntries({
         unitId: unitId as string,
         accountId: accountId as string,
-        startDate: startDate ? new Date(startDate as string) : undefined,
-        endDate: endDate ? new Date(endDate as string) : undefined,
+        startDate: startDate ? wibDayBound(startDate as string, 'start') : undefined,
+        endDate: endDate ? wibDayBound(endDate as string, 'end') : undefined,
         search: search as string,
         page,
         limit,
@@ -310,8 +311,8 @@ export class FinanceEnhancementController {
       // Use Reporting Service Logic
       const result = await getTrialBalance(
         unitId as string,
-        new Date(startDate as string),
-        new Date(endDate as string)
+        wibDayBound(startDate as string, 'start'),
+        wibDayBound(endDate as string, 'end')
       );
 
       res.json({ success: true, data: result });
@@ -334,8 +335,8 @@ export class FinanceEnhancementController {
       const result = await getGeneralLedger(
         unitId as string,
         accountId as string,
-        new Date(startDate as string),
-        new Date(endDate as string)
+        wibDayBound(startDate as string, 'start'),
+        wibDayBound(endDate as string, 'end')
       );
 
       res.json({ success: true, data: result });
@@ -356,8 +357,8 @@ export class FinanceEnhancementController {
 
       const result = await getCashFlowStatement(
         unitId as string,
-        new Date(startDate as string),
-        new Date(endDate as string)
+        wibDayBound(startDate as string, 'start'),
+        wibDayBound(endDate as string, 'end')
       );
 
       res.json({ success: true, data: result });
@@ -378,8 +379,8 @@ export class FinanceEnhancementController {
 
       const result = await getIncomeStatement(
         unitId as string,
-        new Date(startDate as string),
-        new Date(endDate as string)
+        wibDayBound(startDate as string, 'start'),
+        wibDayBound(endDate as string, 'end')
       );
 
       res.json({ success: true, data: result });
@@ -396,7 +397,7 @@ export class FinanceEnhancementController {
         return res.status(400).json({ success: false, message: 'Unit ID and Date are required' });
       }
 
-      const result = await getBalanceSheet(unitId as string, new Date(date as string));
+      const result = await getBalanceSheet(unitId as string, wibDayBound(date as string, 'end'));
 
       res.json({ success: true, data: result });
     } catch (error) {

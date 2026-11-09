@@ -72,6 +72,10 @@ GATE_MAX_ATTEMPTS="${GATE_MAX_ATTEMPTS:-3}"
 # same API gate-watch already calls to dispatch, so it needs no new secret.
 AUTOMATION_API="${AUTOMATION_API:-https://app.all-hands.dev/api/automation/v1}"
 ISSUE_MARK="<!-- gate-watch:health -->"
+# Every issue description opens with the basmalah (docs/LABELS.md rule 13).
+# basmalah.yml cannot add it to this one: GitHub starts no workflow for an
+# issue opened with GITHUB_TOKEN, so the watch writes it itself (#850).
+BASMALAH="بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ"
 # Automated comments carry no AI-disclosure footer: the anti-loop guard is the
 # comment's author (`cipansor-bot`), not the footer text — the account name
 # already tells a reader the comment is automated (#680).
@@ -311,7 +315,7 @@ if [ ! -s "$SILENT" ]; then
 fi
 
 {
-  printf '%s\n' "$ISSUE_MARK" "" \
+  printf '%s\n' "$BASMALAH" "" "$ISSUE_MARK" "" \
     "PR di bawah ini siap dan semua check di head-nya hijau lebih dari ${WAIT_MINUTES} menit, tetapi \`$GATE_LOGIN\` belum meninjau head itu. Gerbang berutang pass untuk setiap head hijau yang belum ditinjau, jadi cukup \`pr-lifecycle\` yang men-dispatch-nya; jawaban 2xx hanya berarti permintaan diterima, bukan bahwa review akan datang." \
     "" \
     "Yang perlu dilakukan: buka riwayat run automation \`Gerbang tinjau PR\` di OpenHands Cloud dan cari run untuk PR itu. Kalau gagal karena infrastruktur, minta review ulang di PR atau dorong commit baru." \

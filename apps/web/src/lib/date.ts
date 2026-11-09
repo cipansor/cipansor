@@ -35,6 +35,18 @@ export function todayWibDay(now: Date = new Date()): string {
 }
 
 /**
+ * Day of week (0=Sunday … 6=Saturday) an instant falls on in WIB.
+ *
+ * `Schedule.dayOfWeek` is filled from the WIB week, but `new Date().getDay()`
+ * reads the device clock: a device set to UTC, or any zone west of WIB, would
+ * ask for the previous weekday between 00:00 and 06:59 WIB and show
+ * yesterday's lessons as "Jadwal Hari Ini".
+ */
+export function wibWeekdayOf(instant: Date = new Date()): number {
+  return new Date(`${todayWibDay(instant)}T00:00:00.000Z`).getUTCDay();
+}
+
+/**
  * Format date to Indonesian locale
  */
 export function formatDate(

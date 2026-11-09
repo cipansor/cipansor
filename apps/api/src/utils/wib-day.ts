@@ -13,6 +13,34 @@ export function wibDayEnd(day: string): Date {
 }
 
 /**
+ * A report bound a request carries as a date — the date-only `YYYY-MM-DD` the
+ * report pages send — as the instant a `DateTime` column filter needs.
+ *
+ * `new Date('2026-01-31')` is midnight UTC, which is 07:00 WIB: filtering a
+ * `DateTime` column with `lte` on it silently drops every entry made later that
+ * day, so a month report loses its last day. This resolves the date to the WIB
+ * day it names and takes that day's first millisecond for a lower bound or its
+ * last for an upper bound. A string that carries a time is resolved to the WIB
+ * day that instant falls on, so an ISO caller means the same day.
+ */
+export function wibDayBound(value: string, edge: 'start' | 'end'): Date {
+  const day = wibDayOf(new Date(value));
+  return edge === 'start' ? wibDayStart(day) : wibDayEnd(day);
+}
+
+/**
+ * The WIB calendar year a moment falls in, as the `[start, end]` instants a
+ * `DateTime` filter needs. Year-to-date reports default to it, so a default
+ * derived from the server clock must not land on the previous UTC year.
+ */
+export function wibYearBounds(moment: Date): { start: Date; end: Date } {
+  const { year } = wibMonthYear(moment);
+  const first = wibDate(year, 0, 1);
+  const last = wibDate(year, 11, 31);
+  return { start: wibDayStart(wibDayOf(first)), end: wibDayEnd(wibDayOf(last)) };
+}
+
+/**
  * A date input's day as the value a date-only column holds: midnight UTC
  * (`@db.Date`, and the form `academic-calendar.ts` and `academicYearBillingWindow`
  * already use). A `DateTime` column kept as a calendar day — `Invoice.dueDate` —

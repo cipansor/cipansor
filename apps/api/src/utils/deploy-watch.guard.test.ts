@@ -13,7 +13,9 @@ const execFileAsync = promisify(execFile);
  * the latest deploy runs through the GitHub API and opens an issue when a
  * deploy failed, hung, or left its site unhealthy. It must never act on the
  * deployment itself (no rollback, no rerun, no repoint) and it must not open a
- * second issue for a failure it already reported.
+ * second issue for a failure it already reported. A workflow with an open
+ * report gets later failures as comments on it, and the report is closed once
+ * the workflow is green and its site healthy again (#850).
  *
  * The cases below drive the real script against a fake API and a fake site, so
  * they exercise the same `curl`/`jq` paths a real run would.
@@ -29,20 +31,42 @@ type Scenario = {
   minutesAgo: number;
   healthCommit: string | null; // null => /healthz unreachable
   manifestStatus: number;
-  existingIssueBody: string | null;
+  /** The `deploy-watch` issues the repository already has. */
+  issues: Issue[];
+  /** Comments on those issues, by number. */
+  comments?: Record<number, string[]>;
   /** The run's jobs; the default is the failed `Update staging`. */
   jobs?: { id: number; name: string; conclusion: string }[];
   /** Job logs answer 302 to a blob URL, as GitHub's do. */
   logsRedirect?: boolean;
   /** HTTP status of the runs listing (403 = a token without actions: read). */
   runsStatus?: number;
+  /** HTTP status of the `deploy-watch` issues listing. */
+  issuesStatus?: number;
+  /** A job's own log, by job id; a job not listed gets the default failure log. */
+  jobLogs?: Record<number, string>;
 };
+type Issue = { number: number; state: 'open' | 'closed'; body: string; updated_at?: string };
 let issuesQuery = '';
 
 let scenario: Scenario;
 let server: Server;
 let baseUrl: string;
 let openedBodies: string[];
+let commented: { n: number; body: string }[];
+let patched: { n: number; body: Record<string, string> }[];
+
+const BASMALAH = 'بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ';
+const AI_FOOTER = 'This comment was created by an AI agent';
+const now = () => new Date().toISOString();
+/** An open report of a workflow, as every report names its workflow file. */
+const report = (number: number, file: string, over: Partial<Issue> = {}): Issue => ({
+  number,
+  state: 'open',
+  body: `<!-- deploy-watch:run=${number}000 -->\n**Workflow:** Deploy x (\`${file}\`)`,
+  updated_at: now(),
+  ...over,
+});
 
 function isoMinutesAgo(min: number): string {
   return new Date(Date.now() - min * 60_000).toISOString().replace(/\.\d+Z$/, 'Z');
@@ -98,7 +122,11 @@ function handler(req: IncomingMessage, res: ServerResponse) {
     res.writeHead(302, { Location: `${baseUrl}/blob/job-7.log`, 'Content-Length': 0 });
     return res.end();
   }
-  if (/\/actions\/jobs\/\d+\/logs$/.test(path) || path === '/blob/job-7.log') {
+  const jobLog = /\/actions\/jobs\/(\d+)\/logs$/.exec(path);
+  if (jobLog && scenario.jobLogs?.[Number(jobLog[1])] !== undefined) {
+    return text(200, scenario.jobLogs[Number(jobLog[1])]);
+  }
+  if (jobLog || path === '/blob/job-7.log') {
     return text(
       200,
       '2026-10-07T00:00:00Z waiting for release\n' +
@@ -108,8 +136,40 @@ function handler(req: IncomingMessage, res: ServerResponse) {
   }
   if (path.endsWith('/issues') && req.method === 'GET') {
     issuesQuery = (req.url || '').split('?')[1] ?? '';
-    const body = scenario.existingIssueBody;
-    return json(200, body ? [{ number: 1, body }] : []);
+    if (scenario.issuesStatus && scenario.issuesStatus !== 200) {
+      return json(scenario.issuesStatus, { message: 'Server Error' });
+    }
+    const state = new URLSearchParams(issuesQuery).get('state');
+    return json(
+      200,
+      scenario.issues.filter((i) => state === 'all' || i.state === state)
+    );
+  }
+  const commentsOf = /\/issues\/(\d+)\/comments$/.exec(path);
+  if (commentsOf && req.method === 'GET') {
+    const list = scenario.comments?.[Number(commentsOf[1])] ?? [];
+    return json(
+      200,
+      list.map((body) => ({ body }))
+    );
+  }
+  const readBody = (then: (parsed: Record<string, string>) => void) => {
+    let raw = '';
+    req.on('data', (c) => (raw += c));
+    req.on('end', () => then(JSON.parse(raw)));
+  };
+  if (commentsOf && req.method === 'POST') {
+    return readBody((b) => {
+      commented.push({ n: Number(commentsOf[1]), body: b.body });
+      json(201, { id: 1 });
+    });
+  }
+  const issueOf = /\/issues\/(\d+)$/.exec(path);
+  if (issueOf && req.method === 'PATCH') {
+    return readBody((b) => {
+      patched.push({ n: Number(issueOf[1]), body: b });
+      json(200, { number: Number(issueOf[1]) });
+    });
   }
   if (path.endsWith('/labels') && req.method === 'POST') return json(201, {});
   if (path.endsWith('/issues') && req.method === 'POST') {
@@ -131,10 +191,12 @@ function resetScenario(over: Partial<Scenario> = {}) {
     minutesAgo: 10,
     healthCommit: SHA,
     manifestStatus: 200,
-    existingIssueBody: null,
+    issues: [],
     ...over,
   };
   openedBodies = [];
+  commented = [];
+  patched = [];
   issuesQuery = '';
 }
 
@@ -275,10 +337,72 @@ describe('deploy-watch.sh', () => {
   });
 
   it('does not open a second issue for a run already reported', async () => {
-    resetScenario({ conclusion: 'failure', existingIssueBody: '<!-- deploy-watch:run=424242 -->' });
+    resetScenario({
+      conclusion: 'failure',
+      issues: [{ number: 1, state: 'closed', body: '<!-- deploy-watch:run=424242 -->' }],
+    });
     const out = await runWatch();
     expect(openedBodies).toHaveLength(0);
+    expect(commented).toHaveLength(0);
     expect(out).toContain('already reported');
+  });
+
+  // Rule 13 of docs/LABELS.md. basmalah.yml never sees this issue: one opened
+  // with GITHUB_TOKEN starts no workflow run.
+  it('opens its issue with the basmalah, the run marker below it', async () => {
+    resetScenario({ conclusion: 'failure' });
+    await runWatch();
+    expect(openedBodies[0].startsWith(`${BASMALAH}\n\n<!-- deploy-watch:run=424242 -->`)).toBe(
+      true
+    );
+  });
+
+  // #861: when one job fails, the workflow cancels its siblings, and the API
+  // can list a cancelled one first. Its log holds no error, so the issue must
+  // quote the job that failed. Each job answers its own log here, or the case
+  // would pass with the bug in place.
+  it("quotes the failed job's log, not a cancelled sibling listed before it", async () => {
+    resetScenario({
+      conclusion: 'failure',
+      jobs: [
+        { id: 5, name: 'Build api', conclusion: 'cancelled' },
+        { id: 6, name: 'Build nginx', conclusion: 'failure' },
+      ],
+      jobLogs: {
+        5: '2026-11-05T02:40:00Z ##[error]The operation was canceled.\n',
+        6: '2026-11-05T02:40:00Z ##[error]AADSTS700213: No matching federated identity record found\n',
+      },
+    });
+    await runWatch();
+    expect(openedBodies).toHaveLength(1);
+    expect(openedBodies[0]).toContain('AADSTS700213');
+    expect(openedBodies[0]).not.toContain('The operation was canceled');
+  });
+
+  it('…and falls back to a timed-out or cancelled job when none failed', async () => {
+    resetScenario({
+      conclusion: 'cancelled',
+      jobs: [
+        { id: 4, name: 'CI and E2E passed', conclusion: 'success' },
+        { id: 5, name: 'Update staging', conclusion: 'cancelled' },
+      ],
+      jobLogs: { 5: '2026-11-05T02:40:00Z ##[error]The operation was canceled.\n' },
+    });
+    await runWatch();
+    expect(openedBodies[0]).toContain('The operation was canceled');
+  });
+
+  // An unreadable report list must not read as "no reports": every API hiccup
+  // would then open a duplicate issue for a run already reported.
+  it('reports nothing and fails when the existing reports cannot be listed', async () => {
+    resetScenario({
+      conclusion: 'failure',
+      issuesStatus: 502,
+      issues: [report(800, 'deploy-staging.yml')],
+    });
+    await expect(runWatch()).rejects.toMatchObject({ code: 1 });
+    expect(openedBodies).toEqual([]);
+    expect(commented).toEqual([]);
   });
 
   it('never mutates the deployment — a human decides', () => {
@@ -296,6 +420,105 @@ describe('deploy-watch.sh', () => {
       expect(script).not.toContain(forbidden);
     }
     expect(script).toContain('never rolls back');
+  });
+});
+
+/**
+ * One open report per workflow (#850). From 2026-10-12 one cause opened eleven
+ * issues, one per failed run, and the fleet triaged each of them.
+ */
+describe('deploy-watch.sh — one report per workflow', () => {
+  it('a later failure of a workflow with an open report is a comment on it, not a new issue', async () => {
+    resetScenario({ conclusion: 'failure', issues: [report(800, 'deploy-staging.yml')] });
+    const out = await runWatch();
+    expect(openedBodies).toEqual([]);
+    expect(commented).toHaveLength(1);
+    expect(commented[0].n).toBe(800);
+    expect(commented[0].body).toContain('<!-- deploy-watch:run=424242 -->');
+    expect(commented[0].body).toContain('staging not answering with commit deadbeef');
+    expect(commented[0].body).not.toContain(AI_FOOTER);
+    expect(out).toContain('added run 424242');
+  });
+
+  it('comments on the oldest open report when several are open', async () => {
+    resetScenario({
+      conclusion: 'failure',
+      issues: [report(843, 'deploy-staging.yml'), report(800, 'deploy-staging.yml')],
+    });
+    await runWatch();
+    expect(commented.map((c) => c.n)).toEqual([800]);
+  });
+
+  it('does not add the same run to the report twice', async () => {
+    resetScenario({
+      conclusion: 'failure',
+      issues: [report(800, 'deploy-staging.yml')],
+      comments: { 800: ['<!-- deploy-watch:run=424242 -->\n## Deploy staging failed again'] },
+    });
+    const out = await runWatch();
+    expect(commented).toEqual([]);
+    expect(openedBodies).toEqual([]);
+    expect(out).toContain('already reported');
+  });
+
+  it('…nor raise it again after a person closed the report while it is still the latest run', async () => {
+    resetScenario({
+      conclusion: 'failure',
+      issues: [report(800, 'deploy-staging.yml', { state: 'closed' })],
+      comments: { 800: ['<!-- deploy-watch:run=424242 -->'] },
+    });
+    await runWatch();
+    expect(openedBodies).toEqual([]);
+    expect(commented).toEqual([]);
+  });
+
+  it("one workflow's open report does not take another workflow's failure", async () => {
+    resetScenario({ conclusion: 'failure', issues: [report(800, 'deploy-production.yml')] });
+    await runWatch();
+    expect(commented).toEqual([]);
+    expect(openedBodies).toHaveLength(1);
+  });
+
+  it('closes the open report once the workflow is green and its site serves the commit', async () => {
+    resetScenario({ issues: [report(800, 'deploy-staging.yml')] });
+    const out = await runWatch();
+    expect(patched).toEqual([{ n: 800, body: { state: 'closed', state_reason: 'completed' } }]);
+    expect(commented).toHaveLength(1);
+    expect(commented[0].body).toContain('Recovered');
+    expect(commented[0].body).toContain(SHA);
+    expect(commented[0].body).not.toContain(AI_FOOTER);
+    expect(out).toContain('closed #800');
+  });
+
+  it('…keeps it open, with the new evidence, while the site is still unhealthy', async () => {
+    resetScenario({ healthCommit: '0ldc0de', issues: [report(800, 'deploy-staging.yml')] });
+    await runWatch();
+    expect(patched).toEqual([]);
+    expect(openedBodies).toEqual([]);
+    expect(commented).toHaveLength(1);
+    expect(commented[0].body).toContain('degraded');
+  });
+
+  // A docs-only merge skips `Update staging`: the run is green without having
+  // logged in to Azure or released anything, so it proves nothing about the
+  // cause of the open report (#800 was AADSTS700213 at `azure/login`).
+  it('…but a green run that deployed nothing leaves the report open', async () => {
+    resetScenario({
+      healthCommit: 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa',
+      jobs: [{ id: 7, name: 'Update staging', conclusion: 'skipped' }],
+      issues: [report(800, 'deploy-staging.yml')],
+    });
+    const out = await runWatch();
+    expect(patched).toEqual([]);
+    expect(commented).toEqual([]);
+    expect(out).toContain('open reports stay open');
+  });
+
+  it("…and leaves another workflow's report alone", async () => {
+    resetScenario({ issues: [report(800, 'deploy-production.yml')] });
+    await runWatch();
+    expect(patched).toEqual([]);
+    expect(commented).toEqual([]);
   });
 });
 

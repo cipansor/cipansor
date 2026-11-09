@@ -23,7 +23,7 @@ import type {
 } from '@cipansor/shared';
 import { DAY_OF_WEEK_BY_INDEX } from '@cipansor/shared';
 import { studentInUnitAt } from '@/utils/student-unit-history';
-import { dayOf, shiftWibDay, todayWib } from '@/utils/wib';
+import { dayOf, shiftWibDay, todayWib, wibWeekday } from '@/utils/wib';
 import { wibDayStart } from '@/utils/wib-day';
 import { memorizedJuz } from '@/modules/tahfidz/quran-surahs';
 import { STUDENT_STATUS } from '@cipansor/shared';
@@ -1018,7 +1018,7 @@ export class DashboardService {
    * The teacher's timetabled lessons for today, ordered by start time.
    */
   private async getTeacherTodaySchedule(teacherId: string): Promise<TeacherScheduleItem[]> {
-    const dayOfWeek = DAY_OF_WEEK_BY_INDEX[new Date().getDay()];
+    const dayOfWeek = DAY_OF_WEEK_BY_INDEX[wibWeekday(todayWib())];
 
     const schedules = await prisma.schedule.findMany({
       where: { teacherId, isActive: true, dayOfWeek },

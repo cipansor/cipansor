@@ -7,6 +7,13 @@
 #
 # DEPLOY_WATCH_DRY_RUN=1 prints what it would open without creating anything.
 #
+# One open issue per workflow, not one per run (#850). A later run of a
+# workflow that already has an open report is added to that issue as a comment,
+# and the issue is closed once the workflow's latest run is green and its site
+# serves that commit. From 2026-10-12 one cause (an OIDC subject Azure no
+# longer matched) opened eleven issues, one per run, and the fleet triaged,
+# labelled and commented on every one of them.
+#
 # It runs when a deploy finishes (deploy-watch.yml), not on a clock: the
 # deploys are what change the sites. A site that degrades later with no deploy
 # is the platform's to report (App Service Health check, an availability
@@ -26,6 +33,13 @@ LABEL=${DEPLOY_WATCH_LABEL:-deploy-watch}
 STUCK_MINUTES=${DEPLOY_WATCH_STUCK_MINUTES:-45}
 DRY_RUN=${DEPLOY_WATCH_DRY_RUN:-0}
 NOW=$(date -u +%s)
+# Every issue description opens with the basmalah (docs/LABELS.md rule 13).
+# basmalah.yml cannot add it here: GitHub starts no workflow for an issue opened
+# with GITHUB_TOKEN, so the watchdog writes it itself.
+BASMALAH="بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ"
+# Automated comments carry no AI-disclosure footer: the anti-loop guard is the
+# comment's author, not the footer text (docs/LABELS.md, #680; dropped
+# 2026-10-14).
 
 # name|workflow file|public base url — the two workflows that reach a site.
 WORKFLOWS=${DEPLOY_WATCH_WORKFLOWS:-'Deploy staging|deploy-staging.yml|https://staging.cipansor.or.id
@@ -54,16 +68,16 @@ BLIND_FILE=$(mktemp)
 trap 'rm -f "$CODE_FILE" "$BLIND_FILE"' EXIT
 httpcode() { cat "$CODE_FILE" 2>/dev/null || echo ""; }
 
-req() { # req <GET|POST> <url> [data-file] -> body on stdout; httpcode() set
+req() { # req <GET|POST|PATCH> <url> [data-file] -> body on stdout; httpcode() set
   local method=$1 url=$2 datafile=${3:-} out code
   out=$(mktemp)
-  if [ "$method" = POST ]; then
+  if [ "$method" != GET ]; then
     if [ -n "$datafile" ]; then
-      code=$(curl -sS --max-time 30 -X POST "${auth[@]}" \
+      code=$(curl -sS --max-time 30 -X "$method" "${auth[@]}" \
         -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/json' \
         --data-binary @"$datafile" -o "$out" -w '%{http_code}' "$url" 2>/dev/null || true)
     else
-      code=$(curl -sS --max-time 30 -X POST "${auth[@]}" \
+      code=$(curl -sS --max-time 30 -X "$method" "${auth[@]}" \
         -H 'Accept: application/vnd.github+json' -H 'Content-Type: application/json' \
         -d '{}' -o "$out" -w '%{http_code}' "$url" 2>/dev/null || true)
     fi
@@ -90,12 +104,23 @@ probe() { # probe <url> -> body on stdout; httpcode() set (no auth, like a visit
   rm -f "$out"
 }
 
-post_json() { # post_json <url> <json> -> body on stdout; httpcode() set
+post_json() { # post_json <url> <json> [method] -> body on stdout; httpcode() set
   local f
   f=$(mktemp)
   printf '%s' "$2" > "$f"
-  req POST "$1" "$f"
+  req "${3:-POST}" "$1" "$f"
   rm -f "$f"
+}
+
+# open_reports <issues-json> <workflow-file> -> the open reports of that
+# workflow, oldest first, one number per line. A report names its workflow file
+# in its body ("**Workflow:** Deploy staging (`deploy-staging.yml`)"), which
+# every report has carried since the first, so the reports opened before #850
+# are found too.
+open_reports() {
+  printf '%s' "$1" | jq -r --arg w "(\`$2\`)" \
+    '[.[]? | select(.state == "open" and .pull_request == null and ((.body // "") | contains($w)))]
+     | sort_by(.number) | .[].number' 2>/dev/null || true
 }
 
 log() { echo "deploy-watch: $*"; }
@@ -115,7 +140,16 @@ collect_logs() {
   local rid=$1 jobs jid logs raw matched
   jobs=$(req GET "$API/repos/$REPO/actions/runs/$rid/jobs")
   [ "$(httpcode)" = 200 ] || return 0
-  jid=$(printf '%s' "$jobs" | jq -r '(.jobs // []) | map(select(.conclusion != null and .conclusion != "success")) | .[0].id // empty')
+  # The job that failed, then one that timed out or was cancelled, then any
+  # other that did not succeed. When one job fails, the workflow cancels its
+  # siblings, and the API can list a cancelled one first: its log holds no
+  # error, only "The operation was canceled" (#861).
+  jid=$(printf '%s' "$jobs" | jq -r '(.jobs // []) as $j
+    | ([$j[] | select(.conclusion == "failure")]
+       + [$j[] | select(.conclusion == "timed_out")]
+       + [$j[] | select(.conclusion == "cancelled")]
+       + [$j[] | select(.conclusion != null and .conclusion != "success" and .conclusion != "skipped")])
+    | .[0].id // empty')
   [ -n "$jid" ] || jid=$(printf '%s' "$jobs" | jq -r '(.jobs // []) | .[0].id // empty')
   [ -n "$jid" ] || return 0
   logs=$(req GET "$API/repos/$REPO/actions/jobs/$jid/logs")
@@ -133,34 +167,66 @@ collect_logs() {
   fi
 }
 
+# commented_on <issues-json> <workflow-file> <since> <marker> -> the number of a
+# report of that workflow, open or closed, that already carries <marker> in a
+# comment. Only a report touched since the run was created can hold a comment
+# about it, and only comments written since then are read, so this stays one
+# short page per report however long the report has run. Closed reports count
+# too: a person closing the report while its run is still the latest must not
+# see the run raised again.
+commented_on() {
+  local issues=$1 wf=$2 since=$3 marker=$4 n comments
+  for n in $(printf '%s' "$issues" | jq -r --arg w "(\`$wf\`)" --arg s "$since" \
+    '.[]? | select(.pull_request == null and ((.body // "") | contains($w)) and ((.updated_at // "") >= $s)) | .number' 2>/dev/null); do
+    comments=$(req GET "$API/repos/$REPO/issues/$n/comments?since=$since&per_page=100")
+    if [ "$(httpcode)" = 200 ] && printf '%s' "$comments" \
+      | jq -e --arg m "$marker" '[.[]? | (.body // "") | contains($m)] | any' >/dev/null 2>&1; then
+      printf '%s' "$n"
+      return 0
+    fi
+  done
+}
+
 # report <name> <workflow-file> <run-json> <kind> <why> [evidence]
 report() {
   local name=$1 wf=$2 run=$3 kind=$4 why=$5 extra=${6:-}
-  local id sha url marker existing logs title body payload resp
+  local id sha url created marker existing open seen logs details title body payload resp
   id=$(printf '%s' "$run" | jq -r '.id')
   sha=$(printf '%s' "$run" | jq -r '.head_sha')
   url=$(printf '%s' "$run" | jq -r '.html_url')
+  created=$(printf '%s' "$run" | jq -r '.created_at')
   marker="deploy-watch:run=$id"
 
   # Closed ones too: closing a report while its run is still the latest must
   # not raise the same report again on the next check.
   existing=$(req GET "$API/repos/$REPO/issues?state=all&labels=$LABEL&per_page=100")
-  if [ "$(httpcode)" = 200 ] && printf '%s' "$existing" \
-    | jq -e --arg m "$marker" '[.[]? | (.body // "") | contains($m)] | any' >/dev/null 2>&1; then
-    log "$name: run $id already reported (open issue carries $marker) — nothing to do"
+  # Fail closed: without the list, the watch cannot tell a new run from one it
+  # already reported, and an empty list would open a duplicate report on every
+  # API hiccup. Report nothing, and end the run red (BLIND_FILE).
+  if [ "$(httpcode)" != 200 ]; then
+    log "$name: could not list the existing reports (HTTP $(httpcode)) — run $id not reported"
+    printf '%s reports (HTTP %s)\n' "$name" "$(httpcode)" >> "$BLIND_FILE"
     return 0
   fi
+  if printf '%s' "$existing" \
+    | jq -e --arg m "$marker" '[.[]? | (.body // "") | contains($m)] | any' >/dev/null 2>&1; then
+    log "$name: run $id already reported (an issue carries $marker) — nothing to do"
+    return 0
+  fi
+  seen=$(commented_on "$existing" "$wf" "$created" "$marker")
+  if [ -n "$seen" ]; then
+    log "$name: run $id already reported (a comment on #$seen carries $marker) — nothing to do"
+    return 0
+  fi
+  open=$(open_reports "$existing" "$wf" | head -n1)
 
   logs=""
   [ "$kind" != degraded ] && logs=$(collect_logs "$id")
 
-  title="Deploy watchdog: $name run $id $kind"
+  # The facts of this run, the same in a new issue and in a comment on an open one.
   # Built with quoted printf arguments, never an unquoted heredoc: a heredoc
   # would run the backticks in this Markdown (lesson: gh-cli-and-shell-traps).
-  body=$(printf '%s\n' \
-    "<!-- $marker -->" \
-    "## Deploy watchdog — $name $kind" \
-    "" \
+  details=$(printf '%s\n' \
     "**Workflow:** $name (\`$wf\`)" \
     "**Run:** [$id]($url) — commit \`$sha\`" \
     "**State:** $kind" \
@@ -169,12 +235,45 @@ report() {
     "### Why" \
     "$why")
   if [ -n "$extra" ]; then
-    body="$body$(printf '\n\n### Evidence\n%s' "$extra")"
+    details="$details$(printf '\n\n### Evidence\n%s' "$extra")"
   fi
   if [ -n "$logs" ]; then
-    body="$body$(printf '\n\n### Log lines\n```\n%s\n```' "$logs")"
+    details="$details$(printf '\n\n### Log lines\n```\n%s\n```' "$logs")"
   fi
-  body="$body$(printf '\n\n> Opened automatically by the deploy watchdog. It does not roll anything back — a human decides. A later failure of the same run will not open a second issue. Release procedure: `docs/deploy-azure.md` → "How a change is released".')"
+
+  # The workflow already has an open report: this run is a comment on it, not a
+  # second issue for what is most likely the same cause (#850).
+  if [ -n "$open" ]; then
+    body=$(printf '%s\n' \
+      "<!-- $marker -->" \
+      "## $name $kind again" \
+      "" \
+      "$details" \
+      "" \
+      "> Added by the deploy watchdog to the open report for \`$wf\` instead of opening another issue. The report is closed automatically once a run of this workflow is green and its site serves that commit.")
+    if [ "$DRY_RUN" = 1 ]; then
+      echo "----- would comment on issue #$open"
+      printf '%s\n' "$body"
+      return 0
+    fi
+    resp=$(post_json "$API/repos/$REPO/issues/$open/comments" "$(jq -n --arg b "$body" '{body:$b}')")
+    if [ "$(httpcode)" = 201 ]; then
+      log "$name: added run $id ($kind) to open issue #$open"
+    else
+      log "$name: could not comment on #$open for run $id (HTTP $(httpcode)): $(printf '%s' "$resp" | head -c 200)"
+    fi
+    return 0
+  fi
+
+  title="Deploy watchdog: $name run $id $kind"
+  body=$(printf '%s\n' \
+    "$BASMALAH" \
+    "" \
+    "<!-- $marker -->" \
+    "## Deploy watchdog — $name $kind" \
+    "" \
+    "$details")
+  body="$body$(printf '\n\n> Opened automatically by the deploy watchdog. It does not roll anything back — a human decides. While this issue is open, a later failure of `%s` is added to it as a comment instead of a new issue, and it is closed once a run is green and its site healthy. Release procedure: `docs/deploy-azure.md` → "How a change is released".' "$wf")"
 
   if [ "$DRY_RUN" = 1 ]; then
     echo "----- would open issue: $title"
@@ -192,6 +291,37 @@ report() {
   else
     log "$name: could not open an issue for run $id (HTTP $(httpcode)): $(printf '%s' "$resp" | head -c 200)"
   fi
+}
+
+# resolve <name> <workflow-file> <run-json> <base-url> <serving-commit> — the
+# workflow's latest run is green and its site answers: close whatever report is
+# still open for it, with the evidence. A report that stays open after the fix
+# would take the next, unrelated failure as a comment.
+resolve() {
+  local name=$1 wf=$2 run=$3 base=$4 serving=$5 id sha url existing n body
+  id=$(printf '%s' "$run" | jq -r '.id')
+  sha=$(printf '%s' "$run" | jq -r '.head_sha')
+  url=$(printf '%s' "$run" | jq -r '.html_url')
+  existing=$(req GET "$API/repos/$REPO/issues?state=open&labels=$LABEL&per_page=100")
+  if [ "$(httpcode)" != 200 ]; then
+    log "$name: could not list open reports (HTTP $(httpcode)) — none closed"
+    return 0
+  fi
+  for n in $(open_reports "$existing" "$wf"); do
+    body="Recovered: run [$id]($url) on commit \`$sha\` is green and $base answers with \`$serving\` (api and web). Closing this report; a new failure of \`$wf\` opens a fresh one."
+    if [ "$DRY_RUN" = 1 ]; then
+      echo "----- would close issue #$n"
+      printf '%s\n' "$body"
+      continue
+    fi
+    post_json "$API/repos/$REPO/issues/$n/comments" "$(jq -n --arg b "$body" '{body:$b}')" >/dev/null
+    post_json "$API/repos/$REPO/issues/$n" '{"state":"closed","state_reason":"completed"}' PATCH >/dev/null
+    if [ "$(httpcode)" = 200 ]; then
+      log "$name: closed #$n — run $id is green and $base serves $serving"
+    else
+      log "$name: could not close #$n (HTTP $(httpcode))"
+    fi
+  done
 }
 
 # check <name> <workflow-file> <base-url>
@@ -274,8 +404,12 @@ body: $(printf '%s' "$health" | head -c 400)"
 
   if [ -n "$expected" ]; then
     log "$name: run $id success — $base is serving $sha (api and web)"
+    resolve "$name" "$wf" "$latest" "$base" "${hcommit:-?}"
   else
-    log "$name: run $id deployed nothing (no code changed) — $base answers, serving ${hcommit:-?}"
+    # A run that deployed nothing never exercised the release path (login,
+    # build, container update), so it cannot prove the reported cause is fixed:
+    # an open report stays open until a run that deployed is green.
+    log "$name: run $id deployed nothing (no code changed) — $base answers, serving ${hcommit:-?}; open reports stay open"
   fi
 }
 
@@ -287,7 +421,7 @@ main() {
     check "$name" "$wf" "$base"
   done
   if [ -s "$BLIND_FILE" ]; then
-    echo "::error::deploy-watch could not read the runs of: $(paste -sd, "$BLIND_FILE"). Nothing was checked for them (does the token have actions: read?)."
+    echo "::error::deploy-watch could not read: $(paste -sd, "$BLIND_FILE"). Nothing was checked or reported for them (does the token have actions: read and issues: write?)."
     exit 1
   fi
 }
