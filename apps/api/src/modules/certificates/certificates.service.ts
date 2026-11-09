@@ -6,6 +6,7 @@ import { assertStudentInScope, studentScope } from '../../utils/student-scope';
 import { STUDENT_SUMMARY_SELECT, toStudentSummary } from '../../utils/student-summary';
 import { generateCertificatePdfBuffer } from '../../utils/generate-certificate-pdf';
 import { Errors } from '../../middleware/error';
+import { wibMonthYear } from '../../utils/wib-day';
 import type {
   CreateCertificateDto,
   QueryCertificateDto,
@@ -88,8 +89,10 @@ function qrCode() {
 }
 
 function certificateNumber(type: string) {
-  const year = new Date().getFullYear();
-  const month = String(new Date().getMonth() + 1).padStart(2, '0');
+  // The WIB month the certificate is issued in, not the UTC container's month,
+  // which is still the previous one between 00:00 and 06:59 WIB on the 1st.
+  const { year, month: m } = wibMonthYear(new Date());
+  const month = String(m + 1).padStart(2, '0');
   // The number is the public verification key, so a guessable four-digit
   // sequence would let anyone enumerate other students' certificates.
   const seq = crypto.randomBytes(5).toString('hex').toUpperCase();

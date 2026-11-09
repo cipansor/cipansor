@@ -1,6 +1,6 @@
 import { Request, Response } from 'express';
 import { asyncHandler } from '../../middleware/error';
-import { ListTransactionsQuerySchema } from './laundry.schema';
+import { ListTransactionsQuerySchema, type TransactionStatsQuery } from './laundry.schema';
 import { laundryReadScope, pricingService, transactionService } from './laundry.service';
 import { ApiResponse } from '../../utils/response';
 
@@ -76,12 +76,9 @@ export const listTransactions = asyncHandler(async (req: Request, res: Response)
 
 /** GET /api/laundry/transactions/stats */
 export const getStats = asyncHandler(async (req: Request, res: Response) => {
-  const { startDate, endDate } = req.query;
-  const stats = await transactionService.getStats(
-    laundryReadScope(req.user!),
-    startDate as string,
-    endDate as string
-  );
+  // Validated at the route (TransactionStatsQuerySchema): two WIB days, YYYY-MM-DD.
+  const { startDate, endDate } = res.locals.validatedQuery as TransactionStatsQuery;
+  const stats = await transactionService.getStats(laundryReadScope(req.user!), startDate, endDate);
   return res.json(ApiResponse.success(stats, 'Berhasil mengambil statistik laundry'));
 });
 

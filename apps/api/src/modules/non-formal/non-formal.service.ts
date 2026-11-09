@@ -1,6 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { CreateCourseInput, UpdateCourseInput, EnrollCourseInput } from './non-formal.schema';
 import { Prisma } from '@prisma/client';
+import { wibMonthYear } from '../../utils/wib-day';
 
 export const courseService = {
   async findAll(unitId?: string) {
@@ -94,8 +95,12 @@ export const courseService = {
           });
         }
 
-        const year = new Date().getFullYear();
-        const month = String(new Date().getMonth() + 1).padStart(2, '0');
+        // The WIB month, for the number and for the sequence it continues: on a
+        // UTC container `getMonth()` is still the previous month between 00:00
+        // and 06:59 WIB on the 1st, so the new month's first invoice took the
+        // old month's prefix and sequence.
+        const { year, month: m } = wibMonthYear(new Date());
+        const month = String(m + 1).padStart(2, '0');
         const lastInvoice = await tx.invoice.findFirst({
           where: { invoiceNumber: { startsWith: `INV-CRS-${year}${month}` } },
           orderBy: { invoiceNumber: 'desc' },

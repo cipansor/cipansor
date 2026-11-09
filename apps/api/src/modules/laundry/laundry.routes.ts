@@ -1,13 +1,14 @@
 import { Router } from 'express';
 import { UserRole } from '@prisma/client';
 import { authenticate, authorize } from '../../middleware/auth';
-import { validate } from '../../middleware/validate';
+import { validate, validateQuery } from '../../middleware/validate';
 import {
   CreatePricingSchema,
   UpdatePricingSchema,
   CreateTransactionSchema,
   UpdateStatusSchema,
   ProcessPaymentSchema,
+  TransactionStatsQuerySchema,
 } from './laundry.schema';
 import * as controller from './laundry.controller';
 
@@ -40,7 +41,12 @@ router.delete('/pricing/:id', authorize(...ADMIN_ROLES), controller.deletePricin
 
 // ==================== TRANSACTION ====================
 router.get('/transactions', controller.listTransactions);
-router.get('/transactions/stats', authorize(...OPERATE_ROLES), controller.getStats);
+router.get(
+  '/transactions/stats',
+  authorize(...OPERATE_ROLES),
+  validateQuery(TransactionStatsQuerySchema),
+  controller.getStats
+);
 router.get('/transactions/ready', authorize(...OPERATE_ROLES), controller.getReadyForPickup);
 router.get('/transactions/student/:studentId', controller.getByStudent);
 router.get('/transactions/:id', controller.getTransaction);

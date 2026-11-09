@@ -36,6 +36,8 @@ function mockReqRes(overrides: Partial<Request> = {}) {
   const res = {
     statusCode: 200,
     jsonPayload: undefined as unknown,
+    // What validateQuery leaves for the controller (Express 5 keeps req.query read-only).
+    locals: { validatedQuery: {} },
     status(code: number) {
       (this as any).statusCode = code;
       return this;
