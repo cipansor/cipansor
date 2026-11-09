@@ -156,8 +156,8 @@ pertentangan itu dilaporkan sebagai issue.
     Karena itu **setiap** automation diset tepat `1800`, bukan angka yang lebih
     kecil: yang lebih kecil tidak menghemat apa pun dan hanya memindahkan
     kematian ke run yang tugasnya jujur (lima automation pernah dijeda otomatis
-    platform setelah lima `execution/timeout` beruntun — SDLC 01/15 dengan
-    `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
+    platform setelah lima `execution/timeout` beruntun — `Triase bug` dan
+    `Pelabel issue` dengan `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
     setiap automation ber-`timeout` < 1800 adalah cacat `config` yang
     dilaporkan, dan `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat
     prompt di-deploy. Plafon hanya membatasi **kapan** sebuah run dibunuh,
@@ -262,9 +262,14 @@ repositori privat:
 Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 `Pengawas armada` menandai butir yang sudah selesai.
 
-1. **Triase ganda.** Issue baru saat ini mendapat dua sampai tiga komentar
-   triase atau estimasi dari automation berbeda. Gabungkan menjadi satu
-   pemilik dan satu komentar yang diperbarui (invarian 3–4).
+1. **Triase ganda — sebagian (2026-11-09).** Issue baru mendapat dua sampai
+   tiga komentar triase atau estimasi dari automation berbeda. Estimasi kini
+   bukan lagi komentar terpisah: `Estimasi usaha` (SDLC 02) dilebur ke
+   `Pelabel issue` (SDLC 15) sebagai satu bagian komentar triasenya, dan
+   automation lamanya dinonaktifkan. Yang **tersisa**: `Triase bug` masih
+   berjalan pada `issues.opened` dan menulis komentar triase sendiri, jadi
+   issue baru masih mendapat dua komentar triase; itu dilacak di #848
+   (invarian 3–4).
 2. **Gerbang tinjau diam.** Gerbang pernah tidak menjawab sebelas jam tanpa
    ada yang tahu, lalu sehari penuh pada lima PR (2026-10-10). Pemeriksa
    Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
@@ -291,14 +296,14 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 8. **Laporan pemakaian.** Belum ada. Tambahkan pada `Pengawas armada`.
 9. **Dinding jam seragam, dan anggaran kerja untuk yang panjang.** Lima
    automation pernah dijeda otomatis platform (lima `execution/timeout`
-   beruntun): SDLC 01 dan 15 diset `timeout=900`, SDLC 23 `1500`, padahal
+   beruntun): `Triase bug` dan `Pelabel issue` diset `timeout=900`, `Pengawas armada` `1500`, padahal
    tugasnya ~1000–2000 detik dan platform menerima sampai **1800**. Selesai
    2026-10-18: seluruh armada diset `1800`, dan
    `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat prompt di-deploy
    (invarian 20). **Menaikkan plafon saja tidak cukup** untuk tugas yang
    menjelajah tanpa batas: `Pengawas armada` tetap mati 1800 detik setelahnya,
    delapan run beruntun tanpa satu pun laporan terkirim, karena membaca riwayat
-   run ke-24 automation satu per satu memakan seluruh anggaran. Ia kini membawa
+   run setiap automation satu per satu memakan seluruh anggaran. Ia kini membawa
    **anggaran kerja** sendiri (daftar sekali, tiap automation satu bacaan,
    berhenti mengumpulkan pada ~20 panggilan API dan menulis laporan dari yang
    ada) — pola yang sama dengan `Gerbang tinjau PR`.
@@ -325,8 +330,8 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    `.github/scripts/automation-retry.sh` — `/automations` menjawab `422` dan
    `/automations/{id}/runs` menjawab `404`, jadi watchdog yang memakai bentuk
    itu tidak membaca apa pun; dan riwayat run diperiksa **berotasi**
-   (`start = hari-ke-%j % jumlah automation`, melingkar) karena 24 automation
-   lebih banyak daripada anggaran ~19 bacaan run — tanpa rotasi ekor daftar
+   (`start = hari-ke-%j % jumlah automation`, melingkar) karena daftar
+   automation lebih panjang daripada anggaran ~19 bacaan run — tanpa rotasi ekor daftar
    tak pernah diperiksa. Konfigurasi seluruh daftar (enabled, timeout, guard,
    tabrakan cron) tetap disapu penuh setiap hari tanpa satu pun panggilan run.
    **Kelas kelima (`wall-short`).** Sebuah run ber-`error_detail` "command
@@ -418,9 +423,11 @@ butir mengikuti aturan emas di `AGENTS.md`):
    `automation-health` yang memuat semuanya, satu komentar per head, dan satu
    dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
    merge.
-3. **Triase satu pemilik**: hanya `Pelabel issue` yang menulis triase,
-   estimasi, dan label, dalam satu komentar yang diperbarui. Automation lain
-   tidak berkomentar triase.
+3. **Triase satu pemilik** — sebagian: hanya `Pelabel issue` yang menulis
+   triase, estimasi, dan label, dalam satu komentar yang diperbarui. Estimasi
+   sudah dilebur ke sini (2026-11-09; `Estimasi usaha` dinonaktifkan).
+   `Triase bug` masih berkomentar triase saat issue dibuka; menyempitkannya ke
+   penilaian ulang atas aktivitas pelapor adalah #848.
 4. **Pembaruan cabang otomatis** (Actions): saat `main` bergerak, cabang PR
    yang ber-auto-merge dan tertinggal diperbarui lewat API, sehingga CI
    berjalan ulang di atas `main` terbaru. **Sesudah** job ini ada di `main`,
@@ -456,8 +463,7 @@ flowchart TB
 
   subgraph ISSUE["1 · Issue"]
     I([Issue dibuka]) --> C1["Triase bug"]:::cloud
-    I --> C2["Estimasi usaha"]:::cloud
-    I --> C3["Pelabel issue"]:::cloud
+    I --> C3["Pelabel issue (triase + estimasi + label, satu komentar)"]:::cloud
     C3 --> D{"Cukup jelas?"}
     D -- ya --> R(["ready"])
     D -- tidak --> NI(["needs-info"])
@@ -635,7 +641,6 @@ nyata.
 | Automation            | Peran                                                                                                          |
 | --------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Triase bug            | triase issue baru, cari duplikat, label + komentar keparahan/area                                              |
-| Estimasi usaha        | ukuran XS–XL + area tersentuh + risiko, dikalibrasi ke PR lama                                                 |
 | Peta basis kode       | membandingkan peta arsitektur dengan kode → memperbarui **satu** issue induk (#782), tidak membuka issue baru    |
 | Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                |
 | Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                  |
@@ -667,7 +672,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 | Akun           | Peran                                          | Automation                                                                                                                                                                                          |
 | -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `adminypc`     | Penulis — membuat issue dan pull request       | Peta basis kode, Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar, Pengawas armada, Audit kematangan       |
-| `cipansor-bot` | Komunikator — komentar, label, review, approve | Triase bug, Estimasi usaha, Peninjau arsitektur, Peninjau kode, Otomasi QA, Uji beban, Pembuat catatan rilis, Pelabel issue, Penjernih issue, Pelabel PR, Gerbang tinjau PR, Penjaga issue, Diskusi |
+| `cipansor-bot` | Komunikator — komentar, label, review, approve | Triase bug, Peninjau arsitektur, Peninjau kode, Otomasi QA, Uji beban, Pembuat catatan rilis, Pelabel issue (triase + estimasi + label), Penjernih issue, Pelabel PR, Gerbang tinjau PR, Penjaga issue, Diskusi |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
   memakai `GITHUB_TOKEN` (`adminypc`). Selebihnya memposting lewat

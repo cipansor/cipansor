@@ -414,6 +414,96 @@
       ulang baca; ≤ 40 perintah terminal lalu WAJIB kirim review) supaya diff
       besar tak bisa menelan anggaran sebelum review terkirim.
 
+28. **`Estimasi usaha` (SDLC 02) dilebur ke `Pelabel issue` (SDLC 15)**
+    (2026-11-09, pengguna). Estimasi bukan langkah tersendiri: ia bagian dari
+    satu komentar triase yang sudah ditulis `Pelabel issue`. Invarian 3
+    (`docs/SDLC-FLOW.md`) dan butir "Triase ganda" pada "Selisih dari keadaan
+    sekarang" memang sudah meminta ini sejak awal — SDLC 02 adalah sisa yang
+    belum dilebur. Bukti duplikasinya nyata dan terhitung (API, 2026-11-09):
+    **21** issue menerima komentar `Estimasi usaha` yang terpisah dari komentar
+    triasenya, mis. #955 (estimasi `6730734956` + 5 komentar triase), #951,
+    #933, #923, #912. Satu komentar triase bahkan sudah memuat bagian "Estimasi
+    usaha" sendiri.
+    Alasan tambahan: setiap automation adalah satu slot sandbox dan satu run
+    yang bisa mati di plafon 1800 detik — kelas kegagalan dominan armada — jadi
+    satu automation lebih sedikit berarti satu sumber kematian lebih sedikit.
+    Pelaksanaan: isi prompt SDLC 02 dipindahkan ke tail SDLC 15 sebagai bagian
+    `## Estimasi usaha` (tetap menulis `<!-- sdlc:estimasi -->` di body saat
+    issue `ready`), entri `TAILS["SDLC 02"]` dihapus, dan SDLC 02 dimasukkan ke
+    `RETIRED` di `scripts/deploy-sdlc-agents.py` sehingga deploy berikutnya
+    menonaktifkannya lewat `PATCH {enabled:false}` alih-alih men-deploy ulang
+    promptnya, apa pun status `enabled`-nya (versi pertama men-deploy ulang
+    prompt automation yang sudah nonaktif; diperbaiki dalam tinjauan #968).
+    Satu automation lebih sedikit yang aktif; jumlahnya tidak ditulis keras di
+    prompt atau dokumen, karena berubah setiap kali armada berubah. Triase
+    ganda belum selesai seluruhnya: `Triase bug` masih berkomentar saat issue
+    dibuka (#848). Dijaga tes `automation-fleet.guard.test.ts`.
+
+29. **Pemisahan identitas: `adminypc` menulis, `cipansor-bot` berkomunikasi**
+    (2026-11-09, pengguna). Satu akun untuk dua peran adalah cacat: issue dan PR
+    baru teratribusi ke `cipansor-bot`, sehingga riwayat repo memperlihatkan bot
+    membuka pekerjaannya sendiri, dan label/review yang seharusnya milik bot bisa
+    jatuh ke `adminypc` (kelas yang sama dengan #806). Aturan yang berlaku:
+    - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS: `POST /issues`, `POST /pulls`,
+      push commit. Hanya automation pembuat artefak yang memakainya.
+    - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR: semua komentar,
+      label, review, reaction.
+    Akarnya bukan niat agen, melainkan **prompt**: kalimat "Catatan lingkungan"
+    menyuruh memakai token yang tertanam di remote `origin` untuk "operasi baca
+    dan tulis apa pun", dan blok IDENTITAS lama hanya menyebut `cipansor-bot`
+    tanpa pernah mengatakan token mana yang membuat issue/PR. Keduanya diperbaiki
+    di `scripts/deploy-sdlc-agents.py` (`AMBIENT_TOKEN_NOTE` ->
+    `IDENTITY_TOKEN_NOTE`, `OLD_IDENTITY_LINE` -> `NEW_IDENTITY_LINE`) supaya
+    deploy berikutnya memperbarui seluruh armada. Dua mitigasi ditambahkan
+    dalam tinjauan #968: issue/PR dibuat lewat `GITHUB_TOKEN` **tanpa** field
+    `labels`, lalu label dipasang lewat `GITHUB_BOT_TOKEN` (label akun lain
+    dicabut `label-guard`, #838); dan setiap `PATCH` body issue/PR memakai
+    `GITHUB_BOT_TOKEN`, karena suntingan lewat `adminypc` terbaca sebagai
+    aktivitas manusia oleh jembatan triase dan `Diskusi`. Masih menunggu
+    keputusan maintainer: satu akun manusia (`adminypc`) sekaligus penulis
+    armada melemahkan guard anti-loop berbasis penulis dan pemisahan tugas
+    (penulis tidak bisa meng-approve PR-nya sendiri); alternatifnya machine
+    user atau GitHub App khusus penulis. Runner `main.py` **tidak ada di repo**
+    — ia hanya hidup di dalam tarball automation (arsip #934 belum dijalankan),
+    jadi "sudah benar" diverifikasi langsung dari `GET
+    /api/automation/v1/{id}/tarball` pada 2026-11-09: baris 29 memuat
+    `REQUIRED_SECRETS = ["GITHUB_TOKEN"]`, baris 48 menjelaskan `GITHUB_BOT_TOKEN`
+    diberikan ke automation mana pun yang promptnya meminta. Runner memang tidak
+    perlu diubah; yang salah promptnya.
+    Catatan: automation yang **tidak** membuat artefak juga memegang
+    `GITHUB_TOKEN` (grant otomatis platform), jadi larangan itu harus eksplisit
+    di prompt, bukan diasumsikan dari ketiadaan token.
+
+30. **Penomoran ulang armada dibatalkan — dokumen menyebut peran, bukan nomor**
+    (2026-11-09, pengguna). #710/#711 (Okt 2026) sudah menomori ulang armada
+    01–23, tetapi keputusan yang bertahan dari PR itu adalah bagian lainnya:
+    `docs/SDLC-FLOW.md` menyebut automation lewat **peran** (namanya), bukan
+    nomor `SDLC NN`. Usulan menomor-ulang lagi — nomor = urutan tahap, sehingga
+    `Pelabel issue` menjadi `06` — **dibatalkan** atas keputusan pengguna.
+    Alasan: nomor adalah penanda tampilan yang bergeser setiap kali automation
+    ditambah, dilebur, atau dihapus (SDLC 02 baru saja dilebur 2026-11-09),
+    sedangkan peran stabil dan sudah menjadi rujukan dokumen serta tes. Dampak:
+    jangan mengusulkan penomoran ulang lagi; referensi `SDLC NN` di dokumen
+    hanya boleh muncul sebagai **riwayat** (mis. "SDLC 02 dilebur ke SDLC 15"),
+    bukan sebagai rujukan normatif. Nama automation di API tetap boleh membawa
+    nomor (itu identitasnya di layanan), tetapi dokumen dan tes merujuk peran.
+
+31. **Rollback deploy prompt armada** (2026-11-09, tinjauan PR #968). Deploy
+    prompt menyentuh armada **hidup** sebelum PR-nya ditinjau, padahal premis
+    #927/#933 justru "perubahan prompt harus lewat tinjauan PR". Bila PR
+    ditolak atau berubah, armada dan `main` berselisih, jadi prosedurnya
+    ditulis, bukan diingat:
+    1. Simpan prompt hidup sebelum deploy (`GET /api/automation/v1` -> JSON
+       `name` -> `prompt`). Tanpa ini rollback tidak mungkin.
+    2. Bangun ulang dari `main`: `ORIGINALS=<backup.json> DEPLOY=true
+       OPENHANDS_API_KEY=... python3 scripts/deploy-sdlc-agents.py` — `ORIGINALS`
+       mengganti basis, sehingga head dibangun dari prompt asli, bukan yang
+       sudah berubah.
+    3. Nyalakan kembali automation pensiun: `PATCH /api/automation/v1/{id}`
+       `{"enabled": true}` (mis. SDLC 02).
+    Pelajaran proses: deploy sesudah PR disetujui, atau tulis rencana rollback
+    di body PR bila deploy mendahului tinjauan.
+
 ## Sumber
 
 - Google SRE, "Monitoring Distributed Systems" —
