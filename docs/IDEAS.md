@@ -77,7 +77,7 @@ templat PR yang terikat ke sistem label, bukan prosa bebas:
   `bug`/`enhancement`; `config.yml` mengarahkan pembaca ke `docs/LABELS.md` dan
   berkas ini.
 - `.github/pull_request_template.md` — bagian `Why`, `What changed`, `Linked
-  issue`, `Acceptance criteria`, `How to test`, `Risk and rollback`, `Evidence`,
+issue`, `Acceptance criteria`, `How to test`, `Risk and rollback`, `Evidence`,
   `Notes`; wajib `Fixes #<n>` ke issue `ready`/`bot-implement` dan kriteria
   penerimaan yang disalin sebagai kotak centang. Bagian `HUMAN`/`AGENT` dan
   `Type` dihapus pada 2026-11-09 (#965): tipe sudah datang dari label issue.
@@ -96,7 +96,7 @@ Dipilih **gate keras pada job `template`**:
   di-checkout):
   - job **template** **gagal** selama deskripsi belum lengkap:
     `Why`/`What changed`/`How to test`/`Acceptance criteria`, `Risk and
-    rollback` pada PR berisiko, minimal satu `Fixes #<n>` dengan **setiap**
+rollback` pada PR berisiko, minimal satu `Fixes #<n>` dengan **setiap**
     nomor berupa issue terbuka berlabel `ready`/`bot-implement` (PR tanpa issue
     gagal, #772), PR menuju cabang default, dan prosa Bahasa Indonesia.
     Dependabot saja yang dilewati, berdasarkan penulis PR;
@@ -164,12 +164,12 @@ setiap prompt dan dijaga workflow deterministik):
   yang lebih rendah. `critical` hanya untuk layanan mati total, kehilangan data,
   atau keamanan/privacy yang aktif bisa dieksploitasi. Jangan menginflasi.
 - **Triase ulang lewat jembatan, bukan `issues.edited`.** `issue-triage-bridge.yml`
-  + `.github/scripts/issue-triage-bridge.sh` mendispatch pemilik triase saat bot
-  memasang label tipe/prioritas dan saat issue belum `ready` punya aktivitas baru
-  (komentar atau suntingan deskripsi). Idempoten (penanda per keadaan dan per
-  stempel aktivitas). **Deskripsi PR tidak ditanggapi otomatis** — tidak ada
-  pemicu `pull_request.edited`; gerbang tinjau sudah membaca deskripsi, issue,
-  diff, dan semua komentar.
+  - `.github/scripts/issue-triage-bridge.sh` mendispatch pemilik triase saat bot
+    memasang label tipe/prioritas dan saat issue belum `ready` punya aktivitas baru
+    (komentar atau suntingan deskripsi). Idempoten (penanda per keadaan dan per
+    stempel aktivitas). **Deskripsi PR tidak ditanggapi otomatis** — tidak ada
+    pemicu `pull_request.edited`; gerbang tinjau sudah membaca deskripsi, issue,
+    diff, dan semua komentar.
 - **Basmalah.** Setiap body dibuka dengan «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»;
   templat PR membawanya, form issue menampilkannya sebagai petunjuk (blok
   `markdown` form tidak ikut ke body), dan `basmalah.yml` menambahkannya bila lupa.
@@ -195,7 +195,7 @@ ia tetap LLM.
   2. ~~"label `rilis-disetujui` dipasang pada issue, bukan keluaran
      release-please"~~ — **salah, dan bukan karena release-please.** Label
      `rilis-disetujui`/`rilis-ditolak` **tidak ada di repositori ini** (`gh label
-     list` tidak memuatnya), tidak ada workflow yang membacanya, dan tidak ada
+list` tidak memuatnya), tidak ada workflow yang membacanya, dan tidak ada
      satu pun issue `rilis-*` yang pernah dibuat. `deploy-production.yml` memakai
      `workflow_dispatch` dengan input SHA, dipicu manusia. Jadi "alur rilis
      berlabel" itu adalah **dokumen, bukan kode** — dan `Pembuat catatan rilis`
@@ -206,7 +206,7 @@ ia tetap LLM.
   (b) k6 smoke tetap manual; (c) pemeriksaan SHA staging tidak ada di mana pun.
 
   **Dan kenyataannya lebih buruk dari "tidak ada yang mengonsumsi": ia membingungkan.**
-  `Pembuat catatan rilis` menaikkan N hanya bila ada commit *relevan* sejak tag
+  `Pembuat catatan rilis` menaikkan N hanya bila ada commit _relevan_ sejak tag
   terakhir (promptnya: "tidak ada perubahan relevan → tidak melakukan apa pun").
   Repo ini didominasi `chore(deps)` (bump Dependabot, tidak menaikkan versi), jadi
   commit `fix:`/`feat:` jarang — rc4 bertanggal 2026-10-30, dan run berikutnya
@@ -218,10 +218,11 @@ ia tetap LLM.
   untuk perhitungan semver saja — nilainya kecil dibanding satu automation;
   (2) yang layak deterministik adalah **pemicu produksi**: prasyarat "staging
   menyajikan SHA ini + k6 smoke hijau" adalah diff SHA + kode keluar, bukan
-  penilaian, dan `load-tests.yml` sudah `workflow_dispatch` (bisa ditambah
-  `workflow_call`). Ganti `workflow_dispatch(sha)` dengan gerbang deterministik
-  itu; (3) entah buat alur issue-rilis berlabel itu nyata, atau hapus dari
-  dokumen — sekarang ia menyesatkan pembaca dan agen.
+  penilaian — **DIPASANG 2026-11-09**: `.github/scripts/release-gate.sh` menjadi
+  job `gate` di `deploy-production.yml`, dan `deploy` memakai `needs: gate`;
+  (3) entah buat alur issue-rilis berlabel itu nyata, atau hapus dari
+  dokumen — sekarang ia menyesatkan pembaca dan agen. **BELUM ditindak.**
+
 - **`Peta basis kode` (SDLC 03) — dipensiunkan; `Pengelola dokumentasi` (SDLC 14)
   — DIPERTAHANKAN.** Koreksi 2026-11-09, beberapa jam setelah keputusan pertama.
   SDLC 03 memang separuh besar terukur (jumlah modul, model, rute, entri cron,
