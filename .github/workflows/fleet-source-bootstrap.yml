@@ -80,6 +80,22 @@ jobs:
           PY
           python3 "$RUNNER_TEMP/summary.py" "$EXTRACT/manifest.json" >> "$GITHUB_STEP_SUMMARY"
 
+      # The tarballs come from the automation API and have never been reviewed,
+      # so a credential baked into a runner or prompt must stop the run before
+      # anything leaves this job — in a dry run too, so the first run already
+      # says so. Only file names are printed, never the matching line (#933 Q1).
+      - name: Refuse an archive that carries a secret
+        env:
+          EXTRACT: ${{ runner.temp }}/fleet-source
+        run: |
+          pattern='ghp_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|gh[ousr]_[A-Za-z0-9]{20,}|sk-[A-Za-z0-9_-]{20,}|OPENHANDS_API_KEY=[^[:space:]$"'"'"'{]|-----BEGIN [A-Z ]*PRIVATE KEY-----'
+          if hits=$(grep -rIlE "$pattern" "$EXTRACT"); then
+            echo "::error::the archive carries what looks like a secret; nothing is pushed. Files:"
+            printf '%s\n' "$hits" | sed "s#^$EXTRACT/##"
+            exit 1
+          fi
+          echo "No secret pattern in the archive."
+
       - name: Push the archive to cipansor/cipansor-bot
         if: ${{ inputs.dry_run == false }}
         env:
