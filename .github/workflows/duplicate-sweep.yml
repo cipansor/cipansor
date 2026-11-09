@@ -8,7 +8,10 @@
 #
 # Issues are labelled `duplicate`; PRs are labelled `duplicate-pr` (a PR must
 # never carry the issue-lifecycle `duplicate` label). The triage automation
-# applies the label and links the original. This only enforces the consequence.
+# applies `duplicate` and links the original. For a PR the label is now applied
+# deterministically by `pr-duplicate.sh` in the first step below: two open PRs
+# that close the same issue means the newest one duplicates the older. This
+# workflow only enforces the consequence for both.
 name: Duplicate sweep
 
 on:
@@ -35,6 +38,11 @@ jobs:
         with:
           sparse-checkout: .github/scripts
           persist-credentials: false
+      - name: Label a PR that duplicates another open PR
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: sh .github/scripts/pr-duplicate.sh
       - name: Warn and close stale duplicates (issues and PRs)
         env:
           GH_TOKEN: ${{ github.token }}
