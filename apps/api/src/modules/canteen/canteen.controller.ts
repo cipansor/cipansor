@@ -5,6 +5,7 @@ import {
   ListItemsQuerySchema,
   ListTransactionsQuerySchema,
   ListStockMovementsQuerySchema,
+  type TransactionStatsQuery,
 } from './canteen.schema';
 import {
   categoryService,
@@ -178,8 +179,9 @@ export const getTransactionStats = asyncHandler(async (req: Request, res: Respon
   if (!unitId && !isSuperAdminUser(req)) {
     return res.status(400).json(ApiResponse.error('Unit ID tidak ditemukan', 'UNIT_REQUIRED'));
   }
-  const { startDate, endDate } = req.query;
-  const stats = await transactionService.getStats(unitId, startDate as string, endDate as string);
+  // Validated at the route (TransactionStatsQuerySchema): two WIB days, YYYY-MM-DD.
+  const { startDate, endDate } = res.locals.validatedQuery as TransactionStatsQuery;
+  const stats = await transactionService.getStats(unitId, startDate, endDate);
   return res.json(ApiResponse.success(stats, 'Berhasil mengambil statistik transaksi'));
 });
 

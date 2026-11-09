@@ -161,4 +161,28 @@ describe('the ibadah ranking', () => {
     expect(sma.completionRate).toBeCloseTo((1 / (1 * days)) * 100, 1);
     expect(smp.completionRate).toBeCloseTo((2 / (2 * days)) * 100, 1);
   });
+
+  it('starts a DAILY period on the WIB calendar day, not the UTC one', async () => {
+    // 2026-07-04T22:00:00Z == 2026-07-05 05:00 WIB, inside the 00:00-06:59 WIB
+    // window. The period must open on 2026-07-05, the day the santri is in.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-04T22:00:00Z'));
+    try {
+      const result = await getLeaderboard(
+        { periodType: 'DAILY', limit: 10 } as never,
+        ACTORS.musyrif as never
+      );
+      expect(new Date(result.startDate).toISOString()).toBe('2026-07-05T00:00:00.000Z');
+      // The period closes on the same WIB day, never before it opens: at 05:00
+      // WIB `now` (22:00Z the day before) precedes the day's stored value.
+      expect(new Date(result.endDate).toISOString()).toBe('2026-07-05T00:00:00.000Z');
+      const { where } = prismaMock.dailyIbadahRecord.groupBy.mock.calls[0][0];
+      expect(where.date.gte.getTime()).toBeLessThanOrEqual(where.date.lte.getTime());
+      // One day in the period: one SMA record of its one target is 100%.
+      const sma = result.data.find((r) => r.studentId === SANTRI_SMA.id)!;
+      expect(sma.completionRate).toBeCloseTo(100, 1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

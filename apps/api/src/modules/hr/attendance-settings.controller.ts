@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { z } from 'zod';
 import { Prisma } from '@prisma/client';
 import { todayWib } from '../../utils/wib';
+import { partialUpdateSchema } from '../../lib/partial';
 import * as service from './hr.service';
 import { Errors } from '../../middleware/error';
 import {
@@ -148,7 +149,7 @@ export async function createAttendanceSite(req: Request, res: Response, next: Ne
 
 export async function updateAttendanceSite(req: Request, res: Response, next: NextFunction) {
   try {
-    const data = attendanceSiteSchema.partial().parse(req.body);
+    const data = partialUpdateSchema(attendanceSiteSchema).parse(req.body);
     res.json({
       success: true,
       data: await service.updateAttendanceSite(req.params.id, data, scoped(req)),
@@ -189,7 +190,7 @@ export async function createWorkShift(req: Request, res: Response, next: NextFun
 
 export async function updateWorkShift(req: Request, res: Response, next: NextFunction) {
   try {
-    const data = workShiftSchema.partial().parse(req.body);
+    const data = partialUpdateSchema(workShiftSchema).parse(req.body);
     res.json({
       success: true,
       data: await service.updateWorkShift(req.params.id, data, scoped(req)),
@@ -266,7 +267,7 @@ export async function createShiftRotation(req: Request, res: Response, next: Nex
 
 export async function updateShiftRotation(req: Request, res: Response, next: NextFunction) {
   try {
-    const data = shiftRotationSchema.partial().parse(req.body);
+    const data = partialUpdateSchema(shiftRotationSchema).parse(req.body);
     res.json({
       success: true,
       data: await service.updateShiftRotation(

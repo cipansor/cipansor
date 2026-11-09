@@ -23,6 +23,7 @@ vi.mock('@/lib/logger', () => ({
 }));
 
 import { getCurrentDashboardMetrics, invalidateDashboardCache } from './dashboard-metrics';
+import { dayOf } from '@/utils/wib';
 
 const CACHED = {
   students: { total: 1, active: 1, change: 0 },
@@ -54,6 +55,21 @@ describe('getCurrentDashboardMetrics', () => {
     expect(metrics).toEqual(CACHED);
     expect(redisMock.get).toHaveBeenCalledWith('metrics:unit:unit-1');
     expect(prismaMock.student.count).not.toHaveBeenCalled();
+  });
+
+  it('counts the WIB day, not the UTC day, between 00:00 and 06:59 WIB', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    // 1 Nov 2026 00:30 WIB = 31 Oct 2026 17:30 UTC, where the days disagree.
+    vi.setSystemTime(new Date('2026-10-31T17:30:00.000Z'));
+    try {
+      await getCurrentDashboardMetrics('unit-1');
+
+      expect(prismaMock.attendance.count).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ date: dayOf('2026-11-01') }) })
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('computes on a miss, scoped to the unit, and caches for 60 seconds', async () => {
