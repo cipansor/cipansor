@@ -167,7 +167,7 @@ export function useStaffDashboardStats() {
             params: { date: today, unitId: dashboardUnitId(user), limit: 1 },
             skipErrorToast: true,
           })
-          .catch(() => ({ data: { meta: { pagination: { total: 0 } } } })),
+          .catch(() => ({ data: { meta: { total: 0 } } })),
 
         // Today's rewards
         api
@@ -175,7 +175,7 @@ export function useStaffDashboardStats() {
             params: { date: today, unitId: dashboardUnitId(user), limit: 1 },
             skipErrorToast: true,
           })
-          .catch(() => ({ data: { meta: { pagination: { total: 0 } } } })),
+          .catch(() => ({ data: { meta: { total: 0 } } })),
 
         // Today's attendance summary
         api
@@ -214,9 +214,11 @@ export function useStaffDashboardStats() {
         pendingPermits,
         permitsAwaitMe: decidesPermits(user),
         sickStudents: (healthRes.data as any)?.meta?.pagination?.total || 0,
-        todayViolations:
-          (violationsRes.data as any)?.meta?.pagination?.total || 0,
-        todayRewards: (rewardsRes.data as any)?.meta?.pagination?.total || 0,
+        // GET /violations and /rewards answer a flat `meta: { page, limit,
+        // total, totalPages }` (violations.service.ts, rewards.service.ts), not
+        // `meta.pagination`: reading the latter showed 0 on both cards.
+        todayViolations: (violationsRes.data as any)?.meta?.total || 0,
+        todayRewards: (rewardsRes.data as any)?.meta?.total || 0,
         activeStudents: (studentsRes.data as any)?.meta?.pagination?.total || 0,
         attendanceToday: (attendanceRes.data as any)?.data || {
           present: 0,

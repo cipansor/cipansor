@@ -8,6 +8,7 @@ import {
   type ScopeActor,
 } from '../../utils/student-scope';
 import { STUDENT_SUMMARY_SELECT, withStudentSummary } from '../../utils/student-summary';
+import { wibDayEnd, wibDayStart } from '../../utils/wib-day';
 
 /**
  * `studentScope` returns the santri the caller may see; folding it into the
@@ -41,7 +42,7 @@ export async function createViolation(
 }
 
 export async function getViolations(query: QueryViolationDto, actor: ScopeActor) {
-  const { studentId, type, category, categoryId, startDate, endDate, page, limit } = query;
+  const { studentId, type, category, categoryId, date, startDate, endDate, page, limit } = query;
   const skip = (page - 1) * limit;
 
   const where = scopedWhere(actor, {
@@ -54,14 +55,19 @@ export async function getViolations(query: QueryViolationDto, actor: ScopeActor)
       : category
         ? { category: { contains: category, mode: 'insensitive' as const } }
         : {}),
-    ...(startDate || endDate
-      ? {
-          occurredAt: {
-            ...(startDate && { gte: new Date(startDate) }),
-            ...(endDate && { lte: new Date(endDate) }),
-          },
-        }
-      : {}),
+    // `date` is one day on the WIB clock; `occurredAt` is a timestamp, so the
+    // day is a WIB-bounded range, not `new Date(date)` (UTC midnight), which
+    // would file a 06:30 WIB violation under the previous day.
+    ...(date
+      ? { occurredAt: { gte: wibDayStart(date), lte: wibDayEnd(date) } }
+      : startDate || endDate
+        ? {
+            occurredAt: {
+              ...(startDate && { gte: new Date(startDate) }),
+              ...(endDate && { lte: new Date(endDate) }),
+            },
+          }
+        : {}),
   });
 
   const [data, total] = await Promise.all([

@@ -31,9 +31,7 @@ export function safeFormat(
  * no daylight saving, so the offset is a constant and no tz lookup is needed.
  */
 export function todayWibDay(now: Date = new Date()): string {
-  return new Date(now.getTime() + 7 * 60 * 60 * 1000)
-    .toISOString()
-    .slice(0, 10);
+  return wibDayOf(now);
 }
 
 /**
@@ -220,6 +218,18 @@ export function isToday(date: Date | string): boolean {
     d.getMonth() === today.getMonth() &&
     d.getFullYear() === today.getFullYear()
   );
+}
+
+/**
+ * The WIB calendar day (YYYY-MM-DD) a moment falls on. WIB is a fixed UTC+7
+ * with no daylight saving, so shifting the instant and reading the UTC fields
+ * derives the pesantren's day from any clock — `new Date().toISOString()` reads
+ * the UTC day, which is still yesterday in Tasikmalaya until 07:00 local.
+ */
+export function wibDayOf(moment: Date | string = new Date()): string {
+  const d = typeof moment === "string" ? new Date(moment) : moment;
+  if (isNaN(d.getTime())) return "";
+  return new Date(d.getTime() + 7 * 60 * 60 * 1000).toISOString().slice(0, 10);
 }
 
 /**

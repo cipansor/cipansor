@@ -64,4 +64,40 @@ describe("useStaffDashboardStats", () => {
 
     expect(attendanceDayArg()).toBe("2026-11-01");
   });
+
+  // #920: GET /violations and /rewards answer `{ data, meta: { page, limit,
+  // total, totalPages } }`. The cards read `meta.pagination.total`, which those
+  // endpoints never send, so both always showed 0.
+  it("shows the violation and reward totals the API sends for the WIB day", async () => {
+    get.mockImplementation(async (url: string) => {
+      if (url === "/violations")
+        return {
+          data: {
+            data: [],
+            meta: { page: 1, limit: 1, total: 3, totalPages: 3 },
+          },
+        };
+      if (url === "/rewards")
+        return {
+          data: {
+            data: [],
+            meta: { page: 1, limit: 1, total: 5, totalPages: 5 },
+          },
+        };
+      return { data: { data: {}, meta: { total: 0 } } };
+    });
+
+    const { result } = renderHook(() => useStaffDashboardStats(), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(result.current.data?.todayViolations).toBe(3);
+    expect(result.current.data?.todayRewards).toBe(5);
+    const dayOf = (url: string) =>
+      (
+        get.mock.calls.find((args: unknown[]) => args[0] === url)?.[1] as
+          { params: { date: string } } | undefined
+      )?.params.date;
+    expect(dayOf("/violations")).toBe("2026-11-01");
+    expect(dayOf("/rewards")).toBe("2026-11-01");
+  });
 });

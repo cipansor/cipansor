@@ -286,3 +286,43 @@ describe('rewards service — names the santri, nothing more', () => {
     await expect(getRewardById('reward-1', teacher)).resolves.toBeNull();
   });
 });
+
+describe('rewards service — the single-day filter', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.student.findFirst.mockResolvedValue({ id: studentId });
+    mocked.reward.findMany.mockResolvedValue([]);
+    mocked.reward.count.mockResolvedValue(0);
+  });
+
+  /**
+   * `givenAt` is a timestamp, so "today" is a range on the WIB clock, not
+   * `new Date('2026-10-05')` — that is midnight UTC, which would put a 06:30
+   * WIB reward on the previous day. Without any bound the card counted every
+   * row ever recorded (issue #920).
+   */
+  it('bounds givenAt to the requested WIB day', async () => {
+    await getRewards({ page: 1, limit: 1, date: '2026-10-05' }, teacher);
+
+    const where = mocked.reward.findMany.mock.calls[0][0].where;
+    expect(where.givenAt).toEqual({
+      gte: new Date('2026-10-05T00:00:00.000+07:00'),
+      lte: new Date('2026-10-05T23:59:59.999+07:00'),
+    });
+  });
+
+  it('leaves givenAt unbound when no day is asked for', async () => {
+    await getRewards({ page: 1, limit: 20 }, teacher);
+
+    const where = mocked.reward.findMany.mock.calls[0][0].where;
+    expect(where.givenAt).toBeUndefined();
+  });
+
+  it('counts the same day as the list it paginates', async () => {
+    await getRewards({ page: 1, limit: 1, date: '2026-10-05' }, teacher);
+
+    const listWhere = mocked.reward.findMany.mock.calls[0][0].where;
+    const countWhere = mocked.reward.count.mock.calls[0][0].where;
+    expect(countWhere.givenAt).toEqual(listWhere.givenAt);
+  });
+});
