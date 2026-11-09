@@ -1,10 +1,6 @@
 import { describe, it, expect } from "vitest";
-<<<<<<< HEAD
-import { todayWibDay, wibDayOf } from "./date";
+import { todayWibDay, wibDayOf, wibWeekdayOf } from "./date";
 import { wibDay } from "./admission-intake";
-=======
-import { todayWibDay, wibWeekdayOf } from "./date";
->>>>>>> origin/main
 
 /**
  * The API and the web must agree on which calendar day "today" is. The web
@@ -36,7 +32,6 @@ describe("todayWibDay", () => {
   });
 });
 
-<<<<<<< HEAD
 describe("wibDayOf", () => {
   it("reads the pesantren's day, not the UTC one", () => {
     // 06:30 in Tasikmalaya is 23:30 UTC the day before; a staff dashboard card
@@ -62,7 +57,9 @@ describe("wibDay", () => {
     expect(wibDay("2026-11-01T23:30:00.000Z")).toBe("2026-11-02");
     expect(wibDay(null)).toBe("");
     expect(wibDay(undefined)).toBe("");
-=======
+  });
+});
+
 describe("wibWeekdayOf — the weekday the schedule asks for", () => {
   it("reads a moment on the WIB clock, not the device clock", () => {
     // 2026-10-29T22:30Z is Friday 30 October 05:30 WIB. A device west of WIB
@@ -78,6 +75,5 @@ describe("wibWeekdayOf — the weekday the schedule asks for", () => {
     // 29th (Thursday), which is what a WIB user sees at 23:59.
     expect(wibWeekdayOf(new Date("2026-10-29T16:59:00.000Z"))).toBe(4); // THURSDAY
     expect(wibWeekdayOf(new Date("2026-10-31T17:00:00.000Z"))).toBe(0); // SUNDAY 1 Nov
->>>>>>> origin/main
   });
 });
