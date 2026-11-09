@@ -34,12 +34,12 @@
    menghabiskan anggaran dalam hitungan menit, sedangkan pemeriksaan mingguan
    datang terlambat. Pencegahannya saat otomasi dibuat atau diubah: uji
    filternya dengan contoh komentar bot. #681, #682, dan #683 ditutup.
-9. **Catatan `## HUMAN` hanya untuk PR berisiko** (#760): PR berlabel
-   `security`, atau yang menyentuh skema/migrasi/skrip data, skrip data
-   produksi, atau auth/RBAC. PR lain ditinjau gerbang bot, dan manusia hadir di
-   empat gerbang SDLC-FLOW. Upstream OpenHands mewajibkannya di setiap PR,
-   tetapi di sini aturan itu menjadi gerbang manusia kelima yang menahan PR
-   dokumen satu baris.
+9. **Templat PR tanpa `HUMAN`/`AGENT`; `Risk and rollback` hanya untuk PR
+   berisiko** (2026-11-09, #965, menggantikan catatan `## HUMAN` dari #760):
+   PR berlabel `security`, atau yang menyentuh skema/migrasi/skrip data, skrip
+   data produksi, atau auth/RBAC, menulis apa yang bisa rusak dan cara
+   mengembalikannya. Persetujuan manusia sudah diwajibkan ruleset `main`; PR
+   lain cukup bagian wajib biasa.
 10. **Penjaga perintah (#660)** membaca perintah seperti shell (wrapper,
     subshell, `sh -c`), dan dokumennya jujur: dinding sesungguhnya adalah
     ruleset `main`, bukan hook.

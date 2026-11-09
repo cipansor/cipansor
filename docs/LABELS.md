@@ -281,10 +281,14 @@ to produce the labels above, not prose to read and forget:
   is expected: `Reproduksi bug` investigates, adds the cause and, for a UI defect,
   reproduces it and attaches a screenshot to the issue by editing its body. It
   does not send the issue to `needs-info` for being incomplete.
-- The **PR template** requires `Fixes #<n>` for every issue the PR resolves
-  (each an open `ready` issue, never a PR; `Refs #<n>` for a partial step), copies the
-  issue's acceptance criteria as checkboxes, and asks for a **before and after**
-  visual on any change under `apps/web`. `Pelabel PR` mirrors the linked issue's
+- The **PR template** has the sections `Why`, `What changed`, `Linked issue`,
+  `Acceptance criteria`, `How to test`, `Risk and rollback`, `Evidence` and
+  `Notes` (no `HUMAN`/`AGENT` split and no `Type` checklist since 2026-11-09,
+  #965: the type comes from the issue's label). It requires `Fixes #<n>` for
+  every issue the PR resolves (each an open `ready`/`bot-implement` issue,
+  never a PR; `Refs #<n>` for a partial step), copies the issue's acceptance
+  criteria as checkboxes, and asks for a **before and after** visual on any
+  change under `apps/web`. `Pelabel PR` mirrors the linked issue's
   type and priority onto the PR.
 
 These are kept honest by the `pr-description-checks` workflow: the `template`
@@ -295,7 +299,10 @@ prose reads as English, and passes once it is complete (the `visual` job stays
 advisory). There is no "no linked issue" way out (#772). Dependabot alone
 skips the job, keyed on the PR's author; a skipped job counts as passing, so
 making the check required on `main` (decided 2026-10-11, #772) does not hold
-Dependabot back. The `## HUMAN` note is required only
-on a risky PR: one labelled `security`, or touching the schema, migrations and
-data scripts, the production data scripts, or auth/RBAC (`RISKY_PATHS` in
-`.github/scripts/pr-template-guard.sh`; #760). See `docs/IDEAS.md` § 6.
+Dependabot back. A `## Risk and rollback` statement (what can break and how
+to undo it, at least 20 characters) is required only on a risky PR: one
+labelled `security`, or touching the schema, migrations and data scripts, the
+production data scripts, or auth/RBAC (`RISKY_PATHS` in
+`.github/scripts/pr-template-guard.sh`; #965, replacing the `## HUMAN` note of
+#760). Fenced code counts as section content, so a `## How to test` that is
+only a block of commands is complete; it is left out of the language check. See `docs/IDEAS.md` § 6.

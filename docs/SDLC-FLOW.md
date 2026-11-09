@@ -738,26 +738,27 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 - **Satu penulis PR.** Hanya `Tiket jadi PR` yang membuka PR. Semua temuan lain
   membuka issue; `bot-implement` menyerahkannya ke penulis tunggal itu. Ini
   menghapus PR spekulatif dari automation lain dan menjaga satu bentuk diff.
-- **Gate deskripsi PR kini keras.** `pr-description-checks.yml` job `template`
+- **Gate deskripsi PR keras.** `pr-description-checks.yml` job `template`
   (check bernama `PR template reminder`) **gagal** selama templat belum lengkap,
-  issue tertaut belum berlabel `ready`/`bot-implement`, atau prosanya terbaca
-  sebagai Bahasa Inggris. Job ini merah, tetapi check-nya **belum** ada di
-  required status checks ruleset `main` (Build, Lint, Tests, Security, E2E Tests
-  (Chromium)), jadi saat ini ia belum menahan merge — menambahkannya adalah
-  langkah maintainer dengan akses admin. Ini menyamakan repo dengan standar
-  OpenHands (Why/Summary/How to test + issue `ready-for-dev`). Job `visual`
-  tetap advisory.
-- **Catatan `## HUMAN` hanya untuk PR berisiko** (keputusan pemilik
-  2026-10-10, #760). Upstream OpenHands mewajibkannya di setiap PR. Di sini
-  aturan itu akan menjadi gerbang manusia kelima yang menahan setiap PR,
-  termasuk PR dokumen satu baris. Karena itu catatan HUMAN wajib hanya bila PR
-  berlabel `security`, atau mengubah `apps/api/prisma/` (skema, migrasi, seed,
-  skrip data), `apps/api/scripts/` (skrip data produksi), atau jalur auth/RBAC.
-  Daftar persisnya ada di `RISKY_PATHS` dalam `.github/scripts/pr-template-guard.sh`.
-  PR lain ditinjau gerbang, dan manusia menyetujui rilisnya. Label atau daftar
-  berkas yang tidak terbaca dianggap berisiko. Dasarnya: DORA (Accelerate)
-  menunjukkan persetujuan perubahan yang berat berkorelasi dengan kinerja yang
-  lebih buruk, dan yang lebih baik adalah tinjauan ringan berbasis risiko.
+  PR tidak menautkan issue (`Fixes #<n>`; PR tanpa issue gagal, #772), salah
+  satu nomornya bukan issue terbuka berlabel `ready`/`bot-implement`, PR tidak
+  menuju cabang default, atau prosanya terbaca sebagai Bahasa Inggris. Check ini
+  termasuk required status checks ruleset `main` sejak 2026-10-11, jadi ia
+  menahan merge. Hanya Dependabot yang dilewati, berdasarkan penulis PR. Job
+  `visual` tetap advisory.
+- **Templat PR ringkas, risiko ditulis pada PR berisiko** (keputusan pemilik
+  2026-11-09, #965, menggantikan catatan `## HUMAN` dari #760). Templat memuat
+  `Why`, `What changed`, `Linked issue`, `Acceptance criteria`, `How to test`,
+  `Risk and rollback`, `Evidence`, dan `Notes`; tidak ada lagi bagian
+  `HUMAN`/`AGENT` atau `Type` (tipe datang dari label issue). `Risk and
+  rollback` wajib (minimal 20 karakter) hanya bila PR berlabel `security`, atau
+  mengubah `apps/api/prisma/` (skema, migrasi, seed, skrip data),
+  `apps/api/scripts/` (skrip data produksi), atau jalur auth/RBAC. Daftar
+  persisnya ada di `RISKY_PATHS` dalam `.github/scripts/pr-template-guard.sh`.
+  Label atau daftar berkas yang tidak terbaca dianggap berisiko. Persetujuan
+  manusia sudah diwajibkan ruleset `main` untuk setiap PR; yang ditambahkan
+  pada PR berisiko adalah pernyataan dampak dan cara mengembalikannya, sesuai
+  tinjauan ringan berbasis risiko yang dianjurkan DORA (Accelerate).
 - **CI merah atau review minta-perubahan tidak mengembalikan PR ke draft.** PR
   tetap terbuka dan check yang gagal terlihat padanya; gerbang memposting review
   minta-perubahan dan branch protection menahan merge. Mengembalikan ke draft

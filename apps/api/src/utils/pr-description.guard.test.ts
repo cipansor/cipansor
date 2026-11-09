@@ -10,7 +10,8 @@ import { join, resolve } from 'path';
  *  - `pr-template-guard.sh` is a HARD gate: it fails the check while the body
  *    is missing a required part (Why/What changed/How to test/Acceptance
  *    criteria, a linked ready issue, Indonesian prose, and — on a risky PR
- *    only — a `## HUMAN` note), and passes once the body is complete.
+ *    only — a `## Risk and rollback` statement, #965), and passes once the
+ *    body is complete.
  *  - `visual-evidence.sh` asks for before/after visuals only when `apps/web`
  *    changed and no image or video is present in the body, and stays advisory.
  */
@@ -104,13 +105,9 @@ function run(script: string, env: Record<string, string>) {
   };
 }
 
-const COMPLETE = `## HUMAN
+const RISK = 'Rendah: hanya endpoint health yang berubah, dan revert satu commit mengembalikannya.';
 
-Saya menjalankan tes API dan mencoba alur yang berubah.
-
-## AGENT
-
-## Why
+const COMPLETE = `## Why
 
 Endpoint health berbohong tentang keadaan basis data.
 
@@ -129,6 +126,10 @@ Fixes #12
 ## How to test
 
 pnpm --filter api test
+
+## Risk and rollback
+
+${RISK}
 `;
 
 describe('pr-template-guard.sh', () => {
@@ -154,6 +155,33 @@ describe('pr-template-guard.sh', () => {
     expect(calls).not.toContain('COMMENT');
   });
 
+  // #866/#965: the guard used to strip fenced code before reading sections, so
+  // a `## How to test` that was only a block of commands read as empty.
+  it('reads a How to test that is only a fenced block of commands as complete', () => {
+    const fenced = COMPLETE.replace(
+      'pnpm --filter api test\n',
+      '```bash\npnpm --filter api test\n```\n'
+    );
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: fenced });
+    expect(status).toBe(0);
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('leaves fenced code out of the language check', () => {
+    // English commands in a fence say nothing about the description's language,
+    // and an Indonesian body with them still passes.
+    const withCode = COMPLETE.replace(
+      'pnpm --filter api test\n',
+      'Jalankan perintah ini:\n\n```bash\n# the test that should fail before the fix\npnpm --filter api test\n```\n'
+    );
+    expect(run(TEMPLATE, { GH_STUB_BODY: withCode }).status).toBe(0);
+  });
+
+  it('still accepts a body written with the old HUMAN/AGENT template', () => {
+    const old = `## HUMAN\n\nSaya menjalankan tes API dan mencoba alur yang berubah.\n\n## AGENT\n\n${COMPLETE}`;
+    expect(run(TEMPLATE, { GH_STUB_BODY: old }).status).toBe(0);
+  });
+
   it('still fails a CRLF body that is missing a section', () => {
     const missing = COMPLETE.replace(/## What changed\r?\n\r?\n[^\n]*\n/, '');
     const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: missing.replace(/\n/g, '\r\n') });
@@ -161,20 +189,20 @@ describe('pr-template-guard.sh', () => {
     expect(calls).toContain('COMMENT');
   });
 
-  // The human note is asked for only where a human must look before the merge
-  // (#760); the gate reviews everything else and a human approves the release.
-  describe('the human note on a risky PR', () => {
-    // COMPLETE's Indonesian function words sit in its human note, so the body
-    // without one gets an Indonesian sentence of its own (the language check is
-    // not what these tests are about).
-    const NO_HUMAN = COMPLETE.replace(
-      /## HUMAN\n\n.*\n/,
-      '## HUMAN\n\n<!-- Penulis manusia: ganti komentar ini. -->\n'
+  // A risky PR states what can break and how to undo it (#965, replacing the
+  // free-form `## HUMAN` note of #760); every PR still needs an approval.
+  describe('the risk statement on a risky PR', () => {
+    // COMPLETE's Indonesian function words sit in its risk statement, so the
+    // body without one gets an Indonesian sentence of its own (the language
+    // check is not what these tests are about).
+    const NO_RISK = COMPLETE.replace(
+      RISK,
+      '<!-- Wajib bila PR berisiko: apa yang bisa rusak dan cara mengembalikannya. -->'
     ).replace('## Why\n\n', '## Why\n\nIni perbaikan yang kecil dan terukur. ');
 
     it('is not required on an ordinary PR', () => {
       const { status, calls } = run(TEMPLATE, {
-        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_BODY: NO_RISK,
         GH_STUB_PRLABELS: 'bug,priority:medium',
         GH_STUB_FILES: 'apps/api/src/modules/marketing/roi.service.ts\ndocs/ARCHITECTURE.md',
       });
@@ -222,14 +250,14 @@ describe('pr-template-guard.sh', () => {
       ['whose labels cannot be read', { GH_STUB_PRLABELS_FAIL: '1' }, 'label PR tidak terbaca'],
       ['whose files cannot be read', { GH_STUB_FILES_FAIL: '1' }, 'daftar berkas PR tidak terbaca'],
     ])('is required on a PR %s, and the reminder names why', (_name, env, reason) => {
-      const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: NO_HUMAN, ...env });
+      const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: NO_RISK, ...env });
       expect(status).toBe(1);
       expect(calls).toContain('COMMENTBODY');
-      expect(calls).toContain('## HUMAN');
+      expect(calls).toContain('## Risk and rollback');
       expect(calls).toContain(reason);
     });
 
-    it('is satisfied by a note on a risky PR', () => {
+    it('is satisfied by a risk statement on a risky PR', () => {
       const { status } = run(TEMPLATE, {
         GH_STUB_BODY: COMPLETE,
         GH_STUB_PRLABELS: 'security',
@@ -240,16 +268,16 @@ describe('pr-template-guard.sh', () => {
 
     it('does not call a guide under the prisma folder risky (#765)', () => {
       const { status, calls } = run(TEMPLATE, {
-        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_BODY: NO_RISK,
         GH_STUB_FILES: 'apps/api/prisma/AGENTS.md\ndocs/DEPLOYMENT.md',
       });
       expect(status).toBe(0);
       expect(calls).not.toContain('COMMENT');
     });
 
-    it('still asks for the note when the guide comes with the schema', () => {
+    it('still asks for it when the guide comes with the schema', () => {
       const { status, calls } = run(TEMPLATE, {
-        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_BODY: NO_RISK,
         GH_STUB_FILES: 'apps/api/prisma/AGENTS.md\napps/api/prisma/schema.prisma',
       });
       expect(status).toBe(1);
@@ -258,7 +286,7 @@ describe('pr-template-guard.sh', () => {
 
     it('does not mistake a test beside the auth middleware for the middleware', () => {
       const { status } = run(TEMPLATE, {
-        GH_STUB_BODY: NO_HUMAN,
+        GH_STUB_BODY: NO_RISK,
         GH_STUB_FILES: 'apps/api/src/middleware/auth.guards.test.ts',
       });
       expect(status).toBe(0);
@@ -267,8 +295,8 @@ describe('pr-template-guard.sh', () => {
 
   it('fails when the description reads as English', () => {
     const english = COMPLETE.replace(
-      'Saya menjalankan tes API dan mencoba alur yang berubah.',
-      'I ran the API tests and walked the changed flow.'
+      RISK,
+      'Low: only the health endpoint changes, and one revert undoes it.'
     )
       .replace(
         'Endpoint health berbohong tentang keadaan basis data.',
@@ -285,10 +313,7 @@ describe('pr-template-guard.sh', () => {
     // `ini` sits inside "initial". The Indonesian match must be word-anchored,
     // or an English body that happens to contain such a substring would pass.
     const english =
-      COMPLETE.replace(
-        'Saya menjalankan tes API dan mencoba alur yang berubah.',
-        'I ran the API tests and walked the changed flow.'
-      )
+      COMPLETE.replace(RISK, 'Low: only the health endpoint changes, and one revert undoes it.')
         .replace(
           'Endpoint health berbohong tentang keadaan basis data.',
           'The health endpoint lied about the database.'
@@ -303,8 +328,8 @@ describe('pr-template-guard.sh', () => {
 
   it('passes an English body that says English is intended', () => {
     const english = COMPLETE.replace(
-      'Saya menjalankan tes API dan mencoba alur yang berubah.',
-      'I ran the API tests and walked the changed flow.\n\nEnglish is intended.'
+      RISK,
+      'Low: only the health endpoint changes, and one revert undoes it.\n\nEnglish is intended.'
     )
       .replace(
         'Endpoint health berbohong tentang keadaan basis data.',
@@ -326,9 +351,9 @@ describe('pr-template-guard.sh', () => {
   });
 
   it('treats an untouched template placeholder as missing content', () => {
-    const placeholder = `## HUMAN
+    const placeholder = `## Risk and rollback
 
-<!-- Human author: replace this comment with a short note. -->
+<!-- Wajib bila PR berisiko: apa yang bisa rusak dan cara mengembalikannya. -->
 
 ## Why
 
