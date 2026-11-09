@@ -944,18 +944,39 @@ describe('fleet contracts', () => {
     expect(script).toContain('JANGAN menulis komentar kedua untuk estimasi');
   });
 
+  it('folds Triase bug into the single triage owner (SDLC 01 -> SDLC 15)', () => {
+    // 2026-11-09 (user decision): `Triase bug` (SDLC 01) was folded into
+    // `Pelabel issue` (SDLC 15). Both fired on `issues.opened` and both wrote a
+    // triage comment, which is the "Triase ganda" defect (#848). SDLC 01's
+    // deeper criticality pass now lives in SDLC 15's tail; the bridge dispatches
+    // SDLC 15 as the triage owner.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    expect(script).toMatch(/"SDLC 01":/);
+    // SDLC 01's own managed tail is gone: its instructions were merged into 15.
+    expect(script).not.toMatch(/"SDLC 01":\s*"""PERILAKU SASARAN/);
+    expect(script).not.toContain('Triase bug ini dengan KRITIS');
+    // The merged tail carries both halves: the criticality pass (SDLC 01) and
+    // the evidence-backed priority rubric (SDLC 15).
+    expect(script).toContain('apa kegagalan dan penyebabnya');
+    expect(script).toContain('Prioritas — beri bukti, jangan mengira-ngira');
+    // The bridge dispatches SDLC 15, not the retired SDLC 01 id.
+    const bridge = read(BRIDGE);
+    expect(bridge).toContain('42ec7401-88f2-4f78-ab75-a93235fa52e4');
+    expect(bridge).not.toContain('d648595e-b0d9-4120-bbc4-07395cdbe6bf');
+  });
+
   it('keeps docs/SDLC-FLOW.md consistent with the folded estimate', () => {
     const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
     // The stage table and the issue subgraph name one triage owner that also
     // carries the estimate; the separate `Estimasi usaha` automation is gone.
     expect(flow).not.toContain('| Estimasi usaha ');
     expect(flow).not.toContain('C2["Estimasi usaha"]');
-    expect(flow).toMatch(/Pelabel issue \(triase \+ estimasi \+ label/);
-    // `Triase bug` still comments on `issues.opened`, so "Triase ganda" is only
-    // partly done (#848) — the doc must not mark it finished.
-    expect(flow).not.toMatch(/Triase ganda\.?\*\*~~\s*\*\*SELESAI/);
-    expect(flow).not.toMatch(/Triase satu pemilik\*\*~~:\s*\*\*SELESAI/);
-    expect(flow).toMatch(/Triase ganda — sebagian[\s\S]{0,600}#848/);
+    expect(flow).toMatch(/Pelabel issue \(triase \+ keparahan \+ estimasi \+ label/);
+    // `Triase bug` (SDLC 01) was folded in the same day, so "Triase ganda" is
+    // now finished (#848): one owner writes one comment. The doc must say so.
+    expect(flow).toMatch(/Triase ganda — SELESAI/);
+    expect(flow).toMatch(/Triase satu pemilik\*\* — SELESAI/);
+    expect(flow).not.toMatch(/Triase ganda — sebagian/);
   });
 
   it('writes no fleet size into the prompts or the flow doc', () => {
@@ -1015,10 +1036,11 @@ describe('deploy-sdlc-agents.py', () => {
     return r.stdout;
   };
 
-  // A distinctive line from SDLC 01's managed tail (`TAILS` in the deploy
-  // script). Its presence proves the tail — the task instructions — was
-  // re-attached, not merely that a budget was appended.
-  const TAILS_SDLC_01_MARKER = 'Triase bug ini dengan KRITIS dan habis-habisan.';
+  // A distinctive line from SDLC 15's managed tail (`TAILS` in the deploy
+  // script) — the single triage owner since SDLC 01 was folded into it. Its
+  // presence proves the tail — the task instructions — was re-attached, not
+  // merely that a budget was appended.
+  const TAILS_SDLC_15_MARKER = 'Prioritas — beri bukti, jangan mengira-ngira.';
 
   // The pre-fix environment note, as the live prompts still carry it verbatim.
   const AMBIENT =
@@ -1217,7 +1239,7 @@ describe('deploy-sdlc-agents.py', () => {
     // shows 23 in the same window (measured 2026-10-20).
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOriginal tail`;
     // An automation with a managed tail but no tailored budget.
-    expect(newPrompt('SDLC 01', original)).toContain('ANGGARAN WAKTU — JAM PASIR');
+    expect(newPrompt('SDLC 15', original)).toContain('ANGGARAN WAKTU — JAM PASIR');
     // An automation with no managed tail keeps its tail and gains the budget.
     const plain = newPrompt('SDLC 04', original);
     expect(plain).toContain('ANGGARAN WAKTU — JAM PASIR');
@@ -1260,10 +1282,10 @@ describe('deploy-sdlc-agents.py', () => {
     // For an automation with a managed tail (`TAILS`), a missing live tail is
     // harmless: the tail is re-attached from the script, so the automation is
     // rebuilt whole and its instructions are not lost. No refusal.
-    const out = newPrompt('SDLC 01', 'Header tanpa ekor');
+    const out = newPrompt('SDLC 15', 'Header tanpa ekor');
     expect(out).toContain('BODY ISSUE/PR');
     expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
-    expect(out).toContain(TAILS_SDLC_01_MARKER);
+    expect(out).toContain(TAILS_SDLC_15_MARKER);
   });
 
   it.skipIf(!hasPy)('still enforces the 1800s timeout when a truncated prompt is refused', () => {
@@ -1384,7 +1406,7 @@ describe('deploy-sdlc-agents.py', () => {
 
   it.skipIf(!hasPy)('uses the replacement tail for an automation that has one', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD tail`;
-    const out = newPrompt('SDLC 01', original);
+    const out = newPrompt('SDLC 15', original);
     expect(out).not.toContain('OLD tail');
     expect(out).toContain('KRITIS dan habis-habisan');
   });

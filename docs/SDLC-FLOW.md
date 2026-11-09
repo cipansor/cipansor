@@ -204,7 +204,7 @@ flowchart TD
 |---|---|---|---|---|---|
 | 1 | Laporan | manusia, atau temuan automation berkala | pelapor | issue sesuai templat; temuan keamanan → advisory privat | issue terbuka |
 | 2 | Triase | `issues.opened` | `Pelabel issue` | **satu** komentar: tipe, prioritas (berbukti), duplikat, kesiapan, estimasi | label `ready` / `needs-info` / `question` / `decision` / `duplicate` |
-| 3 | Klarifikasi | balasan pelapor pada `needs-info`, label bot, atau aktivitas baru (jembatan triase) | `Penjernih issue` / `Triase bug` | komentar penilaian ulang; body issue diperbarui hanya saat `ready` | `ready` |
+| 3 | Klarifikasi | balasan pelapor pada `needs-info`, label bot, atau aktivitas baru (jembatan triase) | `Penjernih issue` | komentar penilaian ulang; body issue diperbarui hanya saat `ready` | `ready` |
 | 4 | Keputusan | label `decision` | agen riset → maintainer | riset bersumber + pilihan ganda; maintainer memilih | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready` |
 | 5 | Implementasi | label `bot-implement` (`Bot sebutan`, atau maintainer); `ready` saja TIDAK memicu bot | `Tiket jadi PR` | PR draf dengan templat, uji, bukti, `Fixes #n` | daftar periksa penulis lengkap → ready for review |
 | 6 | CI | push | Actions | Build, Lint, Tests, Security, E2E | semua hijau |
@@ -262,14 +262,14 @@ repositori privat:
 Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 `Pengawas armada` menandai butir yang sudah selesai.
 
-1. **Triase ganda — sebagian (2026-11-09).** Issue baru mendapat dua sampai
-   tiga komentar triase atau estimasi dari automation berbeda. Estimasi kini
-   bukan lagi komentar terpisah: `Estimasi usaha` (SDLC 02) dilebur ke
-   `Pelabel issue` (SDLC 15) sebagai satu bagian komentar triasenya, dan
-   automation lamanya dinonaktifkan. Yang **tersisa**: `Triase bug` masih
-   berjalan pada `issues.opened` dan menulis komentar triase sendiri, jadi
-   issue baru masih mendapat dua komentar triase; itu dilacak di #848
-   (invarian 3–4).
+1. **Triase ganda — SELESAI (2026-11-09).** Issue baru dulu mendapat dua
+   sampai tiga komentar triase atau estimasi dari automation berbeda. Kini
+   hanya satu pemilik: `Estimasi usaha` (SDLC 02) dan `Triase bug` (SDLC 01)
+   sama-sama dilebur ke `Pelabel issue` (SDLC 15), yang menulis satu komentar
+   berisi tipe, prioritas (berbukti), keparahan dan sebab, area, kesiapan,
+   duplikat, dan estimasi. Kedua automation lama dinonaktifkan; jembatan
+   triase (`issue-triage-bridge.sh`) kini mengarah ke SDLC 15. Ini menutup
+   #848 (invarian 3–4).
 2. **Gerbang tinjau diam.** Gerbang pernah tidak menjawab sebelas jam tanpa
    ada yang tahu, lalu sehari penuh pada lima PR (2026-10-10). Pemeriksa
    Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
@@ -427,11 +427,12 @@ butir mengikuti aturan emas di `AGENTS.md`):
    `automation-health` yang memuat semuanya, satu komentar per head, dan satu
    dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
    merge.
-3. **Triase satu pemilik** — sebagian: hanya `Pelabel issue` yang menulis
-   triase, estimasi, dan label, dalam satu komentar yang diperbarui. Estimasi
-   sudah dilebur ke sini (2026-11-09; `Estimasi usaha` dinonaktifkan).
-   `Triase bug` masih berkomentar triase saat issue dibuka; menyempitkannya ke
-   penilaian ulang atas aktivitas pelapor adalah #848.
+3. **Triase satu pemilik** — SELESAI (2026-11-09): hanya `Pelabel issue` yang
+   menulis triase, estimasi, dan label, dalam satu komentar yang diperbarui.
+   `Estimasi usaha` (SDLC 02) dan `Triase bug` (SDLC 01) sama-sama dilebur ke
+   sini; kedua automation lamanya dinonaktifkan. `Penjernih issue` tetap
+   menangani penilaian ulang saat pelapor menjawab, dan jembatan triase
+   mengarah ke SDLC 15.
 4. **Pembaruan cabang otomatis** (Actions): saat `main` bergerak, cabang PR
    yang ber-auto-merge dan tertinggal diperbarui lewat API, sehingga CI
    berjalan ulang di atas `main` terbaru. **Sesudah** job ini ada di `main`,
@@ -466,8 +467,7 @@ flowchart TB
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
   subgraph ISSUE["1 · Issue"]
-    I([Issue dibuka]) --> C1["Triase bug"]:::cloud
-    I --> C3["Pelabel issue (triase + estimasi + label, satu komentar)"]:::cloud
+    I([Issue dibuka]) --> C3["Pelabel issue (triase + keparahan + estimasi + label, satu komentar)"]:::cloud
     C3 --> D{"Cukup jelas?"}
     D -- ya --> R(["ready"])
     D -- tidak --> NI(["needs-info"])
@@ -644,8 +644,7 @@ nyata.
 
 | Automation            | Peran                                                                                                          |
 | --------------------- | -------------------------------------------------------------------------------------------------------------- |
-| Triase bug            | triase issue baru, cari duplikat, label + komentar keparahan/area                                              |
-| Peta basis kode       | membandingkan peta arsitektur dengan kode → memperbarui **satu** issue induk (#782), tidak membuka issue baru    |
+| (deterministik)       | `docs-drift.yml` — `collect_facts.py` + `check_docs.py` membandingkan dokumen dengan kode → satu issue; menggantikan `Peta basis kode` dan `Pengelola dokumentasi` |
 | Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                |
 | Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                  |
 | Tiket jadi PR         | **satu-satunya pembuat PR**; label `bot-implement` memicunya                                                   |
@@ -656,10 +655,9 @@ nyata.
 | Uji beban             | k6 vs staging — kini `load-tests.yml`, dijalankan manual sebelum tiap rilis (bukan cron)                       |
 | Pemantau deployment   | CI atau E2E yang gagal di `main` → issue diagnosis (penyebabnya)                                               |
 | Pembuat catatan rilis | pre-release `-rc` + catatan rilis dari conventional commits                                                    |
-| Pengelola dokumentasi | merge yang berdampak dokumentasi → issue dokumentasi basi                                                      |
-| Pelabel issue         | tipe + prioritas + kesiapan (`ready`/`needs-info`/`question`/`duplicate`)                                      |
+| Pelabel issue         | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar |
 | Penjernih issue       | menilai ulang saat pelapor menjawab `needs-info`                                                               |
-| Pelabel PR            | menyalin tipe + prioritas issue tertaut ke PR                                                                  |
+| (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`) |
 | Gerbang tinjau PR     | **satu-satunya yang boleh APPROVE**; menunggu CI hijau                                                         |
 | Pemburu bug           | bug proaktif yang bisa direproduksi → issue berbukti                                                           |
 | Pemindai standar      | standar/regulasi terbaru → issue `pending-maintainer`                                                          |
@@ -676,7 +674,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 | Akun           | Peran                                          | Automation                                                                                                                                                                                          |
 | -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `adminypc`     | Penulis — membuat issue dan pull request       | Peta basis kode, Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar, Pengawas armada, Audit kematangan       |
-| `cipansor-bot` | Komunikator — komentar, label, review, approve | Triase bug, Peninjau arsitektur, Peninjau kode, Otomasi QA, Pembuat catatan rilis, Pelabel issue (triase + estimasi + label), Penjernih issue, Pelabel PR, Gerbang tinjau PR, Diskusi |
+| `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Peninjau kode, Otomasi QA, Pembuat catatan rilis, Pelabel issue (triase + keparahan + estimasi + label), Penjernih issue, Gerbang tinjau PR, Diskusi |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
   memakai `GITHUB_TOKEN` (`adminypc`). Selebihnya memposting lewat
@@ -787,11 +785,13 @@ rilis` berjalan mingguan, memotong pre-release `-rc` berikutnya, dan menulis
   catatan ke body Release dari conventional commit sejak rilis resmi terakhir;
   ia tidak pernah menulis `CHANGELOG.md` ke repositori dan tidak pernah membuka
   PR changelog. Rilis resmi (non-`rc`) adalah tindakan manual maintainer.
-- **Armada adalah kerangka plus saluran pipanya.** `Triase bug` … `Gerbang tinjau
-PR` (item 1–18) memetakan satu-ke-satu ke 18 item Agentic SDLC; `Pelabel issue`
+- **Armada adalah kerangka plus saluran pipanya.** `Peninjau arsitektur` …
+  `Gerbang tinjau PR` (item Agentic SDLC) dipetakan satu-ke-satu; `Pelabel issue`
   … `Pengawas armada` menambahkan pipeline label/siklus hidup, pemburu proaktif,
-  dan pengawas; `Audit kematangan` menilai 18 item yang sama dan menyebut yang
-  terlemah, sehingga armada bisa diarahkan dengan sengaja.
+  dan pengawas; `Audit kematangan` menilai item yang sama dan menyebut yang
+  terlemah. Sebagian butir mekanis dipindahkan ke Actions deterministik
+  (`docs-drift`, `stale-sweep`, `issue-label-sync`, `pr-duplicate`) karena
+  keluarannya sebuah daftar atau label, bukan penilaian.
 - **Peringatan tidak pernah memblokir, kecuali gate templat.** Hanya job
   `template` yang memblokir; `visual-evidence` hanya berkomentar.
 - **Rollback manual.** `deploy-watch.yml` dan `Pemantau deployment` hanya

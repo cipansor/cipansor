@@ -65,7 +65,7 @@ The evidence rule, enforced in the triage owner's prompt:
 
 1. **Type and priority are shared between an issue and its pull request.** When
    a PR closes an issue, it must carry the same type label and the same priority
-   label. `Pelabel PR` sets them from the issue; the `Issue label
+   label. `Issue label sync` sets them from the issue; the `Issue label
 sync` workflow adds anything missing and **fails the check** when the type
    genuinely disagrees (a different type is a real conflict, not something to
    guess at). A PR that closes **more than one** issue must satisfy every one of
@@ -217,7 +217,8 @@ sync` workflow adds anything missing and **fails the check** when the type
 | `Pelabel issue`     | issue opened                                   | tipe, prioritas, `ready` / `needs-info` / `question` / `duplicate` |
 | `Tiket jadi PR`     | issue labelled `bot-implement`                 | tidak ada — ia membuka PR                                          |
 | `Penjernih issue`   | comment on a `needs-info` issue                | `needs-info` ↔ `ready`, `duplicate`, `invalid`                     |
-| `Pelabel PR`        | PR opened                                      | tipe dan prioritas issue tertaut, atau `duplicate-pr`              |
+| `Issue label sync`  | PR opened / issue relabeled                     | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`) |
+| `pr-duplicate.sh`   | jadwal harian                                   | `duplicate-pr` bila dua PR terbuka menutup issue yang sama          |
 | `Gerbang tinjau PR` | PR ready for review, or CI-green dispatch      | tidak ada — ia meninjau atau menyetujui                            |
 | `Pemburu bug`       | daily cron                                     | membuka issue `bug`, satu prioritas, `bug-hunter`, `bot-implement` |
 | `Pemindai standar`  | weekly cron                                    | membuka issue dengan tipe, prioritas, `pending-maintainer`         |
@@ -264,8 +265,8 @@ sample automated comment before it is enabled.
 Blank issues are **enabled**: the forms cover a defect and a change request, not
 a question, an operational incident, or anything the forms do not fit, and
 forcing those into a `bug` form produces a wrong label. An unstructured issue is
-not turned away — the automations absorb it: `Triase bug` triages it, and
-`Pelabel issue` sizes it (the estimate is part of its single triage comment) or
+not turned away — the automation absorbs it: `Pelabel issue` triages it and
+sizes it (the estimate is part of its single triage comment), or
 lists the questions that would unblock it, then applies `needs-info` with the
 exact missing detail rather than `ready`. A security
 vulnerability is routed to a private advisory (`SECURITY.md`), never a public
@@ -288,7 +289,7 @@ to produce the labels above, not prose to read and forget:
   every issue the PR resolves (each an open `ready`/`bot-implement` issue,
   never a PR; `Refs #<n>` for a partial step), copies the issue's acceptance
   criteria as checkboxes, and asks for a **before and after** visual on any
-  change under `apps/web`. `Pelabel PR` mirrors the linked issue's
+  change under `apps/web`. `Issue label sync` mirrors the linked issue's
   type and priority onto the PR.
 
 These are kept honest by the `pr-description-checks` workflow: the `template`

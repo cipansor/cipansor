@@ -209,18 +209,15 @@ BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
 # The hardened triage/review tail per automation. Everything else keeps its tail
 # and only gains the BODY_BLOCK. Keys are matched as a substring of the name.
 TAILS = {
-    "SDLC 01": """PERILAKU SASARAN (level agentic)
-Triase bug ini dengan KRITIS dan habis-habisan. Baca issue, cari duplikat di antara issue terbuka dan tertutup, dan tanyakan bertubi-tubi sampai sangat yakin: apa kegagalan dan penyebabnya, area/modul mana (path nyata), kriteria penerimaan yang bisa diamati, apakah premisnya benar. Tulis hasilnya sebagai KOMENTAR BARU, bukan ke body: tingkat keparahan beserta alasan, area yang bertanggung jawab, langkah berikutnya, dan pertanyaan yang tersisa. Body issue hanya diperbarui saat Anda memasang `ready` (lihat blok BODY di atas). Terapkan hanya label yang sudah ada. JANGAN pasang `ready` (itu milik `Pelabel issue`). Tautkan setiap duplikat yang Anda temukan.
-""",
-    # `Estimasi usaha` (SDLC 02) was folded into this tail on 2026-11-09 (user
-    # decision). The estimate is one section of the single triage comment, not a
-    # second automation writing a second comment: `docs/SDLC-FLOW.md` invariant 3
-    # ("Triase, estimasi, dan label … oleh satu automation dalam satu komentar")
-    # and the "Selisih dari keadaan sekarang" item 1 ("Triase ganda") always
-    # asked for it, and a separate automation doubled the runs that could die on
-    # the wall clock.
+    # `Triase bug` (SDLC 01) was folded into this tail on 2026-11-09 (user
+    # decision, closing "Triase ganda" #848). SDLC 01 had the deeper criticality
+    # pass (what fails and why, which module, whether the premise holds); SDLC 15
+    # had the label taxonomy, the evidence-backed priority rubric and the
+    # estimate. One owner now writes ONE comment carrying all of it, instead of
+    # two automations writing two triage comments on the same `issues.opened`
+    # event. `Estimasi usaha` (SDLC 02) had been folded in earlier the same day.
     "SDLC 15": """PERILAKU SASARAN (level agentic)
-Triase issue ini dengan KRITIS dan habis-habisan. Sebelum memberi label apa pun, tanyakan bertubi-tubi sampai sangat yakin: apa masalah atau tujuannya persis; apakah kriteria penerimaannya konkret dan bisa diamati; apakah ada ketergantungan, non-goal, atau asumsi tersembunyi; apakah premisnya benar atau justru ada opsi "tidak perlu sama sekali". Bila satu saja belum terjawab, JANGAN pasang `ready`.
+Triase issue ini dengan KRITIS dan habis-habisan. Baca issue, cari duplikat di antara issue terbuka dan tertutup, dan tanyakan bertubi-tubi sampai sangat yakin: apa masalah atau tujuannya persis, apa kegagalan dan penyebabnya (sebut path nyata modul/berkas), apakah kriteria penerimaannya konkret dan bisa diamati, apakah ada ketergantungan, non-goal, atau asumsi tersembunyi, dan apakah premisnya benar atau justru ada opsi "tidak perlu sama sekali". Tautkan setiap duplikat yang Anda temukan. Bila satu saja belum terjawab, JANGAN pasang `ready`.
 
 Prioritas — beri bukti, jangan mengira-ngira. Nilai dampak, urgensi, dan risiko:
 - `priority:critical` HANYA bila salah satu terpenuhi: layanan mati total; kehilangan/korupsi data; kerentanan keamanan atau kebocoran data pribadi (UU PDP) yang aktif bisa dieksploitasi; pipeline rilis macet total. Sebut korban konkret (unit/peran) dan buktinya.
@@ -639,11 +636,36 @@ TRIGGERS = {
 # which needs no LLM and must not spend a sandbox. The timers are unchanged, so
 # there is nothing here to redeploy — re-enabling the automation would restore
 # the exact 1800s wall-clock death that got it paused five runs in a row.
+#
+# `SDLC 03` (`Peta basis kode`) and `SDLC 14` (`Pengelola dokumentasi`) moved to
+# `.github/workflows/docs-drift.yml` on 2026-11-09. Both asked for a *list of
+# files and paths*, which the documentation skill already measures exactly:
+# `collect_facts.py` counts modules, models, routes and cron entries, and
+# `check_docs.py` compares the prose against the code (Appendix A row by row,
+# every number). The two prompts together cost 68 sandbox runs a week to
+# re-read a diff a script had already produced. SDLC 03 also pointed at
+# `docs/MODULE_MAP.md`, a file that has never existed in this repository — the
+# module catalog lives in Appendix A of `docs/DOKUMEN-TEKNIS.md`.
+#
+# `SDLC 17` (`Pelabel PR`) retired on 2026-11-09: the mechanical half (copying
+# the linked issue's type and priority onto the PR) has been done by the
+# `issue-label-sync` workflow all along, and it is a required check. The
+# semantic half (deciding a PR duplicates another) is now a deterministic
+# heuristic in `docs-drift`'s sibling — see `.github/scripts/pr-duplicate.sh`.
 RETIRED = {
     "SDLC 02": "dilebur ke SDLC 15 (Pelabel issue) pada 2026-11-09 — estimasi "
     "kini satu bagian dari komentar triase tunggal (invarian 3).",
+    "SDLC 01": "dilebur ke SDLC 15 (Pelabel issue) pada 2026-11-09 — triase kini "
+    "satu pemilik: satu komentar (tipe, prioritas, kesiapan, area, keparahan, "
+    "duplikat, estimasi), bukan dua. Ini menutup 'Triase ganda' (#848).",
     "SDLC 21": "diport ke .github/workflows/stale-sweep.yml pada 2026-11-09 — "
     "timer label/stempel waktu, deterministik, tanpa sandbox.",
+    "SDLC 03": "diport ke .github/workflows/docs-drift.yml pada 2026-11-09 — "
+    "daftar penyimpangan sudah diukur collect_facts.py + check_docs.py.",
+    "SDLC 14": "diport ke .github/workflows/docs-drift.yml pada 2026-11-09 — "
+    "deteksi berkas src berubah tanpa padanan docs/ adalah diff path.",
+    "SDLC 17": "dipensiunkan pada 2026-11-09 — salin label sudah dikerjakan "
+    "issue-label-sync.yml; deteksi duplikat kini heuristik deterministik.",
 }
 
 

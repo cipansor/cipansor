@@ -178,3 +178,44 @@ setiap prompt dan dijaga workflow deterministik):
   `pending-maintainer` (#814). Kritik habis-habisan dulu, baru `ready`.
 - **Hanya `cipansor-bot` melabeli.** Label akun lain dicabut `label-guard.yml`,
   kecuali `rilis-disetujui`, `rilis-ditolak`, `bot-implement`.
+
+## Keputusan armada 2026-11-09 — yang mekanis turun ke Actions, yang menilai tetap LLM
+
+Klasifikasi ulang seluruh armada (24 automation, 330 run/7 hari). Aturannya:
+kalau keluarannya sebuah **daftar, label, atau stempel waktu**, itu kerja
+deterministik dan tidak boleh memakai sandbox; kalau keluarannya **penilaian**,
+ia tetap LLM.
+
+- **`Pembuat catatan rilis` (SDLC 13) — dipertahankan sebagai LLM, tetapi
+  sebagian dipindahkan.** Usul "ganti dengan release-please" **ditolak**: yang
+  deterministik hanya separuh, yaitu pemetaan Conventional Commits → semver.
+  release-please tidak menjalankan k6 smoke, tidak memeriksa SHA yang sedang
+  disajikan staging, dan tidak membuka **satu issue rilis mingguan** yang
+  persetujuannya lewat label `rilis-disetujui`/`rilis-ditolak` (keputusan
+  `otomasi-armada.md` 3) — sedangkan label itu dipasang pada **issue**, yang
+  bukan keluaran release-please. release-please juga menulis `CHANGELOG.md`,
+  yang bertentangan dengan keputusan 4 ("tidak ada berkas CHANGELOG"). Jadi:
+  semver boleh dihitung deterministik, tetapi **pemotongan rilis tetap milik
+  `Pembuat catatan rilis`**. Jangan usulkan release-please utuh lagi tanpa
+  memindahkan k6, pemeriksaan SHA staging, dan issue rilis label-driven.
+- **`Peta basis kode` (SDLC 03) + `Pengelola dokumentasi` (SDLC 14) — dipensiunkan,
+  digantikan `docs-drift.yml` (deterministik).** Keduanya meminta daftar berkas
+  dan path, yang sudah diukur persis oleh skill dokumentasi: `collect_facts.py`
+  (modul, model, rute, entri cron) + `check_docs.py` (Lampiran A baris demi
+  baris, tiap angka). SDLC 03 juga menunjuk `docs/MODULE_MAP.md` yang **tidak
+  pernah ada**; katalog modul ada di Lampiran A `docs/DOKUMEN-TEKNIS.md`.
+  Keduanya **tidak dilebur satu sama lain** karena sinyalnya berbeda (peta vs
+  prosa) dan keduanya menjadi deterministik, jadi "peleburan" terjadi di
+  lapisan CI, bukan prompt. Hemat 68 run/7 hari.
+- **`Pelabel PR` (SDLC 17) — dipensiunkan.** Separuh mekanisnya (menyalin tipe +
+  prioritas issue tertaut ke PR) sudah dikerjakan `issue-label-sync.yml` sejak
+  awal, dan itu check wajib. Separuh semantiknya (menilai PR duplikat) kini
+  heuristik deterministik `pr-duplicate.sh`: dua PR terbuka yang menutup issue
+  yang sama → yang terbaru dilabeli `duplicate-pr`, lalu `duplicate-sweep.sh`
+  yang sudah ada memperingatkan dan menutup. Hemat 22 run/7 hari.
+- **`Triase bug` (SDLC 01) dilebur ke `Pelabel issue` (SDLC 15).** Keduanya
+  menyala pada `issues.opened` dan keduanya menulis komentar triase — itulah
+  "Triase ganda" (#848). SDLC 01 punya penelusuran kritis lebih dalam; SDLC 15
+  punya taksonomi label, rubrik prioritas berbukti, dan estimasi. Yang kedua
+  menyerap yang pertama, dan jembatan triase kini mengarah ke SDLC 15. Hemat
+  ~50 run/7 hari dan satu komentar per issue baru.
