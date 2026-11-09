@@ -965,6 +965,33 @@ describe('fleet contracts', () => {
     expect(bridge).not.toContain('d648595e-b0d9-4120-bbc4-07395cdbe6bf');
   });
 
+  it('retires the measured mapper but keeps the documentation manager', () => {
+    // 2026-11-09 (corrected same day): `Peta basis kode` (SDLC 03) produced a
+    // list that the documentation skill already measures (`collect_facts.py`,
+    // `check_docs.py`), so it retires to `docs-drift.yml`. `Pengelola
+    // dokumentasi` (SDLC 14) is KEPT: which prose went stale, and what it should
+    // become, is a judgement, not a path diff. Its one issue so far (#943) names
+    // a causal chain and a consequence, not a path list.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    // SDLC 03 retired, and its own tail is gone.
+    expect(script).toMatch(/"SDLC 03":/);
+    expect(script).not.toMatch(/"SDLC 03":\s*"""PERILAKU SASARAN/);
+    // SDLC 14 NOT retired, and it carries the module-map judgement SDLC 03 left.
+    const retired = script.slice(
+      script.indexOf('RETIRED = {'),
+      script.indexOf('\n}', script.indexOf('RETIRED = {'))
+    );
+    expect(retired).not.toMatch(/"SDLC 14":/);
+    expect(script).toMatch(/"SDLC 14":\s*"""PERILAKU SASARAN/);
+    expect(script).toContain('nilai apakah peta modul dan arsitektur');
+    // The deterministic layer must not open a second drift issue: #782 is the
+    // one parent (owner decision 2026-10-11).
+    const drift = read(join(REPO_ROOT, '.github', 'scripts', 'docs-drift.sh'));
+    expect(drift).not.toContain('gh issue create');
+    expect(drift).toContain('docs-drift:start');
+    expect(drift).toContain('gh issue edit');
+  });
+
   it('keeps docs/SDLC-FLOW.md consistent with the folded estimate', () => {
     const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
     // The stage table and the issue subgraph name one triage owner that also

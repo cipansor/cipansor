@@ -198,15 +198,29 @@ ia tetap LLM.
   semver boleh dihitung deterministik, tetapi **pemotongan rilis tetap milik
   `Pembuat catatan rilis`**. Jangan usulkan release-please utuh lagi tanpa
   memindahkan k6, pemeriksaan SHA staging, dan issue rilis label-driven.
-- **`Peta basis kode` (SDLC 03) + `Pengelola dokumentasi` (SDLC 14) — dipensiunkan,
-  digantikan `docs-drift.yml` (deterministik).** Keduanya meminta daftar berkas
-  dan path, yang sudah diukur persis oleh skill dokumentasi: `collect_facts.py`
-  (modul, model, rute, entri cron) + `check_docs.py` (Lampiran A baris demi
-  baris, tiap angka). SDLC 03 juga menunjuk `docs/MODULE_MAP.md` yang **tidak
-  pernah ada**; katalog modul ada di Lampiran A `docs/DOKUMEN-TEKNIS.md`.
-  Keduanya **tidak dilebur satu sama lain** karena sinyalnya berbeda (peta vs
-  prosa) dan keduanya menjadi deterministik, jadi "peleburan" terjadi di
-  lapisan CI, bukan prompt. Hemat 68 run/7 hari.
+- **`Peta basis kode` (SDLC 03) — dipensiunkan; `Pengelola dokumentasi` (SDLC 14)
+  — DIPERTAHANKAN.** Koreksi 2026-11-09, beberapa jam setelah keputusan pertama.
+  SDLC 03 memang separuh besar terukur (jumlah modul, model, rute, entri cron,
+  Lampiran A baris demi baris) dan itu sudah dihitung `collect_facts.py` +
+  `check_docs.py`; ia juga menunjuk `docs/MODULE_MAP.md` yang **tidak pernah
+  ada**. Sisa penilaiannya — apakah peta modul `docs/ARCHITECTURE.md` masih
+  benar — dilebur ke SDLC 14.
+  SDLC 14 **bukan** diff path: memutuskan bahwa sebuah merge mengubah kontrak
+  API atau alur UI sehingga prosa mana pun tak lagi benar, lalu menyebut apa yang
+  harus prosa itu jadi, adalah **penilaian** — persis pekerjaan yang armada ada
+  untuk itu. Buktinya #943, satu-satunya issue-nya: ia menyebut rantai sebab
+  (`59b96dc` dari #935 mengubah `pnpm-workspace.yaml` dan menambah guard test,
+  tanpa satu berkas `.md`) dan akibat konkretnya (aturan floor kini menggagalkan
+  job Tests, tetapi tak tertulis di dokumen mana pun). Dan 17 issue
+  `documentation` yang dibuka manusia pada 2026-10-09/10 menunjukkan kelas cacat
+  ini nyata. Jadi: **03 turun, 14 tetap LLM.**
+  Lapisan terukur dijalankan `docs-drift.yml` — dan ia menyegarkan **badan issue
+  induk #782**, bukan membuka issue baru (keputusan pemilik 2026-10-11: enam belas
+  issue dokumen yang tumpang tindih menjadi satu induk yang badannya ditulis
+  ulang). Ini juga menutup temuan sesi ini: `check_docs.py` atas #782 melaporkan
+  **13 ERROR** pada `docs/DOKUMEN-TEKNIS.md` (294 vs 307 model, 434 vs 437
+  halaman, 1.411 vs 1456 rute, 17 vs 19 cron, 15 vs 17 job) — #782 sudah memuat
+  semuanya, jadi tidak ada temuan baru yang perlu dibuka.
 - **`Pelabel PR` (SDLC 17) — dipensiunkan.** Separuh mekanisnya (menyalin tipe +
   prioritas issue tertaut ke PR) sudah dikerjakan `issue-label-sync.yml` sejak
   awal, dan itu check wajib. Separuh semantiknya (menilai PR duplikat) kini

@@ -1,30 +1,35 @@
 #!/bin/sh
-# Report documentation that has drifted from the code, as one issue, without an
-# LLM. Replaces the `SDLC 03 · Peta basis kode` and `SDLC 14 · Pengelola
-# dokumentasi` automations (retired 2026-11-09).
+# Refresh the "open findings" section of the single documentation-drift issue,
+# from the code, without an LLM.
 #
-# Why an Action and not an automation: both prompts asked for a *list of files
-# and paths* to open as one issue. The documentation skill
-# (`.claude/skills/dokumen-aplikasi-cipansor`) already measures that list
-# deterministically — `collect_facts.py` counts modules, models, routes and
-# cron entries, and `check_docs.py` compares the prose (Appendix A row by row,
-# every number) against the code. SDLC 03/14 were an LLM re-reading a result a
-# script had already produced, 68 sandbox runs a week for a diff.
+# Why this is the MEASURED layer and not a replacement for all of SDLC 03/14:
+#   `SDLC 03 · Peta basis kode` retired 2026-11-09 — most of what it produced was
+#   measured (module/model/route/cron counts, Appendix A rows), which the
+#   documentation skill already computes exactly: `collect_facts.py` counts, and
+#   `check_docs.py` compares the prose (Appendix A row by row, every number)
+#   against the code.
+#   `SDLC 14 · Pengelola dokumentasi` is KEPT as an LLM automation: which prose
+#   went stale and what it should become is a judgement, not a path diff. SDLC
+#   03's judgement half (is the module map in `docs/ARCHITECTURE.md` still true)
+#   is folded into it.
 #
-# Two independent signals, one issue:
+# This script writes to the EXISTING parent issue #782, never a new one. That is
+# the owner's decision of 2026-10-11 (`#782` rule 3, `otomasi-armada.md` 14):
+# between 2026-10-09 and 2026-10-11 the mapper opened sixteen overlapping doc
+# issues, so it now updates one parent issue's body instead. This script
+# therefore edits the body between its markers (rule 1: rewritten whole, not a
+# comment; rule 2: a finding that no longer holds is gone; rule 5: an empty list
+# says so, and the issue stays open).
+#
+# Two independent signals:
 #   facts   -> `check_docs.py` finds an ERROR in a tracked doc (a stale number,
 #              a missing decision, an Appendix A row that disagrees with code)
-#   orphan  -> a module, route file, or scheduled job appeared in the code with
-#              no mention in any tracked doc
-#
-# One issue per cause, reopened by a comment when it already exists, so a doc
-# that stays stale does not open a new issue every run. The issue is labelled
-# `documentation` and `pending-maintainer`: fixing prose is a judgement call,
-# and `Tiket jadi PR` only starts on `bot-implement`, which a maintainer adds.
+#   orphan  -> a module or route file appeared in the code with no mention in any
+#              tracked doc
 #
 # Usage: docs-drift.sh
 # Env:   GH_TOKEN, REPO, DOCS_DRIFT_DRY_RUN (print, write nothing)
-#        MODULES_DIR / DOCS_DIR override the scanned trees (tests)
+#        DOCS_DRIFT_PARENT (default 782), MODULES_DIR / DOCS_DIR (tests)
 set -eu
 
 REPO="${REPO:?REPO is required}"
@@ -32,8 +37,10 @@ DRY="${DOCS_DRIFT_DRY_RUN:-}"
 SKILL=".claude/skills/dokumen-aplikasi-cipansor/scripts"
 MODULES_DIR="${MODULES_DIR:-apps/api/src/modules}"
 DOCS_DIR="${DOCS_DIR:-docs}"
-TITLE="docs: dokumentasi menyimpang dari kode"
-MARK="<!-- docs-drift -->"
+# The single drift issue (owner decision 2026-10-11, `#782` rule 3).
+PARENT="${DOCS_DRIFT_PARENT:-782}"
+START_MARK="<!-- docs-drift:start -->"
+END_MARK="<!-- docs-drift:end -->"
 
 # The skill is stdlib-only, so it runs on the runner's Python with no install.
 python3 "$SKILL/collect_facts.py" . --out /tmp/fakta >/dev/null
@@ -90,29 +97,35 @@ if [ -n "$ORPHANS" ]; then
 fi
 
 if [ ! -s "$REPORT" ]; then
-  echo "Dokumentasi sejalan dengan kode; tidak ada yang dilaporkan."
+  printf 'Tidak ada temuan terbuka (diperiksa pada %s).\n' "${GITHUB_SHA:-$(git rev-parse --short HEAD 2>/dev/null || echo unknown)}" > "$REPORT"
+fi
+
+# Rule 1: the body between the markers is REWRITTEN WHOLE on every run, never
+# appended as a comment, and rule 2 removes a finding that no longer holds —
+# rewriting is what removes it.
+BLOCK=$(printf '%s\n%s\n%s' "$START_MARK" "$(cat "$REPORT")" "$END_MARK")
+
+if [ -n "$DRY" ]; then
+  echo "[dry-run] badan issue #$PARENT akan disegarkan:"
+  cat "$REPORT"
   exit 0
 fi
 
-BODY=$(printf 'Ditemukan oleh `docs-drift.sh` (deterministik, tanpa LLM). Perbaikan prosa adalah keputusan penilaian: tambahkan `bot-implement` bila `Tiket jadi PR` yang harus mengerjakannya.\n\n%s\n\n%s\n' "$MARK" "$(cat "$REPORT")")
+BODY=$(gh issue view "$PARENT" --repo "$REPO" --json body --jq .body)
+case "$BODY" in
+  *"$START_MARK"*"$END_MARK"*)
+    NEW=$(printf '%s' "$BODY" | awk -v s="$START_MARK" -v e="$END_MARK" -v b="$BLOCK" '
+      index($0, s) { print b; skip = 1; next }
+      index($0, e) { skip = 0; next }
+      !skip')
+    ;;
+  *)
+    # First run: create the section at the end of the body. Its heading is
+    # deliberately distinct from the LLM's "Temuan terbuka" section so the
+    # measured layer and the judged layer do not blur into one list.
+    NEW=$(printf '%s\n\n## Temuan terukur (dijaga `docs-drift.sh`)\n\n%s' "$BODY" "$BLOCK")
+    ;;
+esac
 
-EXISTING=$(gh issue list --repo "$REPO" --state open --label documentation \
-  --limit 100 --json number,title \
-  --jq ".[] | select(.title == \"$TITLE\") | .number" | head -1 || true)
-
-if [ -n "$EXISTING" ]; then
-  if [ -n "$DRY" ]; then
-    echo "[dry-run] akan mengomentari issue #$EXISTING"
-  else
-    gh issue comment "$EXISTING" --repo "$REPO" --body "$BODY"
-    echo "Diperbarui issue #$EXISTING."
-  fi
-else
-  if [ -n "$DRY" ]; then
-    echo "[dry-run] akan membuka issue baru: $TITLE"
-  else
-    gh issue create --repo "$REPO" --title "$TITLE" --body "$BODY" \
-      --label documentation --label pending-maintainer
-    echo "Dibuka issue baru: $TITLE"
-  fi
-fi
+gh issue edit "$PARENT" --repo "$REPO" --body "$NEW"
+echo "Badan issue #$PARENT disegarkan."

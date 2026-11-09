@@ -249,6 +249,17 @@ ESTIMASI USAHA — SATU BAGIAN DARI KOMENTAR YANG SAMA (WAJIB). Dulu ini automat
 - Selama issue belum `ready`, bagian ini hidup di KOMENTAR. Hanya bila issue sudah `ready` tulis atau perbarui estimasi di DESKRIPSI UTAMA issue (bagian `<!-- sdlc:estimasi -->`), perbarui di tempat.
 - Bila issue terlalu kabur untuk diestimasi, katakan itu dan daftar pertanyaan yang akan membukanya — jangan menebak angka.
 """,
+    # `SDLC 14` restored 2026-11-09 (see the `RETIRED` note above): judging which
+    # prose went stale is not a path diff. It also inherits SDLC 03's judgement
+    # half — is the module map in `docs/ARCHITECTURE.md` still true — now that the
+    # measured half (counts, Appendix A) runs in `docs-drift.yml`.
+    "SDLC 14": """PERILAKU SASARAN (level agentic)
+Deteksi merge ke main yang berdampak dokumentasi: perubahan pada route/kontrak API, alur UI, atau konfigurasi yang tidak punya pembaruan padanan di docs/, README, atau AGENTS.md. Buka SATU issue berlabel `documentation` dan satu prioritas, berisi dokumen mana yang basi, path file yang berubah, dan apa yang perlu ditulis ulang; jangan membuka pull request — maintainer menerapkan `bot-implement` agar `Tiket jadi PR` memperbaruinya. Jika merge itu sudah memperbarui dokumennya, jangan lakukan apa pun.
+
+Selain itu, nilai apakah peta modul dan arsitektur di `docs/ARCHITECTURE.md` masih benar terhadap tata letak nyata (`apps/api/src/modules/**`, `apps/web/src/**`, `packages/shared/**`) — modul yang sudah tidak ada, modul baru yang belum tercatat, atau path yang salah. Ini sisa tugas `Peta basis kode` (SDLC 03) yang dipensiunkan 2026-11-09: yang TERUKUR (jumlah modul, model, rute, Lampiran A) sudah dijalankan `.github/workflows/docs-drift.yml` ke issue induk #782, jadi JANGAN mengulang hitungan angka; nilailah hanya apakah peta prosa masih menyampaikan kebenaran. Angka tetap bukan temuan bila dokumennya menunjuk perintah ukur (aturan #782 poin 4).
+
+Jangan membuka issue drift kedua: `#782` adalah satu-satunya issue induk penyimpangan dokumen (keputusan pemilik 2026-10-11). Temuan angka/daftar ke `#782`; temuan prosa yang butuh ditulis ulang ke satu issue `documentation` seperti di atas.
+""",
     "SDLC 16": """PERILAKU SASARAN (level agentic)
 Issue `needs-info` ini baru menerima komentar. Baca seluruh issue dan komentar baru, lalu putuskan dengan KRITIS apakah pelapor sudah memasok yang diminta. Bila masih kabur, biarkan `needs-info` dan tulis detail spesifik yang masih kurang sebagai KOMENTAR BARU — jangan mengulang pertanyaan yang sudah ditanyakan. Bila kini jelas dan bisa diimplementasikan, hapus `needs-info`, tambah `ready` (hanya bila benar-benar yakin, tanpa pertanyaan terbuka), lalu tulis penilaian ulang ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`). Bila duplikat, `duplicate` + tautkan aslinya. Bila tidak valid, `invalid` + alasannya. Jangan menghapus `ready` yang bukan Anda pasang tanpa menjelaskan alasannya.
 """,
@@ -637,15 +648,26 @@ TRIGGERS = {
 # there is nothing here to redeploy — re-enabling the automation would restore
 # the exact 1800s wall-clock death that got it paused five runs in a row.
 #
-# `SDLC 03` (`Peta basis kode`) and `SDLC 14` (`Pengelola dokumentasi`) moved to
-# `.github/workflows/docs-drift.yml` on 2026-11-09. Both asked for a *list of
-# files and paths*, which the documentation skill already measures exactly:
-# `collect_facts.py` counts modules, models, routes and cron entries, and
-# `check_docs.py` compares the prose against the code (Appendix A row by row,
-# every number). The two prompts together cost 68 sandbox runs a week to
-# re-read a diff a script had already produced. SDLC 03 also pointed at
-# `docs/MODULE_MAP.md`, a file that has never existed in this repository — the
-# module catalog lives in Appendix A of `docs/DOKUMEN-TEKNIS.md`.
+# `SDLC 03` (`Peta basis kode`) retired on 2026-11-09. Most of what it produced
+# was MEASURED, not judged: `collect_facts.py` counts modules, models, routes and
+# cron entries, and `check_docs.py` checks Appendix A row by row and every number
+# against the code. That layer now runs as `.github/workflows/docs-drift.yml`,
+# writing to the single drift issue #782 (owner decision 2026-10-11: the mapper
+# updates one parent issue, never opens another). SDLC 03's remaining judgement —
+# is the module map in `docs/ARCHITECTURE.md` still true — is folded into SDLC
+# 14. SDLC 03 also pointed at `docs/MODULE_MAP.md`, a file that has never existed
+# in this repository; the catalog is Appendix A of `docs/DOKUMEN-TEKNIS.md`.
+#
+# `SDLC 14` (`Pengelola dokumentasi`) is KEPT as an LLM automation. It was
+# briefly retired with SDLC 03 on 2026-11-09 and restored the same day: its
+# output is a JUDGEMENT — which document is stale, and what has to be rewritten —
+# not a path diff. Deciding that a merge changed an API contract or a UI flow in
+# a way no prose reflects, and then saying what the prose should become, is the
+# work the fleet exists for. The evidence: #943, its one issue so far, names the
+# causal chain (`59b96dc` from #935 changed `pnpm-workspace.yaml` and added a
+# guard test, updating no `.md`) and the concrete consequence (the floor rule now
+# fails the Tests job yet appears in no document). Only SDLC 03's module-map
+# question is merged into it.
 #
 # `SDLC 17` (`Pelabel PR`) retired on 2026-11-09: the mechanical half (copying
 # the linked issue's type and priority onto the PR) has been done by the
@@ -660,10 +682,12 @@ RETIRED = {
     "duplikat, estimasi), bukan dua. Ini menutup 'Triase ganda' (#848).",
     "SDLC 21": "diport ke .github/workflows/stale-sweep.yml pada 2026-11-09 — "
     "timer label/stempel waktu, deterministik, tanpa sandbox.",
-    "SDLC 03": "diport ke .github/workflows/docs-drift.yml pada 2026-11-09 — "
-    "daftar penyimpangan sudah diukur collect_facts.py + check_docs.py.",
-    "SDLC 14": "diport ke .github/workflows/docs-drift.yml pada 2026-11-09 — "
-    "deteksi berkas src berubah tanpa padanan docs/ adalah diff path.",
+    "SDLC 03": "dipensiunkan pada 2026-11-09 — separuh besar keluarannya "
+    "TERUKUR: `collect_facts.py` + `check_docs.py` menghitung modul, model, rute, "
+    "entri cron, dan memeriksa Lampiran A baris demi baris. Sisa penilaiannya "
+    "(apakah peta modul di ARCHITECTURE.md masih benar) dilebur ke SDLC 14, yang "
+    "memang penilaian. Lapisan angka dijalankan `.github/workflows/docs-drift.yml` "
+    "ke issue induk #782.",
     "SDLC 17": "dipensiunkan pada 2026-11-09 — salin label sudah dikerjakan "
     "issue-label-sync.yml; deteksi duplikat kini heuristik deterministik.",
 }

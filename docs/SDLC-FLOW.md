@@ -644,7 +644,7 @@ nyata.
 
 | Automation            | Peran                                                                                                          |
 | --------------------- | -------------------------------------------------------------------------------------------------------------- |
-| (deterministik)       | `docs-drift.yml` — `collect_facts.py` + `check_docs.py` membandingkan dokumen dengan kode → satu issue; menggantikan `Peta basis kode` dan `Pengelola dokumentasi` |
+| (deterministik)       | `docs-drift.yml` — `collect_facts.py` + `check_docs.py` menyegarkan **badan issue induk #782** (angka, Lampiran A); menggantikan `Peta basis kode` |
 | Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                |
 | Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                  |
 | Tiket jadi PR         | **satu-satunya pembuat PR**; label `bot-implement` memicunya                                                   |
@@ -656,6 +656,7 @@ nyata.
 | Pemantau deployment   | CI atau E2E yang gagal di `main` → issue diagnosis (penyebabnya)                                               |
 | Pembuat catatan rilis | pre-release `-rc` + catatan rilis dari conventional commits                                                    |
 | Pelabel issue         | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar |
+| Pengelola dokumentasi | merge yang berdampak dokumentasi → satu issue `documentation`: dokumen mana yang basi dan apa yang perlu ditulis ulang (penilaian, bukan diff path); juga menilai apakah peta modul `docs/ARCHITECTURE.md` masih benar |
 | Penjernih issue       | menilai ulang saat pelapor menjawab `needs-info`                                                               |
 | (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`) |
 | Gerbang tinjau PR     | **satu-satunya yang boleh APPROVE**; menunggu CI hijau                                                         |
@@ -673,7 +674,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 
 | Akun           | Peran                                          | Automation                                                                                                                                                                                          |
 | -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `adminypc`     | Penulis — membuat issue dan pull request       | Peta basis kode, Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar, Pengawas armada, Audit kematangan       |
+| `adminypc`     | Penulis — membuat issue dan pull request       | Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar, Pengawas armada, Audit kematangan       |
 | `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Peninjau kode, Otomasi QA, Pembuat catatan rilis, Pelabel issue (triase + keparahan + estimasi + label), Penjernih issue, Gerbang tinjau PR, Diskusi |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
