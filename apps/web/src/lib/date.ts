@@ -23,6 +23,18 @@ export function safeFormat(
 }
 
 /**
+ * Today's calendar day in WIB (Asia/Jakarta, UTC+7), "yyyy-MM-dd".
+ *
+ * The app runs on a UTC server, so `new Date().toISOString().split("T")[0]`
+ * yields the UTC day: between 00:00 and 06:59 WIB it is still yesterday, and a
+ * dashboard asking the API for "today" gets the previous day's figures. WIB has
+ * no daylight saving, so the offset is a constant and no tz lookup is needed.
+ */
+export function todayWibDay(now: Date = new Date()): string {
+  return wibDayOf(now);
+}
+
+/**
  * Format date to Indonesian locale
  */
 export function formatDate(

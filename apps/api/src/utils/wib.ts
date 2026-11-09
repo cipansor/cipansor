@@ -36,6 +36,19 @@ export function wibMinutesOfDay(instant: Date): number {
 export const wibWeekday = (day: string): number => dayOf(day).getUTCDay();
 
 /**
+ * A WIB calendar day shifted by whole days (negative for earlier ones).
+ *
+ * The arithmetic is done on the UTC midnight the string already carries, so it
+ * never consults the host clock — `setDate()` on a local `Date` would, and on a
+ * UTC container that silently returns the previous day around 00:00–07:00 WIB.
+ */
+export function shiftWibDay(day: string, days: number): string {
+  const d = dayOf(day);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+/**
  * The instant of a WIB wall-clock time ("HH:mm") on a WIB calendar day. The
  * inverse of `wibMinutesOfDay`: 07:00 on 2026-09-30 WIB is 00:00Z that day.
  */

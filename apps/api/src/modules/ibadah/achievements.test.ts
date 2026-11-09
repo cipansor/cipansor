@@ -43,6 +43,34 @@ describe('calculateStreak', () => {
   });
 });
 
+describe('calculateStreak on the WIB calendar day', () => {
+  // 2026-07-04T22:00:00Z == 2026-07-05 05:00 WIB, inside the 00:00-06:59 WIB
+  // window where the UTC and WIB calendar days differ.
+  const now = new Date('2026-07-04T22:00:00Z');
+
+  it('returns 0 when the latest record is two WIB days ago', () => {
+    // WIB day of `now` is 2026-07-05; latest record 2026-07-03 is two days back.
+    expect(calculateStreak([day('2026-07-03')], now)).toBe(0);
+  });
+
+  it('counts a record of the previous WIB day as one day back', () => {
+    expect(calculateStreak([day('2026-07-04')], now)).toBe(1);
+  });
+
+  it('counts the whole WIB run ending yesterday', () => {
+    expect(calculateStreak([day('2026-07-04'), day('2026-07-03'), day('2026-07-02')], now)).toBe(3);
+  });
+
+  it('reads the WIB day up to 23:59 and switches at 00:00 WIB', () => {
+    // 2026-07-04T16:59:00Z == 2026-07-04 23:59 WIB — still 07-04.
+    expect(calculateStreak([day('2026-07-04')], new Date('2026-07-04T16:59:00Z'))).toBe(1);
+    // 2026-07-04T17:00:00Z == 2026-07-05 00:00 WIB — now 07-05, so 07-04 is yesterday.
+    expect(calculateStreak([day('2026-07-04')], new Date('2026-07-04T17:00:00Z'))).toBe(1);
+    // 07-04 is two days back once the WIB day is 07-06.
+    expect(calculateStreak([day('2026-07-04')], new Date('2026-07-05T17:00:00Z'))).toBe(0);
+  });
+});
+
 describe('getStudentAchievements', () => {
   beforeEach(() => vi.clearAllMocks());
 
