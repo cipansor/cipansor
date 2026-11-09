@@ -414,6 +414,25 @@
       ulang baca; ≤ 40 perintah terminal lalu WAJIB kirim review) supaya diff
       besar tak bisa menelan anggaran sebelum review terkirim.
 
+28. **`Estimasi usaha` (SDLC 02) dilebur ke `Pelabel issue` (SDLC 15)**
+    (2026-11-09, pengguna). Estimasi bukan langkah tersendiri: ia bagian dari
+    satu komentar triase yang sudah ditulis `Pelabel issue`. Invarian 3
+    (`docs/SDLC-FLOW.md`) dan butir "Triase ganda" pada "Selisih dari keadaan
+    sekarang" memang sudah meminta ini sejak awal — SDLC 02 adalah sisa yang
+    belum dilebur. Bukti duplikasinya nyata: sejumlah issue menerima **dua**
+    komentar terpisah (triase + estimasi) pada objek yang sama, dan satu
+    komentar triase bahkan sudah memuat bagian "Estimasi usaha" sendiri.
+    Alasan tambahan: setiap automation adalah satu slot sandbox dan satu run
+    yang bisa mati di plafon 1800 detik — kelas kegagalan dominan armada — jadi
+    satu automation lebih sedikit berarti satu sumber kematian lebih sedikit.
+    Pelaksanaan: isi prompt SDLC 02 dipindahkan ke tail SDLC 15 sebagai bagian
+    `## Estimasi usaha` (tetap menulis `<!-- sdlc:estimasi -->` di body saat
+    issue `ready`), entri `TAILS["SDLC 02"]` dihapus, dan SDLC 02 dimasukkan ke
+    `RETIRED` di `scripts/deploy-sdlc-agents.py` sehingga deploy berikutnya
+    menonaktifkannya lewat `PATCH {enabled:false}` alih-alih men-deploy ulang
+    promptnya. Armada menyusut 24 -> 23 automation. Dijaga tes
+    `automation-fleet.guard.test.ts` (dua kasus baru).
+
 ## Sumber
 
 - Google SRE, "Monitoring Distributed Systems" —

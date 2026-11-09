@@ -265,9 +265,10 @@ sample automated comment before it is enabled.
 Blank issues are **enabled**: the forms cover a defect and a change request, not
 a question, an operational incident, or anything the forms do not fit, and
 forcing those into a `bug` form produces a wrong label. An unstructured issue is
-not turned away — the automations absorb it: `Triase bug` triages it, `Estimasi usaha`
-sizes it or lists the questions that would unblock it, dan `Pelabel issue` applies
-`needs-info` with the exact missing detail rather than `ready`. A security
+not turned away — the automations absorb it: `Triase bug` triages it, and
+`Pelabel issue` sizes it (the estimate is part of its single triage comment) or
+lists the questions that would unblock it, then applies `needs-info` with the
+exact missing detail rather than `ready`. A security
 vulnerability is routed to a private advisory (`SECURITY.md`), never a public
 issue.
 

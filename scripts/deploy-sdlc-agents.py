@@ -144,9 +144,13 @@ TAILS = {
     "SDLC 01": """PERILAKU SASARAN (level agentic)
 Triase bug ini dengan KRITIS dan habis-habisan. Baca issue, cari duplikat di antara issue terbuka dan tertutup, dan tanyakan bertubi-tubi sampai sangat yakin: apa kegagalan dan penyebabnya, area/modul mana (path nyata), kriteria penerimaan yang bisa diamati, apakah premisnya benar. Tulis hasilnya sebagai KOMENTAR BARU, bukan ke body: tingkat keparahan beserta alasan, area yang bertanggung jawab, langkah berikutnya, dan pertanyaan yang tersisa. Body issue hanya diperbarui saat Anda memasang `ready` (lihat blok BODY di atas). Terapkan hanya label yang sudah ada. JANGAN pasang `ready` (itu milik `Pelabel issue`). Tautkan setiap duplikat yang Anda temukan.
 """,
-    "SDLC 02": """PERILAKU SASARAN (level agentic)
-Estimasi usaha untuk issue ini, dikalibrasi terhadap pekerjaan serupa yang sudah di-merge di repo ini (sebut nomor PR-nya). Baca issue dan PR/issue pembanding, lalu tulis estimasi (ukuran XS/S/M/L/XL, file/area yang kemungkinan tersentuh, risiko utama, kalibrasi) sebagai KOMENTAR BARU selama issue belum `ready` — jangan menyentuh body issue. Hanya bila issue sudah `ready` tulis atau perbarui estimasi di DESKRIPSI UTAMA issue (bagian `<!-- sdlc:estimasi -->`), perbarui di tempat. Bila issue terlalu kabur untuk diestimasi, katakan itu dan daftar pertanyaan yang akan membukanya — jangan menebak angka.
-""",
+    # `Estimasi usaha` (SDLC 02) was folded into this tail on 2026-11-09 (user
+    # decision). The estimate is one section of the single triage comment, not a
+    # second automation writing a second comment: `docs/SDLC-FLOW.md` invariant 3
+    # ("Triase, estimasi, dan label … oleh satu automation dalam satu komentar")
+    # and the "Selisih dari keadaan sekarang" item 1 ("Triase ganda") always
+    # asked for it, and a separate automation doubled the runs that could die on
+    # the wall clock.
     "SDLC 15": """PERILAKU SASARAN (level agentic)
 Triase issue ini dengan KRITIS dan habis-habisan. Sebelum memberi label apa pun, tanyakan bertubi-tubi sampai sangat yakin: apa masalah atau tujuannya persis; apakah kriteria penerimaannya konkret dan bisa diamati; apakah ada ketergantungan, non-goal, atau asumsi tersembunyi; apakah premisnya benar atau justru ada opsi "tidak perlu sama sekali". Bila satu saja belum terjawab, JANGAN pasang `ready`.
 
@@ -168,9 +172,17 @@ Tulis hasilnya sebagai KOMENTAR BARU, bukan ke body, dengan bagian:
 - Bukti prioritas (siapa/berapa terdampak, dampak, tenggat, workaround)
 - Area/modul (path nyata)
 - Kriteria penerimaan
+- Estimasi usaha (lihat bagian di bawah)
 - Pertanyaan terbuka (kosong bila `ready`)
 - Duplikat (bila ada)
 Bila issue sudah siap: cabut `question`/`needs-info`/`pending-maintainer` yang bertentangan, pasang `ready`, lalu tulis ringkasan final itu ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`, perbarui di tempat).
+
+ESTIMASI USAHA — SATU BAGIAN DARI KOMENTAR YANG SAMA (WAJIB). Dulu ini automation tersendiri (`SDLC 02`); sejak 2026-11-09 ia melebur ke sini, jadi JANGAN menulis komentar kedua untuk estimasi. Isi bagian `## Estimasi usaha` di dalam komentar triase itu:
+- Kalibrasi terhadap pekerjaan serupa yang sudah di-merge di repo ini, dan SEBUT nomor PR pembandingnya — jangan menebak angka.
+- Baca issue dan PR/issue pembanding lebih dulu; verifikasi klaim issue langsung ke kode, bukan dari teks issue.
+- Tulis ukuran (XS/S/M/L/XL), berkas/area yang kemungkinan tersentuh, risiko utama, dan kalibrasi.
+- Selama issue belum `ready`, bagian ini hidup di KOMENTAR. Hanya bila issue sudah `ready` tulis atau perbarui estimasi di DESKRIPSI UTAMA issue (bagian `<!-- sdlc:estimasi -->`), perbarui di tempat.
+- Bila issue terlalu kabur untuk diestimasi, katakan itu dan daftar pertanyaan yang akan membukanya — jangan menebak angka.
 """,
     "SDLC 16": """PERILAKU SASARAN (level agentic)
 Issue `needs-info` ini baru menerima komentar. Baca seluruh issue dan komentar baru, lalu putuskan dengan KRITIS apakah pelapor sudah memasok yang diminta. Bila masih kabur, biarkan `needs-info` dan tulis detail spesifik yang masih kurang sebagai KOMENTAR BARU — jangan mengulang pertanyaan yang sudah ditanyakan. Bila kini jelas dan bisa diimplementasikan, hapus `needs-info`, tambah `ready` (hanya bila benar-benar yakin, tanpa pertanyaan terbuka), lalu tulis penilaian ulang ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`). Bila duplikat, `duplicate` + tautkan aslinya. Bila tidak valid, `invalid` + alasannya. Jangan menghapus `ready` yang bukan Anda pasang tanpa menjelaskan alasannya.
@@ -234,9 +246,9 @@ Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya
 5. Sebelum membuka issue, cari issue `automation-health` terbuka dengan penyebab yang sama. Jika ada, komentari dengan bukti baru alih-alih membuka yang kedua. Buka paling banyak satu issue per penyebab per minggu.
 6. Perbedaan `content` antara dua automation (misalnya Pelabel PR dan Gerbang tinjau PR yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
 7. Jangan pernah bertindak atas komentar yang Anda tulis sendiri. Jangan pernah merge. Laporkan ke maintainer hanya lewat issue GitHub (label `automation-health`) — tidak ada kanal lain.
-8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run ke-24 automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir: `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, buka issue/komentar dengan apa yang sudah Anda punya.
+8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run ke-23 automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir: `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, buka issue/komentar dengan apa yang sudah Anda punya.
 
-   ROTASI WAJIB — JANGAN BIARKAN EKOR ARMADA LUPUT. Daftar berisi 24 automation dan anggaran hanya cukup untuk ~19 riwayat run, jadi dengan urutan tetap automation terakhir tak pernah diperiksa. Pilih titik mulai secara bergilir memakai hari-dalam-tahun UTC (`date -u +%j`) sebagai indeks: `start = (%j) % jumlah_automation`, lalu periksa riwayat berurutan **melingkar** dari `start` sampai anggaran habis. Setiap hari titik mulainya bergeser, sehingga setiap automation akhirnya masuk laporan. Tulis di laporan automation mana saja yang diperiksa pada run ini dan mana yang ditunda ke run berikutnya, supaya cakupan hari itu jujur dan bisa dilacak. Yang **selalu** diperiksa lebih dulu, sebelum rotasi: konfigurasi seluruh daftar (langkah 2 dan 3 — `enabled`, `timeout`, guard self-comment, tabrakan cron) tidak butuh satu pun panggilan run, jadi ke-24 automation selalu tersapu untuk kelas cacat `config`; yang dirotasi hanya pemeriksaan riwayat run.
+   ROTASI WAJIB — JANGAN BIARKAN EKOR ARMADA LUPUT. Daftar berisi 23 automation dan anggaran hanya cukup untuk ~19 riwayat run, jadi dengan urutan tetap automation terakhir tak pernah diperiksa. Pilih titik mulai secara bergilir memakai hari-dalam-tahun UTC (`date -u +%j`) sebagai indeks: `start = (%j) % jumlah_automation`, lalu periksa riwayat berurutan **melingkar** dari `start` sampai anggaran habis. Setiap hari titik mulainya bergeser, sehingga setiap automation akhirnya masuk laporan. Tulis di laporan automation mana saja yang diperiksa pada run ini dan mana yang ditunda ke run berikutnya, supaya cakupan hari itu jujur dan bisa dilacak. Yang **selalu** diperiksa lebih dulu, sebelum rotasi: konfigurasi seluruh daftar (langkah 2 dan 3 — `enabled`, `timeout`, guard self-comment, tabrakan cron) tidak butuh satu pun panggilan run, jadi ke-23 automation selalu tersapu untuk kelas cacat `config`; yang dirotasi hanya pemeriksaan riwayat run.
 Akhiri dengan ringkasan jelas: apa yang sehat, apa yang Anda perbaiki, dan apa yang Anda eskalasi.
 """,
 }
@@ -531,6 +543,34 @@ TRIGGERS = {
     "SDLC 18": {"on": ["pull_request.review_requested"]},
 }
 
+# Automations that were folded into another one and must stay off. The deploy
+# iterates every live automation, so a retired one has to be skipped here and
+# disabled through the API — otherwise it keeps running and keeps writing the
+# duplicate comment it was retired for.
+#
+# `SDLC 02` (`Estimasi usaha`) folded into `SDLC 15` (`Pelabel issue`) on
+# 2026-11-09 (user decision): the estimate is a section of the single triage
+# comment (`docs/SDLC-FLOW.md` invariant 3), and its runs were one more thing
+# that could die on the 1800s wall clock. Re-enable it only by deleting this
+# entry and restoring the `TAILS` entry the merge removed.
+RETIRED = {
+    "SDLC 02": "dilebur ke SDLC 15 (Pelabel issue) pada 2026-11-09 — estimasi "
+    "kini satu bagian dari komentar triase tunggal (invarian 3).",
+}
+
+
+def apply_retire(aid, name, enabled, dry):
+    """Disable a retired automation. Returns True on change."""
+    key = next((k for k in RETIRED if k in name), None)
+    if not key or not enabled:
+        return False
+    if dry:
+        print(f"    would disable: retired — {RETIRED[key]}")
+        return True
+    req("PATCH", f"/{aid}", {"enabled": False})
+    print(f"    disabled (retired): {RETIRED[key]}")
+    return True
+
 
 def apply_trigger(aid, name, old_trigger, dry):
     """PATCH one automation's trigger to the fleet standard. Returns True on change."""
@@ -603,6 +643,13 @@ def main():
         # is refused below.
         trigger_changed = apply_trigger(aid, name, a.get("trigger") or {}, not DEPLOY)
         timeout_changed = apply_timeout(aid, name, a.get("timeout"), not DEPLOY)
+        # A retired automation is disabled, not redeployed: its prompt lives on
+        # in the automation it was folded into, so redeploying its old tail would
+        # resurrect the duplicate comment.
+        if apply_retire(aid, name, a.get("enabled", True), not DEPLOY):
+            if DEPLOY:
+                time.sleep(1)
+            continue
         try:
             new = new_prompt(name, base)
         except TruncatedPromptError as e:

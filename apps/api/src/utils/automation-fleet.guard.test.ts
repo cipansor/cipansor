@@ -926,6 +926,36 @@ describe('fleet contracts', () => {
     expect(flow).toContain('`ready`');
   });
 
+  it('folds the estimate into the single triage owner (SDLC 02 -> SDLC 15)', () => {
+    // 2026-11-09 (user decision): `Estimasi usaha` (SDLC 02) was folded into
+    // `Pelabel issue` (SDLC 15) so one automation writes triage + estimate +
+    // label in one comment — invariant 3, and one fewer run to die on the
+    // 1800s wall clock. This locks the merge so a later edit cannot quietly
+    // restore the duplicate writer.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    // The retired automation is skipped and disabled, not redeployed.
+    expect(script).toMatch(/RETIRED\s*=\s*\{/);
+    expect(script).toMatch(/"SDLC 02":/);
+    expect(script).toContain('apply_retire');
+    // Its old managed tail is gone: no `"SDLC 02": """PERILAKU SASARAN` entry.
+    expect(script).not.toMatch(/"SDLC 02":\s*"""PERILAKU SASARAN/);
+    // The estimate instruction now lives inside SDLC 15's tail.
+    expect(script).toMatch(/ESTIMASI USAHA — SATU BAGIAN DARI KOMENTAR YANG SAMA/);
+    expect(script).toContain('JANGAN menulis komentar kedua untuk estimasi');
+  });
+
+  it('keeps docs/SDLC-FLOW.md consistent with the folded estimate', () => {
+    const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
+    // The stage table and the issue subgraph name one triage owner that also
+    // carries the estimate; the separate `Estimasi usaha` automation is gone.
+    expect(flow).not.toContain('| Estimasi usaha ');
+    expect(flow).not.toContain('C2["Estimasi usaha"]');
+    expect(flow).toMatch(/Pelabel issue \(triase \+ estimasi \+ label/);
+    // The "Selisih" and "Instruksi pelaksanaan" items are marked done.
+    expect(flow).toMatch(/Triase ganda\.\*\*\*\* SELESAI 2026-11-09|SELESAI 2026-11-09/);
+    expect(flow).toContain('23 automation');
+  });
+
   it('states in docs/SDLC-FLOW.md that `bot-implement`, not `ready`, triggers implementation', () => {
     // A `ready` issue with a maintainer comment asking for a PR got no bot: the
     // trigger is the `bot-implement` label (SDLC 06). The flow doc must say so,

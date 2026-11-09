@@ -262,9 +262,12 @@ repositori privat:
 Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 `Pengawas armada` menandai butir yang sudah selesai.
 
-1. **Triase ganda.** Issue baru saat ini mendapat dua sampai tiga komentar
-   triase atau estimasi dari automation berbeda. Gabungkan menjadi satu
-   pemilik dan satu komentar yang diperbarui (invarian 3–4).
+1. ~~**Triase ganda.**~~ **SELESAI 2026-11-09.** Issue baru pernah mendapat
+   dua sampai tiga komentar triase atau estimasi dari automation berbeda.
+   Kini hanya `Pelabel issue` yang menulis triase, estimasi, dan label dalam
+   satu komentar yang diperbarui (invarian 3–4). Automation `Estimasi usaha`
+   (SDLC 02) dilebur ke `Pelabel issue` (SDLC 15) dan dinonaktifkan; armada
+   menyusut dari 24 menjadi 23 automation.
 2. **Gerbang tinjau diam.** Gerbang pernah tidak menjawab sebelas jam tanpa
    ada yang tahu, lalu sehari penuh pada lima PR (2026-10-10). Pemeriksa
    Actions-nya `gate-watch.yml` (#776); butir ini selesai begitu PR-nya
@@ -298,7 +301,7 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    (invarian 20). **Menaikkan plafon saja tidak cukup** untuk tugas yang
    menjelajah tanpa batas: `Pengawas armada` tetap mati 1800 detik setelahnya,
    delapan run beruntun tanpa satu pun laporan terkirim, karena membaca riwayat
-   run ke-24 automation satu per satu memakan seluruh anggaran. Ia kini membawa
+   run ke-23 automation satu per satu memakan seluruh anggaran. Ia kini membawa
    **anggaran kerja** sendiri (daftar sekali, tiap automation satu bacaan,
    berhenti mengumpulkan pada ~20 panggilan API dan menulis laporan dari yang
    ada) — pola yang sama dengan `Gerbang tinjau PR`.
@@ -325,7 +328,7 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    `.github/scripts/automation-retry.sh` — `/automations` menjawab `422` dan
    `/automations/{id}/runs` menjawab `404`, jadi watchdog yang memakai bentuk
    itu tidak membaca apa pun; dan riwayat run diperiksa **berotasi**
-   (`start = hari-ke-%j % jumlah automation`, melingkar) karena 24 automation
+   (`start = hari-ke-%j % jumlah automation`, melingkar) karena 23 automation
    lebih banyak daripada anggaran ~19 bacaan run — tanpa rotasi ekor daftar
    tak pernah diperiksa. Konfigurasi seluruh daftar (enabled, timeout, guard,
    tabrakan cron) tetap disapu penuh setiap hari tanpa satu pun panggilan run.
@@ -418,9 +421,10 @@ butir mengikuti aturan emas di `AGENTS.md`):
    `automation-health` yang memuat semuanya, satu komentar per head, dan satu
    dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
    merge.
-3. **Triase satu pemilik**: hanya `Pelabel issue` yang menulis triase,
-   estimasi, dan label, dalam satu komentar yang diperbarui. Automation lain
-   tidak berkomentar triase.
+3. ~~**Triase satu pemilik**~~: **SELESAI 2026-11-09.** Hanya `Pelabel issue`
+   yang menulis triase, estimasi, dan label, dalam satu komentar yang
+   diperbarui. Automation lain tidak berkomentar triase. `Estimasi usaha`
+   (SDLC 02) dilebur ke sini dan dinonaktifkan.
 4. **Pembaruan cabang otomatis** (Actions): saat `main` bergerak, cabang PR
    yang ber-auto-merge dan tertinggal diperbarui lewat API, sehingga CI
    berjalan ulang di atas `main` terbaru. **Sesudah** job ini ada di `main`,
@@ -456,8 +460,7 @@ flowchart TB
 
   subgraph ISSUE["1 · Issue"]
     I([Issue dibuka]) --> C1["Triase bug"]:::cloud
-    I --> C2["Estimasi usaha"]:::cloud
-    I --> C3["Pelabel issue"]:::cloud
+    I --> C3["Pelabel issue (triase + estimasi + label, satu komentar)"]:::cloud
     C3 --> D{"Cukup jelas?"}
     D -- ya --> R(["ready"])
     D -- tidak --> NI(["needs-info"])
@@ -635,7 +638,6 @@ nyata.
 | Automation            | Peran                                                                                                          |
 | --------------------- | -------------------------------------------------------------------------------------------------------------- |
 | Triase bug            | triase issue baru, cari duplikat, label + komentar keparahan/area                                              |
-| Estimasi usaha        | ukuran XS–XL + area tersentuh + risiko, dikalibrasi ke PR lama                                                 |
 | Peta basis kode       | membandingkan peta arsitektur dengan kode → memperbarui **satu** issue induk (#782), tidak membuka issue baru    |
 | Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                |
 | Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                  |
@@ -667,7 +669,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 | Akun           | Peran                                          | Automation                                                                                                                                                                                          |
 | -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `adminypc`     | Penulis — membuat issue dan pull request       | Peta basis kode, Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar, Pengawas armada, Audit kematangan       |
-| `cipansor-bot` | Komunikator — komentar, label, review, approve | Triase bug, Estimasi usaha, Peninjau arsitektur, Peninjau kode, Otomasi QA, Uji beban, Pembuat catatan rilis, Pelabel issue, Penjernih issue, Pelabel PR, Gerbang tinjau PR, Penjaga issue, Diskusi |
+| `cipansor-bot` | Komunikator — komentar, label, review, approve | Triase bug, Peninjau arsitektur, Peninjau kode, Otomasi QA, Uji beban, Pembuat catatan rilis, Pelabel issue (triase + estimasi + label), Penjernih issue, Pelabel PR, Gerbang tinjau PR, Penjaga issue, Diskusi |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
   memakai `GITHUB_TOKEN` (`adminypc`). Selebihnya memposting lewat
