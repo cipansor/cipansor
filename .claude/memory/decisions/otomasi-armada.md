@@ -419,9 +419,11 @@
     satu komentar triase yang sudah ditulis `Pelabel issue`. Invarian 3
     (`docs/SDLC-FLOW.md`) dan butir "Triase ganda" pada "Selisih dari keadaan
     sekarang" memang sudah meminta ini sejak awal — SDLC 02 adalah sisa yang
-    belum dilebur. Bukti duplikasinya nyata: sejumlah issue menerima **dua**
-    komentar terpisah (triase + estimasi) pada objek yang sama, dan satu
-    komentar triase bahkan sudah memuat bagian "Estimasi usaha" sendiri.
+    belum dilebur. Bukti duplikasinya nyata dan terhitung (API, 2026-11-09):
+    **21** issue menerima komentar `Estimasi usaha` yang terpisah dari komentar
+    triasenya, mis. #955 (estimasi `6730734956` + 5 komentar triase), #951,
+    #933, #923, #912. Satu komentar triase bahkan sudah memuat bagian "Estimasi
+    usaha" sendiri.
     Alasan tambahan: setiap automation adalah satu slot sandbox dan satu run
     yang bisa mati di plafon 1800 detik — kelas kegagalan dominan armada — jadi
     satu automation lebih sedikit berarti satu sumber kematian lebih sedikit.
@@ -461,9 +463,13 @@
     keputusan maintainer: satu akun manusia (`adminypc`) sekaligus penulis
     armada melemahkan guard anti-loop berbasis penulis dan pemisahan tugas
     (penulis tidak bisa meng-approve PR-nya sendiri); alternatifnya machine
-    user atau GitHub App khusus penulis. Runner `main.py` sudah benar
-    (`REQUIRED_SECRETS = ["GITHUB_TOKEN"]` + `GITHUB_BOT_TOKEN` bila prompt
-    memintanya), jadi tidak perlu diubah.
+    user atau GitHub App khusus penulis. Runner `main.py` **tidak ada di repo**
+    — ia hanya hidup di dalam tarball automation (arsip #934 belum dijalankan),
+    jadi "sudah benar" diverifikasi langsung dari `GET
+    /api/automation/v1/{id}/tarball` pada 2026-11-09: baris 29 memuat
+    `REQUIRED_SECRETS = ["GITHUB_TOKEN"]`, baris 48 menjelaskan `GITHUB_BOT_TOKEN`
+    diberikan ke automation mana pun yang promptnya meminta. Runner memang tidak
+    perlu diubah; yang salah promptnya.
     Catatan: automation yang **tidak** membuat artefak juga memegang
     `GITHUB_TOKEN` (grant otomatis platform), jadi larangan itu harus eksplisit
     di prompt, bukan diasumsikan dari ketiadaan token.
@@ -481,6 +487,22 @@
     hanya boleh muncul sebagai **riwayat** (mis. "SDLC 02 dilebur ke SDLC 15"),
     bukan sebagai rujukan normatif. Nama automation di API tetap boleh membawa
     nomor (itu identitasnya di layanan), tetapi dokumen dan tes merujuk peran.
+
+31. **Rollback deploy prompt armada** (2026-11-09, tinjauan PR #968). Deploy
+    prompt menyentuh armada **hidup** sebelum PR-nya ditinjau, padahal premis
+    #927/#933 justru "perubahan prompt harus lewat tinjauan PR". Bila PR
+    ditolak atau berubah, armada dan `main` berselisih, jadi prosedurnya
+    ditulis, bukan diingat:
+    1. Simpan prompt hidup sebelum deploy (`GET /api/automation/v1` -> JSON
+       `name` -> `prompt`). Tanpa ini rollback tidak mungkin.
+    2. Bangun ulang dari `main`: `ORIGINALS=<backup.json> DEPLOY=true
+       OPENHANDS_API_KEY=... python3 scripts/deploy-sdlc-agents.py` — `ORIGINALS`
+       mengganti basis, sehingga head dibangun dari prompt asli, bukan yang
+       sudah berubah.
+    3. Nyalakan kembali automation pensiun: `PATCH /api/automation/v1/{id}`
+       `{"enabled": true}` (mis. SDLC 02).
+    Pelajaran proses: deploy sesudah PR disetujui, atau tulis rencana rollback
+    di body PR bila deploy mendahului tinjauan.
 
 ## Sumber
 
