@@ -74,6 +74,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
+          # Who pushed the tag. The gate refuses a release unless this account has
+          # admin permission: write access alone is enough to push a `v*` tag, and
+          # the repository has no tag ruleset to stop one.
+          ACTOR: ${{ github.actor }}
           STAGING_URL: https://staging.cipansor.or.id
           # The target the k6 run must have measured. A green load-test run
           # against another host does not prove staging was tested, so the gate

@@ -122,10 +122,11 @@ from the backup, as the VM runbook describes, not on staging.
       nothing consumed, and the number stopped marking verified code (it only
       advanced on `fix:`/`feat:`, and this repository is mostly `chore(deps)`).
    5. Its first job, `gate`, re-checks the facts of 3.1 mechanically
-      (`.github/scripts/release-gate.sh`): the tag is a plain `vX.Y.Z`, its
-      commit is on `main`, the SHA is 40 lowercase hex, staging is **already
-      serving** it, and a `load-tests.yml` run for that SHA finished green
-      against staging. The `deploy` job waits on it (`needs: gate`), so a
+      (`.github/scripts/release-gate.sh`): the tag was pushed by an account with
+      admin permission (write access alone can push a `v*` tag, and the
+      repository has no tag ruleset), the tag is a plain `vX.Y.Z`, its commit is
+      on `main`, the SHA is 40 lowercase hex, staging is **already serving** it,
+      and a `load-tests.yml` run for that SHA finished green against staging. The `deploy` job waits on it (`needs: gate`), so a
       forgotten load test, a load test pointed at another host, or a commit off
       `main` can no longer be released. The gate does not decide
       *whether* to release — that is the maintainer's call — only that the

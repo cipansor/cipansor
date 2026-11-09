@@ -36,6 +36,7 @@ REPO="${REPO:?REPO is required}"
 DRY="${DOCS_DRIFT_DRY_RUN:-}"
 SKILL=".claude/skills/dokumen-aplikasi-cipansor/scripts"
 MODULES_DIR="${MODULES_DIR:-apps/api/src/modules}"
+JOBS_DIR="${JOBS_DIR:-apps/api/src/jobs}"
 DOCS_DIR="${DOCS_DIR:-docs}"
 # The single drift issue (owner decision 2026-10-11, `#782` rule 3).
 PARENT="${DOCS_DRIFT_PARENT:-782}"
@@ -82,6 +83,12 @@ for d in "$MODULES_DIR"/*/; do
 done
 for f in "$MODULES_DIR"/*/*.routes.ts; do
   [ -f "$f" ] && add_orphan "rute" "$(basename "$f" .routes.ts)"
+done
+# A job is named by its file, minus `.job.ts`: that is the name the schedule and
+# the docs speak of. Checked here, not only in the number gate: a new job whose
+# name no doc carries is exactly the orphan this signal exists for.
+for f in "$JOBS_DIR"/*.job.ts; do
+  [ -f "$f" ] && add_orphan "job" "$(basename "$f" .job.ts)"
 done
 
 if [ -n "$ORPHANS" ]; then

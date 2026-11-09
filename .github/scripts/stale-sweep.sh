@@ -159,33 +159,28 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
   # The newest warning this sweep posted, if any. Newest, not first: after a
   # reply the sweep warns again, and the fresh warning is the one in force. The
   # oldest would keep the original marker alive forever.
-  WARNED_AT=$(printf '%s\n' "$RAW" | grep -F "$MARK" | tail -1 | cut -f1 || true)
+  WARNED_LINE=$(printf '%s\n' "$RAW" | grep -F "$MARK" | tail -1 || true)
+  WARNED_AT=$(printf '%s\n' "$WARNED_LINE" | cut -f1 || true)
 
   # A warning governs only while no person has acted since it was posted. A
-  # human comment after the warning means the cycle it opened is over: the issue
-  # is alive, and the idle timer runs again from that reply. (The reply is still
-  # in the history forever, so the sweep must not read it on every run as "still
-  # answered" — it falls through to the timer and warns again when the issue goes
-  # quiet a second time.)
+  # human comment after the warning ends the cycle it opened; so does an edit to
+  # the description, which leaves no comment to notice. Both are compared against
+  # the newest warning's own markers, never `updatedAt` (a later automated
+  # comment bumps `updatedAt` and would hide an earlier edit or reply). An edit
+  # must end the cycle too: otherwise the stale hash would differ on every later
+  # run, the sweep would skip the issue forever, and it could never close.
   REPLY=$(printf '%s\n' "$RAW" \
     | awk -F '\t' -v warned="$WARNED_AT" -v bot="$BOT_LOGIN" \
         '$1 > warned && $2 != bot && $2 !~ /\[bot\]$/ { line = $1 } END { print line }' || true)
 
-  if [ -n "$WARNED_AT" ] && [ -z "$REPLY" ]; then
-    WARNED_LINE=$(printf '%s\n' "$RAW" | grep -F "$MARK" | tail -1 || true)
-
-    # An edit to the description after the warning also shows the issue is alive,
-    # and leaves no comment to notice. Compare the hash recorded in the warning,
-    # never `updatedAt`: a later automated comment bumps `updatedAt` and would
-    # hide an earlier edit.
-    RECORDED=$(printf '%s\n' "$WARNED_LINE" | grep -oE "$HASH_MARK[0-9a-f]+" | head -1 | cut -d: -f3 || true)
+  RECORDED=$(printf '%s\n' "$WARNED_LINE" | grep -oE "$HASH_MARK[0-9a-f]+" | head -1 | cut -d: -f3 || true)
+  EDITED=""
+  if [ -n "$RECORDED" ]; then
     BODY=$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)
-    if [ -n "$RECORDED" ] && [ "$(body_hash "$BODY")" != "$RECORDED" ]; then
-      echo "Issue #$n was edited after the warning; leaving it open."
-      printf '%s\n' "$LABELS" | grep -qxF 'stale' && write_labels "$n" --remove-label 'stale'
-      continue
-    fi
+    [ "$(body_hash "$BODY")" = "$RECORDED" ] || EDITED=1
+  fi
 
+  if [ -n "$WARNED_AT" ] && [ -z "$REPLY" ] && [ -z "$EDITED" ]; then
     # A warning that applied `stale` and whose `stale` label is now gone was
     # cancelled by a maintainer: removing the label is the documented way to say
     # "keep it open". Do not close on a decision that was already reversed.
@@ -209,28 +204,47 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
     continue
   fi
 
-  # No warning in force for the current cycle: either none was ever posted, or a
-  # person replied after the last one and the cycle restarted. Drop a `stale`
-  # label a spent warning left behind, so the label and the comments agree.
+  # The cycle is over: a person replied, or the description was edited. The
+  # warning is spent, so the sweep falls back to the idle timer and warns again
+  # when the issue goes quiet a second time, rather than reading the same old
+  # reply (or the same stale hash) on every run.
   if [ -n "$WARNED_AT" ]; then
-    echo "Issue #$n has a reply after the warning; the cycle restarts."
-    printf '%s\n' "$LABELS" | grep -qxF 'stale' && write_labels "$n" --remove-label 'stale'
+    if [ -n "$EDITED" ]; then
+      echo "Issue #$n was edited after the warning; the cycle restarts."
+    else
+      echo "Issue #$n has a reply after the warning; the cycle restarts."
+    fi
   fi
+
+  # Whether `stale` is set now, so the branch below can tell an actual change
+  # from a no-op and the new warning's marker matches the label's real state.
+  STALE_NOW=""
+  printf '%s\n' "$LABELS" | grep -qxF 'stale' && STALE_NOW=1
 
   # Warn again when the issue has gone quiet past the warn day — or, if it is
   # already past the close day, warn now and let the next run (after the grace
-  # window) do the closing rather than closing with no notice.
+  # window) do the closing rather than closing with no notice. A warning past the
+  # close day does not mark `stale`, so a label left from the spent cycle is
+  # dropped here; a warning at the warn day does mark `stale`, so it is applied
+  # if missing and its marker records that it is present.
   if [ "$IDLE" -ge "$CLOSE_DAYS" ]; then
+    [ -n "$STALE_NOW" ] && write_labels "$n" --remove-label 'stale'
     write_warning "$n" "Issue ini tidak ada aktivitas selama $IDLE hari dan akan ditutup otomatis pada pemeriksaan berikutnya. Balas, atau hapus labelnya, untuk menjaganya tetap terbuka." "0" "$(body_hash "$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)")"
     echo "Warned issue #$n (idle ${IDLE}d, past the ${CLOSE_DAYS}d close day)."
     continue
   fi
 
   if [ "$IDLE" -ge "$WARN_DAYS" ]; then
-    printf '%s\n' "$LABELS" | grep -qxF 'stale' || write_labels "$n" --add-label 'stale'
+    [ -z "$STALE_NOW" ] && write_labels "$n" --add-label 'stale'
     write_warning "$n" "Issue ini tidak ada aktivitas selama $IDLE hari, jadi ditandai \`stale\` dan akan ditutup otomatis setelah $CLOSE_DAYS hari tanpa balasan. Balas, atau hapus label \`stale\`, untuk menjaganya tetap terbuka." "1" "$(body_hash "$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)")"
     echo "Warned issue #$n (idle ${IDLE}d, marked stale)."
     continue
+  fi
+
+  # Still active, and the cycle that ended left no live warning: a `stale` label
+  # from the spent cycle no longer applies.
+  if [ -n "$WARNED_AT" ] && [ -n "$STALE_NOW" ]; then
+    write_labels "$n" --remove-label 'stale'
   fi
 
   echo "Issue #$n is active (idle ${IDLE}d); nothing to do."

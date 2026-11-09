@@ -132,6 +132,7 @@ describe('docs-drift.sh', () => {
     try {
       const { calls, newBody } = run({
         MODULES_DIR: join(root, 'modules'),
+        JOBS_DIR: join(root, 'no-jobs'),
         DOCS_DIR: docs,
         GH_STUB_BODY: '<!-- docs-drift:start -->\n<!-- docs-drift:end -->',
       });
@@ -154,10 +155,60 @@ describe('docs-drift.sh', () => {
     try {
       const { newBody } = run({
         MODULES_DIR: join(root, 'modules'),
+        JOBS_DIR: join(root, 'no-jobs'),
         DOCS_DIR: docs,
         GH_STUB_BODY: '<!-- docs-drift:start -->\n<!-- docs-drift:end -->',
       });
       expect(newBody).toContain('attendance');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('reports a scheduled job whose name no doc mentions', () => {
+    // The orphan signal covered modules and routes but not `*.job.ts` files, so a
+    // new scheduled job could ship with no doc naming it — the exact drift this
+    // signal exists to catch.
+    const root = mkdtempSync(join(tmpdir(), 'docs-drift-job-'));
+    const mods = join(root, 'modules');
+    const jobs = join(root, 'jobs');
+    const docs = join(root, 'docs');
+    mkdirSync(mods, { recursive: true });
+    mkdirSync(jobs, { recursive: true });
+    mkdirSync(docs, { recursive: true });
+    writeFileSync(join(jobs, 'spp-reminder.job.ts'), '');
+    writeFileSync(join(docs, 'NOTES.md'), 'tidak menyebut pekerjaan apa pun\n');
+    try {
+      const { newBody } = run({
+        MODULES_DIR: mods,
+        JOBS_DIR: jobs,
+        DOCS_DIR: docs,
+        GH_STUB_BODY: '<!-- docs-drift:start -->\n<!-- docs-drift:end -->',
+      });
+      expect(newBody).toContain('spp-reminder');
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('does not report a job whose name a doc already carries', () => {
+    const root = mkdtempSync(join(tmpdir(), 'docs-drift-job-ok-'));
+    const mods = join(root, 'modules');
+    const jobs = join(root, 'jobs');
+    const docs = join(root, 'docs');
+    mkdirSync(mods, { recursive: true });
+    mkdirSync(jobs, { recursive: true });
+    mkdirSync(docs, { recursive: true });
+    writeFileSync(join(jobs, 'spp-reminder.job.ts'), '');
+    writeFileSync(join(docs, 'NOTES.md'), 'pekerjaan `spp-reminder` berjalan tiap hari\n');
+    try {
+      const { newBody } = run({
+        MODULES_DIR: mods,
+        JOBS_DIR: jobs,
+        DOCS_DIR: docs,
+        GH_STUB_BODY: '<!-- docs-drift:start -->\n<!-- docs-drift:end -->',
+      });
+      expect(newBody).toContain('Tidak ada temuan terbuka');
     } finally {
       rmSync(root, { recursive: true, force: true });
     }

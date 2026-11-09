@@ -250,6 +250,57 @@ describe('stale-sweep.sh', () => {
     expect(calls).toContain('CLOSE 7');
   });
 
+  it('warns again after an edit goes quiet, instead of never closing', () => {
+    // An edit ends the cycle (like a reply), so the stale hash cannot exempt the
+    // issue forever: after the issue goes quiet a second time it is warned again.
+    const { out, calls } = run({
+      GH_STUB_ISSUE_LIST: row(7, 50, 'question,priority:low'),
+      GH_STUB_COMMENTS: warned(daysAgo(42)),
+      GH_STUB_BODY: 'detail added on day 9',
+    });
+    expect(calls).not.toContain('CLOSE 7');
+    expect(calls).toContain('COMMENT 7');
+    expect(out).toContain('past the 15d close day');
+  });
+
+  it('keeps the stale label a restarted cycle still needs, so the new warning matches it', () => {
+    // A reply nine days ago is past the warn day but not the close day: the sweep
+    // restarts the cycle and warns again. The `stale` label must stay in place, or
+    // the next run reads its absence as a maintainer cancellation and exempts the
+    // issue forever.
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: row(7, 9, 'question,stale,priority:low'),
+      GH_STUB_COMMENTS: `${warned(daysAgo(30))}\n${daysAgo(9)}\treporter\tstill here`,
+      GH_STUB_BODY: '',
+    });
+    expect(calls).not.toContain('--remove-label stale');
+    expect(calls).toContain('COMMENT 7');
+    expect(calls).not.toContain('CLOSE 7');
+  });
+
+  it('re-applies the stale label when a warning is issued at the warn day without it', () => {
+    // Recovery case: if the label is somehow absent when a warn-day warning goes
+    // out, it is applied so the warning's `stale` marker and the label agree.
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: row(7, 9, 'question,priority:low'),
+      GH_STUB_COMMENTS: '',
+      GH_STUB_BODY: '',
+    });
+    expect(calls).toContain('--add-label stale');
+    expect(calls).toContain('COMMENT 7');
+  });
+
+  it('drops a stale label a spent cycle left behind when the issue is still active', () => {
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: row(7, 3, 'question,stale,priority:low'),
+      GH_STUB_COMMENTS: `${warned(daysAgo(30))}\n${daysAgo(3)}\treporter\tstill here`,
+      GH_STUB_BODY: '',
+    });
+    expect(calls).toContain('--remove-label stale');
+    expect(calls).not.toContain('--add-label stale');
+    expect(calls).not.toContain('COMMENT 7');
+  });
+
   it('exempts pending-maintainer, ready, blocked, in-progress and duplicate', () => {
     for (const label of ['pending-maintainer', 'ready', 'blocked', 'in-progress', 'duplicate']) {
       const { out, calls } = run({

@@ -40,6 +40,11 @@ case "$1" in
     case "$2" in
       list) log "RUN LIST"; printf '%s\\n' "\${GH_STUB_RUNS:-[]}" ;;
     esac ;;
+  api)
+    # The actor-permission lookup. The test decides what the API returns; an
+    # unset value means the API could not be read, which the gate must refuse.
+    log "API $2"
+    if [ -n "\${GH_STUB_ACTOR_PERM:-}" ]; then printf '%s\\n' "\${GH_STUB_ACTOR_PERM}"; fi ;;
 esac
 exit 0
 `;
@@ -189,6 +194,46 @@ describe('release-gate.sh', () => {
     expect(out).toContain('does not prove staging');
   });
 
+  it('refuses a green run whose title embeds the staging URL in another host', () => {
+    // A substring test would accept this: the staging URL appears in the query,
+    // but k6 only ever contacts `example.test`.
+    const { status, out } = run({
+      SHA: onMain,
+      GH_STUB_STAGING_COMMIT: onMain,
+      GH_STUB_RUNS: greenRun(
+        onMain,
+        'k6 public-smoke (smoke) vs https://example.test/?next=https://staging.cipansor.or.id'
+      ),
+    });
+    expect(status).not.toBe(0);
+    expect(out).toContain('does not prove staging');
+  });
+
+  it('refuses a green run whose title names staging alongside another host', () => {
+    // More than one authority in the title means the run measured more than
+    // staging, so it cannot stand as staging's load test.
+    const { status } = run({
+      SHA: onMain,
+      GH_STUB_STAGING_COMMIT: onMain,
+      GH_STUB_RUNS: greenRun(
+        onMain,
+        'k6 public-smoke (smoke) vs https://example.test vs https://staging.cipansor.or.id'
+      ),
+    });
+    expect(status).not.toBe(0);
+  });
+
+  it('accepts a green run whose title names the staging host in any case', () => {
+    // A hostname is case-insensitive; the comparison must be too, or a valid run
+    // written in capitals would be refused.
+    const { status } = run({
+      SHA: onMain,
+      GH_STUB_STAGING_COMMIT: onMain,
+      GH_STUB_RUNS: greenRun(onMain, 'k6 public-smoke (smoke) vs https://STAGING.CIPANSOR.OR.ID'),
+    });
+    expect(status).toBe(0);
+  });
+
   it('refuses when the load-test runs cannot be read at all', () => {
     // A gate that reads nothing must refuse, not pass by default.
     const { status, out } = run({
@@ -224,6 +269,8 @@ describe('release-gate.sh', () => {
       const { status, out } = run({
         SHA: onMain,
         TAG: tag,
+        ACTOR: 'maint',
+        GH_STUB_ACTOR_PERM: 'admin',
         GH_STUB_STAGING_COMMIT: onMain,
         GH_STUB_RUNS: greenRun(onMain),
       });
@@ -236,10 +283,51 @@ describe('release-gate.sh', () => {
     const { status, out } = run({
       SHA: onMain,
       TAG: 'v0.2.0',
+      ACTOR: 'maint',
+      GH_STUB_ACTOR_PERM: 'admin',
       GH_STUB_STAGING_COMMIT: onMain,
       GH_STUB_RUNS: greenRun(onMain),
     });
     expect(out).toContain('is an official release on main');
+    expect(status).toBe(0);
+  });
+
+  it('refuses a tag pushed by an actor without admin permission', () => {
+    // Write access is enough to push a `v*` tag, and the repository has no tag
+    // ruleset, so the gate must check the pusher's permission itself.
+    const { status, out } = run({
+      SHA: onMain,
+      TAG: 'v0.2.0',
+      ACTOR: 'outsider',
+      GH_STUB_ACTOR_PERM: 'write',
+      GH_STUB_STAGING_COMMIT: onMain,
+      GH_STUB_RUNS: greenRun(onMain),
+    });
+    expect(status).not.toBe(0);
+    expect(out).toContain('only a maintainer (admin) may release');
+  });
+
+  it('refuses a tag when the pusher permission cannot be read', () => {
+    const { status, out } = run({
+      SHA: onMain,
+      TAG: 'v0.2.0',
+      ACTOR: 'maint',
+      // GH_STUB_ACTOR_PERM unset: the API returned nothing.
+      GH_STUB_STAGING_COMMIT: onMain,
+      GH_STUB_RUNS: greenRun(onMain),
+    });
+    expect(status).not.toBe(0);
+    expect(out).toContain('could not read the repository permission');
+  });
+
+  it('does not require an admin actor for a rollback dispatch', () => {
+    // A rollback has no tag; `workflow_dispatch` already requires write access.
+    const { status } = run({
+      SHA: onMain,
+      MODE: 'rollback',
+      ACTOR: 'outsider',
+      GH_STUB_ACTOR_PERM: 'write',
+    });
     expect(status).toBe(0);
   });
 
@@ -249,6 +337,8 @@ describe('release-gate.sh', () => {
     const { status, out } = run({
       SHA: offMain,
       TAG: 'v9.9.9',
+      ACTOR: 'maint',
+      GH_STUB_ACTOR_PERM: 'admin',
       GH_STUB_STAGING_COMMIT: offMain,
       GH_STUB_RUNS: greenRun(offMain),
     });

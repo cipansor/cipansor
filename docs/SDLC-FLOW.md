@@ -396,10 +396,11 @@ hanya berubah lewat PR yang disetujui maintainer.
    yang memicu deploy. Tidak ada berkas CHANGELOG di repositori.
 
 4. Push tag memicu `deploy-production.yml`. Job pertamanya, `gate`, memeriksa
-   fakta secara mekanis (`.github/scripts/release-gate.sh`): tag berbentuk
-   `vX.Y.Z` dan tidak bersufiks, commit tag ada di `main`, SHA 40 heksadesimal,
-   staging **sedang menyajikan** SHA itu, dan ada run `load-tests.yml` hijau
-   untuk SHA itu **yang targetnya staging**. Job `deploy` menunggu gerbang
+   fakta secara mekanis (`.github/scripts/release-gate.sh`): pendorong tag
+   ber-permission admin (akses tulis saja cukup untuk mendorong tag `v*`),
+   tag berbentuk `vX.Y.Z` dan tidak bersufiks, commit tag ada di `main`, SHA 40
+   heksadesimal, staging **sedang menyajikan** SHA itu, dan ada run
+   `load-tests.yml` hijau untuk SHA itu **yang targetnya staging**. Job `deploy` menunggu gerbang
    (`needs: gate`), jadi rilis yang faktanya belum lengkap tidak bisa lewat —
    termasuk rilis yang melewatkan k6, atau yang k6-nya dijalankan ke host lain.
    Gerbang **tidak** memutuskan apakah rilis harus terjadi; itu keputusan

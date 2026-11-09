@@ -5,6 +5,7 @@
 # fact a script can read, not a call an LLM has to make.
 #
 #   release (a `v*` tag was pushed):
+#     0. the actor who pushed the tag is a maintainer (admin permission);
 #     1. the tag is an official release — `vX.Y.Z`, never a `-rc` prerelease;
 #     2. the tag points at a commit on `main` (nothing off-branch is releasable);
 #     3. the SHA is a real 40-character commit;
@@ -27,7 +28,7 @@
 #
 # Usage: release-gate.sh
 # Env:   SHA (required), REPO, GH_TOKEN, STAGING_URL, LOAD_URL, LOAD_WORKFLOW,
-#        LOAD_PROBE_ATTEMPTS, MODE (release|rollback), TAG, MAIN_REF,
+#        LOAD_PROBE_ATTEMPTS, MODE (release|rollback), TAG, ACTOR, MAIN_REF,
 #        RELEASE_GATE_DRY_RUN (print, never fail on probe)
 set -eu
 
@@ -64,6 +65,32 @@ case "$MODE" in
   release | rollback) ;;
   *) fail "MODE must be 'release' or 'rollback', got '$MODE'" ;;
 esac
+
+# --- 0. a maintainer pushed the tag -------------------------------------------
+# A release is the maintainer's call, and the tag is that call. But any account
+# with write access can push a `v*` tag, and this repository protects only the
+# `main` branch — there is no tag ruleset and the `production` environment
+# requires no reviewer. Without this check a collaborator with plain write access
+# could trigger a production deploy of any staging-built SHA. So the gate reads
+# the actor who triggered the run back from the API and requires admin
+# permission on the repository. It applies to a tag push only: a rollback is a
+# `workflow_dispatch`, which already requires write access.
+ACTOR="${ACTOR:-}"
+if [ -n "$TAG" ] && [ -n "$ACTOR" ]; then
+  ACTOR_PERM=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" \
+    --jq '.permission // empty' 2>/dev/null || true)
+  if [ -z "$ACTOR_PERM" ]; then
+    if [ -n "$DRY" ]; then
+      echo "[dry-run] could not read the permission of actor '$ACTOR' (would refuse in a real run)"
+    else
+      fail "could not read the repository permission of actor '$ACTOR' (missing token, or the account is gone)."
+    fi
+  elif [ "$ACTOR_PERM" != "admin" ]; then
+    fail "tag '$TAG' was pushed by '$ACTOR' ($ACTOR_PERM permission); only a maintainer (admin) may release."
+  else
+    echo "Tag $TAG was pushed by maintainer $ACTOR."
+  fi
+fi
 
 # --- 1. an official release tag, not a prerelease -----------------------------
 # SDLC 13 used to cut `-rc` tags weekly; it is retired, and nothing ever consumed
@@ -156,8 +183,18 @@ fi
 # the only record that the load test was actually executed against this SHA. But
 # headSha alone proves nothing about WHERE a run measured: the workflow's `url`
 # input is free-form, so a green run against a throwaway host would otherwise
-# satisfy the gate. The workflow's `run-name` records the target it was actually
-# pointed at, so the gate reads that back and requires it to name staging.
+# satisfy the gate.
+#
+# The workflow's `run-name` records the target it was pointed at. A substring
+# test is not enough: `https://example.test/?next=https://staging.cipansor.or.id`
+# contains the staging URL while k6 only ever contacts `example.test`. So the
+# gate extracts every URL authority (scheme://host[:port]) from the title and
+# requires all of them to be staging's host. A title that names no URL at all
+# fails that test (an empty list does not qualify), and a title naming staging
+# plus another host is refused: the run measured more than staging.
+LOAD_AUTH=$(printf '%s' "$LOAD_URL" | sed -E 's#^[A-Za-z][A-Za-z0-9+.-]*://##; s#[/?#].*$##')
+[ -n "$LOAD_AUTH" ] || fail "LOAD_URL ('$LOAD_URL') has no host to match a load-test run against"
+
 RUNS=$(gh run list --repo "$REPO" --workflow "$LOAD_WORKFLOW" \
   --limit 100 --json headSha,conclusion,createdAt,url,displayTitle 2>/dev/null || true)
 
@@ -170,17 +207,22 @@ if [ -z "$RUNS" ] || [ "$RUNS" = "[]" ]; then
 fi
 
 # A run qualifies only if it measured this SHA, succeeded, and its title names
-# the staging target. `displayTitle` is the workflow's `run-name`, built from the
-# same `inputs` the runner used, so it cannot disagree with what was measured.
-GREEN=$(printf '%s' "$RUNS" | jq -r --arg sha "$SHA" --arg url "$LOAD_URL" \
-  '[.[] | select(.headSha == $sha and .conclusion == "success" and (.displayTitle | contains($url)))] | length')
+# the staging host and nothing else. Authorities are compared case-insensitively
+# (a hostname is), and the whole authority is compared, so neither a host that
+# merely embeds the staging URL in a path or query nor a second target passes.
+GREEN=$(printf '%s' "$RUNS" | jq -r --arg sha "$SHA" --arg auth "$LOAD_AUTH" '
+  def auths: [ scan("[A-Za-z][A-Za-z0-9+.-]*://[^/?#[:space:]]+")
+              | sub("^[A-Za-z][A-Za-z0-9+.-]*://"; "") | ascii_downcase ];
+  [ .[] | select(.headSha == $sha and .conclusion == "success")
+        | select((.displayTitle | auths) as $a
+                 | ($a | length) > 0 and ($a | all(.[]; . == ($auth | ascii_downcase)))) ] | length')
 
 if [ "$GREEN" -lt 1 ]; then
   if [ -n "$DRY" ]; then
     echo "[dry-run] no green $LOAD_WORKFLOW run for $SHA against $LOAD_URL (would refuse in a real run)"
     exit 0
   fi
-  fail "no green $LOAD_WORKFLOW run for $SHA against $LOAD_URL. Run it first: \`gh workflow run $LOAD_WORKFLOW --ref $SHA\` — a release is not allowed to skip the load test, and a run against another host does not prove staging."
+  fail "no green $LOAD_WORKFLOW run for $SHA against $LOAD_URL. Run it first: \`gh workflow run $LOAD_WORKFLOW --ref $SHA\` — a release is not allowed to skip the load test, and a run against another host (even one whose URL embeds $LOAD_URL) does not prove staging."
 fi
 
 echo "Release gate passed for $SHA (staging serves it; $GREEN green $LOAD_WORKFLOW run(s) against $LOAD_URL)."
