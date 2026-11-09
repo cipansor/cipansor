@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma, SimaanType } from '@prisma/client';
+import { dayDate, wibDayOf } from '@/utils/wib-day';
 import type {
   ListSimaanQuery,
   CreateSimaanInput,
@@ -133,8 +134,7 @@ export const simaanService = {
   // ============================================
 
   async create(data: CreateSimaanInput) {
-    const examDate = new Date(data.examDate);
-    examDate.setHours(0, 0, 0, 0);
+    const examDate = dayDate(data.examDate);
 
     const record = await prisma.simaanExam.create({
       data: {
@@ -434,14 +434,15 @@ export const simaanService = {
   // ============================================
 
   async getUpcomingExams(halaqohId?: string, days: number = 7) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-
-    const futureDate = new Date();
-    futureDate.setDate(futureDate.getDate() + days);
+    // A date-only column stored at midnight UTC: the window's lower bound is
+    // today's *WIB* day (a UTC-midnight "today" is still yesterday for the
+    // first seven hours of a WIB day, so yesterday's exam read as upcoming),
+    // and the upper bound closes on the WIB day `days` ahead, inclusive.
+    const today = dayDate(wibDayOf(new Date()));
+    const lastDay = new Date(today.getTime() + days * 86_400_000);
 
     const where: Prisma.SimaanExamWhereInput = {
-      examDate: { gte: today, lte: futureDate },
+      examDate: { gte: today, lte: lastDay },
     };
 
     if (halaqohId) where.halaqohId = halaqohId;
