@@ -18,7 +18,13 @@ vi.mock('../reporting.service', () => ({
 }));
 
 import { financeEnhancementService } from '../finance-enhancement.service';
-import { getIncomeStatement, getBalanceSheet, getTrialBalance } from '../reporting.service';
+import {
+  getIncomeStatement,
+  getBalanceSheet,
+  getTrialBalance,
+  getGeneralLedger,
+  getCashFlowStatement,
+} from '../reporting.service';
 import { financeEnhancementController } from '../finance-enhancement.controller';
 
 function mockReqRes(query: Record<string, string> = {}) {
@@ -118,5 +124,25 @@ describe('finance-enhancement report date bounds (WIB)', () => {
     const [unitId, date] = vi.mocked(getBalanceSheet).mock.calls[0];
     expect(unitId).toBe('unit-1');
     expect((date as Date).getTime()).toBe(wibEnd.getTime());
+  });
+
+  it('bounds the general ledger and the cash flow statement by WIB days too', async () => {
+    const range = { unitId: 'unit-1', startDate: '2026-01-01', endDate: '2026-01-31' };
+
+    const gl = mockReqRes({ ...range, accountId: 'acc-1' });
+    await run(
+      financeEnhancementController.getGeneralLedger.bind(financeEnhancementController),
+      gl.req,
+      gl.res
+    );
+    expect(vi.mocked(getGeneralLedger)).toHaveBeenCalledWith('unit-1', 'acc-1', wibStart, wibEnd);
+
+    const cf = mockReqRes(range);
+    await run(
+      financeEnhancementController.getCashFlowStatement.bind(financeEnhancementController),
+      cf.req,
+      cf.res
+    );
+    expect(vi.mocked(getCashFlowStatement)).toHaveBeenCalledWith('unit-1', wibStart, wibEnd);
   });
 });

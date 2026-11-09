@@ -2,7 +2,13 @@ import { Request, Response, NextFunction } from 'express';
 import * as service from './accounting.service';
 import * as reportsService from './reports.service';
 import * as configService from './accounting-config.service';
-import { wibDayBound, wibDayOf, wibMonthBounds, wibYearBounds } from '../../utils/wib-day';
+import {
+  wibDayBound,
+  wibDayOf,
+  wibMonthRange,
+  wibMonthYear,
+  wibYearBounds,
+} from '../../utils/wib-day';
 import {
   CreateAccountDto,
   CreateJournalDto,
@@ -205,7 +211,8 @@ export async function getIncomeStatement(req: Request, res: Response, next: Next
   try {
     const query = req.query as any;
     // Default to the current WIB month if not specified
-    const bounds = wibMonthBounds(new Date());
+    const { year, month } = wibMonthYear(new Date());
+    const bounds = wibMonthRange(year, month);
     const startDate = query.startDate ? wibDayBound(query.startDate, 'start') : bounds.start;
     const endDate = query.endDate ? wibDayBound(query.endDate, 'end') : bounds.end;
 
