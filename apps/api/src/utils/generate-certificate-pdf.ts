@@ -154,6 +154,12 @@ function certificateDetails(input: CertificatePdfInput): Array<{ label: string; 
  */
 export async function generateCertificatePdfBuffer(input: CertificatePdfInput): Promise<Buffer> {
   const pdf = await PDFDocument.create();
+  // Pin the metadata dates for byte determinism, as generate-letter-pdf.ts
+  // does: pdf-lib stamps CreationDate/ModDate with the current time, so two
+  // renders of the same certificate differed whenever they straddled a second
+  // (#969). The issue date printed on the page is unaffected.
+  pdf.setCreationDate(new Date(0));
+  pdf.setModificationDate(new Date(0));
   const helv = await pdf.embedFont(StandardFonts.Helvetica);
   const bold = await pdf.embedFont(StandardFonts.HelveticaBold);
 
