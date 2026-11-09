@@ -1343,6 +1343,73 @@ describe('deploy-sdlc-agents.py', () => {
   });
 });
 
+// The EXTRACT mode archives the fleet source that only lives in the automation
+// API. Two defects found in review (issue #933) are pinned here so they cannot
+// come back: a relative destination wrote nothing, and two automation names
+// could slugify to one directory.
+describe('deploy-sdlc-agents.py --EXTRACT', () => {
+  const hasPy = spawnSync('python3', ['--version']).status === 0;
+  const PY_HEAD = [
+    'import importlib.util, sys, os, json, tempfile',
+    'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
+    'm = importlib.util.module_from_spec(spec)',
+    'spec.loader.exec_module(m)',
+  ].join('\n');
+
+  const runDriver = (body: string): unknown => {
+    const r = spawnSync('python3', ['-c', `${PY_HEAD}\n${body}`, DEPLOY], {
+      encoding: 'utf8',
+    });
+    const line = r.stdout.split('\n').find((l) => l.startsWith('RESULT '));
+    if (!line) throw new Error(`no RESULT line: ${r.stdout}\n${r.stderr}`);
+    return JSON.parse(line.slice('RESULT '.length));
+  };
+
+  it.skipIf(!hasPy)(
+    'writes the archive for a relative destination and still refuses a path escape',
+    () => {
+      // `EXTRACT=fleet-source` is relative. The guard compared a relative
+      // `target` against an absolute root, so every member failed the prefix
+      // test: the archive came out empty while the report claimed success.
+      const result = runDriver(
+        [
+          'work = tempfile.mkdtemp()',
+          'os.chdir(work)',
+          'members = {"main.py": b"print(1)\\n", "prompt.txt": b"p", "../evil": b"boom"}',
+          'rep = m.extract_one("rel-out", "SDLC 01", "sdlc-01", members)',
+          'written = sorted(os.path.relpath(os.path.join(r, f), work)',
+          '                 for r, _, fs in os.walk(work) for f in fs)',
+          'print("RESULT " + json.dumps({"written": written, "members": sorted(rep["members"])}))',
+        ].join('\n')
+      ) as { written: string[]; members: string[] };
+
+      expect(result.written).toContain('rel-out/sdlc-01/main.py');
+      expect(result.written).toContain('rel-out/sdlc-01/prompt.txt');
+      // The escape is neither written nor reported as an archived member.
+      expect(result.written.some((p) => p.includes('evil'))).toBe(false);
+      expect(result.members).not.toContain('../evil');
+    }
+  );
+
+  it.skipIf(!hasPy)('gives colliding automation names their own directory', () => {
+    // "SDLC 01 · Bug" and "SDLC 01 Bug" slugify alike. Sharing a directory made
+    // them overwrite each other and report the same runner_digest, faking the
+    // shared runner this report exists to check.
+    const result = runDriver(
+      [
+        'autos = [{"id": "a1", "name": "SDLC 01 \\u00b7 Bug"}, {"id": "a2", "name": "SDLC 01 Bug"}]',
+        'm.req = lambda method, path, raw=False: {"automations": autos}',
+        'm.tarball_members = lambda aid: {"main.py": b"x", "prompt.txt": b"y"}',
+        'dest = tempfile.mkdtemp()',
+        'm.extract(dest)',
+        'print("RESULT " + json.dumps({"dirs": sorted(os.listdir(dest))}))',
+      ].join('\n')
+    ) as { dirs: string[] };
+
+    expect(result.dirs).toEqual(['manifest.json', 'sdlc-01-bug', 'sdlc-01-bug-2']);
+  });
+});
+
 describe('issue-triage-bridge.sh', () => {
   const labeledEvent = (sender: string, label: string) =>
     JSON.stringify({
