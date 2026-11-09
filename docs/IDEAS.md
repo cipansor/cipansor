@@ -246,8 +246,10 @@ ia tetap LLM.
   prioritas issue tertaut ke PR) sudah dikerjakan `issue-label-sync.yml` sejak
   awal, dan itu check wajib. Separuh semantiknya (menilai PR duplikat) kini
   heuristik deterministik `pr-duplicate.sh`: dua PR terbuka yang menutup issue
-  yang sama → yang terbaru dilabeli `duplicate-pr`, lalu `duplicate-sweep.sh`
-  yang sudah ada memperingatkan dan menutup. Hemat 22 run/7 hari.
+  yang sama → yang terbaru dilabeli `duplicate-pr` sebagai kandidat. Label ini
+  **tidak** menutup PR: mana dari dua PR yang lebih benar adalah penilaian
+  maintainer (docs/LABELS.md butir 4), jadi `duplicate-sweep.sh` hanya menutup
+  issue `duplicate`, bukan PR. Hemat 22 run/7 hari.
 - **`Triase bug` (SDLC 01) dilebur ke `Pelabel issue` (SDLC 15).** Keduanya
   menyala pada `issues.opened` dan keduanya menulis komentar triase — itulah
   "Triase ganda" (#848). SDLC 01 punya penelusuran kritis lebih dalam; SDLC 15

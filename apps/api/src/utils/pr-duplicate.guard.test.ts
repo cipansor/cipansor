@@ -8,34 +8,39 @@ import { join, resolve } from 'path';
  * Behaviour `pr-duplicate.sh` hides, driven against a stub `gh`:
  *
  *  - two open PRs closing the same issue -> the *newest* is labelled
- *    `duplicate-pr`, the older one (a maintainer is already reviewing it) is not;
+ *    `duplicate-pr` as a candidate, the older one (a maintainer is already
+ *    reviewing it) is not;
  *  - a PR that is the only one closing its issue is never labelled;
  *  - a draft PR is skipped (a draft is not yet claiming the issue);
  *  - a PR already labelled is left alone (idempotent);
  *  - `PR_DUPLICATE_DRY_RUN` proves the whole path without writing.
  *
- * The script only labels; `duplicate-sweep.sh` owns warning and closing, so no
- * second closer is introduced.
+ * The script only labels, and the label is a candidate for a maintainer, never
+ * an automatic close: nothing here closes a PR (docs/LABELS.md, rule 4).
  */
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const SCRIPT = join(REPO_ROOT, '.github', 'scripts', 'pr-duplicate.sh');
+const SWEEP = join(REPO_ROOT, '.github', 'scripts', 'duplicate-sweep.sh');
 
 // The stub honours `--jq`, so the script's real jq expression is what turns the
 // JSON array into `pr<TAB>issue` rows. A stub that ignored `--jq` would hide the
-// only logic worth testing.
+// only logic worth testing. A `--label` query (the reconciliation listing) is
+// answered from a separate fixture, so the two listings do not collide.
 const STUB = `#!/bin/sh
 log() { [ -n "\${GH_STUB_LOG:-}" ] && echo "$*" >> "$GH_STUB_LOG"; }
 JQ=""
+LABEL=""
 prev=""
 for a in "$@"; do
   [ "$prev" = "--jq" ] && JQ="$a"
+  [ "$prev" = "--label" ] && LABEL="$a"
   prev="$a"
 done
 case "$1" in
   pr)
     case "$2" in
-      list) if [ -n "$JQ" ]; then printf '%s' "\${GH_STUB_PRS:-[]}" | jq -r "$JQ"; else printf '%s\\n' "\${GH_STUB_PRS:-}"; fi ;;
-      view) printf '%s\\n' "\${GH_STUB_LABELS:-}" ;;
+      list)
+        if [ -n "$LABEL" ]; then printf '%s' "\${GH_STUB_LABELLED:-[]}" | jq -r "\${JQ:-.}"; else printf '%s' "\${GH_STUB_PRS:-[]}" | jq -r "\${JQ:-.}"; fi ;;
       edit) log "EDIT $*" ;;
     esac ;;
 esac
@@ -72,9 +77,8 @@ function run(env: Record<string, string>) {
   };
 }
 
-// gh pr list --json emits one JSON object per line? No: it emits an array. The
-// jq expression turns it into `pr<TAB>issue` rows, so the stub feeds the array
-// and the real jq runs. Keep the fixtures as the raw JSON array.
+// `gh pr list --json` emits an array; the script's real jq turns it into
+// `pr<TAB>issue` rows. Keep the fixtures as the raw JSON array.
 const prs = (rows: Array<[number, boolean, number[]]>) =>
   JSON.stringify(
     rows.map(([number, isDraft, closing]) => ({
@@ -83,6 +87,8 @@ const prs = (rows: Array<[number, boolean, number[]]>) =>
       closingIssuesReferences: closing.map((n) => ({ number: n })),
     }))
   );
+// The `--label duplicate-pr` listing: an array of `{number}` objects.
+const labelled = (nums: number[]) => JSON.stringify(nums.map((number) => ({ number })));
 
 describe('pr-duplicate.sh', () => {
   it('labels the newest PR when two open PRs close the same issue', () => {
@@ -100,7 +106,7 @@ describe('pr-duplicate.sh', () => {
   it('never labels a PR that is the only one closing its issue', () => {
     const { out, calls } = run({ GH_STUB_PRS: prs([[101, false, [900]]]) });
     expect(calls).not.toContain('EDIT');
-    expect(out).toContain('Tidak ada PR terbuka');
+    expect(out).toContain('nothing is closed automatically');
   });
 
   it('skips a draft PR when picking the duplicate', () => {
@@ -121,10 +127,10 @@ describe('pr-duplicate.sh', () => {
         [101, false, [857]],
         [102, false, [857]],
       ]),
-      GH_STUB_LABELS: 'duplicate-pr',
+      GH_STUB_LABELLED: labelled([102]),
     });
     expect(calls).not.toContain('EDIT');
-    expect(out).toContain('sudah berlabel');
+    expect(out).toContain('already carries');
   });
 
   it('writes nothing under PR_DUPLICATE_DRY_RUN', () => {
@@ -136,5 +142,20 @@ describe('pr-duplicate.sh', () => {
       PR_DUPLICATE_DRY_RUN: '1',
     });
     expect(calls).not.toContain('EDIT');
+  });
+
+  it('never closes a PR: no close command exists in the script', () => {
+    // The whole point of the fix: a `duplicate-pr` label is a candidate for a
+    // maintainer, and closing is a judgement this script must not make.
+    const src = readFileSync(SCRIPT, 'utf8');
+    expect(src).not.toMatch(/pr\s+close/);
+  });
+
+  it('does not sweep duplicate-pr PRs to closure', () => {
+    // `duplicate-sweep.sh` must only ever close `duplicate` ISSUES; a PR labelled
+    // `duplicate-pr` is left for a person.
+    const src = readFileSync(SWEEP, 'utf8');
+    expect(src).toContain('gh issue list');
+    expect(src).not.toMatch(/gh\s+pr\s+(list|close)/);
   });
 });

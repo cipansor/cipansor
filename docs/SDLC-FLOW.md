@@ -380,7 +380,10 @@ hanya berubah lewat PR yang disetujui maintainer.
    dikonsumsi apa pun dan nomornya berhenti menandai kode terverifikasi.
 2. Ia menjalankan k6 smoke terhadap staging untuk SHA yang akan dirilis
    (`load-tests.yml`, Actions → Run workflow). Ini prasyarat, bukan formalitas:
-   gerbang menolak rilis tanpa run k6 hijau pada SHA itu.
+   gerbang menolak rilis tanpa run k6 hijau pada SHA itu. Target run itu
+   (`url`) harus staging — input `url` bebas, jadi run hijau terhadap host lain
+   tidak membuktikan staging diuji; gerbang membaca judul run (`run-name`) dan
+   memastikannya menyebut staging.
 3. Ia menulis catatan rilis di body Release dan memotong tag **resmi**:
 
    > ```
@@ -396,8 +399,9 @@ hanya berubah lewat PR yang disetujui maintainer.
    fakta secara mekanis (`.github/scripts/release-gate.sh`): tag berbentuk
    `vX.Y.Z` dan tidak bersufiks, commit tag ada di `main`, SHA 40 heksadesimal,
    staging **sedang menyajikan** SHA itu, dan ada run `load-tests.yml` hijau
-   untuk SHA itu. Job `deploy` menunggu gerbang (`needs: gate`), jadi rilis yang
-   faktanya belum lengkap tidak bisa lewat — termasuk rilis yang melewatkan k6.
+   untuk SHA itu **yang targetnya staging**. Job `deploy` menunggu gerbang
+   (`needs: gate`), jadi rilis yang faktanya belum lengkap tidak bisa lewat —
+   termasuk rilis yang melewatkan k6, atau yang k6-nya dijalankan ke host lain.
    Gerbang **tidak** memutuskan apakah rilis harus terjadi; itu keputusan
    maintainer di langkah 1–3.
 5. `deploy` mengambil cadangan, menjalankan pra-cek migrasi, men-deploy, dan
@@ -409,7 +413,10 @@ hanya berubah lewat PR yang disetujui maintainer.
    dispatch `deploy-production.yml` dengan SHA rilis sebelumnya. Gerbang berjalan
    dalam mode `rollback`, yang melewatkan cek staging dan k6 dengan sengaja:
    target rollback menurut definisinya adalah commit yang sudah tidak disajikan
-   staging. `deploy` tetap menolak SHA yang image-nya tak pernah dibangun.
+   staging. Tetap ada satu syarat: SHA itu harus commit yang pernah ada di
+   `main`, supaya dispatch tidak bisa mengarahkan produksi ke kode yang tak
+   pernah disetujui rilis mana pun. `deploy` juga tetap menolak SHA yang
+   image-nya tak pernah dibangun.
    Migrasi bersifat maju-saja; rollback yang mengubah skema dipulihkan dari
    cadangan langkah 5.
 
@@ -435,9 +442,21 @@ butir mengikuti aturan emas di `AGENTS.md`):
    berjalan ulang di atas `main` terbaru. **Sesudah** job ini ada di `main`,
    ruleset `main` dinyalakan `strict` (cabang harus mutakhir). Mengubah
    ruleset adalah tindakan admin; maintainer melakukannya atau mengizinkannya.
-5. **Rilis lewat label**: issue rilis mingguan (langkah 1 di atas),
-   pemeriksaan label di `deploy-production.yml`, dan `docs/deploy-azure.md` →
-   "How a change is released" ditulis ulang sesuai alur itu.
+5. **Rilis lewat tag** — SELESAI (2026-11-09): rilis adalah tag `vX.Y.Z` yang
+   dipush maintainer, bukan label pada issue rilis mingguan. `deploy-production.yml`
+   dan `docs/deploy-azure.md` → "How a change is released" sudah ditulis ulang
+   sesuai alur itu. Dua prasyarat lingkungan yang hanya bisa diubah maintainer
+   (admin) dan **wajib ada sebelum rilis tag pertama**, karena tanpa keduanya
+   deploy produksi tidak akan berjalan:
+   a. environment `production` di repo hanya mengizinkan ref `main`
+      (`deployment-branch-policies`), sedangkan deploy kini dipicu tag `v*`.
+      Tambahkan pola tag `v*` ke kebijakan cabang environment itu, atau rilis
+      pertama akan tertahan di job `deploy` (butuh persetujuan environment).
+   b. belum ada baseline k6 tersimpan (`tests/load/baselines/` tidak ada), jadi
+      run `load-tests.yml` keluar dengan kode `3` ("no baseline recorded") dan
+      **tidak pernah hijau**. Rekam baseline staging dari GitHub runner
+      (`load-tests.yml`, centang *record_baseline*) lalu commit artefaknya
+      lewat PR — kalau tidak, gerbang rilis menolak setiap rilis.
 6. **Temuan keamanan ke advisory privat**: *private vulnerability reporting*
    menyala, `SECURITY.md` menjelaskan cara melapor, dan `Pemburu bug`,
    `Pemindai standar`, serta `Pemindai celah uji` membuka draf advisory, bukan
@@ -656,7 +675,7 @@ nyata.
 | Pelabel issue         | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar |
 | Pengelola dokumentasi | merge yang berdampak dokumentasi → satu issue `documentation`: dokumen mana yang basi dan apa yang perlu ditulis ulang (penilaian, bukan diff path); juga menilai apakah peta modul `docs/ARCHITECTURE.md` masih benar |
 | Penjernih issue       | menilai ulang saat pelapor menjawab `needs-info`                                                               |
-| (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`) |
+| (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`); label itu kandidat untuk maintainer, tidak menutup PR |
 | Gerbang tinjau PR     | **satu-satunya yang boleh APPROVE**; menunggu CI hijau                                                         |
 | Pemburu bug           | bug proaktif yang bisa direproduksi → issue berbukti                                                           |
 | Pemindai standar      | standar/regulasi terbaru → issue `pending-maintainer`                                                          |

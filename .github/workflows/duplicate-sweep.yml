@@ -1,17 +1,19 @@
-# A duplicate issue or pull request gets one warning, then closes if the author
-# does not show it is not a duplicate within seven days.
+# A duplicate ISSUE gets one warning, then closes if the author does not show it
+# is not a duplicate within seven days.
 #
 # "Show it is not a duplicate" means: the description was edited, or the author
-# replied and a maintainer removed the label. If neither happens, the item
+# replied and a maintainer removed the label. If neither happens, the issue
 # closes. Removing the label at any point cancels the close, because the script
 # re-reads the label on every run.
 #
 # Issues are labelled `duplicate`; PRs are labelled `duplicate-pr` (a PR must
 # never carry the issue-lifecycle `duplicate` label). The triage automation
-# applies `duplicate` and links the original. For a PR the label is now applied
+# applies `duplicate` and links the original. For a PR the label is applied
 # deterministically by `pr-duplicate.sh` in the first step below: two open PRs
-# that close the same issue means the newest one duplicates the older. This
-# workflow only enforces the consequence for both.
+# that close the same issue means the newest one is a duplicate candidate. But a
+# PR labelled `duplicate-pr` is NOT closed: which of two PRs is the more correct
+# one (docs/LABELS.md, rule 4) is a maintainer's judgement, so this workflow
+# enforces the close for issues only and leaves the PR label for a person.
 name: Duplicate sweep
 
 on:
@@ -43,7 +45,7 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
         run: sh .github/scripts/pr-duplicate.sh
-      - name: Warn and close stale duplicates (issues and PRs)
+      - name: Warn and close stale duplicate issues
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

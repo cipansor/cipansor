@@ -99,7 +99,11 @@ from the backup, as the VM runbook describes, not on staging.
    1. Confirm staging runs the SHA to be released, and run the k6 smoke against
       it (Actions → Load Tests → Run workflow; `tests/load/README.md`) — a
       regression against the recorded baseline stops the release until it is
-      explained. The gate below requires a green run on that exact SHA.
+      explained. The gate below requires a green run on that exact SHA **and
+      against the staging target**: the workflow's `url` input is free-form, so
+      the gate reads the run title back and refuses a green run that measured
+      some other host. Leave `url` at its default
+      (`https://staging.cipansor.or.id`).
    2. Take a backup (`pg_dump` through the backup job, in addition to the
       server's own 7-day point-in-time restore).
    3. Run the pre-checks the VM runbook requires for any migration in the
@@ -120,9 +124,10 @@ from the backup, as the VM runbook describes, not on staging.
    5. Its first job, `gate`, re-checks the facts of 3.1 mechanically
       (`.github/scripts/release-gate.sh`): the tag is a plain `vX.Y.Z`, its
       commit is on `main`, the SHA is 40 lowercase hex, staging is **already
-      serving** it, and a `load-tests.yml` run for that SHA finished green. The
-      `deploy` job waits on it (`needs: gate`), so a forgotten load test or a
-      commit off `main` can no longer be released. The gate does not decide
+      serving** it, and a `load-tests.yml` run for that SHA finished green
+      against staging. The `deploy` job waits on it (`needs: gate`), so a
+      forgotten load test, a load test pointed at another host, or a commit off
+      `main` can no longer be released. The gate does not decide
       *whether* to release — that is the maintainer's call — only that the
       prerequisites are in place. `deploy` then refuses a SHA whose images
       staging never built, points `cipansor-produksi` at them and waits until
@@ -132,10 +137,28 @@ from the backup, as the VM runbook describes, not on staging.
 4. **Rollback** — `workflow_dispatch` is kept for this one case: dispatch
    `deploy-production.yml` with the previous release's SHA. The gate runs in
    `MODE=rollback`, which skips the staging and load-test checks by design — a
-   rollback target is by definition a commit staging no longer serves. `deploy`
-   still refuses a SHA whose images were never built. Migrations are
+   rollback target is by definition a commit staging no longer serves. One
+   condition remains: the SHA must be a commit `main` carried, so a dispatch
+   cannot point production at code no release ever approved. `deploy` still
+   refuses a SHA whose images were never built. Migrations are
    forward-only; a release that changes the schema is rolled back by restoring
    the database from the backup in step 3.2.
+
+### Prerequisites for the tag flow (maintainer, one-time)
+
+Two things outside the repository must be in place before the first `vX.Y.Z`
+release, because the release now triggers on a tag rather than on a label:
+
+- The `production` environment's branch policy allows only `main`
+  (Settings → Environments → production). A tag push deploys the ref
+  `refs/tags/vX.Y.Z`, which that policy refuses, so the `deploy` job would be
+  blocked. Add a tag rule `v*` (or `v*.*.*`) to the environment.
+- No k6 baseline is committed (`tests/load/baselines/` does not exist yet), so a
+  `load-tests.yml` comparison run exits `3` ("no baseline recorded") and never
+  goes green — the gate would refuse every release. Record the staging baseline
+  from a GitHub runner (Actions → Load Tests → Run workflow, tick
+  *record_baseline*) and commit the artifact through a PR, as
+  `tests/load/README.md` describes.
 
 ## Verifying a release
 

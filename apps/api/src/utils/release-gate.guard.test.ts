@@ -5,27 +5,33 @@ import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
 /**
- * Behaviour `release-gate.sh` hides, driven against stub `gh` and `curl`:
+ * Behaviour `release-gate.sh` hides, driven against stub `gh` and `curl` and a
+ * throwaway git repository:
  *
  *  - a truncated SHA is refused before anything else (the full SHA is the image
  *    tag and what /health reports, so a short one matches neither);
  *  - a tag that is not a plain `vX.Y.Z` is refused: SDLC 13's `-rc` tags are
  *    retired, and shipping a candidate by accident is the failure to prevent;
- *  - `MODE=rollback` skips the staging and load-test checks by design, because a
- *    rollback target is an older commit staging no longer serves;
+ *  - a tag whose commit is not on `main` is refused — nothing off-branch is
+ *    releasable;
  *  - a SHA staging does not serve is refused — a release may only ship what
  *    staging has actually run;
- *  - a SHA with no green `load-tests.yml` run is refused — the load test is not
- *    part of CI, so its absence is otherwise invisible;
+ *  - a green `load-tests.yml` run proves nothing about WHERE it measured, so the
+ *    gate requires the run's title to name staging;
+ *  - `MODE=rollback` skips staging and the load test by design, but still
+ *    requires the target to be a commit `main` carried;
  *  - the happy path passes, and the gate never decides whether a release SHOULD
  *    happen (it only reads facts).
  *
- * The stubs keep the test hermetic; the real `gh`/`curl` paths are exercised by
- * the workflow itself.
+ * The ancestry checks run `git` against a temporary repository (via `GIT_DIR`),
+ * not the clone the test itself runs in: CI checks out with `fetch-depth: 1`, so
+ * a test that relied on the real `origin/main` would depend on history the
+ * runner does not have. The stubs keep the rest hermetic.
  */
 const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const SCRIPT = join(REPO_ROOT, '.github', 'scripts', 'release-gate.sh');
 const WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'deploy-production.yml');
+const LOAD_WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'load-tests.yml');
 
 const GH_STUB = `#!/bin/sh
 log() { [ -n "\${GH_STUB_LOG:-}" ] && echo "$*" >> "$GH_STUB_LOG"; }
@@ -44,19 +50,61 @@ printf '{"status":"ok","commit":"%s"}\\n' "\${GH_STUB_STAGING_COMMIT:-}"
 exit 0
 `;
 
-const SHA = 'a'.repeat(40);
-const OTHER = 'b'.repeat(40);
+const STAGING_URL = 'https://staging.cipansor.or.id';
+// A green run whose title names the staging target — the shape the gate accepts.
+const greenRun = (sha: string, title = `k6 public-smoke (smoke) vs ${STAGING_URL}`) =>
+  JSON.stringify([
+    {
+      headSha: sha,
+      conclusion: 'success',
+      createdAt: '2026-11-01T00:00:00Z',
+      url: 'u',
+      displayTitle: title,
+    },
+  ]);
 
 let dir: string;
+let repo: string;
 let log: string;
+// A real commit on `main`, and a real commit `main` never contained. The gate's
+// ancestry checks need genuine SHAs, not placeholders.
+let onMain: string;
+let offMain: string;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'release-gate-'));
   writeFileSync(join(dir, 'gh'), GH_STUB, { mode: 0o755 });
   writeFileSync(join(dir, 'curl'), CURL_STUB, { mode: 0o755 });
   log = join(dir, 'calls.log');
+
+  repo = mkdtempSync(join(tmpdir(), 'release-gate-repo-'));
+  const git = (...args: string[]) =>
+    spawnSync('git', ['-C', repo, ...args], {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        GIT_AUTHOR_NAME: 't',
+        GIT_AUTHOR_EMAIL: 't@t',
+        GIT_COMMITTER_NAME: 't',
+        GIT_COMMITTER_EMAIL: 't@t',
+      },
+    });
+  git('init', '-q', '-b', 'main');
+  git('commit', '-q', '--allow-empty', '-m', 'one');
+  onMain = git('rev-parse', 'HEAD').stdout.trim();
+  git('tag', 'v0.2.0'); // a clean release tag, pointing at main
+  // A commit main never contained, and a well-formed tag pointing at it: the
+  // case the tag-ancestry check exists for.
+  git('checkout', '-q', '-b', 'side');
+  git('commit', '-q', '--allow-empty', '-m', 'side');
+  offMain = git('rev-parse', 'HEAD').stdout.trim();
+  git('tag', 'v9.9.9');
+  git('checkout', '-q', 'main');
 });
-afterAll(() => rmSync(dir, { recursive: true, force: true }));
+afterAll(() => {
+  rmSync(dir, { recursive: true, force: true });
+  rmSync(repo, { recursive: true, force: true });
+});
 
 function run(env: Record<string, string>) {
   writeFileSync(log, '');
@@ -69,6 +117,10 @@ function run(env: Record<string, string>) {
       REPO: 'o/r',
       GH_TOKEN: 'x',
       GH_STUB_LOG: log,
+      // Run `git` against the throwaway repo, and treat its `main` as the ref a
+      // release must be an ancestor of (the default is `origin/main`).
+      GIT_DIR: join(repo, '.git'),
+      MAIN_REF: 'main',
       // vitest sets MODE in the environment; pin it so the script's own default
       // (release) is what the tests exercise unless a case overrides it.
       MODE: 'release',
@@ -86,11 +138,6 @@ function run(env: Record<string, string>) {
   };
 }
 
-const greenRun = (sha: string) =>
-  JSON.stringify([
-    { headSha: sha, conclusion: 'success', createdAt: '2026-11-01T00:00:00Z', url: 'u' },
-  ]);
-
 describe('release-gate.sh', () => {
   it('refuses a SHA that is not 40 lowercase hex characters', () => {
     const short = run({ SHA: 'abc123' });
@@ -102,9 +149,9 @@ describe('release-gate.sh', () => {
 
   it('refuses a SHA staging is not serving', () => {
     const { status, out } = run({
-      SHA,
-      GH_STUB_STAGING_COMMIT: OTHER,
-      GH_STUB_RUNS: greenRun(SHA),
+      SHA: onMain,
+      GH_STUB_STAGING_COMMIT: offMain,
+      GH_STUB_RUNS: greenRun(onMain),
     });
     expect(status).not.toBe(0);
     expect(out).toContain('not');
@@ -113,10 +160,16 @@ describe('release-gate.sh', () => {
 
   it('refuses a SHA with no green load-test run', () => {
     const { status, out } = run({
-      SHA,
-      GH_STUB_STAGING_COMMIT: SHA,
+      SHA: onMain,
+      GH_STUB_STAGING_COMMIT: onMain,
       GH_STUB_RUNS: JSON.stringify([
-        { headSha: SHA, conclusion: 'failure', createdAt: 'x', url: 'u' },
+        {
+          headSha: onMain,
+          conclusion: 'failure',
+          createdAt: 'x',
+          url: 'u',
+          displayTitle: `k6 public-smoke (smoke) vs ${STAGING_URL}`,
+        },
       ]),
     });
     expect(status).not.toBe(0);
@@ -124,22 +177,34 @@ describe('release-gate.sh', () => {
     expect(out).toContain('skip the load test');
   });
 
+  it('refuses a green load-test run that did not target staging', () => {
+    // The `url` input is free-form: a green run against a throwaway host proves
+    // nothing about staging, so the gate must read the run's target back.
+    const { status, out } = run({
+      SHA: onMain,
+      GH_STUB_STAGING_COMMIT: onMain,
+      GH_STUB_RUNS: greenRun(onMain, 'k6 public-smoke (smoke) vs https://example.test'),
+    });
+    expect(status).not.toBe(0);
+    expect(out).toContain('does not prove staging');
+  });
+
   it('refuses when the load-test runs cannot be read at all', () => {
     // A gate that reads nothing must refuse, not pass by default.
     const { status, out } = run({
-      SHA,
-      GH_STUB_STAGING_COMMIT: SHA,
+      SHA: onMain,
+      GH_STUB_STAGING_COMMIT: onMain,
       GH_STUB_RUNS: '',
     });
     expect(status).not.toBe(0);
     expect(out).toContain('could not read');
   });
 
-  it('passes when staging serves the SHA and a load-test run is green', () => {
+  it('passes when staging serves the SHA and a load-test run is green against it', () => {
     const { status, out } = run({
-      SHA,
-      GH_STUB_STAGING_COMMIT: SHA,
-      GH_STUB_RUNS: greenRun(SHA),
+      SHA: onMain,
+      GH_STUB_STAGING_COMMIT: onMain,
+      GH_STUB_RUNS: greenRun(onMain),
     });
     expect(status).toBe(0);
     expect(out).toContain('Release gate passed');
@@ -147,9 +212,9 @@ describe('release-gate.sh', () => {
 
   it('ignores a green run on a different SHA', () => {
     const { status } = run({
-      SHA,
-      GH_STUB_STAGING_COMMIT: SHA,
-      GH_STUB_RUNS: greenRun(OTHER),
+      SHA: onMain,
+      GH_STUB_STAGING_COMMIT: onMain,
+      GH_STUB_RUNS: greenRun(offMain),
     });
     expect(status).not.toBe(0);
   });
@@ -157,29 +222,38 @@ describe('release-gate.sh', () => {
   it('refuses a tag that is not a plain vX.Y.Z release', () => {
     for (const tag of ['v0.2.0-rc1', 'v0.2.0-beta', 'release-0.2.0', 'v0.2', 'v0.2.0.1']) {
       const { status, out } = run({
-        SHA,
+        SHA: onMain,
         TAG: tag,
-        GH_STUB_STAGING_COMMIT: SHA,
-        GH_STUB_RUNS: greenRun(SHA),
+        GH_STUB_STAGING_COMMIT: onMain,
+        GH_STUB_RUNS: greenRun(onMain),
       });
       expect(status, `${tag} must be refused`).not.toBe(0);
       expect(out, `${tag}`).toContain('Release gate');
     }
   });
 
-  it('accepts a plain vX.Y.Z tag shape', () => {
-    // The tag itself is only shape-checked here; the on-main ancestry check runs
-    // against a real checkout in the workflow, which this hermetic test cannot
-    // provide, so it is exercised by the gate job itself.
-    const { out } = run({
-      SHA,
+  it('accepts a plain vX.Y.Z tag on main', () => {
+    const { status, out } = run({
+      SHA: onMain,
       TAG: 'v0.2.0',
-      GH_STUB_STAGING_COMMIT: SHA,
-      GH_STUB_RUNS: greenRun(SHA),
+      GH_STUB_STAGING_COMMIT: onMain,
+      GH_STUB_RUNS: greenRun(onMain),
     });
-    // It must get past the tag shape check (the ancestry check may still stop it).
-    expect(out).not.toContain('not a release tag');
-    expect(out).not.toContain('prerelease suffix');
+    expect(out).toContain('is an official release on main');
+    expect(status).toBe(0);
+  });
+
+  it('refuses a release tag pointing at a commit off main', () => {
+    // A well-formed `vX.Y.Z` tag whose commit main never contained is not
+    // releasable, even if staging happens to serve it.
+    const { status, out } = run({
+      SHA: offMain,
+      TAG: 'v9.9.9',
+      GH_STUB_STAGING_COMMIT: offMain,
+      GH_STUB_RUNS: greenRun(offMain),
+    });
+    expect(status).not.toBe(0);
+    expect(out).toContain('does not point at a commit on main');
   });
 
   it('skips the staging and load-test checks in rollback mode', () => {
@@ -187,9 +261,9 @@ describe('release-gate.sh', () => {
     // the load test is long past, so requiring them would block rollback exactly
     // when it is needed. The deploy job still refuses unbuilt images.
     const { status, out, calls } = run({
-      SHA,
+      SHA: onMain,
       MODE: 'rollback',
-      GH_STUB_STAGING_COMMIT: OTHER,
+      GH_STUB_STAGING_COMMIT: offMain,
       GH_STUB_RUNS: '[]',
     });
     expect(status).toBe(0);
@@ -197,8 +271,19 @@ describe('release-gate.sh', () => {
     expect(calls).not.toContain('RUN LIST');
   });
 
+  it('refuses a rollback SHA that is not a commit on main', () => {
+    // A rollback skips staging and the load test, but must stay inside released
+    // history: otherwise a dispatcher could point production at unreviewed code.
+    const { status, out } = run({
+      SHA: offMain,
+      MODE: 'rollback',
+    });
+    expect(status).not.toBe(0);
+    expect(out).toContain('not a commit on main');
+  });
+
   it('refuses an unknown MODE rather than guessing', () => {
-    const { status, out } = run({ SHA, MODE: 'yolo' });
+    const { status, out } = run({ SHA: onMain, MODE: 'yolo' });
     expect(status).not.toBe(0);
     expect(out).toContain("MODE must be 'release' or 'rollback'");
   });
@@ -218,5 +303,16 @@ describe('release-gate.sh', () => {
     expect(wf).toMatch(/MODE:/);
     // Full history, so the gate can ask whether the tag's commit is on main.
     expect(wf).toContain('fetch-depth: 0');
+    // The target the load test must have measured is wired in, or a green run
+    // against any host would satisfy the gate.
+    expect(wf).toMatch(/LOAD_URL:/);
+  });
+
+  it('names the load-test target in the run title the gate reads back', () => {
+    // The gate trusts this title as proof of WHERE the load test measured, so it
+    // must be built from the same `url` input the runner uses.
+    const wf = readFileSync(LOAD_WORKFLOW, 'utf8');
+    expect(wf).toMatch(/^run-name:.*\$\{\{\s*inputs\.url/m);
+    expect(wf).toContain("inputs.url || 'https://staging.cipansor.or.id'");
   });
 });

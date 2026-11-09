@@ -75,6 +75,10 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           STAGING_URL: https://staging.cipansor.or.id
+          # The target the k6 run must have measured. A green load-test run
+          # against another host does not prove staging was tested, so the gate
+          # requires the run title to name this URL.
+          LOAD_URL: https://staging.cipansor.or.id
         run: sh .github/scripts/release-gate.sh
 
   deploy:

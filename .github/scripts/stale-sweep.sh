@@ -17,26 +17,39 @@
 # The warn day is the close day minus the grace window, so the close still
 # happens on the day the old prompt named while the author gets a warning
 # first. A maintainer who replies, or who removes the label, keeps the issue
-# open: every run re-reads the labels and the comments.
+# open: every run re-reads the labels, the comments and the description.
 #
 # Never closed, whatever the timer says: `pending-maintainer`, `ready`,
-# `blocked`, `in-progress`, and any issue a maintainer commented on since the
-# warning. Never a pull request.
+# `blocked`, `in-progress`, any issue a maintainer commented on since the
+# warning, and an issue whose description changed since the warning — an edit
+# with no comment is still an answer.
 #
 # It holds no state between runs. The warning's timestamp is read back from the
 # marker in its own comment, and "did anyone reply" is answered by comparing
 # each comment's `created_at` with that timestamp. `updatedAt` is not usable for
 # this: a later automated comment bumps it, so a reply made before that comment
-# would be invisible.
+# would be invisible; the description is compared by hash instead, for the same
+# reason.
+#
+# A warning only governs the cycle it opened. If a person acted after it (a
+# comment, or an edit the hash check catches), the warning is spent: the sweep
+# falls back to the idle timer and warns again when the issue goes quiet a
+# second time, rather than reading the same old reply on every run and never
+# closing anything.
 #
 # Usage: stale-sweep.sh
 # Env:   GH_TOKEN, REPO, BOT_LOGIN (default cipansor-bot)
+#        STALE_SWEEP_GRACE_DAYS (default 7, the minimum notice a warning buys)
 #        STALE_SWEEP_DRY_RUN=1 prints what it would do without writing anything
 set -eu
 
 REPO="${REPO:?REPO is required}"
 BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
 DRY="${STALE_SWEEP_DRY_RUN:-}"
+# A warning may never close an issue on the very next run: even an issue already
+# past its close day gets this many days of notice, so an author who was warned
+# today is not closed tomorrow.
+GRACE_DAYS="${STALE_SWEEP_GRACE_DAYS:-7}"
 
 # The account that posts every automated comment. A comment by it, or by any
 # GitHub App (`*[bot]`), is automated and must not count as a human reply —
@@ -45,6 +58,8 @@ DRY="${STALE_SWEEP_DRY_RUN:-}"
 # already says the comment is automated and no footer is needed (#680).
 MARK="<!-- stale-sweep:warned -->"
 AT_MARK="stale-sweep:at:"
+STALE_MARK="stale-sweep:stale"
+HASH_MARK="stale-sweep:hash:"
 
 # Days of quiet before the warning, and before the close. The close day is what
 # the retired prompt named; the warn day is that minus the grace window.
@@ -61,6 +76,8 @@ EXEMPT='pending-maintainer ready blocked in-progress duplicate'
 
 NOW=$(date -u +%s)
 
+body_hash() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
+
 # Every write goes through these, so DRY_RUN proves the whole decision path
 # without touching a live issue.
 say()   { echo "  [dry-run] $*"; }
@@ -75,6 +92,16 @@ write_close() { # write_close <number> <body>
 }
 days_since() { # days_since <ISO-8601 timestamp> -> whole days
   date -u -d "$1" +%s 2>/dev/null | awk -v now="$NOW" '{ printf "%d", (now - $1) / 86400 }'
+}
+
+# One warning comment. It carries the timestamp marker, a `stale` marker when the
+# sweep applied that label (so a later removal is recognisable as the maintainer
+# cancelling), and a hash of the description as it stood at warn time (so a later
+# edit with no comment is still visible).
+write_warning() { # write_warning <number> <body-text> <marked-stale:0|1> <hash>
+  if [ "$3" = "1" ]; then stale_marker=" <!-- $STALE_MARK -->"; else stale_marker=""; fi
+  write_comment "$1" "$2 $MARK
+<!-- $AT_MARK$(date -u +%Y-%m-%dT%H:%M:%SZ) -->$stale_marker <!-- $HASH_MARK$4 -->"
 }
 
 # --- the rule for one issue -------------------------------------------------
@@ -95,9 +122,10 @@ rule_for() { # rule_for <labels-newline-separated>
 
 # One listing for every open issue, then one comment fetch per issue that needs
 # one. `gh issue list` never returns a pull request (unlike the REST
-# `issues` endpoint), so the sweep cannot close a PR by accident. The fields are
-# joined with `|`, not a tab: a `for` loop splits on whitespace and would break
-# each row into three words.
+# `issues` endpoint), so the sweep cannot close a PR by accident. The scalar
+# fields are joined with `|`, not a tab: a `for` loop splits on whitespace and
+# would break each row into three words. The description is fetched separately
+# (only for issues the sweep actually judges) because it can be long.
 ISSUES=$(gh issue list --repo "$REPO" --state open --limit 500 \
   --json number,createdAt,labels \
   --jq '.[] | "\(.number)|\(.createdAt)|\([.labels[].name] | join(","))"')
@@ -128,44 +156,79 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
   LAST_HUMAN="${LAST_HUMAN:-$CREATED}"
   IDLE=$(days_since "$LAST_HUMAN")
 
-  # The warning this sweep already posted, if any.
-  WARNED_AT=$(printf '%s\n' "$RAW" | grep -F "$MARK" | head -1 | cut -f1 || true)
+  # The newest warning this sweep posted, if any. Newest, not first: after a
+  # reply the sweep warns again, and the fresh warning is the one in force. The
+  # oldest would keep the original marker alive forever.
+  WARNED_AT=$(printf '%s\n' "$RAW" | grep -F "$MARK" | tail -1 | cut -f1 || true)
 
-  if [ -n "$WARNED_AT" ]; then
-    # A person replied after the warning: the issue is alive. Drop the `stale`
-    # label so the label and the comments do not disagree about its state.
-    REPLY=$(printf '%s\n' "$RAW" \
-      | awk -F '\t' -v warned="$WARNED_AT" -v bot="$BOT_LOGIN" \
-          '$1 > warned && $2 != bot && $2 !~ /\[bot\]$/ { line = $1 } END { print line }' || true)
-    if [ -n "$REPLY" ]; then
-      echo "Issue #$n has a reply after the warning; leaving it open."
+  # A warning governs only while no person has acted since it was posted. A
+  # human comment after the warning means the cycle it opened is over: the issue
+  # is alive, and the idle timer runs again from that reply. (The reply is still
+  # in the history forever, so the sweep must not read it on every run as "still
+  # answered" — it falls through to the timer and warns again when the issue goes
+  # quiet a second time.)
+  REPLY=$(printf '%s\n' "$RAW" \
+    | awk -F '\t' -v warned="$WARNED_AT" -v bot="$BOT_LOGIN" \
+        '$1 > warned && $2 != bot && $2 !~ /\[bot\]$/ { line = $1 } END { print line }' || true)
+
+  if [ -n "$WARNED_AT" ] && [ -z "$REPLY" ]; then
+    WARNED_LINE=$(printf '%s\n' "$RAW" | grep -F "$MARK" | tail -1 || true)
+
+    # An edit to the description after the warning also shows the issue is alive,
+    # and leaves no comment to notice. Compare the hash recorded in the warning,
+    # never `updatedAt`: a later automated comment bumps `updatedAt` and would
+    # hide an earlier edit.
+    RECORDED=$(printf '%s\n' "$WARNED_LINE" | grep -oE "$HASH_MARK[0-9a-f]+" | head -1 | cut -d: -f3 || true)
+    BODY=$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)
+    if [ -n "$RECORDED" ] && [ "$(body_hash "$BODY")" != "$RECORDED" ]; then
+      echo "Issue #$n was edited after the warning; leaving it open."
       printf '%s\n' "$LABELS" | grep -qxF 'stale' && write_labels "$n" --remove-label 'stale'
       continue
     fi
-    if [ "$IDLE" -lt "$CLOSE_DAYS" ]; then
-      echo "Issue #$n warned $(days_since "$WARNED_AT")d ago; within the grace period."
+
+    # A warning that applied `stale` and whose `stale` label is now gone was
+    # cancelled by a maintainer: removing the label is the documented way to say
+    # "keep it open". Do not close on a decision that was already reversed.
+    if printf '%s\n' "$WARNED_LINE" | grep -qF "$STALE_MARK"; then
+      if ! printf '%s\n' "$LABELS" | grep -qxF 'stale'; then
+        echo "Issue #$n had its stale label removed after the warning; leaving it open."
+        continue
+      fi
+    fi
+
+    # A warning buys at least GRACE_DAYS of notice: an issue already past its
+    # close day when it was first warned must not close on the next run.
+    WARNED_AGE=$(days_since "$WARNED_AT")
+    if [ "$WARNED_AGE" -lt "$GRACE_DAYS" ] || [ "$IDLE" -lt "$CLOSE_DAYS" ]; then
+      echo "Issue #$n warned ${WARNED_AGE}d ago (idle ${IDLE}d); within the grace period."
       continue
     fi
+
     write_close "$n" "Menutup karena tidak ada aktivitas selama $IDLE hari. Buka lagi bila masih berlaku, atau balas sebelum timer berikutnya. $MARK"
     echo "Closed issue #$n as stale after $IDLE quiet days."
     continue
   fi
 
-  if [ "$IDLE" -ge "$CLOSE_DAYS" ]; then
-    # Already past the close day and never warned: warn now, close on the next
-    # run rather than closing with no notice. The author still gets a window.
-    write_comment "$n" "Issue ini tidak ada aktivitas selama $IDLE hari dan akan ditutup otomatis pada pemeriksaan berikutnya. Balas, atau hapus labelnya, untuk menjaganya tetap terbuka. $MARK
+  # No warning in force for the current cycle: either none was ever posted, or a
+  # person replied after the last one and the cycle restarted. Drop a `stale`
+  # label a spent warning left behind, so the label and the comments agree.
+  if [ -n "$WARNED_AT" ]; then
+    echo "Issue #$n has a reply after the warning; the cycle restarts."
+    printf '%s\n' "$LABELS" | grep -qxF 'stale' && write_labels "$n" --remove-label 'stale'
+  fi
 
-<!-- $AT_MARK$(date -u +%Y-%m-%dT%H:%M:%SZ) -->"
+  # Warn again when the issue has gone quiet past the warn day — or, if it is
+  # already past the close day, warn now and let the next run (after the grace
+  # window) do the closing rather than closing with no notice.
+  if [ "$IDLE" -ge "$CLOSE_DAYS" ]; then
+    write_warning "$n" "Issue ini tidak ada aktivitas selama $IDLE hari dan akan ditutup otomatis pada pemeriksaan berikutnya. Balas, atau hapus labelnya, untuk menjaganya tetap terbuka." "0" "$(body_hash "$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)")"
     echo "Warned issue #$n (idle ${IDLE}d, past the ${CLOSE_DAYS}d close day)."
     continue
   fi
 
   if [ "$IDLE" -ge "$WARN_DAYS" ]; then
     printf '%s\n' "$LABELS" | grep -qxF 'stale' || write_labels "$n" --add-label 'stale'
-    write_comment "$n" "Issue ini tidak ada aktivitas selama $IDLE hari, jadi ditandai \`stale\` dan akan ditutup otomatis setelah $CLOSE_DAYS hari tanpa balasan. Balas, atau hapus label \`stale\`, untuk menjaganya tetap terbuka. $MARK
-
-<!-- $AT_MARK$(date -u +%Y-%m-%dT%H:%M:%SZ) -->"
+    write_warning "$n" "Issue ini tidak ada aktivitas selama $IDLE hari, jadi ditandai \`stale\` dan akan ditutup otomatis setelah $CLOSE_DAYS hari tanpa balasan. Balas, atau hapus label \`stale\`, untuk menjaganya tetap terbuka." "1" "$(body_hash "$(gh issue view "$n" --repo "$REPO" --json body --jq '.body // empty' 2>/dev/null || true)")"
     echo "Warned issue #$n (idle ${IDLE}d, marked stale)."
     continue
   fi
