@@ -216,7 +216,7 @@ const runBridge = (env: Record<string, string>, args: string[], stdin?: string) 
   run(BRIDGE, env, args, stdin, bridgeDir);
 
 const LABELS =
-  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nrilis-disetujui\nrilis-ditolak\nbot-implement\nsource:template';
+  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nbot-implement\nsource:template';
 
 const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
   JSON.stringify({
@@ -261,8 +261,11 @@ describe('label-guard.sh', () => {
     expect(calls).not.toContain('UNLABEL');
   });
 
-  it('leaves the human-decision labels even when a person applies them', () => {
-    for (const label of ['rilis-disetujui', 'rilis-ditolak', 'bot-implement']) {
+  it('leaves the human-decision label even when a person applies it', () => {
+    // `rilis-disetujui`/`rilis-ditolak` were dropped 2026-11-09: they never
+    // existed in the repo, and release approval is now a `vX.Y.Z` tag, so there
+    // is no label for a human to apply. `bot-implement` remains the exception.
+    for (const label of ['bot-implement']) {
       const { calls } = run(
         LABEL_GUARD,
         { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'admin' },
@@ -1006,35 +1009,38 @@ describe('fleet contracts', () => {
     expect(flow).not.toMatch(/Triase ganda — sebagian/);
   });
 
-  it('records that the rc tags have no consumer (release-notes finding)', () => {
-    // 2026-11-09 finding while deciding SDLC 13's fate. Two things had to be
-    // verified before proposing release-please, and both came back negative for
-    // the current design:
-    //   - no workflow triggers on a tag, so a `-rc` tag gates nothing;
-    //   - production is a manual `workflow_dispatch(sha)`, and no workflow reads
-    //     the `rilis-disetujui` label (that label does not exist in the repo).
-    // The conclusion is written down so the next person does not re-litigate it.
+  it('releases production from a vX.Y.Z tag, and only that workflow', () => {
+    // 2026-11-09 decision. `Pembuat catatan rilis` (SDLC 13) cut `-rc` tags that
+    // nothing consumed; it is retired, and a human-pushed `vX.Y.Z` tag is now the
+    // release. This pins the shape so a later edit cannot quietly undo it:
+    //   - deploy-production is triggered by a tag push;
+    //   - workflow_dispatch survives ONLY as the rollback path;
+    //   - no other workflow triggers on a tag, so a tag means exactly one thing.
     const wfDir = join(REPO_ROOT, '.github', 'workflows');
     const workflows = readdirSync(wfDir).filter((f) => f.endsWith('.yml'));
     for (const f of workflows) {
       const yml = readFileSync(join(wfDir, f), 'utf8');
-      // A `tags:` filter only ever appears under `on:`; the one place `tags:`
-      // is legitimate is an image push, which has no `on:` above it.
-      expect(yml, `${f} must not be triggered by a tag`).not.toMatch(
-        /^\s{2,}tags:\s*\n?\s*-\s*['"]?v\*/m
-      );
+      // Only the `on:` block decides a trigger. `tags:` also appears under a
+      // docker push step, which is not a trigger and must not be read as one.
+      const onStart = yml.indexOf('\non:');
+      const onBlock = onStart < 0 ? '' : yml.slice(onStart, yml.indexOf('\njobs:'));
+      const triggersOnTag = /^\s+tags:/m.test(onBlock);
+      if (f === 'deploy-production.yml') {
+        expect(yml, f).toContain("tags: ['v*']");
+        expect(yml, f).toMatch(/workflow_dispatch:/);
+        // The rollback input is named as such, not as the forward release path.
+        expect(yml, f).toContain('Rollback only');
+      } else {
+        expect(triggersOnTag, `${f} must not be triggered by a tag`).toBe(false);
+      }
     }
-    // Production stays a human-triggered dispatch with an explicit SHA.
-    const deploy = readFileSync(join(wfDir, 'deploy-production.yml'), 'utf8');
-    expect(deploy).toMatch(/workflow_dispatch:/);
-    expect(deploy).toMatch(/sha:/);
-    // No release-please configuration has been adopted.
-    for (const name of ['release-please-config.json', '.release-please-manifest.json']) {
-      expect(existsSync(join(REPO_ROOT, name))).toBe(false);
-    }
+    // The retired automation is named in the deploy script's RETIRED map, so a
+    // later `DEPLOY=true` run disables it rather than re-creating it.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    expect(script).toMatch(/"SDLC 13":/);
     // The corrected rationale (including the two wrong first reasons) is kept.
     const ideas = read(join(REPO_ROOT, 'docs', 'IDEAS.md'));
-    expect(ideas).toContain('telusuran lanjutan 2026-11-09');
+    expect(ideas).toContain('DIPENSIUNKAN 2026-11-09');
     expect(ideas).toContain('tidak ada yang **mengonsumsi** tag');
   });
 
@@ -1056,7 +1062,11 @@ describe('fleet contracts', () => {
     // trigger is the `bot-implement` label (SDLC 06). The flow doc must say so,
     // or a reader waits on `ready` that was never going to start anything.
     const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
-    const stage5 = flow.slice(flow.indexOf('| 5 | Implementasi'), flow.indexOf('| 6 | CI'));
+    // Table cells are padded by prettier, so match the row, not a fixed string.
+    const start5 = flow.search(/^\| 5\s+\| Implementasi/m);
+    const start6 = flow.search(/^\| 6\s+\| CI/m);
+    expect(start5, 'stage 5 row').toBeGreaterThan(-1);
+    const stage5 = flow.slice(start5, start6);
     expect(stage5).toContain('bot-implement');
     expect(stage5).toMatch(/`ready` saja TIDAK memicu/);
   });

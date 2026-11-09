@@ -177,7 +177,9 @@ setiap prompt dan dijaga workflow deterministik):
   pertanyaan terbuka, dan tidak pernah bersama `question`/`needs-info`/
   `pending-maintainer` (#814). Kritik habis-habisan dulu, baru `ready`.
 - **Hanya `cipansor-bot` melabeli.** Label akun lain dicabut `label-guard.yml`,
-  kecuali `rilis-disetujui`, `rilis-ditolak`, `bot-implement`.
+  kecuali `bot-implement`. (`rilis-disetujui`/`rilis-ditolak` dihapus
+  2026-11-09: keduanya tidak pernah ada di repo; persetujuan rilis kini tag
+  `vX.Y.Z`.)
 
 ## Keputusan armada 2026-11-09 — yang mekanis turun ke Actions, yang menilai tetap LLM
 
@@ -186,42 +188,36 @@ kalau keluarannya sebuah **daftar, label, atau stempel waktu**, itu kerja
 deterministik dan tidak boleh memakai sandbox; kalau keluarannya **penilaian**,
 ia tetap LLM.
 
-- **`Pembuat catatan rilis` (SDLC 13) — telusuran lanjutan 2026-11-09. Dua
-  alasan pertama saya SALAH, dan buktinya mengubah arah.** Koreksi yang jujur:
-
+- **`Pembuat catatan rilis` (SDLC 13) — DIPENSIUNKAN 2026-11-09.** Telusuran
+  lanjutan membantah dua alasan pertama saya, dan koreksinya dicatat terbuka
+  supaya tidak diulang:
   1. ~~"release-please menulis `CHANGELOG.md`, bertentangan dengan keputusan 4"~~
      — **salah.** release-please punya `skip-changelog` dan `skip-github-release`
      (docs/manifest-releaser.md), jadi ia bisa tidak menyentuh berkas apa pun.
   2. ~~"label `rilis-disetujui` dipasang pada issue, bukan keluaran
      release-please"~~ — **salah, dan bukan karena release-please.** Label
-     `rilis-disetujui`/`rilis-ditolak` **tidak ada di repositori ini** (`gh label
-list` tidak memuatnya), tidak ada workflow yang membacanya, dan tidak ada
-     satu pun issue `rilis-*` yang pernah dibuat. `deploy-production.yml` memakai
-     `workflow_dispatch` dengan input SHA, dipicu manusia. Jadi "alur rilis
-     berlabel" itu adalah **dokumen, bukan kode** — dan `Pembuat catatan rilis`
-     memang tidak pernah membuka issue rilis.
+     `rilis-disetujui`/`rilis-ditolak` **tidak pernah ada di repositori ini**
+     (`gh label list` tidak memuatnya), tidak ada workflow yang membacanya, dan
+     tidak ada satu pun issue `rilis-*` yang pernah dibuat. Jadi "alur rilis
+     berlabel" itu **dokumen, bukan kode**.
 
-  Yang bertahan sebagai alasan: (a) tidak ada yang **mengonsumsi** tag `-rc`
-  (tidak ada workflow `on: tags`, tidak ada `git describe` di skrip mana pun);
-  (b) k6 smoke tetap manual; (c) pemeriksaan SHA staging tidak ada di mana pun.
+  Alasan yang bertahan: (a) tidak ada yang **mengonsumsi** tag `-rc` — tidak ada
+  workflow `on: tags`, tidak ada `git describe` di skrip mana pun; (b) k6 smoke
+  tetap manual; (c) tag `-rc` **membingungkan**: N hanya naik bila ada commit
+  relevan, sedangkan repo ini didominasi `chore(deps)` yang tidak menaikkan
+  versi — rc4 bertanggal 2026-10-30, dan run berikutnya (2026-11-06) `SKIPPED`.
+  Tag berhenti menandai "kode terverifikasi" dan hanya menandai "commit
+  fix/feat terakhir yang jatuh pada Jumat". Membangun apa pun di atas urutan itu
+  keliru.
 
-  **Dan kenyataannya lebih buruk dari "tidak ada yang mengonsumsi": ia membingungkan.**
-  `Pembuat catatan rilis` menaikkan N hanya bila ada commit _relevan_ sejak tag
-  terakhir (promptnya: "tidak ada perubahan relevan → tidak melakukan apa pun").
-  Repo ini didominasi `chore(deps)` (bump Dependabot, tidak menaikkan versi), jadi
-  commit `fix:`/`feat:` jarang — rc4 bertanggal 2026-10-30, dan run berikutnya
-  (2026-11-06) berakhir `SKIPPED`. Akibatnya **tag `-rc` tidak lagi menandai
-  "kode yang sudah diverifikasi"**; ia hanya menandai "commit fix/feat terakhir
-  yang kebetulan jatuh pada Jumat".
-
-  Rekomendasi (penilaian, bukan fakta terukur): (1) jangan pasang release-please
-  untuk perhitungan semver saja — nilainya kecil dibanding satu automation;
-  (2) yang layak deterministik adalah **pemicu produksi**: prasyarat "staging
-  menyajikan SHA ini + k6 smoke hijau" adalah diff SHA + kode keluar, bukan
-  penilaian — **DIPASANG 2026-11-09**: `.github/scripts/release-gate.sh` menjadi
-  job `gate` di `deploy-production.yml`, dan `deploy` memakai `needs: gate`;
-  (3) entah buat alur issue-rilis berlabel itu nyata, atau hapus dari
-  dokumen — sekarang ia menyesatkan pembaca dan agen. **BELUM ditindak.**
+  **Keputusan:** automation dipensiunkan (masuk `RETIRED` di
+  `scripts/deploy-sdlc-agents.py`), dan rilis produksi diganti **tag `vX.Y.Z`
+  manual** yang sekaligus memicu `deploy-production.yml` — bukan release-please,
+  yang hanya akan menggantikan mesin semver dengan mesin semver lain di atas tag
+  yang tetap tak dikonsumsi. Prasyarat rilis dijaga gerbang deterministik
+  `.github/scripts/release-gate.sh` (tag `vX.Y.Z` tanpa sufiks, commit di `main`,
+  staging menyajikan SHA itu, ada run k6 hijau untuk SHA itu);
+  `workflow_dispatch` dipertahankan **hanya** untuk rollback.
 
 - **`Peta basis kode` (SDLC 03) — dipensiunkan; `Pengelola dokumentasi` (SDLC 14)
   — DIPERTAHANKAN.** Koreksi 2026-11-09, beberapa jam setelah keputusan pertama.

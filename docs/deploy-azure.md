@@ -91,32 +91,51 @@ from the backup, as the VM runbook describes, not on staging.
    new one is code, the build and restart are skipped and staging keeps
    reporting the earlier commit — the same code. Release that commit: it is
    the one whose images exist.
-3. **Production** — only when the user asks for a release. Claude:
-   1. confirms staging runs the SHA to be released and has been checked, and
-      runs the k6 smoke against it (Actions → Load Tests → Run workflow;
-      `tests/load/README.md`) — a regression against the recorded baseline
-      stops the release until it is explained;
-   2. takes a backup (`pg_dump` through the backup job, in addition to the
-      server's own 7-day point-in-time restore);
-   3. runs the pre-checks the VM runbook requires for any migration in the
+3. **Production** — a release is a TAG, and only the maintainer cuts it. The
+   tag is the approval: pushing `vX.Y.Z` says "this commit, verified on staging,
+   is a release", and it triggers `deploy-production.yml`. Nothing is dispatched
+   by hand for a forward release.
+
+   1. Confirm staging runs the SHA to be released, and run the k6 smoke against
+      it (Actions → Load Tests → Run workflow; `tests/load/README.md`) — a
+      regression against the recorded baseline stops the release until it is
+      explained. The gate below requires a green run on that exact SHA.
+   2. Take a backup (`pg_dump` through the backup job, in addition to the
+      server's own 7-day point-in-time restore).
+   3. Run the pre-checks the VM runbook requires for any migration in the
       release — validate every new constraint against live data, because a
       migration that fails halfway leaves a failed row in `_prisma_migrations`
-      that blocks every later one;
-   4. `gh workflow run deploy-production.yml -f sha=<full sha>` — its first job,
-      `gate`, re-checks the facts of 3.1 and 3.2 mechanically
-      (`.github/scripts/release-gate.sh`): the SHA is 40 lowercase hex, staging
-      is **already serving** it, and a `load-tests.yml` run for that SHA finished
-      green. The `deploy` job waits on it (`needs: gate`), so a forgotten load
-      test or a SHA staging never ran can no longer be released by hand. The gate
-      does not decide *whether* to release — that stays the maintainer's call —
-      only that the prerequisites are in place. `deploy` then refuses a SHA whose
-      images staging never built, points `cipansor-produksi` at them and waits
-      until `https://cipansor.or.id/healthz` reports that SHA;
-   5. verifies behaviour (a real page and an authenticated API call), not just
+      that blocks every later one.
+   4. Write the release notes on the GitHub Release, then cut and push the tag:
+
+      ```
+      git tag v0.2.0 <full sha>
+      git push origin v0.2.0
+      ```
+
+      The tag must be exactly `vX.Y.Z` — no `-rc`, no suffix. Since 2026-11-09
+      there is no weekly candidate: `Pembuat catatan rilis` cut `-rc` tags that
+      nothing consumed, and the number stopped marking verified code (it only
+      advanced on `fix:`/`feat:`, and this repository is mostly `chore(deps)`).
+   5. Its first job, `gate`, re-checks the facts of 3.1 mechanically
+      (`.github/scripts/release-gate.sh`): the tag is a plain `vX.Y.Z`, its
+      commit is on `main`, the SHA is 40 lowercase hex, staging is **already
+      serving** it, and a `load-tests.yml` run for that SHA finished green. The
+      `deploy` job waits on it (`needs: gate`), so a forgotten load test or a
+      commit off `main` can no longer be released. The gate does not decide
+      *whether* to release — that is the maintainer's call — only that the
+      prerequisites are in place. `deploy` then refuses a SHA whose images
+      staging never built, points `cipansor-produksi` at them and waits until
+      `https://cipansor.or.id/healthz` reports that SHA.
+   6. Verify behaviour (a real page and an authenticated API call), not just
       that the containers started.
-4. **Rollback** — run `deploy-production.yml` again with the previous SHA.
-   Migrations are forward-only; a release that changes the schema is rolled
-   back by restoring the database from the backup in step 3.2.
+4. **Rollback** — `workflow_dispatch` is kept for this one case: dispatch
+   `deploy-production.yml` with the previous release's SHA. The gate runs in
+   `MODE=rollback`, which skips the staging and load-test checks by design — a
+   rollback target is by definition a commit staging no longer serves. `deploy`
+   still refuses a SHA whose images were never built. Migrations are
+   forward-only; a release that changes the schema is rolled back by restoring
+   the database from the backup in step 3.2.
 
 ## Verifying a release
 

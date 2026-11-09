@@ -119,8 +119,10 @@ pertentangan itu dilaporkan sebagai issue.
     `needs-info`, atau `pending-maintainer` (#814).
 17. **Hanya `cipansor-bot` yang melabeli.** Label yang dipasang akun lain
     dicabut workflow `label-guard.yml`, kecuali label keputusan manusia
-    (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`). Automasi membaca
-    label, jadi label manual membuat keduanya berbeda pendapat.
+    (`bot-implement`). Automasi membaca label, jadi label manual membuat
+    keduanya berbeda pendapat. `rilis-disetujui`/`rilis-ditolak` dihapus
+    2026-11-09: keduanya tidak pernah ada di repo, dan persetujuan rilis kini
+    tag `vX.Y.Z`.
 18. **Prioritas berbukti.** Prioritas dinilai dari dampak, urgensi, dan risiko;
     apa pun di atas `medium` WAJIB menyebut bukti konkret, tanpa bukti maksimum
     `medium`, dan bila ragu pilih yang lebih rendah. `critical` hanya untuk
@@ -194,8 +196,7 @@ flowchart TD
   GT -- approve --> UPD["perbarui cabang bila tertinggal main, CI ulang"]:::gh --> MG(["auto-merge squash"])
   MG --> STG["deploy-staging"]:::gh --> DW["deploy-watch"]:::gh
   MG -. "CI/E2E gagal di main" .-> BR["main-failure-bridge → Pemantau deployment"]:::cloud
-  REL["Pembuat catatan rilis: -rc + catatan + k6 smoke + daftar periksa rilis"]:::cloud --> APR{"maintainer menyetujui rilis"}:::human
-  APR --> PRD["deploy-production"]:::gh --> DW
+  REL["maintainer push tag vX.Y.Z (setelah k6 smoke manual)"]:::human --> PRD["deploy-production: gerbang release-gate.sh lalu deploy"]:::gh --> DW
   DW -- "gagal / macet / commit salah" --> ISS(["satu issue per run"])
   WD["pengawas gerbang & armada (dead man's switch)"]:::gh -.-> GT
 ```
@@ -212,8 +213,8 @@ flowchart TD
 | 8 | Perbaikan | review minta perubahan | `Tiket jadi PR` | ikuti atau tolak dengan alasan; ≤ 3 putaran | head baru hijau → tahap 7 otomatis (gerbang meninjau setiap head hijau yang belum ditinjau) |
 | 9 | Merge | approve + check hijau + cabang mutakhir | Actions (auto-merge) | squash ke `main` | — |
 | 10 | Staging | E2E hijau di `main` | `deploy-staging` → `deploy-watch` | staging menyajikan SHA itu, atau satu issue | — |
-| 11 | Calon rilis | jadwal mingguan, atau atas permintaan | `Pembuat catatan rilis` | pre-release `-rc` dengan catatan, hasil k6 smoke, daftar periksa (migrasi, loader data, langkah pasca-rilis) | maintainer menyetujui |
-| 12 | Produksi | persetujuan maintainer | `deploy-production` → `deploy-watch` | produksi menyajikan SHA itu; langkah data pasca-rilis masing-masing dengan persetujuan | — |
+| 11 | Calon rilis | manual: k6 smoke dijalankan terhadap staging, lalu tag `vX.Y.Z` di-push | maintainer | tag rilis pada commit yang sudah diverifikasi staging | tag ter-push |
+| 12 | Produksi | push tag `vX.Y.Z` | `deploy-production` (gerbang `release-gate.sh`) → `deploy-watch` | produksi menyajikan SHA itu; langkah data pasca-rilis masing-masing dengan persetujuan | — |
 | 13 | Operasi | CI/E2E gagal di `main`; Health check / availability test | bridge → `Pemantau deployment`; platform | satu issue per masalah | — |
 | 14 | Pengawasan | harian | `Pengawas armada` + pemeriksa Actions | kesehatan, pemakaian, kegagalan diam | — |
 
@@ -237,7 +238,7 @@ repositori privat:
 
 | Kebutuhan | Selama publik | Sesudah privat (Team) | Dipakai di sini |
 |---|---|---|---|
-| Persetujuan rilis produksi | *required reviewers* pada environment `production` | tidak tersedia | **label `rilis-disetujui` pada issue rilis** (dipilih maintainer), diperiksa `deploy-production.yml` lewat timeline API: diterapkan oleh akun maintainer (dari UI GitHub, atau oleh agen hanya atas perintah maintainer dalam percakapan itu), untuk SHA itu. Bisa dipakai di kedua fase. |
+| Persetujuan rilis produksi | *required reviewers* pada environment `production` | tidak tersedia | **tag `vX.Y.Z`** (dipush maintainer) — memicu `deploy-production.yml`; environment `production` tetap menjadi gerbang identitas OIDC-nya. Lebih ringkas daripada label pada issue: satu artefak yang sama menyatakan rilis **dan** memicunya. Bisa dipakai di kedua fase. |
 | Uji gabungan PR yang bertumpuk (aturan emas 9) | *merge queue* | tidak tersedia | **ruleset `strict` (cabang harus mutakhir)** + job Actions yang memperbarui cabang PR ber-auto-merge saat `main` bergerak. Bisa dipakai di kedua fase. |
 | Kuota menit Actions | gratis | 3.000 menit/bulan | event dulu (invarian 1); laporan pemakaian mingguan (invarian 13) |
 
@@ -289,8 +290,10 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
    timer sama: `needs-info` 20 hari, `question` 8+7, lain-lain 90+14. Ia
    deterministik, jadi tidak memakai sandbox — akar masalah automation LLM yang
    mati lima kali beruntun lalu dijeda platform.
-4. **Persetujuan rilis.** Kini lewat perintah di percakapan. Ganti dengan
-   label `rilis-disetujui` yang diperiksa workflow-nya.
+4. **Persetujuan rilis — selesai 2026-11-09.** Rilis kini tag `vX.Y.Z` yang
+   dipush maintainer, bukan label pada issue: tidak ada label `rilis-disetujui`
+   yang pernah ada di repo, dan tag memicu deploy sekaligus menyatakan
+   persetujuannya.
 5. **Temuan keamanan.** Kini ditulis netral di issue publik. Pindahkan ke
    advisory privat.
 6. **Aturan emas 9.** Kini manual. Nyalakan ruleset `strict` dan job
@@ -369,52 +372,46 @@ prompt atau jadwal sebuah automation berbeda dari desain target, yang benar
 adalah desain target. Ubah automation-nya, bukan dokumen ini. Dokumen ini
 hanya berubah lewat PR yang disetujui maintainer.
 
-**Rilis produksi, langkah demi langkah** (keputusan 2026-10-10):
+**Rilis produksi, langkah demi langkah** (keputusan 2026-10-10; pemicu tag
+2026-11-09):
 
-1. Setiap Jumat, `Pembuat catatan rilis` memotong pre-release `vX.Y.Z-rcN`
-   dari SHA yang sedang disajikan staging, menjalankan `load-tests.yml`
-   (k6 smoke) terhadap staging, lalu membuka **satu** issue
-   `Rilis vX.Y.Z-rcN` berisi: daftar PR yang masuk, hasil k6 dibanding
-   baseline, migrasi yang ikut, langkah data pasca-rilis (masing-masing
-   ditandai "perlu persetujuan sendiri"), dan SHA-nya. Bila rc minggu lalu
-   belum disetujui, issue lama ditutup sebagai digantikan, bukan ditumpuk.
+1. Maintainer memutuskan kapan rilis. Tidak ada lagi kandidat mingguan:
+   `Pembuat catatan rilis` (SDLC 13) dipensiunkan karena tag `-rc`-nya tidak
+   dikonsumsi apa pun dan nomornya berhenti menandai kode terverifikasi.
+2. Ia menjalankan k6 smoke terhadap staging untuk SHA yang akan dirilis
+   (`load-tests.yml`, Actions → Run workflow). Ini prasyarat, bukan formalitas:
+   gerbang menolak rilis tanpa run k6 hijau pada SHA itu.
+3. Ia menulis catatan rilis di body Release dan memotong tag **resmi**:
 
-   Deskripsi issue itu **selalu** diakhiri petunjuk keputusan berikut, apa
-   adanya:
+   > ```
+   > git tag v0.2.0 <sha>
+   > git push origin v0.2.0
+   > ```
 
-   > **Keputusan maintainer**
-   >
-   > - **Setuju dirilis ke produksi:** pasang label `rilis-disetujui`. Rilis
-   >   berjalan otomatis (cadangan, deploy, verifikasi), dan hasilnya
-   >   dilaporkan di issue ini.
-   > - **Ditolak:** pasang label `rilis-ditolak`, lalu tulis alasannya di
-   >   komentar (mis. "fitur X belum siap", "angka k6 terlalu lambat"). Tidak
-   >   ada yang di-deploy. Bot membuka satu issue per alasan yang perlu
-   >   diperbaiki dan menautkannya di sini, lalu issue ini ditutup. rc minggu
-   >   berikutnya membawa perbaikannya.
-   > - **Belum memutuskan:** biarkan saja. Tidak ada yang di-deploy, dan issue
-   >   ini digantikan rc minggu berikutnya.
-   > - Langkah bertanda "perlu persetujuan sendiri" disetujui satu per satu
-   >   dengan membalas `setuju: <nama langkah>`.
+   Tag wajib berbentuk `vX.Y.Z` — tanpa `-rc`, tanpa sufiks. Tag itu adalah
+   pernyataan "commit ini, sudah diverifikasi staging, adalah rilis", sekaligus
+   yang memicu deploy. Tidak ada berkas CHANGELOG di repositori.
 
-2. Maintainer membaca issue itu. Bila setuju, ia memasang label
-   `rilis-disetujui` dari UI GitHub (juga dari ponsel). Bila menolak, ia
-   memasang `rilis-ditolak` dan menulis alasannya.
-3. Pemasangan label itu memicu `deploy-production.yml`. Workflow memeriksa
-   lewat timeline API bahwa label dipasang oleh akun maintainer, pada issue
-   rilis untuk SHA itu, dan bahwa staging masih menyajikan SHA itu. Bila
-   salah satu tidak terpenuhi, rilis ditolak dengan alasannya di issue. Label
-   `rilis-ditolak` tidak memicu apa pun selain `Pembuat catatan rilis`, yang
-   membaca alasannya dan membuka issue perbaikannya (invarian 4: satu issue per
-   alasan).
-4. Workflow mengambil cadangan, menjalankan pra-cek migrasi, men-deploy, dan
-   menunggu `/healthz` produksi menyajikan SHA itu. `deploy-watch.yml`
-   membuka issue bila ada yang gagal. Tidak ada rollback otomatis.
-5. Langkah data pasca-rilis (loader, reset sandi massal) **tidak** ikut
-   otomatis. Masing-masing menunggu persetujuannya sendiri di issue rilis
-   (gerbang manusia 3).
-6. Rilis resmi (tanpa `-rc`) dibuat dari rc yang sudah di produksi, dengan
-   catatan di body Release. Tidak ada berkas CHANGELOG.
+4. Push tag memicu `deploy-production.yml`. Job pertamanya, `gate`, memeriksa
+   fakta secara mekanis (`.github/scripts/release-gate.sh`): tag berbentuk
+   `vX.Y.Z` dan tidak bersufiks, commit tag ada di `main`, SHA 40 heksadesimal,
+   staging **sedang menyajikan** SHA itu, dan ada run `load-tests.yml` hijau
+   untuk SHA itu. Job `deploy` menunggu gerbang (`needs: gate`), jadi rilis yang
+   faktanya belum lengkap tidak bisa lewat — termasuk rilis yang melewatkan k6.
+   Gerbang **tidak** memutuskan apakah rilis harus terjadi; itu keputusan
+   maintainer di langkah 1–3.
+5. `deploy` mengambil cadangan, menjalankan pra-cek migrasi, men-deploy, dan
+   menunggu `/healthz` produksi menyajikan SHA itu. `deploy-watch.yml` membuka
+   issue bila ada yang gagal. Tidak ada rollback otomatis.
+6. Langkah data pasca-rilis (loader, reset sandi massal) **tidak** ikut
+   otomatis. Masing-masing menunggu persetujuannya sendiri (gerbang manusia 3).
+7. **Rollback** — `workflow_dispatch` dipertahankan **hanya** untuk ini:
+   dispatch `deploy-production.yml` dengan SHA rilis sebelumnya. Gerbang berjalan
+   dalam mode `rollback`, yang melewatkan cek staging dan k6 dengan sengaja:
+   target rollback menurut definisinya adalah commit yang sudah tidak disajikan
+   staging. `deploy` tetap menolak SHA yang image-nya tak pernah dibangun.
+   Migrasi bersifat maju-saja; rollback yang mengubah skema dipulihkan dari
+   cadangan langkah 5.
 
 **Urutan pekerjaan** (satu issue per butir, lalu PR sesuai templat; tiap
 butir mengikuti aturan emas di `AGENTS.md`):
@@ -499,16 +496,16 @@ flowchart TB
 
   subgraph REL["3 · Rilis & operasi"]
     DPR -. merge .-> MG([Merge ke main])
-    MG --> C3B["Peta basis kode"]:::cloud
+    MG --> C3B["docs-drift.yml (peta basis kode, deterministik)"]:::gh
     MG --> C14["Pengelola dokumentasi"]:::cloud
     MG --> STG["deploy-staging.yml (build + push image)"]:::gh
-    STG --> PROD["deploy-production.yml (manual · sha)"]:::human
+    STG --> PROD["deploy-production.yml (push tag vX.Y.Z)"]:::gh
     STG -. "selesai" .-> DW["deploy-watch.yml"]:::gh
     PROD -. "selesai" .-> DW
     DW -- "gagal / macet / commit salah" --> DWI(["satu issue deploy-watch per workflow"]):::gh
     MG -. "CI atau E2E gagal di main" .-> BR["main-failure-bridge.yml"]:::gh --> C12["Pemantau deployment"]:::cloud
-    C13["Pembuat catatan rilis (cron Jum 22:00 WIB)"]:::cloud
-    C13 -. "memotong pre-release -rc (catatan di body Release, tanpa changelog di repo)" .-> REL2(["GitHub Release (prerelease)"])
+    C13["maintainer: tag vX.Y.Z"]:::human
+    C13 -. "rilis + memicu deploy (tidak ada pre-release -rc lagi, 2026-11-09)" .-> REL2(["GitHub Release + produksi"])
   end
 ```
 
@@ -590,9 +587,9 @@ flowchart LR
 
   STG -. selesai .-> DW["deploy-watch.yml → issue deploy-watch"]:::gh
   PROD -. selesai .-> DW
-  LT["load-tests.yml (k6, manual sebelum rilis)"]:::human -.-> STG
+  LT["load-tests.yml (k6, manual sebelum rilis)"]:::human -.-> TAGV["tag vX.Y.Z"]:::human
   C12["Pemantau deployment (CI/E2E gagal di main, via bridge)"]:::cloud
-  C13["Pembuat catatan rilis (Jum 22:00) → pre-release -rc"]:::cloud -.-> PROD
+  TAGV -. "memicu" .-> PROD
   C20["Pemindai standar (Sen 06:00) → issue pending-maintainer"]:::cloud -.-> PROD
   C19["Pemburu bug (harian 09:00) → issue bug berbukti"]:::cloud -.-> PROD
 ```
@@ -616,7 +613,7 @@ flowchart TD
 | 09:00 harian    | Pemburu bug           | bug terbukti → satu issue berbukti                              |
 | 06:00 Senin     | Pemindai standar      | penyimpangan standar → `pending-maintainer`                     |
 | 08:15 Senin     | Pemindai celah uji    | satu celah uji berisiko → issue                                 |
-| 22:00 Jumat     | Pembuat catatan rilis | memotong pre-release `-rc` berikutnya → catatan di body Release |
+| (tidak ada)     | —                     | rilis kini peristiwa manual: tag `vX.Y.Z` (`Pembuat catatan rilis` dipensiunkan 2026-11-09) |
 | 08:30 tanggal 1 | Audit kematangan      | menilai 18 item → satu issue                                    |
 
 Actions terjadwal: `duplicate-sweep` (harian 01:30 UTC = 08:30 WIB,
@@ -630,8 +627,9 @@ Actions berbasis
 event: `deploy-watch.yml`, sesudah tiap `Deploy staging`/`Deploy production`
 selesai. Manual: `load-tests.yml` (k6 vs staging), langkah wajib sebelum tiap
 rilis produksi (`docs/deploy-azure.md` → "How a change is released").
-Satu-satunya catatan rilis berasal dari body Release `Pembuat catatan rilis`,
-bukan berkas di repositori.
+Catatan rilis ditulis maintainer di body Release saat memotong tag; tidak ada
+berkas CHANGELOG di repositori, dan tidak ada lagi automation yang memotong
+kandidat mingguan.
 
 Yang **sengaja tidak ada** (diputuskan 2026-10-10): tidak ada penutupan issue
 berdasarkan umur — issue yang menunggu keputusan yayasan atau rilis memang
@@ -654,7 +652,7 @@ nyata.
 | Otomasi QA            | menjalankan alur yang berubah, melaporkan lulus/gagal                                                          |
 | Uji beban             | k6 vs staging — kini `load-tests.yml`, dijalankan manual sebelum tiap rilis (bukan cron)                       |
 | Pemantau deployment   | CI atau E2E yang gagal di `main` → issue diagnosis (penyebabnya)                                               |
-| Pembuat catatan rilis | pre-release `-rc` + catatan rilis dari conventional commits                                                    |
+| Pembuat catatan rilis | **dipensiunkan 2026-11-09** — pre-release `-rc` tak dikonsumsi apa pun; rilis kini tag `vX.Y.Z` manual            |
 | Pelabel issue         | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar |
 | Pengelola dokumentasi | merge yang berdampak dokumentasi → satu issue `documentation`: dokumen mana yang basi dan apa yang perlu ditulis ulang (penilaian, bukan diff path); juga menilai apakah peta modul `docs/ARCHITECTURE.md` masih benar |
 | Penjernih issue       | menilai ulang saat pelapor menjawab `needs-info`                                                               |
@@ -675,7 +673,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 | Akun           | Peran                                          | Automation                                                                                                                                                                                          |
 | -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `adminypc`     | Penulis — membuat issue dan pull request       | Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar, Pengawas armada, Audit kematangan       |
-| `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Peninjau kode, Otomasi QA, Pembuat catatan rilis, Pelabel issue (triase + keparahan + estimasi + label), Penjernih issue, Gerbang tinjau PR, Diskusi |
+| `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Peninjau kode, Otomasi QA, Pelabel issue (triase + keparahan + estimasi + label), Penjernih issue, Gerbang tinjau PR, Diskusi |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
   memakai `GITHUB_TOKEN` (`adminypc`). Selebihnya memposting lewat
@@ -781,18 +779,20 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   (`pull_request.review_requested` adalah pemicu gerbang), tetapi ini tidak lagi
   wajib untuk head baru; permintaan perubahan hanya menahan PR selama ia masih
   pada head saat ini.
-- **Catatan rilis hidup di GitHub Release, bukan di berkas.** `Pembuat catatan
-rilis` berjalan mingguan, memotong pre-release `-rc` berikutnya, dan menulis
-  catatan ke body Release dari conventional commit sejak rilis resmi terakhir;
-  ia tidak pernah menulis `CHANGELOG.md` ke repositori dan tidak pernah membuka
-  PR changelog. Rilis resmi (non-`rc`) adalah tindakan manual maintainer.
+- **Catatan rilis hidup di GitHub Release, bukan di berkas.** Maintainer
+  menulis catatan di body Release saat memotong tag `vX.Y.Z`; tidak ada
+  `CHANGELOG.md` di repositori dan tidak ada PR changelog. Sampai 2026-11-09
+  `Pembuat catatan rilis` memotong kandidat `-rc` mingguan, tetapi tag itu tidak
+  dikonsumsi apa pun dan nomornya berhenti menandai kode terverifikasi —
+  dipensiunkan; tag rilis kini manual dan sekaligus memicu deploy.
 - **Armada adalah kerangka plus saluran pipanya.** `Peninjau arsitektur` …
   `Gerbang tinjau PR` (item Agentic SDLC) dipetakan satu-ke-satu; `Pelabel issue`
   … `Pengawas armada` menambahkan pipeline label/siklus hidup, pemburu proaktif,
   dan pengawas; `Audit kematangan` menilai item yang sama dan menyebut yang
   terlemah. Sebagian butir mekanis dipindahkan ke Actions deterministik
-  (`docs-drift`, `stale-sweep`, `issue-label-sync`, `pr-duplicate`) karena
-  keluarannya sebuah daftar atau label, bukan penilaian.
+  (`docs-drift`, `stale-sweep`, `issue-label-sync`, `pr-duplicate`,
+  `release-gate`) karena keluarannya sebuah daftar, label, atau fakta yang bisa
+  dibaca skrip — bukan penilaian.
 - **Peringatan tidak pernah memblokir, kecuali gate templat.** Hanya job
   `template` yang memblokir; `visual-evidence` hanya berkomentar.
 - **Rollback manual.** `deploy-watch.yml` dan `Pemantau deployment` hanya

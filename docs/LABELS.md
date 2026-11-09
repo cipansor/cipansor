@@ -181,8 +181,8 @@ sync` workflow adds anything missing and **fails the check** when the type
 12. **Only `cipansor-bot` labels.** Every label in the taxonomy above is the
     bot's to apply. A protected label added by any other account is removed by
     the `Label guard` workflow and the account is told once. The protected set is
-    every label that exists in the repository minus the human-decision labels
-    (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`), read at run time — a
+    every label that exists in the repository minus the human-decision label
+    (`bot-implement`), read at run time — a
     new label is protected the moment it is created. A GitHub App (`*[bot]`) is
     exempt, because the Actions workflows label through `github-actions[bot]`.
     **On an issue, the type label its form applies at open is also exempt:**

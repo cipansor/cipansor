@@ -9,6 +9,10 @@ import { join, resolve } from 'path';
  *
  *  - a truncated SHA is refused before anything else (the full SHA is the image
  *    tag and what /health reports, so a short one matches neither);
+ *  - a tag that is not a plain `vX.Y.Z` is refused: SDLC 13's `-rc` tags are
+ *    retired, and shipping a candidate by accident is the failure to prevent;
+ *  - `MODE=rollback` skips the staging and load-test checks by design, because a
+ *    rollback target is an older commit staging no longer serves;
  *  - a SHA staging does not serve is refused — a release may only ship what
  *    staging has actually run;
  *  - a SHA with no green `load-tests.yml` run is refused — the load test is not
@@ -65,6 +69,9 @@ function run(env: Record<string, string>) {
       REPO: 'o/r',
       GH_TOKEN: 'x',
       GH_STUB_LOG: log,
+      // vitest sets MODE in the environment; pin it so the script's own default
+      // (release) is what the tests exercise unless a case overrides it.
+      MODE: 'release',
       // The gate retries the staging probe with a 10s sleep between attempts; a
       // test must not sit through that. The default (3) is exercised in
       // production, where a slightly stale /healthz is worth waiting out.
@@ -147,6 +154,55 @@ describe('release-gate.sh', () => {
     expect(status).not.toBe(0);
   });
 
+  it('refuses a tag that is not a plain vX.Y.Z release', () => {
+    for (const tag of ['v0.2.0-rc1', 'v0.2.0-beta', 'release-0.2.0', 'v0.2', 'v0.2.0.1']) {
+      const { status, out } = run({
+        SHA,
+        TAG: tag,
+        GH_STUB_STAGING_COMMIT: SHA,
+        GH_STUB_RUNS: greenRun(SHA),
+      });
+      expect(status, `${tag} must be refused`).not.toBe(0);
+      expect(out, `${tag}`).toContain('Release gate');
+    }
+  });
+
+  it('accepts a plain vX.Y.Z tag shape', () => {
+    // The tag itself is only shape-checked here; the on-main ancestry check runs
+    // against a real checkout in the workflow, which this hermetic test cannot
+    // provide, so it is exercised by the gate job itself.
+    const { out } = run({
+      SHA,
+      TAG: 'v0.2.0',
+      GH_STUB_STAGING_COMMIT: SHA,
+      GH_STUB_RUNS: greenRun(SHA),
+    });
+    // It must get past the tag shape check (the ancestry check may still stop it).
+    expect(out).not.toContain('not a release tag');
+    expect(out).not.toContain('prerelease suffix');
+  });
+
+  it('skips the staging and load-test checks in rollback mode', () => {
+    // A rollback is a human act on an older SHA; staging serves a newer one and
+    // the load test is long past, so requiring them would block rollback exactly
+    // when it is needed. The deploy job still refuses unbuilt images.
+    const { status, out, calls } = run({
+      SHA,
+      MODE: 'rollback',
+      GH_STUB_STAGING_COMMIT: OTHER,
+      GH_STUB_RUNS: '[]',
+    });
+    expect(status).toBe(0);
+    expect(out).toContain('Rollback mode');
+    expect(calls).not.toContain('RUN LIST');
+  });
+
+  it('refuses an unknown MODE rather than guessing', () => {
+    const { status, out } = run({ SHA, MODE: 'yolo' });
+    expect(status).not.toBe(0);
+    expect(out).toContain("MODE must be 'release' or 'rollback'");
+  });
+
   it('is wired into deploy-production as a job the deploy waits on', () => {
     // The gate is only a gate if the deploy cannot start without it.
     const wf = readFileSync(WORKFLOW, 'utf8');
@@ -156,5 +212,11 @@ describe('release-gate.sh', () => {
     // Reading workflow runs needs the scope, and the gate must not require the
     // production environment (it touches no Azure identity).
     expect(wf).toMatch(/actions:\s*read/);
+    // The trigger is a tag push, and the dispatch survives only for rollback.
+    expect(wf).toContain("tags: ['v*']");
+    expect(wf).toContain('Rollback only');
+    expect(wf).toMatch(/MODE:/);
+    // Full history, so the gate can ask whether the tag's commit is on main.
+    expect(wf).toContain('fetch-depth: 0');
   });
 });

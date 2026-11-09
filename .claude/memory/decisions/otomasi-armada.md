@@ -15,12 +15,22 @@
 2. **Uji beban k6 dijalankan manual sebelum setiap rilis** (#677), relatif
    terhadap baseline yang direkam, bukan terjadwal. Cron cloud "Uji beban" dan
    "Penjaga issue" dimatikan oleh pengguna.
-3. **Persetujuan rilis lewat label.** Setiap minggu ada satu issue rilis. Label
-   `rilis-disetujui` berarti setuju. `rilis-ditolak`, disertai alasannya,
-   berarti tolak. Kalau tidak ada tindakan, rc minggu depan menggantikannya.
-   Teks persisnya ada di SDLC-FLOW → "Instruksi pelaksanaan".
-4. **Tidak ada berkas `CHANGELOG`.** Catatan rilis ditulis otomatis saat
-   pra-rilis.
+3. **Persetujuan rilis lewat TAG** (diubah 2026-11-09; sebelumnya label
+   `rilis-disetujui` pada issue rilis mingguan). Rilis adalah tag `vX.Y.Z` yang
+   dipush maintainer; tag itu memicu `deploy-production.yml`. Alasan perubahan:
+   label `rilis-disetujui`/`rilis-ditolak` **tidak pernah ada di repo** dan tidak
+   ada workflow yang membacanya — alur "satu issue rilis mingguan" hanya ada di
+   dokumen, bukan kode. Satu artefak (tag) kini menyatakan persetujuan **dan**
+   memicunya. Prasyaratnya dijaga gerbang deterministik
+   `.github/scripts/release-gate.sh` (tag `vX.Y.Z` tanpa sufiks, commit ada di
+   `main`, staging menyajikan SHA itu, ada run k6 hijau untuk SHA itu).
+   `workflow_dispatch` dipertahankan **hanya** untuk rollback (mode `rollback`
+   melewatkan cek staging/k6 dengan sengaja).
+4. **Tidak ada berkas `CHANGELOG`.** Catatan rilis ditulis maintainer di body
+   Release saat memotong tag. Automation `Pembuat catatan rilis` (SDLC 13)
+   dipensiunkan 2026-11-09: pre-release `-rc` mingguannya tidak dikonsumsi apa
+   pun (tidak ada workflow `on: tags`, tidak ada `git describe` di skrip mana
+   pun).
 5. **Temuan keamanan masuk ke advisory privat GitHub**, bukan issue publik.
    Perbaikannya lewat PR publik yang ditulis netral (aturannya, bukan
    celahnya), dan advisory diterbitkan sesudah rilis produksi yang membawanya.
@@ -126,7 +136,7 @@
       PR #817, 2026-10-13).
     - **Hanya `cipansor-bot` melabeli.** Label yang dipasang akun lain dicabut
       `label-guard.yml` dan pelakunya diberi tahu sekali; label keputusan
-      manusia (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`) tetap boleh
+      manusia (`bot-implement`) tetap boleh
       manual. Automasi membaca label, jadi label manual membuat keduanya
       berbeda pendapat.
     - **Dua sebutan, dua penanggap; guard penulis, tanpa footer** (2026-10-14,

@@ -203,7 +203,7 @@ BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
 - PR — kesimpulan final (putusan tinjauan, hasil QA) tetap ditulis ke DESKRIPSI UTAMA PR di bawah penanda tetap (mis. `<!-- sdlc:gerbang -->`), diperbarui di tempat.
 - Idempoten (invarian 4): satu pemicu = satu tulisan; perbarui komentar berpenanda Anda, jangan menumpuk. Jangan menanggapi komentar atau reaction milik Anda sendiri.
 - Sebelum menangani apa pun, tambahkan reaction 👀 pada objek yang Anda tangani (issue/PR/komentar) agar orang tahu automation bekerja: `POST /repos/<owner>/<repo>/issues/<n>/reactions` dengan body `{"content":"eyes"}`; untuk komentar: `POST /repos/<owner>/<repo>/issues/comments/<id>/reactions`. Jangan menumpuk reaction.
-- Hanya `cipansor-bot` (GITHUB_BOT_TOKEN) yang boleh memasang label. Jangan pasang label apa pun lewat `GITHUB_TOKEN`. `bot-implement`, `rilis-disetujui`, `rilis-ditolak` adalah keputusan maintainer — jangan pernah memasangnya.
+- Hanya `cipansor-bot` (GITHUB_BOT_TOKEN) yang boleh memasang label. Jangan pasang label apa pun lewat `GITHUB_TOKEN`. `bot-implement` adalah keputusan maintainer — jangan pernah memasangnya.
 """
 
 # The hardened triage/review tail per automation. Everything else keeps its tail
@@ -690,6 +690,15 @@ RETIRED = {
     "ke issue induk #782.",
     "SDLC 17": "dipensiunkan pada 2026-11-09 — salin label sudah dikerjakan "
     "issue-label-sync.yml; deteksi duplikat kini heuristik deterministik.",
+    "SDLC 13": "dipensiunkan pada 2026-11-09 — keluarannya (pre-release -rc + "
+    "catatan rilis) tidak dikonsumsi apa pun: tidak ada workflow `on: tags`, "
+    "tidak ada `git describe` di skrip mana pun, dan k6 smoke tetap manual. "
+    "Tag -rc juga membingungkan: N hanya naik bila ada commit relevan, sedangkan "
+    "repo ini didominasi chore(deps) yang tidak menaikkan versi, jadi rc4 "
+    "(2026-10-30) lalu run berikutnya SKIPPED — tag berhenti menandai 'kode "
+    "terverifikasi'. Perhitungan semver kini ada di tag rilis manusia; pemicu "
+    "produksi dipindah ke tag `v*` (deploy-production.yml) dengan gerbang "
+    "deterministik release-gate.sh.",
 }
 
 
