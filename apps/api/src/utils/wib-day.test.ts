@@ -1,5 +1,12 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
-import { wibMonthYear, wibDate, dayDate, calendarDate, utcMonthRange } from './wib-day';
+import {
+  wibMonthYear,
+  wibDate,
+  dayDate,
+  calendarDate,
+  utcMonthRange,
+  wibMonthRange,
+} from './wib-day';
 
 // The WIB helpers must derive the calendar from the instant alone, never from
 // the host clock. Production runs the API container in UTC; a developer's
@@ -78,6 +85,47 @@ describe('utcMonthRange', () => {
     const { start, end } = utcMonthRange(2026, 11);
     expect(start.toISOString()).toBe('2026-12-01T00:00:00.000Z');
     expect(end.toISOString()).toBe('2027-01-01T00:00:00.000Z');
+  });
+});
+
+describe('wibMonthRange', () => {
+  beforeAll(() => {
+    process.env.TZ = 'UTC';
+  });
+  afterAll(() => {
+    if (prevTz === undefined) delete process.env.TZ;
+    else process.env.TZ = prevTz;
+  });
+
+  it('closes the month on the WIB clock, whole last day included', () => {
+    const { start, end } = wibMonthRange(2026, 10); // November 2026
+    expect(start.toISOString()).toBe('2026-10-31T17:00:00.000Z'); // 1 Nov 00:00 WIB
+    expect(end.toISOString()).toBe('2026-11-30T16:59:59.999Z'); // 30 Nov 23:59:59.999 WIB
+  });
+
+  it('covers the whole of the last day, not just its midnight', () => {
+    const { start, end } = wibMonthRange(2026, 10);
+    // 30 Nov 10:00 WIB — the payment the UTC-midnight bound used to drop.
+    const lastDayPayment = new Date('2026-11-30T03:00:00.000Z');
+    expect(lastDayPayment >= start && lastDayPayment <= end).toBe(true);
+  });
+
+  it('includes the first hours of the 1st, stored on the previous UTC day', () => {
+    const { start, end } = wibMonthRange(2026, 10);
+    // 1 Nov 02:00 WIB is 31 Oct 19:00Z.
+    const earlyFirstDay = new Date('2026-10-31T19:00:00.000Z');
+    expect(earlyFirstDay >= start && earlyFirstDay <= end).toBe(true);
+  });
+
+  it('handles February and a leap year', () => {
+    expect(wibMonthRange(2026, 1).end.toISOString()).toBe('2026-02-28T16:59:59.999Z');
+    expect(wibMonthRange(2024, 1).end.toISOString()).toBe('2024-02-29T16:59:59.999Z');
+  });
+
+  it('rolls over from December to January of the next year', () => {
+    const { start, end } = wibMonthRange(2026, 11);
+    expect(start.toISOString()).toBe('2026-11-30T17:00:00.000Z'); // 1 Dec 00:00 WIB
+    expect(end.toISOString()).toBe('2026-12-31T16:59:59.999Z'); // 31 Dec 23:59:59.999 WIB
   });
 });
 
