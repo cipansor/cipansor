@@ -138,16 +138,34 @@ OLD_IDENTITY_LINE = (
     "`cipansor-bot` sudah menandai komentar itu otomatis."
 )
 
+# The first two-account bullet, deployed to the live fleet on 2026-11-09 before
+# review (#968). It let a writer automation send `labels` with `POST /issues`
+# under `adminypc` (revoked by label-guard, #838) and named no token for body
+# edits. A live prompt carrying it is upgraded by text like the older bullet.
+FIRST_SPLIT_IDENTITY_LINE = (
+    '- IDENTITAS — DUA AKUN, JANGAN DITUKAR. Anda memegang dua token GitHub:\n  - `GITHUB_TOKEN` (akun `ad'
+    'minypc`) — PENULIS. Bila tugas ini MEMBUAT issue atau pull request, pakai token ini untuk `POST /rep'
+    'os/<owner>/<repo>/issues` dan `/pulls`, serta untuk push commit, supaya issue/PR teratribusi ke `adm'
+    'inypc`. Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` salah pemilik — jangan.\n  - `GITHUB_BOT_T'
+    'OKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, label, review, dan '
+    'reaction, supaya terbaca sebagai `cipansor-bot`. Jangan memasang label atau mengirim review lewat `G'
+    'ITHUB_TOKEN`.\n  - Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` send'
+    'iri — guard anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-d'
+    'isclosure yang perlu ditulis.'
+)
+
 # Must match the IDENTITAS bullet inside BODY_BLOCK verbatim.
 NEW_IDENTITY_LINE = (
     "- IDENTITAS — DUA AKUN, JANGAN DITUKAR. Anda memegang dua token GitHub:\n"
-    "  - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS. Bila tugas ini MEMBUAT issue atau pull request, "
-    "pakai token ini untuk `POST /repos/<owner>/<repo>/issues` dan `/pulls`, serta untuk push commit, "
-    "supaya issue/PR teratribusi ke `adminypc`. Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` "
-    "salah pemilik — jangan.\n"
+    "  - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS. Hanya untuk tiga hal: `POST /repos/<owner>/<repo>/issues` "
+    "dan `/pulls` bila tugas ini MEMBUAT issue atau pull request, serta push commit, supaya artefaknya "
+    "teratribusi ke `adminypc`. Buat issue/PR itu TANPA field `labels`: label yang dipasang akun selain "
+    "`cipansor-bot` dicabut `label-guard` (#838). Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` salah "
+    "pemilik — jangan.\n"
     "  - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, "
-    "label, review, dan reaction, supaya terbaca sebagai `cipansor-bot`. Jangan memasang label atau "
-    "mengirim review lewat `GITHUB_TOKEN`.\n"
+    "label (termasuk label issue/PR yang baru Anda buat), review, reaction, dan setiap `PATCH` body issue "
+    "atau PR (ringkasan saat `ready`, penanda `<!-- sdlc:... -->`). Suntingan lewat `GITHUB_TOKEN` terbaca "
+    "sebagai aktivitas manusia dan memicu triase ulang serta `Diskusi`.\n"
     "  - Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` sendiri — guard "
     "anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-disclosure "
     "yang perlu ditulis."
@@ -178,8 +196,8 @@ BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
   بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
   (Bismillaahirrohmaanirrohiim bila tidak bisa menulis Arab.)
 - IDENTITAS — DUA AKUN, JANGAN DITUKAR. Anda memegang dua token GitHub:
-  - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS. Bila tugas ini MEMBUAT issue atau pull request, pakai token ini untuk `POST /repos/<owner>/<repo>/issues` dan `/pulls`, serta untuk push commit, supaya issue/PR teratribusi ke `adminypc`. Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` salah pemilik — jangan.
-  - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, label, review, dan reaction, supaya terbaca sebagai `cipansor-bot`. Jangan memasang label atau mengirim review lewat `GITHUB_TOKEN`.
+  - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS. Hanya untuk tiga hal: `POST /repos/<owner>/<repo>/issues` dan `/pulls` bila tugas ini MEMBUAT issue atau pull request, serta push commit, supaya artefaknya teratribusi ke `adminypc`. Buat issue/PR itu TANPA field `labels`: label yang dipasang akun selain `cipansor-bot` dicabut `label-guard` (#838). Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` salah pemilik — jangan.
+  - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, label (termasuk label issue/PR yang baru Anda buat), review, reaction, dan setiap `PATCH` body issue atau PR (ringkasan saat `ready`, penanda `<!-- sdlc:... -->`). Suntingan lewat `GITHUB_TOKEN` terbaca sebagai aktivitas manusia dan memicu triase ulang serta `Diskusi`.
   - Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` sendiri — guard anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-disclosure yang perlu ditulis.
 - ISSUE — komentar dulu, body saat `ready`. Selama issue belum `ready`, triase, estimasi, kriteria, dan pertanyaan terbuka ditulis sebagai KOMENTAR BARU, bukan ke body. Body issue hanya diperbarui saat Anda memasang `ready`: saat itu tulis ringkasan final ke body lewat `PATCH /repos/<owner>/<repo>/issues/<n>` (body adalah field `body`) di bawah penanda tetap (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. Sebelum memasang `ready`, cabut dulu `question`/`needs-info`/`pending-maintainer` yang bertentangan. Bila belum `ready`, jangan mengubah body issue.
 - PR — kesimpulan final (putusan tinjauan, hasil QA) tetap ditulis ke DESKRIPSI UTAMA PR di bawah penanda tetap (mis. `<!-- sdlc:gerbang -->`), diperbarui di tempat.
@@ -296,9 +314,9 @@ Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya
 5. Sebelum membuka issue, cari issue `automation-health` terbuka dengan penyebab yang sama. Jika ada, komentari dengan bukti baru alih-alih membuka yang kedua. Buka paling banyak satu issue per penyebab per minggu.
 6. Perbedaan `content` antara dua automation (misalnya Pelabel PR dan Gerbang tinjau PR yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
 7. Jangan pernah bertindak atas komentar yang Anda tulis sendiri. Jangan pernah merge. Laporkan ke maintainer hanya lewat issue GitHub (label `automation-health`) — tidak ada kanal lain.
-8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run ke-23 automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir: `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, buka issue/komentar dengan apa yang sudah Anda punya.
+8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run setiap automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir: `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, buka issue/komentar dengan apa yang sudah Anda punya.
 
-   ROTASI WAJIB — JANGAN BIARKAN EKOR ARMADA LUPUT. Daftar berisi 23 automation dan anggaran hanya cukup untuk ~19 riwayat run, jadi dengan urutan tetap automation terakhir tak pernah diperiksa. Pilih titik mulai secara bergilir memakai hari-dalam-tahun UTC (`date -u +%j`) sebagai indeks: `start = (%j) % jumlah_automation`, lalu periksa riwayat berurutan **melingkar** dari `start` sampai anggaran habis. Setiap hari titik mulainya bergeser, sehingga setiap automation akhirnya masuk laporan. Tulis di laporan automation mana saja yang diperiksa pada run ini dan mana yang ditunda ke run berikutnya, supaya cakupan hari itu jujur dan bisa dilacak. Yang **selalu** diperiksa lebih dulu, sebelum rotasi: konfigurasi seluruh daftar (langkah 2 dan 3 — `enabled`, `timeout`, guard self-comment, tabrakan cron) tidak butuh satu pun panggilan run, jadi ke-23 automation selalu tersapu untuk kelas cacat `config`; yang dirotasi hanya pemeriksaan riwayat run.
+   ROTASI WAJIB — JANGAN BIARKAN EKOR ARMADA LUPUT. Daftar automation lebih panjang daripada anggaran (~19 riwayat run), jadi dengan urutan tetap automation terakhir tak pernah diperiksa. Hitung `jumlah_automation` dari daftar yang Anda baca, jangan dari angka di prompt ini. Pilih titik mulai secara bergilir memakai hari-dalam-tahun UTC (`date -u +%j`) sebagai indeks: `start = (%j) % jumlah_automation`, lalu periksa riwayat berurutan **melingkar** dari `start` sampai anggaran habis. Setiap hari titik mulainya bergeser, sehingga setiap automation akhirnya masuk laporan. Tulis di laporan automation mana saja yang diperiksa pada run ini dan mana yang ditunda ke run berikutnya, supaya cakupan hari itu jujur dan bisa dilacak. Yang **selalu** diperiksa lebih dulu, sebelum rotasi: konfigurasi seluruh daftar (langkah 2 dan 3 — `enabled`, `timeout`, guard self-comment, tabrakan cron) tidak butuh satu pun panggilan run, jadi setiap automation dalam daftar selalu tersapu untuk kelas cacat `config`; yang dirotasi hanya pemeriksaan riwayat run.
 Akhiri dengan ringkasan jelas: apa yang sehat, apa yang Anda perbaiki, dan apa yang Anda eskalasi.
 """,
 }
@@ -392,7 +410,8 @@ def new_prompt(name, prompt):
     # no-op for it and the old one-line identity bullet would survive. Replace
     # that bullet by text so the fleet actually gains the writer/communicator
     # split on the next deploy.
-    head = head.replace(OLD_IDENTITY_LINE, NEW_IDENTITY_LINE)
+    for legacy in (OLD_IDENTITY_LINE, FIRST_SPLIT_IDENTITY_LINE):
+        head = head.replace(legacy, NEW_IDENTITY_LINE)
     if managed_tail is None:
         # Keep the original tail verbatim (its behaviour is unchanged); only the
         # head gained the body/reaction reminders that apply to every automation.
@@ -620,9 +639,20 @@ RETIRED = {
 }
 
 
+def retired_key(name):
+    """The `RETIRED` entry an automation's name carries, or None."""
+    return next((k for k in RETIRED if k in name), None)
+
+
 def apply_retire(aid, name, enabled, dry):
-    """Disable a retired automation. Returns True on change."""
-    key = next((k for k in RETIRED if k in name), None)
+    """Disable a retired automation if it is still on. Returns True on change.
+
+    The caller skips a retired automation whatever this returns: once it is
+    off, there is nothing to deploy to it — no trigger, no timeout, no prompt.
+    Deciding "retired" from this function's return value meant an automation
+    already disabled fell through to the prompt redeploy on every later run.
+    """
+    key = retired_key(name)
     if not key or not enabled:
         return False
     if dry:
@@ -702,15 +732,19 @@ def main():
         # Config fixes (the self-comment trigger guard, the 1800s wall clock)
         # do not depend on the prompt, so they are applied even when the prompt
         # is refused below.
+        # A retired automation is disabled, never redeployed: its prompt lives on
+        # in the automation it was folded into, so redeploying its old tail would
+        # resurrect the duplicate comment. Checked before anything is PATCHed, and
+        # whether or not it is still enabled.
+        if retired_key(name):
+            if apply_retire(aid, name, a.get("enabled", True), not DEPLOY):
+                if DEPLOY:
+                    time.sleep(1)
+            else:
+                print(f"- {name}: retired and already off — skipped")
+            continue
         trigger_changed = apply_trigger(aid, name, a.get("trigger") or {}, not DEPLOY)
         timeout_changed = apply_timeout(aid, name, a.get("timeout"), not DEPLOY)
-        # A retired automation is disabled, not redeployed: its prompt lives on
-        # in the automation it was folded into, so redeploying its old tail would
-        # resurrect the duplicate comment.
-        if apply_retire(aid, name, a.get("enabled", True), not DEPLOY):
-            if DEPLOY:
-                time.sleep(1)
-            continue
         try:
             new = new_prompt(name, base)
         except TruncatedPromptError as e:

@@ -951,9 +951,24 @@ describe('fleet contracts', () => {
     expect(flow).not.toContain('| Estimasi usaha ');
     expect(flow).not.toContain('C2["Estimasi usaha"]');
     expect(flow).toMatch(/Pelabel issue \(triase \+ estimasi \+ label/);
-    // The "Selisih" and "Instruksi pelaksanaan" items are marked done.
-    expect(flow).toMatch(/Triase ganda\.\*\*\*\* SELESAI 2026-11-09|SELESAI 2026-11-09/);
-    expect(flow).toContain('23 automation');
+    // `Triase bug` still comments on `issues.opened`, so "Triase ganda" is only
+    // partly done (#848) — the doc must not mark it finished.
+    expect(flow).not.toMatch(/Triase ganda\.?\*\*~~\s*\*\*SELESAI/);
+    expect(flow).not.toMatch(/Triase satu pemilik\*\*~~:\s*\*\*SELESAI/);
+    expect(flow).toMatch(/Triase ganda — sebagian[\s\S]{0,600}#848/);
+  });
+
+  it('writes no fleet size into the prompts or the flow doc', () => {
+    // AGENTS.md: counts are never written into a guide — they drift with the
+    // next change. The fleet shrank by one automation on 2026-11-09 and the
+    // API still lists the retired ones, so any fixed number is wrong somewhere.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
+    for (const text of [script, flow]) {
+      expect(text).not.toMatch(/\bke-\d+ automation\b/);
+      expect(text).not.toMatch(/Daftar berisi \d+ automation/);
+      expect(text).not.toMatch(/\b\d+ automation lebih banyak\b/);
+    }
   });
 
   it('states in docs/SDLC-FLOW.md that `bot-implement`, not `ready`, triggers implementation', () => {
@@ -1009,45 +1024,127 @@ describe('deploy-sdlc-agents.py', () => {
   const AMBIENT =
     'Catatan lingkungan: `gh` mungkin belum terautentikasi; gunakan REST API GitHub (https://api.github.com) dengan token yang tertanam di remote git `origin` untuk operasi baca dan tulis apa pun pada GitHub.';
 
-  it('tells a writer automation to author issues/PRs as adminypc, not the bot', () => {
-    // The environment note used to authorise the `origin` token (the writer's,
-    // `adminypc`) for "any read and write on GitHub". An automation that opened
-    // an issue or PR through it produced the artifact under the wrong account.
-    // The identity block is now the single source of truth: GITHUB_TOKEN authors
-    // issues/PRs, GITHUB_BOT_TOKEN comments/labels/reviews.
-    const script = readFileSync(DEPLOY, 'utf8');
-    expect(script).toContain('IDENTITY_TOKEN_NOTE');
-    expect(script).toContain('AMBIENT_TOKEN_NOTE');
-    expect(script).toContain('head.replace(AMBIENT_TOKEN_NOTE, IDENTITY_TOKEN_NOTE)');
-    const original = `Header\n\n${AMBIENT}\n\nPERILAKU SASARAN (level agentic)\nTail`;
-    const out = newPrompt('SDLC 04', original);
-    // The old authorisation is gone; the identity-aware note replaces it.
-    expect(out).not.toContain('untuk operasi baca dan tulis apa pun pada GitHub');
-    expect(out).toContain('JANGAN memakai token yang tertanam di remote git `origin`');
-    // The identity block names both tokens and their jobs.
-    expect(out).toContain('IDENTITAS — DUA AKUN, JANGAN DITUKAR');
-    expect(out).toContain('`GITHUB_TOKEN` (akun `adminypc`) — PENULIS');
-    expect(out).toContain('`GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR');
-    // Drift guard: the replacement text must be the bullet the block actually
-    // carries, or the deploy would rewrite the fleet with a bullet that differs
-    // from the block inserted into a fresh prompt.
-    const drift = spawnSync(
+  // Load the deploy script as a module and run a Python snippet against it.
+  const py = (code: string, env: Record<string, string> = {}) =>
+    spawnSync(
       'python3',
       [
         '-c',
         [
-          'import importlib.util, sys',
+          'import importlib.util, json, sys',
           'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
           'm = importlib.util.module_from_spec(spec)',
           'spec.loader.exec_module(m)',
-          'sys.exit(0 if m.NEW_IDENTITY_LINE in m.BODY_BLOCK else 1)',
+          code,
         ].join('\n'),
         DEPLOY,
       ],
-      { encoding: 'utf8' }
+      { encoding: 'utf8', env: { ...process.env, ...env } }
     );
-    expect(drift.status).toBe(0);
-  });
+
+  it.skipIf(!hasPy)(
+    'tells a writer automation to author issues/PRs as adminypc, not the bot',
+    () => {
+      // The environment note used to authorise the `origin` token (the
+      // writer's, `adminypc`) for "any read and write on GitHub". The identity
+      // block is now the single source of truth for which token does what.
+      const original = `Header\n\n${AMBIENT}\n\nPERILAKU SASARAN (level agentic)\nTail`;
+      const out = newPrompt('SDLC 04', original);
+      expect(out).not.toContain('untuk operasi baca dan tulis apa pun pada GitHub');
+      expect(out).toContain('JANGAN memakai token yang tertanam di remote git `origin`');
+      expect(out).toContain('IDENTITAS — DUA AKUN, JANGAN DITUKAR');
+      expect(out).toContain('`GITHUB_TOKEN` (akun `adminypc`) — PENULIS');
+      expect(out).toContain('`GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR');
+      // Issues/PRs are created without labels (label-guard revokes labels from
+      // any account but the bot, #838), and body edits go through the bot.
+      expect(out).toContain('TANPA field `labels`');
+      expect(out).toMatch(/setiap `PATCH` body issue atau PR/);
+      // Drift guard: the replacement is the bullet the block carries.
+      expect(py('sys.exit(0 if m.NEW_IDENTITY_LINE in m.BODY_BLOCK else 1)').status).toBe(0);
+    }
+  );
+
+  it.skipIf(!hasPy)(
+    'upgrades a live prompt that already carries the BODY block, idempotently',
+    () => {
+      // A deployed prompt already has the BODY block, so the insert is a no-op
+      // for it: only the by-text replacement upgrades the identity bullet —
+      // both the original one-account bullet and the first two-account bullet
+      // that reached the fleet before review (#968).
+      const r = py(
+        [
+          'res = {}',
+          'for legacy in ("OLD_IDENTITY_LINE", "FIRST_SPLIT_IDENTITY_LINE"):',
+          '    live = "H\\n" + m.BODY_BLOCK.replace(m.NEW_IDENTITY_LINE, getattr(m, legacy)) + "\\n" + m.AMBIENT_TOKEN_NOTE + "\\n\\nPERILAKU SASARAN (level agentic)\\nT"',
+          '    out = m.new_prompt("SDLC 04 · X", live)',
+          '    res[legacy] = {',
+          '        "upgraded": m.NEW_IDENTITY_LINE in out and getattr(m, legacy) not in out,',
+          '        "note": m.IDENTITY_TOKEN_NOTE in out and m.AMBIENT_TOKEN_NOTE not in out,',
+          '        "idempotent": m.new_prompt("SDLC 04 · X", out) == out,',
+          '    }',
+          'print(json.dumps(res))',
+        ].join('\n')
+      );
+      expect(r.status, r.stderr).toBe(0);
+      const res = JSON.parse(r.stdout);
+      for (const legacy of ['OLD_IDENTITY_LINE', 'FIRST_SPLIT_IDENTITY_LINE']) {
+        expect(res[legacy], legacy).toEqual({ upgraded: true, note: true, idempotent: true });
+      }
+    }
+  );
+
+  it.skipIf(!hasPy)(
+    'never redeploys a retired automation, whether or not it is still enabled',
+    () => {
+      // The first version decided "retired" from apply_retire's return value,
+      // which is False once the automation is off — so every later deploy fell
+      // through to new_prompt and re-uploaded the retired prompt, and its
+      // trigger and timeout were PATCHed before the check. Run main() with
+      // DEPLOY on against a fake API and record every write it makes.
+      const deploy = (enabled: boolean) => {
+        const r = py(
+          [
+            'calls = []',
+            'autos = [',
+            `  {"id": "a02", "name": "SDLC 02 · Estimasi usaha", "enabled": ${enabled ? 'True' : 'False'}, "prompt": "x", "timeout": 900, "trigger": {}},`,
+            '  {"id": "a15", "name": "SDLC 15 · Pelabel issue", "enabled": True, "prompt": "old", "timeout": 900, "trigger": {}},',
+            ']',
+            'def fake_req(method, path, body=None, *a, **k):',
+            '    if method == "GET":',
+            '        return {"automations": autos}',
+            '    calls.append([method, path, body])',
+            '    return {}',
+            'm.req = fake_req',
+            'm.patch_tarball = lambda aid, new: calls.append(["TARBALL", aid, None]) or b""',
+            'm.upload = lambda blob, label: {"tarball_path": "t"}',
+            'm.time.sleep = lambda s: None',
+            'm.new_prompt = lambda name, base: (calls.append(["NEW_PROMPT", name, None]) or "new")',
+            'm.DEPLOY = True',
+            'm.KEY = "test"',
+            'm.ONLY = ""',
+            'm.main()',
+            'print(json.dumps(calls))',
+          ].join('\n')
+        );
+        expect(r.status, r.stderr).toBe(0);
+        // main() logs its own lines first; the recorded writes are the last line.
+        const last = r.stdout.trim().split('\n').pop() ?? '[]';
+        return JSON.parse(last) as [string, string, unknown][];
+      };
+
+      const touches02 = (calls: [string, string, unknown][]) =>
+        calls.filter(([, target]) => target.includes('a02') || target.includes('SDLC 02'));
+
+      // Still on: exactly one write, the disable — no trigger, timeout or prompt.
+      expect(touches02(deploy(true))).toEqual([['PATCH', '/a02', { enabled: false }]]);
+      // Already off: not a single write.
+      expect(touches02(deploy(false))).toEqual([]);
+      // The automation it was folded into is still deployed as usual.
+      expect(
+        deploy(false).some(([kind, name]) => kind === 'NEW_PROMPT' && name.includes('SDLC 15'))
+      ).toBe(true);
+    }
+  );
 
   it.skipIf(!hasPy)('strips the AI-disclosure footer mandate from the head', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nTail`;

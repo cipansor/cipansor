@@ -430,8 +430,12 @@
     issue `ready`), entri `TAILS["SDLC 02"]` dihapus, dan SDLC 02 dimasukkan ke
     `RETIRED` di `scripts/deploy-sdlc-agents.py` sehingga deploy berikutnya
     menonaktifkannya lewat `PATCH {enabled:false}` alih-alih men-deploy ulang
-    promptnya. Armada menyusut 24 -> 23 automation. Dijaga tes
-    `automation-fleet.guard.test.ts` (dua kasus baru).
+    promptnya, apa pun status `enabled`-nya (versi pertama men-deploy ulang
+    prompt automation yang sudah nonaktif; diperbaiki dalam tinjauan #968).
+    Satu automation lebih sedikit yang aktif; jumlahnya tidak ditulis keras di
+    prompt atau dokumen, karena berubah setiap kali armada berubah. Triase
+    ganda belum selesai seluruhnya: `Triase bug` masih berkomentar saat issue
+    dibuka (#848). Dijaga tes `automation-fleet.guard.test.ts`.
 
 29. **Pemisahan identitas: `adminypc` menulis, `cipansor-bot` berkomunikasi**
     (2026-11-09, pengguna). Satu akun untuk dua peran adalah cacat: issue dan PR
@@ -448,7 +452,16 @@
     tanpa pernah mengatakan token mana yang membuat issue/PR. Keduanya diperbaiki
     di `scripts/deploy-sdlc-agents.py` (`AMBIENT_TOKEN_NOTE` ->
     `IDENTITY_TOKEN_NOTE`, `OLD_IDENTITY_LINE` -> `NEW_IDENTITY_LINE`) supaya
-    deploy berikutnya memperbarui seluruh armada. Runner `main.py` sudah benar
+    deploy berikutnya memperbarui seluruh armada. Dua mitigasi ditambahkan
+    dalam tinjauan #968: issue/PR dibuat lewat `GITHUB_TOKEN` **tanpa** field
+    `labels`, lalu label dipasang lewat `GITHUB_BOT_TOKEN` (label akun lain
+    dicabut `label-guard`, #838); dan setiap `PATCH` body issue/PR memakai
+    `GITHUB_BOT_TOKEN`, karena suntingan lewat `adminypc` terbaca sebagai
+    aktivitas manusia oleh jembatan triase dan `Diskusi`. Masih menunggu
+    keputusan maintainer: satu akun manusia (`adminypc`) sekaligus penulis
+    armada melemahkan guard anti-loop berbasis penulis dan pemisahan tugas
+    (penulis tidak bisa meng-approve PR-nya sendiri); alternatifnya machine
+    user atau GitHub App khusus penulis. Runner `main.py` sudah benar
     (`REQUIRED_SECRETS = ["GITHUB_TOKEN"]` + `GITHUB_BOT_TOKEN` bila prompt
     memintanya), jadi tidak perlu diubah.
     Catatan: automation yang **tidak** membuat artefak juga memegang
