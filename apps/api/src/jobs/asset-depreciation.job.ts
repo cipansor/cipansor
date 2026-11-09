@@ -84,7 +84,8 @@ export async function runMonthlyDepreciation(unitId?: string, executorId?: strin
         // calendar: the WIB month for "now", and the UTC fields of the date-only
         // `purchaseDate` column, which stores its day at midnight UTC.
         const ageMonths =
-          (year - asset.purchaseDate.getFullYear()) * 12 + (month - asset.purchaseDate.getMonth());
+          (year - asset.purchaseDate.getUTCFullYear()) * 12 +
+          (month - asset.purchaseDate.getUTCMonth());
 
         if (ageMonths > lifeMonths) {
           skippedCount++;
