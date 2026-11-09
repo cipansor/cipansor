@@ -140,5 +140,6 @@ export type ListItemsQuery = z.infer<typeof ListItemsQuerySchema>;
 export type CreateTransactionInput = z.infer<typeof CreateTransactionSchema>;
 export type UpdateTransactionStatusInput = z.infer<typeof UpdateTransactionStatusSchema>;
 export type ListTransactionsQuery = z.infer<typeof ListTransactionsQuerySchema>;
+export type TransactionStatsQuery = z.infer<typeof TransactionStatsQuerySchema>;
 export type CreateStockMovementInput = z.infer<typeof CreateStockMovementSchema>;
 export type ListStockMovementsQuery = z.infer<typeof ListStockMovementsQuerySchema>;
