@@ -640,7 +640,14 @@ flowchart TD
 | (tidak ada)     | —                     | rilis kini peristiwa manual: tag `vX.Y.Z` (`Pembuat catatan rilis` dipensiunkan 2026-11-09) |
 | 08:30 tanggal 1 | Audit kematangan      | menilai 18 item → satu issue                                    |
 
-Actions terjadwal: `duplicate-sweep` (harian 01:30 UTC = 08:30 WIB,
+Actions terjadwal: `duplicate-detect` (harian 01:15 UTC = 08:15 WIB, dan saat
+`issues.opened`: dua issue **terbuka** berjudul sama setelah dinormalkan →
+yang lebih baru dilabeli `duplicate` dan ditautkan ke yang lebih awal;
+pendeteksi tidak menutup apa pun, dan pasangan yang aslinya sudah tertutup
+bukan duplikat; label yang dicabut **cipansor-bot** tidak dipasang ulang,
+sedangkan pencabutan oleh aktor lain — manusia, `github-actions[bot]`,
+otomasi lain — bisa dipasang ulang pada sapuan berikutnya), `duplicate-sweep`
+(harian 01:30 UTC = 08:30 WIB,
 menutup issue `duplicate` 7 hari setelah peringatan — PR hanya dilabeli
 `duplicate-pr` sebagai kandidat, tidak pernah ditutup), `stale-sweep`
 (harian 18:30 UTC = 01:30 WIB, port deterministik `Penjaga issue`:
@@ -686,7 +693,7 @@ Timer dan pengecualiannya sama seperti `Penjaga issue` dulu.
 | Triase issue         | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar |
 | Pengelola dokumentasi | merge yang berdampak dokumentasi → satu issue `documentation`: dokumen mana yang basi dan apa yang perlu ditulis ulang (penilaian, bukan diff path); juga menilai apakah peta modul `docs/ARCHITECTURE.md` masih benar |
 | Penjernih issue       | menilai ulang saat pelapor menjawab `needs-info`                                                               |
-| (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`); label itu kandidat untuk maintainer, tidak menutup PR |
+| (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `duplicate-detect.sh` melabeli `duplicate` saat dua issue **terbuka** berjudul sama setelah dinormalkan (menautkan yang lebih baru ke yang lebih awal, tidak menutup apa pun; hanya pencabutan oleh `cipansor-bot` yang permanen); `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`); label itu kandidat untuk maintainer, tidak menutup PR |
 | Gerbang tinjau PR     | **satu-satunya yang boleh APPROVE**; menunggu CI hijau                                                         |
 | Pemburu bug           | bug proaktif yang bisa direproduksi → issue berbukti                                                           |
 | Pemindai standar      | standar/regulasi terbaru → issue `pending-maintainer`                                                          |
@@ -820,9 +827,9 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   … `Pengawas armada` menambahkan pipeline label/siklus hidup, pemburu proaktif,
   dan pengawas; `Audit kematangan` menilai item yang sama dan menyebut yang
   terlemah. Sebagian butir mekanis dipindahkan ke Actions deterministik
-  (`docs-drift`, `stale-sweep`, `issue-label-sync`, `pr-duplicate`,
-  `release-gate`) karena keluarannya sebuah daftar, label, atau fakta yang bisa
-  dibaca skrip — bukan penilaian.
+  (`docs-drift`, `stale-sweep`, `issue-label-sync`, `duplicate-detect`,
+  `pr-duplicate`, `release-gate`) karena keluarannya sebuah daftar, label, atau
+  fakta yang bisa dibaca skrip — bukan penilaian.
 - **Peringatan tidak pernah memblokir, kecuali gate templat.** Hanya job
   `template` yang memblokir; `visual-evidence` hanya berkomentar.
 - **Rollback manual.** `deploy-watch.yml` dan `Pemantau deployment` hanya

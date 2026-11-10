@@ -31,6 +31,13 @@ set -eu
 REPO="${REPO:?REPO is required}"
 GRACE_DAYS="${GRACE_DAYS:-7}"
 MARK="<!-- duplicate-sweep:warned -->"
+# The detector's link comment (`duplicate-detect.sh`). The detector may write it
+# before it manages to apply the label, so the sweep must count a person's reply
+# from that comment, not only from its own warning — otherwise a reply in the
+# gap between the link and the label is ignored and the issue closes on top of
+# it. The marker is what identifies the comment; a legacy triage-linked issue
+# has no such comment, so the window falls back to the warning.
+LINK_MARK="<!-- duplicate-detect -->"
 # The account that posts every automated comment. A comment by it, or by any
 # GitHub App (`*[bot]`), is automated and must not count as a human reply —
 # otherwise one bot comment exempts a duplicate forever. The guard is by author,
@@ -75,21 +82,32 @@ If a maintainer agrees it is distinct, removing the \`duplicate\` label cancels 
     continue
   fi
 
+  # A person's reply counts from the earliest point the issue was publicly
+  # flagged as a duplicate — the detector's link comment when there is one,
+  # otherwise the sweep's own warning. Counting only from the warning would
+  # ignore a reply made between the link and the label (the detector writes the
+  # link first), and the issue would close on top of it.
+  LINKED_AT=$(printf '%s\n' "$COMMENTS" | grep -F "$LINK_MARK" | head -1 | cut -f1 || true)
+  REPLY_SINCE="$WARNED_AT"
+  if [ -n "$LINKED_AT" ] && [ "$LINKED_AT" \< "$REPLY_SINCE" ]; then
+    REPLY_SINCE="$LINKED_AT"
+  fi
+
   AGE=$(( (NOW - $(date -u -d "$WARNED_AT" +%s)) / 86400 ))
   if [ "$AGE" -lt "$GRACE_DAYS" ]; then
     echo "issue #$n warned ${AGE}d ago; within the ${GRACE_DAYS}d grace period."
     continue
   fi
 
-  # A comment after the warning by a person (not the bot, not a GitHub App)
+  # A comment after the flag by a person (not the bot, not a GitHub App)
   # means the author responded; give it to a maintainer instead of closing on
   # top of a reply. `cipansor-bot` posts as a plain User, so it is matched by
   # login; a GitHub App's login ends in `[bot]`.
   NEW_REPLY=$(printf '%s\n' "$RAW_COMMENTS" \
-    | awk -F '\t' -v warned="$WARNED_AT" -v bot="$BOT_LOGIN" \
+    | awk -F '\t' -v warned="$REPLY_SINCE" -v bot="$BOT_LOGIN" \
         '$1 > warned && $2 != bot && $2 !~ /\[bot\]$/ { line = $3 } END { print line }' || true)
   if [ -n "$NEW_REPLY" ]; then
-    echo "issue #$n has a reply after the warning; leaving it open for a maintainer."
+    echo "issue #$n has a reply after it was flagged as a duplicate; leaving it open for a maintainer."
     continue
   fi
 

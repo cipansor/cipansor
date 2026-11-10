@@ -98,10 +98,27 @@ sync` workflow adds anything missing and **fails the check** when the type
 
 4. **A duplicate closes itself.** `Triase issue` applies `duplicate` to an issue and
    links the original; the same detection on a pull request applies
-   `duplicate-pr`. For an **issue**, the `Duplicate sweep` workflow warns once —
+   `duplicate-pr`. The deterministic half of the detection is the `Duplicate
+   detect` workflow: when two **open** issues share a title once normalised
+   (lowercased, whitespace collapsed, trailing punctuation dropped, long digit
+   runs masked), it labels the newer one `duplicate` and links the earlier one —
+   it never closes anything itself, and a title whose only same-titled sibling is
+   closed is not a duplicate (a recurrence after a fix is a regression, not a
+   repeat). It writes the link comment at most once and never removes a label
+   itself; a removal of the label therefore has the last word — but only a
+   removal by `cipansor-bot` (the account the triage owner and the maintainers
+   drive) is permanent: the detector reads the issue's `unlabeled` events and
+   will not re-apply a label that account removed. A removal by any other actor
+   (a human, `github-actions[bot]`, another automation) is not that verdict, and
+   the label is re-applied on the next sweep — the link comment is kept, so only
+   the label comes back; ask `cipansor-bot` to remove it to cancel the detection
+   for good. For
+   an **issue**, the `Duplicate sweep` workflow warns once —
    recording a hash of the description — then closes it after seven days unless
    it is shown to be distinct: the description changed since the warning, or a
-   person replied — or a maintainer removes the label. An automated comment, and
+   person replied after the issue was flagged as a duplicate (from the
+   detector's link comment when there is one, so a reply between the link and
+   the label still counts) — or a maintainer removes the label. An automated comment, and
    any comment from a bot account, does not count as a reply. A warning that
    carries no description hash (an older one, or one edited by hand) cannot be
    checked for an edit, so the sweep leaves that item open for a maintainer
@@ -222,6 +239,7 @@ sync` workflow adds anything missing and **fails the check** when the type
 | `Tiket jadi PR`     | issue labelled `bot-implement`                 | tidak ada — ia membuka PR                                          |
 | `Penjernih issue`   | comment on a `needs-info` issue                | `needs-info` ↔ `ready`, `duplicate`, `invalid`                     |
 | `Issue label sync`  | PR opened / issue relabeled                     | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`) |
+| `duplicate-detect.sh` | issue opened / jadwal harian                  | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan |
 | `pr-duplicate.sh`   | jadwal harian                                   | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama |
 | `stale-sweep.sh`    | jadwal harian                                   | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`) |
 | `Gerbang tinjau PR` | PR ready for review, or CI-green dispatch      | tidak ada — ia meninjau atau menyetujui                            |
@@ -231,7 +249,8 @@ sync` workflow adds anything missing and **fails the check** when the type
 | `Pengawas armada`   | daily cron                                     | `automation-health` pada laporannya                                |
 
 The deterministic consequences are GitHub Actions workflows
-(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-sweep.yml`,
+(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-detect.yml`,
+`duplicate-sweep.yml`,
 `stale-sweep.yml`, `gate-watch.yml`, `docs-drift.yml`, `label-guard.yml`,
 `basmalah.yml`,
 `acknowledge.yml`, `issue-triage-bridge.yml`), not automations: they must fire every time and cost
