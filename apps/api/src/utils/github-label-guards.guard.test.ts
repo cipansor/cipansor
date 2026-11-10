@@ -195,38 +195,20 @@ describe('duplicate-sweep.sh', () => {
     expect(out).toContain('without a description hash');
   });
 
-  it('sweeps pull requests labelled duplicate-pr too', () => {
-    const { calls } = run(SWEEP, {
-      GH_STUB_ISSUE_LIST: '',
-      GH_STUB_PRS: '9',
-      GH_STUB_PR_BODY: BODY,
-    });
-    // maintenance: a PR list was queried under the duplicate-pr label
-    expect(calls).toContain('--label duplicate-pr');
-    expect(calls).toContain('pr comment 9');
-  });
-
-  it('closes a stale duplicate pull request with pr close, not issue close', () => {
+  it('never sweeps pull requests labelled duplicate-pr to closure', () => {
+    // `duplicate-pr` is a maintainer-facing candidate (docs/LABELS.md, rule 4):
+    // which of two PRs is more correct is a judgement, so the sweep must not even
+    // query PRs, let alone close one.
     const { calls } = run(SWEEP, {
       GH_STUB_ISSUE_LIST: '',
       GH_STUB_PRS: '9',
       GH_STUB_COMMENTS: warningLine,
       GH_STUB_PR_BODY: BODY,
     });
-    expect(calls).toContain('CLOSE 9');
-    expect(calls).toContain('CMD pr close 9');
-    expect(calls).not.toContain('issue close 9');
-  });
-
-  it('keeps a duplicate PR open when its description was edited', () => {
-    const { out, calls } = run(SWEEP, {
-      GH_STUB_ISSUE_LIST: '',
-      GH_STUB_PRS: '9',
-      GH_STUB_COMMENTS: warningLine,
-      GH_STUB_PR_BODY: 'a link to the distinct fix was added',
-    });
+    expect(calls).not.toContain('--label duplicate-pr');
+    expect(calls).not.toContain('pr comment 9');
+    expect(calls).not.toContain('CMD pr close 9');
     expect(calls).not.toContain('CLOSE 9');
-    expect(out).toContain('edited after the warning');
   });
 });
 

@@ -1,30 +1,47 @@
-# Release to production — run by hand, only when a release has been approved.
+# Release to production. A release is a TAG, not a button.
 #
-# Takes a commit SHA whose images the staging workflow already built, tested
-# and pushed, and points the production app at those exact images. Nothing is
-# rebuilt here: production runs byte-for-byte what staging ran.
+#   git tag v0.2.0 <sha> && git push origin v0.2.0
+#
+# The tag is the release decision: pushing `vX.Y.Z` says "this commit, verified on
+# staging, is a release". GitHub CI then checks the facts (job `gate`) and points
+# the production app at the images staging already built, tested and pushed.
+# Nothing is rebuilt here: production runs byte-for-byte what staging ran.
+#
+# Why a tag and not a weekly candidate (2026-11-09): the `Pembuat catatan rilis`
+# automation cut `-rc` tags every Friday, and nothing ever consumed them — no
+# workflow triggered on a tag, no script read `git describe`. Worse, the `-rc`
+# number only advanced when a `fix:`/`feat:` commit appeared, and this repository
+# is mostly `chore(deps)`, so the tag stopped marking "verified code" at all. A
+# human-pushed `vX.Y.Z` is a smaller mechanism that actually gates something, and
+# the version is now a deliberate decision instead of a weekly side effect.
+#
+# `workflow_dispatch` is kept for ROLLBACK ONLY: a rollback target is an older
+# commit staging no longer serves, so the staging and load-test prerequisites are
+# skipped by design (`MODE=rollback`). A forward release cannot be dispatched —
+# it must be a tag, so there is exactly one way to ship.
 #
 # The api container applies pending migrations as it starts
 # (MIGRATE_ON_START=true), so the release procedure in docs/deploy-azure.md —
-# backup and pre-checks against the live data — happens BEFORE this runs.
-#
-#   gh workflow run deploy-production.yml -f sha=<commit>
+# backup and pre-checks against the live data — happens BEFORE the tag is pushed.
 #
 # Signs in with OIDC as a separate identity that trusts only this repository's
 # `production` environment and may update only the production app.
 name: Deploy production
 
 on:
+  push:
+    tags: ['v*']
   workflow_dispatch:
     inputs:
       sha:
-        description: Full 40-character commit SHA to release (its images must already be in the registry)
+        description: Rollback only — full 40-character SHA of a previously released commit
         required: true
         type: string
 
 permissions:
   contents: read
   id-token: write
+  actions: read
 
 concurrency:
   group: deploy-production
@@ -35,17 +52,48 @@ env:
   RESOURCE_GROUP: cipansor-prod
   APP: cipansor-produksi
   URL: https://cipansor.or.id
-  SHA: ${{ inputs.sha }}
+  # A tag push releases that tag's commit; a dispatch is a rollback to a past SHA.
+  MODE: ${{ github.event_name == 'push' && 'release' || 'rollback' }}
+  SHA: ${{ github.event_name == 'push' && github.sha || inputs.sha }}
+  TAG: ${{ github.event_name == 'push' && github.ref_name || '' }}
 
 jobs:
+  # The mechanical half of the release decision: facts a script can read. Runs
+  # without the `production` environment, so it needs no Azure identity.
+  gate:
+    name: Check release prerequisites
+    runs-on: ubuntu-latest
+    steps:
+      # Full history: the gate asks whether the tag's commit is on `main`, which
+      # a shallow checkout cannot answer.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Refuse a tag that is not a release, or a SHA staging has not run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          # Who pushed the tag. The gate refuses a release unless this account has
+          # admin permission: write access alone is enough to push a `v*` tag, and
+          # the repository has no tag ruleset to stop one.
+          ACTOR: ${{ github.actor }}
+          STAGING_URL: https://staging.cipansor.or.id
+          # The target the k6 run must have measured. A green load-test run
+          # against another host does not prove staging was tested, so the gate
+          # requires the run title to name this URL.
+          LOAD_URL: https://staging.cipansor.or.id
+        run: sh .github/scripts/release-gate.sh
+
   deploy:
-    name: Release ${{ inputs.sha }}
+    name: Release to production
+    needs: gate
     runs-on: ubuntu-latest
     environment: production
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
-          ref: ${{ inputs.sha }}
+          ref: ${{ env.SHA }}
           sparse-checkout: deploy/azure
 
       - uses: azure/login@a641126d1b8aa4d1fa005f4f92df94a3a4c4c906 # v3
@@ -64,7 +112,7 @@ jobs:
               || { echo "::error::cipansor-$c:$SHA is not in $ACR — release only what staging built"; exit 1; }
           done
 
-      - name: Point the production containers at ${{ inputs.sha }}
+      - name: Point the production containers at ${{ env.SHA }}
         run: |
           # --target-port every time: `az webapp sitecontainers update` (CLI
           # 2.90) writes whatever --target-port holds, so omitting it would
@@ -97,5 +145,5 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
 
-      - name: Wait until ${{ inputs.sha }} answers at ${{ env.URL }}
+      - name: Wait until ${{ env.SHA }} answers at ${{ env.URL }}
         run: bash deploy/azure/wait-for-release.sh "$URL" "$SHA"
