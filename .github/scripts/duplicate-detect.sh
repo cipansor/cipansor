@@ -28,6 +28,14 @@
 # is the same one the triage owner applies, so `duplicate-sweep.sh` then owns the
 # warn-and-close, and a maintainer's label removal still cancels the close.
 #
+# The marker is the *only* evidence that the detector ran, so the label and its
+# marker must never be left out of step: the label is applied first (so a
+# concurrent run and `duplicate-sweep.sh` see it), and if the link comment then
+# fails the label is rolled back. A label with no marker would, after a
+# maintainer removes it, be re-applied by the next sweep — overruling the very
+# verdict the marker exists to respect. If the rollback also fails the run warns
+# loudly; the next sweep re-checks the issue from a clean state.
+#
 # A recurrence is not a duplicate: the candidate set is the OPEN issues, so an
 # open issue whose only same-titled sibling is CLOSED is not labelled. A closed
 # original that was fixed and a new issue that reappears is a regression, not a
@@ -149,8 +157,18 @@ printf '%s\n' "$INDEX" | pairs | while IFS="$(printf '\t')" read -r key orig dup
   BODY="Issue ini punya judul yang sama dengan #$orig setelah dinormalkan, jadi ditandai \`duplicate\` secara deterministik (\`duplicate-detect.yml\`). \`Duplicate sweep\` akan menutupnya dalam 7 hari bila tidak ditunjukkan berbeda — sunting deskripsi, balas dengan alasannya, atau minta maintainer mencabut label \`duplicate\`. Menghapus label itu membatalkan penutupan, dan pendeteksi tidak akan memasangnya lagi.
 
 $MARK"
-  gh issue comment "$dup" --repo "$REPO" --body "$BODY" >/dev/null 2>&1 \
-    || echo "::warning::could not post the link on #$dup."
+  # The marker comment is the only evidence the detector ran: without it a
+  # maintainer's label removal would be undone by the next sweep. So the label
+  # goes first (a concurrent run and duplicate-sweep.sh must see it), and a
+  # failed comment rolls the label back rather than leaving the two out of step.
+  if ! gh issue comment "$dup" --repo "$REPO" --body "$BODY" >/dev/null 2>&1; then
+    if gh issue edit "$dup" --repo "$REPO" --remove-label duplicate >/dev/null 2>&1; then
+      echo "::warning::could not post the link on #$dup; removed the label again so it is not left without its marker."
+    else
+      echo "::error::could not post the link on #$dup, and could not remove the label either; the next sweep re-checks it."
+    fi
+    continue
+  fi
   echo "Labelled #$dup as a duplicate of #$orig (title '$key')."
 done
 

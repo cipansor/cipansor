@@ -19,6 +19,9 @@ import { join, resolve } from 'path';
  *    linked (its marker comment), is left alone (idempotent);
  *  - an unreadable comment list skips the issue instead of stacking a second
  *    link;
+ *  - a pull request is never touched, even when its title matches an issue's;
+ *  - a failed link comment rolls the label back, so no label is left without its
+ *    marker;
  *  - `DUPLICATE_DETECT_DRY_RUN` proves the whole path without writing.
  *
  * The script only labels. Closing is `duplicate-sweep.sh`'s job, after a warning
@@ -38,7 +41,7 @@ log() { [ -n "\${GH_STUB_LOG:-}" ] && echo "$*" >> "$GH_STUB_LOG"; }
 if [ "$1" = "issue" ]; then
   case "$2" in
     edit) log "LABEL $*" ;;
-    comment) log "COMMENT $*" ;;
+    comment) log "COMMENT $*"; if [ -n "\${GH_STUB_FAIL_COMMENT:-}" ]; then exit 1; fi ;;
   esac
   exit 0
 fi
@@ -91,14 +94,19 @@ function run(env: Record<string, string>) {
   };
 }
 
-// A listing as `gh api --paginate` emits it: one JSON array of issues.
-const issues = (rows: Array<{ number: number; title: string; labels?: string[] }>) =>
+// A listing as `gh api --paginate` emits it: one JSON array of issues. A row
+// with `pr: true` carries the `pull_request` field GitHub adds to a PR, which
+// the script must filter out.
+const issues = (rows: Array<{ number: number; title: string; labels?: string[]; pr?: boolean }>) =>
   JSON.stringify(
     rows.map((r) => ({
       number: r.number,
       state: 'open',
       title: r.title,
       labels: (r.labels ?? []).map((name) => ({ name })),
+      ...(r.pr
+        ? { pull_request: { url: `https://api.github.com/repos/o/r/pulls/${r.number}` } }
+        : {}),
     }))
   );
 
@@ -222,6 +230,33 @@ describe('duplicate-detect.sh', () => {
     expect(calls).not.toContain('LABEL');
     expect(calls).not.toContain('COMMENT');
     expect(out).toContain('would label #958 as a duplicate of #800');
+  });
+
+  it('never touches a pull request, even one sharing an issue title', () => {
+    // A PR is listed by the issues API; the script must filter it out so a PR
+    // never receives the issue-lifecycle `duplicate` label.
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed`, pr: true },
+      ]),
+    });
+    expect(calls).not.toContain('LABEL');
+    expect(out).not.toContain('Labelled');
+  });
+
+  it('removes the label again when the link comment fails, leaving no orphan label', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_FAIL_COMMENT: '1',
+    });
+    expect(calls).toContain('--add-label duplicate');
+    expect(calls).toContain('--remove-label duplicate');
+    expect(out).toContain('removed the label again');
+    expect(out).not.toContain('Labelled #958');
   });
 
   it('warns and does nothing when the issue index cannot be read', () => {

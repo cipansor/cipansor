@@ -28,8 +28,13 @@ permissions:
   contents: read
   issues: write
 
+# Every run scans the WHOLE open-issue list, not just the issue that triggered it,
+# so two runs must never overlap: `issues.opened` for two issues at once (or a
+# sweep beside an `opened`) would both read a sibling before either writes its
+# marker and each would post the link. One group for all runs serialises them;
+# `cancel-in-progress: false` lets a queued run finish rather than lose a label.
 concurrency:
-  group: duplicate-detect-${{ github.event.issue.number || 'sweep' }}
+  group: duplicate-detect
   cancel-in-progress: false
 
 jobs:
