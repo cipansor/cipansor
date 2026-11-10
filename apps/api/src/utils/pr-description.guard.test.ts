@@ -594,6 +594,29 @@ describe('visual-evidence.sh', () => {
     expect(calls).not.toContain('COMMENT');
   });
 
+  it('is silent on a before/after pair behind Markdown list bullets', () => {
+    // `- **Before**` / `- **After**` is how most bodies and the reminder text
+    // itself write the pair; the marker used to miss the bullet, read both
+    // images as "before", and keep the reminder up (#983 review).
+    const body =
+      '- **Before** ![old](https://user-images.githubusercontent.com/1/1.png)\n' +
+      '- **After** ![new](https://user-images.githubusercontent.com/1/2.png)';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('is silent on the Indonesian list-bullet form the reminder asks for', () => {
+    const body =
+      '- **Sebelum** ![old](https://user-images.githubusercontent.com/1/1.png)\n' +
+      '- **Sesudah** ![new](https://user-images.githubusercontent.com/1/2.png)';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
   it('does not split on "after" inside a sentence before the visuals', () => {
     // A `## Cara menguji` line such as "... after it passes" used to split the
     // body at that line, hiding a real before/after pair (#982).

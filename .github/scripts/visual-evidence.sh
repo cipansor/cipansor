@@ -38,11 +38,14 @@ img_re='user-images\.githubusercontent\.com|private-user-images\.githubuserconte
 # body at the first line that IS an after marker; each region must contain media.
 # A body with only an After image leaves the Before region empty and keeps the
 # reminder — the earlier single Boolean cleared it on any image anywhere.
-# The marker is the first word of a line (`**After**`, `## After`, `After:`, or
-# the Indonesian `Sesudah`) — not the word anywhere: matching it anywhere split
-# the body on a sentence such as "... after it passes" under `## Cara menguji`,
-# hiding a real before/after pair.
-marker='^[[:space:]]*(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([^[:alnum:]_]|$)'
+# The marker is the first word of a line (`**After**`, `## After`, `After:`, the
+# Indonesian `Sesudah`), optionally behind a Markdown list bullet (`- **After**`,
+# `* Sesudah`) — the list form is what the reminder text below and most bodies
+# use, so leaving it out kept the reminder up on a body that already had the
+# pair. It is the word at the start of a line, not the word anywhere: matching it
+# anywhere split the body on a sentence such as "... after it passes" under
+# `## Cara menguji`, hiding a real before/after pair.
+marker='^[[:space:]]*([-*+][[:space:]]+)?(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([^[:alnum:]_]|$)'
 before_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) exit; print }')
 after_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) f = 1; if (f) print }')
 has_before=0

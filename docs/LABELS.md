@@ -281,9 +281,11 @@ issue.
 The issue forms (`.github/ISSUE_TEMPLATE/`) and the pull-request template exist
 to produce the labels above, not prose to read and forget:
 
-- The **bug** form requires a reproduction and an acceptance criterion; the
-  **feature request** form requires a motivation and a criterion. What these
-  fields contain is what `Triase issue` reads to decide `ready` versus `needs-info`.
+- The **bug** form requires only what happened and what was expected; the
+  **feature request** form requires the motivation and the desired behaviour.
+  Everything else (reproduction steps, acceptance criteria) is optional — a thin
+  report still gets triaged, and `Triase issue` fills what it can before deciding
+  `ready` versus `needs-info`.
 - A `bug` issue may still arrive thin — a reporter often cannot say _why_. That
   is expected: `Reproduksi bug` investigates, adds the cause and, for a UI defect,
   reproduces it and attaches a screenshot to the issue by editing its body. It
