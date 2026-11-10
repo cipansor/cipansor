@@ -138,16 +138,21 @@ describe('duplicate-sweep.sh', () => {
 
   it('keeps a duplicate open when a person replied after the link, before the warning', () => {
     // The detector writes the link comment before the label, so a person may
-    // reply after the link but before the sweep's warning. That reply must
-    // still keep the issue open — counting only from the warning closed on top
-    // of it. Cross-two-sweeps: the link landed one sweep, the label the next.
+    // reply after the link but before the sweep's warning (which only fires once
+    // the label is there). The reply must still keep the issue open — counting
+    // only from the warning closed on top of it. The reply is deliberately
+    // *before* the warning so the old logic (count from the warning) would have
+    // closed: the test fails against it and passes only with the link window.
+    const linkLine =
+      '2020-01-01T00:00:00Z\tcipansor-bot\tFlagged as a duplicate <!-- duplicate-detect -->';
+    const replyLine = '2020-01-01T06:00:00Z\treporter\tIt is not a duplicate because Z';
+    // The warning is posted by the bot account (as in production), so it is
+    // never itself counted as a reply — the reporter's line is the only
+    // candidate, and it is the one the old logic missed.
+    const laterWarning = `2020-01-02T00:00:00Z\tcipansor-bot\tWarning ${MARK} <!-- duplicate-sweep:hash:${sha(BODY)} -->`;
     const { out, calls } = run(SWEEP, {
       GH_STUB_ISSUE_LIST: '7',
-      GH_STUB_COMMENTS: [
-        `2019-12-31T00:00:00Z\tcipansor-bot\tFlagged as a duplicate <!-- duplicate-detect -->`,
-        `2020-01-01T12:00:00Z\treporter\tIt is not a duplicate because Z`,
-        warningLine,
-      ].join('\n'),
+      GH_STUB_COMMENTS: [linkLine, replyLine, laterWarning].join('\n'),
       GH_STUB_BODY: BODY,
     });
     expect(calls).not.toContain('CLOSE 7');
