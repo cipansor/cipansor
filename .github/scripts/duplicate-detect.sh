@@ -25,17 +25,24 @@
 # presence stops a second pass. The label it applies is the same one the triage
 # owner applies, so `duplicate-sweep.sh` then owns the warn-and-close.
 #
-# A removal of the label is a verdict, but only from the account the fleet and
-# the maintainers drive: `DUPLICATE_DETECT_TRUSTED_ACTOR` (default `cipansor-bot`).
-# Before labelling, the issue's `unlabeled` events are read; if that account
-# removed `duplicate`, the detector leaves the issue alone for good. A removal by
-# any other actor — a human, another automation, `github-actions[bot]` — is not a
-# verdict: the label is re-applied on the next sweep, and because the link comment
-# is already there it is only the label that comes back, never a second comment.
-# The detector's own rollback (below) is not a verdict either: a trusted `labeled`
-# immediately followed by a trusted `unlabeled` is the label added and removed in
-# one run because the comment failed, so the issue is processed again. The login
-# is matched exactly, so a look-alike ("cipansor-bot-fake") cannot impersonate it.
+# A removal of the label is a verdict, but only from the account the triage owner
+# and the maintainers drive: `DUPLICATE_DETECT_TRUSTED_ACTOR` (default
+# `cipansor-bot`). Before labelling, the issue's `unlabeled` history is read; if
+# that account removed `duplicate`, the detector leaves the issue alone for good.
+# A removal by any other actor is not a verdict: the label is re-applied on the
+# next sweep, and because the link comment is already there it is only the label
+# that comes back, never a second comment.
+#
+# The discriminator is the *actor*, never the closeness of two events. This
+# workflow runs with `github.token`, so the detector labels and rolls back as
+# `github-actions[bot]` — never the trusted account — and a triage removal by
+# `cipansor-bot` that lands beside a label-add is a decision, not this script's
+# rollback. As explicit evidence for the case where the script is run with the
+# trusted token, a rollback also writes a `<!-- duplicate-detect:rollback -->`
+# comment: a trusted removal counts as this script's rollback only when that
+# marker is present *and* the link was never written. The login is matched
+# exactly, never as a substring, so a look-alike ("cipansor-bot-fake") cannot
+# impersonate it; the `[bot]` suffix form (`cipansor-bot[bot]`) is accepted.
 #
 # The marker is the *only* evidence that the detector linked the issue, so the
 # label and its marker must never be left out of step: the label is applied first
@@ -72,6 +79,7 @@ set -eu
 REPO="${REPO:?REPO is required}"
 DRY="${DUPLICATE_DETECT_DRY_RUN:-}"
 MARK="<!-- duplicate-detect -->"
+ROLLBACK_MARK="<!-- duplicate-detect:rollback -->"
 MASK_MIN="${DUPLICATE_DETECT_MASK_MIN:-6}"
 MIN_KEY_LEN="${DUPLICATE_DETECT_MIN_KEY_LEN:-12}"
 TRUSTED="${DUPLICATE_DETECT_TRUSTED_ACTOR:-cipansor-bot}"
@@ -119,21 +127,26 @@ labels_of() { # labels_of <number>
   printf '%s\n' "$INDEX" | awk -F '\t' -v n="$1" '$1 == n { print $3; exit }'
 }
 
-# Echoes `linked` when the detector already linked this issue, `unlinked` when
-# the comments are readable without its marker, and `unreadable` when they cannot
-# be read. A read failure must not read as "no marker" — labelling would stack a
-# second comment — so the caller skips on `unreadable`. Echoing a word keeps the
-# caller's `case` from depending on `$?` surviving a nested command.
+# Echoes two space-separated words. The first is `linked` when the detector
+# already linked this issue, `unlinked` when the comments are readable without its
+# marker, and `unreadable` when they cannot be read. A read failure must not read
+# as "no marker" — labelling would stack a second comment — so the caller skips on
+# `unreadable`. The second is `yes` when a `duplicate-detect:rollback` marker is
+# present, else `no`. Echoing words keeps the caller's `case` from depending on
+# `$?` surviving a nested command.
 link_state() { # link_state <number>
   if ! comments=$(gh api --paginate "repos/$REPO/issues/$1/comments?per_page=100" \
       --jq '.[].body' 2>/dev/null); then
-    echo unreadable; return 0
+    echo "unreadable no"; return 0
   fi
-  if printf '%s\n' "$comments" | grep -qF "$MARK"; then echo linked; else echo unlinked; fi
+  link=unlinked; printf '%s\n' "$comments" | grep -qF "$MARK" && link=linked
+  rb=no; printf '%s\n' "$comments" | grep -qF "$ROLLBACK_MARK" && rb=yes
+  echo "$link $rb"
 }
 
 # Classifies the `duplicate`-label history of an issue into the action the caller
-# should take. `$2` is the link state (`linked`/`unlinked`). Echoes one word:
+# should take. `$2` is the link state (`linked`/`unlinked`), `$3` is `yes` when a
+# `duplicate-detect:rollback` marker is present. Echoes one word:
 #
 #   verdict  — the trusted account removed the label as a maintainer's decision;
 #              the detector leaves the issue alone for good.
@@ -145,33 +158,38 @@ link_state() { # link_state <number>
 #              with no comment yet, or this detector's own rollback).
 #   unreadable — the events could not be read.
 #
-# Only the trusted account's removal is a verdict, and a verdict needs the run to
-# have completed: with a marker present any trusted removal is a verdict, but
-# with no marker a trusted `labeled` immediately followed by a trusted `unlabeled`
-# is this detector's own rollback (the label added and removed in one run because
-# the comment failed) and is not. The login is matched exactly — never as a
-# substring — so a look-alike ("cipansor-bot-fake") cannot impersonate it, and the
-# `[bot]` suffix form (`cipansor-bot[bot]`) is accepted.
-unlabel_state() { # unlabel_state <number> <linked|unlinked>
-  if ! events=$(gh api --paginate "repos/$REPO/issues/$1/events?per_page=100" \
-      --jq '.[] | select((.event=="labeled" or .event=="unlabeled") and .label.name=="duplicate") | "\(.event)\t\(.actor.login)"' 2>/dev/null); then
+# The discriminator is the actor of the removal, never the closeness of two
+# events. A removal by the trusted account is a verdict; a removal by anyone else
+# — this script's own `github-actions[bot]`, a human, another automation — is not.
+# A `duplicate-detect:rollback` marker only downgrades a trusted removal when the
+# link was never written (`unlinked`): the detector rolls back precisely when the
+# link comment failed, so a trusted removal with no marker-less link is its own
+# rollback and the issue is processed again. Once the link exists (`linked`) the
+# marker is stale and a later trusted removal is still a verdict. The login is
+# matched exactly — never as a substring — so a look-alike ("cipansor-bot-fake")
+# cannot impersonate it; the `[bot]` suffix form (`cipansor-bot[bot]`) is accepted.
+unlabel_state() { # unlabel_state <number> <linked|unlinked> <rollback yes|no>
+  if ! actors=$(gh api --paginate "repos/$REPO/issues/$1/events?per_page=100" \
+      --jq '.[] | select(.event=="unlabeled" and .label.name=="duplicate") | .actor.login' 2>/dev/null); then
     echo unreadable; return 0
   fi
-  printf '%s\n' "$events" | awk -F '\t' -v t="$TRUSTED" -v linked="$2" '
-    function trusted(l) { return l == t || l == t "[bot]" }
-    NF < 2 { next }
-    {
-      ev0 = ev1; l0 = l1; ev1 = $1; l1 = $2
-      if ($1 == "unlabeled") { removed = 1; if (trusted($2)) trusted_removed = 1 }
-    }
-    END {
-      rollback = (ev1 == "unlabeled" && trusted(l1) && ev0 == "labeled" && trusted(l0))
-      if (linked == "linked" && trusted_removed) print "verdict"
-      else if (linked == "linked" && removed) print "relabel"
-      else if (linked == "linked") print "linked"
-      else if (trusted_removed && !rollback) print "verdict"
-      else print "proceed"
-    }'
+  removed=0
+  [ -n "$actors" ] && removed=1
+  trusted_removed=0
+  if printf '%s\n' "$actors" | grep -qxF "$TRUSTED" \
+      || printf '%s\n' "$actors" | grep -qxF "$TRUSTED[bot]"; then
+    trusted_removed=1
+  fi
+  if [ "$2" = linked ]; then
+    if [ "$trusted_removed" = 1 ]; then echo verdict
+    elif [ "$removed" = 1 ]; then echo relabel
+    else echo linked
+    fi
+  elif [ "$trusted_removed" = 1 ] && [ "$3" != yes ]; then
+    echo verdict
+  else
+    echo proceed
+  fi
 }
 
 INDEX=$(index_rows) || { echo "::warning::could not read the issue index; nothing done."; exit 0; }
@@ -188,19 +206,23 @@ printf '%s\n' "$INDEX" | pairs | while IFS="$(printf '\t')" read -r key orig dup
       continue ;;
   esac
 
-  LINK="$(link_state "$dup")"
+  LINK_AND_RB="$(link_state "$dup")"
+  LINK="${LINK_AND_RB%% *}"
+  RB="${LINK_AND_RB##* }"
   case "$LINK" in
     unreadable)
       echo "::warning::#$dup: comments unreadable; not labelling (would risk a second link)."
       continue ;;
   esac
 
-  case "$(unlabel_state "$dup" "$LINK")" in
+  case "$(unlabel_state "$dup" "$LINK" "$RB")" in
     verdict)
       echo "#$dup: label duplicate pernah dicabut $TRUSTED; left alone."
       continue ;;
     relabel)
-      if gh issue edit "$dup" --repo "$REPO" --add-label duplicate >/dev/null 2>&1; then
+      if [ -n "$DRY" ]; then
+        echo "would re-apply the duplicate label on #$dup (removed by an untrusted actor)."
+      elif gh issue edit "$dup" --repo "$REPO" --add-label duplicate >/dev/null 2>&1; then
         echo "Re-applied the duplicate label on #$dup (removed by an untrusted actor); the link comment was kept."
       else
         echo "::error::could not re-apply the duplicate label on #$dup."
@@ -242,6 +264,10 @@ $MARK"
       sleep 2
     done
     if [ -n "$rolled_back" ]; then
+      # The rollback marker records that this removal is the detector's own, not a
+      # maintainer's verdict, so a later sweep re-detects the issue instead of
+      # treating the removal as permanent.
+      gh issue comment "$dup" --repo "$REPO" --body "$ROLLBACK_MARK" >/dev/null 2>&1 || true
       echo "::warning::could not post the link on #$dup; removed the label again so it is not left without its marker."
     else
       echo "::error::could not post the link on #$dup, and could not remove the label either; the next sweep re-checks it."

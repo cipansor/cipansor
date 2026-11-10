@@ -420,11 +420,25 @@ describe('duplicate-detect.sh', () => {
     expect(out).toContain('#958 was already linked');
   });
 
-  it('re-detects after the detector’s own rollback (trusted label then unlabel, no marker)', () => {
+  it('re-detects after its own rollback (rollback marker present, link never written)', () => {
     // The comment failed and the label was rolled back by the trusted account in
-    // one run. There is no marker, so the trusted `labeled`+`unlabeled` pair is
-    // the detector's own rollback, not a maintainer's verdict: the issue is
-    // labelled again on the next sweep.
+    // one run; the rollback marker says so. The issue is labelled again on the
+    // next sweep rather than treated as a permanent verdict.
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_COMMENTS: JSON.stringify([{ body: '<!-- duplicate-detect:rollback -->' }]),
+      GH_STUB_EVENTS: unlabeledBy(['cipansor-bot']),
+    });
+    expect(calls).toContain('--add-label duplicate');
+    expect(out).toContain('Labelled #958');
+  });
+
+  it('does not read a triage removal as its own rollback (labeled then unlabeled by the bot, no marker)', () => {
+    // Round-4 finding: a bot removal beside a label-add with no rollback marker is
+    // a triage decision, not this script's rollback — the issue stays unlabelled.
     const { out, calls } = run({
       GH_STUB_ISSUES: issues([
         { number: 800, title: `${WATCH}38324975861 failed` },
@@ -435,8 +449,40 @@ describe('duplicate-detect.sh', () => {
         { event: 'unlabeled', login: 'cipansor-bot' },
       ]),
     });
-    expect(calls).toContain('--add-label duplicate');
-    expect(out).toContain('Labelled #958');
+    expect(calls).not.toContain('LABEL');
+    expect(out).toContain('pernah dicabut cipansor-bot');
+  });
+
+  it('does not touch the issue in the relabel path under DUPLICATE_DETECT_DRY_RUN', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_COMMENTS: JSON.stringify([{ body: 'see #800 <!-- duplicate-detect -->' }]),
+      GH_STUB_EVENTS: unlabeledBy(['someone']),
+      DUPLICATE_DETECT_DRY_RUN: '1',
+    });
+    expect(calls).not.toContain('LABEL');
+    expect(out).toContain('would re-apply the duplicate label on #958');
+  });
+
+  it('honours a trusted removal after a successful link even if a rollback marker lingers', () => {
+    // An earlier run rolled back (marker), a later run linked the issue; the marker
+    // is now stale. A trusted removal of the label is a verdict all the same.
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_COMMENTS: JSON.stringify([
+        { body: '<!-- duplicate-detect:rollback -->' },
+        { body: 'see #800 <!-- duplicate-detect -->' },
+      ]),
+      GH_STUB_EVENTS: unlabeledBy(['cipansor-bot']),
+    });
+    expect(calls).not.toContain('LABEL');
+    expect(out).toContain('pernah dicabut cipansor-bot');
   });
 
   it('honours a trusted removal that was not a rollback even without a marker', () => {
