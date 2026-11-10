@@ -60,7 +60,8 @@ Mengawasi setiap automation dan melaporkan ke maintainer.
   berjalan lewat jalur PR normal (`Tiket jadi PR`), bukan lewat perbaikan
   otomatis. Ini menghapus kebutuhan akan automation verifikasi terpisah.
 - **Tidak boleh menyentuh:** guard loop atau tesnya, rahasia, login atau
-  kredensial, hasil run, atau timer Penjaga issue.
+  kredensial, hasil run, atau timer `stale-sweep` (dulu timer `Penjaga issue`,
+  kini deterministik di Actions).
 - **Konflik:** ketidaksepakatan konten antara dua automation adalah milik
   pengawas untuk diselesaikan, dengan bukti; bila tidak bisa memutuskan, ia
   menandai manusia.
