@@ -310,6 +310,17 @@ export function toApiSchedule(data: Partial<Schedule>) {
   return { ...body, ...(day ? { dayOfWeek: day } : {}) };
 }
 
+/**
+ * Map a list response's `data`. A payload that is not an array (an error
+ * envelope, a bare object) yields no rows instead of throwing: `.map` on a
+ * non-array took the whole schedule page down.
+ */
+export function toScheduleList(data: unknown): Schedule[] {
+  return Array.isArray(data)
+    ? (data as ApiScheduleRow[]).map(fromApiSchedule)
+    : [];
+}
+
 // Schedule queries
 export function useSchedules(params?: {
   classId?: string;
@@ -325,7 +336,7 @@ export function useSchedules(params?: {
       const response = await api.get("/curriculum/schedules", {
         params: { ...rest, ...(day ? { dayOfWeek: day } : {}) },
       });
-      return (response.data.data as ApiScheduleRow[]).map(fromApiSchedule);
+      return toScheduleList(response.data.data);
     },
   });
 }
@@ -338,7 +349,7 @@ export function useClassSchedule(classId: string, academicYearId?: string) {
         `/curriculum/classes/${classId}/schedule`,
         { params: { academicYearId } },
       );
-      return (response.data.data as ApiScheduleRow[]).map(fromApiSchedule);
+      return toScheduleList(response.data.data);
     },
     enabled: !!classId,
   });

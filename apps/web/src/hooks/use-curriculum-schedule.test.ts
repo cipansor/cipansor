@@ -1,5 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { fromApiSchedule, toApiSchedule } from "./use-curriculum";
+import {
+  fromApiSchedule,
+  toApiSchedule,
+  toScheduleList,
+} from "./use-curriculum";
 
 const row = {
   id: "s-1",
@@ -43,5 +47,24 @@ describe("schedule rows to and from the API", () => {
         class: { id: "c-1", name: "7A" },
       }),
     ).toEqual({ classId: "c-1", unitId: "u-1", dayOfWeek: "TUESDAY" });
+  });
+});
+
+/**
+ * The list payload must be an array to map. A `data` that is not one used to
+ * throw `data.map is not a function`, blanking the whole schedule page.
+ */
+describe("mapping a schedule list response", () => {
+  it("maps the rows of an array payload", () => {
+    expect(
+      toScheduleList([{ ...row, dayOfWeek: "MONDAY" }]).map((s) => s.day),
+    ).toEqual(["MONDAY"]);
+  });
+
+  it("returns no rows when the payload is not an array", () => {
+    expect(toScheduleList(undefined)).toEqual([]);
+    expect(toScheduleList(null)).toEqual([]);
+    expect(toScheduleList({ message: "boom" })).toEqual([]);
+    expect(toScheduleList("nope")).toEqual([]);
   });
 });
