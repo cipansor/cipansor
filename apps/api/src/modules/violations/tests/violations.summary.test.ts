@@ -101,7 +101,7 @@ describe('GET /violations/summary — getViolationsSummary (#764)', () => {
   it('orders the podium by points, then by id, so ties do not reshuffle', async () => {
     await getViolationsSummary(teacher);
     const byStudent = mocked.violation.groupBy.mock.calls.find(
-      (c: [{ by: string[] }]) => c[0].by[0] === 'studentId'
+      (c) => (c[0] as { by: string[] }).by[0] === 'studentId'
     );
     expect(byStudent?.[0].orderBy).toEqual([{ _sum: { points: 'desc' } }, { studentId: 'asc' }]);
   });

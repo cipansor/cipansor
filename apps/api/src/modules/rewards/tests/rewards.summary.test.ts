@@ -88,7 +88,7 @@ describe('GET /rewards/summary — getRewardsSummary (#764)', () => {
   it('orders the podium by points, then by id, so ties do not reshuffle', async () => {
     await getRewardsSummary(teacher);
     const byStudent = mocked.reward.groupBy.mock.calls.find(
-      (c: [{ by: string[] }]) => c[0].by[0] === 'studentId'
+      (c) => (c[0] as { by: string[] }).by[0] === 'studentId'
     );
     expect(byStudent?.[0].orderBy).toEqual([{ _sum: { points: 'desc' } }, { studentId: 'asc' }]);
   });
