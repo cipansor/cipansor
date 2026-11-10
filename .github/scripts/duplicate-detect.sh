@@ -22,19 +22,26 @@
 # evidence of a duplicate.
 #
 # It labels at most once per issue: the link comment carries a marker, and its
-# presence stops a second pass. That is also what respects a person's verdict —
-# a maintainer who removes the `duplicate` label after a warning is answering
-# "not a duplicate", and re-adding it would overrule them. The label it applies
-# is the same one the triage owner applies, so `duplicate-sweep.sh` then owns the
-# warn-and-close, and a maintainer's label removal still cancels the close.
+# presence stops a second pass. The label it applies is the same one the triage
+# owner applies, so `duplicate-sweep.sh` then owns the warn-and-close.
+#
+# A removal of the label is a verdict, but only from the account the fleet and
+# the maintainers drive: `DUPLICATE_DETECT_TRUSTED_ACTOR` (default `cipansor-bot`).
+# Before labelling, the issue's `unlabeled` events are read; if that account
+# removed `duplicate`, the detector leaves the issue alone for good. A removal by
+# any other actor — a human, another automation, `github-actions[bot]` — is not a
+# verdict, and the label may be re-applied on the next sweep. The login is matched
+# exactly (`grep -qxF`), so a look-alike ("cipansor-bot-fake") cannot impersonate
+# it.
 #
 # The marker is the *only* evidence that the detector ran, so the label and its
 # marker must never be left out of step: the label is applied first (so a
 # concurrent run and `duplicate-sweep.sh` see it), and if the link comment then
-# fails the label is rolled back. A label with no marker would, after a
-# maintainer removes it, be re-applied by the next sweep — overruling the very
-# verdict the marker exists to respect. If the rollback also fails the run warns
-# loudly; the next sweep re-checks the issue from a clean state.
+# fails the label is rolled back — retried once — rather than left without its
+# marker. A label with no marker could be re-applied after a trusted removal,
+# overruling the very verdict this rule exists to respect. If the rollback also
+# fails the run warns loudly; the next sweep re-checks the issue from a clean
+# state.
 #
 # A recurrence is not a duplicate: the candidate set is the OPEN issues, so an
 # open issue whose only same-titled sibling is CLOSED is not labelled. A closed
@@ -56,6 +63,8 @@
 #          matches while a year or a small number stays significant)
 #        DUPLICATE_DETECT_MIN_KEY_LEN (default 12; a shorter normalised title is
 #          skipped as too generic to be evidence)
+#        DUPLICATE_DETECT_TRUSTED_ACTOR (default `cipansor-bot`; the only account
+#          whose removal of the `duplicate` label is a permanent "not a duplicate")
 #        DUPLICATE_DETECT_DRY_RUN=1 prints what it would do, writing nothing
 set -eu
 
@@ -64,6 +73,7 @@ DRY="${DUPLICATE_DETECT_DRY_RUN:-}"
 MARK="<!-- duplicate-detect -->"
 MASK_MIN="${DUPLICATE_DETECT_MASK_MIN:-6}"
 MIN_KEY_LEN="${DUPLICATE_DETECT_MIN_KEY_LEN:-12}"
+TRUSTED="${DUPLICATE_DETECT_TRUSTED_ACTOR:-cipansor-bot}"
 
 # Every OPEN issue, one `number<TAB>key<TAB>labels` row (a PR is filtered out by
 # its `pull_request` field). The key is the normalised title; the guard test
@@ -121,6 +131,29 @@ link_state() { # link_state <number>
   if printf '%s\n' "$comments" | grep -qF "$MARK"; then echo linked; else echo unlinked; fi
 }
 
+# Echoes `removed` when the trusted account removed the `duplicate` label from
+# this issue, `clean` when it did not (no such event, or the removal was by
+# anyone else — a human, another automation, `github-actions[bot]`), and
+# `unreadable` when the events cannot be read. Only the trusted account's removal
+# is a verdict: it stops the detector for good, so the caller skips on `removed`.
+# A read failure must not read as `clean` — that would re-apply a label a
+# maintainer meant to keep off — so the caller also skips on `unreadable`. The
+# login is matched exactly, so a look-alike cannot impersonate the trusted
+# account; the `[bot]` suffix form (`cipansor-bot[bot]`) is accepted too.
+unlabel_state() { # unlabel_state <number>
+  if ! actors=$(gh api --paginate "repos/$REPO/issues/$1/events?per_page=100" \
+      --jq '.[] | select(.event=="unlabeled" and .label.name=="duplicate") | .actor.login' 2>/dev/null); then
+    echo unreadable; return 0
+  fi
+  [ -n "$actors" ] || { echo clean; return 0; }
+  if printf '%s\n' "$actors" | grep -qxF "$TRUSTED" \
+      || printf '%s\n' "$actors" | grep -qxF "$TRUSTED[bot]"; then
+    echo removed
+  else
+    echo clean
+  fi
+}
+
 INDEX=$(index_rows) || { echo "::warning::could not read the issue index; nothing done."; exit 0; }
 [ -n "$INDEX" ] || { echo "::warning::the issue index is empty; nothing done."; exit 0; }
 
@@ -144,6 +177,15 @@ printf '%s\n' "$INDEX" | pairs | while IFS="$(printf '\t')" read -r key orig dup
       continue ;;
   esac
 
+  case "$(unlabel_state "$dup")" in
+    removed)
+      echo "#$dup: label duplicate pernah dicabut cipansor-bot; left alone."
+      continue ;;
+    unreadable)
+      echo "::warning::#$dup: events unreadable; not labelling (a trusted removal could be missed)."
+      continue ;;
+  esac
+
   if [ -n "$DRY" ]; then
     echo "would label #$dup as a duplicate of #$orig (title '$key')."
     continue
@@ -154,15 +196,23 @@ printf '%s\n' "$INDEX" | pairs | while IFS="$(printf '\t')" read -r key orig dup
     continue
   fi
 
-  BODY="Issue ini punya judul yang sama dengan #$orig setelah dinormalkan, jadi ditandai \`duplicate\` secara deterministik (\`duplicate-detect.yml\`). \`Duplicate sweep\` akan menutupnya dalam 7 hari bila tidak ditunjukkan berbeda — sunting deskripsi, balas dengan alasannya, atau minta maintainer mencabut label \`duplicate\`. Menghapus label itu membatalkan penutupan, dan pendeteksi tidak akan memasangnya lagi.
+  BODY="Issue ini punya judul yang sama dengan #$orig setelah dinormalkan, jadi ditandai \`duplicate\` secara deterministik (\`duplicate-detect.yml\`). \`Duplicate sweep\` akan menutupnya dalam 7 hari bila tidak ditunjukkan berbeda — sunting deskripsi, balas dengan alasannya, atau minta \`cipansor-bot\` mencabut label \`duplicate\`. Pencabutan label oleh \`cipansor-bot\` membatalkan penutupan dan pendeteksi tidak akan memasangnya lagi; pencabutan oleh akun lain bisa dipasang ulang pada sapuan berikutnya.
 
 $MARK"
   # The marker comment is the only evidence the detector ran: without it a
-  # maintainer's label removal would be undone by the next sweep. So the label
-  # goes first (a concurrent run and duplicate-sweep.sh must see it), and a
-  # failed comment rolls the label back rather than leaving the two out of step.
+  # trusted removal could be overruled by the next sweep re-applying the label.
+  # So the label goes first (a concurrent run and duplicate-sweep.sh must see
+  # it), and a failed comment rolls the label back — retried once — rather than
+  # leaving the two out of step.
   if ! gh issue comment "$dup" --repo "$REPO" --body "$BODY" >/dev/null 2>&1; then
-    if gh issue edit "$dup" --repo "$REPO" --remove-label duplicate >/dev/null 2>&1; then
+    rolled_back=""
+    for _attempt in 1 2; do
+      if gh issue edit "$dup" --repo "$REPO" --remove-label duplicate >/dev/null 2>&1; then
+        rolled_back="1"; break
+      fi
+      sleep 2
+    done
+    if [ -n "$rolled_back" ]; then
       echo "::warning::could not post the link on #$dup; removed the label again so it is not left without its marker."
     else
       echo "::error::could not post the link on #$dup, and could not remove the label either; the next sweep re-checks it."
@@ -172,4 +222,4 @@ $MARK"
   echo "Labelled #$dup as a duplicate of #$orig (title '$key')."
 done
 
-echo "Done. A duplicate label is a candidate: duplicate-sweep.sh warns, then closes after the grace period, and a maintainer's label removal cancels it."
+echo "Done. A duplicate label is a candidate: duplicate-sweep.sh warns, then closes after the grace period, and a removal of the label by $TRUSTED cancels it for good."

@@ -104,8 +104,14 @@ sync` workflow adds anything missing and **fails the check** when the type
    runs masked), it labels the newer one `duplicate` and links the earlier one —
    it never closes anything itself, and a title whose only same-titled sibling is
    closed is not a duplicate (a recurrence after a fix is a regression, not a
-   repeat). It labels an issue at most once, so a maintainer who removes the
-   label has the last word. For an **issue**, the `Duplicate sweep` workflow warns once —
+   repeat). It labels an issue at most once, so a removal of the label has the
+   last word — but only a removal by `cipansor-bot` (the account the fleet and
+   the maintainers drive) is permanent: the detector reads the issue's
+   `unlabeled` events and will not re-apply a label that account removed. A
+   removal by any other actor (a human, `github-actions[bot]`, another
+   automation) is not that verdict, and the label may be re-applied on the next
+   sweep; ask `cipansor-bot` to remove it to cancel the detection for good. For
+   an **issue**, the `Duplicate sweep` workflow warns once —
    recording a hash of the description — then closes it after seven days unless
    it is shown to be distinct: the description changed since the warning, or a
    person replied — or a maintainer removes the label. An automated comment, and

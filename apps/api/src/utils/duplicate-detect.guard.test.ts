@@ -31,16 +31,23 @@ const REPO_ROOT = resolve(__dirname, '..', '..', '..', '..');
 const SCRIPT = join(REPO_ROOT, '.github', 'scripts', 'duplicate-detect.sh');
 const WORKFLOW = join(REPO_ROOT, '.github', 'workflows', 'duplicate-detect.yml');
 
-// The stub answers the two reads the script makes and logs the two writes.
-// `index_rows` pipes `gh api --paginate` straight into the script's own `jq`,
-// so the issues listing is returned RAW (no `--jq`); the comments read passes
-// `--jq '.[].body'`, so the stub honours `--jq` there — otherwise the script's
-// real expression would never run and the marker check would be untested.
+// The stub answers the reads the script makes (issues, comments, events) and
+// logs the writes. `index_rows` pipes `gh api --paginate` straight into the
+// script's own `jq`, so the issues listing is returned RAW (no `--jq`); the
+// comments and events reads pass `--jq`, so the stub honours it there —
+// otherwise the script's real expression would never run and the marker and
+// trusted-removal checks would be untested.
 const STUB = `#!/bin/sh
 log() { [ -n "\${GH_STUB_LOG:-}" ] && echo "$*" >> "$GH_STUB_LOG"; }
 if [ "$1" = "issue" ]; then
   case "$2" in
-    edit) log "LABEL $*" ;;
+    edit)
+      log "LABEL $*"
+      case " $* " in
+        *" --remove-label "*)
+          if [ -n "\${GH_STUB_FAIL_UNLABEL:-}" ]; then exit 1; fi ;;
+      esac
+      ;;
     comment) log "COMMENT $*"; if [ -n "\${GH_STUB_FAIL_COMMENT:-}" ]; then exit 1; fi ;;
   esac
   exit 0
@@ -56,6 +63,10 @@ case "$path" in
   *"/comments?per_page=100")
     if [ -n "\${GH_STUB_FAIL_COMMENTS:-}" ]; then exit 1; fi
     printf '%s' "\${GH_STUB_COMMENTS:-[]}" | jq -r "\${JQ:-.}" 2>/dev/null || printf ''
+    ;;
+  *"/events?per_page=100")
+    if [ -n "\${GH_STUB_FAIL_EVENTS:-}" ]; then exit 1; fi
+    printf '%s' "\${GH_STUB_EVENTS:-[]}" | jq -r "\${JQ:-.}" 2>/dev/null || printf ''
     ;;
   *"/labels") log "LABEL $*" ;;
   *"/comments") log "COMMENT $*" ;;
@@ -111,6 +122,12 @@ const issues = (rows: Array<{ number: number; title: string; labels?: string[]; 
   );
 
 const WATCH = 'Deploy watchdog: Deploy staging run ';
+
+// An `unlabeled` event list as `gh api --paginate .../events` emits it.
+const unlabeledBy = (logins: string[]) =>
+  JSON.stringify(
+    logins.map((login) => ({ event: 'unlabeled', label: { name: 'duplicate' }, actor: { login } }))
+  );
 
 describe('duplicate-detect.sh', () => {
   it('labels the newest issue when two open issues share a normalised title', () => {
@@ -257,6 +274,94 @@ describe('duplicate-detect.sh', () => {
     expect(calls).toContain('--remove-label duplicate');
     expect(out).toContain('removed the label again');
     expect(out).not.toContain('Labelled #958');
+  });
+
+  it('skips an issue whose `duplicate` label was removed by cipansor-bot', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_EVENTS: unlabeledBy(['cipansor-bot']),
+    });
+    expect(calls).not.toContain('LABEL');
+    expect(out).toContain('pernah dicabut cipansor-bot');
+  });
+
+  it('skips an issue whose label was removed by cipansor-bot[bot]', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_EVENTS: unlabeledBy(['cipansor-bot[bot]']),
+    });
+    expect(calls).not.toContain('LABEL');
+    expect(out).toContain('pernah dicabut cipansor-bot');
+  });
+
+  it('re-labels when the removal was by github-actions[bot]', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_EVENTS: unlabeledBy(['github-actions[bot]']),
+    });
+    expect(calls).toContain('--add-label duplicate');
+    expect(out).toContain('Labelled #958');
+  });
+
+  it('re-labels when the removal was by a human', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_EVENTS: unlabeledBy(['someone']),
+    });
+    expect(calls).toContain('--add-label duplicate');
+    expect(out).toContain('Labelled #958');
+  });
+
+  it('re-labels when a removal login merely resembles the trusted actor', () => {
+    // Exact match, not a substring: `cipansor-bot-fake` must not impersonate.
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_EVENTS: unlabeledBy(['cipansor-bot-fake']),
+    });
+    expect(calls).toContain('--add-label duplicate');
+    expect(out).toContain('Labelled #958');
+  });
+
+  it('skips an issue whose events cannot be read, instead of risking a re-label', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_FAIL_EVENTS: '1',
+    });
+    expect(calls).not.toContain('LABEL');
+    expect(out).toContain('::warning::');
+    expect(out).toContain('events unreadable');
+  });
+
+  it('retries the rollback twice, then errors, when comment and rollback both fail', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_FAIL_COMMENT: '1',
+      GH_STUB_FAIL_UNLABEL: '1',
+    });
+    expect(calls.split('--remove-label').length - 1).toBe(2);
+    expect(out).toContain('::error::');
+    expect(out).toContain('could not remove the label either');
   });
 
   it('warns and does nothing when the issue index cannot be read', () => {
