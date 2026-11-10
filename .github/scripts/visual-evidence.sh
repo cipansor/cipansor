@@ -34,6 +34,12 @@ body="$(jq -r .body "$TMP")"
 
 img_re='user-images\.githubusercontent\.com|private-user-images\.githubusercontent\.com|github\.com/user-attachments/assets/|https?://[^ )]+\.(png|jpe?g|gif|webp|mp4|webm)'
 
+# The marker's bare-URL branch must be a *media* URL, not any URL: an early
+# non-visual link written as `After https://preview.example.org` would otherwise
+# match, split the body before the real screenshots, and leave the Before region
+# empty. Same shape as img_re, anchored so the URL ends the line.
+media_url_re='((https?://|www\.)[^[:space:]]*\.(png|jpe?g|gif|webp|mp4|webm)([?#][^[:space:]]*)?|https?://(user-images\.githubusercontent\.com|private-user-images\.githubusercontent\.com|github\.com/user-attachments/assets)/[^[:space:]]*)'
+
 # The Evidence requirement is a *before* visual AND an *after* visual. Split the
 # body at the first line that IS an after marker; each region must contain media.
 # A body with only an After image leaves the Before region empty and keeps the
@@ -46,11 +52,12 @@ img_re='user-images\.githubusercontent\.com|private-user-images\.githubuserconte
 # anywhere split the body on a sentence such as "... after it passes" under
 # `## Cara menguji`, hiding a real before/after pair.
 # The word must end the line, be followed by punctuation, or be followed by a
-# bare image URL that ends the line — never by a space and more words: a bullet
-# *sentence* (`- Sesudah pengujian, periksa layar`) would otherwise split the
-# body before the visuals, read both images as "after", and keep the reminder up
-# on a complete pair (#983 review).
-marker='^[[:space:]]*([-*+][[:space:]]+)?(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([[:space:]]*$|[[:space:]]*[^[:alnum:]_[:space:]]|[[:space:]]*(https?://|www\.)[^[:space:]]*[[:space:]]*$)'
+# bare *media* URL that ends the line — never by a space and more words: a bullet
+# *sentence* (`- Sesudah pengujian, periksa layar`) or a non-visual link
+# (`After https://preview.example.org`) would otherwise split the body before the
+# visuals, read both images as "after", and keep the reminder up on a complete
+# pair (#983 review).
+marker='^[[:space:]]*([-*+][[:space:]]+)?(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([[:space:]]*$|[[:space:]]*[^[:alnum:]_[:space:]]|[[:space:]]*'"$media_url_re"'[[:space:]]*$)'
 before_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) exit; print }')
 after_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) f = 1; if (f) print }')
 has_before=0

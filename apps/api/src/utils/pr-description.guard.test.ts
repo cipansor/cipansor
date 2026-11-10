@@ -675,6 +675,29 @@ describe('visual-evidence.sh', () => {
     expect(calls).toContain('COMMENT');
   });
 
+  it('does not split on a bare non-visual link after the marker', () => {
+    // `After https://preview.example.org` is a link, not a visual; matching it
+    // split the body before the real screenshots, so a complete pair still got
+    // the reminder (#983 review).
+    const body =
+      'After https://preview.example.org\n\n' +
+      'Before: ![old](https://user-images.githubusercontent.com/1/1.png)\n' +
+      'After: ![new](https://user-images.githubusercontent.com/1/2.png)';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('recognises a bare media URL on a non-GitHub host', () => {
+    const body =
+      'Before https://cdn.example.com/old.png\n' + 'After https://cdn.example.com/new.png';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
   it('does not split on "after" inside a sentence before the visuals', () => {
     // A `## Cara menguji` line such as "... after it passes" used to split the
     // body at that line, hiding a real before/after pair (#982).
