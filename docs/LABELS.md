@@ -300,16 +300,18 @@ issue.
 The issue forms (`.github/ISSUE_TEMPLATE/`) and the pull-request template exist
 to produce the labels above, not prose to read and forget:
 
-- The **bug** form requires a reproduction and an acceptance criterion; the
-  **feature request** form requires a motivation and a criterion. What these
-  fields contain is what `Triase issue` reads to decide `ready` versus `needs-info`.
+- The **bug** form requires only what happened and what was expected; the
+  **feature request** form requires the motivation and the desired behaviour.
+  Everything else (reproduction steps, acceptance criteria) is optional — a thin
+  report still gets triaged, and `Triase issue` fills what it can before deciding
+  `ready` versus `needs-info`.
 - A `bug` issue may still arrive thin — a reporter often cannot say _why_. That
   is expected: `Reproduksi bug` investigates, adds the cause and, for a UI defect,
   reproduces it and attaches a screenshot to the issue by editing its body. It
   does not send the issue to `needs-info` for being incomplete.
-- The **PR template** has the sections `Why`, `What changed`, `Linked issue`,
-  `Acceptance criteria`, `How to test`, `Risk and rollback`, `Evidence` and
-  `Notes` (no `HUMAN`/`AGENT` split and no `Type` checklist since 2026-11-09,
+- The **PR template** has the sections `Mengapa`, `Yang diubah`, `Issue
+  tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko` and
+  `Catatan` (no `HUMAN`/`AGENT` split and no `Type` checklist since 2026-11-09,
   #965: the type comes from the issue's label). It requires `Fixes #<n>` for
   every issue the PR resolves (each an open `ready`/`bot-implement` issue,
   never a PR; `Refs #<n>` for a partial step), copies the issue's acceptance
@@ -325,10 +327,13 @@ prose reads as English, and passes once it is complete (the `visual` job stays
 advisory). There is no "no linked issue" way out (#772). Dependabot alone
 skips the job, keyed on the PR's author; a skipped job counts as passing, so
 making the check required on `main` (decided 2026-10-11, #772) does not hold
-Dependabot back. A `## Risk and rollback` statement (what can break and how
+Dependabot back. A `## Risiko` statement (what can break and how
 to undo it, at least 20 characters) is required only on a risky PR: one
 labelled `security`, or touching the schema, migrations and data scripts, the
 production data scripts, or auth/RBAC (`RISKY_PATHS` in
 `.github/scripts/pr-template-guard.sh`; #965, replacing the `## HUMAN` note of
-#760). Fenced code counts as section content, so a `## How to test` that is
-only a block of commands is complete; it is left out of the language check. See `docs/IDEAS.md` § 6.
+#760). The headings were renamed to Indonesian on 2026-11-10 (#982); the guard
+matches either the Indonesian name or the old English one, so a body written
+before the rename still passes. Fenced code counts as section content, so a
+`## Cara menguji` that is only a block of commands is complete; it is left out
+of the language check. See `docs/IDEAS.md` § 6.

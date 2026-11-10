@@ -4,18 +4,19 @@
 
 بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
 
-## Why
+## Mengapa
 
 <!-- Wajib. Masalahnya dan dampaknya bagi pengguna atau sistem. Untuk bug:
-     kegagalan yang terlihat dan penyebabnya. -->
+     gejala yang terlihat dan penyebabnya. Ambil dari issue tertaut (kolom
+     "Apa yang terjadi" dan "Siapa yang terdampak"), bukan ditulis ulang dari nol. -->
 
-## What changed
+## Yang diubah
 
 <!-- Wajib. 1–5 butir: apa yang diubah dan di mana. -->
 
 -
 
-## Linked issue
+## Issue tertaut
 
 <!-- Wajib. Satu `Fixes #<n>` per issue yang diselesaikan PR ini; setiap issue
      harus terbuka dan berlabel `ready` atau `bot-implement`. `Refs #<n>` untuk
@@ -24,32 +25,33 @@
 
 Fixes #
 
-## Acceptance criteria
+## Kriteria penerimaan
 
-<!-- Wajib. Salin kotak centang dari issue tertaut, centang yang dipenuhi, dan
-     sebut buktinya (nama tes, berkas, atau log). -->
+<!-- Wajib. Salin kotak centang dari issue tertaut apa adanya, centang yang
+     dipenuhi, dan sebut buktinya (nama tes, berkas, atau log). Jangan mengarang
+     kriteria baru di sini — kriteria hidup di issue, PR hanya membuktikannya. -->
 
 - [ ]
 
-## How to test
+## Cara menguji
 
 <!-- Wajib. Perintah atau langkah persis untuk peninjau, beserta hasil yang
-     teramati. Untuk bug: hasil sebelum dan sesudah. Bila tidak bisa diuji,
-     tulis alasannya. -->
+     teramati. Untuk bug: pakai langkah reproduksi dari issue tertaut, lalu
+     tunjukkan hasil sebelum dan sesudah. Bila tidak bisa diuji, tulis alasannya. -->
 
-## Risk and rollback
+## Bukti
+
+<!-- Perubahan di apps/web: tangkapan layar sebelum dan sesudah untuk setiap
+     tampilan yang berubah, ditempel lewat unggahan GitHub. Selain itu: keluaran
+     tes, log, atau tangkapan yang menunjukkan perilaku baru. -->
+
+## Risiko
 
 <!-- Wajib bila PR berlabel `security` atau mengubah skema/migrasi/skrip data,
      skrip data produksi, atau auth/RBAC (`RISKY_PATHS` di
      .github/scripts/pr-template-guard.sh): apa yang bisa rusak, siapa
      terdampak, dan cara mengembalikannya. Untuk PR lain boleh dikosongkan. -->
 
-## Evidence
+## Catatan
 
-<!-- Perubahan di apps/web: tangkapan layar sebelum dan sesudah untuk setiap
-     tampilan yang berubah, ditempel lewat unggahan GitHub. Selain itu: keluaran
-     tes, log, atau tangkapan yang menunjukkan perilaku baru. -->
-
-## Notes
-
-<!-- Opsional: migrasi, konfigurasi, tindak lanjut, atau keputusan desain. -->
+<!-- Opsional: migrasi, konfigurasi, tindak lanjut, non-goal, atau keputusan desain. -->

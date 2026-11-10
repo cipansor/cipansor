@@ -780,7 +780,7 @@ describe('basmalah.sh', () => {
 
 ${ARABIC}
 
-## Why`;
+## Mengapa`;
     const { calls } = run(BASMALAH, { GH_STUB_BODY: body }, ['--stdin'], ev);
     expect(calls).not.toContain('PATCH');
   });
@@ -864,6 +864,21 @@ describe('fleet contracts', () => {
       const before = form.slice(0, form.indexOf(arabic));
       const lastType = [...before.matchAll(/type:\s*(\S+)/g)].pop();
       expect(lastType?.[1], `${file} basmalah block type`).toBe('markdown');
+    }
+  });
+
+  it('uses only element types GitHub accepts in an issue form', () => {
+    // GitHub's form schema allows exactly these; an unknown `type` makes GitHub
+    // refuse the whole form, not hide the field — the bug path would vanish
+    // silently. Pinned so a typo or an invented element (`upload2`, `file`, …)
+    // fails here instead of in the New-issue picker. Source:
+    // docs.github.com "Syntax for GitHub's form schema" (`type` key).
+    const ALLOWED = new Set(['markdown', 'textarea', 'input', 'dropdown', 'checkboxes', 'upload']);
+    for (const file of ['bug_report.yml', 'feature_request.yml', 'config.yml']) {
+      const form = read(join(REPO_ROOT, '.github', 'ISSUE_TEMPLATE', file));
+      for (const m of form.matchAll(/^\s*-?\s*type:\s*(\S+)/gm)) {
+        expect(ALLOWED.has(m[1]), `${file}: unsupported form element type "${m[1]}"`).toBe(true);
+      }
     }
   });
 

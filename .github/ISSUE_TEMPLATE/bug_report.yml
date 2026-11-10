@@ -1,6 +1,5 @@
-name: Bug report
+name: Laporan bug
 description: Ada yang rusak atau berperilaku berbeda dari yang dimaksudkan.
-title: "[Bug]: "
 labels: ["bug"]
 body:
   - type: markdown
@@ -8,17 +7,21 @@ body:
       value: |
         بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
 
-        Bug adalah perubahan yang harus diperbaiki; pertanyaan masuk ke Discussions.
-        Automation `Triase issue` akan menambahkan prioritas dan menandai issue
-        `ready` begitu kolom di bawah terisi cukup untuk diimplementasikan tanpa
-        pertanyaan lanjutan. See [docs/LABELS.md](https://github.com/cipansor/cipansor/blob/main/docs/LABELS.md).
+        Terima kasih telah melapor. Dua kolom pertama saja sudah cukup untuk
+        memulai; sisanya membantu bila Anda tahu. Automation `Triase issue`
+        menetapkan tipe dan prioritas, lalu menandai issue ini `ready` begitu
+        isinya cukup dikerjakan tanpa pertanyaan lanjutan — lihat
+        [docs/LABELS.md](https://github.com/cipansor/cipansor/blob/main/docs/LABELS.md).
+
+        Bila Anda hanya ingin tahu cara memakai aplikasi (bukan melaporkan
+        kerusakan), pakai tautan "Cara memakai aplikasi" di halaman sebelumnya.
 
   - type: textarea
     id: what-happened
     attributes:
       label: Apa yang terjadi
-      description: Satu atau dua kalimat. Perilaku yang diamati, bukan dugaan penyebabnya.
-      placeholder: GET /health answered 200 while the database was down.
+      description: Satu atau dua kalimat. Perilaku yang Anda amati, bukan dugaan penyebabnya.
+      placeholder: Tombol Simpan memutar terus dan data tidak tersimpan.
     validations:
       required: true
 
@@ -27,49 +30,120 @@ body:
     attributes:
       label: Apa yang Anda harapkan
       description: Perilaku yang seharusnya terjadi, dinyatakan seolah sudah berjalan.
-      placeholder: GET /health answers 503 when its database probe fails.
+      placeholder: Data tersimpan dan muncul notifikasi berhasil.
     validations:
       required: true
+
+  - type: dropdown
+    id: where
+    attributes:
+      label: Di mana masalahnya
+      description: Bila tidak yakin, pilih "Tidak tahu".
+      options:
+        - Portal internal (portal.cipansor.or.id)
+        - Situs publik (cipansor.or.id)
+        - Aplikasi wali (Android/PWA)
+        - Tidak tahu
+    validations:
+      required: false
+
+  - type: input
+    id: menu-path
+    attributes:
+      label: Menu atau halaman
+      description: Jalan menuju layarnya, persis seperti di menu.
+      placeholder: Perencanaan & Kinerja → Perjanjian Kinerja → Tambah
+    validations:
+      required: false
+
+  - type: dropdown
+    id: since
+    attributes:
+      label: Sejak kapan terjadi
+      description: Pembeda regresi (baru) dari cacat lama — membantu menaksir penyebabnya.
+      options:
+        - Baru sejak perubahan terakhir
+        - Sudah lama, tapi baru saya laporkan
+        - Selalu begitu
+        - Tidak tahu
+    validations:
+      required: false
 
   - type: textarea
     id: steps
     attributes:
-      label: Langkah reproduksi, dan kriteria penerimaan
+      label: Langkah reproduksi
       description: |
-        **Reproduksi** — langkah, perintah, atau permintaan persis yang bisa
-        diikuti peninjau, beserta lingkungannya (branch/commit, Node, keadaan basis
-        data) bila relevan. Bug tanpa reproduksi ditandai `needs-info`, bukan `ready`.
-
-        **Kriteria penerimaan** — hasil yang bisa diamati yang menunjukkan ini
-        diperbaiki, sebagai kotak centang. Inilah yang membuat issue ini `ready`.
-
-        **Sebelum** — keluaran atau tangkapan layar yang gagal, bila ada.
-        **Sesudah** — apa yang seharusnya menggantikannya.
+        Langkah, perintah, atau permintaan persis yang bisa diikuti peninjau.
+        Bila Anda tidak bisa mereproduksinya, sebutkan — automation
+        `Reproduksi bug` yang akan melengkapinya, bukan alasan menolak laporan.
       value: |
-        ### Reproduksi
         1.
         2.
-
-        ### Kriteria penerimaan
-        - [ ]
-        - [ ]
-
-        ### Sebelum / sesudah
-        Sebelum:
-
-        Sesudah:
     validations:
-      required: true
+      required: false
 
   - type: textarea
-    id: evidence
+    id: impact
     attributes:
-      label: Bukti
+      label: Siapa yang terdampak
       description: |
-        Log, stack trace, tes yang gagal, tangkapan layar, atau video. Isinya
-        otomatis dibungkus blok kode. Jika tidak bisa mereproduksinya, sebutkan —
-        itu berguna, dan menjaga issue ini keluar dari `ready`.
+        Unit, peran, atau jumlah orang yang terhambat, dan apakah pekerjaannya
+        terhenti atau masih ada cara lain. Inilah yang membuat prioritas dapat
+        dibuktikan, bukan ditebak.
+      placeholder: Bendahara unit tidak bisa menutup tagihan akhir bulan; 4 unit terdampak, tanpa cara lain.
+    validations:
+      required: false
+
+  - type: dropdown
+    id: environment
+    attributes:
+      label: Lingkungan
+      description: Di mana Anda melihat masalahnya.
+      options:
+        - Produksi (aplikasi yang dipakai sehari-hari)
+        - Staging (uji coba)
+        - Lokal (komputer sendiri)
+        - Tidak tahu
+    validations:
+      required: false
+
+  - type: input
+    id: device
+    attributes:
+      label: Peramban atau perangkat
+      description: Bila hanya terjadi di satu peramban atau perangkat.
+      placeholder: Chrome 131 di Android, atau Firefox 133 di Windows
+    validations:
+      required: false
+
+  - type: upload
+    id: screenshots
+    attributes:
+      label: Tangkapan layar
+      description: Seret atau tempel gambar/video yang menunjukkan masalahnya. Wajib untuk cacat tampilan.
+    validations:
+      required: false
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log atau keluaran
+      description: Pesan galat, keluaran konsol, atau respons API. Isinya otomatis dibungkus blok kode.
       render: shell
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Kriteria penerimaan
+      description: |
+        Hasil yang bisa diamati yang menunjukkan ini diperbaiki, sebagai kotak
+        centang. Bila dikosongkan, `Triase issue` yang melengkapinya — issue
+        tetap dapat ditandai `ready` tanpa kolom ini.
+      value: |
+        - [ ]
     validations:
       required: false
 

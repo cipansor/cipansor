@@ -7,15 +7,17 @@
 #
 # The template is a rule, not a nudge (upstream OpenHands enforces the same
 # shape: a linked, ready issue and the Why/Summary/How-to-test sections). The
-# required parts are: `## Why`, `## What changed`, `## Acceptance criteria`,
-# `## How to test`, a `## Risk and rollback` statement on a risky PR (see
+# required parts are: `## Mengapa`, `## Yang diubah`, `## Kriteria penerimaan`,
+# `## Cara menguji`, a `## Risiko` statement on a risky PR (see
 # RISKY_PATHS), and at least one linked issue —
 # `Fixes #<n>`, once per issue the PR resolves. Every number it closes must be
 # an open issue (not a pull request) labelled `ready` or `bot-implement`. There
 # is no "no linked issue" way out: a PR without an issue starts with an issue
 # (#772). Dependabot writes its own body and is skipped by the workflow, keyed
 # on the PR's author. The PR-language rule is enforced in the same place: the
-# body must read as Indonesian prose (see docs/LABELS.md).
+# body must read as Indonesian prose (see docs/LABELS.md). Every section
+# is matched by its Indonesian heading or the older English one (`## Mengapa`
+# or `## Why`), so a body written before the rename still passes.
 #
 # Env (optional, set by the workflow): BASE_REF and DEFAULT_BRANCH. GitHub
 # reads a closing keyword only on a PR into the default branch, so a PR into
@@ -41,23 +43,28 @@ gh pr view "$PR" --repo "$REPO" --json body --jq .body > "$RAW"
 
 # Visible text: strip HTML comments (including multi-line ones and the template
 # placeholders), so placeholders do not count as content. Fenced code stays: a
-# `## How to test` that is only a block of commands is complete — stripping it
+# `## Cara menguji` that is only a block of commands is complete — stripping it
 # read that section as empty and kept a required check red (#866, #965).
 # Normalise CRLF/CR first: a body written through a Windows editor arrives with
-# `## Why\r`, which never equals the `## Why` the section matcher compares
+# `## Mengapa\r`, which never equals the `## Mengapa` the matcher compares
 # against — every section then reads empty and a complete body is refused.
 perl -0777 -pe 's/\r\n?/\n/g; s/<!--.*?-->//gs' "$RAW" > "$CLEAN"
 # The prose alone, for the language rule: commands and code in fences are
-# English by nature and say nothing about the language of the description.
-BODY="$(perl -0777 -pe 's/```.*?```//gs' "$CLEAN")"
+# English by nature and say nothing about the language of the description. The
+# section headings are stripped too: they are fixed template words (now
+# Indonesian, `## Yang diubah`) that would otherwise inject Indonesian function
+# words into the check and let an English body pass.
+BODY="$(perl -0777 -pe 's/```.*?```//gs; s/^##[ \t].*$//gm' "$CLEAN")"
 
-# The visible text of the section starting at "## <heading>", blank lines and
-# bare list markers dropped. Operates on the cleaned body. A lone "-" is the
-# template's placeholder for "What changed", not content; dropping only a marker
-# with nothing after it keeps real bullets and the "- [x]" acceptance boxes.
+# The visible text of the section starting at one of the headings in
+# "<name>|<name>", blank lines and bare list markers dropped. Operates on the
+# cleaned body. Each section accepts its Indonesian heading and the older
+# English name, so a body written before the rename still passes. A lone "-" is
+# the template's placeholder for "Yang diubah", not content; dropping only a
+# marker with nothing after it keeps real bullets and the "- [x]" boxes.
 section() {
-  awk -v h="## $1" '
-    $0 == h { f = 1; next }
+  awk -v h="$1" '
+    $0 ~ ("^## (" h ")$") { f = 1; next }
     f && /^## / { f = 0 }
     f { print }
   ' "$CLEAN" | sed -e '/^[[:space:]]*$/d' -e '/^[[:space:]]*[-*+][[:space:]]*$/d'
@@ -92,15 +99,15 @@ if [ -z "$risk" ]; then
   fi
 fi
 
-if [ -n "$risk" ] && [ "$(visible_len "$(section 'Risk and rollback')")" -lt 20 ]; then
+if [ -n "$risk" ] && [ "$(visible_len "$(section 'Risiko|Risk and rollback')")" -lt 20 ]; then
   missing="$missing
-- \`## Risk and rollback\` (minimal 20 karakter: apa yang bisa rusak dan cara mengembalikannya) — wajib karena PR ini berisiko: $risk"
+- \`## Risiko\` (minimal 20 karakter: apa yang bisa rusak dan cara mengembalikannya) — wajib karena PR ini berisiko: $risk"
 fi
 
-[ -n "$(section Why)" ] || missing="$missing
-- \`## Why\` — masalah dan motivasinya"
-[ -n "$(section 'What changed')" ] || missing="$missing
-- \`## What changed\` — apa perubahannya"
+[ -n "$(section 'Mengapa|Why')" ] || missing="$missing
+- \`## Mengapa\` — masalah dan motivasinya"
+[ -n "$(section 'Yang diubah|What changed')" ] || missing="$missing
+- \`## Yang diubah\` — apa perubahannya"
 
 # Every issue the PR closes, once each. GitHub links and closes an issue only
 # for a closing keyword (docs.github.com, "Linking a pull request to an
@@ -146,18 +153,19 @@ if [ -n "$LINKED" ] && [ -n "${BASE_REF:-}" ] && [ -n "${DEFAULT_BRANCH:-}" ] &&
 - PR ini menuju \`$BASE_REF\`, bukan \`$DEFAULT_BRANCH\`: GitHub hanya membaca \`Fixes #<n>\` pada PR ke branch default, jadi issue-nya tidak akan tertutup. Arahkan PR ke \`$DEFAULT_BRANCH\`"
 fi
 
-[ -n "$(section 'How to test')" ] || missing="$missing
-- \`## How to test\` — perintah yang dijalankan peninjau, dan apa yang Anda lihat"
+[ -n "$(section 'Cara menguji|How to test')" ] || missing="$missing
+- \`## Cara menguji\` — perintah yang dijalankan peninjau, dan apa yang Anda lihat"
 
-if ! section 'Acceptance criteria' | grep -qE '^[[:space:]]*- \[[ x]\]'; then
+if ! section 'Kriteria penerimaan|Acceptance criteria' | grep -qE '^[[:space:]]*- \[[ x]\]'; then
   missing="$missing
-- \`## Acceptance criteria\` — minimal satu kotak centang yang disalin dari issue tertaut"
+- \`## Kriteria penerimaan\` — minimal satu kotak centang yang disalin dari issue tertaut"
 fi
 
 # The repo writes its GitHub prose in Indonesian (docs/LABELS.md). The check is
 # deliberately coarse: it only fails a body that reads as English, i.e. it has
-# common English function words and no common Indonesian ones. `English is
-# intended` is the explicit escape hatch for the rare deliberate exception.
+# common English function words and no common Indonesian ones, read from the
+# prose with the headings removed. `English is intended` is the explicit escape
+# hatch for the rare deliberate exception.
 ID_WORDS='dan|yang|atau|dengan|untuk|tidak|adalah|pada|dari|ini|itu|akan|bisa|sudah|belum|perubahan|pengujian|perbaikan|masalah|berkas|kesalahan'
 EN_WORDS='(^|[^a-z])(the|and|with|this|that|for|not|should|change|changes|changed|test|tests|tested|testing|fix|fixes|fixed|fixing|adds|added|adding)([^a-z]|$)'
 # Both sides need word boundaries: `ini` sits inside "initial" and `dan` inside

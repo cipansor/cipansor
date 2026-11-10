@@ -1,17 +1,22 @@
 blank_issues_enabled: true
 contact_links:
-  - name: Report a security vulnerability (private)
+  - name: Laporkan kerentanan keamanan (privat)
     url: https://github.com/cipansor/cipansor/security/advisories/new
     about: >-
-      Do not open a public issue for a vulnerability. Use GitHub's private
-      advisory form; a maintainer sees it before anything is public.
-  - name: Labels, priority and the automation lifecycle
+      Jangan buka issue publik untuk kerentanan. Pakai formulir advisory privat
+      GitHub; pengelola melihatnya sebelum apa pun menjadi publik.
+  - name: Cara memakai aplikasi (panduan pengguna)
+    url: https://github.com/cipansor/cipansor/blob/main/docs/PANDUAN-PENGGUNA-UMUM.md
+    about: >-
+      Bila Anda hanya ingin tahu cara memakai sebuah menu — bukan melaporkan
+      kerusakan atau meminta perubahan — mulailah dari panduan pengguna.
+  - name: Label, prioritas, dan siklus hidup issue
     url: https://github.com/cipansor/cipansor/blob/main/docs/LABELS.md
     about: >-
-      How type, priority and status labels work, what makes an issue `ready`,
-      and which automation owns each label.
-  - name: Automations and their guardrails
+      Bagaimana label tipe, prioritas, dan status bekerja, apa yang membuat
+      issue `ready`, dan automation mana yang memiliki tiap label.
+  - name: Automation dan batas pengawasannya
     url: https://github.com/cipansor/cipansor/blob/main/docs/IDEAS.md
     about: >-
-      What the non-framework automations do (bug hunter, steward, watchdog),
-      and the limits each one keeps.
+      Apa yang dikerjakan automation non-kerangka (pemburu bug, penjaga,
+      pengawas) dan batas yang dijaga masing-masing.

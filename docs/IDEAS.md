@@ -77,11 +77,13 @@ templat PR yang terikat ke sistem label, bukan prosa bebas:
   berisi reproduksi + kriteria penerimaan, otomatis memasang label tipe
   `bug`/`enhancement`; `config.yml` mengarahkan pembaca ke `docs/LABELS.md` dan
   berkas ini.
-- `.github/pull_request_template.md` — bagian `Why`, `What changed`, `Linked
-issue`, `Acceptance criteria`, `How to test`, `Risk and rollback`, `Evidence`,
-  `Notes`; wajib `Fixes #<n>` ke issue `ready`/`bot-implement` dan kriteria
+- `.github/pull_request_template.md` — bagian `Mengapa`, `Yang diubah`,
+  `Issue tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko`,
+  `Catatan`; wajib `Fixes #<n>` ke issue `ready`/`bot-implement` dan kriteria
   penerimaan yang disalin sebagai kotak centang. Bagian `HUMAN`/`AGENT` dan
   `Type` dihapus pada 2026-11-09 (#965): tipe sudah datang dari label issue.
+  Judul bagian diganti ke Bahasa Indonesia pada 2026-11-10 (#982); guard
+  menerima nama Indonesia maupun nama Inggris lama.
 
 Tautan yang menjaganya jujur (polanya dari OpenHands upstream, yang memakai
 label `ready-for-dev`; di repo ini `ready`/`bot-implement`): **sebuah issue
@@ -96,8 +98,8 @@ Dipilih **gate keras pada job `template`**:
   `pull_request_target` (PR fork tetap bisa dikomentari; tidak ada kode PR yang
   di-checkout):
   - job **template** **gagal** selama deskripsi belum lengkap:
-    `Why`/`What changed`/`How to test`/`Acceptance criteria`, `Risk and
-rollback` pada PR berisiko, minimal satu `Fixes #<n>` dengan **setiap**
+    `Mengapa`/`Yang diubah`/`Cara menguji`/`Kriteria penerimaan`, `Risiko`
+    pada PR berisiko, minimal satu `Fixes #<n>` dengan **setiap**
     nomor berupa issue terbuka berlabel `ready`/`bot-implement` (PR tanpa issue
     gagal, #772), PR menuju cabang default, dan prosa Bahasa Indonesia.
     Dependabot saja yang dilewati, berdasarkan penulis PR;
@@ -111,7 +113,8 @@ rollback` pada PR berisiko, minimal satu `Fixes #<n>` dengan **setiap**
   pola yang sama dengan guard lain.
 
 Gate ini mengikuti pola OpenHands upstream (bagian Why/Summary/How to test dan
-issue `ready-for-dev`); di repo ini issue-nya berlabel `ready`/`bot-implement`.
+issue `ready-for-dev`); di repo ini issue-nya berlabel `ready`/`bot-implement`
+dan judul bagiannya Bahasa Indonesia (`Mengapa`/`Yang diubah`/`Cara menguji`).
 
 ### Issue bug yang datang tidak lengkap (`Reproduksi bug`)
 
