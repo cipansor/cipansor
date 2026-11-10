@@ -45,11 +45,12 @@ img_re='user-images\.githubusercontent\.com|private-user-images\.githubuserconte
 # pair. It is the label at the start of a line, not the word anywhere: matching it
 # anywhere split the body on a sentence such as "... after it passes" under
 # `## Cara menguji`, hiding a real before/after pair.
-# The word must end the line or be followed by punctuation, never by a space and
-# more words: a bullet *sentence* (`- Sesudah pengujian, periksa layar`) would
-# otherwise split the body before the visuals, read both images as "after", and
-# keep the reminder up on a complete pair (#983 review).
-marker='^[[:space:]]*([-*+][[:space:]]+)?(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([[:space:]]*$|[[:space:]]*[^[:alnum:]_[:space:]])'
+# The word must end the line, be followed by punctuation, or be followed by a
+# bare image URL that ends the line — never by a space and more words: a bullet
+# *sentence* (`- Sesudah pengujian, periksa layar`) would otherwise split the
+# body before the visuals, read both images as "after", and keep the reminder up
+# on a complete pair (#983 review).
+marker='^[[:space:]]*([-*+][[:space:]]+)?(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([[:space:]]*$|[[:space:]]*[^[:alnum:]_[:space:]]|[[:space:]]*(https?://|www\.)[^[:space:]]*[[:space:]]*$)'
 before_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) exit; print }')
 after_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) f = 1; if (f) print }')
 has_before=0

@@ -642,6 +642,39 @@ describe('visual-evidence.sh', () => {
     expect(calls).not.toContain('COMMENT');
   });
 
+  it('is silent when each side is a bare image URL after the label', () => {
+    // `After https://…` (no Markdown, no colon) is a legitimate marker; the
+    // marker used to skip it because a letter follows the space, so both URLs
+    // fell into the before region and a complete pair still got the reminder
+    // (#983 review).
+    const body =
+      'Before https://user-images.githubusercontent.com/1/1.png\n' +
+      'After https://user-images.githubusercontent.com/1/2.png';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('is silent on the Indonesian bare-URL pair behind list bullets', () => {
+    const body =
+      '- Sebelum https://user-images.githubusercontent.com/1/1.png\n' +
+      '- Sesudah https://user-images.githubusercontent.com/1/2.png';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('still asks when a bare-URL body has only the after side', () => {
+    const body = 'After https://user-images.githubusercontent.com/1/2.png';
+    const { status, calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(status).toBe(0);
+    expect(calls).toContain('COMMENT');
+  });
+
   it('does not split on "after" inside a sentence before the visuals', () => {
     // A `## Cara menguji` line such as "... after it passes" used to split the
     // body at that line, hiding a real before/after pair (#982).
