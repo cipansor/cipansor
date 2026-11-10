@@ -1,0 +1,51 @@
+# Flag an open issue as a duplicate of another open issue with the same
+# normalised title, then let `duplicate-sweep.yml` own the warn-and-close.
+#
+# The duplicate lifecycle was half deterministic: `duplicate-sweep.sh` enforced
+# the close, but *noticing* a duplicate was one instruction inside the `Triase
+# issue` prompt (`SDLC 15`). A family no triage run noticed stayed open until a
+# person closed it by hand — which is what happened to the deploy-watch family
+# (#944, #957 closed by hand; #958 sat open a day). This workflow is the missing
+# deterministic detector.
+#
+# It runs on `issues.opened` so a repeat is caught the moment it is filed, and
+# daily so a pair that became duplicates later (a reopened issue) is not missed.
+# It only ever labels: closing is `duplicate-sweep.sh`'s job, after a warning and
+# a grace period, and a maintainer's label removal cancels both.
+#
+# The rules live in `.github/scripts/duplicate-detect.sh` so they can be run by
+# hand.
+name: Duplicate detect
+
+on:
+  issues:
+    types: [opened]
+  schedule:
+    - cron: '15 1 * * *'   # 08:15 Asia/Jakarta, daily (before duplicate-sweep at :30)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: duplicate-detect-${{ github.event.issue.number || 'sweep' }}
+  cancel-in-progress: false
+
+jobs:
+  detect:
+    name: Flag a same-title duplicate
+    # A fork inherits this file; its issues must not be labelled here.
+    if: github.repository == 'cipansor/cipansor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Label an open issue that duplicates another open issue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: sh .github/scripts/duplicate-detect.sh

@@ -98,7 +98,14 @@ sync` workflow adds anything missing and **fails the check** when the type
 
 4. **A duplicate closes itself.** `Triase issue` applies `duplicate` to an issue and
    links the original; the same detection on a pull request applies
-   `duplicate-pr`. For an **issue**, the `Duplicate sweep` workflow warns once —
+   `duplicate-pr`. The deterministic half of the detection is the `Duplicate
+   detect` workflow: when two **open** issues share a title once normalised
+   (lowercased, whitespace collapsed, trailing punctuation dropped, long digit
+   runs masked), it labels the newer one `duplicate` and links the earlier one —
+   it never closes anything itself, and a title whose only same-titled sibling is
+   closed is not a duplicate (a recurrence after a fix is a regression, not a
+   repeat). It labels an issue at most once, so a maintainer who removes the
+   label has the last word. For an **issue**, the `Duplicate sweep` workflow warns once —
    recording a hash of the description — then closes it after seven days unless
    it is shown to be distinct: the description changed since the warning, or a
    person replied — or a maintainer removes the label. An automated comment, and
@@ -222,6 +229,7 @@ sync` workflow adds anything missing and **fails the check** when the type
 | `Tiket jadi PR`     | issue labelled `bot-implement`                 | tidak ada — ia membuka PR                                          |
 | `Penjernih issue`   | comment on a `needs-info` issue                | `needs-info` ↔ `ready`, `duplicate`, `invalid`                     |
 | `Issue label sync`  | PR opened / issue relabeled                     | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`) |
+| `duplicate-detect.sh` | issue opened / jadwal harian                  | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan |
 | `pr-duplicate.sh`   | jadwal harian                                   | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama |
 | `stale-sweep.sh`    | jadwal harian                                   | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`) |
 | `Gerbang tinjau PR` | PR ready for review, or CI-green dispatch      | tidak ada — ia meninjau atau menyetujui                            |
@@ -231,7 +239,8 @@ sync` workflow adds anything missing and **fails the check** when the type
 | `Pengawas armada`   | daily cron                                     | `automation-health` pada laporannya                                |
 
 The deterministic consequences are GitHub Actions workflows
-(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-sweep.yml`,
+(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-detect.yml`,
+`duplicate-sweep.yml`,
 `stale-sweep.yml`, `gate-watch.yml`, `docs-drift.yml`, `label-guard.yml`,
 `basmalah.yml`,
 `acknowledge.yml`, `issue-triage-bridge.yml`), not automations: they must fire every time and cost
