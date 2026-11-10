@@ -617,6 +617,31 @@ describe('visual-evidence.sh', () => {
     expect(calls).not.toContain('COMMENT');
   });
 
+  it('does not split on a bullet sentence that merely starts with "Sesudah"', () => {
+    // A test step written as `- Sesudah pengujian, periksa layar` used to match
+    // the list-bullet marker, split the body before the visuals, and read both
+    // images as "after" — a complete pair still got the reminder (#983 review).
+    const body =
+      '- Sesudah pengujian, periksa layar dashboard.\n\n' +
+      '- **Sebelum** ![old](https://user-images.githubusercontent.com/1/1.png)\n' +
+      '- **Sesudah** ![new](https://user-images.githubusercontent.com/1/2.png)';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('does not split on a plain sentence that merely starts with "After"', () => {
+    const body =
+      'After the deploy finishes, check the dashboard.\n\n' +
+      'Before: ![old](https://user-images.githubusercontent.com/1/1.png)\n' +
+      'After: ![new](https://user-images.githubusercontent.com/1/2.png)';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
   it('does not split on "after" inside a sentence before the visuals', () => {
     // A `## Cara menguji` line such as "... after it passes" used to split the
     // body at that line, hiding a real before/after pair (#982).

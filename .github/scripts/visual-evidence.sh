@@ -42,10 +42,14 @@ img_re='user-images\.githubusercontent\.com|private-user-images\.githubuserconte
 # Indonesian `Sesudah`), optionally behind a Markdown list bullet (`- **After**`,
 # `* Sesudah`) — the list form is what the reminder text below and most bodies
 # use, so leaving it out kept the reminder up on a body that already had the
-# pair. It is the word at the start of a line, not the word anywhere: matching it
+# pair. It is the label at the start of a line, not the word anywhere: matching it
 # anywhere split the body on a sentence such as "... after it passes" under
 # `## Cara menguji`, hiding a real before/after pair.
-marker='^[[:space:]]*([-*+][[:space:]]+)?(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([^[:alnum:]_]|$)'
+# The word must end the line or be followed by punctuation, never by a space and
+# more words: a bullet *sentence* (`- Sesudah pengujian, periksa layar`) would
+# otherwise split the body before the visuals, read both images as "after", and
+# keep the reminder up on a complete pair (#983 review).
+marker='^[[:space:]]*([-*+][[:space:]]+)?(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([[:space:]]*$|[[:space:]]*[^[:alnum:]_[:space:]])'
 before_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) exit; print }')
 after_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) f = 1; if (f) print }')
 has_before=0
