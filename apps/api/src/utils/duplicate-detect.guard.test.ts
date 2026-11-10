@@ -129,6 +129,12 @@ const unlabeledBy = (logins: string[]) =>
     logins.map((login) => ({ event: 'unlabeled', label: { name: 'duplicate' }, actor: { login } }))
   );
 
+// A label-history event list: one `{ event, login }` per entry, in order.
+const events = (rows: Array<{ event: string; login: string }>) =>
+  JSON.stringify(
+    rows.map((r) => ({ event: r.event, label: { name: 'duplicate' }, actor: { login: r.login } }))
+  );
+
 describe('duplicate-detect.sh', () => {
   it('labels the newest issue when two open issues share a normalised title', () => {
     const { out, calls } = run({
@@ -362,6 +368,104 @@ describe('duplicate-detect.sh', () => {
     expect(calls.split('--remove-label').length - 1).toBe(2);
     expect(out).toContain('::error::');
     expect(out).toContain('could not remove the label either');
+  });
+
+  it('re-applies the label (without a second comment) when a human removed it after linking', () => {
+    // The link comment (marker) is present, so the detector already ran. A human
+    // removed the label; that is not a verdict, so the label comes back — but the
+    // comment is kept, so no second link is posted.
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_COMMENTS: JSON.stringify([{ body: 'see #800 <!-- duplicate-detect -->' }]),
+      GH_STUB_EVENTS: events([
+        { event: 'labeled', login: 'cipansor-bot' },
+        { event: 'unlabeled', login: 'someone' },
+      ]),
+    });
+    expect(calls).toContain('--add-label duplicate');
+    expect(calls).not.toContain('COMMENT');
+    expect(out).toContain('Re-applied the duplicate label on #958');
+  });
+
+  it('re-applies the label when github-actions[bot] removed it after linking', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_COMMENTS: JSON.stringify([{ body: 'see #800 <!-- duplicate-detect -->' }]),
+      GH_STUB_EVENTS: events([
+        { event: 'labeled', login: 'cipansor-bot' },
+        { event: 'unlabeled', login: 'github-actions[bot]' },
+      ]),
+    });
+    expect(calls).toContain('--add-label duplicate');
+    expect(calls).not.toContain('COMMENT');
+    expect(out).toContain('Re-applied the duplicate label on #958');
+  });
+
+  it('leaves the issue alone when it is linked and no removal is recorded', () => {
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_COMMENTS: JSON.stringify([{ body: 'see #800 <!-- duplicate-detect -->' }]),
+      GH_STUB_EVENTS: events([{ event: 'labeled', login: 'cipansor-bot' }]),
+    });
+    expect(calls).not.toContain('LABEL');
+    expect(out).toContain('#958 was already linked');
+  });
+
+  it('re-detects after the detector’s own rollback (trusted label then unlabel, no marker)', () => {
+    // The comment failed and the label was rolled back by the trusted account in
+    // one run. There is no marker, so the trusted `labeled`+`unlabeled` pair is
+    // the detector's own rollback, not a maintainer's verdict: the issue is
+    // labelled again on the next sweep.
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_EVENTS: events([
+        { event: 'labeled', login: 'cipansor-bot' },
+        { event: 'unlabeled', login: 'cipansor-bot' },
+      ]),
+    });
+    expect(calls).toContain('--add-label duplicate');
+    expect(out).toContain('Labelled #958');
+  });
+
+  it('honours a trusted removal that was not a rollback even without a marker', () => {
+    // A trusted `unlabeled` that does not directly follow a trusted `labeled` is
+    // a maintainer's verdict, so the issue is left alone.
+    const { out, calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_EVENTS: events([
+        { event: 'labeled', login: 'cipansor-bot' },
+        { event: 'unlabeled', login: 'someone' },
+        { event: 'unlabeled', login: 'cipansor-bot' },
+      ]),
+    });
+    expect(calls).not.toContain('LABEL');
+    expect(out).toContain('pernah dicabut cipansor-bot');
+  });
+
+  it('uses the configured trusted account in the link comment', () => {
+    const { calls } = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      DUPLICATE_DETECT_TRUSTED_ACTOR: 'trusted-ops',
+    });
+    expect(calls).toContain('trusted-ops');
   });
 
   it('warns and does nothing when the issue index cannot be read', () => {
