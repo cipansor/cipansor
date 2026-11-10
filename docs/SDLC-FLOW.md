@@ -52,7 +52,7 @@ pertentangan itu dilaporkan sebagai issue.
 1. **Event dulu, jadwal hanya bila tidak ada event.** Pekerjaan yang dipicu
    sesuatu (issue dibuka, PR hijau, deploy selesai, CI gagal di `main`)
    berjalan pada event itu. Cron hanya untuk pekerjaan yang memang berkala:
-   pemburu bug, pemindai standar, pemindai celah uji, catatan rilis, audit
+   pemburu bug, pemindai standar, pemindai celah uji, audit
    kematangan, dan pengawas armada.
 2. **Penilaian oleh agen, konsekuensi pasti oleh Actions.** Apa pun yang harus
    menyala tepat waktu, dapat diuji, dan tidak memakan token (jembatan,
@@ -424,8 +424,10 @@ hanya berubah lewat PR yang disetujui maintainer.
 **Urutan pekerjaan** (satu issue per butir, lalu PR sesuai templat; tiap
 butir mengikuti aturan emas di `AGENTS.md`):
 
-1. **Maintainer** mematikan cron cloud `Penjaga issue` dan `Uji beban` di
-   `app.all-hands.dev`.
+1. ~~**Maintainer** mematikan cron cloud `Penjaga issue` dan `Uji beban` di
+   `app.all-hands.dev`.~~ **SELESAI 2026-11-09**: keduanya sudah nonaktif —
+   `Penjaga issue` (SDLC 21) diport ke `stale-sweep.yml`, `Uji beban` (SDLC 11)
+   pindah ke `load-tests.yml`.
 2. **Pengawas gerbang tinjau** (Actions, `gate-watch.yml` #776): PR ready dan
    seluruh check gerbangnya hijau (hadir lengkap, set yang sama dengan
    `pr-lifecycle`) tanpa review gerbang pada head itu lebih dari 60 menit → satu issue
@@ -498,7 +500,7 @@ flowchart TB
     R --> C6["Tiket jadi PR"]:::cloud --> DPR([Draft PR])
     MENT(["komentar @cipansor-bot"]):::human -. "penulis terpercaya" .-> C7["Bot sebutan"]:::cloud
     C7 -. "tugas kode" .-> BOT(["issue + bot-implement"]):::cloud -.-> C6
-    DPR --> C17["Pelabel PR"]:::cloud
+    DPR --> C17["issue-label-sync.yml (deterministik)"]:::gh
     DPR --> C8["Peninjau kode"]:::cloud
     DPR --> C4["Peninjau arsitektur"]:::cloud
     DPR --> RDY(["Ditandai siap ditinjau"]):::human
@@ -569,7 +571,7 @@ flowchart TD
   classDef gh fill:#fff4e5,stroke:#f59e0b,color:#111;
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
-  DPR([Draft PR]) --> C17["Pelabel PR"]:::cloud
+  DPR([Draft PR]) --> C17["issue-label-sync.yml (deterministik)"]:::gh
   DPR --> C8["Peninjau kode (inline + suggestion)"]:::cloud
   DPR --> C4["Peninjau arsitektur (bila design/ADR)"]:::cloud
   DPR --> RDY(["Ditandai siap ditinjau"]):::human
@@ -600,10 +602,10 @@ flowchart LR
   classDef gh fill:#fff4e5,stroke:#f59e0b,color:#111;
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
-  MG([Merge ke main]) --> C3["Peta basis kode"]:::cloud
+  MG([Merge ke main]) --> C3["docs-drift.yml (deterministik)"]:::gh
   MG --> C14["Pengelola dokumentasi"]:::cloud
   MG --> STG["deploy-staging.yml"]:::gh
-  STG --> PROD["deploy-production.yml (manual)"]:::human
+  STG --> PROD["deploy-production.yml (push tag vX.Y.Z)"]:::gh
 
   STG -. selesai .-> DW["deploy-watch.yml → issue deploy-watch"]:::gh
   PROD -. selesai .-> DW
@@ -637,7 +639,11 @@ flowchart TD
 | 08:30 tanggal 1 | Audit kematangan      | menilai 18 item → satu issue                                    |
 
 Actions terjadwal: `duplicate-sweep` (harian 01:30 UTC = 08:30 WIB,
-menutup issue atau PR duplikat 7 hari setelah peringatan), `gate-watch`
+menutup issue `duplicate` 7 hari setelah peringatan — PR hanya dilabeli
+`duplicate-pr` sebagai kandidat, tidak pernah ditutup), `stale-sweep`
+(harian 18:30 UTC = 01:30 WIB, port deterministik `Penjaga issue`:
+`needs-info`/`question`/lain-lain menua lalu ditutup), `docs-drift`
+(harian 21:41 UTC, menyegarkan badan issue induk #782), `gate-watch`
 (tiap jam, menit ke-23: PR siap yang hijau lebih dari 60 menit tanpa review
 gerbang pada head-nya didispatch ulang — maksimum 3 kali per head, dan tidak
 saat run gerbang sebelumnya masih berjalan — lalu dicatat), dan
@@ -651,12 +657,14 @@ Catatan rilis ditulis maintainer di body Release saat memotong tag; tidak ada
 berkas CHANGELOG di repositori, dan tidak ada lagi automation yang memotong
 kandidat mingguan.
 
-Yang **sengaja tidak ada** (diputuskan 2026-10-10): tidak ada penutupan issue
-berdasarkan umur — issue yang menunggu keputusan yayasan atau rilis memang
-lama, dan stale bot menutupnya tanpa ada yang menyelesaikan; tidak ada uji
-beban terjadwal — tanpa lalu lintas nyata, run berkala mengukur staging yang
-sama-sama sepi; tidak ada pantauan metrik terjadwal sebelum ada pengguna
-nyata.
+Yang **sengaja tidak ada** (diputuskan 2026-10-10, direvisi 2026-11-09): tidak
+ada uji beban terjadwal — tanpa lalu lintas nyata, run berkala mengukur staging
+yang sama-sama sepi; tidak ada pantauan metrik terjadwal sebelum ada pengguna
+nyata. Penutupan issue berdasarkan umur dulu termasuk daftar ini, tetapi
+**dihidupkan kembali 2026-11-09 sebagai GitHub Action deterministik**
+(`stale-sweep.yml`), bukan automation LLM: keputusannya label + stempel waktu,
+dan bentuk lamanya (sandbox 1800 detik untuk itu) justru yang menjeda armada.
+Timer dan pengecualiannya sama seperti `Penjaga issue` dulu.
 
 ## Peran — siapa berbuat sebagai siapa
 

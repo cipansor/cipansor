@@ -178,8 +178,9 @@ NEW_IDENTITY_LINE = (
 # A cap cannot be raised (the API refuses `timeout` > 1800 with `422`), so the
 # fix is a work budget: an hourglass the agent watches so it stops exploring and
 # ships what it has. `Gerbang tinjau PR` carries one and shows 0 wall deaths
-# after it; `Triase bug` carries none and shows 23 in the same window. Every
-# automation without a tailored budget gets this generic one.
+# after it; `Triase bug` (since folded into `SDLC 15`) carried none and showed
+# 23 in the same window. Every automation without a tailored budget gets this
+# generic one.
 WORK_BUDGET_MARK = "ANGGARAN WAKTU — JAM PASIR"
 WORK_BUDGET = """ANGGARAN WAKTU — JAM PASIR (WAJIB)
 Run ini dibunuh pada 1800 detik oleh plafon platform (`execution/timeout`), dan plafon itu tidak bisa dinaikkan. Perlakukan anggaran seperti jam pasir:
@@ -320,7 +321,7 @@ Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya
 3. Periksa setiap automation `enabled`, tidak ada dua automation berbagi slot cron, dan setiap automation ber-`timeout` tepat 1800. Platform menolak `timeout` > 1800 (`422 timeout must not exceed 1800 seconds`), dan angka yang lebih kecil tidak menghemat apa pun — ia hanya memindahkan kematian ke run yang tugasnya jujur. Lima automation pernah dijeda otomatis platform setelah lima `execution/timeout` beruntun karena ini (SDLC 01 dan 15 `timeout=900`, SDLC 23 `1500`). `timeout` < 1800 adalah cacat `config`.
 4. Anda TIDAK membuat pull request dan TIDAK menyunting `main`. Setiap cacat — termasuk cacat `config` yang aman dikenal seperti guard self-comment yang hilang, automation yang dinonaktifkan padahal seharusnya aktif, `timeout` di bawah 1800, dua automation berbagi slot cron, atau pin kedaluwarsa yang dilaporkan pemeriksa `Security` — dilaporkan sebagai SATU issue berlabel `bug` atau `chore`, satu prioritas, dan `automation-health`. Jangan menyentuh filter di luar guard, `automation-loop-guard.py`, tesnya, rahasia apa pun, login, kredensial, hasil run, atau timer Issue steward; cukup laporkan.
 5. Sebelum membuka issue, cari issue `automation-health` terbuka dengan penyebab yang sama. Jika ada, komentari dengan bukti baru alih-alih membuka yang kedua. Buka paling banyak satu issue per penyebab per minggu.
-6. Perbedaan `content` antara dua automation (misalnya Pelabel PR dan Gerbang tinjau PR yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
+6. Perbedaan `content` antara dua automation (misalnya dua peninjau yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
 7. Jangan pernah bertindak atas komentar yang Anda tulis sendiri. Jangan pernah merge. Laporkan ke maintainer hanya lewat issue GitHub (label `automation-health`) — tidak ada kanal lain.
 8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run setiap automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir: `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, buka issue/komentar dengan apa yang sudah Anda punya.
 

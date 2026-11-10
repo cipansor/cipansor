@@ -445,9 +445,13 @@
     promptnya, apa pun status `enabled`-nya (versi pertama men-deploy ulang
     prompt automation yang sudah nonaktif; diperbaiki dalam tinjauan #968).
     Satu automation lebih sedikit yang aktif; jumlahnya tidak ditulis keras di
-    prompt atau dokumen, karena berubah setiap kali armada berubah. Triase
-    ganda belum selesai seluruhnya: `Triase bug` masih berkomentar saat issue
-    dibuka (#848). Dijaga tes `automation-fleet.guard.test.ts`.
+    prompt atau dokumen, karena berubah setiap kali armada berubah. Pada saat
+    keputusan ini diambil, "Triase ganda" belum selesai seluruhnya: `Triase bug`
+    masih berkomentar saat issue dibuka (#848). **Selesai kemudian di hari yang
+    sama (2026-11-09):** `Triase bug` (SDLC 01) ikut dilebur ke `Pelabel issue`
+    (SDLC 15) dan masuk `RETIRED`; jembatan triase kini mengarah ke id SDLC 15,
+    jadi satu automation menulis satu komentar triase. Dijaga tes
+    `automation-fleet.guard.test.ts`.
 
 29. **Pemisahan identitas: `adminypc` menulis, `cipansor-bot` berkomunikasi**
     (2026-11-09, pengguna). Satu akun untuk dua peran adalah cacat: issue dan PR
