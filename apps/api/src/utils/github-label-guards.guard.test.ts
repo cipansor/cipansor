@@ -133,7 +133,25 @@ describe('duplicate-sweep.sh', () => {
       GH_STUB_BODY: BODY,
     });
     expect(calls).not.toContain('CLOSE 7');
-    expect(out).toContain('reply after the warning');
+    expect(out).toContain('reply after it was flagged as a duplicate');
+  });
+
+  it('keeps a duplicate open when a person replied after the link, before the warning', () => {
+    // The detector writes the link comment before the label, so a person may
+    // reply after the link but before the sweep's warning. That reply must
+    // still keep the issue open — counting only from the warning closed on top
+    // of it. Cross-two-sweeps: the link landed one sweep, the label the next.
+    const { out, calls } = run(SWEEP, {
+      GH_STUB_ISSUE_LIST: '7',
+      GH_STUB_COMMENTS: [
+        `2019-12-31T00:00:00Z\tcipansor-bot\tFlagged as a duplicate <!-- duplicate-detect -->`,
+        `2020-01-01T12:00:00Z\treporter\tIt is not a duplicate because Z`,
+        warningLine,
+      ].join('\n'),
+      GH_STUB_BODY: BODY,
+    });
+    expect(calls).not.toContain('CLOSE 7');
+    expect(out).toContain('reply after it was flagged as a duplicate');
   });
 
   it('still closes when only the automation account commented after the warning', () => {
@@ -179,7 +197,7 @@ describe('duplicate-sweep.sh', () => {
       GH_STUB_BODY: BODY,
     });
     expect(calls).toContain('--paginate');
-    expect(out).toContain('reply after the warning');
+    expect(out).toContain('reply after it was flagged as a duplicate');
     expect(calls).not.toContain('CLOSE 7');
   });
 

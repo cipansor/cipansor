@@ -116,7 +116,9 @@ sync` workflow adds anything missing and **fails the check** when the type
    an **issue**, the `Duplicate sweep` workflow warns once —
    recording a hash of the description — then closes it after seven days unless
    it is shown to be distinct: the description changed since the warning, or a
-   person replied — or a maintainer removes the label. An automated comment, and
+   person replied after the issue was flagged as a duplicate (from the
+   detector's link comment when there is one, so a reply between the link and
+   the label still counts) — or a maintainer removes the label. An automated comment, and
    any comment from a bot account, does not count as a reply. A warning that
    carries no description hash (an older one, or one edited by hand) cannot be
    checked for an edit, so the sweep leaves that item open for a maintainer
