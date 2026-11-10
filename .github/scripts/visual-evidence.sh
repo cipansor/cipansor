@@ -13,7 +13,7 @@
 #
 # The split is anchored on a line that IS a marker (`**After**`, `## After`,
 # `After:`, or the Indonesian `Sesudah`), not on the word "after" anywhere: a
-# sentence under `## How to test` that happens to contain "after" used to split
+# sentence under `## Cara menguji` that happens to contain "after" used to split
 # the body and hide a valid Before/After pair.
 #
 # Usage: visual-evidence.sh <pr-number>
