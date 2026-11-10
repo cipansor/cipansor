@@ -320,15 +320,30 @@ describe('release-gate.sh', () => {
     expect(out).toContain('could not read the repository permission');
   });
 
-  it('does not require an admin actor for a rollback dispatch', () => {
-    // A rollback has no tag; `workflow_dispatch` already requires write access.
-    const { status } = run({
+  it('refuses a rollback dispatch by an actor without admin permission', () => {
+    // A rollback has no tag, but `workflow_dispatch` needs only write access —
+    // the same permission the gate refuses for a tag push — and it changes what
+    // production runs. So the maintainer check applies here too: without it a
+    // writer could roll production back to any old `main` SHA.
+    const { status, out } = run({
       SHA: onMain,
       MODE: 'rollback',
       ACTOR: 'outsider',
       GH_STUB_ACTOR_PERM: 'write',
     });
+    expect(status).not.toBe(0);
+    expect(out).toContain('only a maintainer (admin) may roll back production');
+  });
+
+  it('allows a rollback dispatch by a maintainer', () => {
+    const { status, out } = run({
+      SHA: onMain,
+      MODE: 'rollback',
+      ACTOR: 'maint',
+      GH_STUB_ACTOR_PERM: 'admin',
+    });
     expect(status).toBe(0);
+    expect(out).toContain('Rollback was triggered by maintainer');
   });
 
   it('refuses a release tag pointing at a commit off main', () => {

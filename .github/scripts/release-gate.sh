@@ -66,17 +66,21 @@ case "$MODE" in
   *) fail "MODE must be 'release' or 'rollback', got '$MODE'" ;;
 esac
 
-# --- 0. a maintainer pushed the tag -------------------------------------------
-# A release is the maintainer's call, and the tag is that call. But any account
-# with write access can push a `v*` tag, and this repository protects only the
-# `main` branch — there is no tag ruleset and the `production` environment
-# requires no reviewer. Without this check a collaborator with plain write access
-# could trigger a production deploy of any staging-built SHA. So the gate reads
-# the actor who triggered the run back from the API and requires admin
-# permission on the repository. It applies to a tag push only: a rollback is a
-# `workflow_dispatch`, which already requires write access.
+# --- 0. a maintainer triggered the run ----------------------------------------
+# Releasing production is the maintainer's call. But any account with write
+# access can push a `v*` tag, and this repository protects only the `main`
+# branch — there is no tag ruleset and the `production` environment requires no
+# reviewer. Without this check a collaborator with plain write access could
+# trigger a production deploy of any staging-built SHA. So the gate reads the
+# actor who triggered the run back from the API and requires admin permission on
+# the repository.
+# It applies to both paths. A rollback is a `workflow_dispatch`, which needs
+# only write access — the very permission this gate refuses for a tag push — and
+# it changes what production runs just as a release does. Leaving it unchecked
+# let a writer roll production back to any old `main` SHA, which, with
+# forward-only migrations, can also leave the schema mismatched.
 ACTOR="${ACTOR:-}"
-if [ -n "$TAG" ] && [ -n "$ACTOR" ]; then
+if [ -n "$ACTOR" ]; then
   ACTOR_PERM=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" \
     --jq '.permission // empty' 2>/dev/null || true)
   if [ -z "$ACTOR_PERM" ]; then
@@ -86,9 +90,17 @@ if [ -n "$TAG" ] && [ -n "$ACTOR" ]; then
       fail "could not read the repository permission of actor '$ACTOR' (missing token, or the account is gone)."
     fi
   elif [ "$ACTOR_PERM" != "admin" ]; then
-    fail "tag '$TAG' was pushed by '$ACTOR' ($ACTOR_PERM permission); only a maintainer (admin) may release."
+    if [ -n "$TAG" ]; then
+      fail "tag '$TAG' was pushed by '$ACTOR' ($ACTOR_PERM permission); only a maintainer (admin) may release."
+    else
+      fail "rollback was triggered by '$ACTOR' ($ACTOR_PERM permission); only a maintainer (admin) may roll back production."
+    fi
   else
-    echo "Tag $TAG was pushed by maintainer $ACTOR."
+    if [ -n "$TAG" ]; then
+      echo "Tag $TAG was pushed by maintainer $ACTOR."
+    else
+      echo "Rollback was triggered by maintainer $ACTOR."
+    fi
   fi
 fi
 

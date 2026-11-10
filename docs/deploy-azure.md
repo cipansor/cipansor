@@ -138,9 +138,11 @@ from the backup, as the VM runbook describes, not on staging.
 4. **Rollback** — `workflow_dispatch` is kept for this one case: dispatch
    `deploy-production.yml` with the previous release's SHA. The gate runs in
    `MODE=rollback`, which skips the staging and load-test checks by design — a
-   rollback target is by definition a commit staging no longer serves. One
-   condition remains: the SHA must be a commit `main` carried, so a dispatch
-   cannot point production at code no release ever approved. `deploy` still
+   rollback target is by definition a commit staging no longer serves. Two
+   conditions remain: the SHA must be a commit `main` carried, so a dispatch
+   cannot point production at code no release ever approved, and the actor must
+   have admin permission — as on the tag path, since `workflow_dispatch` needs
+   only write access and a rollback changes what production runs. `deploy` still
    refuses a SHA whose images were never built. Migrations are
    forward-only; a release that changes the schema is rolled back by restoring
    the database from the backup in step 3.2.

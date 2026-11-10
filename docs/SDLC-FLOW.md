@@ -414,10 +414,12 @@ hanya berubah lewat PR yang disetujui maintainer.
    dispatch `deploy-production.yml` dengan SHA rilis sebelumnya. Gerbang berjalan
    dalam mode `rollback`, yang melewatkan cek staging dan k6 dengan sengaja:
    target rollback menurut definisinya adalah commit yang sudah tidak disajikan
-   staging. Tetap ada satu syarat: SHA itu harus commit yang pernah ada di
+   staging. Dua syarat tetap ada: SHA itu harus commit yang pernah ada di
    `main`, supaya dispatch tidak bisa mengarahkan produksi ke kode yang tak
-   pernah disetujui rilis mana pun. `deploy` juga tetap menolak SHA yang
-   image-nya tak pernah dibangun.
+   pernah disetujui rilis mana pun, dan pelakunya harus ber-permission admin —
+   sama seperti jalur tag, sebab `workflow_dispatch` hanya menuntut akses tulis,
+   dan rollback mengubah apa yang dijalankan produksi. `deploy` juga tetap
+   menolak SHA yang image-nya tak pernah dibangun.
    Migrasi bersifat maju-saja; rollback yang mengubah skema dipulihkan dari
    cadangan langkah 5.
 

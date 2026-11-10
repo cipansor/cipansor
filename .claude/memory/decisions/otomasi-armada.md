@@ -535,6 +535,28 @@
     kata untuk satu pekerjaan). Dijaga tes `automation-fleet.guard.test.ts`
     (nama di skrip, ketiadaan nama lama di dokumen, dan idempotensi rename).
 
+33. **Cek maintainer berlaku juga untuk mode `rollback`** (2026-11-10, temuan
+    gerbang tinjauan pada PR #972, putaran ke-3; pilihan maintainer #1).
+    `.github/scripts/release-gate.sh` menjalankan cek permission aktor hanya
+    bila `[ -n "$TAG" ]`, sehingga pada `workflow_dispatch` (rollback) `TAG`
+    kosong dan cek itu dilewati. Justifikasinya ("`workflow_dispatch` sudah
+    menuntut akses tulis") adalah alasan yang **persis sama** yang gerbang tolak
+    untuk jalur tag — di sana ia menuntut `admin`. Karena repo tak punya ruleset
+    tag dan environment `production` tak menuntut reviewer, kolaborator
+    ber-akses tulis dapat memicu rollback ke SHA `main` lama mana pun dan
+    memundurkan produksi tanpa persetujuan maintainer; dengan migrasi maju-saja,
+    itu juga bisa meninggalkan skema tak cocok.
+    Perbaikan: syarat `[ -n "$TAG" ]` dibuang (cek jalan bila `ACTOR` terisi),
+    pesan `fail` bercabang antara "may release" dan "may roll back production",
+    komentar blok `0.` dan komentar `deploy-production.yml` diperbarui; tes
+    "does not require an admin actor for a rollback dispatch" dibalik menjadi
+    penolakan (`refuses a rollback dispatch by an actor without admin
+    permission`) plus tes positif untuk maintainer. `ACTOR` sudah diisi
+    `${{ github.actor }}` untuk kedua peristiwa, jadi tak ada perubahan
+    workflow. Alternatif yang tidak dipilih: memasang required reviewers pada
+    environment `production` (butuh admin, di luar PR). `docs/SDLC-FLOW.md` dan
+    `docs/deploy-azure.md` diperbarui agar syarat ini eksplisit.
+
 ## Sumber
 
 - Google SRE, "Monitoring Distributed Systems" —
