@@ -3,7 +3,8 @@ import api, { PaginatedResponse, ApiResponse } from "@/lib/api";
 import {
   STUDENT_STATUS,
   type StudentStatus,
-  type ClassEnrollmentStatus,
+  type StudentRewardSummary,
+  type StudentViolationSummary,
 } from "@cipansor/shared";
 
 // Types
@@ -334,25 +335,6 @@ export function useStudentsByClass(classId: string) {
 }
 
 /**
- * Export students to Excel
- */
-export function useExportStudents() {
-  return useMutation({
-    mutationFn: async (params: {
-      unitId?: string;
-      classId?: string;
-      status?: string;
-    }) => {
-      const response = await api.get("/students/export", {
-        params,
-        responseType: "blob",
-      });
-      return response.data;
-    },
-  });
-}
-
-/**
  * Luluskan santri dari unitnya sekarang.
  *
  * Satu-satunya jalur yang juga menulis baris Alumni, menyelesaikan rombel unit
@@ -445,51 +427,34 @@ export function useStudentCompleteProfile(studentId: string) {
   });
 }
 
-/** A santri's behaviour record as the two summaries return it. */
+/** A santri's behaviour record, from the two per-santri summaries. */
 export interface StudentBehaviorStats {
   violationPoints: number;
   rewardPoints: number;
   totalViolations: number;
   totalRewards: number;
-  recentViolations: Array<{
-    id: string;
-    category: string;
-    type: string;
-    occurredAt: string;
-    points: number;
-  }>;
-  recentRewards: Array<{
-    id: string;
-    category: string;
-    givenAt: string;
-    points: number;
-  }>;
+  recentViolations: StudentViolationSummary["recentViolations"];
+  recentRewards: StudentRewardSummary["recentRewards"];
 }
 
 /**
  * A santri's violations and rewards, from `GET /violations/student/:id/summary`
  * and `GET /rewards/student/:id/summary` (both check the caller's scope). The
  * totals are counted from the summaries' groups; the lists are the ten latest.
+ * Either request failing fails the query, so the tab never shows a clean
+ * record it could not read.
  */
 export function useStudentBehaviorStats(studentId: string) {
   return useQuery({
     queryKey: ["students", studentId, "behavior-stats"],
     queryFn: async (): Promise<StudentBehaviorStats> => {
       const [violations, rewards] = await Promise.all([
-        api.get<
-          ApiResponse<{
-            totalPoints: number;
-            recentViolations: StudentBehaviorStats["recentViolations"];
-            byType: Array<{ type: string; _count: number }>;
-          }>
-        >(`/violations/student/${studentId}/summary`),
-        api.get<
-          ApiResponse<{
-            totalPoints: number;
-            recentRewards: StudentBehaviorStats["recentRewards"];
-            byCategory: Array<{ category: string; _count: number }>;
-          }>
-        >(`/rewards/student/${studentId}/summary`),
+        api.get<ApiResponse<StudentViolationSummary>>(
+          `/violations/student/${studentId}/summary`,
+        ),
+        api.get<ApiResponse<StudentRewardSummary>>(
+          `/rewards/student/${studentId}/summary`,
+        ),
       ]);
       const v = violations.data.data;
       const r = rewards.data.data;

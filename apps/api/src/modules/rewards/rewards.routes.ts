@@ -1,11 +1,22 @@
 import { Router } from 'express';
-import { UserRole } from '@prisma/client';
+import { RoleCode, UserRole } from '@prisma/client';
+import { LEGACY_ROLE_EXPANSION } from '@cipansor/shared';
 import * as controller from './rewards.controller';
 import { authenticate, authorize } from '../../middleware/auth';
 import { validateQuery } from '../../middleware/error';
 import { queryRewardSchema, rewardSummaryQuerySchema } from './rewards.schema';
 
 const router = Router();
+
+/**
+ * Who reads the summary: the same accounts as `GET /rewards`, named by role code so
+ * the cards and the list below them never disagree on who may see them.
+ */
+const SUMMARY_READER_ROLE_CODES = [
+  RoleCode.SUPER_ADMIN,
+  ...LEGACY_ROLE_EXPANSION.UNIT_ADMIN,
+  ...LEGACY_ROLE_EXPANSION.TEACHER,
+];
 
 router.use(authenticate);
 
@@ -70,7 +81,7 @@ router.get(
  */
 router.get(
   '/summary',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
+  authorize(...SUMMARY_READER_ROLE_CODES),
   validateQuery(rewardSummaryQuerySchema),
   controller.getRewardsSummary
 );

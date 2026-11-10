@@ -7,6 +7,7 @@ export * from "./types/enums";
 export * from "./types/student-status";
 export * from "./types/notifications";
 export * from "./types/messages";
+export * from "./types/discipline";
 export * from "./types/analytics";
 export * from "./types/tahfidz";
 export * from "./types/ibadah";

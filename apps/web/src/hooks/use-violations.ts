@@ -1,5 +1,11 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api, { PaginatedResponse } from "@/lib/api";
+import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
+import type {
+  DisciplineSummaryRange,
+  StudentViolationSummary,
+  ViolationsSummary,
+} from "@cipansor/shared";
+import { invalidateBehaviorStats } from "@/lib/behavior-stats-cache";
 
 // Types
 export type ViolationCategory = "LIGHT" | "MEDIUM" | "HEAVY";
@@ -264,15 +270,9 @@ export function useStudentViolationSummary(studentId: string) {
   return useQuery({
     queryKey: ["violations", "student-summary", studentId],
     queryFn: async () => {
-      const response = await api.get<{
-        success: boolean;
-        data: {
-          totalPoints: number;
-          recentViolations: Violation[];
-          byType: { type: string; _count: { _all: number } }[];
-          byCategory: { category: string; _count: { _all: number } }[];
-        };
-      }>(`/violations/student/${studentId}/summary`);
+      const response = await api.get<ApiResponse<StudentViolationSummary>>(
+        `/violations/student/${studentId}/summary`,
+      );
       return response.data.data;
     },
     enabled: !!studentId,
@@ -297,6 +297,7 @@ export function useCreateViolation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["violations"] });
+      invalidateBehaviorStats(queryClient);
     },
   });
 }
@@ -324,6 +325,7 @@ export function useUpdateViolation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["violations"] });
+      invalidateBehaviorStats(queryClient);
     },
   });
 }
@@ -337,45 +339,39 @@ export function useDeleteViolation() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["violations"] });
+      invalidateBehaviorStats(queryClient);
     },
   });
 }
 
 // Violation Summary Hooks
+/** A count per severity, keyed the way the page names it (LIGHT/MEDIUM/HEAVY). */
+export interface ViolationSeverityCount {
+  severity: ViolationCategory;
+  count: number;
+}
+
 /**
  * The Pelanggaran page's cards, from `GET /violations/summary` (the caller's
- * scope). Severity comes back as the DB `type`; `byCategory` here is keyed on
- * the page's LIGHT/MEDIUM/HEAVY so the cards can look each one up.
+ * scope). The API counts by stored severity (`MINOR`/`MODERATE`/`MAJOR`);
+ * `bySeverity` here carries the page's names for them, and `byCategory` stays
+ * the recorded categories ("akhlak", "ketertiban", …) as the API sends them.
  */
-export function useViolationSummary(params?: {
-  startDate?: string;
-  endDate?: string;
-}) {
+export function useViolationSummary(params?: DisciplineSummaryRange) {
   return useQuery({
     queryKey: ["violations", "summary", params],
     queryFn: async () => {
-      const response = await api.get<{
-        data: {
-          totalViolations: number;
-          totalPoints: number;
-          byType: { type: string; count: number }[];
-          byCategory: { category: string; count: number; points: number }[];
-          topStudents: {
-            studentId: string;
-            name: string;
-            count: number;
-            points: number;
-          }[];
-        };
-      }>("/violations/summary", { params });
+      const response = await api.get<ApiResponse<ViolationsSummary>>(
+        "/violations/summary",
+        { params },
+      );
       const summary = response.data.data;
       return {
         ...summary,
-        byCategory: summary.byType.map((t) => ({
-          category: (SEVERITY_BY_TYPE[t.type] ?? "LIGHT") as ViolationCategory,
+        bySeverity: summary.bySeverity.map((t): ViolationSeverityCount => ({
+          severity: SEVERITY_BY_TYPE[t.type] ?? "LIGHT",
           count: t.count,
         })),
-        topCategories: summary.byCategory,
       };
     },
   });

@@ -1,4 +1,4 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import api, { ApiResponse } from "@/lib/api";
 
 // ==================== TYPES ====================
@@ -132,26 +132,6 @@ export interface ParentDashboardData {
   }>;
 }
 
-/**
- * A message as the `messages` module returns it (`GET /messages`,
- * `GET /messages/:id`). A thread is a top-level message and its `replies`.
- */
-export interface ParentPortalMessage {
-  id: string;
-  senderId: string;
-  recipientId: string;
-  parentId?: string | null;
-  sender?: { id: string; name: string; role: string };
-  recipient?: { id: string; name: string; role: string };
-  subject: string;
-  content: string;
-  category?: string;
-  isRead: boolean;
-  createdAt: string;
-  replies?: ParentPortalMessage[];
-  _count?: { replies: number };
-}
-
 // ==================== HOOKS: CHILDREN ====================
 
 /**
@@ -184,82 +164,6 @@ export function useParentDashboard() {
     },
     staleTime: 2 * 60 * 1000, // 2 minutes
     refetchInterval: 5 * 60 * 1000, // auto-refresh every 5 minutes
-  });
-}
-
-// ==================== HOOKS: MESSAGES ====================
-
-/**
- * The wali's messages, sent and received, from the `messages` module — the
- * same store the wali kelas writes to, so both sides read one conversation.
- */
-export function useParentPortalMessages(params?: {
-  page?: number;
-  limit?: number;
-}) {
-  return useQuery({
-    queryKey: ["messages", "parent-portal", params],
-    queryFn: async () => {
-      const response = await api.get<{
-        success: boolean;
-        data: ParentPortalMessage[];
-        pagination: {
-          page: number;
-          limit: number;
-          total: number;
-          totalPages: number;
-        };
-      }>("/messages", { params: { type: "all", ...params } });
-      return response.data;
-    },
-  });
-}
-
-/** One thread: the message and its replies. Opening it marks it read. */
-export function useParentMessage(messageId: string) {
-  return useQuery({
-    queryKey: ["messages", "thread", messageId],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<ParentPortalMessage>>(
-        `/messages/${messageId}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!messageId,
-  });
-}
-
-/** Reply in a thread; the API addresses it to the other person in it. */
-export function useSendParentPortalMessage() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (data: { messageId: string; content: string }) => {
-      const response = await api.post<ApiResponse<ParentPortalMessage>>(
-        `/messages/${data.messageId}/reply`,
-        { content: data.content },
-      );
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["messages"] });
-      queryClient.invalidateQueries({ queryKey: ["unread-messages-count"] });
-    },
-  });
-}
-
-/** Mark a message read (only its recipient can). */
-export function useMarkParentMessageAsRead() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (messageId: string) => {
-      await api.patch(`/messages/${messageId}/read`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["messages"] });
-      queryClient.invalidateQueries({ queryKey: ["unread-messages-count"] });
-    },
   });
 }
 

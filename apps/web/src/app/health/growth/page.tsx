@@ -97,12 +97,19 @@ function GrowthTrackingPageContent() {
     selectedStudentId ?? undefined,
   );
   const createMutation = useCreateGrowthRecord();
+  // The record goes under the santri's unit, read from the chosen class: an
+  // account with no unit of its own (Super Admin, a cross-unit nurse) has none
+  // to give, and the API requires one.
+  const selectedClassUnitId = classesData?.data?.find(
+    (c) => c.id === selectedClassId,
+  )?.unitId;
+
   const handleSubmit = () => {
-    if (!selectedStudentId) return;
+    if (!selectedStudentId || !selectedClassUnitId) return;
     createMutation.mutate(
       {
         studentId: selectedStudentId,
-        unitId: user?.unitId,
+        unitId: selectedClassUnitId,
         recordDate: formData.date,
         weight: parseFloat(formData.weight) || undefined,
         height: parseFloat(formData.height) || undefined,
@@ -127,7 +134,7 @@ function GrowthTrackingPageContent() {
 
   // Prepare chart data (reverse to show chronological order left to right)
   const chartData = growthData
-    ? [...growthData].reverse().map((r: any) => ({
+    ? [...growthData].reverse().map((r) => ({
         date: safeFormat(new Date(r.recordDate), "dd/MM/yy"),
         weight: r.weight,
         height: r.height,
@@ -375,7 +382,7 @@ function GrowthTrackingPageContent() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {growthData?.map((record: any) => (
+                  {growthData?.map((record) => (
                     <TableRow key={record.id}>
                       <TableCell>
                         {safeFormat(

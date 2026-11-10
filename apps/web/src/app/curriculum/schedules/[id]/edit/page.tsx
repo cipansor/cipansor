@@ -16,7 +16,6 @@ import {
   CardTitle,
 } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
   Form,
@@ -46,7 +45,7 @@ import {
   ScheduleDay,
 } from "@/hooks/use-curriculum";
 import { useClasses } from "@/hooks/use-classes";
-import { useUsers } from "@/hooks/use-users";
+import { useTeachers } from "@/hooks/use-teachers";
 import { useAcademicYears } from "@/hooks/use-academic-years";
 
 import { MainLayout } from "@/components/layout";
@@ -71,7 +70,6 @@ const scheduleSchema = z.object({
   startTime: z.string().min(1, "Waktu mulai wajib diisi"),
   endTime: z.string().min(1, "Waktu selesai wajib diisi"),
   room: z.string().optional(),
-  notes: z.string().optional(),
   academicYearId: z.string().min(1, "Tahun ajaran wajib dipilih"),
   isActive: z.boolean(),
 });
@@ -93,11 +91,9 @@ function EditSchedulePageContent({
   const deleteMutation = useDeleteSchedule();
   const { data: subjects } = useSubjects({ isActive: true });
   const { data: classesData } = useClasses();
-  const { data: usersData } = useUsers({ role: "TEACHER" });
   const { data: academicYearsData } = useAcademicYears();
 
   const classes = classesData?.data || [];
-  const teachers = usersData?.data || [];
   const academicYears = academicYearsData?.data || [];
 
   const form = useForm<ScheduleFormData>({
@@ -110,11 +106,22 @@ function EditSchedulePageContent({
       startTime: "07:00",
       endTime: "08:30",
       room: "",
-      notes: "",
       academicYearId: "",
       isActive: true,
     },
   });
+
+  // A slot's teacher is a Teacher record of the class's unit (the API checks
+  // both); the list of user accounts offered before gave ids it refused.
+  const selectedClassId = form.watch("classId");
+  const selectedClassUnitId = classes.find(
+    (c) => c.id === selectedClassId,
+  )?.unitId;
+  const { data: teachersData } = useTeachers({
+    unitId: selectedClassUnitId,
+    limit: 100,
+  });
+  const teachers = teachersData?.data || [];
 
   useEffect(() => {
     if (schedule) {
@@ -126,7 +133,6 @@ function EditSchedulePageContent({
         startTime: schedule.startTime,
         endTime: schedule.endTime,
         room: schedule.room || "",
-        notes: schedule.notes || "",
         academicYearId: schedule.academicYearId,
         isActive: schedule.isActive,
       });
@@ -139,13 +145,13 @@ function EditSchedulePageContent({
         id,
         data: {
           classId: data.classId,
+          unitId: selectedClassUnitId,
           subjectId: data.subjectId,
           teacherId: data.teacherId,
           day: data.day as ScheduleDay,
           startTime: data.startTime,
           endTime: data.endTime,
           room: data.room || undefined,
-          notes: data.notes || undefined,
           academicYearId: data.academicYearId,
           isActive: data.isActive,
         },
@@ -293,7 +299,7 @@ function EditSchedulePageContent({
                         <SelectContent>
                           {teachers.map((teacher) => (
                             <SelectItem key={teacher.id} value={teacher.id}>
-                              {teacher.name}
+                              {teacher.user?.name ?? "—"}
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -371,24 +377,6 @@ function EditSchedulePageContent({
                         <Input placeholder="Ruang 101" {...field} />
                       </FormControl>
                       <FormDescription>Lokasi ruangan kelas</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-
-                <FormField
-                  control={form.control}
-                  name="notes"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Catatan</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          placeholder="Catatan tambahan..."
-                          rows={3}
-                          {...field}
-                        />
-                      </FormControl>
                       <FormMessage />
                     </FormItem>
                   )}

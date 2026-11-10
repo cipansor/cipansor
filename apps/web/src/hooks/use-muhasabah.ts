@@ -51,15 +51,6 @@ export interface MuhasabahStats {
   moodDistribution: Record<MuhasabahMood, number>;
 }
 
-export interface MuhasabahSummary {
-  totalRecords: number;
-  thisWeek: number;
-  thisMonth: number;
-  currentStreak: number;
-  averageSholatCompletion: number;
-  averageTilawahPages: number;
-}
-
 // =====================================
 // Constants
 // =====================================
@@ -153,38 +144,12 @@ export function useMuhasabahRecord(id: string) {
   });
 }
 
-export function useMyMuhasabahToday() {
-  return useQuery({
-    queryKey: ["muhasabah", "today"],
-    queryFn: async () => {
-      const response =
-        await api.get<ApiResponse<DailyMuhasabah>>("/muhasabah/today");
-      return response.data.data;
-    },
-  });
-}
-
 export function useMyMuhasabahStats() {
   return useQuery({
     queryKey: ["muhasabah", "stats"],
     queryFn: async () => {
       const response = await api.get<ApiResponse<MuhasabahStats>>(
         "/muhasabah/me/stats",
-      );
-      return response.data.data;
-    },
-  });
-}
-
-export function useMuhasabahSummary(studentId?: string) {
-  return useQuery({
-    queryKey: ["muhasabah", "summary", studentId],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<MuhasabahSummary>>(
-        "/muhasabah/summary",
-        {
-          params: { studentId },
-        },
       );
       return response.data.data;
     },

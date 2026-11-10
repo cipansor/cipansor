@@ -154,7 +154,8 @@ function RewardsPageContent() {
           <Card key={cat.category}>
             <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
               <CardTitle className="text-sm font-medium capitalize">
-                {cat.category}
+                {REWARD_CATEGORIES.find((c) => c.value === cat.category)
+                  ?.label ?? cat.category}
               </CardTitle>
               <Star className="h-4 w-4 text-muted-foreground" />
             </CardHeader>

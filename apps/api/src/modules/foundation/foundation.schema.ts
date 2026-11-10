@@ -17,7 +17,21 @@ export const createFoundationSchema = z.object({
   mission: z.string().optional(),
 });
 
-export const updateFoundationSchema = createFoundationSchema.partial();
+/**
+ * The profile form sends every field. A field the user emptied arrives as
+ * `null` and clears the column; the required ones (name, legal name, address)
+ * cannot be cleared. Leaving it out keeps the stored value.
+ */
+export const updateFoundationSchema = createFoundationSchema.partial().extend({
+  foundingDate: createFoundationSchema.shape.foundingDate.unwrap().nullable().optional(),
+  taxId: createFoundationSchema.shape.taxId.unwrap().nullable().optional(),
+  phone: createFoundationSchema.shape.phone.unwrap().nullable().optional(),
+  email: createFoundationSchema.shape.email.unwrap().nullable().optional(),
+  website: createFoundationSchema.shape.website.unwrap().nullable().optional(),
+  logoUrl: createFoundationSchema.shape.logoUrl.unwrap().nullable().optional(),
+  vision: createFoundationSchema.shape.vision.unwrap().nullable().optional(),
+  mission: createFoundationSchema.shape.mission.unwrap().nullable().optional(),
+});
 
 export const queryFoundationSchema = z.object({
   page: z.coerce.number().min(1).default(1),

@@ -24,6 +24,8 @@ export interface Message {
   recipient?: User;
   parent?: Message;
   replies?: Message[];
+  /** `GET /messages` counts each row's replies. */
+  _count?: { replies: number };
 }
 
 export interface CreateMessageInput {

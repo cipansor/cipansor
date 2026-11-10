@@ -7,17 +7,13 @@ import type {
   FinanceStats,
   TahfidzStats,
   ViolationRewardStats,
-  DashboardMetrics,
-  DashboardAlert,
+  DashboardMetricsResponse,
 } from "@cipansor/shared";
 
 type Period = "week" | "month" | "year";
 
-export interface DashboardMetricsData {
-  current: DashboardMetrics;
-  recent: DashboardMetrics[];
-  alerts: DashboardAlert[];
-}
+/** `GET /dashboard/metrics`: the contract lives in @cipansor/shared. */
+export type DashboardMetricsData = DashboardMetricsResponse;
 
 export function useDashboardStats(params?: { unitId?: string }) {
   return useQuery({

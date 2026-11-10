@@ -154,21 +154,6 @@ export interface AlumniEvent {
   updatedAt: string;
 }
 
-export interface AlumniDonation {
-  id: string;
-  alumniId: string;
-  alumni?: Alumni;
-  amount: number;
-  purpose: string;
-  message?: string;
-  status: "PENDING" | "CONFIRMED" | "REJECTED";
-  paymentMethod?: string;
-  paymentProofUrl?: string;
-  confirmedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface AlumniStats {
   total: number;
   byStatus: Record<AlumniStatus, number>;

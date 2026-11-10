@@ -72,7 +72,13 @@ export async function updateFoundation(id: string, data: UpdateFoundationInput) 
     where: { id },
     data: {
       ...data,
-      foundingDate: data.foundingDate ? new Date(data.foundingDate) : undefined,
+      // `null` clears the date; leaving it out keeps the stored one.
+      foundingDate:
+        data.foundingDate === null
+          ? null
+          : data.foundingDate
+            ? new Date(data.foundingDate)
+            : undefined,
     },
   });
 }

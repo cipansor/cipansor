@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import api, { ApiResponse } from "@/lib/api";
 
 // Types for parent report card view
@@ -162,46 +162,5 @@ export function useParentReportCard(reportCardId?: string) {
       return response.data.data;
     },
     enabled: !!reportCardId,
-  });
-}
-
-// Get my children report cards (for parent)
-export function useMyChildrenReportCards() {
-  return useQuery<
-    {
-      child: {
-        id: string;
-        nis: string;
-        name: string;
-        class?: {
-          id: string;
-          name: string;
-        };
-        photo?: string;
-      };
-      reportCards: ReportCardListItem[];
-    }[]
-  >({
-    queryKey: ["report-cards", "my-children"],
-    queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<
-          {
-            child: {
-              id: string;
-              nis: string;
-              name: string;
-              class?: {
-                id: string;
-                name: string;
-              };
-              photo?: string;
-            };
-            reportCards: ReportCardListItem[];
-          }[]
-        >
-      >("/assessment/report-cards/my-children");
-      return response.data.data;
-    },
   });
 }

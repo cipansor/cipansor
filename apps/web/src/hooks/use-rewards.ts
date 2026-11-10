@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api, { PaginatedResponse } from "@/lib/api";
+import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
+import type { DisciplineSummaryRange, RewardsSummary } from "@cipansor/shared";
+import { invalidateBehaviorStats } from "@/lib/behavior-stats-cache";
 
 // Types
 export type RewardCategory =
@@ -256,6 +258,7 @@ export function useCreateReward() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rewards"] });
+      invalidateBehaviorStats(queryClient);
     },
   });
 }
@@ -281,6 +284,7 @@ export function useUpdateReward() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rewards"] });
+      invalidateBehaviorStats(queryClient);
     },
   });
 }
@@ -294,6 +298,7 @@ export function useDeleteReward() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rewards"] });
+      invalidateBehaviorStats(queryClient);
     },
   });
 }
@@ -301,29 +306,17 @@ export function useDeleteReward() {
 // Reward Summary Hooks
 /**
  * The Penghargaan page's cards and podium, from `GET /rewards/summary` (the
- * caller's scope). `byCategory` holds the categories as recorded — free text
- * such as "tahfidz" or "akhlak" — with their counts and points.
+ * caller's scope). `byCategory` holds the categories as recorded, with their
+ * counts and points.
  */
-export function useRewardSummary(params?: {
-  startDate?: string;
-  endDate?: string;
-}) {
+export function useRewardSummary(params?: DisciplineSummaryRange) {
   return useQuery({
     queryKey: ["rewards", "summary", params],
     queryFn: async () => {
-      const response = await api.get<{
-        data: {
-          totalRewards: number;
-          totalPoints: number;
-          byCategory: { category: string; count: number; points: number }[];
-          topStudents: {
-            studentId: string;
-            name: string;
-            count: number;
-            points: number;
-          }[];
-        };
-      }>("/rewards/summary", { params });
+      const response = await api.get<ApiResponse<RewardsSummary>>(
+        "/rewards/summary",
+        { params },
+      );
       return response.data.data;
     },
   });

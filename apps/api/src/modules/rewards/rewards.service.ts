@@ -8,6 +8,7 @@ import {
 } from '../../utils/student-scope';
 import { STUDENT_SUMMARY_SELECT, withStudentSummary } from '../../utils/student-summary';
 import { wibDayBound, wibDayEnd, wibDayStart } from '../../utils/wib-day';
+import type { DisciplineSummaryRange, RewardsSummary } from '@cipansor/shared';
 
 /**
  * `studentScope` returns the santri the caller may see; folding it into the
@@ -125,7 +126,7 @@ export async function deleteReward(id: string, actor: ScopeActor) {
 }
 
 /** `givenAt` between two WIB days, either end optional. */
-function givenBetween(range: { startDate?: string; endDate?: string }) {
+function givenBetween(range: DisciplineSummaryRange) {
   if (!range.startDate && !range.endDate) return {};
   return {
     givenAt: {
@@ -145,8 +146,8 @@ function givenBetween(range: { startDate?: string; endDate?: string }) {
  */
 export async function getRewardsSummary(
   actor: ScopeActor,
-  range: { startDate?: string; endDate?: string } = {}
-) {
+  range: DisciplineSummaryRange = {}
+): Promise<RewardsSummary> {
   const where = scopedWhere(actor, givenBetween(range));
   const [totalRewards, points, byCategory, byStudent] = await Promise.all([
     prisma.reward.count({ where }),
@@ -164,7 +165,8 @@ export async function getRewardsSummary(
       where,
       _count: { _all: true },
       _sum: { points: true },
-      orderBy: { _sum: { points: 'desc' } },
+      // Ties broken by id, so the same data always gives the same podium.
+      orderBy: [{ _sum: { points: 'desc' } }, { studentId: 'asc' }],
       take: 10,
     }),
   ]);

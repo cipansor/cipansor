@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { Save, AlertCircle, Settings } from "lucide-react";
 import {
   Card,
@@ -24,34 +23,16 @@ import { Switch } from "@/components/ui/switch";
 import { Separator } from "@/components/ui/separator";
 import { toast } from "sonner";
 import { LoadingSpinner } from "@/components/shared";
-import { api } from "@/lib/api";
+import {
+  useRaporConfig,
+  useSaveRaporConfig,
+  type RaporConfig,
+} from "@/hooks/use-rapor-pesantren";
 import { useUnits } from "@/hooks/use-units";
 import { useAuthStore } from "@/stores/auth";
 import { MainLayout } from "@/components/layout/main-layout";
 
-interface RaporConfig {
-  unitId: string;
-  componentWeights: {
-    tahfidz: number;
-    ibadah: number;
-    muhadhoroh: number;
-    muhadatsah: number;
-    kitabProgress: number;
-    akhlak: number;
-  };
-  gradeThresholds: {
-    mumtaz: number;
-    jayyidJiddan: number;
-    jayyid: number;
-    maqbul: number;
-  };
-  includeAttendance: boolean;
-  includeViolations: boolean;
-  includeRewards: boolean;
-}
-
 export default function RaporConfigPage() {
-  const queryClient = useQueryClient();
   const { user } = useAuthStore();
 
   // Rapor configuration is stored per unit, and a yayasan-level user has no
@@ -72,39 +53,19 @@ export default function RaporConfigPage() {
 
   const [formData, setFormData] = useState<RaporConfig | null>(null);
 
-  const { data: configData, isLoading } = useQuery({
-    queryKey: ["rapor-pesantren", "config", unitId],
-    queryFn: async () => {
-      if (!unitId) return null;
-      const res = await api.get(`/rapor-pesantren/config/${unitId}`);
-      return res.data.data as RaporConfig;
-    },
-    enabled: !!unitId,
-  });
-
+  const { data: configData, isLoading } = useRaporConfig(unitId);
   useEffect(() => {
     if (configData) {
       setFormData(configData);
     }
   }, [configData]);
 
-  const mutation = useMutation({
-    mutationFn: async (data: RaporConfig) => {
-      const res = await api.put("/rapor-pesantren/config", data);
-      return res.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({
-        queryKey: ["rapor-pesantren", "config"],
-      });
-      toast.success("Konfigurasi rapor berhasil disimpan");
-    },
-    onError: (error: Error) => {
-      toast.error(
-        error.message || "Terjadi kesalahan saat menyimpan konfigurasi",
-      );
-    },
-  });
+  // A refusal is shown by the shared client with the API's reason.
+  const saveConfig = useSaveRaporConfig();
+  const save = (data: RaporConfig) =>
+    saveConfig.mutate(data, {
+      onSuccess: () => toast.success("Konfigurasi rapor berhasil disimpan"),
+    });
 
   if (!unitId) {
     // Only reached when the units query itself came back empty.
@@ -203,10 +164,10 @@ export default function RaporConfigPage() {
               </Select>
             )}
             <Button
-              onClick={() => mutation.mutate(formData)}
-              disabled={mutation.isPending || totalWeight !== 100}
+              onClick={() => save(formData)}
+              disabled={saveConfig.isPending || totalWeight !== 100}
             >
-              {mutation.isPending ? (
+              {saveConfig.isPending ? (
                 <LoadingSpinner size="sm" className="mr-2" />
               ) : (
                 <Save className="w-4 h-4 mr-2" />

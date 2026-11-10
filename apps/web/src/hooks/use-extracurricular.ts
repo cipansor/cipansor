@@ -51,17 +51,6 @@ export interface ExtracurricularEnrollment {
   updatedAt: string;
 }
 
-export interface ExtracurricularAttendance {
-  id: string;
-  enrollmentId: string;
-  enrollment?: ExtracurricularEnrollment;
-  date: string;
-  status: AttendanceStatus;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface ExtracurricularAchievement {
   id: string;
   extracurricularId: string;
@@ -104,12 +93,6 @@ export interface ExtracurricularListParams {
 export type UpdateExtracurricularInput = UpdateExtracurricularBody & {
   id: string;
 };
-
-export interface EnrollStudentInput {
-  extracurricularId: string;
-  studentId: string;
-  notes?: string;
-}
 
 export interface CreateAchievementInput {
   extracurricularId: string;
@@ -354,18 +337,6 @@ export function useExtracurricularEnrollments(
       return response.data.data;
     },
     enabled: !!extracurricularId,
-  });
-}
-
-export function useMyExtracurricularEnrollments() {
-  return useQuery({
-    queryKey: ["my-extracurricular-enrollments"],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<ExtracurricularEnrollment[]>>(
-        "/extracurricular/my-enrollments",
-      );
-      return response.data.data;
-    },
   });
 }
 

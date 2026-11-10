@@ -136,7 +136,7 @@ export function useActivateAcademicYear() {
   return useMutation({
     mutationFn: async (id: string) => {
       // The API has no activate route: setting `isActive` on the update makes
-      // this year the active one and deactivates the others in one write.
+      // this year the active one, and the API then deactivates the others.
       const response = await api.put<ApiResponse<AcademicYear>>(
         `/academic-years/${id}`,
         { isActive: true },

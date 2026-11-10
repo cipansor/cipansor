@@ -58,7 +58,8 @@ import {
   DOCUMENT_TYPE_LABELS,
   type DocumentType,
   type Foundation,
-  type FoundationProfileInput,
+  type FoundationProfileForm,
+  foundationProfilePayload,
 } from "@/hooks";
 import {
   BarChart,
@@ -99,12 +100,13 @@ import { id } from "date-fns/locale";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import { FOUNDATION_WRITER_ROLE_CODES } from "@cipansor/shared";
+import { useAuthStore } from "@/stores/auth";
+import { getActiveRoleCode } from "@/lib/rbac";
 
 const TABS = ["info", "documents", "board", "financial"] as const;
 
-type ProfileForm = Required<Omit<FoundationProfileInput, "foundingDate">> & {
-  foundingDate: string;
-};
+type ProfileForm = FoundationProfileForm;
 
 /** The record as the form's fields: strings only, the date as YYYY-MM-DD. */
 function toProfileForm(f: Foundation | null | undefined): ProfileForm {
@@ -129,6 +131,12 @@ function FoundationPageContent() {
     TABS.find((t) => t === tabParam) ?? "info",
   );
   const [isEditing, setIsEditing] = useState(false);
+  // The other organs read the profile; `PUT /foundation/:id` refuses them, so
+  // they get no "Edit" to press.
+  const user = useAuthStore((state) => state.user);
+  const canEditProfile = FOUNDATION_WRITER_ROLE_CODES.includes(
+    getActiveRoleCode(user) ?? "",
+  );
 
   const { data: foundation, isLoading } = useFoundation();
   const { data: documents } = useFoundationDocuments();
@@ -166,11 +174,7 @@ function FoundationPageContent() {
 
   const onSubmit = async (values: ProfileForm) => {
     if (!foundation) return;
-    // An empty optional field is left out: the API checks e-mail and URL
-    // formats, and "" is neither.
-    const data = Object.fromEntries(
-      Object.entries(values).filter(([, v]) => v !== ""),
-    ) as FoundationProfileInput;
+    const data = foundationProfilePayload(values);
     try {
       await updateFoundation.mutateAsync({ id: foundation.id, data });
       toast.success("Data yayasan berhasil diperbarui");
@@ -269,24 +273,26 @@ function FoundationPageContent() {
                   <CardTitle>Profil Yayasan</CardTitle>
                   <CardDescription>Informasi dasar yayasan</CardDescription>
                 </div>
-                <Button
-                  variant={isEditing ? "outline" : "default"}
-                  onClick={() => {
-                    reset(toProfileForm(foundation));
-                    setIsEditing(!isEditing);
-                  }}
-                >
-                  {isEditing ? (
-                    "Batal"
-                  ) : (
-                    <>
-                      <Edit className="mr-2 h-4 w-4" /> Edit
-                    </>
-                  )}
-                </Button>
+                {canEditProfile && (
+                  <Button
+                    variant={isEditing ? "outline" : "default"}
+                    onClick={() => {
+                      reset(toProfileForm(foundation));
+                      setIsEditing(!isEditing);
+                    }}
+                  >
+                    {isEditing ? (
+                      "Batal"
+                    ) : (
+                      <>
+                        <Edit className="mr-2 h-4 w-4" /> Edit
+                      </>
+                    )}
+                  </Button>
+                )}
               </CardHeader>
               <CardContent>
-                {isEditing ? (
+                {isEditing && canEditProfile ? (
                   <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">

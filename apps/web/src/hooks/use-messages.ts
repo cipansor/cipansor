@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
+import { api, type ApiResponse } from "@/lib/api";
 import { Message, CreateMessageInput, MessageCategory } from "@cipansor/shared";
 
 export function useMessages(params?: {
@@ -67,5 +67,21 @@ export function useUnreadMessagesCount() {
     },
     // Poll every minute
     refetchInterval: 60000,
+  });
+}
+
+/**
+ * One conversation: its first message and the replies under it
+ * (`GET /messages/:id`). Only the two people in it can open it; opening it
+ * reads what was sent to the caller.
+ */
+export function useMessageThread(id: string) {
+  return useQuery({
+    queryKey: ["messages", "thread", id],
+    queryFn: async () => {
+      const response = await api.get<ApiResponse<Message>>(`/messages/${id}`);
+      return response.data.data;
+    },
+    enabled: !!id,
   });
 }

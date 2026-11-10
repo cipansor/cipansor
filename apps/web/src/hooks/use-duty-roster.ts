@@ -292,29 +292,3 @@ export function useUpdateDutyStatus() {
     },
   });
 }
-
-// Export duty roster report
-export function useExportDutyReport() {
-  return useMutation({
-    mutationFn: async (params: {
-      startDate: string;
-      endDate: string;
-      classId?: string;
-      format?: "pdf" | "excel";
-    }) => {
-      const queryParams = new URLSearchParams();
-      queryParams.append("startDate", params.startDate);
-      queryParams.append("endDate", params.endDate);
-      if (params.classId) queryParams.append("classId", params.classId);
-      if (params.format) queryParams.append("format", params.format);
-
-      const response = await api.get(
-        `/duty-roster/export?${queryParams.toString()}`,
-        {
-          responseType: "blob",
-        },
-      );
-      return response.data;
-    },
-  });
-}

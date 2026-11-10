@@ -9,6 +9,7 @@ import {
 } from '../../utils/student-scope';
 import { STUDENT_SUMMARY_SELECT, withStudentSummary } from '../../utils/student-summary';
 import { wibDayBound, wibDayEnd, wibDayStart } from '../../utils/wib-day';
+import type { DisciplineSummaryRange, ViolationsSummary } from '@cipansor/shared';
 
 /**
  * `studentScope` returns the santri the caller may see; folding it into the
@@ -131,7 +132,7 @@ export async function deleteViolation(id: string, actor: ScopeActor) {
 }
 
 /** `occurredAt` between two WIB days, either end optional. */
-function occurredBetween(range: { startDate?: string; endDate?: string }) {
+function occurredBetween(range: DisciplineSummaryRange) {
   if (!range.startDate && !range.endDate) return {};
   return {
     occurredAt: {
@@ -151,8 +152,8 @@ function occurredBetween(range: { startDate?: string; endDate?: string }) {
  */
 export async function getViolationsSummary(
   actor: ScopeActor,
-  range: { startDate?: string; endDate?: string } = {}
-) {
+  range: DisciplineSummaryRange = {}
+): Promise<ViolationsSummary> {
   const where = scopedWhere(actor, occurredBetween(range));
   const [totalViolations, points, byType, byCategory, byStudent] = await Promise.all([
     prisma.violation.count({ where }),
@@ -171,7 +172,8 @@ export async function getViolationsSummary(
       where,
       _count: { _all: true },
       _sum: { points: true },
-      orderBy: { _sum: { points: 'desc' } },
+      // Ties broken by id, so the same data always gives the same podium.
+      orderBy: [{ _sum: { points: 'desc' } }, { studentId: 'asc' }],
       take: 5,
     }),
   ]);
@@ -185,7 +187,7 @@ export async function getViolationsSummary(
   return {
     totalViolations,
     totalPoints: points._sum.points ?? 0,
-    byType: byType.map((g) => ({ type: g.type, count: g._count._all })),
+    bySeverity: byType.map((g) => ({ type: g.type, count: g._count._all })),
     byCategory: byCategory.map((g) => ({
       category: g.category,
       count: g._count._all,

@@ -153,7 +153,7 @@ function ViolationsPageContent() {
         </Card>
         {VIOLATION_CATEGORIES.map((cat) => {
           const count =
-            summaryData?.byCategory?.find((c) => c.category === cat.value)
+            summaryData?.bySeverity?.find((c) => c.severity === cat.value)
               ?.count || 0;
           return (
             <Card key={cat.value}>

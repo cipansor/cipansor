@@ -33,10 +33,16 @@ export const queryViolationSchema = z.object({
 });
 
 /** `GET /violations/summary`: an optional WIB date range (YYYY-MM-DD). */
-export const violationSummaryQuerySchema = z.object({
-  startDate: z.iso.date().optional(),
-  endDate: z.iso.date().optional(),
-});
+export const violationSummaryQuerySchema = z
+  .object({
+    startDate: z.iso.date().optional(),
+    endDate: z.iso.date().optional(),
+  })
+  // YYYY-MM-DD strings order like the days they name.
+  .refine((r) => !r.startDate || !r.endDate || r.startDate <= r.endDate, {
+    message: 'Tanggal akhir tidak boleh sebelum tanggal mulai',
+    path: ['endDate'],
+  });
 
 export type CreateViolationDto = z.infer<typeof createViolationSchema>;
 export type UpdateViolationDto = z.infer<typeof updateViolationSchema>;

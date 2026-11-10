@@ -1,4 +1,4 @@
-import { Star } from "lucide-react";
+import { AlertTriangle, Star } from "lucide-react";
 import { safeFormat } from "@/lib/date";
 import { useStudentBehaviorStats } from "@/hooks/use-students";
 import {
@@ -20,6 +20,26 @@ const SEVERITY_LABELS: Record<string, string> = {
   MAJOR: "Berat",
 };
 
+/**
+ * Shown instead of the figures when a summary could not be read. Without it a
+ * refused or failed request read as "0" and "Belum ada pelanggaran", a clean
+ * record the santri may not have.
+ */
+function LoadError() {
+  return (
+    <div
+      role="alert"
+      className="flex items-start gap-2 rounded-lg border border-destructive/40 p-3 text-sm text-destructive"
+    >
+      <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+      <p>
+        Catatan perilaku santri ini gagal dimuat. Muat ulang halaman, atau
+        hubungi admin bila tetap gagal.
+      </p>
+    </div>
+  );
+}
+
 function Spinner() {
   return (
     <div className="flex justify-center py-8">
@@ -29,7 +49,11 @@ function Spinner() {
 }
 
 export function StudentBehaviorTab({ studentId }: StudentBehaviorTabProps) {
-  const { data: stats, isLoading } = useStudentBehaviorStats(studentId);
+  const {
+    data: stats,
+    isLoading,
+    isError,
+  } = useStudentBehaviorStats(studentId);
 
   return (
     <div className="grid gap-4 md:grid-cols-2">
@@ -43,6 +67,8 @@ export function StudentBehaviorTab({ studentId }: StudentBehaviorTabProps) {
         <CardContent>
           {isLoading ? (
             <Spinner />
+          ) : isError ? (
+            <LoadError />
           ) : (
             <div className="space-y-6">
               <div className="grid grid-cols-2 gap-4 sm:grid-cols-4">
@@ -121,6 +147,8 @@ export function StudentBehaviorTab({ studentId }: StudentBehaviorTabProps) {
         <CardContent>
           {isLoading ? (
             <Spinner />
+          ) : isError ? (
+            <LoadError />
           ) : stats?.recentRewards?.length ? (
             <div className="space-y-2">
               {stats.recentRewards.map((r) => (

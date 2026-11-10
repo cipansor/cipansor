@@ -18,7 +18,36 @@ const mocked = prisma as unknown as {
 };
 
 const teacher: ScopeActor = { sub: 'teacher-1', roleCode: 'SDIT_GURU', unitId: 'unit-1' };
-const parent: ScopeActor = { sub: 'parent-1', roleCode: 'SDIT_ORANG_TUA', unitId: 'unit-1' };
+/**
+ * Every kind of reader, and the `student` filter its rows must carry. A key
+ * missing from `where` means every santri (Super Admin, the yayasan organs);
+ * `id in []` means none (komite, a unit role with no unit on its token).
+ */
+const SCOPE_CASES: Array<[string, ScopeActor, Record<string, unknown>]> = [
+  ['Super Admin sees every unit', { sub: 'sa', roleCode: 'SUPER_ADMIN', unitId: null }, {}],
+  ['a yayasan organ sees every unit', { sub: 'k', roleCode: 'YAYASAN_KETUA', unitId: null }, {}],
+  ['a unit teacher sees their unit', teacher, { student: { unitId: 'unit-1' } }],
+  [
+    'a wali sees their own children',
+    { sub: 'parent-1', roleCode: 'SDIT_ORANG_TUA', unitId: 'unit-1' },
+    { student: { parents: { some: { parentId: 'parent-1' } } } },
+  ],
+  [
+    'a santri sees themself',
+    { sub: 'santri-1', roleCode: 'SDIT_SISWA', unitId: 'unit-1' },
+    { student: { userId: 'santri-1' } },
+  ],
+  [
+    'komite sees nobody',
+    { sub: 'kom', roleCode: 'SDIT_KOMITE', unitId: 'unit-1' },
+    { student: { id: { in: [] } } },
+  ],
+  [
+    'a unit role without a unit sees nobody',
+    { sub: 't2', roleCode: 'SDIT_GURU', unitId: null },
+    { student: { id: { in: [] } } },
+  ],
+];
 
 function groupByReturns(byCategory: unknown[], byStudent: unknown[]) {
   mocked.reward.groupBy.mockImplementation(async (args: { by: string[] }) =>
@@ -35,20 +64,33 @@ describe('GET /rewards/summary — getRewardsSummary (#764)', () => {
     groupByReturns([], []);
   });
 
-  it('counts only the santri of the caller\u2019s unit', async () => {
-    await getRewardsSummary(teacher);
+  it.each(SCOPE_CASES)('%s: every count carries the same scope', async (_name, actor, scope) => {
+    await getRewardsSummary(actor);
     const where = mocked.reward.count.mock.calls[0][0].where;
-    expect(where).toEqual({ student: { unitId: 'unit-1' } });
+    expect(where).toEqual(scope);
+    // The points total too: without its scope it would add up the whole yayasan.
+    expect(mocked.reward.aggregate.mock.calls[0][0].where).toEqual(where);
+    expect(mocked.reward.groupBy).toHaveBeenCalledTimes(2);
     for (const call of mocked.reward.groupBy.mock.calls) {
       expect(call[0].where).toEqual(where);
     }
   });
 
-  it('a wali counts their own children only', async () => {
-    await getRewardsSummary(parent);
-    expect(mocked.reward.count.mock.calls[0][0].where).toEqual({
-      student: { parents: { some: { parentId: 'parent-1' } } },
+  it('reads only the name of each santri on the podium', async () => {
+    groupByReturns([], [{ studentId: 's-1', _count: { _all: 1 }, _sum: { points: 5 } }]);
+    await getRewardsSummary(teacher);
+    expect(mocked.student.findMany).toHaveBeenCalledWith({
+      where: { id: { in: ['s-1'] } },
+      select: { id: true, user: { select: { name: true } } },
     });
+  });
+
+  it('orders the podium by points, then by id, so ties do not reshuffle', async () => {
+    await getRewardsSummary(teacher);
+    const byStudent = mocked.reward.groupBy.mock.calls.find(
+      (c: [{ by: string[] }]) => c[0].by[0] === 'studentId'
+    );
+    expect(byStudent?.[0].orderBy).toEqual([{ _sum: { points: 'desc' } }, { studentId: 'asc' }]);
   });
 
   it('bounds the range by WIB days on givenAt', async () => {
@@ -84,5 +126,11 @@ describe('GET /rewards/summary — getRewardsSummary (#764)', () => {
   it('accepts only calendar dates in the query', () => {
     expect(rewardSummaryQuerySchema.safeParse({ endDate: '2026-10-31' }).success).toBe(true);
     expect(rewardSummaryQuerySchema.safeParse({ endDate: '31/10/2026' }).success).toBe(false);
+  });
+
+  it('refuses a range that ends before it starts', () => {
+    expect(
+      rewardSummaryQuerySchema.safeParse({ startDate: '2026-10-31', endDate: '2026-10-01' }).success
+    ).toBe(false);
   });
 });

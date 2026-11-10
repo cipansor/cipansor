@@ -7,25 +7,15 @@
 import { api } from "@/lib/api";
 import type {
   ApiResponse,
+  EmailTransportStatus,
   NotificationPreferencesDTO,
   UpdateNotificationPreferencesInput,
   WebPushConfigDTO,
   WebPushSubscriptionPayload,
 } from "@cipansor/shared";
 
-/**
- * Mirrors `EmailTransportStatus` in the API's email-transport.ts.
- *
- * `kind: "log"` means nothing is configured and no mail leaves the building.
- */
-export interface EmailTransportStatus {
-  kind: "gmail_api" | "smtp" | "log";
-  configured: boolean;
-  from: string;
-  replyTo: string;
-  sender?: string;
-  host?: string;
-}
+/** `kind: "log"` means nothing is configured and no mail leaves the building. */
+export type { EmailTransportStatus };
 
 export const notificationsApi = {
   /**

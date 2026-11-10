@@ -27,13 +27,9 @@ import Link from "next/link";
 import { formatDistanceToNow } from "date-fns";
 import { id } from "date-fns/locale";
 import { useAuthStore } from "@/stores/auth";
-import {
-  useParentPortalMessages,
-  useParentMessage,
-  useSendParentPortalMessage,
-  useMarkParentMessageAsRead,
-  ParentPortalMessage,
-} from "@/hooks/use-parent-portal";
+import type { Message as ApiMessage } from "@cipansor/shared";
+import { useMessages, useMessageThread } from "@/hooks/use-messages";
+import { buildConversations, type Conversation } from "@/lib/message-threads";
 
 interface Message {
   id: string;
@@ -45,16 +41,6 @@ interface Message {
   read: boolean;
 }
 
-/** A thread: a top-level message, seen from the signed-in wali's side. */
-interface Conversation {
-  id: string;
-  otherName: string;
-  subject: string;
-  lastMessage: string;
-  lastMessageAt: string;
-  unread: boolean;
-}
-
 export default function ParentMessagesPage() {
   const [selectedConversation, setSelectedConversation] =
     useState<Conversation | null>(null);
@@ -62,36 +48,21 @@ export default function ParentMessagesPage() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const me = useAuthStore((state) => state.user?.id);
 
-  const { data: messagesData, isLoading: loadingMessages } =
-    useParentPortalMessages({ limit: 100 });
-  const { data: selectedMessageDetail } = useParentMessage(
+  const {
+    data: messagesData,
+    isLoading: loadingMessages,
+    replyMessage,
+    markAsRead,
+  } = useMessages({ type: "all", limit: 100 });
+  const { data: selectedMessageDetail } = useMessageThread(
     selectedConversation?.id || "",
   );
-  const sendMutation = useSendParentPortalMessage();
-  const markAsReadMutation = useMarkParentMessageAsRead();
 
-  // One row per thread (a top-level message); replies are read inside it.
-  const conversations = useMemo((): Conversation[] => {
-    const rows = messagesData?.data ?? [];
-    return rows
-      .filter((msg: ParentPortalMessage) => !msg.parentId)
-      .map((msg: ParentPortalMessage) => {
-        const other = msg.senderId === me ? msg.recipient : msg.sender;
-        return {
-          id: msg.id,
-          otherName: other?.name || "—",
-          subject: msg.subject,
-          lastMessage: msg.content,
-          lastMessageAt: msg.createdAt,
-          unread: !msg.isRead && msg.recipientId === me,
-        };
-      })
-      .sort(
-        (a, b) =>
-          new Date(b.lastMessageAt).getTime() -
-          new Date(a.lastMessageAt).getTime(),
-      );
-  }, [messagesData, me]);
+  // One row per conversation, newest activity first (lib/message-threads).
+  const conversations = useMemo(
+    () => buildConversations((messagesData?.data ?? []) as ApiMessage[], me),
+    [messagesData, me],
+  );
 
   const messages = useMemo((): Message[] => {
     if (!selectedMessageDetail) return [];
@@ -115,10 +86,11 @@ export default function ParentMessagesPage() {
       );
   }, [selectedMessageDetail, me]);
 
-  // Opening a thread the wali received marks it read.
+  // Opening a thread with something unread for the wali marks the whole
+  // thread read (the API reads every reply in it addressed to them).
   useEffect(() => {
     if (selectedConversation?.unread) {
-      markAsReadMutation.mutate(selectedConversation.id);
+      markAsRead.mutate(selectedConversation.id);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedConversation?.id]);
@@ -130,8 +102,8 @@ export default function ParentMessagesPage() {
   const handleSend = async () => {
     if (!newMessage.trim() || !selectedConversation) return;
     try {
-      await sendMutation.mutateAsync({
-        messageId: selectedConversation.id,
+      await replyMessage.mutateAsync({
+        id: selectedConversation.id,
         content: newMessage,
       });
       setNewMessage("");
@@ -327,7 +299,7 @@ export default function ParentMessagesPage() {
                   />
                   <Button
                     onClick={handleSend}
-                    disabled={!newMessage.trim() || sendMutation.isPending}
+                    disabled={!newMessage.trim() || replyMessage.isPending}
                     className="px-4"
                   >
                     <Send className="h-4 w-4" />

@@ -22,6 +22,7 @@
  * `deliverEmail()` reports `delivered: false` rather than pretending.
  */
 
+import type { EmailTransportKind, EmailTransportStatus } from '@cipansor/shared';
 import nodemailer from 'nodemailer';
 import type { Transporter } from 'nodemailer';
 import { config } from '../../config';
@@ -54,21 +55,8 @@ const GMAIL_SEND_ENDPOINT = 'https://gmail.googleapis.com/gmail/v1/users/me/mess
  */
 export const MAX_EMAIL_BODY_LENGTH = 10 * 1024 * 1024;
 
-export type EmailTransportKind = 'gmail_api' | 'smtp' | 'log';
-
-export interface EmailTransportStatus {
-  kind: EmailTransportKind;
-  /** False only for `log`: nothing will be delivered. */
-  configured: boolean;
-  /** The From header recipients will see. */
-  from: string;
-  /** Where a reply goes. Deliberately not the From mailbox. */
-  replyTo: string;
-  /** Gmail API only: the impersonated mailbox. */
-  sender?: string;
-  /** SMTP only: host:port. */
-  host?: string;
-}
+// The status the settings page reads: one contract for both apps (@cipansor/shared).
+export type { EmailTransportKind, EmailTransportStatus };
 
 export interface DeliverEmailInput {
   to: string;

@@ -192,12 +192,23 @@ export function useHealthSummary() {
 
 // ==================== TUMBUH KEMBANG ====================
 
+/** One weighing as `GET /health/growth` returns it. */
+export interface GrowthRecord {
+  id: string;
+  studentId: string;
+  recordDate: string;
+  weight: number | null;
+  height: number | null;
+  headCircumference: number | null;
+  notes: string | null;
+}
+
 /** A santri's growth records (`GET /health/growth?studentId=`), newest first. */
 export function useGrowthRecords(studentId?: string) {
   return useQuery({
     queryKey: ["growth-records", studentId],
     queryFn: async () => {
-      const res = await api.get<{ data: any[] }>("/health/growth", {
+      const res = await api.get<{ data: GrowthRecord[] }>("/health/growth", {
         params: { studentId, limit: 100 },
       });
       return res.data.data ?? [];
@@ -212,7 +223,8 @@ export function useCreateGrowthRecord() {
   return useMutation({
     mutationFn: async (data: {
       studentId: string;
-      unitId?: string | null;
+      /** The santri's unit: the API files the record under it. */
+      unitId: string;
       recordDate: Date | string;
       weight?: number;
       height?: number;

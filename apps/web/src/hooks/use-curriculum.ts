@@ -96,8 +96,9 @@ export interface Schedule {
   startTime: string;
   endTime: string;
   room?: string;
-  notes?: string;
   isActive: boolean;
+  /** The unit the slot belongs to: the class's unit. Required on create. */
+  unitId?: string;
   academicYearId: string;
   createdAt: string;
   updatedAt: string;
@@ -269,26 +270,44 @@ export function useRemoveTeacherFromSubject() {
   });
 }
 
+/** A slot as the API sends it: the day as `dayOfWeek`, the teacher's name under `user`. */
+export type ApiScheduleRow = Omit<Schedule, "day" | "teacher"> & {
+  day?: ScheduleDay;
+  dayOfWeek?: ScheduleDay;
+  teacher?: { id: string; name?: string; user?: { name: string } | null };
+};
+
 /**
  * The API names a slot's day `dayOfWeek`; these pages read and write `day`.
  * Rows are mapped on the way in, and writes on the way out, so a saved day
- * is not dropped by the API's schema (which strips the unknown `day`).
+ * is not dropped by the API's schema (which strips the unknown `day`). The
+ * teacher comes back as a Teacher row whose name sits on its user; the
+ * timetable reads `teacher.name`, which used to be empty.
  */
-function fromApiSchedule(
-  row: Schedule & { dayOfWeek?: ScheduleDay },
-): Schedule {
-  return { ...row, day: row.day ?? (row.dayOfWeek as ScheduleDay) };
+export function fromApiSchedule(row: ApiScheduleRow): Schedule {
+  const { dayOfWeek, teacher, ...rest } = row;
+  return {
+    ...rest,
+    day: row.day ?? (dayOfWeek as ScheduleDay),
+    ...(teacher
+      ? {
+          teacher: {
+            id: teacher.id,
+            name: teacher.user?.name ?? teacher.name ?? "",
+          },
+        }
+      : {}),
+  };
 }
 
-function toApiSchedule(data: Partial<Schedule>) {
-  const {
-    day,
-    class: _class,
-    subject: _subject,
-    teacher: _teacher,
-    ...rest
-  } = data;
-  return { ...rest, ...(day ? { dayOfWeek: day } : {}) };
+export function toApiSchedule(data: Partial<Schedule>) {
+  const { day, ...rest } = data;
+  // The relations are read-only on the way in; the API takes the ids.
+  const body: Record<string, unknown> = { ...rest };
+  delete body.class;
+  delete body.subject;
+  delete body.teacher;
+  return { ...body, ...(day ? { dayOfWeek: day } : {}) };
 }
 
 // Schedule queries
@@ -306,7 +325,7 @@ export function useSchedules(params?: {
       const response = await api.get("/curriculum/schedules", {
         params: { ...rest, ...(day ? { dayOfWeek: day } : {}) },
       });
-      return (response.data.data as Schedule[]).map(fromApiSchedule);
+      return (response.data.data as ApiScheduleRow[]).map(fromApiSchedule);
     },
   });
 }
@@ -319,7 +338,7 @@ export function useClassSchedule(classId: string, academicYearId?: string) {
         `/curriculum/classes/${classId}/schedule`,
         { params: { academicYearId } },
       );
-      return (response.data.data as Schedule[]).map(fromApiSchedule);
+      return (response.data.data as ApiScheduleRow[]).map(fromApiSchedule);
     },
     enabled: !!classId,
   });

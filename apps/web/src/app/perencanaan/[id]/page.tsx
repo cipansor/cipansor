@@ -742,6 +742,7 @@ function PerencanaanDetailPageContent() {
           open={activityDialogOpen}
           onOpenChange={setActivityDialogOpen}
           objectiveId={selectedObjectiveId}
+          unitId={plan.unitId}
           editData={editActivityData}
         />
       )}

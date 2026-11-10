@@ -51,6 +51,8 @@ interface ActivityDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   objectiveId: string;
+  /** The plan's unit; `null` for an RKA Yayasan. Narrows the PIC and budget lists. */
+  unitId?: string | null;
   editData?: any;
 }
 
@@ -58,14 +60,15 @@ export function ActivityDialog({
   open,
   onOpenChange,
   objectiveId,
+  unitId,
   editData,
 }: ActivityDialogProps) {
   const createActivity = useCreateActivity();
   const updateActivity = useUpdateActivity();
   const isEdit = !!editData;
 
-  const { data: budgets } = useActivityBudgetOptions();
-  const { data: users } = useActivityPicOptions();
+  const { data: budgets } = useActivityBudgetOptions(unitId);
+  const { data: users } = useActivityPicOptions(unitId);
   const form = useForm<ActivityFormValues>({
     resolver: zodResolver(activitySchema),
     defaultValues: {
