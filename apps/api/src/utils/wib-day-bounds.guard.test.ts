@@ -9,17 +9,20 @@ import { join, relative, resolve } from 'path';
  * on the UTC container, midnight UTC, which is the day before WIB between
  * 00:00 and 06:59 WIB. The dashboard reads `Attendance.date` (`@db.Date`,
  * filled with the WIB day) and `TahfidzRecord.recordedAt` (`DateTime`), so its
- * bounds come from `utils/wib.ts` / `utils/wib-day.ts`.
+ * bounds come from `utils/wib.ts` / `utils/wib-day.ts`. The analytics module
+ * builds the same "hari ini" bounds (`getDashboardStats`) and labels the parent
+ * activity chart by day (`getParentEngagement`), so it is pinned too (#978).
  *
  * This guard does not forbid the pattern everywhere — plenty of other modules
- * still shift an instant that way. It pins the dashboard module, where the bug
- * lived, so the same defect cannot walk back in unnoticed.
+ * still shift an instant that way. It pins the dashboard and analytics modules,
+ * where the bug lived, so the same defect cannot walk back in unnoticed.
  */
 
 const API = resolve(__dirname, '..', '..');
 
-/** The files whose day bounds must be WIB: the dashboard module and its metrics. */
-const GUARDED = ['src/modules/dashboard', 'src/lib/dashboard-metrics.ts'];
+/** The files whose day bounds must be WIB: the dashboard module and its metrics,
+ * and the analytics module (dashboard card + parent activity chart). */
+const GUARDED = ['src/modules/dashboard', 'src/lib/dashboard-metrics.ts', 'src/modules/analytics'];
 
 function sourceFiles(path: string): string[] {
   const full = join(API, path);

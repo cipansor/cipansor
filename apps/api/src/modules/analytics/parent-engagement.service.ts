@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { UserRole } from '@prisma/client';
+import { shiftWibDay, todayWib, wibWeekday } from '@/utils/wib';
+import { wibDayOf, wibDayStart } from '@/utils/wib-day';
 import type {
   ParentEngagementStats,
   ParentEngagementClassBreakdown,
@@ -18,10 +20,6 @@ function daysAgo(days: number): Date {
   return date;
 }
 
-function dateKey(date: Date): string {
-  return date.toISOString().slice(0, 10);
-}
-
 /**
  * Parent engagement analytics: portal activity, responsiveness, payment
  * discipline and per-class breakdown — all derived from real data
@@ -29,8 +27,11 @@ function dateKey(date: Date): string {
  */
 export async function getParentEngagement(unitId?: string): Promise<ParentEngagementStats> {
   const activeCutoff = daysAgo(ACTIVE_WINDOW_DAYS);
-  const weekStart = daysAgo(6);
-  weekStart.setHours(0, 0, 0, 0);
+  // The activity chart counts calendar days on the pesantren's clock. The
+  // container runs UTC, so a local `setHours(0,0,0,0)` would put the window's
+  // first day on the previous WIB day for the whole 00:00–06:59 WIB stretch.
+  const today = todayWib();
+  const weekStart = wibDayStart(shiftWibDay(today, -6));
 
   const studentFilter = {
     deletedAt: null,
@@ -149,16 +150,17 @@ export async function getParentEngagement(unitId?: string): Promise<ParentEngage
     avgResponseHours = Math.round((totalHours / parentReplies.length) * 10) / 10;
   }
 
-  // Daily activity for the last 7 days
+  // Daily activity for the last 7 days, on the WIB calendar. The bucket and
+  // its label come from the same WIB day an event falls on (`wibDayOf`), so a
+  // 00:00–06:59 WIB event is not filed under the previous UTC day.
   const weeklyActivity: ParentEngagementDailyActivity[] = [];
   for (let i = 6; i >= 0; i--) {
-    const date = daysAgo(i);
-    const key = dateKey(date);
+    const day = shiftWibDay(today, -i);
     weeklyActivity.push({
-      date: key,
-      day: DAY_NAMES_ID[date.getDay()],
-      messages: parentMessages.filter((m) => dateKey(m.createdAt) === key).length,
-      notificationsRead: readNotifications.filter((n) => n.readAt && dateKey(n.readAt) === key)
+      date: day,
+      day: DAY_NAMES_ID[wibWeekday(day)],
+      messages: parentMessages.filter((m) => wibDayOf(m.createdAt) === day).length,
+      notificationsRead: readNotifications.filter((n) => n.readAt && wibDayOf(n.readAt) === day)
         .length,
     });
   }
