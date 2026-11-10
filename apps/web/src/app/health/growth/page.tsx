@@ -11,6 +11,7 @@ import {
   Ruler,
   Activity,
   Calendar as CalendarIcon,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -68,7 +69,12 @@ import {
 } from "@/components/ui/select";
 import { useClasses } from "@/hooks/use-classes";
 import { useClassEnrollments } from "@/hooks/use-class-enrollments";
-import { useCreateGrowthRecord, useGrowthRecords } from "@/hooks/use-health";
+import {
+  useCreateGrowthRecord,
+  useDeleteGrowthRecord,
+  useGrowthRecords,
+} from "@/hooks/use-health";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { MainLayout } from "@/components/layout";
 
 function GrowthTrackingPageContent() {
@@ -97,6 +103,14 @@ function GrowthTrackingPageContent() {
     selectedStudentId ?? undefined,
   );
   const createMutation = useCreateGrowthRecord();
+  const deleteMutation = useDeleteGrowthRecord(selectedStudentId ?? undefined);
+
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate(id, {
+      onSuccess: () => toast.success("Data tumbuh kembang berhasil dihapus"),
+      onError: () => toast.error("Gagal menghapus data tumbuh kembang"),
+    });
+  };
   // The record goes under the santri's unit, read from the chosen class: an
   // account with no unit of its own (Super Admin, a cross-unit nurse) has none
   // to give, and the API requires one.
@@ -379,6 +393,7 @@ function GrowthTrackingPageContent() {
                     <TableHead>TB (cm)</TableHead>
                     <TableHead>LK (cm)</TableHead>
                     <TableHead>Catatan</TableHead>
+                    <TableHead className="w-[60px]" />
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -399,12 +414,30 @@ function GrowthTrackingPageContent() {
                       <TableCell className="text-muted-foreground text-sm">
                         {record.notes}
                       </TableCell>
+                      <TableCell className="text-right">
+                        <ConfirmDialog
+                          title="Hapus Data Tumbuh Kembang"
+                          description="Tindakan ini tidak dapat dibatalkan."
+                          confirmLabel="Hapus"
+                          onConfirm={() => handleDelete(record.id)}
+                          loading={deleteMutation.isPending}
+                        >
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 w-8 p-0"
+                            aria-label="Hapus"
+                          >
+                            <Trash2 className="h-4 w-4 text-red-500" />
+                          </Button>
+                        </ConfirmDialog>
+                      </TableCell>
                     </TableRow>
                   ))}
                   {growthData?.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={5}
+                        colSpan={6}
                         className="text-center text-muted-foreground"
                       >
                         Belum ada data.

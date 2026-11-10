@@ -484,6 +484,26 @@ router.post('/growth', controller.createGrowthRecord);
  */
 router.get('/growth', controller.getGrowthRecords);
 
+/**
+ * @swagger
+ * /api/health/growth/{id}:
+ *   delete:
+ *     summary: Delete growth record
+ *     tags: [Health]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Growth record deleted
+ */
+router.delete('/growth/:id', controller.deleteGrowthRecord);
+
 // ==================== CLINIC (POLIKLINIK) ====================
 
 /**

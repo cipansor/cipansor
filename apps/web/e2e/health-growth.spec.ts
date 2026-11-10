@@ -13,6 +13,11 @@ import { DEMO_ACCOUNTS } from "../../../packages/shared/src/types/demo-accounts"
  * client (cookie + CSRF) like every other call. This spec reads a seeded
  * weighing and records a new one, asserting both land in the table — the two
  * things the hook change had to make work.
+ *
+ * The weighing it writes is removed again through the same page (the row's
+ * Hapus button): every browser project runs this spec, and `useGrowthRecords`
+ * reads only the 100 newest records, so an uncleaned run would push the seeded
+ * history out of the nurse's view.
  */
 function account(roleCode: string) {
   const found = DEMO_ACCOUNTS.find((a) => a.roleCode === roleCode);
@@ -36,7 +41,13 @@ test.describe("Tumbuh kembang — baca dan catat dari halaman", () => {
     expect(classes.length, "a class in the nurse's unit").toBeGreaterThan(0);
 
     let chosen:
-      { classId: string; className: string; studentName: string } | undefined;
+      | {
+          classId: string;
+          className: string;
+          studentId: string;
+          studentName: string;
+        }
+      | undefined;
     for (const cls of classes) {
       const { data: enrollments } = await apiRequest<{
         data: Array<{ student: { id: string; user: { name: string } } }>;
@@ -49,6 +60,7 @@ test.describe("Tumbuh kembang — baca dan catat dari halaman", () => {
           chosen = {
             classId: cls.id,
             className: cls.name,
+            studentId: e.student.id,
             studentName: e.student.user.name,
           };
           break;
@@ -76,14 +88,48 @@ test.describe("Tumbuh kembang — baca dan catat dari halaman", () => {
 
     // Record a new weighing through the dialog (the write path: cookie + CSRF).
     const notes = `Uji tumbuh ${Date.now().toString(36).toUpperCase()}`;
-    await page.getByRole("button", { name: "Catat Data" }).click();
-    await page.locator("#weight").fill("31.5");
-    await page.locator("#height").fill("133.2");
-    await page.locator("#notes").fill(notes);
-    await page.getByRole("button", { name: "Simpan" }).click();
-    await waitForToast(page, /tumbuh kembang berhasil disimpan/i);
+    try {
+      await page.getByRole("button", { name: "Catat Data" }).click();
+      await page.locator("#weight").fill("31.5");
+      await page.locator("#height").fill("133.2");
+      await page.locator("#notes").fill(notes);
+      await page.getByRole("button", { name: "Simpan" }).click();
+      await waitForToast(page, /tumbuh kembang berhasil disimpan/i);
 
-    // The list invalidates and shows the new row without a reload.
-    await expect(page.getByRole("cell", { name: notes })).toBeVisible();
+      // The list invalidates and shows the new row without a reload.
+      await expect(page.getByRole("cell", { name: notes })).toBeVisible();
+
+      // Remove it again through the row's Hapus button: the page's own delete
+      // path, and the cleanup. Left behind, the record would accumulate across
+      // browser projects and crowd the seeded history out of the 100-record
+      // window the page reads.
+      const row = page.getByRole("row").filter({ hasText: notes });
+      await row.getByRole("button", { name: "Hapus" }).click();
+      await page
+        .getByRole("alertdialog")
+        .getByRole("button", { name: "Hapus" })
+        .click();
+      await waitForToast(page, /tumbuh kembang berhasil dihapus/i);
+      await expect(page.getByRole("cell", { name: notes })).toHaveCount(0);
+    } finally {
+      // If the run failed before the button, take the record out by API so a
+      // red test does not leave test data behind.
+      const { data: records } = await apiRequest<{
+        data: Array<{ id: string; notes: string | null }>;
+      }>(
+        nurse,
+        "GET",
+        `/health/growth?studentId=${chosen!.studentId}&limit=100`,
+      );
+      for (const record of records) {
+        if (record.notes === notes) {
+          await apiRequest(
+            nurse,
+            "DELETE",
+            `/health/growth/${record.id}`,
+          ).catch(() => {});
+        }
+      }
+    }
   });
 });

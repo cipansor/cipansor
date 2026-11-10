@@ -68,6 +68,15 @@ export async function getGrowthRecords(req: Request, res: Response, next: NextFu
   }
 }
 
+export async function deleteGrowthRecord(req: Request, res: Response, next: NextFunction) {
+  try {
+    await service.deleteGrowthRecord(req.params.id, studentScope(req.user!));
+    res.json({ success: true, message: 'Growth record deleted' });
+  } catch (error) {
+    next(error);
+  }
+}
+
 export async function getMedicalRecordById(req: Request, res: Response, next: NextFunction) {
   try {
     const record = await service.getMedicalRecordById(req.params.id, studentScope(req.user!));

@@ -241,3 +241,18 @@ export function useCreateGrowthRecord() {
     },
   });
 }
+
+/** Delete a weighing (`DELETE /health/growth/:id`). */
+export function useDeleteGrowthRecord(studentId?: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (id: string) => {
+      await api.delete(`/health/growth/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["growth-records", studentId],
+      });
+    },
+  });
+}

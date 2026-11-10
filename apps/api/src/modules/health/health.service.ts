@@ -952,3 +952,12 @@ export async function getGrowthRecords(
     },
   };
 }
+
+export async function deleteGrowthRecord(id: string, scope: Prisma.StudentWhereInput) {
+  const found = await prisma.growthRecord.findFirst({
+    where: { id, ...onlyScopedStudents(scope) },
+    select: { id: true },
+  });
+  if (!found) throw Errors.notFound('Growth record');
+  return prisma.growthRecord.delete({ where: { id } });
+}
