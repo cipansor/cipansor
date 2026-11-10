@@ -49,7 +49,7 @@
 #
 # Usage: issue-triage-bridge.sh --stdin
 #        issue-triage-bridge.sh --sweep
-# Env:   GH_TOKEN, REPO, OPENHANDS_API_KEY, SDLC_TRIAGE_ID (default `SDLC 01`),
+# Env:   GH_TOKEN, REPO, OPENHANDS_API_KEY, SDLC_TRIAGE_ID (default `SDLC 15`),
 #        CURL (default curl), SWEEP_MAX (default 15, dispatches per sweep),
 #        SWEEP_PAGES (default 5, search pages read per sweep),
 #        MAX_INFLIGHT (default 3, triage runs allowed RUNNING/PENDING at once),
@@ -57,9 +57,11 @@
 set -eu
 
 REPO="${REPO:?REPO is required}"
-# `SDLC 01 · Triase bug`. Overridable so a redeploy that moves the id does not
-# need a workflow edit.
-TRIAGE_ID="${SDLC_TRIAGE_ID:-d648595e-b0d9-4120-bbc4-07395cdbe6bf}"
+# `SDLC 15 · Triase issue`, the single triage owner since `SDLC 01 · Triase bug`
+# was folded into it on 2026-11-09 (`SDLC 01` had the deeper criticality pass;
+# `SDLC 15` had the label taxonomy, priority rubric and estimate). Overridable so
+# a redeploy that moves the id does not need a workflow edit.
+TRIAGE_ID="${SDLC_TRIAGE_ID:-42ec7401-88f2-4f78-ab75-a93235fa52e4}"
 API="https://app.all-hands.dev/api/automation/v1"
 # The runs endpoint of the triage owner: the sweep reads its own run outcomes
 # (retry on the result) and counts how many are in flight (the queue cap).

@@ -178,8 +178,9 @@ NEW_IDENTITY_LINE = (
 # A cap cannot be raised (the API refuses `timeout` > 1800 with `422`), so the
 # fix is a work budget: an hourglass the agent watches so it stops exploring and
 # ships what it has. `Gerbang tinjau PR` carries one and shows 0 wall deaths
-# after it; `Triase bug` carries none and shows 23 in the same window. Every
-# automation without a tailored budget gets this generic one.
+# after it; `Triase bug` (since folded into `SDLC 15`) carried none and showed
+# 23 in the same window. Every automation without a tailored budget gets this
+# generic one.
 WORK_BUDGET_MARK = "ANGGARAN WAKTU — JAM PASIR"
 WORK_BUDGET = """ANGGARAN WAKTU — JAM PASIR (WAJIB)
 Run ini dibunuh pada 1800 detik oleh plafon platform (`execution/timeout`), dan plafon itu tidak bisa dinaikkan. Perlakukan anggaran seperti jam pasir:
@@ -203,24 +204,21 @@ BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
 - PR — kesimpulan final (putusan tinjauan, hasil QA) tetap ditulis ke DESKRIPSI UTAMA PR di bawah penanda tetap (mis. `<!-- sdlc:gerbang -->`), diperbarui di tempat.
 - Idempoten (invarian 4): satu pemicu = satu tulisan; perbarui komentar berpenanda Anda, jangan menumpuk. Jangan menanggapi komentar atau reaction milik Anda sendiri.
 - Sebelum menangani apa pun, tambahkan reaction 👀 pada objek yang Anda tangani (issue/PR/komentar) agar orang tahu automation bekerja: `POST /repos/<owner>/<repo>/issues/<n>/reactions` dengan body `{"content":"eyes"}`; untuk komentar: `POST /repos/<owner>/<repo>/issues/comments/<id>/reactions`. Jangan menumpuk reaction.
-- Hanya `cipansor-bot` (GITHUB_BOT_TOKEN) yang boleh memasang label. Jangan pasang label apa pun lewat `GITHUB_TOKEN`. `bot-implement`, `rilis-disetujui`, `rilis-ditolak` adalah keputusan maintainer — jangan pernah memasangnya.
+- Hanya `cipansor-bot` (GITHUB_BOT_TOKEN) yang boleh memasang label. Jangan pasang label apa pun lewat `GITHUB_TOKEN`. `bot-implement` adalah keputusan maintainer — jangan pernah memasangnya.
 """
 
 # The hardened triage/review tail per automation. Everything else keeps its tail
 # and only gains the BODY_BLOCK. Keys are matched as a substring of the name.
 TAILS = {
-    "SDLC 01": """PERILAKU SASARAN (level agentic)
-Triase bug ini dengan KRITIS dan habis-habisan. Baca issue, cari duplikat di antara issue terbuka dan tertutup, dan tanyakan bertubi-tubi sampai sangat yakin: apa kegagalan dan penyebabnya, area/modul mana (path nyata), kriteria penerimaan yang bisa diamati, apakah premisnya benar. Tulis hasilnya sebagai KOMENTAR BARU, bukan ke body: tingkat keparahan beserta alasan, area yang bertanggung jawab, langkah berikutnya, dan pertanyaan yang tersisa. Body issue hanya diperbarui saat Anda memasang `ready` (lihat blok BODY di atas). Terapkan hanya label yang sudah ada. JANGAN pasang `ready` (itu milik `Pelabel issue`). Tautkan setiap duplikat yang Anda temukan.
-""",
-    # `Estimasi usaha` (SDLC 02) was folded into this tail on 2026-11-09 (user
-    # decision). The estimate is one section of the single triage comment, not a
-    # second automation writing a second comment: `docs/SDLC-FLOW.md` invariant 3
-    # ("Triase, estimasi, dan label … oleh satu automation dalam satu komentar")
-    # and the "Selisih dari keadaan sekarang" item 1 ("Triase ganda") always
-    # asked for it, and a separate automation doubled the runs that could die on
-    # the wall clock.
+    # `Triase bug` (SDLC 01) was folded into this tail on 2026-11-09 (user
+    # decision, closing "Triase ganda" #848). SDLC 01 had the deeper criticality
+    # pass (what fails and why, which module, whether the premise holds); SDLC 15
+    # had the label taxonomy, the evidence-backed priority rubric and the
+    # estimate. One owner now writes ONE comment carrying all of it, instead of
+    # two automations writing two triage comments on the same `issues.opened`
+    # event. `Estimasi usaha` (SDLC 02) had been folded in earlier the same day.
     "SDLC 15": """PERILAKU SASARAN (level agentic)
-Triase issue ini dengan KRITIS dan habis-habisan. Sebelum memberi label apa pun, tanyakan bertubi-tubi sampai sangat yakin: apa masalah atau tujuannya persis; apakah kriteria penerimaannya konkret dan bisa diamati; apakah ada ketergantungan, non-goal, atau asumsi tersembunyi; apakah premisnya benar atau justru ada opsi "tidak perlu sama sekali". Bila satu saja belum terjawab, JANGAN pasang `ready`.
+Triase issue ini dengan KRITIS dan habis-habisan. Baca issue, cari duplikat di antara issue terbuka dan tertutup, dan tanyakan bertubi-tubi sampai sangat yakin: apa masalah atau tujuannya persis, apa kegagalan dan penyebabnya (sebut path nyata modul/berkas), apakah kriteria penerimaannya konkret dan bisa diamati, apakah ada ketergantungan, non-goal, atau asumsi tersembunyi, dan apakah premisnya benar atau justru ada opsi "tidak perlu sama sekali". Tautkan setiap duplikat yang Anda temukan. Bila satu saja belum terjawab, JANGAN pasang `ready`.
 
 Prioritas — beri bukti, jangan mengira-ngira. Nilai dampak, urgensi, dan risiko:
 - `priority:critical` HANYA bila salah satu terpenuhi: layanan mati total; kehilangan/korupsi data; kerentanan keamanan atau kebocoran data pribadi (UU PDP) yang aktif bisa dieksploitasi; pipeline rilis macet total. Sebut korban konkret (unit/peran) dan buktinya.
@@ -251,6 +249,17 @@ ESTIMASI USAHA — SATU BAGIAN DARI KOMENTAR YANG SAMA (WAJIB). Dulu ini automat
 - Tulis ukuran (XS/S/M/L/XL), berkas/area yang kemungkinan tersentuh, risiko utama, dan kalibrasi.
 - Selama issue belum `ready`, bagian ini hidup di KOMENTAR. Hanya bila issue sudah `ready` tulis atau perbarui estimasi di DESKRIPSI UTAMA issue (bagian `<!-- sdlc:estimasi -->`), perbarui di tempat.
 - Bila issue terlalu kabur untuk diestimasi, katakan itu dan daftar pertanyaan yang akan membukanya — jangan menebak angka.
+""",
+    # `SDLC 14` restored 2026-11-09 (see the `RETIRED` note above): judging which
+    # prose went stale is not a path diff. It also inherits SDLC 03's judgement
+    # half — is the module map in `docs/ARCHITECTURE.md` still true — now that the
+    # measured half (counts, Appendix A) runs in `docs-drift.yml`.
+    "SDLC 14": """PERILAKU SASARAN (level agentic)
+Deteksi merge ke main yang berdampak dokumentasi: perubahan pada route/kontrak API, alur UI, atau konfigurasi yang tidak punya pembaruan padanan di docs/, README, atau AGENTS.md. Buka SATU issue berlabel `documentation` dan satu prioritas, berisi dokumen mana yang basi, path file yang berubah, dan apa yang perlu ditulis ulang; jangan membuka pull request — maintainer menerapkan `bot-implement` agar `Tiket jadi PR` memperbaruinya. Jika merge itu sudah memperbarui dokumennya, jangan lakukan apa pun.
+
+Selain itu, nilai apakah peta modul dan arsitektur di `docs/ARCHITECTURE.md` masih benar terhadap tata letak nyata (`apps/api/src/modules/**`, `apps/web/src/**`, `packages/shared/**`) — modul yang sudah tidak ada, modul baru yang belum tercatat, atau path yang salah. Ini sisa tugas `Peta basis kode` (SDLC 03) yang dipensiunkan 2026-11-09: yang TERUKUR (jumlah modul, model, rute, Lampiran A) sudah dijalankan `.github/workflows/docs-drift.yml` ke issue induk #782, jadi JANGAN mengulang hitungan angka; nilailah hanya apakah peta prosa masih menyampaikan kebenaran. Angka tetap bukan temuan bila dokumennya menunjuk perintah ukur (aturan #782 poin 4).
+
+Jangan membuka issue drift kedua: `#782` adalah satu-satunya issue induk penyimpangan dokumen (keputusan pemilik 2026-10-11). Temuan angka/daftar ke `#782`; temuan prosa yang butuh ditulis ulang ke satu issue `documentation` seperti di atas.
 """,
     "SDLC 16": """PERILAKU SASARAN (level agentic)
 Issue `needs-info` ini baru menerima komentar. Baca seluruh issue dan komentar baru, lalu putuskan dengan KRITIS apakah pelapor sudah memasok yang diminta. Bila masih kabur, biarkan `needs-info` dan tulis detail spesifik yang masih kurang sebagai KOMENTAR BARU — jangan mengulang pertanyaan yang sudah ditanyakan. Bila kini jelas dan bisa diimplementasikan, hapus `needs-info`, tambah `ready` (hanya bila benar-benar yakin, tanpa pertanyaan terbuka), lalu tulis penilaian ulang ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`). Bila duplikat, `duplicate` + tautkan aslinya. Bila tidak valid, `invalid` + alasannya. Jangan menghapus `ready` yang bukan Anda pasang tanpa menjelaskan alasannya.
@@ -310,9 +319,9 @@ Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya
    Jangan menyebut `content` (agent menghasilkan hasil buruk) kecuali Anda memegang keluaran agent yang salah sebagai bukti; kegagalan `wall`/`wall-short`/`sandbox`/`dispatch`/`llm` bukan `content`.
 2. Periksa guard determinisme: setiap automation dengan trigger `issue_comment.created` harus membawa filter self-comment `comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`. Trigger komentar tanpa itu akan loop (#680).
 3. Periksa setiap automation `enabled`, tidak ada dua automation berbagi slot cron, dan setiap automation ber-`timeout` tepat 1800. Platform menolak `timeout` > 1800 (`422 timeout must not exceed 1800 seconds`), dan angka yang lebih kecil tidak menghemat apa pun — ia hanya memindahkan kematian ke run yang tugasnya jujur. Lima automation pernah dijeda otomatis platform setelah lima `execution/timeout` beruntun karena ini (SDLC 01 dan 15 `timeout=900`, SDLC 23 `1500`). `timeout` < 1800 adalah cacat `config`.
-4. Anda TIDAK membuat pull request dan TIDAK menyunting `main`. Setiap cacat — termasuk cacat `config` yang aman dikenal seperti guard self-comment yang hilang, automation yang dinonaktifkan padahal seharusnya aktif, `timeout` di bawah 1800, dua automation berbagi slot cron, atau pin kedaluwarsa yang dilaporkan pemeriksa `Security` — dilaporkan sebagai SATU issue berlabel `bug` atau `chore`, satu prioritas, dan `automation-health`. Jangan menyentuh filter di luar guard, `automation-loop-guard.py`, tesnya, rahasia apa pun, login, kredensial, hasil run, atau timer Issue steward; cukup laporkan.
+4. Anda TIDAK membuat pull request dan TIDAK menyunting `main`. Setiap cacat — termasuk cacat `config` yang aman dikenal seperti guard self-comment yang hilang, automation yang dinonaktifkan padahal seharusnya aktif, `timeout` di bawah 1800, dua automation berbagi slot cron, atau pin kedaluwarsa yang dilaporkan pemeriksa `Security` — dilaporkan sebagai SATU issue berlabel `bug` atau `chore`, satu prioritas, dan `automation-health`. Jangan menyentuh filter di luar guard, `automation-loop-guard.py`, tesnya, rahasia apa pun, login, kredensial, hasil run, atau timer `stale-sweep`; cukup laporkan.
 5. Sebelum membuka issue, cari issue `automation-health` terbuka dengan penyebab yang sama. Jika ada, komentari dengan bukti baru alih-alih membuka yang kedua. Buka paling banyak satu issue per penyebab per minggu.
-6. Perbedaan `content` antara dua automation (misalnya Pelabel PR dan Gerbang tinjau PR yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
+6. Perbedaan `content` antara dua automation (misalnya dua peninjau yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
 7. Jangan pernah bertindak atas komentar yang Anda tulis sendiri. Jangan pernah merge. Laporkan ke maintainer hanya lewat issue GitHub (label `automation-health`) — tidak ada kanal lain.
 8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run setiap automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir: `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, buka issue/komentar dengan apa yang sudah Anda punya.
 
@@ -628,20 +637,124 @@ TRIGGERS = {
 # disabled through the API — otherwise it keeps running and keeps writing the
 # duplicate comment it was retired for.
 #
-# `SDLC 02` (`Estimasi usaha`) folded into `SDLC 15` (`Pelabel issue`) on
+# `SDLC 02` (`Estimasi usaha`) folded into `SDLC 15` (`Triase issue`) on
 # 2026-11-09 (user decision): the estimate is a section of the single triage
 # comment (`docs/SDLC-FLOW.md` invariant 3), and its runs were one more thing
 # that could die on the 1800s wall clock. Re-enable it only by deleting this
 # entry and restoring the `TAILS` entry the merge removed.
+#
+# `SDLC 21` (`Penjaga issue`) moved to a GitHub Action on 2026-11-09
+# (`.github/workflows/stale-sweep.yml`): its job is a label and a timestamp,
+# which needs no LLM and must not spend a sandbox. The timers are unchanged, so
+# there is nothing here to redeploy — re-enabling the automation would restore
+# the exact 1800s wall-clock death that got it paused five runs in a row.
+#
+# `SDLC 03` (`Peta basis kode`) retired on 2026-11-09. Most of what it produced
+# was MEASURED, not judged: `collect_facts.py` counts modules, models, routes and
+# cron entries, and `check_docs.py` checks Appendix A row by row and every number
+# against the code. That layer now runs as `.github/workflows/docs-drift.yml`,
+# writing to the single drift issue #782 (owner decision 2026-10-11: the mapper
+# updates one parent issue, never opens another). SDLC 03's remaining judgement —
+# is the module map in `docs/ARCHITECTURE.md` still true — is folded into SDLC
+# 14. SDLC 03 also pointed at `docs/MODULE_MAP.md`, a file that has never existed
+# in this repository; the catalog is Appendix A of `docs/DOKUMEN-TEKNIS.md`.
+#
+# `SDLC 14` (`Pengelola dokumentasi`) is KEPT as an LLM automation. It was
+# briefly retired with SDLC 03 on 2026-11-09 and restored the same day: its
+# output is a JUDGEMENT — which document is stale, and what has to be rewritten —
+# not a path diff. Deciding that a merge changed an API contract or a UI flow in
+# a way no prose reflects, and then saying what the prose should become, is the
+# work the fleet exists for. The evidence: #943, its one issue so far, names the
+# causal chain (`59b96dc` from #935 changed `pnpm-workspace.yaml` and added a
+# guard test, updating no `.md`) and the concrete consequence (the floor rule now
+# fails the Tests job yet appears in no document). Only SDLC 03's module-map
+# question is merged into it.
+#
+# `SDLC 17` (`Pelabel PR`) retired on 2026-11-09: the mechanical half (copying
+# the linked issue's type and priority onto the PR) has been done by the
+# `issue-label-sync` workflow all along, and it is a required check. The
+# semantic half (deciding a PR duplicates another) is now a deterministic
+# heuristic in `docs-drift`'s sibling — see `.github/scripts/pr-duplicate.sh`.
+#
+# `SDLC 11` (`Uji beban`) retired on 2026-10-20 (user decision, #677): the k6
+# smoke moved to `.github/workflows/load-tests.yml`, run manually before each
+# release against a recorded baseline, never on a cron. It was turned off then
+# but never added here, unlike its sibling `SDLC 21` — so a later re-enable
+# would have silently resurrected the monthly staging load against a baseline
+# nothing refreshes. This entry is the missing safety net.
 RETIRED = {
-    "SDLC 02": "dilebur ke SDLC 15 (Pelabel issue) pada 2026-11-09 — estimasi "
+    "SDLC 02": "dilebur ke SDLC 15 (Triase issue) pada 2026-11-09 — estimasi "
     "kini satu bagian dari komentar triase tunggal (invarian 3).",
+    "SDLC 01": "dilebur ke SDLC 15 (Triase issue) pada 2026-11-09 — triase kini "
+    "satu pemilik: satu komentar (tipe, prioritas, kesiapan, area, keparahan, "
+    "duplikat, estimasi), bukan dua. Ini menutup 'Triase ganda' (#848).",
+    "SDLC 21": "diport ke .github/workflows/stale-sweep.yml pada 2026-11-09 — "
+    "timer label/stempel waktu, deterministik, tanpa sandbox.",
+    "SDLC 11": "`Uji beban` dipensiunkan pada 2026-10-20 (#677) — k6 smoke "
+    "pindah ke .github/workflows/load-tests.yml, dijalankan manual sebelum tiap "
+    "rilis terhadap baseline terekam, bukan cron bulanan.",
+    "SDLC 03": "dipensiunkan pada 2026-11-09 — separuh besar keluarannya "
+    "TERUKUR: `collect_facts.py` + `check_docs.py` menghitung modul, model, rute, "
+    "entri cron, dan memeriksa Lampiran A baris demi baris. Sisa penilaiannya "
+    "(apakah peta modul di ARCHITECTURE.md masih benar) dilebur ke SDLC 14, yang "
+    "memang penilaian. Lapisan angka dijalankan `.github/workflows/docs-drift.yml` "
+    "ke issue induk #782.",
+    "SDLC 17": "dipensiunkan pada 2026-11-09 — salin label sudah dikerjakan "
+    "issue-label-sync.yml; deteksi duplikat kini heuristik deterministik.",
+    "SDLC 13": "dipensiunkan pada 2026-11-09 — keluarannya (pre-release -rc + "
+    "catatan rilis) tidak dikonsumsi apa pun: tidak ada workflow `on: tags`, "
+    "tidak ada `git describe` di skrip mana pun, dan k6 smoke tetap manual. "
+    "Tag -rc juga membingungkan: N hanya naik bila ada commit relevan, sedangkan "
+    "repo ini didominasi chore(deps) yang tidak menaikkan versi, jadi rc4 "
+    "(2026-10-30) lalu run berikutnya SKIPPED — tag berhenti menandai 'kode "
+    "terverifikasi'. Perhitungan semver kini ada di tag rilis manusia; pemicu "
+    "produksi dipindah ke tag `v*` (deploy-production.yml) dengan gerbang "
+    "deterministik release-gate.sh.",
 }
 
 
 def retired_key(name):
     """The `RETIRED` entry an automation's name carries, or None."""
     return next((k for k in RETIRED if k in name), None)
+
+
+# Live automation names that drifted from the roles the repository writes down.
+# The name is cosmetic to the pipeline — every dispatch is by id — but it is
+# what a person reads in the automation list and what `docs/SDLC-FLOW.md` claims
+# to describe ("apa adanya"). `PATCH {name}` renames in place: the id, the
+# prompt and the tarball are untouched, so nothing else moves. Keyed by the same
+# substring every other map uses, so the lookup has one shape.
+RENAMES = {
+    # 2026-11-09 (user decision): `Pelabel issue` named only one of the job's
+    # halves. The automation is the single triage owner now that `Triase bug`
+    # (SDLC 01) and `Estimasi usaha` (SDLC 02) were folded into it, so "triase"
+    # is the honest name. Renamed in the same run the role was renamed in docs.
+    "SDLC 15": "SDLC 15 · Triase issue",
+}
+
+
+def rename_key(name):
+    """The `RENAMES` key an automation's name carries, or None."""
+    return next((k for k in RENAMES if k in name), None)
+
+
+def apply_rename(aid, name, dry):
+    """PATCH an automation's display name to the fleet standard. True on change.
+
+    A no-op once the name already matches, so a second run renames nothing.
+    """
+    key = rename_key(name)
+    if not key:
+        return False
+    want = RENAMES[key]
+    if name == want:
+        return False
+    if dry:
+        print(f"    name would change: {name!r} -> {want!r}")
+        return True
+    req("PATCH", f"/{aid}", {"name": want})
+    print(f"    renamed: {name!r} -> {want!r}")
+    return True
 
 
 def apply_retire(aid, name, enabled, dry):
@@ -745,6 +858,12 @@ def main():
             continue
         trigger_changed = apply_trigger(aid, name, a.get("trigger") or {}, not DEPLOY)
         timeout_changed = apply_timeout(aid, name, a.get("timeout"), not DEPLOY)
+        # Rename before the prompt: `new_prompt` keys `TAILS` on the name, and
+        # the rename keeps the `SDLC NN` prefix, so the lookup is unaffected
+        # either way. Landing it here means a refused prompt still gets the
+        # correct name — the drift this map exists to close.
+        rename_changed = apply_rename(aid, name, not DEPLOY)
+        config_changed = trigger_changed or timeout_changed or rename_changed
         try:
             new = new_prompt(name, base)
         except TruncatedPromptError as e:
@@ -753,13 +872,13 @@ def main():
             # fixes above already landed, so only the prompt is held back.
             print(f"- {name}: REFUSED — {e}")
             refused.append(name)
-            if DEPLOY and (trigger_changed or timeout_changed):
+            if DEPLOY and config_changed:
                 time.sleep(1)
             continue
         changed = new != old
         print(f"- {name}: {'changed' if changed else 'already current'}")
         if not changed or not DEPLOY:
-            if DEPLOY and (trigger_changed or timeout_changed) and not changed:
+            if DEPLOY and config_changed and not changed:
                 time.sleep(1)
             continue
         blob = patch_tarball(aid, new)

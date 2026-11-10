@@ -1,0 +1,50 @@
+# Refresh the single documentation-drift issue (#782) from the code.
+#
+# Retires `SDLC 03 · Peta basis kode` (34 runs/week): most of what it produced was
+# MEASURED — module, model, route and cron counts, and Appendix A rows — which
+# `collect_facts.py` and `check_docs.py` compute exactly. It also pointed at
+# `docs/MODULE_MAP.md`, a file that has never existed here.
+#
+# Does NOT replace `SDLC 14 · Pengelola dokumentasi` (kept): which prose went
+# stale, and what it should become, is a judgement — not a path diff. SDLC 03's
+# judgement half (is the module map in `docs/ARCHITECTURE.md` still true) moved
+# into SDLC 14.
+#
+# It writes to the existing parent issue #782, never a new one (owner decision
+# 2026-10-11: sixteen overlapping doc issues became one parent whose body is
+# rewritten in place).
+#
+# The skill is stdlib-only Python, so the job needs no install step beyond a
+# checkout. The rules live in `.github/scripts/docs-drift.sh` so they can be run
+# by hand.
+name: Docs drift
+
+on:
+  push:
+    branches: [main]
+  schedule:
+    - cron: '41 21 * * *' # daily, 04:41 WIB (off the hour; gate-watch uses :23)
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: docs-drift
+  cancel-in-progress: false
+
+jobs:
+  drift:
+    name: Compare docs with the code
+    # A fork inherits this file; its docs must not open issues here.
+    if: github.repository == 'cipansor/cipansor'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Refresh the drift issue body
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: sh .github/scripts/docs-drift.sh

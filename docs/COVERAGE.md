@@ -21,5 +21,5 @@ is committed.
 
 `Pemindai celah uji` runs weekly: it ranks untested services/controllers
 and web flows by risk and opens **one** issue for the highest-risk gap. It does
-not write tests — the issue goes through the normal pipeline (`Pelabel issue` applies
+not write tests — the issue goes through the normal pipeline (`Triase issue` applies
 `ready`, `Tiket jadi PR` implements it and links the PR with `Fixes #<n>`).

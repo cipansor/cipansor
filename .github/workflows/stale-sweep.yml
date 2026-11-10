@@ -1,0 +1,49 @@
+# Age out issues that have gone quiet, and close them when nobody answers.
+#
+# This is the deterministic replacement for the `Penjaga issue` OpenHands
+# automation (SDLC 21). That automation was disabled by the maintainer (#677)
+# and, across its whole life, closed no issue at all: deciding a label from a
+# timestamp is not a judgement that needs an LLM, and spending a 1800s sandbox
+# on it is what pushed the fleet into its daily sandbox quota. The timers are
+# unchanged; only the executor is.
+#
+#   needs-info    warned at 13 days, closed not-planned at 20
+#   question      `stale` at 8 days, closed not-planned at 15
+#   anything else `stale` at 90 days, closed not-planned at 104
+#
+# A maintainer's reply, or removing the label, keeps the issue open — every run
+# re-reads both. An edit to the description is an answer too, and it restarts the
+# idle clock, so an issue updated today is not closed on its pre-edit age. Never
+# closed: `pending-maintainer`, `ready`, `blocked`, `in-progress`, and anything
+# labelled `duplicate` (duplicate-sweep.yml owns those). Never a pull request.
+# See .github/scripts/stale-sweep.sh.
+name: Stale sweep
+
+on:
+  schedule:
+    - cron: "30 18 * * *" # 01:30 Asia/Jakarta, daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: stale-sweep
+  cancel-in-progress: false
+
+jobs:
+  sweep:
+    name: Age out quiet issues
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Warn and close quiet issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: sh .github/scripts/stale-sweep.sh

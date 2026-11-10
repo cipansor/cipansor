@@ -1,5 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma, Gender } from '@prisma/client';
+import { todayWib } from '@/utils/wib';
+import { wibDayEnd, wibDayStart, wibMonthRange, wibMonthYear } from '@/utils/wib-day';
 import type {
   DashboardSummary,
   StudentStatistics,
@@ -25,10 +27,17 @@ interface DateRange {
 export async function getDashboardStats(unitId?: string): Promise<DashboardSummary> {
   const unitFilter = unitId ? { unitId } : {};
   const studentFilter = { ...unitFilter, deletedAt: null };
-  const now = new Date();
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-  const startOfDay = new Date(now.setHours(0, 0, 0, 0));
-  const endOfDay = new Date(now.setHours(23, 59, 59, 999));
+  // "Hari ini" and "bulan ini" are calendar periods on the pesantren's clock.
+  // The container runs UTC, so `new Date().setHours(0,0,0,0)` yields the UTC
+  // day — the previous WIB day for the whole 00:00–06:59 WIB stretch — and
+  // `new Date(y, m, 1)` yields the UTC month, so a 1st-morning read landed on
+  // the previous month. `Attendance.date` is a `@db.Date` filled with the WIB
+  // day, so its bound has to be that same WIB day.
+  const today = todayWib();
+  const { year, month } = wibMonthYear(new Date());
+  const startOfMonth = wibMonthRange(year, month).start;
+  const startOfDay = wibDayStart(today);
+  const endOfDay = wibDayEnd(today);
   const oneWeekAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000);
 
   const [

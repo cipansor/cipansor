@@ -18,6 +18,13 @@
 # than a red one. Each is explained in the job summary.
 
 name: Load Tests
+# The run title names the target, scenario and profile the runner was actually
+# pointed at, because `release-gate.sh` reads it back as evidence that the load
+# test ran against staging. `headSha` alone proves nothing about WHERE a run
+# measured: the `url` input is free-form, so a green run against a throwaway host
+# would otherwise satisfy the gate. Built from the same `inputs` the runner uses,
+# so the title cannot disagree with the run.
+run-name: k6 ${{ inputs.scenario || 'public-smoke' }} (${{ inputs.profile || 'smoke' }}) vs ${{ inputs.url || 'https://staging.cipansor.or.id' }}
 
 on:
   workflow_dispatch: # Allow manual trigger

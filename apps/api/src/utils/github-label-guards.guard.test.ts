@@ -133,7 +133,30 @@ describe('duplicate-sweep.sh', () => {
       GH_STUB_BODY: BODY,
     });
     expect(calls).not.toContain('CLOSE 7');
-    expect(out).toContain('reply after the warning');
+    expect(out).toContain('reply after it was flagged as a duplicate');
+  });
+
+  it('keeps a duplicate open when a person replied after the link, before the warning', () => {
+    // The detector writes the link comment before the label, so a person may
+    // reply after the link but before the sweep's warning (which only fires once
+    // the label is there). The reply must still keep the issue open — counting
+    // only from the warning closed on top of it. The reply is deliberately
+    // *before* the warning so the old logic (count from the warning) would have
+    // closed: the test fails against it and passes only with the link window.
+    const linkLine =
+      '2020-01-01T00:00:00Z\tcipansor-bot\tFlagged as a duplicate <!-- duplicate-detect -->';
+    const replyLine = '2020-01-01T06:00:00Z\treporter\tIt is not a duplicate because Z';
+    // The warning is posted by the bot account (as in production), so it is
+    // never itself counted as a reply — the reporter's line is the only
+    // candidate, and it is the one the old logic missed.
+    const laterWarning = `2020-01-02T00:00:00Z\tcipansor-bot\tWarning ${MARK} <!-- duplicate-sweep:hash:${sha(BODY)} -->`;
+    const { out, calls } = run(SWEEP, {
+      GH_STUB_ISSUE_LIST: '7',
+      GH_STUB_COMMENTS: [linkLine, replyLine, laterWarning].join('\n'),
+      GH_STUB_BODY: BODY,
+    });
+    expect(calls).not.toContain('CLOSE 7');
+    expect(out).toContain('reply after it was flagged as a duplicate');
   });
 
   it('still closes when only the automation account commented after the warning', () => {
@@ -179,7 +202,7 @@ describe('duplicate-sweep.sh', () => {
       GH_STUB_BODY: BODY,
     });
     expect(calls).toContain('--paginate');
-    expect(out).toContain('reply after the warning');
+    expect(out).toContain('reply after it was flagged as a duplicate');
     expect(calls).not.toContain('CLOSE 7');
   });
 
@@ -195,38 +218,20 @@ describe('duplicate-sweep.sh', () => {
     expect(out).toContain('without a description hash');
   });
 
-  it('sweeps pull requests labelled duplicate-pr too', () => {
-    const { calls } = run(SWEEP, {
-      GH_STUB_ISSUE_LIST: '',
-      GH_STUB_PRS: '9',
-      GH_STUB_PR_BODY: BODY,
-    });
-    // maintenance: a PR list was queried under the duplicate-pr label
-    expect(calls).toContain('--label duplicate-pr');
-    expect(calls).toContain('pr comment 9');
-  });
-
-  it('closes a stale duplicate pull request with pr close, not issue close', () => {
+  it('never sweeps pull requests labelled duplicate-pr to closure', () => {
+    // `duplicate-pr` is a maintainer-facing candidate (docs/LABELS.md, rule 4):
+    // which of two PRs is more correct is a judgement, so the sweep must not even
+    // query PRs, let alone close one.
     const { calls } = run(SWEEP, {
       GH_STUB_ISSUE_LIST: '',
       GH_STUB_PRS: '9',
       GH_STUB_COMMENTS: warningLine,
       GH_STUB_PR_BODY: BODY,
     });
-    expect(calls).toContain('CLOSE 9');
-    expect(calls).toContain('CMD pr close 9');
-    expect(calls).not.toContain('issue close 9');
-  });
-
-  it('keeps a duplicate PR open when its description was edited', () => {
-    const { out, calls } = run(SWEEP, {
-      GH_STUB_ISSUE_LIST: '',
-      GH_STUB_PRS: '9',
-      GH_STUB_COMMENTS: warningLine,
-      GH_STUB_PR_BODY: 'a link to the distinct fix was added',
-    });
+    expect(calls).not.toContain('--label duplicate-pr');
+    expect(calls).not.toContain('pr comment 9');
+    expect(calls).not.toContain('CMD pr close 9');
     expect(calls).not.toContain('CLOSE 9');
-    expect(out).toContain('edited after the warning');
   });
 });
 

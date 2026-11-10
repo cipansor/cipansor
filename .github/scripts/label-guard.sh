@@ -38,7 +38,7 @@ BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
 # Human-decision labels: the release gate is the maintainer's to apply (that is
 # the whole point of the label), and `bot-implement` is the maintainer's choice
 # to hand an issue to the bot. Everything else is the bot's.
-EXEMPT_LABELS="${EXEMPT_LABELS:-rilis-disetujui rilis-ditolak bot-implement}"
+EXEMPT_LABELS="${EXEMPT_LABELS:-bot-implement}"
 # Labels the issue template applies by itself. Left in place so a fresh issue is
 # not met with a revocation notice (#842).
 ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement}"
@@ -179,7 +179,7 @@ case "$PERM" in
   *) ALERT=" (akun ini tidak punya izin menulis; @adminypc tolong tinjau)" ;;
 esac
 
-BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Sebutkan apa yang Anda inginkan dan bot akan memasangnya. Label keputusan manusia (\`rilis-disetujui\`, \`rilis-ditolak\`, \`bot-implement\`) tetap boleh dipasang manual.$ALERT
+BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Sebutkan apa yang Anda inginkan dan bot akan memasangnya. Label keputusan manusia (\`bot-implement\`) tetap boleh dipasang manual.$ALERT
 
 $REVOKE_MARK"
 

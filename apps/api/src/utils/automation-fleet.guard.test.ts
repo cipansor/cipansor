@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'child_process';
 import { createHash } from 'crypto';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
 
@@ -216,7 +216,7 @@ const runBridge = (env: Record<string, string>, args: string[], stdin?: string) 
   run(BRIDGE, env, args, stdin, bridgeDir);
 
 const LABELS =
-  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nrilis-disetujui\nrilis-ditolak\nbot-implement\nsource:template';
+  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nbot-implement\nsource:template';
 
 const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
   JSON.stringify({
@@ -261,8 +261,11 @@ describe('label-guard.sh', () => {
     expect(calls).not.toContain('UNLABEL');
   });
 
-  it('leaves the human-decision labels even when a person applies them', () => {
-    for (const label of ['rilis-disetujui', 'rilis-ditolak', 'bot-implement']) {
+  it('leaves the human-decision label even when a person applies it', () => {
+    // `rilis-disetujui`/`rilis-ditolak` were dropped 2026-11-09: they never
+    // existed in the repo, and release approval is now a `vX.Y.Z` tag, so there
+    // is no label for a human to apply. `bot-implement` remains the exception.
+    for (const label of ['bot-implement']) {
       const { calls } = run(
         LABEL_GUARD,
         { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'admin' },
@@ -777,7 +780,7 @@ describe('basmalah.sh', () => {
 
 ${ARABIC}
 
-## Why`;
+## Mengapa`;
     const { calls } = run(BASMALAH, { GH_STUB_BODY: body }, ['--stdin'], ev);
     expect(calls).not.toContain('PATCH');
   });
@@ -864,6 +867,21 @@ describe('fleet contracts', () => {
     }
   });
 
+  it('uses only element types GitHub accepts in an issue form', () => {
+    // GitHub's form schema allows exactly these; an unknown `type` makes GitHub
+    // refuse the whole form, not hide the field — the bug path would vanish
+    // silently. Pinned so a typo or an invented element (`upload2`, `file`, …)
+    // fails here instead of in the New-issue picker. Source:
+    // docs.github.com "Syntax for GitHub's form schema" (`type` key).
+    const ALLOWED = new Set(['markdown', 'textarea', 'input', 'dropdown', 'checkboxes', 'upload']);
+    for (const file of ['bug_report.yml', 'feature_request.yml', 'config.yml']) {
+      const form = read(join(REPO_ROOT, '.github', 'ISSUE_TEMPLATE', file));
+      for (const m of form.matchAll(/^\s*-?\s*type:\s*(\S+)/gm)) {
+        expect(ALLOWED.has(m[1]), `${file}: unsupported form element type "${m[1]}"`).toBe(true);
+      }
+    }
+  });
+
   it('wires the label guard, acknowledgement and basmalah into workflows', () => {
     expect(read(join(WORKFLOWS, 'label-guard.yml'))).toContain('label-guard.sh');
     expect(read(join(WORKFLOWS, 'acknowledge.yml'))).toContain('acknowledge.sh');
@@ -928,7 +946,7 @@ describe('fleet contracts', () => {
 
   it('folds the estimate into the single triage owner (SDLC 02 -> SDLC 15)', () => {
     // 2026-11-09 (user decision): `Estimasi usaha` (SDLC 02) was folded into
-    // `Pelabel issue` (SDLC 15) so one automation writes triage + estimate +
+    // `Triase issue` (SDLC 15) so one automation writes triage + estimate +
     // label in one comment — invariant 3, and one fewer run to die on the
     // 1800s wall clock. This locks the merge so a later edit cannot quietly
     // restore the duplicate writer.
@@ -944,18 +962,144 @@ describe('fleet contracts', () => {
     expect(script).toContain('JANGAN menulis komentar kedua untuk estimasi');
   });
 
+  it('folds Triase bug into the single triage owner (SDLC 01 -> SDLC 15)', () => {
+    // 2026-11-09 (user decision): `Triase bug` (SDLC 01) was folded into
+    // `Triase issue` (SDLC 15). Both fired on `issues.opened` and both wrote a
+    // triage comment, which is the "Triase ganda" defect (#848). SDLC 01's
+    // deeper criticality pass now lives in SDLC 15's tail; the bridge dispatches
+    // SDLC 15 as the triage owner.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    expect(script).toMatch(/"SDLC 01":/);
+    // SDLC 01's own managed tail is gone: its instructions were merged into 15.
+    expect(script).not.toMatch(/"SDLC 01":\s*"""PERILAKU SASARAN/);
+    expect(script).not.toContain('Triase bug ini dengan KRITIS');
+    // The merged tail carries both halves: the criticality pass (SDLC 01) and
+    // the evidence-backed priority rubric (SDLC 15).
+    expect(script).toContain('apa kegagalan dan penyebabnya');
+    expect(script).toContain('Prioritas — beri bukti, jangan mengira-ngira');
+    // The bridge dispatches SDLC 15, not the retired SDLC 01 id.
+    const bridge = read(BRIDGE);
+    expect(bridge).toContain('42ec7401-88f2-4f78-ab75-a93235fa52e4');
+    expect(bridge).not.toContain('d648595e-b0d9-4120-bbc4-07395cdbe6bf');
+  });
+
+  it('retires the measured mapper but keeps the documentation manager', () => {
+    // 2026-11-09 (corrected same day): `Peta basis kode` (SDLC 03) produced a
+    // list that the documentation skill already measures (`collect_facts.py`,
+    // `check_docs.py`), so it retires to `docs-drift.yml`. `Pengelola
+    // dokumentasi` (SDLC 14) is KEPT: which prose went stale, and what it should
+    // become, is a judgement, not a path diff. Its one issue so far (#943) names
+    // a causal chain and a consequence, not a path list.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    // SDLC 03 retired, and its own tail is gone.
+    expect(script).toMatch(/"SDLC 03":/);
+    expect(script).not.toMatch(/"SDLC 03":\s*"""PERILAKU SASARAN/);
+    // SDLC 14 NOT retired, and it carries the module-map judgement SDLC 03 left.
+    const retired = script.slice(
+      script.indexOf('RETIRED = {'),
+      script.indexOf('\n}', script.indexOf('RETIRED = {'))
+    );
+    expect(retired).not.toMatch(/"SDLC 14":/);
+    expect(script).toMatch(/"SDLC 14":\s*"""PERILAKU SASARAN/);
+    expect(script).toContain('nilai apakah peta modul dan arsitektur');
+    // The deterministic layer must not open a second drift issue: #782 is the
+    // one parent (owner decision 2026-10-11).
+    const drift = read(join(REPO_ROOT, '.github', 'scripts', 'docs-drift.sh'));
+    expect(drift).not.toContain('gh issue create');
+    expect(drift).toContain('docs-drift:start');
+    expect(drift).toContain('gh issue edit');
+  });
+
   it('keeps docs/SDLC-FLOW.md consistent with the folded estimate', () => {
     const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
     // The stage table and the issue subgraph name one triage owner that also
     // carries the estimate; the separate `Estimasi usaha` automation is gone.
     expect(flow).not.toContain('| Estimasi usaha ');
     expect(flow).not.toContain('C2["Estimasi usaha"]');
-    expect(flow).toMatch(/Pelabel issue \(triase \+ estimasi \+ label/);
-    // `Triase bug` still comments on `issues.opened`, so "Triase ganda" is only
-    // partly done (#848) — the doc must not mark it finished.
-    expect(flow).not.toMatch(/Triase ganda\.?\*\*~~\s*\*\*SELESAI/);
-    expect(flow).not.toMatch(/Triase satu pemilik\*\*~~:\s*\*\*SELESAI/);
-    expect(flow).toMatch(/Triase ganda — sebagian[\s\S]{0,600}#848/);
+    expect(flow).toMatch(/Triase issue — tipe \+ keparahan \+ estimasi \+ label/);
+    // `Triase bug` (SDLC 01) was folded in the same day, so "Triase ganda" is
+    // now finished (#848): one owner writes one comment. The doc must say so.
+    expect(flow).toMatch(/Triase ganda — SELESAI/);
+    expect(flow).toMatch(/Triase satu pemilik\*\* — SELESAI/);
+    expect(flow).not.toMatch(/Triase ganda — sebagian/);
+  });
+
+  it('releases production from a vX.Y.Z tag, and only that workflow', () => {
+    // 2026-11-09 decision. `Pembuat catatan rilis` (SDLC 13) cut `-rc` tags that
+    // nothing consumed; it is retired, and a human-pushed `vX.Y.Z` tag is now the
+    // release. This pins the shape so a later edit cannot quietly undo it:
+    //   - deploy-production is triggered by a tag push;
+    //   - workflow_dispatch survives ONLY as the rollback path;
+    //   - no other workflow triggers on a tag, so a tag means exactly one thing.
+    const wfDir = join(REPO_ROOT, '.github', 'workflows');
+    const workflows = readdirSync(wfDir).filter((f) => f.endsWith('.yml'));
+    for (const f of workflows) {
+      const yml = readFileSync(join(wfDir, f), 'utf8');
+      // Only the `on:` block decides a trigger. `tags:` also appears under a
+      // docker push step, which is not a trigger and must not be read as one.
+      const onStart = yml.indexOf('\non:');
+      const onBlock = onStart < 0 ? '' : yml.slice(onStart, yml.indexOf('\njobs:'));
+      const triggersOnTag = /^\s+tags:/m.test(onBlock);
+      if (f === 'deploy-production.yml') {
+        expect(yml, f).toContain("tags: ['v*']");
+        expect(yml, f).toMatch(/workflow_dispatch:/);
+        // The rollback input is named as such, not as the forward release path.
+        expect(yml, f).toContain('Rollback only');
+      } else {
+        expect(triggersOnTag, `${f} must not be triggered by a tag`).toBe(false);
+      }
+    }
+    // The retired automation is named in the deploy script's RETIRED map, so a
+    // later `DEPLOY=true` run disables it rather than re-creating it.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    expect(script).toMatch(/"SDLC 13":/);
+    // The corrected rationale (including the two wrong first reasons) is kept.
+    const ideas = read(join(REPO_ROOT, 'docs', 'IDEAS.md'));
+    expect(ideas).toContain('DIPENSIUNKAN 2026-11-09');
+    expect(ideas).toContain('tidak ada yang **mengonsumsi** tag');
+  });
+
+  it('lists `Uji beban` (SDLC 11) as retired, not only disabled', () => {
+    // `Uji beban` was turned off on 2026-10-20 (#677) when the k6 smoke moved to
+    // `load-tests.yml`, but unlike its sibling `Penjaga issue` (SDLC 21) it was
+    // never added to `RETIRED`. A disabled automation with no `RETIRED` entry is
+    // invisible to the next deploy: nothing records why it is off, and a
+    // re-enable would silently restore the monthly staging load against a
+    // baseline no job refreshes. This locks the entry so the gap cannot return.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const retired = script.slice(
+      script.indexOf('RETIRED = {'),
+      script.indexOf('\n}', script.indexOf('RETIRED = {'))
+    );
+    expect(retired).toMatch(/"SDLC 11":/);
+    // The retired key must match the live automation name by substring, or
+    // `retired_key()` finds nothing and the automation is redeployed instead of
+    // disabled. `SDLC 11` is unique to `Uji beban` — no other live name carries
+    // it — so the fold cannot misfire onto a different automation. The value
+    // spans two source lines, so match the entry's text, not a single line.
+    const entry = retired.slice(retired.indexOf('"SDLC 11":'));
+    expect(entry.slice(0, entry.indexOf('\n    "SDLC'))).toContain('Uji beban');
+    // Its deterministic replacement is a real workflow, not a promise.
+    const loadTests = read(join(REPO_ROOT, '.github', 'workflows', 'load-tests.yml'));
+    expect(loadTests).toMatch(/workflow_dispatch:/);
+  });
+
+  it('renames `Pelabel issue` to `Triase issue`, in the script and in the docs', () => {
+    // 2026-11-09 (user decision): the automation is the single triage owner
+    // (SDLC 01 and 02 folded into it), so "Pelabel issue" named only half the
+    // job. Docs and the live name must not drift apart: `docs/SDLC-FLOW.md`
+    // claims to describe the fleet "apa adanya". The rename lands through the
+    // same deploy as the prompt, so a later run cannot leave the old name on.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const renames = script.slice(
+      script.indexOf('RENAMES = {'),
+      script.indexOf('\n}', script.indexOf('RENAMES = {'))
+    );
+    expect(renames).toMatch(/"SDLC 15":\s*"SDLC 15 · Triase issue"/);
+    // No doc still calls the role by the old name.
+    for (const doc of ['docs/SDLC-FLOW.md', 'docs/LABELS.md', 'docs/IDEAS.md']) {
+      expect(read(join(REPO_ROOT, doc)), doc).not.toContain('Pelabel issue');
+    }
   });
 
   it('writes no fleet size into the prompts or the flow doc', () => {
@@ -976,7 +1120,11 @@ describe('fleet contracts', () => {
     // trigger is the `bot-implement` label (SDLC 06). The flow doc must say so,
     // or a reader waits on `ready` that was never going to start anything.
     const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
-    const stage5 = flow.slice(flow.indexOf('| 5 | Implementasi'), flow.indexOf('| 6 | CI'));
+    // Table cells are padded by prettier, so match the row, not a fixed string.
+    const start5 = flow.search(/^\| 5\s+\| Implementasi/m);
+    const start6 = flow.search(/^\| 6\s+\| CI/m);
+    expect(start5, 'stage 5 row').toBeGreaterThan(-1);
+    const stage5 = flow.slice(start5, start6);
     expect(stage5).toContain('bot-implement');
     expect(stage5).toMatch(/`ready` saja TIDAK memicu/);
   });
@@ -1015,10 +1163,11 @@ describe('deploy-sdlc-agents.py', () => {
     return r.stdout;
   };
 
-  // A distinctive line from SDLC 01's managed tail (`TAILS` in the deploy
-  // script). Its presence proves the tail — the task instructions — was
-  // re-attached, not merely that a budget was appended.
-  const TAILS_SDLC_01_MARKER = 'Triase bug ini dengan KRITIS dan habis-habisan.';
+  // A distinctive line from SDLC 15's managed tail (`TAILS` in the deploy
+  // script) — the single triage owner since SDLC 01 was folded into it. Its
+  // presence proves the tail — the task instructions — was re-attached, not
+  // merely that a budget was appended.
+  const TAILS_SDLC_15_MARKER = 'Prioritas — beri bukti, jangan mengira-ngira.';
 
   // The pre-fix environment note, as the live prompts still carry it verbatim.
   const AMBIENT =
@@ -1107,7 +1256,7 @@ describe('deploy-sdlc-agents.py', () => {
             'calls = []',
             'autos = [',
             `  {"id": "a02", "name": "SDLC 02 · Estimasi usaha", "enabled": ${enabled ? 'True' : 'False'}, "prompt": "x", "timeout": 900, "trigger": {}},`,
-            '  {"id": "a15", "name": "SDLC 15 · Pelabel issue", "enabled": True, "prompt": "old", "timeout": 900, "trigger": {}},',
+            '  {"id": "a15", "name": "SDLC 15 · Triase issue", "enabled": True, "prompt": "old", "timeout": 900, "trigger": {}},',
             ']',
             'def fake_req(method, path, body=None, *a, **k):',
             '    if method == "GET":',
@@ -1217,7 +1366,7 @@ describe('deploy-sdlc-agents.py', () => {
     // shows 23 in the same window (measured 2026-10-20).
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOriginal tail`;
     // An automation with a managed tail but no tailored budget.
-    expect(newPrompt('SDLC 01', original)).toContain('ANGGARAN WAKTU — JAM PASIR');
+    expect(newPrompt('SDLC 15', original)).toContain('ANGGARAN WAKTU — JAM PASIR');
     // An automation with no managed tail keeps its tail and gains the budget.
     const plain = newPrompt('SDLC 04', original);
     expect(plain).toContain('ANGGARAN WAKTU — JAM PASIR');
@@ -1227,6 +1376,40 @@ describe('deploy-sdlc-agents.py', () => {
     // A tailored budget is not doubled with the generic one.
     expect(newPrompt('SDLC 18', original)).not.toContain('JAM PASIR');
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
+  });
+
+  it.skipIf(!hasPy)('renames the live automation in place, and is idempotent', () => {
+    // `apply_rename` must PATCH only the display name — the id, prompt and
+    // tarball are untouched — and must be a no-op once the name already
+    // matches, or every later deploy would PATCH the same rename forever.
+    const r = py(
+      [
+        'calls = []',
+        'def fake_req(method, path, body=None, *a, **k):',
+        '    calls.append([method, path, body])',
+        '    return {}',
+        'm.req = fake_req',
+        'res = {}',
+        'res["renamed"] = m.apply_rename("a15", "SDLC 15 · Pelabel issue", False)',
+        'res["calls"] = calls',
+        'res["idempotent"] = m.apply_rename("a15", "SDLC 15 · Triase issue", False)',
+        'res["other"] = m.apply_rename("a01", "SDLC 01 · Triase bug", False)',
+        'print(json.dumps(res))',
+      ].join('\n')
+    );
+    expect(r.status, r.stderr).toBe(0);
+    // apply_rename prints its own line first; the JSON is the last line.
+    const last = r.stdout.trim().split('\n').pop() ?? '{}';
+    const res = JSON.parse(last) as {
+      renamed: boolean;
+      calls: [string, string, Record<string, string>][];
+      idempotent: boolean;
+      other: boolean;
+    };
+    expect(res.renamed).toBe(true);
+    expect(res.calls).toEqual([['PATCH', '/a15', { name: 'SDLC 15 · Triase issue' }]]);
+    expect(res.idempotent).toBe(false);
+    expect(res.other).toBe(false);
   });
 
   it.skipIf(!hasPy)('refuses a truncated prompt whose task instructions are gone', () => {
@@ -1260,10 +1443,10 @@ describe('deploy-sdlc-agents.py', () => {
     // For an automation with a managed tail (`TAILS`), a missing live tail is
     // harmless: the tail is re-attached from the script, so the automation is
     // rebuilt whole and its instructions are not lost. No refusal.
-    const out = newPrompt('SDLC 01', 'Header tanpa ekor');
+    const out = newPrompt('SDLC 15', 'Header tanpa ekor');
     expect(out).toContain('BODY ISSUE/PR');
     expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
-    expect(out).toContain(TAILS_SDLC_01_MARKER);
+    expect(out).toContain(TAILS_SDLC_15_MARKER);
   });
 
   it.skipIf(!hasPy)('still enforces the 1800s timeout when a truncated prompt is refused', () => {
@@ -1384,7 +1567,7 @@ describe('deploy-sdlc-agents.py', () => {
 
   it.skipIf(!hasPy)('uses the replacement tail for an automation that has one', () => {
     const original = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD tail`;
-    const out = newPrompt('SDLC 01', original);
+    const out = newPrompt('SDLC 15', original);
     expect(out).not.toContain('OLD tail');
     expect(out).toContain('KRITIS dan habis-habisan');
   });

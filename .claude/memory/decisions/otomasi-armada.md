@@ -14,13 +14,28 @@
    yang menumpuk ditutup.
 2. **Uji beban k6 dijalankan manual sebelum setiap rilis** (#677), relatif
    terhadap baseline yang direkam, bukan terjadwal. Cron cloud "Uji beban" dan
-   "Penjaga issue" dimatikan oleh pengguna.
-3. **Persetujuan rilis lewat label.** Setiap minggu ada satu issue rilis. Label
-   `rilis-disetujui` berarti setuju. `rilis-ditolak`, disertai alasannya,
-   berarti tolak. Kalau tidak ada tindakan, rc minggu depan menggantikannya.
-   Teks persisnya ada di SDLC-FLOW → "Instruksi pelaksanaan".
-4. **Tidak ada berkas `CHANGELOG`.** Catatan rilis ditulis otomatis saat
-   pra-rilis.
+   "Penjaga issue" dimatikan oleh pengguna. **Keduanya kini juga tercatat
+   pensiun di `RETIRED` (`scripts/deploy-sdlc-agents.py`)** — `Uji beban`
+   (SDLC 11) ditambahkan 2026-11-09 setelah sempat hanya *dimatikan* tanpa
+   entri: automation yang nonaktif tanpa entri `RETIRED` tak terlihat oleh
+   deploy berikutnya, dan menghidupkannya lagi akan mengembalikan uji beban
+   bulanan terhadap baseline yang tak ada job menyegarkannya.
+3. **Persetujuan rilis lewat TAG** (diubah 2026-11-09; sebelumnya label
+   `rilis-disetujui` pada issue rilis mingguan). Rilis adalah tag `vX.Y.Z` yang
+   dipush maintainer; tag itu memicu `deploy-production.yml`. Alasan perubahan:
+   label `rilis-disetujui`/`rilis-ditolak` **tidak pernah ada di repo** dan tidak
+   ada workflow yang membacanya — alur "satu issue rilis mingguan" hanya ada di
+   dokumen, bukan kode. Satu artefak (tag) kini menyatakan persetujuan **dan**
+   memicunya. Prasyaratnya dijaga gerbang deterministik
+   `.github/scripts/release-gate.sh` (tag `vX.Y.Z` tanpa sufiks, commit ada di
+   `main`, staging menyajikan SHA itu, ada run k6 hijau untuk SHA itu).
+   `workflow_dispatch` dipertahankan **hanya** untuk rollback (mode `rollback`
+   melewatkan cek staging/k6 dengan sengaja).
+4. **Tidak ada berkas `CHANGELOG`.** Catatan rilis ditulis maintainer di body
+   Release saat memotong tag. Automation `Pembuat catatan rilis` (SDLC 13)
+   dipensiunkan 2026-11-09: pre-release `-rc` mingguannya tidak dikonsumsi apa
+   pun (tidak ada workflow `on: tags`, tidak ada `git describe` di skrip mana
+   pun).
 5. **Temuan keamanan masuk ke advisory privat GitHub**, bukan issue publik.
    Perbaikannya lewat PR publik yang ditulis netral (aturannya, bukan
    celahnya), dan advisory diterbitkan sesudah rilis produksi yang membawanya.
@@ -126,7 +141,7 @@
       PR #817, 2026-10-13).
     - **Hanya `cipansor-bot` melabeli.** Label yang dipasang akun lain dicabut
       `label-guard.yml` dan pelakunya diberi tahu sekali; label keputusan
-      manusia (`rilis-disetujui`, `rilis-ditolak`, `bot-implement`) tetap boleh
+      manusia (`bot-implement`) tetap boleh
       manual. Automasi membaca label, jadi label manual membuat keduanya
       berbeda pendapat.
     - **Dua sebutan, dua penanggap; guard penulis, tanpa footer** (2026-10-14,
@@ -414,9 +429,9 @@
       ulang baca; ≤ 40 perintah terminal lalu WAJIB kirim review) supaya diff
       besar tak bisa menelan anggaran sebelum review terkirim.
 
-28. **`Estimasi usaha` (SDLC 02) dilebur ke `Pelabel issue` (SDLC 15)**
+28. **`Estimasi usaha` (SDLC 02) dilebur ke `Triase issue` (SDLC 15)**
     (2026-11-09, pengguna). Estimasi bukan langkah tersendiri: ia bagian dari
-    satu komentar triase yang sudah ditulis `Pelabel issue`. Invarian 3
+    satu komentar triase yang sudah ditulis `Triase issue`. Invarian 3
     (`docs/SDLC-FLOW.md`) dan butir "Triase ganda" pada "Selisih dari keadaan
     sekarang" memang sudah meminta ini sejak awal — SDLC 02 adalah sisa yang
     belum dilebur. Bukti duplikasinya nyata dan terhitung (API, 2026-11-09):
@@ -435,9 +450,13 @@
     promptnya, apa pun status `enabled`-nya (versi pertama men-deploy ulang
     prompt automation yang sudah nonaktif; diperbaiki dalam tinjauan #968).
     Satu automation lebih sedikit yang aktif; jumlahnya tidak ditulis keras di
-    prompt atau dokumen, karena berubah setiap kali armada berubah. Triase
-    ganda belum selesai seluruhnya: `Triase bug` masih berkomentar saat issue
-    dibuka (#848). Dijaga tes `automation-fleet.guard.test.ts`.
+    prompt atau dokumen, karena berubah setiap kali armada berubah. Pada saat
+    keputusan ini diambil, "Triase ganda" belum selesai seluruhnya: `Triase bug`
+    masih berkomentar saat issue dibuka (#848). **Selesai kemudian di hari yang
+    sama (2026-11-09):** `Triase bug` (SDLC 01) ikut dilebur ke `Triase issue`
+    (SDLC 15) dan masuk `RETIRED`; jembatan triase kini mengarah ke id SDLC 15,
+    jadi satu automation menulis satu komentar triase. Dijaga tes
+    `automation-fleet.guard.test.ts`.
 
 29. **Pemisahan identitas: `adminypc` menulis, `cipansor-bot` berkomunikasi**
     (2026-11-09, pengguna). Satu akun untuk dua peran adalah cacat: issue dan PR
@@ -463,13 +482,6 @@
     keputusan maintainer: satu akun manusia (`adminypc`) sekaligus penulis
     armada melemahkan guard anti-loop berbasis penulis dan pemisahan tugas
     (penulis tidak bisa meng-approve PR-nya sendiri); alternatifnya machine
-    user atau GitHub App khusus penulis. Runner `main.py` **tidak ada di repo**
-    — ia hanya hidup di dalam tarball automation (arsip #934 belum dijalankan),
-    jadi "sudah benar" diverifikasi langsung dari `GET
-    /api/automation/v1/{id}/tarball` pada 2026-11-09: baris 29 memuat
-    `REQUIRED_SECRETS = ["GITHUB_TOKEN"]`, baris 48 menjelaskan `GITHUB_BOT_TOKEN`
-    diberikan ke automation mana pun yang promptnya meminta. Runner memang tidak
-    perlu diubah; yang salah promptnya.
     Catatan: automation yang **tidak** membuat artefak juga memegang
     `GITHUB_TOKEN` (grant otomatis platform), jadi larangan itu harus eksplisit
     di prompt, bukan diasumsikan dari ketiadaan token.
@@ -479,7 +491,7 @@
     01–23, tetapi keputusan yang bertahan dari PR itu adalah bagian lainnya:
     `docs/SDLC-FLOW.md` menyebut automation lewat **peran** (namanya), bukan
     nomor `SDLC NN`. Usulan menomor-ulang lagi — nomor = urutan tahap, sehingga
-    `Pelabel issue` menjadi `06` — **dibatalkan** atas keputusan pengguna.
+    `Triase issue` menjadi `06` — **dibatalkan** atas keputusan pengguna.
     Alasan: nomor adalah penanda tampilan yang bergeser setiap kali automation
     ditambah, dilebur, atau dihapus (SDLC 02 baru saja dilebur 2026-11-09),
     sedangkan peran stabil dan sudah menjadi rujukan dokumen serta tes. Dampak:
@@ -503,6 +515,47 @@
        `{"enabled": true}` (mis. SDLC 02).
     Pelajaran proses: deploy sesudah PR disetujui, atau tulis rencana rollback
     di body PR bila deploy mendahului tinjauan.
+
+32. **Peran `Pelabel issue` (SDLC 15) berganti nama menjadi `Triase issue`**
+    (2026-11-09, pengguna). Nama lama menyebut separuh pekerjaan saja
+    ("pelabel"), padahal automation itu **satu-satunya pemilik triase** sejak
+    `Triase bug` (SDLC 01) dan `Estimasi usaha` (SDLC 02) dilebur ke dalamnya:
+    keluaran satu komentarnya mencakup tipe, prioritas berbukti, keparahan dan
+    sebab, area, kesiapan, duplikat, dan estimasi. "Triase" adalah nama yang
+    jujur untuk keseluruhan itu.
+    Pelaksanaan: dokumen (`docs/SDLC-FLOW.md`, `docs/LABELS.md`,
+    `docs/IDEAS.md`, `docs/COVERAGE.md`), templat issue, dan jembatan triase
+    menyebut `Triase issue`; entri `RENAMES` baru di `scripts/deploy-sdlc-agents.py`
+    (`apply_rename`) me-`PATCH {name}` automation hidup **di tempat** — id,
+    prompt, dan tarball tidak tersentuh — pada deploy berikutnya. Nama API tetap
+    membawa nomor (`SDLC 15 · Triase issue`), sesuai butir 30: dokumen merujuk
+    peran, layanan menyimpan identitas bernomor.
+    Alternatif yang ditolak: "Triase" saja (terlalu pendek, berbenturan dengan
+    tahap "Triase" di tabel alur) dan "Pelabel & triase issue" (mengulang dua
+    kata untuk satu pekerjaan). Dijaga tes `automation-fleet.guard.test.ts`
+    (nama di skrip, ketiadaan nama lama di dokumen, dan idempotensi rename).
+
+33. **Cek maintainer berlaku juga untuk mode `rollback`** (2026-11-10, temuan
+    gerbang tinjauan pada PR #972, putaran ke-3; pilihan maintainer #1).
+    `.github/scripts/release-gate.sh` menjalankan cek permission aktor hanya
+    bila `[ -n "$TAG" ]`, sehingga pada `workflow_dispatch` (rollback) `TAG`
+    kosong dan cek itu dilewati. Justifikasinya ("`workflow_dispatch` sudah
+    menuntut akses tulis") adalah alasan yang **persis sama** yang gerbang tolak
+    untuk jalur tag — di sana ia menuntut `admin`. Karena repo tak punya ruleset
+    tag dan environment `production` tak menuntut reviewer, kolaborator
+    ber-akses tulis dapat memicu rollback ke SHA `main` lama mana pun dan
+    memundurkan produksi tanpa persetujuan maintainer; dengan migrasi maju-saja,
+    itu juga bisa meninggalkan skema tak cocok.
+    Perbaikan: syarat `[ -n "$TAG" ]` dibuang (cek jalan bila `ACTOR` terisi),
+    pesan `fail` bercabang antara "may release" dan "may roll back production",
+    komentar blok `0.` dan komentar `deploy-production.yml` diperbarui; tes
+    "does not require an admin actor for a rollback dispatch" dibalik menjadi
+    penolakan (`refuses a rollback dispatch by an actor without admin
+    permission`) plus tes positif untuk maintainer. `ACTOR` sudah diisi
+    `${{ github.actor }}` untuk kedua peristiwa, jadi tak ada perubahan
+    workflow. Alternatif yang tidak dipilih: memasang required reviewers pada
+    environment `production` (butuh admin, di luar PR). `docs/SDLC-FLOW.md` dan
+    `docs/deploy-azure.md` diperbarui agar syarat ini eksplisit.
 
 ## Sumber
 
