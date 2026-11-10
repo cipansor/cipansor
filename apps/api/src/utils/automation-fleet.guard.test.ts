@@ -1044,6 +1044,31 @@ describe('fleet contracts', () => {
     expect(ideas).toContain('tidak ada yang **mengonsumsi** tag');
   });
 
+  it('lists `Uji beban` (SDLC 11) as retired, not only disabled', () => {
+    // `Uji beban` was turned off on 2026-10-20 (#677) when the k6 smoke moved to
+    // `load-tests.yml`, but unlike its sibling `Penjaga issue` (SDLC 21) it was
+    // never added to `RETIRED`. A disabled automation with no `RETIRED` entry is
+    // invisible to the next deploy: nothing records why it is off, and a
+    // re-enable would silently restore the monthly staging load against a
+    // baseline no job refreshes. This locks the entry so the gap cannot return.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const retired = script.slice(
+      script.indexOf('RETIRED = {'),
+      script.indexOf('\n}', script.indexOf('RETIRED = {'))
+    );
+    expect(retired).toMatch(/"SDLC 11":/);
+    // The retired key must match the live automation name by substring, or
+    // `retired_key()` finds nothing and the automation is redeployed instead of
+    // disabled. `SDLC 11` is unique to `Uji beban` — no other live name carries
+    // it — so the fold cannot misfire onto a different automation. The value
+    // spans two source lines, so match the entry's text, not a single line.
+    const entry = retired.slice(retired.indexOf('"SDLC 11":'));
+    expect(entry.slice(0, entry.indexOf('\n    "SDLC'))).toContain('Uji beban');
+    // Its deterministic replacement is a real workflow, not a promise.
+    const loadTests = read(join(REPO_ROOT, '.github', 'workflows', 'load-tests.yml'));
+    expect(loadTests).toMatch(/workflow_dispatch:/);
+  });
+
   it('writes no fleet size into the prompts or the flow doc', () => {
     // AGENTS.md: counts are never written into a guide — they drift with the
     // next change. The fleet shrank by one automation on 2026-11-09 and the

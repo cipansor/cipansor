@@ -14,7 +14,12 @@
    yang menumpuk ditutup.
 2. **Uji beban k6 dijalankan manual sebelum setiap rilis** (#677), relatif
    terhadap baseline yang direkam, bukan terjadwal. Cron cloud "Uji beban" dan
-   "Penjaga issue" dimatikan oleh pengguna.
+   "Penjaga issue" dimatikan oleh pengguna. **Keduanya kini juga tercatat
+   pensiun di `RETIRED` (`scripts/deploy-sdlc-agents.py`)** — `Uji beban`
+   (SDLC 11) ditambahkan 2026-11-09 setelah sempat hanya *dimatikan* tanpa
+   entri: automation yang nonaktif tanpa entri `RETIRED` tak terlihat oleh
+   deploy berikutnya, dan menghidupkannya lagi akan mengembalikan uji beban
+   bulanan terhadap baseline yang tak ada job menyegarkannya.
 3. **Persetujuan rilis lewat TAG** (diubah 2026-11-09; sebelumnya label
    `rilis-disetujui` pada issue rilis mingguan). Rilis adalah tag `vX.Y.Z` yang
    dipush maintainer; tag itu memicu `deploy-production.yml`. Alasan perubahan:

@@ -675,6 +675,13 @@ TRIGGERS = {
 # `issue-label-sync` workflow all along, and it is a required check. The
 # semantic half (deciding a PR duplicates another) is now a deterministic
 # heuristic in `docs-drift`'s sibling — see `.github/scripts/pr-duplicate.sh`.
+#
+# `SDLC 11` (`Uji beban`) retired on 2026-10-20 (user decision, #677): the k6
+# smoke moved to `.github/workflows/load-tests.yml`, run manually before each
+# release against a recorded baseline, never on a cron. It was turned off then
+# but never added here, unlike its sibling `SDLC 21` — so a later re-enable
+# would have silently resurrected the monthly staging load against a baseline
+# nothing refreshes. This entry is the missing safety net.
 RETIRED = {
     "SDLC 02": "dilebur ke SDLC 15 (Pelabel issue) pada 2026-11-09 — estimasi "
     "kini satu bagian dari komentar triase tunggal (invarian 3).",
@@ -683,6 +690,9 @@ RETIRED = {
     "duplikat, estimasi), bukan dua. Ini menutup 'Triase ganda' (#848).",
     "SDLC 21": "diport ke .github/workflows/stale-sweep.yml pada 2026-11-09 — "
     "timer label/stempel waktu, deterministik, tanpa sandbox.",
+    "SDLC 11": "`Uji beban` dipensiunkan pada 2026-10-20 (#677) — k6 smoke "
+    "pindah ke .github/workflows/load-tests.yml, dijalankan manual sebelum tiap "
+    "rilis terhadap baseline terekam, bukan cron bulanan.",
     "SDLC 03": "dipensiunkan pada 2026-11-09 — separuh besar keluarannya "
     "TERUKUR: `collect_facts.py` + `check_docs.py` menghitung modul, model, rute, "
     "entri cron, dan memeriksa Lampiran A baris demi baris. Sisa penilaiannya "
