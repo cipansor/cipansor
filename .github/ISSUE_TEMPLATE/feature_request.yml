@@ -8,7 +8,7 @@ body:
       value: |
         بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
 
-        Automation `Pelabel issue` menetapkan tipe yang benar (`enhancement`,
+        Automation `Triase issue` menetapkan tipe yang benar (`enhancement`,
         `documentation`, `refactor`, `chore`, `security`) dan prioritas, lalu
         menandai issue ini `ready` begitu kolom di bawah terisi cukup untuk
         diimplementasikan tanpa pertanyaan lanjutan. See [docs/LABELS.md](https://github.com/cipansor/cipansor/blob/main/docs/LABELS.md).

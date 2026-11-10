@@ -429,9 +429,9 @@
       ulang baca; ≤ 40 perintah terminal lalu WAJIB kirim review) supaya diff
       besar tak bisa menelan anggaran sebelum review terkirim.
 
-28. **`Estimasi usaha` (SDLC 02) dilebur ke `Pelabel issue` (SDLC 15)**
+28. **`Estimasi usaha` (SDLC 02) dilebur ke `Triase issue` (SDLC 15)**
     (2026-11-09, pengguna). Estimasi bukan langkah tersendiri: ia bagian dari
-    satu komentar triase yang sudah ditulis `Pelabel issue`. Invarian 3
+    satu komentar triase yang sudah ditulis `Triase issue`. Invarian 3
     (`docs/SDLC-FLOW.md`) dan butir "Triase ganda" pada "Selisih dari keadaan
     sekarang" memang sudah meminta ini sejak awal — SDLC 02 adalah sisa yang
     belum dilebur. Bukti duplikasinya nyata dan terhitung (API, 2026-11-09):
@@ -453,7 +453,7 @@
     prompt atau dokumen, karena berubah setiap kali armada berubah. Pada saat
     keputusan ini diambil, "Triase ganda" belum selesai seluruhnya: `Triase bug`
     masih berkomentar saat issue dibuka (#848). **Selesai kemudian di hari yang
-    sama (2026-11-09):** `Triase bug` (SDLC 01) ikut dilebur ke `Pelabel issue`
+    sama (2026-11-09):** `Triase bug` (SDLC 01) ikut dilebur ke `Triase issue`
     (SDLC 15) dan masuk `RETIRED`; jembatan triase kini mengarah ke id SDLC 15,
     jadi satu automation menulis satu komentar triase. Dijaga tes
     `automation-fleet.guard.test.ts`.
@@ -491,7 +491,7 @@
     01–23, tetapi keputusan yang bertahan dari PR itu adalah bagian lainnya:
     `docs/SDLC-FLOW.md` menyebut automation lewat **peran** (namanya), bukan
     nomor `SDLC NN`. Usulan menomor-ulang lagi — nomor = urutan tahap, sehingga
-    `Pelabel issue` menjadi `06` — **dibatalkan** atas keputusan pengguna.
+    `Triase issue` menjadi `06` — **dibatalkan** atas keputusan pengguna.
     Alasan: nomor adalah penanda tampilan yang bergeser setiap kali automation
     ditambah, dilebur, atau dihapus (SDLC 02 baru saja dilebur 2026-11-09),
     sedangkan peran stabil dan sudah menjadi rujukan dokumen serta tes. Dampak:
@@ -515,6 +515,25 @@
        `{"enabled": true}` (mis. SDLC 02).
     Pelajaran proses: deploy sesudah PR disetujui, atau tulis rencana rollback
     di body PR bila deploy mendahului tinjauan.
+
+32. **Peran `Pelabel issue` (SDLC 15) berganti nama menjadi `Triase issue`**
+    (2026-11-09, pengguna). Nama lama menyebut separuh pekerjaan saja
+    ("pelabel"), padahal automation itu **satu-satunya pemilik triase** sejak
+    `Triase bug` (SDLC 01) dan `Estimasi usaha` (SDLC 02) dilebur ke dalamnya:
+    keluaran satu komentarnya mencakup tipe, prioritas berbukti, keparahan dan
+    sebab, area, kesiapan, duplikat, dan estimasi. "Triase" adalah nama yang
+    jujur untuk keseluruhan itu.
+    Pelaksanaan: dokumen (`docs/SDLC-FLOW.md`, `docs/LABELS.md`,
+    `docs/IDEAS.md`, `docs/COVERAGE.md`), templat issue, dan jembatan triase
+    menyebut `Triase issue`; entri `RENAMES` baru di `scripts/deploy-sdlc-agents.py`
+    (`apply_rename`) me-`PATCH {name}` automation hidup **di tempat** — id,
+    prompt, dan tarball tidak tersentuh — pada deploy berikutnya. Nama API tetap
+    membawa nomor (`SDLC 15 · Triase issue`), sesuai butir 30: dokumen merujuk
+    peran, layanan menyimpan identitas bernomor.
+    Alternatif yang ditolak: "Triase" saja (terlalu pendek, berbenturan dengan
+    tahap "Triase" di tabel alur) dan "Pelabel & triase issue" (mengulang dua
+    kata untuk satu pekerjaan). Dijaga tes `automation-fleet.guard.test.ts`
+    (nama di skrip, ketiadaan nama lama di dokumen, dan idempotensi rename).
 
 ## Sumber
 

@@ -57,7 +57,7 @@
 set -eu
 
 REPO="${REPO:?REPO is required}"
-# `SDLC 15 · Pelabel issue`, the single triage owner since `SDLC 01 · Triase bug`
+# `SDLC 15 · Triase issue`, the single triage owner since `SDLC 01 · Triase bug`
 # was folded into it on 2026-11-09 (`SDLC 01` had the deeper criticality pass;
 # `SDLC 15` had the label taxonomy, priority rubric and estimate). Overridable so
 # a redeploy that moves the id does not need a workflow edit.

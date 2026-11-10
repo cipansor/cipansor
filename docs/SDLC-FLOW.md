@@ -159,7 +159,7 @@ pertentangan itu dilaporkan sebagai issue.
     kecil: yang lebih kecil tidak menghemat apa pun dan hanya memindahkan
     kematian ke run yang tugasnya jujur (lima automation pernah dijeda otomatis
     platform setelah lima `execution/timeout` beruntun — `Triase bug` dan
-    `Pelabel issue` dengan `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
+    `Triase issue` dengan `timeout=900` mati 50/16 kali). `Pengawas armada` memeriksa satu hal ini:
     setiap automation ber-`timeout` < 1800 adalah cacat `config` yang
     dilaporkan, dan `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat
     prompt di-deploy. Plafon hanya membatasi **kapan** sebuah run dibunuh,
@@ -184,7 +184,7 @@ flowchart TD
   classDef gh fill:#fff4e5,stroke:#f59e0b,color:#111;
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
-  IN(["laporan: manusia · Pemburu bug · Pemindai standar · Pemindai celah uji"]) --> TR["Pelabel issue: tipe · prioritas · duplikat · kesiapan + estimasi (satu komentar)"]:::cloud
+  IN(["laporan: manusia · Pemburu bug · Pemindai standar · Pemindai celah uji"]) --> TR["Triase issue: tipe · prioritas · duplikat · kesiapan + estimasi (satu komentar)"]:::cloud
   TR -- keamanan --> ADV["advisory privat"]:::human
   TR -- needs-info --> CL["Penjernih issue"]:::cloud --> TR
   TR -- decision --> DEC["riset + pilihan ganda"]:::cloud --> MD{"maintainer memilih"}:::human --> TR
@@ -204,7 +204,7 @@ flowchart TD
 | # | Tahap | Pemicu | Pemilik | Keluaran | Lanjut bila |
 |---|---|---|---|---|---|
 | 1 | Laporan | manusia, atau temuan automation berkala | pelapor | issue sesuai templat; temuan keamanan → advisory privat | issue terbuka |
-| 2 | Triase | `issues.opened` | `Pelabel issue` | **satu** komentar: tipe, prioritas (berbukti), duplikat, kesiapan, estimasi | label `ready` / `needs-info` / `question` / `decision` / `duplicate` |
+| 2 | Triase | `issues.opened` | `Triase issue` | **satu** komentar: tipe, prioritas (berbukti), duplikat, kesiapan, estimasi | label `ready` / `needs-info` / `question` / `decision` / `duplicate` |
 | 3 | Klarifikasi | balasan pelapor pada `needs-info`, label bot, atau aktivitas baru (jembatan triase) | `Penjernih issue` | komentar penilaian ulang; body issue diperbarui hanya saat `ready` | `ready` |
 | 4 | Keputusan | label `decision` | agen riset → maintainer | riset bersumber + pilihan ganda; maintainer memilih | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready` |
 | 5 | Implementasi | label `bot-implement` (`Bot sebutan`, atau maintainer); `ready` saja TIDAK memicu bot | `Tiket jadi PR` | PR draf dengan templat, uji, bukti, `Fixes #n` | daftar periksa penulis lengkap → ready for review |
@@ -266,7 +266,7 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 1. **Triase ganda — SELESAI (2026-11-09).** Issue baru dulu mendapat dua
    sampai tiga komentar triase atau estimasi dari automation berbeda. Kini
    hanya satu pemilik: `Estimasi usaha` (SDLC 02) dan `Triase bug` (SDLC 01)
-   sama-sama dilebur ke `Pelabel issue` (SDLC 15), yang menulis satu komentar
+   sama-sama dilebur ke `Triase issue` (SDLC 15), yang menulis satu komentar
    berisi tipe, prioritas (berbukti), keparahan dan sebab, area, kesiapan,
    duplikat, dan estimasi. Kedua automation lama dinonaktifkan; jembatan
    triase (`issue-triage-bridge.sh`) kini mengarah ke SDLC 15. Ini menutup
@@ -303,7 +303,7 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 8. **Laporan pemakaian.** Belum ada. Tambahkan pada `Pengawas armada`.
 9. **Dinding jam seragam, dan anggaran kerja untuk yang panjang.** Lima
    automation pernah dijeda otomatis platform (lima `execution/timeout`
-   beruntun): `Triase bug` dan `Pelabel issue` diset `timeout=900`, `Pengawas armada` `1500`, padahal
+   beruntun): `Triase bug` dan `Triase issue` diset `timeout=900`, `Pengawas armada` `1500`, padahal
    tugasnya ~1000–2000 detik dan platform menerima sampai **1800**. Selesai
    2026-10-18: seluruh armada diset `1800`, dan
    `scripts/deploy-sdlc-agents.py` menegakkan angka itu saat prompt di-deploy
@@ -434,7 +434,7 @@ butir mengikuti aturan emas di `AGENTS.md`):
    `automation-health` yang memuat semuanya, satu komentar per head, dan satu
    dispatch ulang. Dikerjakan pertama, karena gerbang yang diam menahan semua
    merge.
-3. **Triase satu pemilik** — SELESAI (2026-11-09): hanya `Pelabel issue` yang
+3. **Triase satu pemilik** — SELESAI (2026-11-09): hanya `Triase issue` yang
    menulis triase, estimasi, dan label, dalam satu komentar yang diperbarui.
    `Estimasi usaha` (SDLC 02) dan `Triase bug` (SDLC 01) sama-sama dilebur ke
    sini; kedua automation lamanya dinonaktifkan. `Penjernih issue` tetap
@@ -486,7 +486,7 @@ flowchart TB
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
   subgraph ISSUE["1 · Issue"]
-    I([Issue dibuka]) --> C3["Pelabel issue (triase + keparahan + estimasi + label, satu komentar)"]:::cloud
+    I([Issue dibuka]) --> C3["Triase issue — tipe + keparahan + estimasi + label, satu komentar"]:::cloud
     C3 --> D{"Cukup jelas?"}
     D -- ya --> R(["ready"])
     D -- tidak --> NI(["needs-info"])
@@ -538,7 +538,7 @@ flowchart TD
   classDef cloud fill:#e8f0fe,stroke:#4285f4,color:#111;
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
-  I([Issue dibuka]) --> C15["Pelabel issue"]:::cloud
+  I([Issue dibuka]) --> C15["Triase issue"]:::cloud
   C15 --> D{"Cukup detail untuk diimplementasikan?"}
   D -- ya --> R(["ready"])
   D -- tidak --> Q(["question"])
@@ -681,7 +681,7 @@ Timer dan pengecualiannya sama seperti `Penjaga issue` dulu.
 | Uji beban             | k6 vs staging — kini `load-tests.yml`, dijalankan manual sebelum tiap rilis (bukan cron)                       |
 | Pemantau deployment   | CI atau E2E yang gagal di `main` → issue diagnosis (penyebabnya)                                               |
 | Pembuat catatan rilis | **dipensiunkan 2026-11-09** — pre-release `-rc` tak dikonsumsi apa pun; rilis kini tag `vX.Y.Z` manual            |
-| Pelabel issue         | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar |
+| Triase issue         | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar |
 | Pengelola dokumentasi | merge yang berdampak dokumentasi → satu issue `documentation`: dokumen mana yang basi dan apa yang perlu ditulis ulang (penilaian, bukan diff path); juga menilai apakah peta modul `docs/ARCHITECTURE.md` masih benar |
 | Penjernih issue       | menilai ulang saat pelapor menjawab `needs-info`                                                               |
 | (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`); label itu kandidat untuk maintainer, tidak menutup PR |
@@ -701,7 +701,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 | Akun           | Peran                                          | Automation                                                                                                                                                                                          |
 | -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `adminypc`     | Penulis — membuat issue dan pull request       | Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar, Pengawas armada, Audit kematangan       |
-| `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Peninjau kode, Otomasi QA, Pelabel issue (triase + keparahan + estimasi + label), Penjernih issue, Gerbang tinjau PR, Diskusi |
+| `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Peninjau kode, Otomasi QA, Triase issue (tipe + keparahan + estimasi + label), Penjernih issue, Gerbang tinjau PR, Diskusi |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
   memakai `GITHUB_TOKEN` (`adminypc`). Selebihnya memposting lewat
@@ -814,7 +814,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   dikonsumsi apa pun dan nomornya berhenti menandai kode terverifikasi —
   dipensiunkan; tag rilis kini manual dan sekaligus memicu deploy.
 - **Armada adalah kerangka plus saluran pipanya.** `Peninjau arsitektur` …
-  `Gerbang tinjau PR` (item Agentic SDLC) dipetakan satu-ke-satu; `Pelabel issue`
+  `Gerbang tinjau PR` (item Agentic SDLC) dipetakan satu-ke-satu; `Triase issue`
   … `Pengawas armada` menambahkan pipeline label/siklus hidup, pemburu proaktif,
   dan pengawas; `Audit kematangan` menilai item yang sama dan menyebut yang
   terlemah. Sebagian butir mekanis dipindahkan ke Actions deterministik

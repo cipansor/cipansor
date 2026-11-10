@@ -637,7 +637,7 @@ TRIGGERS = {
 # disabled through the API — otherwise it keeps running and keeps writing the
 # duplicate comment it was retired for.
 #
-# `SDLC 02` (`Estimasi usaha`) folded into `SDLC 15` (`Pelabel issue`) on
+# `SDLC 02` (`Estimasi usaha`) folded into `SDLC 15` (`Triase issue`) on
 # 2026-11-09 (user decision): the estimate is a section of the single triage
 # comment (`docs/SDLC-FLOW.md` invariant 3), and its runs were one more thing
 # that could die on the 1800s wall clock. Re-enable it only by deleting this
@@ -683,9 +683,9 @@ TRIGGERS = {
 # would have silently resurrected the monthly staging load against a baseline
 # nothing refreshes. This entry is the missing safety net.
 RETIRED = {
-    "SDLC 02": "dilebur ke SDLC 15 (Pelabel issue) pada 2026-11-09 — estimasi "
+    "SDLC 02": "dilebur ke SDLC 15 (Triase issue) pada 2026-11-09 — estimasi "
     "kini satu bagian dari komentar triase tunggal (invarian 3).",
-    "SDLC 01": "dilebur ke SDLC 15 (Pelabel issue) pada 2026-11-09 — triase kini "
+    "SDLC 01": "dilebur ke SDLC 15 (Triase issue) pada 2026-11-09 — triase kini "
     "satu pemilik: satu komentar (tipe, prioritas, kesiapan, area, keparahan, "
     "duplikat, estimasi), bukan dua. Ini menutup 'Triase ganda' (#848).",
     "SDLC 21": "diport ke .github/workflows/stale-sweep.yml pada 2026-11-09 — "
@@ -716,6 +716,45 @@ RETIRED = {
 def retired_key(name):
     """The `RETIRED` entry an automation's name carries, or None."""
     return next((k for k in RETIRED if k in name), None)
+
+
+# Live automation names that drifted from the roles the repository writes down.
+# The name is cosmetic to the pipeline — every dispatch is by id — but it is
+# what a person reads in the automation list and what `docs/SDLC-FLOW.md` claims
+# to describe ("apa adanya"). `PATCH {name}` renames in place: the id, the
+# prompt and the tarball are untouched, so nothing else moves. Keyed by the same
+# substring every other map uses, so the lookup has one shape.
+RENAMES = {
+    # 2026-11-09 (user decision): `Pelabel issue` named only one of the job's
+    # halves. The automation is the single triage owner now that `Triase bug`
+    # (SDLC 01) and `Estimasi usaha` (SDLC 02) were folded into it, so "triase"
+    # is the honest name. Renamed in the same run the role was renamed in docs.
+    "SDLC 15": "SDLC 15 · Triase issue",
+}
+
+
+def rename_key(name):
+    """The `RENAMES` key an automation's name carries, or None."""
+    return next((k for k in RENAMES if k in name), None)
+
+
+def apply_rename(aid, name, dry):
+    """PATCH an automation's display name to the fleet standard. True on change.
+
+    A no-op once the name already matches, so a second run renames nothing.
+    """
+    key = rename_key(name)
+    if not key:
+        return False
+    want = RENAMES[key]
+    if name == want:
+        return False
+    if dry:
+        print(f"    name would change: {name!r} -> {want!r}")
+        return True
+    req("PATCH", f"/{aid}", {"name": want})
+    print(f"    renamed: {name!r} -> {want!r}")
+    return True
 
 
 def apply_retire(aid, name, enabled, dry):
@@ -819,6 +858,12 @@ def main():
             continue
         trigger_changed = apply_trigger(aid, name, a.get("trigger") or {}, not DEPLOY)
         timeout_changed = apply_timeout(aid, name, a.get("timeout"), not DEPLOY)
+        # Rename before the prompt: `new_prompt` keys `TAILS` on the name, and
+        # the rename keeps the `SDLC NN` prefix, so the lookup is unaffected
+        # either way. Landing it here means a refused prompt still gets the
+        # correct name — the drift this map exists to close.
+        rename_changed = apply_rename(aid, name, not DEPLOY)
+        config_changed = trigger_changed or timeout_changed or rename_changed
         try:
             new = new_prompt(name, base)
         except TruncatedPromptError as e:
@@ -827,13 +872,13 @@ def main():
             # fixes above already landed, so only the prompt is held back.
             print(f"- {name}: REFUSED — {e}")
             refused.append(name)
-            if DEPLOY and (trigger_changed or timeout_changed):
+            if DEPLOY and config_changed:
                 time.sleep(1)
             continue
         changed = new != old
         print(f"- {name}: {'changed' if changed else 'already current'}")
         if not changed or not DEPLOY:
-            if DEPLOY and (trigger_changed or timeout_changed) and not changed:
+            if DEPLOY and config_changed and not changed:
                 time.sleep(1)
             continue
         blob = patch_tarball(aid, new)

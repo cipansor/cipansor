@@ -19,7 +19,7 @@ enforced, not just conventions.
 
 ## Priority — how urgent
 
-Priority is **evidence-backed**, not a feeling: `Pelabel issue` weighs impact,
+Priority is **evidence-backed**, not a feeling: `Triase issue` weighs impact,
 urgency and risk, and anything above `medium` must name the concrete evidence.
 A higher label with no evidence is a defect the triage owner must correct.
 
@@ -87,7 +87,7 @@ sync` workflow adds anything missing and **fails the check** when the type
 
 3. **Two labels gate implementation, and only one of them hands the work to
    the bot.** `ready` means an issue is well-specified and open to anyone —
-   `Pelabel issue` applies it only when the issue has a clear goal
+   `Triase issue` applies it only when the issue has a clear goal
    and a concrete acceptance criterion, otherwise it applies `needs-info` and
    lists what is missing. `bot-implement` is the narrower signal that the
    maintainer wants `Tiket jadi PR` to implement it. `Tiket jadi PR` triggers
@@ -96,7 +96,7 @@ sync` workflow adds anything missing and **fails the check** when the type
    Apply `bot-implement` to hand one issue to the bot; leave it off to leave the
    issue for a person.
 
-4. **A duplicate closes itself.** `Pelabel issue` applies `duplicate` to an issue and
+4. **A duplicate closes itself.** `Triase issue` applies `duplicate` to an issue and
    links the original; the same detection on a pull request applies
    `duplicate-pr`. For an **issue**, the `Duplicate sweep` workflow warns once —
    recording a hash of the description — then closes it after seven days unless
@@ -139,7 +139,7 @@ sync` workflow adds anything missing and **fails the check** when the type
    a block. A suggestion is never placed on a line the automation is not certain
    of. This is the same "suggest a change" affordance Copilot's review uses.
 
-8. **`ready` is a strong claim, and it is exclusive.** `Pelabel issue` applies
+8. **`ready` is a strong claim, and it is exclusive.** `Triase issue` applies
    `ready` only when it is **very sure**: the goal is clear, the acceptance
    criterion is concrete and observable, and **no question is left open**. While
    anything still has to be discussed, decided, or criticized — a design choice,
@@ -218,7 +218,7 @@ sync` workflow adds anything missing and **fails the check** when the type
 
 | Automation          | Trigger                                        | Labels it sets                                                     |
 | ------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
-| `Pelabel issue`     | issue opened                                   | tipe, prioritas, `ready` / `needs-info` / `question` / `duplicate` |
+| `Triase issue`     | issue opened                                   | tipe, prioritas, `ready` / `needs-info` / `question` / `duplicate` |
 | `Tiket jadi PR`     | issue labelled `bot-implement`                 | tidak ada — ia membuka PR                                          |
 | `Penjernih issue`   | comment on a `needs-info` issue                | `needs-info` ↔ `ready`, `duplicate`, `invalid`                     |
 | `Issue label sync`  | PR opened / issue relabeled                     | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`) |
@@ -271,7 +271,7 @@ sample automated comment before it is enabled.
 Blank issues are **enabled**: the forms cover a defect and a change request, not
 a question, an operational incident, or anything the forms do not fit, and
 forcing those into a `bug` form produces a wrong label. An unstructured issue is
-not turned away — the automation absorbs it: `Pelabel issue` triages it and
+not turned away — the automation absorbs it: `Triase issue` triages it and
 sizes it (the estimate is part of its single triage comment), or
 lists the questions that would unblock it, then applies `needs-info` with the
 exact missing detail rather than `ready`. A security
@@ -283,7 +283,7 @@ to produce the labels above, not prose to read and forget:
 
 - The **bug** form requires a reproduction and an acceptance criterion; the
   **feature request** form requires a motivation and a criterion. What these
-  fields contain is what `Pelabel issue` reads to decide `ready` versus `needs-info`.
+  fields contain is what `Triase issue` reads to decide `ready` versus `needs-info`.
 - A `bug` issue may still arrive thin — a reporter often cannot say _why_. That
   is expected: `Reproduksi bug` investigates, adds the cause and, for a UI defect,
   reproduces it and attaches a screenshot to the issue by editing its body. It

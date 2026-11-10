@@ -12,7 +12,7 @@ Secara proaktif menemukan bug nyata yang bisa direproduksi di `main`,
 membuktikannya, dan membuka **satu issue berbukti**. Sebuah issue spekulatif
 lebih buruk daripada tidak ada, jadi ia tidak membuka apa pun yang tidak bisa
 direproduksi, dan mencari duplikat lebih dulu. Ia tidak menulis perbaikan —
-perbaikan berjalan lewat jalur normal (`Pelabel issue` memberi `ready`, lalu
+perbaikan berjalan lewat jalur normal (`Triase issue` memberi `ready`, lalu
 `Tiket jadi PR` mengerjakannya bila maintainer memasang `bot-implement`).
 
 ## 2. Pemindai standar
@@ -86,7 +86,7 @@ issue`, `Acceptance criteria`, `How to test`, `Risk and rollback`, `Evidence`,
 Tautan yang menjaganya jujur (polanya dari OpenHands upstream, yang memakai
 label `ready-for-dev`; di repo ini `ready`/`bot-implement`): **sebuah issue
 hanya mendapat `ready` saat kriteria penerimaannya nyata**, dan PR harus menunjuk ke salah
-satunya. `Pelabel issue` adalah gerbang itu.
+satunya. `Triase issue` adalah gerbang itu.
 
 ### Penegakan keras (di-deploy)
 
@@ -127,7 +127,7 @@ tipis sebagai pekerjaan, bukan alasan memantulkannya:
 - Bila tidak ada yang salah (perilaku memang disengaja, salah baca) ia
   mengatakannya dengan bukti dan memasang `invalid`/`duplicate`/`question`,
   mencabut `bug`.
-- `Pelabel issue` tidak lagi mengirim _cacat_ yang tipis ke `needs-info` — jalur
+- `Triase issue` tidak lagi mengirim _cacat_ yang tipis ke `needs-info` — jalur
   itu untuk permintaan yang kabur, bukan bug yang penyebabnya belum diketahui.
   `ready` tetap keputusan manusia: `Reproduksi bug` melaporkan bahwa reproduksi
   kini ada dan menyerahkan gerbangnya ke maintainer.
@@ -251,7 +251,7 @@ ia tetap LLM.
   **tidak** menutup PR: mana dari dua PR yang lebih benar adalah penilaian
   maintainer (docs/LABELS.md butir 4), jadi `duplicate-sweep.sh` hanya menutup
   issue `duplicate`, bukan PR. Hemat 22 run/7 hari.
-- **`Triase bug` (SDLC 01) dilebur ke `Pelabel issue` (SDLC 15).** Keduanya
+- **`Triase bug` (SDLC 01) dilebur ke `Triase issue` (SDLC 15).** Keduanya
   menyala pada `issues.opened` dan keduanya menulis komentar triase — itulah
   "Triase ganda" (#848). SDLC 01 punya penelusuran kritis lebih dalam; SDLC 15
   punya taksonomi label, rubrik prioritas berbukti, dan estimasi. Yang kedua

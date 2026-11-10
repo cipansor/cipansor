@@ -931,7 +931,7 @@ describe('fleet contracts', () => {
 
   it('folds the estimate into the single triage owner (SDLC 02 -> SDLC 15)', () => {
     // 2026-11-09 (user decision): `Estimasi usaha` (SDLC 02) was folded into
-    // `Pelabel issue` (SDLC 15) so one automation writes triage + estimate +
+    // `Triase issue` (SDLC 15) so one automation writes triage + estimate +
     // label in one comment — invariant 3, and one fewer run to die on the
     // 1800s wall clock. This locks the merge so a later edit cannot quietly
     // restore the duplicate writer.
@@ -949,7 +949,7 @@ describe('fleet contracts', () => {
 
   it('folds Triase bug into the single triage owner (SDLC 01 -> SDLC 15)', () => {
     // 2026-11-09 (user decision): `Triase bug` (SDLC 01) was folded into
-    // `Pelabel issue` (SDLC 15). Both fired on `issues.opened` and both wrote a
+    // `Triase issue` (SDLC 15). Both fired on `issues.opened` and both wrote a
     // triage comment, which is the "Triase ganda" defect (#848). SDLC 01's
     // deeper criticality pass now lives in SDLC 15's tail; the bridge dispatches
     // SDLC 15 as the triage owner.
@@ -1001,7 +1001,7 @@ describe('fleet contracts', () => {
     // carries the estimate; the separate `Estimasi usaha` automation is gone.
     expect(flow).not.toContain('| Estimasi usaha ');
     expect(flow).not.toContain('C2["Estimasi usaha"]');
-    expect(flow).toMatch(/Pelabel issue \(triase \+ keparahan \+ estimasi \+ label/);
+    expect(flow).toMatch(/Triase issue — tipe \+ keparahan \+ estimasi \+ label/);
     // `Triase bug` (SDLC 01) was folded in the same day, so "Triase ganda" is
     // now finished (#848): one owner writes one comment. The doc must say so.
     expect(flow).toMatch(/Triase ganda — SELESAI/);
@@ -1067,6 +1067,24 @@ describe('fleet contracts', () => {
     // Its deterministic replacement is a real workflow, not a promise.
     const loadTests = read(join(REPO_ROOT, '.github', 'workflows', 'load-tests.yml'));
     expect(loadTests).toMatch(/workflow_dispatch:/);
+  });
+
+  it('renames `Pelabel issue` to `Triase issue`, in the script and in the docs', () => {
+    // 2026-11-09 (user decision): the automation is the single triage owner
+    // (SDLC 01 and 02 folded into it), so "Pelabel issue" named only half the
+    // job. Docs and the live name must not drift apart: `docs/SDLC-FLOW.md`
+    // claims to describe the fleet "apa adanya". The rename lands through the
+    // same deploy as the prompt, so a later run cannot leave the old name on.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const renames = script.slice(
+      script.indexOf('RENAMES = {'),
+      script.indexOf('\n}', script.indexOf('RENAMES = {'))
+    );
+    expect(renames).toMatch(/"SDLC 15":\s*"SDLC 15 · Triase issue"/);
+    // No doc still calls the role by the old name.
+    for (const doc of ['docs/SDLC-FLOW.md', 'docs/LABELS.md', 'docs/IDEAS.md']) {
+      expect(read(join(REPO_ROOT, doc)), doc).not.toContain('Pelabel issue');
+    }
   });
 
   it('writes no fleet size into the prompts or the flow doc', () => {
@@ -1223,7 +1241,7 @@ describe('deploy-sdlc-agents.py', () => {
             'calls = []',
             'autos = [',
             `  {"id": "a02", "name": "SDLC 02 · Estimasi usaha", "enabled": ${enabled ? 'True' : 'False'}, "prompt": "x", "timeout": 900, "trigger": {}},`,
-            '  {"id": "a15", "name": "SDLC 15 · Pelabel issue", "enabled": True, "prompt": "old", "timeout": 900, "trigger": {}},',
+            '  {"id": "a15", "name": "SDLC 15 · Triase issue", "enabled": True, "prompt": "old", "timeout": 900, "trigger": {}},',
             ']',
             'def fake_req(method, path, body=None, *a, **k):',
             '    if method == "GET":',
@@ -1343,6 +1361,40 @@ describe('deploy-sdlc-agents.py', () => {
     // A tailored budget is not doubled with the generic one.
     expect(newPrompt('SDLC 18', original)).not.toContain('JAM PASIR');
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
+  });
+
+  it.skipIf(!hasPy)('renames the live automation in place, and is idempotent', () => {
+    // `apply_rename` must PATCH only the display name — the id, prompt and
+    // tarball are untouched — and must be a no-op once the name already
+    // matches, or every later deploy would PATCH the same rename forever.
+    const r = py(
+      [
+        'calls = []',
+        'def fake_req(method, path, body=None, *a, **k):',
+        '    calls.append([method, path, body])',
+        '    return {}',
+        'm.req = fake_req',
+        'res = {}',
+        'res["renamed"] = m.apply_rename("a15", "SDLC 15 · Pelabel issue", False)',
+        'res["calls"] = calls',
+        'res["idempotent"] = m.apply_rename("a15", "SDLC 15 · Triase issue", False)',
+        'res["other"] = m.apply_rename("a01", "SDLC 01 · Triase bug", False)',
+        'print(json.dumps(res))',
+      ].join('\n')
+    );
+    expect(r.status, r.stderr).toBe(0);
+    // apply_rename prints its own line first; the JSON is the last line.
+    const last = r.stdout.trim().split('\n').pop() ?? '{}';
+    const res = JSON.parse(last) as {
+      renamed: boolean;
+      calls: [string, string, Record<string, string>][];
+      idempotent: boolean;
+      other: boolean;
+    };
+    expect(res.renamed).toBe(true);
+    expect(res.calls).toEqual([['PATCH', '/a15', { name: 'SDLC 15 · Triase issue' }]]);
+    expect(res.idempotent).toBe(false);
+    expect(res.other).toBe(false);
   });
 
   it.skipIf(!hasPy)('refuses a truncated prompt whose task instructions are gone', () => {
