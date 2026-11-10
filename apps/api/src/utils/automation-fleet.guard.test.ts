@@ -780,7 +780,7 @@ describe('basmalah.sh', () => {
 
 ${ARABIC}
 
-## Why`;
+## Mengapa`;
     const { calls } = run(BASMALAH, { GH_STUB_BODY: body }, ['--stdin'], ev);
     expect(calls).not.toContain('PATCH');
   });

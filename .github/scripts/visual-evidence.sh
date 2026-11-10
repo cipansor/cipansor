@@ -11,6 +11,11 @@
 # sides are required: one After image does not satisfy the requirement for a
 # Before.
 #
+# The split is anchored on a line that IS a marker (`**After**`, `## After`,
+# `After:`, or the Indonesian `Sesudah`), not on the word "after" anywhere: a
+# sentence under `## How to test` that happens to contain "after" used to split
+# the body and hide a valid Before/After pair.
+#
 # Usage: visual-evidence.sh <pr-number>
 # Env:   GH_TOKEN, REPO (owner/name)
 set -eu
@@ -30,11 +35,16 @@ body="$(jq -r .body "$TMP")"
 img_re='user-images\.githubusercontent\.com|private-user-images\.githubusercontent\.com|github\.com/user-attachments/assets/|https?://[^ )]+\.(png|jpe?g|gif|webp|mp4|webm)'
 
 # The Evidence requirement is a *before* visual AND an *after* visual. Split the
-# body at the first line that names "After"; each region must contain media. A
-# body with only an After image leaves the Before region empty and keeps the
+# body at the first line that IS an after marker; each region must contain media.
+# A body with only an After image leaves the Before region empty and keeps the
 # reminder — the earlier single Boolean cleared it on any image anywhere.
-before_part=$(printf '%s\n' "$body" | awk '{ if (tolower($0) ~ /after/) exit; print }')
-after_part=$(printf '%s\n' "$body" | awk '{ if (tolower($0) ~ /after/) f = 1; if (f) print }')
+# The marker is the first word of a line (`**After**`, `## After`, `After:`, or
+# the Indonesian `Sesudah`) — not the word anywhere: matching it anywhere split
+# the body on a sentence such as "... after it passes" under `## Cara menguji`,
+# hiding a real before/after pair.
+marker='^[[:space:]]*(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([^[:alnum:]_]|$)'
+before_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) exit; print }')
+after_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) f = 1; if (f) print }')
 has_before=0
 has_after=0
 printf '%s\n' "$before_part" | grep -qiE "$img_re" && has_before=1
@@ -54,15 +64,16 @@ need=0
 if [ "$need" = "1" ]; then
   cat > "$TMP" <<EOF
 $MARK
-This pull request changes \`apps/web\`, but its description has no before/after
-visual. Please add:
+Pull request ini mengubah \`apps/web\`, tetapi deskripsinya belum memuat
+tangkapan visual sebelum dan sesudah. Mohon tambahkan:
 
-- **Before** — a screenshot or short video of the old behaviour.
-- **After** — the same view or flow after the change.
+- **Sebelum** — tangkapan layar atau video singkat perilaku lama.
+- **Sesudah** — tampilan atau alur yang sama setelah perubahan.
 
-Paste them with GitHub's uploader (they become \`user-images.githubusercontent.com\`
-links) or link the files. This is a reminder, not a merge gate — it exists so a
-reviewer can see the change without checking out the branch.
+Tempel lewat pengunggah GitHub (tautannya menjadi
+\`user-images.githubusercontent.com\`) atau tautkan berkasnya. Ini pengingat,
+bukan gerbang merge — agar peninjau dapat melihat perubahannya tanpa mengambil
+branch.
 EOF
   if [ -n "$CID" ]; then
     # -F, not -f: only a typed field reads `@file` (see pr-template-guard.sh).

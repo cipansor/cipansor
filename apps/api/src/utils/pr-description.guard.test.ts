@@ -8,10 +8,11 @@ import { join, resolve } from 'path';
  * The PR-description checks, driven against a stub `gh` and the real `jq`:
  *
  *  - `pr-template-guard.sh` is a HARD gate: it fails the check while the body
- *    is missing a required part (Why/What changed/How to test/Acceptance
- *    criteria, a linked ready issue, Indonesian prose, and — on a risky PR
- *    only — a `## Risk and rollback` statement, #965), and passes once the
- *    body is complete.
+ *    is missing a required part (Mengapa/Yang diubah/Cara menguji/Kriteria
+ *    penerimaan, a linked ready issue, Indonesian prose, and — on a risky PR
+ *    only — a `## Risiko` statement, #965), and passes once the body is
+ *    complete. Each section also answers to its old English heading, so a body
+ *    written before the rename still passes.
  *  - `visual-evidence.sh` asks for before/after visuals only when `apps/web`
  *    changed and no image or video is present in the body, and stays advisory.
  */
@@ -107,11 +108,11 @@ function run(script: string, env: Record<string, string>) {
 
 const RISK = 'Rendah: hanya endpoint health yang berubah, dan revert satu commit mengembalikannya.';
 
-const COMPLETE = `## Why
+const COMPLETE = `## Mengapa
 
 Endpoint health berbohong tentang keadaan basis data.
 
-## What changed
+## Yang diubah
 
 - memeriksa basis data sebelum menjawab
 
@@ -119,22 +120,22 @@ Endpoint health berbohong tentang keadaan basis data.
 
 Fixes #12
 
-## Acceptance criteria
+## Kriteria penerimaan
 
 - [x] menjawab 503 ketika pemeriksaan gagal
 
-## How to test
+## Cara menguji
 
 pnpm --filter api test
 
-## Risk and rollback
+## Risiko
 
 ${RISK}
 `;
 
 describe('pr-template-guard.sh', () => {
   it('fails the check when the description is incomplete', () => {
-    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: '## Why\n\nSomething broke.' });
+    const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: '## Mengapa\n\nSomething broke.' });
     expect(status).toBe(1);
     expect(calls).toContain('COMMENT');
   });
@@ -146,8 +147,8 @@ describe('pr-template-guard.sh', () => {
     expect(calls).not.toContain('PATCH');
   });
 
-  // A body typed in an editor that writes CRLF arrives as `## Why\r`, which is
-  // never equal to the `## Why` the section matcher compares against — a
+  // A body typed in an editor that writes CRLF arrives as `## Mengapa\r`, which is
+  // never equal to the `## Mengapa` the section matcher compares against — a
   // complete body was refused with every section listed as missing. PR #726.
   it('reads a CRLF body as complete', () => {
     const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: COMPLETE.replace(/\n/g, '\r\n') });
@@ -156,7 +157,7 @@ describe('pr-template-guard.sh', () => {
   });
 
   // #866/#965: the guard used to strip fenced code before reading sections, so
-  // a `## How to test` that was only a block of commands read as empty.
+  // a `## Cara menguji` that was only a block of commands read as empty.
   it('reads a How to test that is only a fenced block of commands as complete', () => {
     const fenced = COMPLETE.replace(
       'pnpm --filter api test\n',
@@ -182,8 +183,19 @@ describe('pr-template-guard.sh', () => {
     expect(run(TEMPLATE, { GH_STUB_BODY: old }).status).toBe(0);
   });
 
+  it('still accepts a body written with the old English headings', () => {
+    // The headings were renamed to Indonesian; a body written before the rename
+    // (or by an automation that still emits the English names) must still pass.
+    const english = COMPLETE.replace('## Mengapa', '## Why')
+      .replace('## Yang diubah', '## What changed')
+      .replace('## Kriteria penerimaan', '## Acceptance criteria')
+      .replace('## Cara menguji', '## How to test')
+      .replace('## Risiko', '## Risk and rollback');
+    expect(run(TEMPLATE, { GH_STUB_BODY: english }).status).toBe(0);
+  });
+
   it('still fails a CRLF body that is missing a section', () => {
-    const missing = COMPLETE.replace(/## What changed\r?\n\r?\n[^\n]*\n/, '');
+    const missing = COMPLETE.replace(/## Yang diubah\r?\n\r?\n[^\n]*\n/, '');
     const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: missing.replace(/\n/g, '\r\n') });
     expect(status).toBe(1);
     expect(calls).toContain('COMMENT');
@@ -198,7 +210,7 @@ describe('pr-template-guard.sh', () => {
     const NO_RISK = COMPLETE.replace(
       RISK,
       '<!-- Wajib bila PR berisiko: apa yang bisa rusak dan cara mengembalikannya. -->'
-    ).replace('## Why\n\n', '## Why\n\nIni perbaikan yang kecil dan terukur. ');
+    ).replace('## Mengapa\n\n', '## Mengapa\n\nIni perbaikan yang kecil dan terukur. ');
 
     it('is not required on an ordinary PR', () => {
       const { status, calls } = run(TEMPLATE, {
@@ -253,7 +265,7 @@ describe('pr-template-guard.sh', () => {
       const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: NO_RISK, ...env });
       expect(status).toBe(1);
       expect(calls).toContain('COMMENTBODY');
-      expect(calls).toContain('## Risk and rollback');
+      expect(calls).toContain('## Risiko');
       expect(calls).toContain(reason);
     });
 
@@ -351,11 +363,11 @@ describe('pr-template-guard.sh', () => {
   });
 
   it('treats an untouched template placeholder as missing content', () => {
-    const placeholder = `## Risk and rollback
+    const placeholder = `## Risiko
 
 <!-- Wajib bila PR berisiko: apa yang bisa rusak dan cara mengembalikannya. -->
 
-## Why
+## Mengapa
 
 <!-- The problem and its motivation. -->
 `;
@@ -365,7 +377,7 @@ describe('pr-template-guard.sh', () => {
   });
 
   it('treats a lone list marker as a missing change summary', () => {
-    // The template's `## What changed` ships a bare "-"; leaving it there is not
+    // The template's `## Yang diubah` ships a bare "-"; leaving it there is not
     // a change summary, so the check must still fail.
     const bareDash = COMPLETE.replace('- memeriksa basis data sebelum menjawab', '-');
     const { status, calls } = run(TEMPLATE, { GH_STUB_BODY: bareDash });
@@ -387,7 +399,7 @@ describe('pr-template-guard.sh', () => {
     // incomplete. The comment must keep its marker and text — a raw \`-f\` field
     // turned it into the literal "@/tmp/…/out" on every update.
     const { calls } = run(TEMPLATE, {
-      GH_STUB_BODY: '## Why\n\nSomething broke.',
+      GH_STUB_BODY: '## Mengapa\n\nSomething broke.',
       GH_STUB_CID: '555',
     });
     expect(calls).toContain('PATCH');
@@ -514,7 +526,7 @@ describe('pr-template-guard.sh', () => {
 
   it('still fails the check when the reminder cannot be posted', () => {
     const { status, out } = run(TEMPLATE, {
-      GH_STUB_BODY: '## Why\n\nSomething broke.',
+      GH_STUB_BODY: '## Mengapa\n\nSomething broke.',
       GH_STUB_WRITE_FAIL: '1',
     });
     expect(status).toBe(1);
@@ -572,6 +584,29 @@ describe('visual-evidence.sh', () => {
     expect(calls).not.toContain('COMMENT');
   });
 
+  it('is silent on an Indonesian before/after pair', () => {
+    const body =
+      '**Sebelum**\n![old](https://user-images.githubusercontent.com/1/1.png)\n\n' +
+      '**Sesudah**\n![new](https://user-images.githubusercontent.com/1/2.png)';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('does not split on "after" inside a sentence before the visuals', () => {
+    // A `## Cara menguji` line such as "... after it passes" used to split the
+    // body at that line, hiding a real before/after pair (#982).
+    const body =
+      'Jalankan build, lalu after it passes buka dashboard.\n\n' +
+      '**Sebelum**\n![old](https://user-images.githubusercontent.com/1/1.png)\n\n' +
+      '**Sesudah**\n![new](https://user-images.githubusercontent.com/1/2.png)';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
   it('is silent when both visuals use GitHub attachment links', () => {
     const body =
       'Before: ![old](https://github.com/user-attachments/assets/11111111-1111-1111-1111-111111111111)\n' +
@@ -610,7 +645,7 @@ describe('visual-evidence.sh', () => {
     expect(calls).toContain('PATCH');
     expect(calls).not.toContain('COMMENT');
     expect(calls).toContain('PATCHBODY <!-- visual-evidence -->');
-    expect(calls).toContain('has no before/after');
+    expect(calls).toContain('tangkapan visual sebelum dan sesudah');
     expect(calls).not.toMatch(/PATCHBODY @/);
   });
 

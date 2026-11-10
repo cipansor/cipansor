@@ -784,10 +784,12 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   `visual` tetap advisory.
 - **Templat PR ringkas, risiko ditulis pada PR berisiko** (keputusan pemilik
   2026-11-09, #965, menggantikan catatan `## HUMAN` dari #760). Templat memuat
-  `Why`, `What changed`, `Linked issue`, `Acceptance criteria`, `How to test`,
-  `Risk and rollback`, `Evidence`, dan `Notes`; tidak ada lagi bagian
-  `HUMAN`/`AGENT` atau `Type` (tipe datang dari label issue). `Risk and
-  rollback` wajib (minimal 20 karakter) hanya bila PR berlabel `security`, atau
+  `Mengapa`, `Yang diubah`, `Issue tertaut`, `Kriteria penerimaan`,
+  `Cara menguji`, `Bukti`, `Risiko`, dan `Catatan` (judul bagian Bahasa
+  Indonesia sejak 2026-11-10, #982; guard menerima nama Inggris lama juga);
+  tidak ada lagi bagian `HUMAN`/`AGENT` atau `Type` (tipe datang dari label
+  issue). `Risiko` wajib (minimal 20 karakter) hanya bila PR berlabel
+  `security`, atau
   mengubah `apps/api/prisma/` (skema, migrasi, seed, skrip data),
   `apps/api/scripts/` (skrip data produksi), atau jalur auth/RBAC. Daftar
   persisnya ada di `RISKY_PATHS` dalam `.github/scripts/pr-template-guard.sh`.

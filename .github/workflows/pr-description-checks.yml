@@ -16,7 +16,7 @@ name: PR description checks
 
 on:
   pull_request_target:
-    # labeled/unlabeled: a `security` label makes `## Risk and rollback` required, so
+    # labeled/unlabeled: a `security` label makes `## Risiko` required, so
     # adding or removing it must re-run the check.
     types: [opened, edited, reopened, synchronize, ready_for_review, labeled, unlabeled]
 
