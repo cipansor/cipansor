@@ -605,6 +605,30 @@ flowchart TD
   RC --> LC
 ```
 
+## Rantai pasok CI
+
+Dua aturan menjaga rantai pasok CI; keduanya ditegakkan mesin, jadi
+pelanggarannya memerahkan job **Tests** — bukan sekadar konvensi.
+
+- **Action dipaku ke commit SHA penuh.** Setiap `uses:` pihak ketiga di
+  `.github/workflows/` memakai SHA 40 karakter, bukan tag yang bisa digeser,
+  dengan komentar `# vX` di sampingnya agar Dependabot tahu rilis mana yang
+  harus digerakkan (jangan hapus komentarnya). Action lokal (`./…`) dikecualikan.
+  Alasannya kutipan GitHub sendiri: *"Pinning an action to a full-length commit
+  SHA is currently the only way to use an action as an immutable release"*
+  (<https://docs.github.com/en/actions/reference/security/secure-use>) — tag
+  dapat digeser, sehingga Action yang diambil alih dapat menukar kode yang
+  menerima kredensial repositori ini. Penjaganya
+  `apps/api/src/utils/github-actions-pinning.guard.test.ts`.
+- **Batas bawah `overrides` = rilis perbaikan pertama.** Setiap entri di
+  `pnpm-workspace.yaml` → `overrides` adalah **batas bawah**, bukan pin: `>=2.3.0`
+  masih menyelesaikan versi rentan 2.3.0. Batas bawah yang ditulis satu patch
+  terlalu rendah meninggalkan lockfile pada rilis rentan dan memerahkan check
+  wajib **Security** di setiap PR dan di `main` — kegagalan 2026-11-02 yang
+  memblokir seluruh PR terbuka (#910). Batas bawah benar hanya pada atau di atas
+  rilis perbaikan pertama advisory. Penjaganya
+  `apps/api/src/utils/pnpm-supply-chain.guard.test.ts` (`MIN_OVERRIDES`).
+
 ## Rilis & operasi
 
 ```mermaid

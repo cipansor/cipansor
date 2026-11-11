@@ -53,9 +53,13 @@ Notes:
 - **`audit:deps` can fail on a tree you did not touch.** It queries **npm's**
   live bulk advisory endpoint (`registry.npmjs.org/-/npm/v1/security/advisories/bulk`
   — not GitHub's, as this note wrongly said until 2026-09-04), so a newly
-  published CVE reddens every open PR at once. The fix is a pin in the root
-  `pnpm-workspace.yaml` `overrides`, then `pnpm install` (commit the lockfile —
-  CI installs `--frozen-lockfile`).
+  published CVE reddens every open PR at once. The fix is a floor in the root
+  `pnpm-workspace.yaml` `overrides` — raised **to the advisory's first fixed
+  release or above**, never one patch below it (`overrides` is a floor, so a
+  too-low value still resolves the vulnerable release and keeps `Security` red:
+  the 2026-11-02 failure, #910) — then `pnpm install` (commit the lockfile —
+  CI installs `--frozen-lockfile`). The floor is enforced by
+  `apps/api/src/utils/pnpm-supply-chain.guard.test.ts`.
 - **But read the message before hunting for a pin.** The same endpoint returns
   503 and hangs outright, and that failure carries no package name or
   vulnerable range. The script retries with backoff, then splits the two

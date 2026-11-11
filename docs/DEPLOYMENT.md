@@ -25,7 +25,7 @@ Panduan deployment sistem Cipansor untuk production.
 
 - **Node.js**: v22 (semua image memakai `node:22-alpine`)
 - **PostgreSQL**: v14 atau lebih baru
-- **pnpm**: 12.11.2 (dipaku lewat `packageManager` di `package.json`; CI memakai `--frozen-lockfile`)
+- **pnpm**: 12.11.2 (dipaku lewat `packageManager` di `package.json`; CI memakai `--frozen-lockfile`). Kebijakan `overrides` di `pnpm-workspace.yaml`: setiap batas bawah (`>=x.y.z`) berada pada atau di atas rilis perbaikan pertama advisory-nya — `overrides` adalah batas bawah, bukan pin, sehingga nilai satu patch di bawahnya tetap menyelesaikan rilis rentan (`pnpm-supply-chain.guard.test.ts`).
 - **Docker** (opsional): v24 atau lebih baru
 - **RAM**: Minimum 2GB, recommended 4GB
 - **Disk**: Minimum 20GB
