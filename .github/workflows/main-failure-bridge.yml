@@ -14,10 +14,11 @@ name: Main failure bridge
 on:
   # The code checks that run on a push to `main`: a failure there needs a
   # diagnosis (the "why"), which is what the monitor is for. The deploys are
-  # NOT here: `deploy-watch.yml` reports a failed, hung or wrong-commit deploy
-  # deterministically, and a deploy run skipped because CI/E2E failed is the
-  # failure this bridge already reports. One problem, one issue (decided
-  # 2026-10-10; docs/SDLC-FLOW.md → "Satu masalah, satu peringatan").
+  # NOT here: a deploy run skipped because CI/E2E failed is the failure this
+  # bridge already reports, and a failed deploy is watched by hand in the
+  # Actions tab (owner decision 2026-11-11 — the deploy watchdog was removed).
+  # One problem, one issue (decided 2026-10-10; docs/SDLC-FLOW.md →
+  # "Satu masalah, satu peringatan").
   workflow_run:
     workflows: [CI, E2E Tests]
     types: [completed]

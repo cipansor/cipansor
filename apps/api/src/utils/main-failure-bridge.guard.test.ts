@@ -32,14 +32,14 @@ describe('main-failure-bridge.yml', () => {
     expect(BRIDGE).not.toMatch(/^\s*pull_request:/m);
   });
 
-  it('watches the code checks on main, and leaves the deploys to deploy-watch', () => {
+  it('watches the code checks on main, and leaves the deploys alone', () => {
     // Read the `workflows:` list itself, not the whole file: the comments name
     // the excluded workflows, so a whole-file check would be self-defeating.
     const list = BRIDGE.match(/workflows:\s*(\[[^\]]*\])/)?.[1] ?? '';
     expect(list).toContain('CI');
     expect(list).toContain('E2E Tests');
-    // deploy-watch.yml reports the deploys; listing them here too would open
-    // a second issue for one failed deploy.
+    // Listing a deploy here would open a second issue for one failed deploy;
+    // the deploy watchdog was removed on 2026-11-11, so nothing reports them.
     expect(list).not.toContain('Deploy staging');
     expect(list).not.toContain('Deploy production');
   });

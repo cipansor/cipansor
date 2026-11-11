@@ -4,7 +4,7 @@
 # The duplicate lifecycle was half deterministic: `duplicate-sweep.sh` enforced
 # the close, but *noticing* a duplicate was one instruction inside the `Triase
 # issue` prompt (`SDLC 15`). A family no triage run noticed stayed open until a
-# person closed it by hand — which is what happened to the deploy-watch family
+# person closed it by hand — which is what happened to the older watchdog family
 # (#944, #957 closed by hand; #958 sat open a day). This workflow is the missing
 # deterministic detector.
 #

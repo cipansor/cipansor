@@ -4,10 +4,10 @@
 # (docs/LABELS.md), so a hand-applied `ready`, `priority:*` or type label makes
 # the two disagree about an issue's real state.
 #
-# The protected set is every label that exists in the repository minus the
-# human-decision label (`bot-implement`),
-# read at run time — never hardcoded, so a new label is protected the moment it
-# is created. A GitHub App (`*[bot]`) is exempt: the Actions workflows label
+# The protected set is every label that exists in the repository, read at run
+# time — never hardcoded, so a new label is protected the moment it is created.
+# There is no human-decision exception left: `bot-implement` was removed on
+# 2026-11-11 (the fleet implements from `ready` now). A GitHub App (`*[bot]`) is exempt: the Actions workflows label
 # through `github-actions[bot]`, and revoking those would break the guards.
 #
 # The rules live in .github/scripts/label-guard.sh so they can be run by hand.

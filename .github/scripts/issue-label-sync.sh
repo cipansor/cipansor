@@ -5,7 +5,7 @@
 # The PR and each issue it closes must carry the same "shared" labels: the type
 # labels (bug, enhancement, documentation, refactor, chore, security) and the
 # priority label. Labels that describe an issue's own lifecycle (question,
-# needs-info, duplicate, invalid, wontfix, blocked, ready, in-progress, ...) are
+# question, duplicate, invalid, wontfix, blocked, ready, in-progress, ...) are
 # not copied.
 #
 #   * missing shared labels are added to the PR

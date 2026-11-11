@@ -45,19 +45,15 @@ The evidence rule, enforced in the triage owner's prompt:
 
 | Label                | Meaning                                                                                                                            |
 | -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `ready`              | Specified enough to implement; open to a contributor or the bot                                                                    |
-| `bot-implement`      | Serahkan issue ini ke `Tiket jadi PR` — bot mengerjakannya. Pakai sebagai ganti (atau bersama) `ready` bila pekerjaannya milik bot |
-| `pending-maintainer` | Waiting for a maintainer to decide whether to proceed; `ready` starts implementation                                               |
-| `needs-info`         | Waiting on the reporter for a missing detail                                                                                       |
+| `ready`              | Specified enough to implement; `Tiket jadi PR` picks it up on its daily run, and it stays open to a contributor too                |
 | `in-progress`        | Someone or an automation is actively working on it                                                                                 |
 | `blocked`            | Cannot proceed until a dependency is resolved; never beside `ready`                                                                |
 | `stale`              | No activity for a long time; will close unless kept                                                                                |
-| `question`           | A question, not a change request                                                                                                   |
+| `question`           | Still needs discussion: a question, or a decision the maintainer has not made yet                                                  |
 | `duplicate`          | An issue already reported elsewhere; the original is linked                                                                        |
 | `duplicate-pr`       | A pull request probably covered by another PR; a candidate a maintainer weighs, never auto-closed                                  |
 | `invalid`            | Not a valid report                                                                                                                 |
 | `wontfix`            | Deliberately not going to be done                                                                                                  |
-| `automation-health`  | Fleet-health report from the watchdog; needs a maintainer                                                                          |
 | `automation`         | Report or action from an automation; skip in manual triage                                                                         |
 
 ## The rules
@@ -75,7 +71,7 @@ sync` workflow adds anything missing and **fails the check** when the type
    passing with the PR mislabeled — a passing check on a mislabeled PR is what a
    merge gate would read.
 
-2. **Status labels are not copied to a pull request.** `question`, `needs-info`,
+2. **Status labels are not copied to a pull request.** `question`,
    `duplicate`, `invalid`, `wontfix`, `blocked`, `ready` and `in-progress`
    describe an issue's own lifecycle. A PR's lifecycle is its draft state and
    its reviews. The one exception is `duplicate-pr`, which exists _for_ a PR:
@@ -84,16 +80,15 @@ sync` workflow adds anything missing and **fails the check** when the type
    maintainer, not a verdict — unlike a duplicate issue, it is never closed
    automatically (rule 4).
 
-3. **Two labels gate implementation, and only one of them hands the work to
-   the bot.** `ready` means an issue is well-specified and open to anyone —
-   `Triase issue` applies it only when the issue has a clear goal
-   and a concrete acceptance criterion, otherwise it applies `needs-info` and
-   lists what is missing. `bot-implement` is the narrower signal that the
-   maintainer wants `Tiket jadi PR` to implement it. `Tiket jadi PR` triggers
-   on `bot-implement`, never on `ready`: if it triggered on `ready` the bot
-   would take over the whole backlog and leave nothing for human contributors.
-   Apply `bot-implement` to hand one issue to the bot; leave it off to leave the
-   issue for a person.
+3. **`ready` is the implementation queue.** `Triase issue` applies it only when
+   the issue has a clear goal and a concrete acceptance criterion; otherwise it
+   applies `question` and lists what is missing. `Tiket jadi PR` runs on a daily
+   cron, scans the `ready` queue oldest-first, and opens at most `DAILY_PR_MAX`
+   (3) pull requests per run (owner decision 2026-11-11, replacing the
+   `bot-implement` hand-off label). The cap is what keeps the bot from sweeping
+   the whole backlog in one day, and the oldest-first order is what keeps a
+   ticket from starving. An issue a person wants to keep for themselves stays
+   out of the queue: leave `ready` off until they are done with it.
 
 4. **A duplicate closes itself.** `Triase issue` applies `duplicate` to an issue and
    links the original; the same detection on a pull request applies
@@ -160,9 +155,9 @@ sync` workflow adds anything missing and **fails the check** when the type
    criterion is concrete and observable, and **no question is left open**. While
    anything still has to be discussed, decided, or criticized — a design choice,
    an unknown scope, a premise that may not hold — it is not `ready` yet; apply
-   `needs-info` (or `question`, for a question rather than a change) and name
-   what is missing. `ready` must never sit beside `question`, `needs-info`,
-   `pending-maintainer` or `blocked`: two labels that contradict each other make
+   `question` (which covers both "still being discussed" and "a question, not a
+   change") and name what is missing. `ready` must never sit beside `question` or
+   `blocked`: two labels that contradict each other make
    the machine-readable state ambiguous (#814 carried `ready` and `question`
    together). `blocked` is the same contradiction — an issue that cannot proceed
    until a dependency resolves is not one a contributor can pick up, which is
@@ -206,12 +201,14 @@ sync` workflow adds anything missing and **fails the check** when the type
 12. **Only `cipansor-bot` labels.** Every label in the taxonomy above is the
     bot's to apply. A protected label added by any other account is removed by
     the `Label guard` workflow and the account is told once. The protected set is
-    every label that exists in the repository minus the human-decision label
-    (`bot-implement`), read at run time — a
-    new label is protected the moment it is created. A GitHub App (`*[bot]`) is
+    every label that exists in the repository, read at run time — a
+    new label is protected the moment it is created. There is no human-decision
+    exception left: `bot-implement` was removed on 2026-11-11, and release
+    approval is a `vX.Y.Z` tag, not a label. A GitHub App (`*[bot]`) is
     exempt, because the Actions workflows label through `github-actions[bot]`.
     **On an issue, the type label its form applies at open is also exempt:**
-    `bug_report.yml` sets `bug` and `feature_request.yml` sets `enhancement` the
+    each form sets its own type (`bug_report.yml` sets `bug`, `enhancement.yml`
+    sets `enhancement`, and so on) the
     moment the issue is created, and a type label is the reporter's declared
     intent — the triage owner sets the correct type on top, revoking the wrong
     one. On a **pull request** there is no such form, so a type label stays
@@ -239,18 +236,17 @@ sync` workflow adds anything missing and **fails the check** when the type
 
 | Automation          | Trigger                                        | Labels it sets                                                     |
 | ------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
-| `Triase issue`     | issue opened                                   | tipe, prioritas, `ready` / `needs-info` / `question` / `duplicate` |
-| `Tiket jadi PR`     | issue labelled `bot-implement`                 | tidak ada — ia membuka PR                                          |
-| `Penjernih issue`   | comment on a `needs-info` issue                | `needs-info` ↔ `ready`, `duplicate`, `invalid`                     |
+| `Triase issue`     | issue opened                                   | tipe, prioritas, `ready` / `question` / `duplicate`                |
+| `Tiket jadi PR`     | daily cron, `ready` queue oldest-first         | tidak ada — ia membuka PR                                          |
+| `Penjernih issue`   | comment on a `question` issue                  | `question` ↔ `ready`, `duplicate`, `invalid`                       |
 | `Issue label sync`  | PR opened / issue relabeled                     | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`) |
 | `duplicate-detect.sh` | issue opened / jadwal harian                  | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan |
 | `pr-duplicate.sh`   | jadwal harian                                   | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama |
 | `stale-sweep.sh`    | jadwal harian                                   | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`) |
 | `Gerbang tinjau PR` | PR ready for review, or CI-green dispatch      | tidak ada — ia meninjau atau menyetujui                            |
-| `Pemburu bug`       | daily cron                                     | membuka issue `bug`, satu prioritas, `bot-implement` (tanpa label provenans) |
-| `Pemindai standar`  | weekly cron                                    | membuka issue dengan tipe, prioritas, `pending-maintainer`         |
-| `Diskusi`           | comment on `pending-maintainer` / `needs-info` | `ready`, `wontfix`, `needs-info`                                   |
-| `Pengawas armada`   | daily cron                                     | `automation-health` pada laporannya                                |
+| `Pemburu bug`       | daily cron                                     | membuka issue `bug`, satu prioritas (tanpa label provenans)        |
+| `Pemindai standar`  | weekly cron                                    | membuka issue dengan tipe, prioritas, `question`                   |
+| `Diskusi`           | comment on a `question` issue                  | `ready`, `wontfix`, `question`                                     |
 
 The deterministic consequences are GitHub Actions workflows
 (`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-detect.yml`,
@@ -296,7 +292,7 @@ a question, an operational incident, or anything the forms do not fit, and
 forcing those into a `bug` form produces a wrong label. An unstructured issue is
 not turned away — the automation absorbs it: `Triase issue` triages it and
 sizes it (the estimate is part of its single triage comment), or
-lists the questions that would unblock it, then applies `needs-info` with the
+lists the questions that would unblock it, then applies `question` with the
 exact missing detail rather than `ready`. A security
 vulnerability is routed to a private advisory (`SECURITY.md`), never a public
 issue.
@@ -304,20 +300,22 @@ issue.
 The issue forms (`.github/ISSUE_TEMPLATE/`) and the pull-request template exist
 to produce the labels above, not prose to read and forget:
 
-- The **bug** form requires only what happened and what was expected; the
-  **feature request** form requires the motivation and the desired behaviour.
+- The **bug** form requires only what happened and what was expected; the other
+  forms (**feature request**, **documentation**, **refactor**, **chore**,
+  **security**) require the motivation and the desired behaviour. Each form sets
+  its own type label, so a reporter picks the type by picking the form.
   Everything else (reproduction steps, acceptance criteria) is optional — a thin
   report still gets triaged, and `Triase issue` fills what it can before deciding
-  `ready` versus `needs-info`.
+  `ready` versus `question`.
 - A `bug` issue may still arrive thin — a reporter often cannot say _why_. That
   is expected: `Reproduksi bug` investigates, adds the cause and, for a UI defect,
   reproduces it and attaches a screenshot to the issue by editing its body. It
-  does not send the issue to `needs-info` for being incomplete.
+  does not send the issue to `question` for being incomplete.
 - The **PR template** has the sections `Mengapa`, `Yang diubah`, `Issue
   tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko` and
   `Catatan` (no `HUMAN`/`AGENT` split and no `Type` checklist since 2026-11-09,
   #965: the type comes from the issue's label). It requires `Fixes #<n>` for
-  every issue the PR resolves (each an open `ready`/`bot-implement` issue,
+  every issue the PR resolves (each an open `ready` issue,
   never a PR; `Refs #<n>` for a partial step), copies the issue's acceptance
   criteria as checkboxes, and asks for a **before and after** visual on any
   change under `apps/web`. `Issue label sync` mirrors the linked issue's
@@ -325,7 +323,7 @@ to produce the labels above, not prose to read and forget:
 
 These are kept honest by the `pr-description-checks` workflow: the `template`
 job **fails the check** while the description is incomplete, no issue is
-linked, a linked number is not an open `ready`/`bot-implement` issue, the PR
+linked, a linked number is not an open `ready` issue, the PR
 does not target the default branch (where alone `Fixes` closes anything), or the
 prose reads as English, and passes once it is complete (the `visual` job stays
 advisory). There is no "no linked issue" way out (#772). Dependabot alone

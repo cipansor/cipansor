@@ -34,36 +34,37 @@ body="$(jq -r .body "$TMP")"
 
 img_re='user-images\.githubusercontent\.com|private-user-images\.githubusercontent\.com|github\.com/user-attachments/assets/|https?://[^ )]+\.(png|jpe?g|gif|webp|mp4|webm)'
 
-# The marker's bare-URL branch must be a *media* URL, not any URL: an early
-# non-visual link written as `After https://preview.example.org` would otherwise
-# match, split the body before the real screenshots, and leave the Before region
-# empty. Same shape as img_re, anchored so the URL ends the line.
-media_url_re='((https?://|www\.)[^[:space:]]*\.(png|jpe?g|gif|webp|mp4|webm)([?#][^[:space:]]*)?|https?://(user-images\.githubusercontent\.com|private-user-images\.githubusercontent\.com|github\.com/user-attachments/assets)/[^[:space:]]*)'
+# The Evidence requirement is a *before* visual AND an *after* visual. The check
+# no longer splits the body at an after marker and reads each region for media:
+# that split was fragile against prose. A bullet such as
+# `- **Sesudah** — POST /portfolio dijawab 201` (a reproduction step, PR #1033)
+# ends with an em dash, which the old marker accepted as punctuation, so the body
+# split *before* the `| Sebelum | Sesudah |` screenshot table and the Before
+# region came out empty — a complete pair still got the reminder.
+#
+# Instead the body is asked two independent questions:
+#   * does it carry at least two media URLs? and
+#   * does it label a before line AND an after line?
+# A pair is present only when both hold. Prose cannot move a boundary because
+# there is no boundary; a body with one image, or with two images and no labels,
+# still gets the reminder.
+#
+# A label is the first word of a line (`Before`, `**Sesudah**`, `## After`,
+# `- **Sebelum**`), never the word inside a sentence: "... after it passes"
+# under `## Cara menguji` is not a label.
+label_re() { printf '^[[:space:]]*([-*+][[:space:]]+)?(\\*\\*|#+[[:space:]]+)?[[:space:]]*(%s)([^[:alnum:]_]|$)' "$1"; }
+before_re="$(label_re 'before|sebelum')"
+after_re="$(label_re 'after|sesudah')"
 
-# The Evidence requirement is a *before* visual AND an *after* visual. Split the
-# body at the first line that IS an after marker; each region must contain media.
-# A body with only an After image leaves the Before region empty and keeps the
-# reminder — the earlier single Boolean cleared it on any image anywhere.
-# The marker is the first word of a line (`**After**`, `## After`, `After:`, the
-# Indonesian `Sesudah`), optionally behind a Markdown list bullet (`- **After**`,
-# `* Sesudah`) — the list form is what the reminder text below and most bodies
-# use, so leaving it out kept the reminder up on a body that already had the
-# pair. It is the label at the start of a line, not the word anywhere: matching it
-# anywhere split the body on a sentence such as "... after it passes" under
-# `## Cara menguji`, hiding a real before/after pair.
-# The word must end the line, be followed by punctuation, or be followed by a
-# bare *media* URL that ends the line — never by a space and more words: a bullet
-# *sentence* (`- Sesudah pengujian, periksa layar`) or a non-visual link
-# (`After https://preview.example.org`) would otherwise split the body before the
-# visuals, read both images as "after", and keep the reminder up on a complete
-# pair (#983 review).
-marker='^[[:space:]]*([-*+][[:space:]]+)?(\*\*|#+[[:space:]]+)?[[:space:]]*(after|sesudah)([[:space:]]*$|[[:space:]]*[^[:alnum:]_[:space:]]|[[:space:]]*'"$media_url_re"'[[:space:]]*$)'
-before_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) exit; print }')
-after_part=$(printf '%s\n' "$body" | awk -v m="$marker" '{ if (tolower($0) ~ m) f = 1; if (f) print }')
-has_before=0
-has_after=0
-printf '%s\n' "$before_part" | grep -qiE "$img_re" && has_before=1
-printf '%s\n' "$after_part" | grep -qiE "$img_re" && has_after=1
+media_count=$(printf '%s\n' "$body" | grep -oiE "$img_re" | grep -c . || true)
+has_before_label=0
+has_after_label=0
+printf '%s\n' "$body" | grep -qiE "$before_re" && has_before_label=1
+printf '%s\n' "$body" | grep -qiE "$after_re" && has_after_label=1
+has_pair=0
+if [ "$media_count" -ge 2 ] && [ "$has_before_label" = "1" ] && [ "$has_after_label" = "1" ]; then
+  has_pair=1
+fi
 
 find_comment() {
   # --paginate: a reminder past the first 100 comments would otherwise look
@@ -74,7 +75,7 @@ find_comment() {
 CID="$(find_comment || true)"
 
 need=0
-[ "$touch_web" = "true" ] && { [ "$has_before" = "0" ] || [ "$has_after" = "0" ]; } && need=1
+[ "$touch_web" = "true" ] && [ "$has_pair" = "0" ] && need=1
 
 if [ "$need" = "1" ]; then
   cat > "$TMP" <<EOF

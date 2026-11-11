@@ -341,7 +341,7 @@ const runBridge = (env: Record<string, unknown>, args: string[], stdin?: string)
 // the guard consults makes that label read as "not protected", and a test built
 // on it then proves the opposite of what happens in the repository.
 const LABELS =
-  'bug\nenhancement\nready\nquestion\nneeds-info\nblocked\npriority:high\npriority:medium\nbot-implement\nsource:template';
+  'bug\nenhancement\ndocumentation\nrefactor\nchore\nsecurity\nready\nquestion\nblocked\npriority:high\npriority:medium\nstale\nsource:template';
 
 const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
   JSON.stringify({
@@ -386,35 +386,36 @@ describe('label-guard.sh', () => {
     expect(calls).not.toContain('UNLABEL');
   });
 
-  it('leaves the human-decision label even when a person applies it', () => {
-    // `rilis-disetujui`/`rilis-ditolak` were dropped 2026-11-09: they never
-    // existed in the repo, and release approval is now a `vX.Y.Z` tag, so there
-    // is no label for a human to apply. `bot-implement` remains the exception.
-    for (const label of ['bot-implement']) {
-      const { calls } = run(
+  it('has no human-decision label left: every one of them is revoked', () => {
+    // `bot-implement` was the last exception and was removed on 2026-11-11 (the
+    // fleet implements from `ready` now). `rilis-disetujui`/`rilis-ditolak` were
+    // dropped 2026-11-09. A person applying any label is revoked; only the bot
+    // and a GitHub App may label.
+    const { calls } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'admin' },
+      ['--stdin'],
+      labeledEvent('adminypc', 'ready')
+    );
+    expect(calls).toContain('UNLABEL');
+  });
+
+  it('leaves the issue template’s type label, applied when the issue opens', () => {
+    // #842: each issue form sets its own type label the moment an issue is
+    // created (one form per type, 2026-11-11), so revoking it fights the
+    // template and posts a notice on every new issue. The type label is the
+    // reporter's declared intent; the triage owner sets the correct one on top.
+    for (const label of ['bug', 'enhancement', 'documentation', 'refactor', 'chore', 'security']) {
+      const { calls, out } = run(
         LABEL_GUARD,
-        { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'admin' },
+        { GH_STUB_LABELS: LABELS },
         ['--stdin'],
         labeledEvent('adminypc', label)
       );
       expect(calls, label).not.toContain('UNLABEL');
+      expect(calls, label).not.toContain('COMMENT');
+      expect(out, label).toContain('not a protected label');
     }
-  });
-
-  it('leaves the issue template’s type label, applied when the issue opens', () => {
-    // #842: `bug_report.yml` sets `bug` (and `feature_request.yml` sets
-    // `enhancement`) the moment an issue is created, so revoking it fights the
-    // template and posts a notice on every new issue. The type label is the
-    // reporter's declared intent; the triage owner sets the correct one on top.
-    const { calls, out } = run(
-      LABEL_GUARD,
-      { GH_STUB_LABELS: LABELS },
-      ['--stdin'],
-      labeledEvent('adminypc', 'bug')
-    );
-    expect(calls).not.toContain('UNLABEL');
-    expect(calls).not.toContain('COMMENT');
-    expect(out).toContain('not a protected label');
   });
 
   it('revokes a template type label applied to a pull request', () => {
@@ -486,10 +487,12 @@ describe('label-guard.sh', () => {
     expect(out).toContain("contradicts 'question'");
   });
 
-  it('removes a `ready` that contradicts `needs-info`', () => {
+  it('removes a `ready` that contradicts `question`', () => {
+    // `needs-info` was removed on 2026-11-11; `question` is the one "still being
+    // discussed" label, and it still wins over `ready`.
     const { calls } = run(
       LABEL_GUARD,
-      { GH_STUB_LABELS: LABELS, GH_STUB_CURRENT: 'ready\nneeds-info' },
+      { GH_STUB_LABELS: LABELS, GH_STUB_CURRENT: 'ready\nquestion' },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'ready')
     );
@@ -582,15 +585,15 @@ describe('label-guard.sh', () => {
   });
 
   it('removes `ready` when a second exclusion survives the event label', () => {
-    // The reviewer's scenario: `ready`+`needs-info` present, a human adds
-    // `question`. Revoking `question` does not clear `needs-info`, so the issue
+    // The reviewer's scenario: `ready`+`blocked` present, a human adds
+    // `question`. Revoking `question` does not clear `blocked`, so the issue
     // stays contradictory — `ready` must go too.
     const { calls } = run(
       LABEL_GUARD,
       {
         GH_STUB_LABELS: LABELS,
         GH_STUB_PERM: 'admin',
-        GH_STUB_CURRENT: 'ready\nquestion\nneeds-info',
+        GH_STUB_CURRENT: 'ready\nquestion\nblocked',
       },
       ['--stdin'],
       labeledEvent('adminypc', 'question')
@@ -681,33 +684,23 @@ describe('acknowledge.sh', () => {
     expect(calls).not.toContain('REACT_COMMENT');
   });
 
-  it('acknowledges an outside reporter answering a `needs-info` issue', () => {
-    // Penjernih issue fires on the reporter's reply, so it must be acknowledged.
+  it('acknowledges a maintainer answering a `question` issue', () => {
+    // Diskusi fires on a maintainer's reply, so it must be acknowledged.
     const { calls } = run(
       ACKNOWLEDGE,
       { GH_STUB_LOGIN: 'cipansor-bot' },
       ['--stdin'],
-      event({ association: 'NONE', labels: ['needs-info', 'bug'] })
+      event({ association: 'OWNER', labels: ['question'] })
     );
     expect(calls).toContain('REACT_COMMENT');
   });
 
-  it('acknowledges a maintainer on a `pending-maintainer` issue', () => {
+  it('does not acknowledge an outsider on a `question` issue', () => {
     const { calls } = run(
       ACKNOWLEDGE,
       { GH_STUB_LOGIN: 'cipansor-bot' },
       ['--stdin'],
-      event({ association: 'OWNER', labels: ['pending-maintainer'] })
-    );
-    expect(calls).toContain('REACT_COMMENT');
-  });
-
-  it('does not acknowledge an outsider on a `pending-maintainer` issue', () => {
-    const { calls } = run(
-      ACKNOWLEDGE,
-      { GH_STUB_LOGIN: 'cipansor-bot' },
-      ['--stdin'],
-      event({ association: 'NONE', labels: ['pending-maintainer'] })
+      event({ association: 'NONE', labels: ['question'] })
     );
     expect(calls).not.toContain('REACT_COMMENT');
   });
@@ -721,7 +714,7 @@ describe('acknowledge.sh', () => {
       ['--stdin'],
       event({
         association: 'COLLABORATOR',
-        labels: ['needs-info'],
+        labels: ['question'],
         login: 'cipansor-bot',
         body: 'Triase selesai.',
       })
@@ -992,7 +985,14 @@ describe('fleet contracts', () => {
     // covers an issue opening, not that the form carries the line.
     const wf = read(join(WORKFLOWS, 'basmalah.yml'));
     expect(wf).toMatch(/issues:[\s\S]*types:[\s\S]*opened/);
-    for (const file of ['bug_report.yml', 'feature_request.yml']) {
+    for (const file of [
+      'bug_report.yml',
+      'enhancement.yml',
+      'documentation.yml',
+      'refactor.yml',
+      'chore.yml',
+      'security.yml',
+    ]) {
       const form = read(join(REPO_ROOT, '.github', 'ISSUE_TEMPLATE', file));
       expect(form, `${file} shows the basmalah as a form prompt`).toContain(arabic);
       // It must sit in a `type: markdown` block (a preview), never in a field
@@ -1010,7 +1010,15 @@ describe('fleet contracts', () => {
     // fails here instead of in the New-issue picker. Source:
     // docs.github.com "Syntax for GitHub's form schema" (`type` key).
     const ALLOWED = new Set(['markdown', 'textarea', 'input', 'dropdown', 'checkboxes', 'upload']);
-    for (const file of ['bug_report.yml', 'feature_request.yml', 'config.yml']) {
+    for (const file of [
+      'bug_report.yml',
+      'enhancement.yml',
+      'documentation.yml',
+      'refactor.yml',
+      'chore.yml',
+      'security.yml',
+      'config.yml',
+    ]) {
       const form = read(join(REPO_ROOT, '.github', 'ISSUE_TEMPLATE', file));
       for (const m of form.matchAll(/^\s*-?\s*type:\s*(\S+)/gm)) {
         expect(ALLOWED.has(m[1]), `${file}: unsupported form element type "${m[1]}"`).toBe(true);
@@ -1047,7 +1055,7 @@ describe('fleet contracts', () => {
     // every subscriber and leaves an unreadable husk (2026-11-11: 153 of them,
     // 81 sweep + 72 state). The bridge must not create or edit a comment on any
     // path — it checkpoints in the automation KV store instead, the one
-    // `automation-retry.sh` already uses. A future edit that reintroduces a
+    // the automation KV store already uses. A future edit that reintroduces a
     // comment write fails here.
     const sh = read(BRIDGE);
     expect(sh).toContain('/kv/');
@@ -1295,18 +1303,42 @@ describe('fleet contracts', () => {
     }
   });
 
-  it('states in docs/SDLC-FLOW.md that `bot-implement`, not `ready`, triggers implementation', () => {
-    // A `ready` issue with a maintainer comment asking for a PR got no bot: the
-    // trigger is the `bot-implement` label (SDLC 06). The flow doc must say so,
-    // or a reader waits on `ready` that was never going to start anything.
+  it('states in docs/SDLC-FLOW.md that `Tiket jadi PR` works the daily `ready` queue', () => {
+    // `Tiket jadi PR` (SDLC 06) used to trigger on the `bot-implement` label. It
+    // now runs on a daily cron, scans the `ready` queue oldest-first, and opens
+    // at most DAILY_PR_MAX pull requests (owner decision 2026-11-11). The flow
+    // doc must say so, or a reader waits on a label that no longer exists.
     const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
     // Table cells are padded by prettier, so match the row, not a fixed string.
     const start5 = flow.search(/^\| 5\s+\| Implementasi/m);
     const start6 = flow.search(/^\| 6\s+\| CI/m);
     expect(start5, 'stage 5 row').toBeGreaterThan(-1);
     const stage5 = flow.slice(start5, start6);
-    expect(stage5).toContain('bot-implement');
-    expect(stage5).toMatch(/`ready` saja TIDAK memicu/);
+    expect(stage5).toContain('`ready`');
+    expect(stage5).toMatch(/terlama dulu/);
+    // The retired hand-off label must not be named as the trigger anywhere.
+    expect(flow).not.toContain('label `bot-implement` (`Bot sebutan`');
+  });
+
+  it('makes `Tiket jadi PR` claim the issue and un-draft the PR it opens', () => {
+    // The 2026-11-11 queue rewrite dropped the two steps that move work forward:
+    // the prompt opened a draft PR and stopped. Issue #857 shows the result — the
+    // PR was merged 19 days later only because a human marked it ready, and the
+    // issue kept `ready` (with `bot-implement`) for two more days, so the queue
+    // still held work that was already in review. The prompt must move the issue
+    // out of the queue and the PR out of draft.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const start = script.indexOf(
+      'Anda adalah SATU-SATUNYA pembuka pull request'
+    );
+    expect(start, 'SDLC 06 prompt body').toBeGreaterThan(-1);
+    const prompt = script.slice(start, script.indexOf('"SDLC 07"', start));
+    expect(prompt).toContain('`in-progress`');
+    expect(prompt).toMatch(/CABUT `ready`/);
+    expect(prompt).toContain('ready_for_review');
+    // The draft stays the escape hatch when the work is not done, so the
+    // instruction is conditional, not unconditional.
+    expect(prompt).toMatch(/BIARKAN draf/);
   });
 });
 
@@ -1635,9 +1667,7 @@ describe('deploy-sdlc-agents.py', () => {
     // label-guard enforces it deterministically, but the prompt must not create
     // the conflict in the first place — the triage owner wrote it 29 times.
     const out = newPrompt('SDLC 15', 'Header');
-    expect(out).toContain(
-      '`ready` tidak boleh bersama `question`, `needs-info`, `pending-maintainer`, atau `blocked`'
-    );
+    expect(out).toContain('`ready` tidak boleh bersama `question` atau `blocked`');
     expect(out).toContain('Issue `blocked` TIDAK boleh `ready`');
   });
 
@@ -1645,16 +1675,24 @@ describe('deploy-sdlc-agents.py', () => {
     'upgrades the exclusion list in a body block the live prompt already carries',
     () => {
       // The body block is inserted once, so a live prompt keeps its old one. The
-      // instruction to withdraw contradicting labels before `ready` must gain
-      // `blocked` by text, or the triage owner is never told about it.
+      // instruction to withdraw contradicting labels before `ready` must drop
+      // the removed `needs-info`/`pending-maintainer` by text — and it must
+      // upgrade both older forms (without `blocked`, and with it), or a prompt
+      // deployed by an earlier version keeps naming labels that no longer exist.
       const live =
         'Header\n\nBODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)\n' +
         'Sebelum memasang `ready`, cabut dulu `question`/`needs-info`/`pending-maintainer` yang bertentangan. ' +
         'Bila belum `ready`, jangan mengubah body issue.';
       const out = newPrompt('SDLC 15', live);
-      expect(out).toContain(
-        '`question`/`needs-info`/`pending-maintainer`/`blocked` yang bertentangan'
-      );
+      expect(out).toContain('cabut dulu `question`/`blocked` yang bertentangan');
+      expect(out).not.toContain('needs-info');
+      const mid =
+        'Header\n\nBODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)\n' +
+        'Sebelum memasang `ready`, cabut dulu `question`/`needs-info`/`pending-maintainer`/`blocked` yang bertentangan. ' +
+        'Bila belum `ready`, jangan mengubah body issue.';
+      const out2 = newPrompt('SDLC 15', mid);
+      expect(out2).toContain('cabut dulu `question`/`blocked` yang bertentangan');
+      expect(out2).not.toContain('needs-info');
     }
   );
 
@@ -1669,7 +1707,10 @@ describe('deploy-sdlc-agents.py', () => {
       'dan `bot-implement` — jangan membuka pull request.';
     const out = newPrompt('SDLC 19 · Pemburu bug', original);
     expect(out).not.toContain('bug-hunter');
-    expect(out).toContain('priority:critical/high/medium/low dan `bot-implement`');
+    // `bot-implement` went the same way on 2026-11-11 (the fleet implements from
+    // `ready`), so the strip leaves the bare priority list.
+    expect(out).toContain('priority:critical/high/medium/low');
+    expect(out).not.toContain('bot-implement');
     // Idempotent: a second pass changes nothing.
     expect(newPrompt('SDLC 19 · Pemburu bug', out)).toBe(out);
   });
@@ -1736,7 +1777,7 @@ describe('deploy-sdlc-agents.py', () => {
   });
 
   it.skipIf(!hasPy)('cites the automation API endpoints the retry script actually uses', () => {
-    // The fleet's own integration (`.github/scripts/automation-retry.sh`) reads
+    // The fleet's own integration (the removed `automation-retry.sh`) read
     // the list at the API root and runs at `/{id}/runs`. `/automations` answers
     // 422 and `/automations/{id}/runs` answers 404, so a watchdog told to use
     // them gets no data at all.

@@ -11,7 +11,7 @@
 # `## Cara menguji`, a `## Risiko` statement on a risky PR (see
 # RISKY_PATHS), and at least one linked issue —
 # `Fixes #<n>`, once per issue the PR resolves. Every number it closes must be
-# an open issue (not a pull request) labelled `ready` or `bot-implement`. There
+# an open issue (not a pull request) labelled `ready`. There
 # is no "no linked issue" way out: a PR without an issue starts with an issue
 # (#772). Dependabot writes its own body and is skipped by the workflow, keyed
 # on the PR's author. The PR-language rule is enforced in the same place: the
@@ -139,13 +139,12 @@ for N in $LINKED; do
 - issue #$N sudah tertutup; tautkan issue yang masih terbuka, atau buka kembali bila belum selesai"
     continue
   fi
-  # A link is only a green light when the issue is ready for development:
-  # `ready` (ready for anyone) or `bot-implement` (handed to the bot). A link to
-  # an issue still in `needs-info` or `pending-maintainer` is not.
+  # A link is only a green light when the issue is ready for development. A link
+  # to an issue still in `question` or `blocked` is not.
   case ",$LABELS," in
-    *,ready,* | *,bot-implement,*) ;;
+    *,ready,*) ;;
     *) missing="$missing
-- issue tertaut #$N harus berlabel \`ready\` atau \`bot-implement\` sebelum ditinjau (sekarang: ${LABELS:-tidak ada})" ;;
+- issue tertaut #$N harus berlabel \`ready\` sebelum ditinjau (sekarang: ${LABELS:-tidak ada})" ;;
   esac
 done
 if [ -n "$LINKED" ] && [ -n "${BASE_REF:-}" ] && [ -n "${DEFAULT_BRANCH:-}" ] && [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then

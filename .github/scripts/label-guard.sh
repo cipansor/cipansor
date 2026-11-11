@@ -6,27 +6,27 @@
 # the two disagree about an issue's real state. The bot owns the taxonomy; a
 # person states what they want and the bot records it.
 #
-# The protected set is every label that exists in the repository minus the few
-# human-decision labels in EXEMPT_LABELS and the provenance labels in
-# ALLOWED_LABELS. It is read from the repository, never hardcoded, so a new label
-# is protected the moment it is created and the set cannot drift from
-# `gh label list`.
+# The protected set is every label that exists in the repository minus the
+# provenance labels in ALLOWED_LABELS. It is read from the repository, never
+# hardcoded, so a new label is protected the moment it is created and the set
+# cannot drift from `gh label list`.
 #
 # A GitHub App (`*[bot]`) is exempt: the Actions workflows (`issue-label-sync`,
-# `deploy-watch`, the label sync itself) label through `github-actions[bot]`, and
-# revoking those would break the guards. The automations post as `cipansor-bot`
-# (the runner injects GITHUB_BOT_TOKEN), so they are covered by BOT_LOGIN.
+# the label sync itself) label through `github-actions[bot]`, and revoking those
+# would break the guards. The automations post as `cipansor-bot` (the runner
+# injects GITHUB_BOT_TOKEN), so they are covered by BOT_LOGIN.
 #
 # ALLOWED_LABELS holds labels the *issue* template applies by itself, not a
-# person or a PR claiming a state: `bug_report.yml` sets `bug` and
-# `feature_request.yml` sets `enhancement` the moment an issue is created, so
-# revoking them fights the template and posts a notice on every new issue (#842).
-# A type label is the reporter's declared intent — the triage owner sets the
-# *correct* type on top of it — so the guard leaves it on an **issue**. A pull
-# request has no such form, so on a PR the type labels stay protected: a PR that
-# closes an `enhancement` issue but carries `bug` would fail the type sync
-# (`issue-label-sync.sh`), which reads a PR's type as a claim to match. Everything
-# else (`ready`, `priority:*`, the workflow labels) stays the bot's everywhere.
+# person or a PR claiming a state: each form sets its own type label the moment
+# an issue is created (one form per type, 2026-11-11 — see
+# `.github/ISSUE_TEMPLATE/`), so revoking them fights the template and posts a
+# notice on every new issue (#842). A type label is the reporter's declared
+# intent — the triage owner sets the *correct* type on top of it — so the guard
+# leaves it on an **issue**. A pull request has no such form, so on a PR the type
+# labels stay protected: a PR that closes an `enhancement` issue but carries
+# `bug` would fail the type sync (`issue-label-sync.sh`), which reads a PR's type
+# as a claim to match. Everything else (`ready`, `priority:*`, the workflow
+# labels) stays the bot's everywhere.
 #
 # Usage: label-guard.sh --stdin          # a `labeled` webhook event on stdin
 #        label-guard.sh <number> <label> [actor]   # by hand
@@ -35,20 +35,21 @@ set -eu
 
 REPO="${REPO:?REPO is required}"
 BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
-# Human-decision labels: the release gate is the maintainer's to apply (that is
-# the whole point of the label), and `bot-implement` is the maintainer's choice
-# to hand an issue to the bot. Everything else is the bot's.
-EXEMPT_LABELS="${EXEMPT_LABELS:-bot-implement}"
-# Labels the issue template applies by itself. Left in place so a fresh issue is
+# There are no human-decision labels left: `bot-implement` was removed on
+# 2026-11-11 (the fleet implements from `ready` now), and the release gate is a
+# tag, not a label. Every label is the bot's, so EXEMPT_LABELS is empty and kept
+# only so the variable can still be set for a one-off exception.
+EXEMPT_LABELS="${EXEMPT_LABELS:-}"
+# Labels the issue forms apply by themselves. Left in place so a fresh issue is
 # not met with a revocation notice (#842).
-ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement}"
+ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement documentation refactor chore security}"
 
 REVOKE_MARK="<!-- label-guard:revoked -->"
 
-# Every existing label except the human-decision ones and, on an issue, the
-# repository's own template labels. Read once per run. On a pull request the
-# template labels are *not* exempt, so `bug`/`enhancement` applied to a PR are
-# protected and revoked like any other type claim.
+# Every existing label except, on an issue, the repository's own template
+# labels. Read once per run. On a pull request the template labels are *not*
+# exempt, so a type label applied to a PR is protected and revoked like any other
+# claim.
 protected_labels() {
   exempt="$EXEMPT_LABELS"
   [ "$IS_PR" = "1" ] || exempt="$exempt $ALLOWED_LABELS"
@@ -81,14 +82,14 @@ fi
 # `ready` is a strong claim and it is exclusive: it must never sit beside a label
 # that says the issue is still being discussed, decided, or waiting on something
 # (#814 carried `ready` and `question` together, which makes the machine-readable
-# state ambiguous). `question`, `needs-info`, `pending-maintainer` and `blocked`
-# all win over `ready`.
+# state ambiguous). `question` and `blocked` win over `ready`.
 #
 # `blocked` belongs here because it is the same contradiction: an issue that
 # cannot proceed until a dependency resolves is not one a contributor can pick
 # up, which is exactly what `ready` promises. The two together also lie to the
-# queue — `Tiket jadi PR` reads `bot-implement`, but a reader (and the WIP
-# ordering) takes `ready` at face value. One of them has to go, and it is always
+# queue — `Tiket jadi PR` reads `ready` to pick its next ticket, so a `ready`
+# that is also `blocked` would hand it a ticket it cannot start. One of them has
+# to go, and it is always
 # `ready`: `blocked` carries the harder information, and withdrawing it would
 # claim the issue is startable again (aturan pemilik, 2026-11-10).
 #
@@ -99,7 +100,7 @@ fi
 # conflict the event itself created — a human adding `question` beside `ready`
 # is resolved by removing `question`, not `ready`. But any exclusion still
 # present after that removal keeps the conflict, so `ready` must go: `ready` +
-# `needs-info` with a human adding `question` is still `ready` + `needs-info`.
+# `blocked` with a human adding `question` is still `ready` + `blocked`.
 READY_MARK="<!-- label-guard:ready-exclusive -->"
 
 # Will the standard path revoke the event's own label (unauthorized actor,
@@ -125,7 +126,7 @@ fi
 
 conflict=""
 if printf '%s\n' "$effective" | grep -qxF ready; then
-  for excl in question needs-info pending-maintainer blocked; do
+  for excl in question blocked; do
     printf '%s\n' "$effective" | grep -qxF "$excl" && conflict="$excl"
   done
 fi
@@ -161,9 +162,10 @@ case "$ACTOR" in
   *'[bot]') echo "Label '$LABEL' was applied by a GitHub App ('$ACTOR'); fine."; exit 0 ;;
 esac
 
-# A human-decision label is the maintainer's to apply.
-if printf '%s\n' $EXEMPT_LABELS | grep -qxF "$LABEL"; then
-  echo "Label '$LABEL' is a human-decision label; left in place."
+# A label named in EXEMPT_LABELS is the maintainer's to apply. The set is empty
+# by default; it exists so a one-off exception can be set for a single run.
+if [ -n "$EXEMPT_LABELS" ] && printf '%s\n' $EXEMPT_LABELS | grep -qxF "$LABEL"; then
+  echo "Label '$LABEL' is an exempt label; left in place."
   exit 0
 fi
 
@@ -193,7 +195,7 @@ case "$PERM" in
   *) ALERT=" (akun ini tidak punya izin menulis; @adminypc tolong tinjau)" ;;
 esac
 
-BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Sebutkan apa yang Anda inginkan dan bot akan memasangnya. Label keputusan manusia (\`bot-implement\`) tetap boleh dipasang manual.$ALERT
+BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Sebutkan apa yang Anda inginkan dan bot akan memasangnya.$ALERT
 
 $REVOKE_MARK"
 
