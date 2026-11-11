@@ -172,4 +172,35 @@ test.describe("Tumbuh kembang — baca dan catat dari halaman", () => {
     );
     await expect(page.getByRole("button", { name: "Hapus" })).toHaveCount(0);
   });
+
+  /**
+   * The class whose unit the page could not read. The unit the record goes
+   * under is derived from the chosen class (`classesData` → `unitId`); with
+   * none, the create call used to leave with no unit and the API refused it.
+   * Simpan must be disabled and explain why, so the call never leaves.
+   *
+   * A class always carries its unit (unit_id is NOT NULL in the schema), so the
+   * only way to reach the state is to drop the field from the list response —
+   * exactly the payload the guard is written against.
+   */
+  test("kelas tanpa unit termuat menonaktifkan Simpan", async ({ page }) => {
+    test.setTimeout(120_000);
+    const nurse = await apiLogin(account("PERAWAT"));
+    const unitId = (nurse.user as { unitId: string }).unitId;
+    const chosen = await findSeeded(nurse, unitId);
+
+    await page.route("**/api/classes?**", async (route) => {
+      const response = await route.fetch();
+      const body = await response.json();
+      for (const cls of body.data ?? []) delete cls.unitId;
+      await route.fulfill({ response, json: body });
+    });
+
+    await injectSession(page, nurse);
+    await gotoAuthedPage(page, "/health/growth", /Pantau Tumbuh Kembang/);
+    await openStudent(page, chosen);
+
+    await page.getByRole("button", { name: "Catat Data" }).click();
+    await expect(page.getByRole("button", { name: "Simpan" })).toBeDisabled();
+  });
 });

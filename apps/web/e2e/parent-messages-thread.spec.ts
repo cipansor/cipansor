@@ -5,7 +5,7 @@ import {
   injectSession,
   SEED_USERS,
 } from "./helpers/auth-api";
-import { gotoAuthedPage } from "./helpers/page-helpers";
+import { gotoAuthedPage, waitForToast } from "./helpers/page-helpers";
 
 /**
  * Pesan wali (`/parent/messages`) reads the `messages` module, the same store
@@ -51,6 +51,69 @@ test.describe("Pesan wali — utas yang dimulai wali", () => {
     await expect(page.getByText(reply).last()).toBeVisible();
     // Opening it reads the reply: the badge goes and stays gone.
     await expect(row.getByText("Baru")).toHaveCount(0);
+    await page.reload();
+    await expect(
+      page
+        .getByText(subject)
+        .locator("xpath=ancestor::div[2]")
+        .getByText("Baru"),
+    ).toHaveCount(0);
+  });
+
+  /**
+   * A reply that arrives while the wali already has the thread open. The
+   * stored conversation object is the snapshot taken when it was opened; the
+   * mark-read effect used to read the badge off that snapshot only, so a reply
+   * that landed afterwards stayed unread. It now reads the live list, so the
+   * badge clears without the wali reopening the thread.
+   */
+  test("balasan yang tiba selagi utas terbuka ikut ditandai terbaca", async ({
+    page,
+  }) => {
+    test.setTimeout(120_000);
+    const parent = await apiLogin(SEED_USERS.parent);
+    const teacher = await apiLogin(SEED_USERS.teacher);
+    const subject = `Uji balasan langsung ${Date.now()}`;
+
+    const opened = await apiRequest<{ data: { id: string } }>(
+      parent,
+      "POST",
+      "/messages",
+      {
+        recipientId: teacher.user.id,
+        subject,
+        content: "Assalamu'alaikum, mohon info kegiatan.",
+        category: "GENERAL",
+      },
+    );
+    // Read the thread first, so it opens with nothing unread.
+    await apiRequest(parent, "GET", `/messages/${opened.data.id}`);
+
+    await injectSession(page, parent);
+    await gotoAuthedPage(page, "/parent/messages", /^Pesan$/);
+
+    const row = page.getByText(subject).locator("xpath=ancestor::div[2]");
+    await expect(row).toBeVisible();
+    await expect(row.getByText("Baru")).toHaveCount(0);
+
+    // Open the thread, then have the guru answer while it stays open.
+    await row.click();
+    await expect(
+      page.getByText("Assalamu'alaikum, mohon info kegiatan.").last(),
+    ).toBeVisible();
+    await apiRequest(teacher, "POST", `/messages/${opened.data.id}/reply`, {
+      content: "Wa'alaikumussalam, kegiatan dimulai pukul 07.00.",
+    });
+
+    // The wali sends a line: the reply mutation invalidates the list, the live
+    // conversation carries the new reply, and the mark-read effect clears it.
+    const textarea = page.getByPlaceholder("Ketik pesan...");
+    await textarea.fill("Baik, terima kasih.");
+    await textarea.press("Enter");
+    await waitForToast(page, /terkirim/i);
+
+    await expect(row.getByText("Baru")).toHaveCount(0);
+    // And it is the API's state, not just local: a reload shows it read.
     await page.reload();
     await expect(
       page
