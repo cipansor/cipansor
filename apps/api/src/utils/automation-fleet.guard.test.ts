@@ -73,19 +73,71 @@ exit 0
 
 const CURL_STUB = `#!/bin/sh
 log() { [ -n "\${CURL_STUB_LOG:-}" ] && echo "$*" >> "$CURL_STUB_LOG"; }
-code="\${CURL_STUB_CODE:-200}"
-out=""
+code="\${CURL_STUB_CODE:-200}"; exitcode=0
+out=""; method=""; bodyarg=""; wantcode=""
 while [ $# -gt 0 ]; do
   case "$1" in
     -o) out="$2"; shift 2 ;;
-    -w) shift 2 ;;
-    -X) shift 2 ;;
-    -d) log "BODY $2"; shift 2 ;;
+    -w) wantcode=1; shift 2 ;;
+    -X) method="$2"; shift 2 ;;
+    -d) bodyarg="$2"; log "BODY $2"; shift 2 ;;
     -H) shift 2 ;;
     -*) shift ;;
     *) [ -z "$url" ] && url="$1"; shift ;;
   esac
 done
+# The automation KV store, backed by files under CURL_STUB_KV_DIR (one file per
+# key, the key as the filename). The bridge keeps its checkpoints here instead of
+# in issue comments; the stub answers the same shapes the real store does - a 404
+# key_not_found for a missing key, 201/200 on PUT, a keys/total listing for a
+# prefix, and DELETE. A GET without -o prints the body; with -w the HTTP code is
+# appended, so the script's command substitution reads it.
+case "$url" in
+  *"/kv"*)
+    kvdir="\${CURL_STUB_KV_DIR:-/tmp/kv-stub}"
+    mkdir -p "$kvdir" 2>/dev/null || true
+    case "$url" in
+      *"/kv?"*|*"/kv")
+        pre=""
+        case "$url" in *prefix=*) pre="\${url#*prefix=}"; pre="\${pre%%&*}" ;; esac
+        keys=$(ls -1 "$kvdir" 2>/dev/null | grep -F "$pre" || true)
+        keys=$(printf '%s\n' "$keys" | grep . || true)
+        cnt=$(printf '%s\n' "$keys" | grep -c . || true)
+        json=$(printf '%s\n' "$keys" | grep . | jq -R . | jq -sc .)
+        log "KV_LIST $url"
+        body=$(jq -nc --argjson k "$json" --argjson c "$cnt" '{keys:$k,count:$c,total:$c,limit:100,offset:0}') ;;
+      *)
+        k=$(printf '%s' "$url" | sed -n 's#.*/kv/\\([^?]*\\).*#\\1#p')
+        case "$method" in
+          DELETE)
+            log "KV_DELETE $k"
+            if [ -f "$kvdir/$k" ]; then rm -f "$kvdir/$k"; body=$(jq -nc --arg k "$k" '{key:$k,deleted:true}')
+            else body=$(jq -nc --arg k "$k" '{key:$k,deleted:false}'); fi
+            code=200 ;;
+          PUT)
+            log "KV_PUT $k $bodyarg"
+            if [ -n "\${CURL_STUB_KV_PUT_FAIL:-}" ]; then
+              body='{"detail":"store unavailable"}'; code=503; exitcode=22
+            else
+              if [ -f "$kvdir/$k" ]; then code=200; else code=201; fi
+              printf '%s' "$bodyarg" > "$kvdir/$k"
+              body=$(jq -nc --arg k "$k" '{key:$k,created:false}')
+            fi ;;
+          *)
+            log "KV_GET $k"
+            if [ -f "$kvdir/$k" ]; then
+              v=$(cat "$kvdir/$k")
+              body=$(jq -nc --arg k "$k" --argjson v "$v" '{key:$k,value:$v,version:1}')
+              code=200
+            else
+              body='{"detail":"key_not_found"}'; code=404
+            fi ;;
+        esac ;;
+    esac
+    if [ -n "$out" ]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
+    [ -n "$wantcode" ] && printf '%s' "$code"
+    exit "$exitcode" ;;
+esac
 # A read of the triage owner's runs. The real API returns a *page of runs*, and
 # IGNORES a run_id= query (it always returns the newest page) — so the stub must
 # too, or a test would pass on a run_id= read the API never answers. The listing
@@ -115,28 +167,73 @@ const BRIDGE_STUB = `#!/bin/sh
 log() { [ -n "\${GH_STUB_LOG:-}" ] && echo "$*" >> "\${GH_STUB_LOG}"; }
 post() { for a in "$@"; do last="$a"; done; log "POST_MARKER $(cat "$last" 2>/dev/null)"; }
 log "GH $*"
+# A synthesized comment page built from the legacy markers a test sets, so the
+# bridge's own jq filters run against a realistic listing. A marker comment is
+# authored by github-actions[bot], so the activity signal ignores it.
+stub_legacy_page() {
+  jq -nc \\
+    --arg lb "\${GH_STUB_LEGACY_BODY:-}" \\
+    --arg ls "\${GH_STUB_LEGACY_STATE:-}" \\
+    --arg kd "\${GH_STUB_LEGACY_KIND:-sweep}" \\
+    --arg lat "\${GH_STUB_LEGACY_STATE_AT:-2026-11-11T05:00:00Z}" \\
+    --arg url "https://api.github.com/repos/o/r/issues/818" \\
+    '[(if ($lb != "" and $kd != "state") then {id: 1, body: $lb, issue_url: $url, user: {login: "github-actions[bot]"}, updated_at: "2026-11-11T05:00:00Z"} else empty end),
+      (if $ls != "" then {id: 2, body: ("<!-- triage-bridge:818:" + $ls + " -->"), issue_url: $url, user: {login: "github-actions[bot]"}, updated_at: $lat} else empty end)]'
+}
 case "$*" in
   *"search/issues"*) printf '%s\\n' "\${GH_STUB_SEARCH:-}" ;;
+  # The open ready-issue list legacy_ready_issues enumerates (#1031 review).
+  # It checks each number for a legacy marker, so the marker is found however
+  # far back it sits in the comment history. GH_STUB_READY_PAGE2, when set, is a
+  # second page (page 1 then returns a full 100 numbers, so the loop pages on).
+  *"issues?state=open&labels=ready"*)
+    pg=$(printf '%s' "$*" | sed -n 's#.*page=\\([0-9][0-9]*\\).*#\\1#p')
+    if [ "$pg" = "2" ] && [ -n "\${GH_STUB_READY_PAGE2:-}" ]; then
+      printf '%s\\n' "\${GH_STUB_READY_PAGE2}"
+    elif [ -n "\${GH_STUB_READY_PAGE2:-}" ]; then
+      i=1; while [ "$i" -le 100 ]; do printf '%s\\n' "$i"; i=$((i+1)); done
+    else
+      printf '%s\\n' "\${GH_STUB_READY_ISSUES:-818}"
+    fi ;;
   *"[.state, (.labels[].name)]"*)
     [ "\${GH_STUB_READ_FAIL:-}" = state ] && exit 1
     printf '%s\\n' "\${GH_STUB_STATE_LABELS:-open bug priority:medium}" ;;
   *"select(("*) printf '%s\\n' "\${GH_STUB_NONFLEET:-}" ;;
-  *"startswith(\\"<!-- triage-bridge-sweep:"*)
-    n=$(printf '%s' "$*" | sed -n 's#.*/issues/\\([0-9][0-9]*\\)/.*#\\1#p')
-    want=$(printf '%s' "$*" | sed -n 's#.*triage-bridge-sweep:\\([0-9][0-9]*\\):.*#\\1#p')
-    m=$(printenv "GH_STUB_MARKER_$n" 2>/dev/null || true)
-    [ -n "$m" ] || m="\${GH_STUB_SWEEP_MARKER:-}"
-    if [ -z "$want" ]; then
-      # A prefix with no issue number (the regression) also matches a stray
-      # marker of another number sharing the comment set.
-      m="\${GH_STUB_MARKER_STRAY:-\$m}"
-    elif [ "$want" != "$n" ]; then
-      m=""
+  # The legacy-marker readers: gh api --paginate ... --jq FILTER. gh runs the
+  # filter on every page and concatenates the results, so page 1 (which may hold
+  # no marker) must emit nothing and the marker on page 2 must still come through
+  # (#1031 review). GH_STUB_LEGACY_PAGE2, when set, is that second page.
+  *"comments?per_page=100"*"--jq"*)
+    f="\${*#*--jq }"
+    if [ -n "\${GH_STUB_COMMENTS_JSON:-}" ]; then
+      p1="\${GH_STUB_COMMENTS_JSON}"
+    elif [ -n "\${GH_STUB_LEGACY_PAGE2:-}" ]; then
+      p1='[]'
+    else
+      p1=$(stub_legacy_page)
     fi
-    [ -n "$m" ] && printf '%s' "$m" ;;
-  *"| max //"*) printf '%s\\n' "\${GH_STUB_LASTTRIAGE:-}" ;;
-  *"[0-9]+:[0-9a-f]+"*) printf '%s\\n' "\${GH_STUB_SWEEP_BODIES:-}" ;;
-  *"join(\\"+\\")"*) printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
+    printf '%s' "$p1" | jq -r "$f" 2>/dev/null || true
+    if [ -n "\${GH_STUB_LEGACY_PAGE2:-}" ]; then
+      printf '%s' "\${GH_STUB_LEGACY_PAGE2}" | jq -r "$f" 2>/dev/null || true
+    fi ;;
+  # The raw comment listing, read a page at a time by --purge-markers and
+  # legacy_ready_issues; the bridge filters it itself.
+  *"comments?per_page=100&page="*)
+    pg=$(printf '%s' "$*" | sed -n 's#.*page=\\([0-9][0-9]*\\).*#\\1#p')
+    if [ "$pg" = "2" ] && [ -n "\${GH_STUB_LEGACY_PAGE2:-}" ]; then
+      printf '%s\\n' "\${GH_STUB_LEGACY_PAGE2}"
+    elif [ -n "\${GH_STUB_RAW_COMMENTS:-}" ]; then
+      printf '%s\\n' "\${GH_STUB_RAW_COMMENTS}"
+    elif [ -n "\${GH_STUB_COMMENTS_JSON:-}" ]; then
+      printf '%s\\n' "\${GH_STUB_COMMENTS_JSON}"
+    else
+      stub_legacy_page
+    fi ;;
+  # issue_state (the type+priority read) matches here; GH_STUB_ISSUE_LABELS_FAIL
+  # makes it fail, so a test can drive the "label read failed" path.
+  *"join(\\"+\\")"*)
+    [ "\${GH_STUB_ISSUE_LABELS_FAIL:-}" = 1 ] && exit 1
+    printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
   *"/comments"*".[].body"*) printf '%s\\n' "\${GH_STUB_COMMENTS:-}" ;;
   *"/issues/comments/"*"-X PATCH"*) post "$@" ;;
   *"/issues/comments/"*"-X DELETE"*) log "DELETE_MARKER" ;;
@@ -184,13 +281,23 @@ afterAll(() => {
 
 function run(
   script: string,
-  env: Record<string, string>,
+  env: Record<string, unknown>,
   args: string[] = [],
   stdin?: string,
   binDir = dir
 ) {
   writeFileSync(log, '');
   rmSync(`${log}.n`, { force: true });
+  // A fresh KV store per run, seeded from `KV_SEED` (a JSON object of
+  // key -> value). The bridge keeps its checkpoints there now; a shared
+  // directory would leak a checkpoint from one test into the next.
+  const kvDir = mkdtempSync(join(tmpdir(), 'fleet-kv-'));
+  const seed = (env as Record<string, unknown>).KV_SEED as Record<string, unknown> | undefined;
+  if (seed) {
+    for (const [k, v] of Object.entries(seed)) {
+      writeFileSync(join(kvDir, k), typeof v === 'string' ? v : JSON.stringify(v));
+    }
+  }
   const r = spawnSync('sh', [script, ...args], {
     encoding: 'utf8',
     input: stdin,
@@ -201,18 +308,31 @@ function run(
       GH_TOKEN: 'x',
       GH_STUB_LOG: log,
       CURL_STUB_LOG: log,
+      CURL_STUB_KV_DIR: kvDir,
       OPENHANDS_API_KEY: 'test-key',
       ...env,
     },
   });
+  // What the store holds after the run, so a test can assert on the checkpoint
+  // itself (key -> parsed value) instead of on a comment body.
+  const kv: Record<string, unknown> = {};
+  for (const f of readdirSync(kvDir)) {
+    try {
+      kv[f] = JSON.parse(readFileSync(join(kvDir, f), 'utf8'));
+    } catch {
+      kv[f] = readFileSync(join(kvDir, f), 'utf8');
+    }
+  }
+  rmSync(kvDir, { recursive: true, force: true });
   return {
     status: r.status ?? -1,
     out: `${r.stdout}${r.stderr}`,
     calls: existsSync(log) ? readFileSync(log, 'utf8') : '',
+    kv,
   };
 }
 
-const runBridge = (env: Record<string, string>, args: string[], stdin?: string) =>
+const runBridge = (env: Record<string, unknown>, args: string[], stdin?: string) =>
   run(BRIDGE, env, args, stdin, bridgeDir);
 
 // The repository labels the guard tests reason about, mirroring `gh label list`
@@ -651,32 +771,28 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
 
   it('recovers a deferred label dispatch on a ready issue, which the sweep skips', () => {
     // R348: `on_label` defers on an issue that is (or becomes) `ready`; the sweep
-    // searches `-label:ready`, so a pending marker there is never retried. The
-    // recovery pass acts on it.
-    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
-    const { calls, out } = runBridge(
+    // searches `-label:ready`, so a pending checkpoint there is never retried.
+    // The recovery pass acts on it.
+    const { calls, out, kv } = runBridge(
       {
-        GH_STUB_SWEEP_BODIES: markup,
-        GH_STUB_MARKER_818: markup,
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'pending' } },
         GH_STUB_STATE_LABELS: 'open bug ready priority:high',
         GH_STUB_BODY: 'edited',
       },
       ['--recover-ready']
     );
     expect(calls).toContain('DISPATCH');
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
     expect(out).toContain('recovered on ready issues');
   });
 
-  it('recovers a pending marker even when its issue is outside the search window', () => {
-    // R475: the recovery must find a marker by scanning markers, not a
-    // `ready`-issue search bounded by update time — else an old pending marker is
-    // forgotten once newer `ready` issues fill the page window.
-    const markup = `<!-- triage-bridge-sweep:99:${signal('old')}:pending -->`;
+  it('recovers a pending checkpoint even when its issue is outside the search window', () => {
+    // R475: the recovery must find a checkpoint by listing the store, not a
+    // `ready`-issue search bounded by update time — else an old pending
+    // checkpoint is forgotten once newer `ready` issues fill the page window.
     const { calls, out } = runBridge(
       {
-        GH_STUB_SWEEP_BODIES: markup,
-        GH_STUB_MARKER_99: markup,
+        KV_SEED: { 'triage-sweep-99': { signal: signal('old'), run: 'pending' } },
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'old',
       },
@@ -687,14 +803,12 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
   });
 
   it('retries a failed recovery run on a ready issue, which the sweep skips', () => {
-    // R474: a recovered dispatch turns the marker from `pending` into a run id;
-    // if that run fails, only the recovery pass can retry it (the sweep skips
-    // `ready`).
-    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:r1 -->`;
-    const { calls } = runBridge(
+    // R474: a recovered dispatch turns the checkpoint from `pending` into a run
+    // id; if that run fails, only the recovery pass can retry it (the sweep
+    // skips `ready`).
+    const { calls, kv } = runBridge(
       {
-        GH_STUB_SWEEP_BODIES: markup,
-        GH_STUB_MARKER_818: markup,
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'r1' } },
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'edited',
         CURL_STUB_RUNS: '{"runs":[{"id":"r1","status":"FAILED"}]}',
@@ -703,15 +817,13 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     );
     expect(calls).toContain('RUNS');
     expect(calls).toContain('DISPATCH');
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
   });
 
   it('finalises a completed recovery run on a ready issue without re-dispatching', () => {
-    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:r1 -->`;
-    const { calls } = runBridge(
+    const { calls, kv } = runBridge(
       {
-        GH_STUB_SWEEP_BODIES: markup,
-        GH_STUB_MARKER_818: markup,
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'r1' } },
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'edited',
         CURL_STUB_RUNS: '{"runs":[{"id":"r1","status":"COMPLETED"}]}',
@@ -720,65 +832,43 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     );
     expect(calls).toContain('RUNS');
     expect(calls).not.toContain('DISPATCH');
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: -->`);
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
   });
 
   it('does not re-triage a ready issue already finalised when a comment changes it', () => {
-    // R496: a new comment on a `ready` issue changes the signal; the marker is a
-    // final checkpoint, so the recovery must not dispatch again.
-    const markup = `<!-- triage-bridge-sweep:818:${signal('A')}: -->`;
+    // R496: a new comment on a `ready` issue changes the signal; the checkpoint
+    // is final, so the recovery must not dispatch again.
     const { calls } = runBridge(
       {
-        GH_STUB_SWEEP_BODIES: markup,
-        GH_STUB_MARKER_818: markup,
+        KV_SEED: { 'triage-sweep-818': { signal: signal('A'), run: '' } },
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'B',
       },
       ['--recover-ready']
     );
     expect(calls).not.toContain('DISPATCH');
-    expect(calls).not.toContain('run_id=');
   });
 
-  it('ignores a comment that only quotes the marker syntax', () => {
-    // R512: a comment on another issue that quotes a marker names an issue it
-    // does not belong to. The listing may name #818, but #818 has no marker of
-    // its own, so it must not be re-triaged.
-    const quoted = `Contoh: <!-- triage-bridge-sweep:818:abc123:pending -->`;
-    const { calls } = runBridge(
+  it('drops the checkpoint of a closed issue instead of dispatching it', () => {
+    // A checkpoint outlives the issue: if the issue closed, the recovery must
+    // clear it rather than dispatch a triage run for a closed issue.
+    const { calls, kv } = runBridge(
       {
-        GH_STUB_SWEEP_BODIES: quoted,
-        GH_STUB_STATE_LABELS: 'open bug ready',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'pending' } },
+        GH_STUB_STATE_LABELS: 'closed bug',
       },
       ['--recover-ready']
     );
     expect(calls).not.toContain('DISPATCH');
-    expect(calls).not.toContain('run_id=');
-  });
-
-  it('ignores a stale marker when a newer final marker exists on the issue', () => {
-    const stale = `<!-- triage-bridge-sweep:818:${signal('old')}:pending -->`;
-    const current = `<!-- triage-bridge-sweep:818:${signal('new')}: -->`;
-    const { calls } = runBridge(
-      {
-        GH_STUB_SWEEP_BODIES: stale,
-        GH_STUB_MARKER_818: current,
-        GH_STUB_STATE_LABELS: 'open bug ready',
-        GH_STUB_BODY: 'new',
-      },
-      ['--recover-ready']
-    );
-    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toBeUndefined();
   });
 
   it('fails the recovery step when a dispatch is rejected, so it is visible', () => {
     // R481: a rejected dispatch must not leave the workflow green; the exit
     // status (not only the message) proves it.
-    const markup = `<!-- triage-bridge-sweep:818:${signal('edited')}:pending -->`;
     const { calls, out, status } = runBridge(
       {
-        GH_STUB_SWEEP_BODIES: markup,
-        GH_STUB_MARKER_818: markup,
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'pending' } },
         GH_STUB_STATE_LABELS: 'open bug ready',
         GH_STUB_BODY: 'edited',
         CURL_STUB_CODE: '503',
@@ -790,13 +880,9 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     expect(status).not.toBe(0);
   });
 
-  it('leaves a ready issue with no marker untouched in the recovery pass', () => {
-    const { calls } = runBridge(
-      { GH_STUB_SWEEP_BODIES: '', GH_STUB_STATE_LABELS: 'open bug ready' },
-      ['--recover-ready']
-    );
+  it('leaves a ready issue with no checkpoint untouched in the recovery pass', () => {
+    const { calls } = runBridge({ GH_STUB_STATE_LABELS: 'open bug ready' }, ['--recover-ready']);
     expect(calls).not.toContain('DISPATCH');
-    expect(calls).not.toContain('run_id=');
   });
 });
 
@@ -954,6 +1040,26 @@ describe('fleet contracts', () => {
     expect(wf).toMatch(/issues:[\s\S]*types:[\s\S]*labeled/);
     expect(wf).toMatch(/schedule:/);
     expect(wf).toContain('--sweep');
+  });
+
+  it('keeps the triage bridge from writing any comment, checkpointing in the KV store', () => {
+    // An HTML-only marker comment renders as an *empty* comment: it notifies
+    // every subscriber and leaves an unreadable husk (2026-11-11: 153 of them,
+    // 81 sweep + 72 state). The bridge must not create or edit a comment on any
+    // path — it checkpoints in the automation KV store instead, the one
+    // `automation-retry.sh` already uses. A future edit that reintroduces a
+    // comment write fails here.
+    const sh = read(BRIDGE);
+    expect(sh).toContain('/kv/');
+    expect(sh).toContain('triage-sweep-');
+    // No comment POST/PATCH: the only `/comments` writes left are DELETEs, which
+    // remove a legacy marker comment after adopting it.
+    expect(sh).not.toMatch(/issues\/[^\s"']*\/comments"?\s+-X\s+(POST|PATCH)/);
+    expect(sh).not.toMatch(/comments\?per_page=100"\s+-X\s+(POST|PATCH)/);
+    expect(sh).toContain('-X DELETE');
+    // The cleanup of the 153 legacy marker comments must stay reachable, or the
+    // empty comments already on the issues would never be removed.
+    expect(read(join(WORKFLOWS, 'issue-triage-bridge.yml'))).toContain('--purge-markers');
   });
 
   it('keeps the triage bridge issues-only and off the edited event', () => {
@@ -1916,15 +2022,19 @@ describe('issue-triage-bridge.sh', () => {
     `<!-- triage-bridge-sweep:${n}:${sig}:${run} -->`;
 
   it('dispatches the triage owner when a bot applies a type label', () => {
-    const { calls, out } = runBridge(
+    const { calls, out, kv } = runBridge(
       { GH_STUB_ISSUE_LABELS: 'bug+priority:high' },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'bug')
     );
     expect(calls).toContain('DISPATCH');
     expect(calls).toContain('/dispatch');
-    expect(calls).toContain('POST_MARKER');
     expect(out).toContain('Dispatched the triage owner for #818');
+    // The checkpoints go to the KV store, not to comments: a marker comment
+    // renders empty and notifies every subscriber (the noise this fixes).
+    expect(calls).not.toContain('POST_MARKER');
+    expect(kv['triage-state-818']).toMatchObject({ state: 'bug+priority:high' });
+    expect(kv['triage-sweep-818']).toMatchObject({ run: 'run-1' });
   });
 
   it('dispatches when a bot applies a priority label', () => {
@@ -1954,26 +2064,35 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).not.toContain('DISPATCH');
   });
 
-  it('carries no AI-disclosure footer on its marker comment', () => {
-    // The marker posts as `github-actions[bot]`; a comment-triggered automation
-    // tells it from a reporter by that `*[bot]` author, so no footer is needed.
+  it('posts no comment at all, so no empty marker lands on the issue', () => {
+    // Every checkpoint used to be an HTML marker comment, which renders as an
+    // *empty* comment: it notified the issue's subscribers and left an
+    // unreadable husk (2026-11-11: 153 of them). The bridge must create no
+    // comment on any path.
     const { calls } = runBridge(
-      { GH_STUB_ISSUE_LABELS: 'bug+priority:high' },
+      { GH_STUB_ISSUE_LABELS: 'bug+priority:high', GH_STUB_BODY: 'triaged' },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'bug')
     );
+    expect(calls).toContain('DISPATCH');
+    expect(calls).not.toContain('POST_MARKER');
+    expect(calls).not.toContain('PATCH_BODY');
+    expect(calls).not.toContain('POST /issues/818/comments');
     expect(calls).not.toContain(AI_FOOTER);
   });
 
   it('collapses the labeler’s burst to one dispatch per type+priority state', () => {
-    // The state marker was written seconds ago, so a second label of the same
-    // burst does not dispatch again.
-    const marker = '<!-- triage-bridge:818:bug+priority:high -->';
+    // The state was recorded seconds ago, so a second label of the same burst
+    // does not dispatch again.
     const { calls, out } = runBridge(
       {
         GH_STUB_ISSUE_LABELS: 'bug+priority:high',
-        GH_STUB_COMMENTS: marker,
-        GH_STUB_LASTTRIAGE: new Date().toISOString(),
+        KV_SEED: {
+          'triage-state-818': {
+            state: 'bug+priority:high',
+            at: Math.floor(Date.now() / 1000),
+          },
+        },
       },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'priority:high')
@@ -1983,14 +2102,12 @@ describe('issue-triage-bridge.sh', () => {
   });
 
   it('re-dispatches when the issue returns to an old label state', () => {
-    // The same state marker exists, but it is older than the burst window, so a
-    // fresh move back to that state is a new response and dispatches again.
-    const marker = '<!-- triage-bridge:818:bug+priority:high -->';
+    // The same state is recorded, but older than the burst window, so a fresh
+    // move back to that state is a new response and dispatches again.
     const { calls } = runBridge(
       {
         GH_STUB_ISSUE_LABELS: 'bug+priority:high',
-        GH_STUB_COMMENTS: marker,
-        GH_STUB_LASTTRIAGE: '2020-01-01T00:00:00Z',
+        KV_SEED: { 'triage-state-818': { state: 'bug+priority:high', at: 0 } },
       },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'priority:high')
@@ -1998,13 +2115,15 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).toContain('DISPATCH');
   });
 
-  it('records no marker when the label dispatch fails, so it retries', () => {
-    const { calls, status, out } = runBridge(
+  it('records no checkpoint when the label dispatch fails, so it retries', () => {
+    const { calls, status, out, kv } = runBridge(
       { GH_STUB_ISSUE_LABELS: 'bug+priority:high', CURL_STUB_CODE: '503' },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'bug')
     );
     expect(calls).not.toContain('POST_MARKER');
+    expect(kv['triage-state-818']).toBeUndefined();
+    expect(kv['triage-sweep-818']).toBeUndefined();
     expect(status).not.toBe(0);
     expect(out).toContain('failed (HTTP 503)');
   });
@@ -2014,16 +2133,16 @@ describe('issue-triage-bridge.sh', () => {
     // sweep saw an empty checkpoint and dispatched the same activity again — two
     // dispatches for one label. The label path must also record the sweep
     // checkpoint of the activity it just answered.
-    const { calls } = runBridge(
+    const { calls, kv } = runBridge(
       { GH_STUB_ISSUE_LABELS: 'bug+priority:high', GH_STUB_BODY: 'triaged' },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'bug')
     );
     expect(calls).toContain('DISPATCH');
-    expect(calls).toContain('POST_MARKER');
-    const sweepMarkers = calls.match(/triage-bridge-sweep:818:[0-9a-f]{16}/g) ?? [];
-    expect(sweepMarkers.length).toBe(1);
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('triaged')}:run-1`);
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('triaged'),
+      run: 'run-1',
+    });
   });
 
   it('snapshots the signal before the label dispatch, so an edit during it is not lost', () => {
@@ -2031,7 +2150,7 @@ describe('issue-triage-bridge.sh', () => {
     // in that window into the checkpoint, and no `issues.edited` event recovers
     // it. The checkpoint must hold the pre-dispatch signal; the edit then
     // differs from it and the next sweep dispatches.
-    const { calls } = runBridge(
+    const { calls, kv } = runBridge(
       {
         GH_STUB_ISSUE_LABELS: 'bug+priority:high',
         GH_STUB_BODY: 'before',
@@ -2042,11 +2161,11 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).toContain('DISPATCH');
     // The checkpoint is the activity the label dispatch actually answered...
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('before')}:run-1`);
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('before'), run: 'run-1' });
     // ...not the post-dispatch edit, which would have hidden it.
-    expect(calls).not.toContain(
-      `triage-bridge-sweep:818:${signal('edited-during-dispatch')}:run-1`
-    );
+    expect(kv['triage-sweep-818']).not.toMatchObject({
+      signal: signal('edited-during-dispatch'),
+    });
   });
 
   it('skips an issue whose state read fails, instead of sweeping it', () => {
@@ -2086,7 +2205,7 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).toContain('DISPATCH');
     expect(calls).toContain('sweep-activity');
-    expect(calls).toContain('POST_MARKER');
+    expect(calls).not.toContain('POST_MARKER');
   });
 
   it('dispatches when the description changed since the checkpoint', () => {
@@ -2094,7 +2213,7 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('before')),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('before'), run: '' } },
       },
       ['--sweep']
     );
@@ -2110,7 +2229,7 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'A\n',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('A')),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('A'), run: '' } },
       },
       ['--sweep']
     );
@@ -2118,13 +2237,13 @@ describe('issue-triage-bridge.sh', () => {
   });
 
   it('does not dispatch when nothing changed since the checkpoint', () => {
-    // The marker stores the signal of the activity already answered, so an
+    // The checkpoint stores the signal of the activity already answered, so an
     // unchanged issue is not re-dispatched — this is what keeps the loop closed.
     const { calls } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'same',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('same')),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('same'), run: '' } },
       },
       ['--sweep']
     );
@@ -2139,32 +2258,28 @@ describe('issue-triage-bridge.sh', () => {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'same',
         GH_STUB_NONFLEET: '',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('same', '')),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('same', ''), run: '' } },
       },
       ['--sweep']
     );
     expect(calls).not.toContain('DISPATCH');
   });
 
-  it('matches a sweep marker only under its own issue number', () => {
-    // With correct number-scoping the query sees only the 818 marker, so the
-    // unchanged issue is not dispatched. The stub's numberless branch (the
-    // regression) serves GH_STUB_MARKER_STRAY instead — the same comment set
-    // with a foreign-number marker last, which a numberless prefix would read.
+  it('scopes a checkpoint to its own issue number, not a foreign key', () => {
+    // #837 R512: the old listing scraped marker comments, so a comment quoting
+    // the syntax could name an unrelated issue. The key is `triage-sweep-<n>`, so
+    // a checkpoint under another number must not satisfy #818 — the issue has no
+    // checkpoint of its own and is dispatched.
     const { calls } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'same',
         GH_STUB_NONFLEET: '',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('same', '')),
-        // The body a numberless prefix would select as `last`: the foreign
-        // marker, so `marker_signal` returns `deadbeefdeadbeef` and the
-        // unchanged issue is dispatched (the regression).
-        GH_STUB_MARKER_STRAY: '<!-- triage-bridge-sweep:999:deadbeefdeadbeef -->',
+        KV_SEED: { 'triage-sweep-999': { signal: signal('same', ''), run: '' } },
       },
       ['--sweep']
     );
-    expect(calls).not.toContain('DISPATCH');
+    expect(calls).toContain('DISPATCH');
   });
 
   it('keeps sweeping after an issue that needs no dispatch (set -e must not abort)', () => {
@@ -2174,8 +2289,10 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 819\n2026-10-14T02:14:00Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_MARKER_818: sweepMarker(818, signal('before')),
-        GH_STUB_MARKER_819: sweepMarker(819, signal('edited')),
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('before'), run: '' },
+          'triage-sweep-819': { signal: signal('edited'), run: '' },
+        },
       },
       ['--sweep']
     );
@@ -2211,16 +2328,16 @@ describe('issue-triage-bridge.sh', () => {
     expect(status).not.toBe(0);
   });
 
-  it('drops a stale sweep marker on an issue that is now ready', () => {
-    const { calls } = runBridge(
+  it('drops a stale checkpoint on an issue that is now ready', () => {
+    const { calls, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_STATE_LABELS: 'open ready',
-        GH_STUB_SWEEP_MARKER: 'yes',
+        KV_SEED: { 'triage-sweep-818': { signal: 'deadbeefdeadbeef', run: '' } },
       },
       ['--sweep']
     );
-    expect(calls).toContain('DELETE_MARKER');
+    expect(kv['triage-sweep-818']).toBeUndefined();
     expect(calls).not.toContain('DISPATCH');
   });
 
@@ -2234,7 +2351,7 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
         CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
       },
       ['--sweep']
@@ -2250,7 +2367,7 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
         CURL_STUB_RUNS:
           '{"runs":[{"id":"newest","status":"COMPLETED"},{"id":"run-x","status":"FAILED"}]}',
       },
@@ -2261,18 +2378,18 @@ describe('issue-triage-bridge.sh', () => {
   });
 
   it('finalises the checkpoint, without re-dispatching, when the marked run completed', () => {
-    const { calls } = runBridge(
+    const { calls, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
         CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
       },
       ['--sweep']
     );
     expect(calls).not.toContain('DISPATCH');
     // The run field is cleared, so a later sweep sees a finished checkpoint.
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: `);
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
   });
 
   it('leaves an in-flight run alone rather than dispatching it again', () => {
@@ -2280,7 +2397,7 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
         CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"RUNNING"}]}',
       },
       ['--sweep']
@@ -2295,17 +2412,17 @@ describe('issue-triage-bridge.sh', () => {
     // every sweep.
     const fillers = Array.from({ length: 100 }, (_, i) => ({ id: `f${i}`, status: 'COMPLETED' }));
     const runs = JSON.stringify({ runs: [...fillers, { id: 'run-x', status: 'COMPLETED' }] });
-    const { calls } = runBridge(
+    const { calls, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
         CURL_STUB_RUNS: runs,
       },
       ['--sweep']
     );
     expect(calls).not.toContain('DISPATCH');
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}: `);
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
   });
 
   it('does not re-dispatch when the run listing cannot be read', () => {
@@ -2315,7 +2432,7 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
         CURL_STUB_RUNS_RAW: 'not json',
       },
       ['--sweep']
@@ -2332,7 +2449,7 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
         CURL_STUB_RUNS_RAW: '{"runs":null}',
       },
       ['--sweep']
@@ -2346,7 +2463,7 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'run-x'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
         CURL_STUB_RUNS: '{"runs":[{"id":"other","status":"COMPLETED"}]}',
       },
       ['--sweep']
@@ -2354,12 +2471,13 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).toContain('DISPATCH');
   });
 
-  it('records the run id in the sweep marker, not just the 201', () => {
-    const { calls } = runBridge(
+  it('records the run id in the checkpoint, not just the 201', () => {
+    const { calls, kv } = runBridge(
       { GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818', GH_STUB_BODY: 'edited' },
       ['--sweep']
     );
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
   });
 
   it('defers a candidate once MAX_INFLIGHT triage runs are already in flight', () => {
@@ -2391,33 +2509,53 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).toContain('DISPATCH');
   });
 
-  it('re-dispatches a legacy marker with no run field, migrating it to the new form', () => {
-    // R378: a marker written at the 201 before #836 has no run field, so whether
-    // its run finished was never recorded. It must not be read as a finished
-    // checkpoint; the sweep re-dispatches once and rewrites the marker with the
-    // run id, so the next sweep can read the outcome.
-    const legacy = `<!-- triage-bridge-sweep:818:${signal('edited')} -->`;
-    const { calls, out } = runBridge(
+  it('adopts a legacy marker comment into the store, then deletes the comment', () => {
+    // The pre-KV checkpoints are marker comments. When a key is absent but such a
+    // comment exists, it is adopted and the comment is deleted — the store
+    // becomes the only home, and the empty comment disappears from the issue.
+    // A pre-#836 marker has no run field, so its outcome was never recorded: it
+    // maps to `pending` and re-dispatches once, exactly as before.
+    const { calls, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: legacy,
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')} -->`,
       },
       ['--sweep']
     );
+    // The checkpoint is now in the store (the run the re-dispatch started).
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
     expect(calls).toContain('DISPATCH');
-    expect(calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
-    expect(out).toContain('legacy marker');
+    // The legacy comment is deleted, and no new comment is written.
+    expect(calls).toContain('DELETE_MARKER');
+    expect(calls).not.toContain('POST_MARKER');
   });
 
-  it('reads the new final form (empty run field) as a finished checkpoint', () => {
-    // The final form is `…:<signal>: -->`; the run field is present and empty.
-    // It is a finished checkpoint, not a legacy marker.
+  it('adopts a legacy in-flight marker without re-dispatching', () => {
+    // A marker that names a run (the post-#836 form) records an outcome to read,
+    // so adoption must not re-dispatch: the checkpoint is adopted as-is.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')}:run-x -->`,
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+    expect(calls).toContain('DELETE_MARKER');
+  });
+
+  it('reads an empty run field as a finished checkpoint', () => {
+    // `run` empty means the run finished: the checkpoint is final, so an
+    // unchanged issue is not re-dispatched.
     const { calls } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited')),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: '' } },
       },
       ['--sweep']
     );
@@ -2455,7 +2593,7 @@ describe('issue-triage-bridge.sh', () => {
   });
 
   it('records a pending checkpoint when it defers, and dispatches it once capacity frees', () => {
-    // A deferred issue must not be lost: the pending run field keeps it
+    // A deferred issue must not be lost: the pending checkpoint keeps it
     // re-triable, and once the pool has room the sweep dispatches it.
     const deferred = runBridge(
       {
@@ -2466,39 +2604,247 @@ describe('issue-triage-bridge.sh', () => {
       },
       ['--sweep']
     );
-    expect(deferred.calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:pending`);
+    expect(deferred.kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'pending',
+    });
 
     const resumed = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'pending'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'pending' } },
         CURL_STUB_RUNS: '{"runs":[]}',
         MAX_INFLIGHT: '1',
       },
       ['--sweep']
     );
     expect(resumed.calls).toContain('DISPATCH');
-    expect(resumed.calls).toContain(`triage-bridge-sweep:818:${signal('edited')}:run-1`);
+    expect(resumed.kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-1',
+    });
   });
 
-  it('does not rewrite an identical pending marker while the pool stays full', () => {
-    // R402: clearing the marker's fields before the capacity check made every
-    // full-pool sweep rewrite the same `pending` marker, bumping the issue's
-    // update time. With the fields preserved the marker is recognised as
-    // identical and left alone.
-    const { calls, out } = runBridge(
+  it('keeps a deferred checkpoint pending while the pool stays full, writing no comment', () => {
+    // The full-pool sweep re-writes the same `pending` checkpoint. That used to
+    // PATCH the marker comment every run and bump the issue's update time
+    // (R402); the store upsert is silent, and no comment is written at all.
+    const { calls, out, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        GH_STUB_SWEEP_MARKER: sweepMarker(818, signal('edited'), 'pending'),
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'pending' } },
         CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
         MAX_INFLIGHT: '1',
       },
       ['--sweep']
     );
     expect(out).toContain('deferred');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'pending' });
     expect(calls).not.toContain('POST_MARKER');
+    expect(calls).not.toContain('PATCH_BODY');
     expect(calls).not.toContain('/issues/comments/');
+  });
+
+  // ---- #1031 review: legacy-marker migration edge cases --------------------
+
+  const sweepMarkerComment = (n: number, body: string, id = 900) => ({
+    id,
+    body,
+    issue_url: `https://api.github.com/repos/o/r/issues/${n}`,
+    user: { login: 'github-actions[bot]' },
+    updated_at: '2026-11-11T05:00:00Z',
+  });
+
+  it('adopts a legacy sweep marker that sits past the first page of comments', () => {
+    // #1031 review: `gh api --paginate` runs the filter per page, so a page with
+    // no marker must emit nothing (not `null`) and the *last* line of the whole
+    // listing must win. The marker is the 101st comment here.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_COMMENTS_JSON: JSON.stringify([sweepMarkerComment(818, 'just a comment', 500)]),
+        GH_STUB_LEGACY_PAGE2: JSON.stringify([
+          sweepMarkerComment(
+            818,
+            `<!-- triage-bridge-sweep:818:${signal('edited')}:run-x -->`,
+            901
+          ),
+        ]),
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    // The marker on page 2 was adopted: the checkpoint names run-x (not a run
+    // built from a `null` id), and it is finalised rather than re-dispatched.
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).toContain('DELETE_MARKER');
+  });
+
+  it('keeps the legacy marker when the store write fails, so the run is not lost', () => {
+    // #1031 review: deleting the marker before the checkpoint is stored loses the
+    // only copy of the run being waited on, so the next sweep re-dispatches.
+    const { calls, kv, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')}:run-x -->`,
+        CURL_STUB_KV_PUT_FAIL: '1',
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"RUNNING"}]}',
+      },
+      ['--sweep']
+    );
+    // The write failed: no checkpoint, the marker is kept, and the sweep leaves
+    // the issue alone instead of dispatching a second run.
+    expect(kv['triage-sweep-818']).toBeUndefined();
+    expect(calls).not.toContain('DELETE_MARKER');
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('keeping it for the next sweep');
+  });
+
+  it('adopts a legacy pending marker on a ready issue in the recovery pass', () => {
+    // #1031 review: the store listing is empty for a pre-KV checkpoint, and the
+    // ordinary sweep skips `ready` issues — so the recovery pass must also find
+    // the legacy marker, or the deferred dispatch is lost.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')} -->`,
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('adopts a legacy marker whose comment sits past the comment-page cap', () => {
+    // #1031 review (R673): `legacy_ready_issues` used to scan the repository's
+    // comment history, so a marker past the page cap (a busy repo) was never
+    // found and its deferred dispatch was lost. It now enumerates the open
+    // `ready` issues and checks each for a marker, so the marker's depth in the
+    // history is irrelevant.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_READY_ISSUES: '818',
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')} -->`,
+        // The repo-wide comment window the old discovery scanned holds no
+        // marker: only the `ready`-issue enumeration can find #818.
+        GH_STUB_RAW_COMMENTS: JSON.stringify([{ id: 7, body: 'ordinary chatter' }]),
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('/issues?state=open&labels=ready');
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('adopts a legacy marker found on a second page of ready issues', () => {
+    // #1031 review (R673): the enumeration must page, not stop at the first 100
+    // `ready` issues. #818 sits on page 2 and is still adopted.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_READY_PAGE2: '818',
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')} -->`,
+        GH_STUB_RAW_COMMENTS: JSON.stringify([{ id: 7, body: 'ordinary chatter' }]),
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('page=2');
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('deletes a status-only legacy marker on a ready issue when purging', () => {
+    // #1031 review (R732): for a `ready` issue carrying only a status marker the
+    // purge looked for a *sweep* marker, found none, skipped the delete — yet
+    // still counted the comment as removed. The row's own id and kind are used
+    // now, so the status marker is deleted and the count is honest.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_LEGACY_KIND: 'state',
+        GH_STUB_LEGACY_STATE: 'bug+priority:medium',
+      },
+      ['--purge-markers']
+    );
+    expect(calls).toContain('DELETE_MARKER');
+    expect(out).toContain('1 legacy marker comment(s) removed.');
+  });
+
+  it('adopts a legacy pending marker on a ready issue before purging it', () => {
+    // #1031 review: `--purge-markers` used to delete the marker without moving
+    // the checkpoint, dropping a deferred dispatch. It adopts first.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')} -->`,
+      },
+      ['--purge-markers']
+    );
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'pending' });
+    expect(calls).toContain('DELETE_MARKER');
+  });
+
+  it('records the sweep checkpoint when the label-state read fails, instead of aborting', () => {
+    // #1031 review: a failed `issue_state` read left `state` unset, and under
+    // `set -u` the unguarded expansion aborted the script *after* the dispatch —
+    // so the run was never recorded and the next sweep dispatched again.
+    const { calls, status, kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS_FAIL: '1',
+        GH_STUB_BODY: 'triaged',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(status).toBe(0);
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('triaged'), run: 'run-1' });
+    expect(kv['triage-state-818']).toBeUndefined();
+  });
+
+  it('still records the sweep checkpoint when the state write fails', () => {
+    // The state write is best effort: a store hiccup on the state key must not
+    // abort (set -e) before the sweep checkpoint of the accepted dispatch is
+    // written, or the next sweep would dispatch the same activity again.
+    const { calls, status, kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_KV_PUT_FAIL: '1',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(status).toBe(0);
+    expect(kv['triage-state-818']).toBeUndefined();
+    expect(kv['triage-sweep-818']).toBeUndefined();
+  });
+
+  it('collapses a label burst that began before the migration, via the legacy state marker', () => {
+    // #1031 review: with no state in the store, a second label of a burst that
+    // started before the deploy started a second run. The legacy state marker is
+    // adopted and the burst collapses.
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        GH_STUB_LEGACY_STATE: 'bug+priority:high',
+        GH_STUB_LEGACY_STATE_AT: new Date().toUTCString(),
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+    expect(kv['triage-state-818']).toMatchObject({ state: 'bug+priority:high' });
   });
 });

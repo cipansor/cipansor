@@ -170,8 +170,8 @@ setiap prompt dan dijaga workflow deterministik):
 - **Triase ulang lewat jembatan, bukan `issues.edited`.** `issue-triage-bridge.yml`
   - `.github/scripts/issue-triage-bridge.sh` mendispatch pemilik triase saat bot
     memasang label tipe/prioritas dan saat issue belum `ready` punya aktivitas baru
-    (komentar atau suntingan deskripsi). Idempoten (penanda per keadaan dan per
-    stempel aktivitas). **Deskripsi PR tidak ditanggapi otomatis** — tidak ada
+    (komentar atau suntingan deskripsi). Idempoten (checkpoint di KV store
+    otomasi, per keadaan dan per stempel aktivitas). **Deskripsi PR tidak ditanggapi otomatis** — tidak ada
     pemicu `pull_request.edited`; gerbang tinjau sudah membaca deskripsi, issue,
     diff, dan semua komentar.
 - **Basmalah.** Setiap body dibuka dengan «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»;
