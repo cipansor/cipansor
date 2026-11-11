@@ -839,8 +839,7 @@ describe('visual-evidence.sh', () => {
     // the images fall back to the prose label above.
     const U = 'https://user-images.githubusercontent.com/1';
     const body =
-      '| **Sebelum** | **Sesudah** |\n|---|---|\n' +
-      `| ![a](${U}/1.png) | ![b](${U}/2.png) |`;
+      '| **Sebelum** | **Sesudah** |\n|---|---|\n' + `| ![a](${U}/1.png) | ![b](${U}/2.png) |`;
     const { calls } = run(VISUAL, {
       GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
     });
@@ -851,8 +850,7 @@ describe('visual-evidence.sh', () => {
     // The awk match replaced a case-insensitive `grep -iE`, so `.PNG` must not
     // silently count as zero media.
     const U = 'https://user-images.githubusercontent.com/1';
-    const body =
-      `- **Sebelum** — ![a](${U}/1.PNG)\n` + `- **Sesudah** — ![b](${U}/2.JPG)`;
+    const body = `- **Sebelum** — ![a](${U}/1.PNG)\n` + `- **Sesudah** — ![b](${U}/2.JPG)`;
     const { calls } = run(VISUAL, {
       GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
     });
