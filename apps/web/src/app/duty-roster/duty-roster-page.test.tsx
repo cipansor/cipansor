@@ -45,6 +45,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 describe("duty-roster 'Jadwal Hari Ini'", () => {
@@ -59,16 +60,16 @@ describe("duty-roster 'Jadwal Hari Ini'", () => {
     // calendar day the label prints: a device west of UTC would render "1
     // November" for the day the page asked the API for. The label is pinned to
     // Asia/Jakarta, so it stays on the requested day on any device clock.
-    const original = process.env.TZ;
-    process.env.TZ = "America/New_York";
-    try {
-      render(<DutyRosterPage />);
+    //
+    // `TZ` is usually unset here, so it is stubbed and restored by
+    // `unstubAllEnvs` (below) — assigning `undefined` back would store the
+    // string "undefined" and leave this worker on a bogus zone for later tests.
+    vi.stubEnv("TZ", "America/New_York");
 
-      expect(rosterDateArg()).toBe("2026-11-02");
-      expect(screen.getByText("Senin, 2 November 2026")).toBeInTheDocument();
-    } finally {
-      process.env.TZ = original;
-    }
+    render(<DutyRosterPage />);
+
+    expect(rosterDateArg()).toBe("2026-11-02");
+    expect(screen.getByText("Senin, 2 November 2026")).toBeInTheDocument();
   });
 
   it("reports the statistics window from WIB start of month to WIB today", () => {
