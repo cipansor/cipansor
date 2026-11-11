@@ -71,7 +71,7 @@ OpenHands) refuse the mechanical cases.
 - [stale-temporal-data](lessons/stale-temporal-data.md) — derive dates from now; `isActive` is not a schedule
 - [migration-history-baselined](lessons/migration-history-baselined.md) — `0_init`; `migrate diff` blind to triggers; CI's `db push`; wrap data migrations in BEGIN/COMMIT; renumber a branch's migrations from the diff, never a date glob
 - [seed-verify-throwaway-db](lessons/seed-verify-throwaway-db.md) — prove a seed change on a disposable, isolated Postgres
-- [git-three-dot-diff-hides-stale-base](lessons/git-three-dot-diff-hides-stale-base.md) — measure from the merge base; paired PRs; a bot's stale-tree commit
+- [git-three-dot-diff-hides-stale-base](lessons/git-three-dot-diff-hides-stale-base.md) — measure from the merge base; paired PRs; a bot's stale-tree commit; two docs PRs collide on the revision table (keep both rows, renumber) while `manifest.json` auto-merges
 - [git-checkout-path-destroys-uncommitted](lessons/git-checkout-path-destroys-uncommitted.md) — `git add -A` before a mutation test
 - [branch-switch-stale-artifacts](lessons/branch-switch-stale-artifacts.md) — rebuild `shared` and regenerate Prisma after checkout or stash
 - [pnpm-install-silently-installs-nothing](lessons/pnpm-install-silently-installs-nothing.md) — exit 0, nothing installed; `CI=true`

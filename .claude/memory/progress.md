@@ -103,6 +103,13 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
+- **Documentation PRs, 2026-11-11:** #1035 (#778, cross-unit scope), #1036
+  (#779, screen labels), #1046 (#792, the absensi-pegawai sync — the first to
+  document the Absen Saya flow). All three were merged together in a worktree:
+  only one conflict, both #1035 and #1046 appending a `0.5` row to the Guru
+  booklet's revision table; `check_docs.py` and the two guard tests pass on the
+  merged tree. Merge them as a set.
+
 - **Open PRs, 2026-10-13:** #777 (the gate watch; ready, all checks green,
   waiting on the review gate), #668 and #775, #804 (draft). Merged since
   2026-10-10: #512, #714, #708 + #734 (tested together on `main`), #761 and
