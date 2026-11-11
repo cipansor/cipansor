@@ -695,17 +695,32 @@ benar-benar belum selesai. Rinciannya di
 
 ### Yang masih menggantung
 
-Prompt armada belum di-deploy ulang: `scripts/deploy-sdlc-agents.py` sudah
-memuat SDLC 06 yang baru di repo, tetapi API OpenHands masih menyajikan prompt
-lama (terverifikasi 2026-11-11: prompt live belum menyebut `in-progress`
-maupun `ready_for_review`). Deploy ulang:
-`OPENHANDS_API_KEY=… DEPLOY=true python3 scripts/deploy-sdlc-agents.py`.
+Tidak ada prompt yang menggantung per 2026-11-11: deploy susulan sudah
+dijalankan dan diverifikasi terhadap state live (lihat di bawah).
 
 **Deploy 2026-11-11 dijalankan.** Armada live kini 15 ON / 9 OFF dan cocok
 dengan `RETIRED`: SDLC 01/02/03/11/13/17/21/23 + `Audit Kematangan` mati. Tiga
 trigger yang menyaring label terhapus diperbaiki (SDLC 06 → cron 08:00 WIB,
 SDLC 16/22 → `question`). Semua prompt aktif kini nol penyebutan label yang
 sudah dihapus.
+
+**Deploy ulang 2026-11-11 (susulan, setelah tinjauan PR #1045).** Tiga perubahan
+mendarat dan diverifikasi dengan membaca balik state live:
+`SDLC 22 · Diskusi` → filter maintainer (`author_association` OWNER/MEMBER/
+COLLABORATOR), `SDLC 16 · Penjernih issue` → filter pelapor (kebalikannya),
+`SDLC 06 · Tiket jadi PR` → prompt baru (paginasi `&page=2`, `in-progress`,
+`ready_for_review`). Sebelumnya kedua filter 16/22 identik, jadi satu balasan
+maintainer menjalankan dua agen. `deploy-watch` dan `watchdog-repair` tetap
+hilang dari repo pada 2026-11-11 13:2x (404), dan workflow `deploy-watch` di
+`main` belum berjalan lagi sejak run #84 (12:01) — label akan dibuat ulang
+begitu run berikutnya jalan, sebelum PR #1045 mendarat.
+
+Prompt automation yang **pensiun/OFF** masih menyebut label terhapus dan
+langkah estimasi (9 automation: `Audit Kematangan`, SDLC 01/02/03/11/13/17/21/
+23). Itu memang disengaja: `apply_retire` hanya mematikan, tidak menulis ulang
+prompt, karena tail-nya sudah dilipat ke automation lain dan redeploy akan
+menghidupkan lagi komentar duplikatnya. Jangan "membersihkan" prompt mati itu.
+
 
 **Cacat yang baru ketahuan saat deploy: pola substitusi label tidak cocok.**
 `LEGACY_LABEL_TEXTS` mencocokkan kalimat kepemilikan label yang berakhir di

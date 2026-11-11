@@ -412,6 +412,15 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
       expect(sixteen).toContain(`comment.author_association != '${role}'`);
       expect(twentytwo).toContain(`comment.author_association == '${role}'`);
     }
+    // A third automation also watches comments: `Bot sebutan` (SDLC 07) fires on
+    // a mention, so a plain `question` reply must not reach it. If its mention
+    // gate ever dropped, a maintainer reply would start three agents.
+    const seven = triggers.slice(
+      triggers.indexOf('"SDLC 07": {'),
+      triggers.indexOf('},', triggers.indexOf('"SDLC 07": {'))
+    );
+    expect(seven).toContain('MENTION_FILTER');
+    expect(seven).not.toContain("contains(issue.labels[].name, 'question')");
   });
 
   it('runs `Tiket jadi PR` on the daily cron, and sends a complete trigger', () => {
