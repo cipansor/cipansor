@@ -66,9 +66,9 @@ test.describe("Piket & Jaga — 'Hari Ini' memakai hari WIB", () => {
       );
       await page.goto("/duty-roster");
 
-      const requestedDay = new URL((await rosterRequest).url()).searchParams.get(
-        "date",
-      );
+      const requestedDay = new URL(
+        (await rosterRequest).url(),
+      ).searchParams.get("date");
       expect(requestedDay).toBe(WIB_DAY);
       await expect(page.getByText("Senin, 2 November 2026")).toBeVisible();
     });
