@@ -89,20 +89,32 @@ workers refused on a closed day. Still open:
   Indonesian only, and several screens still say _Siswa_ / _Daftar Siswa_
   (attendance record, menu group _Mengajar_) where the decision is _santri_.
   The manuals quote the screen as it is.
-- **The web calls API paths that do not exist — 184 distinct calls left**
-  (212 when measured on 2026-09-25; Perizinan fixed in #564, the asrama pages
-  in #569 and #571, mata pelajaran in #573, laporan harian in #577, the
-  homeroom pages in #579–#581; the list is
-  `apps/api/src/utils/web-api-contract.baseline.json`, which the contract guard
-  keeps honest — it only shrinks; staging answers them "Route … not found").
-  Worst felt now: the Kurikulum list
-  (`/curriculum/curriculums`), HR employees (`/hr/employees`), every
-  Sertifikat page (`/certificates`), parent messages (`/parent/messages`),
-  and three pages that write `/api/…` and so call `/api/api/…`
-  (`analytics/grc`, `talenta/analytics`, `perencanaan/[id]/activity-dialog`).
-  84 more sit in functions nothing imports, mostly `services/`. The Tagihan and
-  Types entries below are part of this. Phase 1 of the audit plan fixes it area
-  by area; the guard (#563) stops new ones.
+- **The web calls API paths that do not exist — 44 distinct calls left**
+  (212 on 2026-09-25, 151 on 2026-11-09 before `fix/web-api-reconnect`; the
+  list is `apps/api/src/utils/web-api-contract.baseline.json`, which the
+  contract guard keeps honest — it only shrinks). That branch (#974) deleted
+  `services/` and the `api-client` alias, removed the dead hooks it found that
+  called a missing route — including six that a `/:id` route swallows
+  (`/students/export`, `/duty-roster/export`, `/extracurricular/my-enrollments`,
+  `/muhasabah/today`, `/muhasabah/summary`, `/assessment/report-cards/my-children`)
+  — and rewired the live ones it could without a decision. Phase 2 (umbrella
+  #1023, issues #987–#1012) finishes the 44, area by area:
+  - payroll under `/hr/payroll/*` (#995; `/payroll` is the working page);
+  - the violation and reward "Jenis" tabs (#997);
+  - extracurricular enrolment approval (#1000);
+  - homeroom _Pesan Orang Tua_ (#998; a message has no santri column);
+  - the musyrif home `/musyrif` (#1002);
+  - the wallet spending limit (#1006);
+  - laundry (#1010, entry below);
+  - single calls in alumni, duty roster, kitab progress, takhosus, meals, TK
+    evidence, finance and the manual journal page (#1011).
+- **The contract guard only checks method and path.** A static segment a
+  `/:id` route captures counts as served: still live are `GET /alumni/events`
+  (Alumni page, answers "Alumni not found"; the route is `/alumni/events/list`),
+  `GET /duty-roster/statistics` and `GET /extracurricular/achievements`
+  (#1011 tightens `served()` and fixes them). A body the route's schema
+  refuses is not seen either: the simaan forms reach `PATCH /simaan/:id` and
+  `POST /simaan` and are refused with 400 (#1024).
 - **An extracurricular's members, attendance and achievements do not work**
   (found 2026-10-04; the extracurricular itself — create, edit, list,
   detail — was fixed in the same week). On the detail page the _Anggota_,

@@ -25,6 +25,11 @@ export const updateExamSchema = partialUpdateSchema(createExamSchema).extend({
   status: z.nativeEnum(ExamStatus).optional(),
 });
 
+/** `PATCH /assessment/exams/:id/status`: one of the exam's states, nothing else. */
+export const updateExamStatusSchema = z.object({
+  status: z.nativeEnum(ExamStatus),
+});
+
 export const examQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),

@@ -1,5 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api, { PaginatedResponse } from "@/lib/api";
+import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
+import type { DisciplineSummaryRange, RewardsSummary } from "@cipansor/shared";
+import { invalidateBehaviorStats } from "@/lib/behavior-stats-cache";
 
 // Types
 export type RewardCategory =
@@ -240,17 +242,6 @@ export function useReward(id: string) {
   });
 }
 
-export function useStudentRewards(studentId: string) {
-  return useQuery({
-    queryKey: ["rewards", "student", studentId],
-    queryFn: async () => {
-      const response = await api.get<any>(`/rewards/student/${studentId}`);
-      return (response.data.data ?? []).map(normalizeReward);
-    },
-    enabled: !!studentId,
-  });
-}
-
 export function useCreateReward() {
   const queryClient = useQueryClient();
 
@@ -267,6 +258,7 @@ export function useCreateReward() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rewards"] });
+      invalidateBehaviorStats(queryClient);
     },
   });
 }
@@ -292,6 +284,7 @@ export function useUpdateReward() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rewards"] });
+      invalidateBehaviorStats(queryClient);
     },
   });
 }
@@ -305,44 +298,26 @@ export function useDeleteReward() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["rewards"] });
+      invalidateBehaviorStats(queryClient);
     },
   });
 }
 
 // Reward Summary Hooks
-export function useRewardSummary(params?: {
-  startDate?: string;
-  endDate?: string;
-}) {
+/**
+ * The Penghargaan page's cards and podium, from `GET /rewards/summary` (the
+ * caller's scope). `byCategory` holds the categories as recorded, with their
+ * counts and points.
+ */
+export function useRewardSummary(params?: DisciplineSummaryRange) {
   return useQuery({
     queryKey: ["rewards", "summary", params],
     queryFn: async () => {
-      const response = await api.get<{
-        totalRewards: number;
-        byCategory: { category: RewardCategory; count: number }[];
-        topRewardTypes: { rewardTypeId: string; name: string; count: number }[];
-        topStudents: {
-          studentId: string;
-          name: string;
-          count: number;
-          points: number;
-        }[];
-      }>("/rewards/summary", { params });
-      return response.data;
+      const response = await api.get<ApiResponse<RewardsSummary>>(
+        "/rewards/summary",
+        { params },
+      );
+      return response.data.data;
     },
-  });
-}
-
-export function useStudentRewardPoints(studentId: string) {
-  return useQuery({
-    queryKey: ["rewards", "points", studentId],
-    queryFn: async () => {
-      const response = await api.get<{
-        totalPoints: number;
-        rewards: Reward[];
-      }>(`/rewards/student/${studentId}/points`);
-      return response.data;
-    },
-    enabled: !!studentId,
   });
 }

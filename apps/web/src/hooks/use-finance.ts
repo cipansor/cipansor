@@ -207,19 +207,6 @@ export function useBill(id: string) {
   });
 }
 
-export function useStudentBills(studentId: string) {
-  return useQuery({
-    queryKey: ["students", studentId, "bills"],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<Bill[]>>(
-        `/students/${studentId}/bills`,
-      );
-      return response.data.data;
-    },
-    enabled: !!studentId,
-  });
-}
-
 export interface CreateBillData {
   studentId: string;
   academicYearId: string;
@@ -269,30 +256,6 @@ export function useCreateBulkBills() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["bills"] });
-    },
-  });
-}
-
-export function useUpdateBill() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: Partial<CreateBillData>;
-    }) => {
-      const response = await api.patch<ApiResponse<Bill>>(
-        `/finance/invoices/${id}`,
-        data,
-      );
-      return response.data.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["bills"] });
-      queryClient.invalidateQueries({ queryKey: ["bills", variables.id] });
     },
   });
 }

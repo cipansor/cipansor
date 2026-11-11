@@ -10,8 +10,8 @@ const pushStatus = vi.hoisted(() => vi.fn().mockResolvedValue(true));
 const pushConfig = vi.hoisted(() =>
   vi.fn().mockResolvedValue({ publicKey: "B".repeat(87) }),
 );
-vi.mock("@/services/notifications.service", () => ({
-  notificationsService: {
+vi.mock("@/lib/notifications-api", () => ({
+  notificationsApi: {
     subscribePush,
     unsubscribePush,
     pushStatus,

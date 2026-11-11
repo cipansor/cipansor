@@ -1,5 +1,5 @@
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api, { ApiResponse, PaginatedResponse, User } from "@/lib/api";
+import { useQuery } from "@tanstack/react-query";
+import api, { PaginatedResponse } from "@/lib/api";
 
 // ==================== TYPES ====================
 
@@ -53,21 +53,5 @@ export function useTeachers(params?: UseTeachersParams) {
       );
       return response.data;
     },
-  });
-}
-
-/**
- * Get single teacher details
- */
-export function useTeacher(teacherId: string) {
-  return useQuery({
-    queryKey: ["teachers", teacherId],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<Teacher>>(
-        `/hr/teachers/${teacherId}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!teacherId,
   });
 }

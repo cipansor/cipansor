@@ -3,7 +3,8 @@ import api, { PaginatedResponse, ApiResponse } from "@/lib/api";
 import {
   STUDENT_STATUS,
   type StudentStatus,
-  type ClassEnrollmentStatus,
+  type StudentRewardSummary,
+  type StudentViolationSummary,
 } from "@cipansor/shared";
 
 // Types
@@ -334,77 +335,6 @@ export function useStudentsByClass(classId: string) {
 }
 
 /**
- * Bulk import students
- */
-export function useBulkImportStudents() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (formData: FormData) => {
-      const response = await api.post<
-        ApiResponse<{ imported: number; errors: any[] }>
-      >("/students/bulk-import", formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["students"] });
-    },
-  });
-}
-
-/**
- * Export students to Excel
- */
-export function useExportStudents() {
-  return useMutation({
-    mutationFn: async (params: {
-      unitId?: string;
-      classId?: string;
-      status?: string;
-    }) => {
-      const response = await api.get("/students/export", {
-        params,
-        responseType: "blob",
-      });
-      return response.data;
-    },
-  });
-}
-
-/**
- * Transfer student to another class
- */
-export function useTransferStudent() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      studentId,
-      toClassId,
-      reason,
-    }: {
-      studentId: string;
-      toClassId: string;
-      reason?: string;
-    }) => {
-      const response = await api.post<ApiResponse<Student>>(
-        `/students/${studentId}/transfer`,
-        { toClassId, reason },
-      );
-      return response.data.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["students", variables.studentId],
-      });
-      queryClient.invalidateQueries({ queryKey: ["students"] });
-    },
-  });
-}
-
-/**
  * Luluskan santri dari unitnya sekarang.
  *
  * Satu-satunya jalur yang juga menulis baris Alumni, menyelesaikan rombel unit
@@ -439,56 +369,6 @@ export function useGraduateStudent() {
       queryClient.invalidateQueries({ queryKey: ["alumni"] });
     },
   });
-}
-
-/**
- * Update student photo
- */
-export function useUpdateStudentPhoto() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      studentId,
-      photo,
-    }: {
-      studentId: string;
-      photo: File;
-    }) => {
-      const formData = new FormData();
-      formData.append("photo", photo);
-      const response = await api.post<ApiResponse<{ photoUrl: string }>>(
-        `/students/${studentId}/photo`,
-        formData,
-        { headers: { "Content-Type": "multipart/form-data" } },
-      );
-      return response.data.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["students", variables.studentId],
-      });
-    },
-  });
-}
-
-// ==================== TIMELINE & PROGRESS HOOKS ====================
-
-export interface TimelineEvent {
-  id: string;
-  type:
-    | "ENROLLMENT"
-    | "TRANSFER"
-    | "ACHIEVEMENT"
-    | "VIOLATION"
-    | "HEALTH"
-    | "ACADEMIC"
-    | "ATTENDANCE"
-    | "OTHER";
-  title: string;
-  description?: string;
-  date: string;
-  metadata?: Record<string, any>;
 }
 
 export interface StudentCompleteProfile extends Student {
@@ -531,31 +411,6 @@ export interface StudentCompleteProfile extends Student {
 }
 
 /**
- * Get student timeline - chronological history of all events
- */
-export function useStudentTimeline(
-  studentId: string,
-  params?: {
-    type?: TimelineEvent["type"];
-    startDate?: string;
-    endDate?: string;
-    limit?: number;
-  },
-) {
-  return useQuery({
-    queryKey: ["students", studentId, "timeline", params],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<TimelineEvent[]>>(
-        `/students/${studentId}/timeline`,
-        { params },
-      );
-      return response.data.data;
-    },
-    enabled: !!studentId,
-  });
-}
-
-/**
  * Get complete student profile with all related data
  */
 export function useStudentCompleteProfile(studentId: string) {
@@ -572,202 +427,46 @@ export function useStudentCompleteProfile(studentId: string) {
   });
 }
 
+/** A santri's behaviour record, from the two per-santri summaries. */
+export interface StudentBehaviorStats {
+  violationPoints: number;
+  rewardPoints: number;
+  totalViolations: number;
+  totalRewards: number;
+  recentViolations: StudentViolationSummary["recentViolations"];
+  recentRewards: StudentRewardSummary["recentRewards"];
+}
+
 /**
- * Get student enrollment history (class history)
+ * A santri's violations and rewards, from `GET /violations/student/:id/summary`
+ * and `GET /rewards/student/:id/summary` (both check the caller's scope). The
+ * totals are counted from the summaries' groups; the lists are the ten latest.
+ * Either request failing fails the query, so the tab never shows a clean
+ * record it could not read.
  */
-export function useStudentEnrollmentHistory(studentId: string) {
+export function useStudentBehaviorStats(studentId: string) {
   return useQuery({
-    queryKey: ["students", studentId, "enrollment-history"],
-    queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<
-          Array<{
-            id: string;
-            classId: string;
-            className: string;
-            gradeLevel: number;
-            academicYearId: string;
-            academicYearName: string;
-            status: ClassEnrollmentStatus;
-            startDate: string;
-            endDate?: string;
-            finalGrade?: number;
-            ranking?: number;
-            notes?: string;
-          }>
-        >
-      >(`/students/${studentId}/enrollment-history`);
-      return response.data.data;
+    queryKey: ["students", studentId, "behavior-stats"],
+    queryFn: async (): Promise<StudentBehaviorStats> => {
+      const [violations, rewards] = await Promise.all([
+        api.get<ApiResponse<StudentViolationSummary>>(
+          `/violations/student/${studentId}/summary`,
+        ),
+        api.get<ApiResponse<StudentRewardSummary>>(
+          `/rewards/student/${studentId}/summary`,
+        ),
+      ]);
+      const v = violations.data.data;
+      const r = rewards.data.data;
+      return {
+        violationPoints: v?.totalPoints ?? 0,
+        rewardPoints: r?.totalPoints ?? 0,
+        totalViolations: (v?.byType ?? []).reduce((n, g) => n + g._count, 0),
+        totalRewards: (r?.byCategory ?? []).reduce((n, g) => n + g._count, 0),
+        recentViolations: v?.recentViolations ?? [],
+        recentRewards: r?.recentRewards ?? [],
+      };
     },
     enabled: !!studentId,
-  });
-}
-
-/**
- * Get student academic progress over time
- */
-export function useStudentAcademicProgress(
-  studentId: string,
-  params?: {
-    academicYearId?: string;
-    subjectId?: string;
-  },
-) {
-  return useQuery({
-    queryKey: ["students", studentId, "academic-progress", params],
-    queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<{
-          semesters: Array<{
-            academicYearId: string;
-            academicYearName: string;
-            semester: "GANJIL" | "GENAP";
-            averageScore: number;
-            ranking?: number;
-            subjects: Array<{
-              subjectId: string;
-              subjectName: string;
-              score: number;
-              grade: string;
-            }>;
-          }>;
-          trend: Array<{
-            period: string;
-            averageScore: number;
-          }>;
-          strongSubjects: string[];
-          weakSubjects: string[];
-        }>
-      >(`/students/${studentId}/academic-progress`, { params });
-      return response.data.data;
-    },
-    enabled: !!studentId,
-  });
-}
-
-/**
- * Get student behavior statistics
- */
-export function useStudentBehaviorStats(
-  studentId: string,
-  params?: {
-    academicYearId?: string;
-    startDate?: string;
-    endDate?: string;
-  },
-) {
-  return useQuery({
-    queryKey: ["students", studentId, "behavior-stats", params],
-    queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<{
-          totalViolations: number;
-          totalRewards: number;
-          violationsByType: Array<{ type: string; count: number }>;
-          rewardsByType: Array<{ type: string; count: number }>;
-          currentPoints: number;
-          monthlyTrend: Array<{
-            month: string;
-            violations: number;
-            rewards: number;
-          }>;
-          recentViolations: Array<{
-            id: string;
-            type: string;
-            date: string;
-            description: string;
-            status: string;
-          }>;
-          recentRewards: Array<{
-            id: string;
-            type: string;
-            date: string;
-            description: string;
-          }>;
-        }>
-      >(`/students/${studentId}/behavior-stats`, { params });
-      return response.data.data;
-    },
-  });
-}
-
-// NOTE: useStudentHealthRecords is available from use-health.ts
-
-/**
- * Get student documents (certificates, transcripts, etc.)
- */
-export function useStudentDocuments(
-  studentId: string,
-  params?: {
-    type?: "CERTIFICATE" | "TRANSCRIPT" | "ID_CARD" | "OTHER";
-  },
-) {
-  return useQuery({
-    queryKey: ["students", studentId, "documents", params],
-    queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<
-          Array<{
-            id: string;
-            type:
-              | "CERTIFICATE"
-              | "TRANSCRIPT"
-              | "ID_CARD"
-              | "REPORT_CARD"
-              | "OTHER";
-            name: string;
-            description?: string;
-            fileUrl: string;
-            academicYearId?: string;
-            academicYearName?: string;
-            issuedDate?: string;
-            createdAt: string;
-          }>
-        >
-      >(`/students/${studentId}/documents`, { params });
-      return response.data.data;
-    },
-    enabled: !!studentId,
-  });
-}
-
-/**
- * Upload student document
- */
-export function useUploadStudentDocument() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      studentId,
-      type,
-      name,
-      file,
-      description,
-    }: {
-      studentId: string;
-      type: string;
-      name: string;
-      file: File;
-      description?: string;
-    }) => {
-      const formData = new FormData();
-      formData.append("file", file);
-      formData.append("type", type);
-      formData.append("name", name);
-      if (description) formData.append("description", description);
-
-      const response = await api.post<
-        ApiResponse<{ id: string; fileUrl: string }>
-      >(`/students/${studentId}/documents`, formData, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      return response.data.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["students", variables.studentId, "documents"],
-      });
-    },
   });
 }

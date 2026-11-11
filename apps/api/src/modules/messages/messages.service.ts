@@ -159,10 +159,18 @@ export class MessagesService {
       throw Errors.forbidden('You do not have permission to view this message');
     }
 
-    // Mark as read if recipient
-    if (message.recipientId === userId && !message.isRead) {
-      await this.markAsRead(userId, messageId);
-      message.isRead = true;
+    // Opening a thread reads it: the message and every reply in it sent to
+    // this user. A reply in a thread the user started (the wali writing first
+    // from Buku Penghubung) used to stay unread for good.
+    const unread =
+      (message.recipientId === userId && !message.isRead) ||
+      message.replies.some((r) => r.recipientId === userId && !r.isRead);
+    if (unread) {
+      await this.markThreadRead(userId, messageId);
+      if (message.recipientId === userId) message.isRead = true;
+      for (const reply of message.replies) {
+        if (reply.recipientId === userId) reply.isRead = true;
+      }
     }
 
     return message;
@@ -198,25 +206,27 @@ export class MessagesService {
   }
 
   /**
-   * Mark message as read
+   * Mark a message read, with the replies under it that were sent to this
+   * user. Either person in the conversation may ask; only what was addressed
+   * to the caller changes. Anyone else gets `null`, as before.
    */
   async markAsRead(userId: string, messageId: string) {
-    // Only recipient can mark as read
     const message = await prisma.message.findFirst({
-      where: {
-        id: messageId,
-        recipientId: userId,
-      },
+      where: { id: messageId, OR: [{ recipientId: userId }, { senderId: userId }] },
     });
+    if (!message) return null;
+    await this.markThreadRead(userId, messageId);
+    return message.recipientId === userId ? { ...message, isRead: true } : message;
+  }
 
-    if (!message) {
-      // Either not found or not recipient, return silently or throw
-      // For idempotency, we can just return if already read or not found
-      return null;
-    }
-
-    return prisma.message.update({
-      where: { id: messageId },
+  /** The unread rows of one thread addressed to `userId`, marked read in one write. */
+  private async markThreadRead(userId: string, messageId: string) {
+    await prisma.message.updateMany({
+      where: {
+        recipientId: userId,
+        isRead: false,
+        OR: [{ id: messageId }, { parentId: messageId }],
+      },
       data: { isRead: true },
     });
   }

@@ -458,3 +458,57 @@ export const useDeletePlan = () => {
     },
   });
 };
+
+/**
+ * The people an activity's PIC may be picked from: the teachers and staff of
+ * the plan's unit (`GET /hr/employees`), or of the whole yayasan for an RKA
+ * Yayasan. `GET /users` was used before and offered the newest hundred
+ * accounts of any kind — santri and wali among them. An account that may not
+ * read the roster gets "Tanpa PIC" only, so a refusal is not worth a toast.
+ */
+export function useActivityPicOptions(unitId?: string | null) {
+  return useQuery({
+    queryKey: ["perencanaan", "pic-options", unitId ?? null],
+    queryFn: async () => {
+      const res = await api.get<{
+        data: Array<{ id: string; name: string; isActive?: boolean }>;
+      }>("/hr/employees", {
+        params: { limit: 100, ...(unitId ? { unitId } : {}) },
+        skipErrorToast: true,
+      });
+      // A deactivated account cannot carry an activity.
+      return (res.data.data ?? [])
+        .filter((u) => u.isActive !== false)
+        .map(({ id, name }) => ({ id, name }));
+    },
+    retry: false,
+  });
+}
+
+/**
+ * The finance budget lines an activity may be linked to
+ * (`GET /finance-enhancement/budgets`, finance administrators only — the same
+ * quiet refusal as above).
+ */
+export function useActivityBudgetOptions(unitId?: string | null) {
+  return useQuery({
+    queryKey: ["perencanaan", "budget-options", unitId ?? null],
+    queryFn: async () => {
+      const res = await api.get<{
+        data: {
+          data: Array<{
+            id: string;
+            amount: number;
+            account?: { code: string; name: string };
+          }>;
+        };
+      }>("/finance-enhancement/budgets", {
+        // The plan's own unit only: a unit plan links to its unit's budget.
+        params: { limit: 100, ...(unitId ? { unitId } : {}) },
+        skipErrorToast: true,
+      });
+      return res.data.data?.data ?? [];
+    },
+    retry: false,
+  });
+}

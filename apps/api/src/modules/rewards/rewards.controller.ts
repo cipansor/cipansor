@@ -1,6 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
 import * as rewardService from './rewards.service';
-import { createRewardSchema, updateRewardSchema, queryRewardSchema } from './rewards.schema';
+import {
+  createRewardSchema,
+  updateRewardSchema,
+  queryRewardSchema,
+  rewardSummaryQuerySchema,
+} from './rewards.schema';
 import { Errors } from '../../middleware/error';
 import { requireUser } from '../../middleware/auth';
 import type { ScopeActor } from '../../utils/student-scope';
@@ -90,6 +95,15 @@ export async function deleteReward(req: Request, res: Response, next: NextFuncti
   }
 }
 
+export async function getRewardsSummary(req: Request, res: Response, next: NextFunction) {
+  try {
+    const range = rewardSummaryQuerySchema.parse(res.locals.validatedQuery || req.query);
+    const summary = await rewardService.getRewardsSummary(actor(req), range);
+    res.json({ success: true, data: summary });
+  } catch (error) {
+    next(error);
+  }
+}
 export async function getStudentRewardSummary(req: Request, res: Response, next: NextFunction) {
   try {
     const { studentId } = req.params;

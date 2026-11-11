@@ -2,7 +2,6 @@
 
 import { useState } from "react";
 import { safeFormat } from "@/lib/date";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { format } from "date-fns";
 import { id } from "date-fns/locale";
 import {
@@ -12,6 +11,7 @@ import {
   Ruler,
   Activity,
   Calendar as CalendarIcon,
+  Trash2,
 } from "lucide-react";
 import { toast } from "sonner";
 import {
@@ -68,11 +68,21 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useClasses } from "@/hooks/use-classes";
+import { useClassEnrollments } from "@/hooks/use-class-enrollments";
+import {
+  useCreateGrowthRecord,
+  useDeleteGrowthRecord,
+  useGrowthRecords,
+} from "@/hooks/use-health";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { MainLayout } from "@/components/layout";
+import { usePermission } from "@/hooks/use-permission";
 
 function GrowthTrackingPageContent() {
   const { user } = useAuthStore();
-  const queryClient = useQueryClient();
+  // The route guard requires HEALTH_MANAGE for anything but GET, so a reader
+  // (kepala sekolah, pengawas) sees the table without the write buttons.
+  const canManage = usePermission("HEALTH_MANAGE");
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(
     null,
@@ -92,77 +102,61 @@ function GrowthTrackingPageContent() {
   const { data: classesData } = useClasses({ unitId: user?.unitId });
 
   // Fetch Students for Class
-  const { data: studentsData } = useQuery({
-    queryKey: ["class-enrollments", selectedClassId],
-    queryFn: async () => {
-      if (!selectedClassId) return null;
-      const res = await fetch(`/api/classes/${selectedClassId}/enrollments`);
-      if (!res.ok) throw new Error("Failed to fetch students");
-      const json = await res.json();
-      return json.data;
-    },
-    enabled: !!selectedClassId,
-  });
+  const { data: studentsData } = useClassEnrollments(selectedClassId ?? "");
+  const { data: growthData, isLoading } = useGrowthRecords(
+    selectedStudentId ?? undefined,
+  );
+  const createMutation = useCreateGrowthRecord();
+  const deleteMutation = useDeleteGrowthRecord(selectedStudentId ?? undefined);
 
-  // Fetch Growth Records
-  const { data: growthData, isLoading } = useQuery({
-    queryKey: ["growth-records", selectedStudentId],
-    queryFn: async () => {
-      if (!selectedStudentId) return null;
-      const res = await fetch(
-        `/api/health/growth?studentId=${selectedStudentId}`,
-      );
-      if (!res.ok) throw new Error("Failed to fetch growth records");
-      const json = await res.json();
-      return json.data;
-    },
-    enabled: !!selectedStudentId,
-  });
-
-  // Create Mutation
-  const createMutation = useMutation({
-    mutationFn: async (data: any) => {
-      const res = await fetch("/api/health/growth", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(data),
-      });
-      if (!res.ok) throw new Error("Failed to save record");
-      return res.json();
-    },
-    onSuccess: () => {
-      toast.success("Data tumbuh kembang berhasil disimpan");
-      setIsAddOpen(false);
-      setFormData({
-        date: new Date(),
-        weight: "",
-        height: "",
-        headCircumference: "",
-        notes: "",
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["growth-records", selectedStudentId],
-      });
-    },
-    onError: () => toast.error("Gagal menyimpan data"),
-  });
+  const handleDelete = (id: string) => {
+    deleteMutation.mutate(id, {
+      onSuccess: () => toast.success("Data tumbuh kembang berhasil dihapus"),
+      onError: () => toast.error("Gagal menghapus data tumbuh kembang"),
+    });
+  };
+  // The record goes under the santri's unit, read from the chosen class: an
+  // account with no unit of its own (Super Admin, a cross-unit nurse) has none
+  // to give, and the API requires one.
+  const selectedClassUnitId = classesData?.data?.find(
+    (c) => c.id === selectedClassId,
+  )?.unitId;
 
   const handleSubmit = () => {
     if (!selectedStudentId) return;
-    createMutation.mutate({
-      studentId: selectedStudentId,
-      unitId: user?.unitId,
-      recordDate: formData.date,
-      weight: parseFloat(formData.weight) || undefined,
-      height: parseFloat(formData.height) || undefined,
-      headCircumference: parseFloat(formData.headCircumference) || undefined,
-      notes: formData.notes,
-    });
+    if (!selectedClassUnitId) {
+      toast.error("Unit kelas belum termuat, coba lagi");
+      return;
+    }
+    createMutation.mutate(
+      {
+        studentId: selectedStudentId,
+        unitId: selectedClassUnitId,
+        recordDate: formData.date,
+        weight: parseFloat(formData.weight) || undefined,
+        height: parseFloat(formData.height) || undefined,
+        headCircumference: parseFloat(formData.headCircumference) || undefined,
+        notes: formData.notes,
+      },
+      {
+        onSuccess: () => {
+          toast.success("Data tumbuh kembang berhasil disimpan");
+          setIsAddOpen(false);
+          setFormData({
+            date: new Date(),
+            weight: "",
+            height: "",
+            headCircumference: "",
+            notes: "",
+          });
+        },
+      },
+    );
   };
 
   // Prepare chart data (reverse to show chronological order left to right)
   const chartData = growthData
-    ? [...growthData].reverse().map((r: any) => ({
+    ? [...growthData].reverse().map((r) => ({
         date: safeFormat(new Date(r.recordDate), "dd/MM/yy"),
         weight: r.weight,
         height: r.height,
@@ -220,12 +214,14 @@ function GrowthTrackingPageContent() {
           </Select>
 
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-            <DialogTrigger asChild>
-              <Button disabled={!selectedStudentId}>
-                <Plus className="mr-2 h-4 w-4" />
-                Catat Data
-              </Button>
-            </DialogTrigger>
+            {canManage && (
+              <DialogTrigger asChild>
+                <Button disabled={!selectedStudentId}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Catat Data
+                </Button>
+              </DialogTrigger>
+            )}
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
                 <DialogTitle>Catat Tumbuh Kembang</DialogTitle>
@@ -334,7 +330,7 @@ function GrowthTrackingPageContent() {
               <DialogFooter>
                 <Button
                   onClick={handleSubmit}
-                  disabled={createMutation.isPending}
+                  disabled={createMutation.isPending || !selectedClassUnitId}
                 >
                   {createMutation.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -407,10 +403,11 @@ function GrowthTrackingPageContent() {
                     <TableHead>TB (cm)</TableHead>
                     <TableHead>LK (cm)</TableHead>
                     <TableHead>Catatan</TableHead>
+                    {canManage && <TableHead className="w-[60px]" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {growthData?.map((record: any) => (
+                  {growthData?.map((record) => (
                     <TableRow key={record.id}>
                       <TableCell>
                         {safeFormat(
@@ -427,12 +424,33 @@ function GrowthTrackingPageContent() {
                       <TableCell className="text-muted-foreground text-sm">
                         {record.notes}
                       </TableCell>
+                      {canManage && (
+                        <TableCell className="text-right">
+                          <ConfirmDialog
+                            title="Hapus Data Tumbuh Kembang"
+                            description="Tindakan ini tidak dapat dibatalkan."
+                            confirmLabel="Hapus"
+                            cancelLabel="Batal"
+                            onConfirm={() => handleDelete(record.id)}
+                            loading={deleteMutation.isPending}
+                          >
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                              aria-label="Hapus"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </ConfirmDialog>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                   {growthData?.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={5}
+                        colSpan={canManage ? 6 : 5}
                         className="text-center text-muted-foreground"
                       >
                         Belum ada data.

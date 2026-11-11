@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api-client";
+import { api } from "@/lib/api";
 
 // Enums
 // The API's `MurojaahType` values (Prisma enum). The English values this list
@@ -199,7 +199,7 @@ export function useMurojaahRecords(filters: MurojaahFilters = {}) {
           params.append(key, String(value));
         }
       });
-      const response = await apiClient.get(`/murojaah?${params.toString()}`);
+      const response = await api.get(`/murojaah?${params.toString()}`);
       return response.data;
     },
   });
@@ -209,7 +209,7 @@ export function useMurojaah(id: string) {
   return useQuery({
     queryKey: murojaahKeys.detail(id),
     queryFn: async () => {
-      const response = await apiClient.get(`/murojaah/${id}`);
+      const response = await api.get(`/murojaah/${id}`);
       // Adapt backend response to frontend expectations if needed
       const data = response.data.data as MurojaahRecord;
       if (!data.date && data.murojaahDate) data.date = data.murojaahDate;
@@ -224,7 +224,7 @@ export function useMurojaahMistakes(murojaahId: string) {
     queryKey: murojaahKeys.mistakes(murojaahId),
     queryFn: async () => {
       // Backend includes mistakes in getMurojaahById usually
-      const response = await apiClient.get(`/murojaah/${murojaahId}`);
+      const response = await api.get(`/murojaah/${murojaahId}`);
       const data = response.data.data as MurojaahRecord;
       return { data: data.mistakes || [] };
     },
@@ -237,7 +237,7 @@ export function useCreateMurojaah() {
 
   return useMutation({
     mutationFn: async (data: CreateMurojaahData) => {
-      const response = await apiClient.post("/murojaah", data);
+      const response = await api.post("/murojaah", data);
       return response.data;
     },
     onSuccess: () => {
@@ -257,7 +257,7 @@ export function useUpdateMurojaah() {
       id: string;
       data: UpdateMurojaahData;
     }) => {
-      const response = await apiClient.patch(`/murojaah/${id}`, data);
+      const response = await api.patch(`/murojaah/${id}`, data);
       return response.data;
     },
     onSuccess: (_, { id }) => {
@@ -280,7 +280,7 @@ export function useReviewMurojaah() {
       status: string;
       grade?: number;
     }) => {
-      const response = await apiClient.patch(`/murojaah/${id}`, {
+      const response = await api.patch(`/murojaah/${id}`, {
         status,
         grade,
       });
@@ -298,7 +298,7 @@ export function useDeleteMurojaah() {
 
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await apiClient.delete(`/murojaah/${id}`);
+      const response = await api.delete(`/murojaah/${id}`);
       return response.data;
     },
     onSuccess: () => {
@@ -318,9 +318,7 @@ export function useDeleteMurojaahMistake() {
       murojaahId: string;
       mistakeId: string;
     }) => {
-      const response = await apiClient.delete(
-        `/murojaah/mistakes/${mistakeId}`,
-      );
+      const response = await api.delete(`/murojaah/mistakes/${mistakeId}`);
       return response.data;
     },
     onSuccess: (_, { murojaahId }) => {
@@ -347,7 +345,7 @@ export function useStudentMurojaahSummary(
           if (value) params.append(key, String(value));
         });
       }
-      const response = await apiClient.get(
+      const response = await api.get(
         `/murojaah/students/${studentId}/summary?${params.toString()}`,
       );
       return response.data.data as StudentMurojaahSummary;
@@ -360,7 +358,7 @@ export function useMurojaahSchedule(studentId: string) {
   return useQuery({
     queryKey: murojaahKeys.schedule(studentId),
     queryFn: async () => {
-      const response = await apiClient.get(
+      const response = await api.get(
         `/murojaah/students/${studentId}/schedule`,
       );
       return response.data.data;

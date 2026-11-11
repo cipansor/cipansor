@@ -22,3 +22,4 @@ export * from "./board-member";
 export * from "./notifications";
 export * from "./announcements";
 export * from "./extracurricular";
+export * from "./foundation";

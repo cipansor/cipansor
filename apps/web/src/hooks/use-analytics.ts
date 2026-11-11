@@ -163,36 +163,6 @@ export function useTahfidzProgress(filter?: ReportFilter) {
   });
 }
 
-export function useHealthSummaryAnalytics(filter?: ReportFilter) {
-  return useQuery({
-    queryKey: ["analytics", "health-summary", filter],
-    queryFn: async () => {
-      const { data } = await api.get<{ data: HealthSummary }>(
-        "/analytics/health",
-        {
-          params: filter,
-        },
-      );
-      return data;
-    },
-  });
-}
-
-export function useViolationSummaryAnalytics(filter?: ReportFilter) {
-  return useQuery({
-    queryKey: ["analytics", "violation-summary", filter],
-    queryFn: async () => {
-      const { data } = await api.get<{ data: ViolationSummary }>(
-        "/analytics/violations",
-        {
-          params: filter,
-        },
-      );
-      return data;
-    },
-  });
-}
-
 export function useGRCStats(unitId?: string) {
   return useQuery({
     queryKey: ["analytics", "grc", unitId],

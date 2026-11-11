@@ -51,17 +51,6 @@ export interface ExtracurricularEnrollment {
   updatedAt: string;
 }
 
-export interface ExtracurricularAttendance {
-  id: string;
-  enrollmentId: string;
-  enrollment?: ExtracurricularEnrollment;
-  date: string;
-  status: AttendanceStatus;
-  notes?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface ExtracurricularAchievement {
   id: string;
   extracurricularId: string;
@@ -104,12 +93,6 @@ export interface ExtracurricularListParams {
 export type UpdateExtracurricularInput = UpdateExtracurricularBody & {
   id: string;
 };
-
-export interface EnrollStudentInput {
-  extracurricularId: string;
-  studentId: string;
-  notes?: string;
-}
 
 export interface CreateAchievementInput {
   extracurricularId: string;
@@ -357,40 +340,6 @@ export function useExtracurricularEnrollments(
   });
 }
 
-export function useMyExtracurricularEnrollments() {
-  return useQuery({
-    queryKey: ["my-extracurricular-enrollments"],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<ExtracurricularEnrollment[]>>(
-        "/extracurricular/my-enrollments",
-      );
-      return response.data.data;
-    },
-  });
-}
-
-export function useEnrollStudentToExtracurricular() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (data: EnrollStudentInput) => {
-      const response = await api.post<ApiResponse<ExtracurricularEnrollment>>(
-        `/extracurricular/${data.extracurricularId}/enroll`,
-        data,
-      );
-      return response.data.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["extracurricular-enrollments", variables.extracurricularId],
-      });
-      queryClient.invalidateQueries({
-        queryKey: ["extracurriculars", variables.extracurricularId],
-      });
-    },
-  });
-}
-
 export function useApproveEnrollment() {
   const queryClient = useQueryClient();
 
@@ -437,51 +386,6 @@ export function useRejectEnrollment() {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({
         queryKey: ["extracurricular-enrollments", variables.extracurricularId],
-      });
-    },
-  });
-}
-
-// Attendance hooks
-export function useExtracurricularAttendance(
-  extracurricularId: string,
-  date: string,
-) {
-  return useQuery({
-    queryKey: ["extracurricular-attendance", extracurricularId, date],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<ExtracurricularAttendance[]>>(
-        `/extracurricular/${extracurricularId}/attendance`,
-        { params: { date } },
-      );
-      return response.data.data;
-    },
-    enabled: !!extracurricularId && !!date,
-  });
-}
-
-export function useRecordExtracurricularAttendance() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (data: {
-      extracurricularId: string;
-      date: string;
-      records: Array<{
-        enrollmentId: string;
-        status: ExtracurricularAttendance["status"];
-        notes?: string;
-      }>;
-    }) => {
-      const response = await api.post<ApiResponse<ExtracurricularAttendance[]>>(
-        `/extracurricular/${data.extracurricularId}/attendance`,
-        { date: data.date, records: data.records },
-      );
-      return response.data.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({
-        queryKey: ["extracurricular-attendance", variables.extracurricularId],
       });
     },
   });

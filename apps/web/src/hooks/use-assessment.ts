@@ -201,17 +201,29 @@ export function useCreateExam() {
   });
 }
 
+/**
+ * After an exam changes: its list, and its own detail and analytics. The
+ * detail page reads `["exam", id]`, which `["exams"]` does not cover, so it
+ * kept showing "Draft" and the Publish button after a successful publish.
+ */
+function invalidateExam(
+  queryClient: ReturnType<typeof useQueryClient>,
+  id: string,
+) {
+  queryClient.invalidateQueries({ queryKey: ["exams"] });
+  queryClient.invalidateQueries({ queryKey: ["exam", id] });
+  queryClient.invalidateQueries({ queryKey: ["exam-analytics", id] });
+}
+
 export function useUpdateExam() {
   const queryClient = useQueryClient();
 
   return useMutation({
     mutationFn: async ({ id, data }: { id: string; data: UpdateExamInput }) => {
-      const response = await api.put(`/assessment/exams/${id}`, data);
+      const response = await api.patch(`/assessment/exams/${id}`, data);
       return response.data.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["exams"] });
-    },
+    onSuccess: (_data, { id }) => invalidateExam(queryClient, id),
   });
 }
 
@@ -225,9 +237,7 @@ export function useUpdateExamStatus() {
       });
       return response.data.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["exams"] });
-    },
+    onSuccess: (_data, { id }) => invalidateExam(queryClient, id),
   });
 }
 
@@ -244,17 +254,20 @@ export function useDeleteExam() {
   });
 }
 
+/**
+ * Publishing takes an exam out of DRAFT: a status change like any other, on
+ * the API's one route for them.
+ */
 export function usePublishExam() {
   const queryClient = useQueryClient();
-
   return useMutation({
     mutationFn: async (id: string) => {
-      const response = await api.patch(`/assessment/exams/${id}/publish`);
+      const response = await api.patch(`/assessment/exams/${id}/status`, {
+        status: ExamStatus.SCHEDULED,
+      });
       return response.data.data;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["exams"] });
-    },
+    onSuccess: (_data, id) => invalidateExam(queryClient, id),
   });
 }
 
@@ -361,7 +374,7 @@ export function useUpdateGrade() {
       id: string;
       data: UpdateGradeInput;
     }) => {
-      const response = await api.put(`/assessment/grades/${id}`, data);
+      const response = await api.patch(`/assessment/grades/${id}`, data);
       return response.data.data;
     },
     onSuccess: (_, variables) => {
@@ -443,7 +456,7 @@ export function useUpdateReportCard() {
       id: string;
       data: UpdateReportCardInput;
     }) => {
-      const response = await api.put(`/assessment/report-cards/${id}`, data);
+      const response = await api.patch(`/assessment/report-cards/${id}`, data);
       return response.data.data;
     },
     onSuccess: () => {

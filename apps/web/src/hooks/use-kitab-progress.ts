@@ -313,32 +313,6 @@ export function useKitabProgresses(params?: {
   });
 }
 
-export function useStudentKitabProgress(studentId: string) {
-  return useQuery({
-    queryKey: ["student-kitab-progress", studentId],
-    queryFn: async () => {
-      const response = await api.get(
-        `/kitab-progress/progress/student/${studentId}`,
-      );
-      return response.data.data as KitabProgress[];
-    },
-    enabled: !!studentId,
-  });
-}
-
-export function useKitabProgressDetail(kitabId: string, studentId: string) {
-  return useQuery({
-    queryKey: ["kitab-progress-detail", kitabId, studentId],
-    queryFn: async () => {
-      const response = await api.get(
-        `/kitab-progress/progress/${kitabId}/student/${studentId}`,
-      );
-      return response.data.data as KitabProgress;
-    },
-    enabled: !!kitabId && !!studentId,
-  });
-}
-
 export function useUpdateProgress() {
   const queryClient = useQueryClient();
 
@@ -411,35 +385,6 @@ export function useMarkCompleted() {
   });
 }
 
-export function useBulkUpdateProgress() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (data: {
-      kitabId: string;
-      progresses: Array<{
-        studentId: string;
-        currentPage?: number;
-        currentChapter?: number;
-        status?: ProgressStatus;
-        score?: number;
-        notes?: string;
-      }>;
-    }) => {
-      const response = await api.post(
-        "/kitab-progress/progress/bulk-update",
-        data,
-      );
-      return response.data.data as KitabProgress[];
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["kitab-progresses"] });
-      queryClient.invalidateQueries({ queryKey: ["student-kitab-progress"] });
-      queryClient.invalidateQueries({ queryKey: ["kitab-statistics"] });
-    },
-  });
-}
-
 // ===== Statistics & Reports =====
 
 export function useKitabStatistics(params?: { unitId?: string }) {
@@ -462,35 +407,6 @@ export function useStudentKitabReport(studentId: string) {
       return response.data.data as StudentKitabReport;
     },
     enabled: !!studentId,
-  });
-}
-
-export function useClassKitabReport(
-  classId: string,
-  params?: { kitabId?: string },
-) {
-  return useQuery({
-    queryKey: ["class-kitab-report", classId, params],
-    queryFn: async () => {
-      const response = await api.get(
-        `/kitab-progress/report/class/${classId}`,
-        { params },
-      );
-      return response.data.data as {
-        classInfo: {
-          id: string;
-          name: string;
-          level: number;
-        };
-        students: StudentKitabReport[];
-        summary: {
-          totalStudents: number;
-          averageCompletion: number;
-          averageScore: number;
-        };
-      };
-    },
-    enabled: !!classId,
   });
 }
 

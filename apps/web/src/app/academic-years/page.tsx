@@ -21,6 +21,8 @@ import { PageHeader } from "@/components/shared/page-header";
 import { Pagination } from "@/components/shared/pagination";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { Button } from "@/components/ui/button";
+import { useAuthStore } from "@/stores/auth";
+import { getActiveRoleCode } from "@/lib/rbac";
 import {
   Select,
   SelectContent,
@@ -60,6 +62,10 @@ export default function AcademicYearsPage() {
     unitId: unitId !== "ALL" ? unitId : undefined,
   });
 
+  // Creating, changing, activating and deleting a year are Super Admin's
+  // (the API guards every write with `isSuperAdmin`); a unit admin reads.
+  const user = useAuthStore((state) => state.user);
+  const isSuperAdmin = getActiveRoleCode(user) === "SUPER_ADMIN";
   const deleteAcademicYear = useDeleteAcademicYear();
   const activateAcademicYear = useActivateAcademicYear();
 
@@ -101,11 +107,15 @@ export default function AcademicYearsPage() {
       <PageHeader
         title="Tahun Ajaran"
         description="Kelola tahun ajaran untuk setiap unit pendidikan"
-        action={{
-          label: "Tambah Tahun Ajaran",
-          icon: <Plus className="h-4 w-4" />,
-          href: "/academic-years/new",
-        }}
+        action={
+          isSuperAdmin
+            ? {
+                label: "Tambah Tahun Ajaran",
+                icon: <Plus className="h-4 w-4" />,
+                href: "/academic-years/new",
+              }
+            : undefined
+        }
       />
 
       {/* Filter */}
@@ -205,12 +215,14 @@ export default function AcademicYearsPage() {
                             <Eye className="h-4 w-4" />
                           </Link>
                         </Button>
-                        <Button variant="ghost" size="sm" asChild>
-                          <Link href={`/academic-years/${ay.id}/edit`}>
-                            <Pencil className="h-4 w-4" />
-                          </Link>
-                        </Button>
-                        {!ay.isActive && (
+                        {isSuperAdmin && (
+                          <Button variant="ghost" size="sm" asChild>
+                            <Link href={`/academic-years/${ay.id}/edit`}>
+                              <Pencil className="h-4 w-4" />
+                            </Link>
+                          </Button>
+                        )}
+                        {isSuperAdmin && !ay.isActive && (
                           <Button
                             variant="ghost"
                             size="sm"
@@ -220,14 +232,16 @@ export default function AcademicYearsPage() {
                             <CheckCircle className="h-4 w-4 text-green-600" />
                           </Button>
                         )}
-                        <Button
-                          variant="ghost"
-                          size="sm"
-                          onClick={() => setDeleteId(ay.id)}
-                          className="text-destructive hover:text-destructive"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
+                        {isSuperAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            onClick={() => setDeleteId(ay.id)}
+                            className="text-destructive hover:text-destructive"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
                       </div>
                     </TableCell>
                   </TableRow>

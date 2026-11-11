@@ -4,7 +4,7 @@
  */
 
 import { useQuery } from "@tanstack/react-query";
-import { apiClient } from "@/lib/api-client";
+import { api } from "@/lib/api";
 
 // ============================================
 // Types
@@ -72,7 +72,7 @@ async function fetchQualityDistribution(
   if (params.murojaahType)
     searchParams.append("murojaahType", params.murojaahType);
 
-  const response = await apiClient.get(
+  const response = await api.get(
     `/murojaah/analytics/quality-distribution?${searchParams}`,
   );
   return response.data.data;
@@ -86,7 +86,7 @@ async function fetchMistakePatterns(
   if (params.dateTo) searchParams.append("dateTo", params.dateTo);
   if (params.halaqohId) searchParams.append("halaqohId", params.halaqohId);
 
-  const response = await apiClient.get(
+  const response = await api.get(
     `/murojaah/analytics/mistake-patterns?${searchParams}`,
   );
   return response.data.data;
@@ -100,7 +100,7 @@ async function fetchConsistencyScore(
   if (params.dateTo) searchParams.append("dateTo", params.dateTo);
   if (params.halaqohId) searchParams.append("halaqohId", params.halaqohId);
 
-  const response = await apiClient.get(
+  const response = await api.get(
     `/murojaah/analytics/consistency-score?${searchParams}`,
   );
   return response.data.data;
@@ -115,7 +115,7 @@ async function fetchTopPerformers(
   if (params.halaqohId) searchParams.append("halaqohId", params.halaqohId);
   if (params.limit) searchParams.append("limit", params.limit.toString());
 
-  const response = await apiClient.get(
+  const response = await api.get(
     `/murojaah/analytics/top-performers?${searchParams}`,
   );
   return response.data.data;

@@ -536,19 +536,6 @@ export function useExportRaportMerdekaPdf() {
   });
 }
 
-export function useLearningPhase(id: string) {
-  return useQuery({
-    queryKey: ["learning-phases", id],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<LearningPhase>>(
-        `/kurikulum-merdeka/phases/${id}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!id,
-  });
-}
-
 export interface CreateLearningPhaseData {
   code: LearningPhaseCode;
   name: string;
@@ -566,48 +553,6 @@ export function useCreateLearningPhase() {
         data,
       );
       return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["learning-phases"] });
-      queryClient.invalidateQueries({
-        queryKey: ["kurikulum-merdeka-summary"],
-      });
-    },
-  });
-}
-
-export function useUpdateLearningPhase() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: Partial<Omit<CreateLearningPhaseData, "code">>;
-    }) => {
-      const response = await api.put<ApiResponse<LearningPhase>>(
-        `/kurikulum-merdeka/phases/${id}`,
-        data,
-      );
-      return response.data.data;
-    },
-    onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: ["learning-phases"] });
-      queryClient.invalidateQueries({
-        queryKey: ["learning-phases", variables.id],
-      });
-    },
-  });
-}
-
-export function useDeleteLearningPhase() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (id: string) => {
-      await api.delete(`/kurikulum-merdeka/phases/${id}`);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["learning-phases"] });

@@ -54,7 +54,7 @@ export function OfflineBanner({
     setIsRetrying(true);
     try {
       // Trigger a fetch to check connection
-      await fetch("/api/health", { method: "HEAD" }).catch(() => {});
+      await fetch("/ping", { method: "HEAD" }).catch(() => {});
       onRetry?.();
     } finally {
       setIsRetrying(false);
@@ -116,7 +116,7 @@ interface ConnectionStatusProps {
  * Shows a small indicator when connection is unstable
  */
 export function ConnectionStatus({
-  pingUrl = "/api/health",
+  pingUrl = "/ping",
   checkInterval = 30000,
 }: ConnectionStatusProps) {
   const isOnline = useIsOnline();

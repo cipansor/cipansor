@@ -7,7 +7,8 @@ import {
   type ScopeActor,
 } from '../../utils/student-scope';
 import { STUDENT_SUMMARY_SELECT, withStudentSummary } from '../../utils/student-summary';
-import { wibDayEnd, wibDayStart } from '../../utils/wib-day';
+import { wibDayBound, wibDayEnd, wibDayStart } from '../../utils/wib-day';
+import type { DisciplineSummaryRange, RewardsSummary } from '@cipansor/shared';
 
 /**
  * `studentScope` returns the santri the caller may see; folding it into the
@@ -122,6 +123,75 @@ export async function deleteReward(id: string, actor: ScopeActor) {
   if (!existing) return false;
   await prisma.reward.delete({ where: { id } });
   return true;
+}
+
+/** `givenAt` between two WIB days, either end optional. */
+function givenBetween(range: DisciplineSummaryRange) {
+  if (!range.startDate && !range.endDate) return {};
+  return {
+    givenAt: {
+      ...(range.startDate && { gte: wibDayBound(range.startDate, 'start') }),
+      ...(range.endDate && { lte: wibDayBound(range.endDate, 'end') }),
+    },
+  };
+}
+
+/**
+ * The figures behind the Penghargaan page's cards and podium, counted over the
+ * santri the caller may see: how many, how many points, the commonest
+ * categories, and the santri with the most points.
+ *
+ * Served at `GET /rewards/summary`. Before it existed the request fell through
+ * to `/:id` and answered "not found", so every card read 0 (#764).
+ */
+export async function getRewardsSummary(
+  actor: ScopeActor,
+  range: DisciplineSummaryRange = {}
+): Promise<RewardsSummary> {
+  const where = scopedWhere(actor, givenBetween(range));
+  const [totalRewards, points, byCategory, byStudent] = await Promise.all([
+    prisma.reward.count({ where }),
+    prisma.reward.aggregate({ where, _sum: { points: true } }),
+    prisma.reward.groupBy({
+      by: ['category'],
+      where,
+      _count: { _all: true },
+      _sum: { points: true },
+      orderBy: { _count: { category: 'desc' } },
+      take: 10,
+    }),
+    prisma.reward.groupBy({
+      by: ['studentId'],
+      where,
+      _count: { _all: true },
+      _sum: { points: true },
+      // Ties broken by id, so the same data always gives the same podium.
+      orderBy: [{ _sum: { points: 'desc' } }, { studentId: 'asc' }],
+      take: 10,
+    }),
+  ]);
+  const students = byStudent.length
+    ? await prisma.student.findMany({
+        where: { id: { in: byStudent.map((s) => s.studentId) } },
+        select: { id: true, user: { select: { name: true } } },
+      })
+    : [];
+  const nameOf = new Map(students.map((s) => [s.id, s.user?.name ?? '']));
+  return {
+    totalRewards,
+    totalPoints: points._sum.points ?? 0,
+    byCategory: byCategory.map((g) => ({
+      category: g.category,
+      count: g._count._all,
+      points: g._sum.points ?? 0,
+    })),
+    topStudents: byStudent.map((g) => ({
+      studentId: g.studentId,
+      name: nameOf.get(g.studentId) ?? '',
+      count: g._count._all,
+      points: g._sum.points ?? 0,
+    })),
+  };
 }
 
 export async function getStudentRewardPoints(studentId: string) {

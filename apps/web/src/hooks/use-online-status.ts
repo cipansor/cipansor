@@ -47,7 +47,7 @@ interface UseOnlineStatusOptions {
  * ```tsx
  * function App() {
  *   const { isOnline, isApiReachable } = useOnlineStatus({
- *     pingUrl: '/api/health',
+ *     pingUrl: '/ping',
  *     onOffline: () => toast.error('Koneksi terputus'),
  *     onOnline: () => toast.success('Koneksi kembali'),
  *   });
@@ -182,7 +182,7 @@ export function useOnlineStatus(
 }
 
 /** Same-origin probe used to verify a claimed offline state. */
-const OFFLINE_PROBE_URL = "/api/health";
+const OFFLINE_PROBE_URL = "/ping";
 /** Re-verify cadence while the browser claims to be offline. */
 const OFFLINE_RECHECK_MS = 15000;
 

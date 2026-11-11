@@ -1,3 +1,4 @@
+import { FOUNDATION_WRITER_ROLE_CODES } from '@cipansor/shared';
 import { Router } from 'express';
 import { RoleCode } from '@prisma/client';
 import * as controller from './foundation.controller';
@@ -37,7 +38,7 @@ const YAYASAN_READ = [
  * ordinary board member — neither should be able to edit the record they
  * oversee, and bendahara's remit is finance, not governance documents.
  */
-const YAYASAN_WRITE = [RoleCode.SUPER_ADMIN, RoleCode.YAYASAN_KETUA, RoleCode.YAYASAN_SEKRETARIS];
+const YAYASAN_WRITE = [...FOUNDATION_WRITER_ROLE_CODES];
 
 // ==================== FOUNDATIONS ====================
 

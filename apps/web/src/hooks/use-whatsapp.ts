@@ -104,25 +104,3 @@ export function useSendWhatsApp() {
     },
   });
 }
-
-// Send daily report via WhatsApp
-export function useSendDailyReportWhatsApp() {
-  return useMutation({
-    mutationFn: async (reportId: string) => {
-      const response = await api.post(
-        `/daily-report/${reportId}/send-whatsapp`,
-      );
-      return response.data;
-    },
-  });
-}
-
-// Send tahfidz progress via WhatsApp
-export function useSendTahfidzWhatsApp() {
-  return useMutation({
-    mutationFn: async (progressId: string) => {
-      const response = await api.post(`/tahfidz/${progressId}/send-whatsapp`);
-      return response.data;
-    },
-  });
-}

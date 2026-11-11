@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery, useMutation } from "@tanstack/react-query";
+import { useQuery } from "@tanstack/react-query";
 import api, { ApiResponse } from "@/lib/api";
 
 // Types for parent report card view
@@ -151,20 +151,6 @@ export function getGradeColor(grade: string): string {
   return "text-red-600";
 }
 
-// Get student report cards list
-export function useStudentReportCards(studentId?: string) {
-  return useQuery<ReportCardListItem[]>({
-    queryKey: ["report-cards", "student", studentId],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<ReportCardListItem[]>>(
-        `/assessment/report-cards/students/${studentId}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!studentId,
-  });
-}
-
 // Get report card detail (for parent)
 export function useParentReportCard(reportCardId?: string) {
   return useQuery<ParentReportCard>({
@@ -176,123 +162,5 @@ export function useParentReportCard(reportCardId?: string) {
       return response.data.data;
     },
     enabled: !!reportCardId,
-  });
-}
-
-// Get my children report cards (for parent)
-export function useMyChildrenReportCards() {
-  return useQuery<
-    {
-      child: {
-        id: string;
-        nis: string;
-        name: string;
-        class?: {
-          id: string;
-          name: string;
-        };
-        photo?: string;
-      };
-      reportCards: ReportCardListItem[];
-    }[]
-  >({
-    queryKey: ["report-cards", "my-children"],
-    queryFn: async () => {
-      const response = await api.get<
-        ApiResponse<
-          {
-            child: {
-              id: string;
-              nis: string;
-              name: string;
-              class?: {
-                id: string;
-                name: string;
-              };
-              photo?: string;
-            };
-            reportCards: ReportCardListItem[];
-          }[]
-        >
-      >("/assessment/report-cards/my-children");
-      return response.data.data;
-    },
-  });
-}
-
-// Download report card PDF
-export function useDownloadReportCard() {
-  return useMutation({
-    mutationFn: async (reportCardId: string) => {
-      const response = await api.get(
-        `/assessment/report-cards/${reportCardId}/download`,
-        {
-          responseType: "blob",
-        },
-      );
-      return response.data;
-    },
-  });
-}
-
-// Get class report cards (for teacher/admin)
-export function useClassReportCards(classId?: string, semester?: number) {
-  return useQuery<
-    {
-      student: {
-        id: string;
-        nis: string;
-        name: string;
-      };
-      reportCard?: ReportCardListItem;
-    }[]
-  >({
-    queryKey: ["report-cards", "class", classId, semester],
-    queryFn: async () => {
-      const params = new URLSearchParams();
-      if (semester) params.append("semester", semester.toString());
-
-      const response = await api.get<
-        ApiResponse<
-          {
-            student: {
-              id: string;
-              nis: string;
-              name: string;
-            };
-            reportCard?: ReportCardListItem;
-          }[]
-        >
-      >(`/assessment/report-cards/classes/${classId}?${params.toString()}`);
-      return response.data.data;
-    },
-    enabled: !!classId,
-  });
-}
-
-// Publish report card (for parent module)
-export function useParentPublishReportCard() {
-  return useMutation({
-    mutationFn: async (reportCardId: string) => {
-      const response = await api.post<ApiResponse<ParentReportCard>>(
-        `/assessment/report-cards/${reportCardId}/publish`,
-      );
-      return response.data.data;
-    },
-  });
-}
-
-// Bulk publish report cards
-export function useBulkPublishReportCards() {
-  return useMutation({
-    mutationFn: async (reportCardIds: string[]) => {
-      const response = await api.post<ApiResponse<{ published: number }>>(
-        "/assessment/report-cards/bulk-publish",
-        {
-          reportCardIds,
-        },
-      );
-      return response.data.data;
-    },
   });
 }

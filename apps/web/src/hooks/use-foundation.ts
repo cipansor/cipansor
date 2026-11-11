@@ -6,29 +6,71 @@ import type {
 import api from "@/lib/api";
 
 // Types
+/** The yayasan's record, as `foundations` stores it. */
 export interface Foundation {
   id: string;
   name: string;
   legalName: string;
-  registrationNumber: string;
-  taxId?: string;
+  foundingDate?: string | null;
+  taxId?: string | null;
   address: string;
-  city: string;
-  province: string;
-  postalCode: string;
-  phone: string;
-  email: string;
-  website?: string;
-  foundedDate: string;
-  chairman: string;
-  secretary: string;
-  treasurer: string;
-  logo?: string;
-  description?: string;
-  vision?: string;
-  mission?: string;
+  phone?: string | null;
+  email?: string | null;
+  website?: string | null;
+  logoUrl?: string | null;
+  vision?: string | null;
+  mission?: string | null;
   createdAt: string;
   updatedAt: string;
+}
+
+/** The fields the profile form edits (`PUT /foundation/:id`). */
+/** The profile fields the form edits, as strings (the date as YYYY-MM-DD). */
+export type FoundationProfileForm = {
+  [
+    K in
+      | "name"
+      | "legalName"
+      | "taxId"
+      | "address"
+      | "phone"
+      | "email"
+      | "website"
+      | "vision"
+      | "mission"
+      | "foundingDate"
+  ]: string;
+};
+
+/** The body of `PUT /foundation/:id`. `null` clears an optional field. */
+export type FoundationProfileInput = Partial<
+  Pick<FoundationProfileForm, "name" | "legalName" | "address">
+> & {
+  [
+    K in Exclude<keyof FoundationProfileForm, "name" | "legalName" | "address">
+  ]?: string | null;
+};
+
+const REQUIRED_PROFILE_FIELDS = ["name", "legalName", "address"] as const;
+
+/**
+ * The form's values as the API takes them. An emptied optional field is sent
+ * as `null`, so it is cleared rather than silently kept (the API checks the
+ * e-mail and URL formats, and "" is neither). The required fields go as typed:
+ * an empty name comes back as the API's 400, not as a false "berhasil".
+ */
+export function foundationProfilePayload(
+  values: FoundationProfileForm,
+): FoundationProfileInput {
+  const body: Record<string, string | null> = {};
+  for (const [key, raw] of Object.entries(values)) {
+    const value = raw.trim();
+    const required = (REQUIRED_PROFILE_FIELDS as readonly string[]).includes(
+      key,
+    );
+    body[key] = value === "" && !required ? null : value;
+  }
+  return body as FoundationProfileInput;
 }
 
 export interface FoundationDocument {
@@ -93,12 +135,16 @@ export interface FoundationBoardMemberInput {
 }
 
 // Foundation queries
+/**
+ * The yayasan's own record. `GET /foundation` lists foundations; the yayasan
+ * has exactly one, so the first row is it.
+ */
 export function useFoundation() {
   return useQuery({
     queryKey: ["foundation"],
     queryFn: async () => {
-      const response = await api.get("/foundation");
-      return response.data.data as Foundation;
+      const response = await api.get<{ data: Foundation[] }>("/foundation");
+      return (response.data.data?.[0] ?? null) as Foundation | null;
     },
   });
 }
@@ -107,9 +153,15 @@ export function useUpdateFoundation() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: Partial<Foundation>) => {
-      const response = await api.put("/foundation", data);
-      return response.data.data;
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: FoundationProfileInput;
+    }) => {
+      const response = await api.put(`/foundation/${id}`, data);
+      return response.data.data as Foundation;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["foundation"] });

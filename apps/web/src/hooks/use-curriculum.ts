@@ -96,8 +96,9 @@ export interface Schedule {
   startTime: string;
   endTime: string;
   room?: string;
-  notes?: string;
   isActive: boolean;
+  /** The unit the slot belongs to: the class's unit. Required on create. */
+  unitId?: string;
   academicYearId: string;
   createdAt: string;
   updatedAt: string;
@@ -269,6 +270,57 @@ export function useRemoveTeacherFromSubject() {
   });
 }
 
+/** A slot as the API sends it: the day as `dayOfWeek`, the teacher's name under `user`. */
+export type ApiScheduleRow = Omit<Schedule, "day" | "teacher"> & {
+  day?: ScheduleDay;
+  dayOfWeek?: ScheduleDay;
+  teacher?: { id: string; name?: string; user?: { name: string } | null };
+};
+
+/**
+ * The API names a slot's day `dayOfWeek`; these pages read and write `day`.
+ * Rows are mapped on the way in, and writes on the way out, so a saved day
+ * is not dropped by the API's schema (which strips the unknown `day`). The
+ * teacher comes back as a Teacher row whose name sits on its user; the
+ * timetable reads `teacher.name`, which used to be empty.
+ */
+export function fromApiSchedule(row: ApiScheduleRow): Schedule {
+  const { dayOfWeek, teacher, ...rest } = row;
+  return {
+    ...rest,
+    day: row.day ?? (dayOfWeek as ScheduleDay),
+    ...(teacher
+      ? {
+          teacher: {
+            id: teacher.id,
+            name: teacher.user?.name ?? teacher.name ?? "",
+          },
+        }
+      : {}),
+  };
+}
+
+export function toApiSchedule(data: Partial<Schedule>) {
+  const { day, ...rest } = data;
+  // The relations are read-only on the way in; the API takes the ids.
+  const body: Record<string, unknown> = { ...rest };
+  delete body.class;
+  delete body.subject;
+  delete body.teacher;
+  return { ...body, ...(day ? { dayOfWeek: day } : {}) };
+}
+
+/**
+ * Map a list response's `data`. A payload that is not an array (an error
+ * envelope, a bare object) yields no rows instead of throwing: `.map` on a
+ * non-array took the whole schedule page down.
+ */
+export function toScheduleList(data: unknown): Schedule[] {
+  return Array.isArray(data)
+    ? (data as ApiScheduleRow[]).map(fromApiSchedule)
+    : [];
+}
+
 // Schedule queries
 export function useSchedules(params?: {
   classId?: string;
@@ -280,8 +332,11 @@ export function useSchedules(params?: {
   return useQuery({
     queryKey: ["schedules", params],
     queryFn: async () => {
-      const response = await api.get("/curriculum/schedules", { params });
-      return response.data.data as Schedule[];
+      const { day, ...rest } = params ?? {};
+      const response = await api.get("/curriculum/schedules", {
+        params: { ...rest, ...(day ? { dayOfWeek: day } : {}) },
+      });
+      return toScheduleList(response.data.data);
     },
   });
 }
@@ -290,28 +345,13 @@ export function useClassSchedule(classId: string, academicYearId?: string) {
   return useQuery({
     queryKey: ["class-schedule", classId, academicYearId],
     queryFn: async () => {
-      const response = await api.get(`/curriculum/schedules/class/${classId}`, {
-        params: { academicYearId },
-      });
-      return response.data.data as Schedule[];
+      const response = await api.get(
+        `/curriculum/classes/${classId}/schedule`,
+        { params: { academicYearId } },
+      );
+      return toScheduleList(response.data.data);
     },
     enabled: !!classId,
-  });
-}
-
-export function useTeacherSchedule(teacherId: string, academicYearId?: string) {
-  return useQuery({
-    queryKey: ["teacher-schedule", teacherId, academicYearId],
-    queryFn: async () => {
-      const response = await api.get(
-        `/curriculum/schedules/teacher/${teacherId}`,
-        {
-          params: { academicYearId },
-        },
-      );
-      return response.data.data as Schedule[];
-    },
-    enabled: !!teacherId,
   });
 }
 
@@ -320,7 +360,10 @@ export function useCreateSchedule() {
 
   return useMutation({
     mutationFn: async (data: Partial<Schedule>) => {
-      const response = await api.post("/curriculum/schedules", data);
+      const response = await api.post(
+        "/curriculum/schedules",
+        toApiSchedule(data),
+      );
       return response.data.data;
     },
     onSuccess: () => {
@@ -342,7 +385,10 @@ export function useUpdateSchedule() {
       id: string;
       data: Partial<Schedule>;
     }) => {
-      const response = await api.put(`/curriculum/schedules/${id}`, data);
+      const response = await api.patch(
+        `/curriculum/schedules/${id}`,
+        toApiSchedule(data),
+      );
       return response.data.data;
     },
     onSuccess: () => {

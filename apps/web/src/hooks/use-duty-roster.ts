@@ -173,42 +173,6 @@ export function useDutyRoster(id?: string) {
   });
 }
 
-// Get duty assignment detail
-export function useDutyAssignment(id?: string) {
-  return useQuery<DutyAssignment>({
-    queryKey: ["duty-assignments", id],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<DutyAssignment>>(
-        `/duty-assignments/${id}`,
-      );
-      return response.data.data;
-    },
-    enabled: !!id,
-  });
-}
-
-// Get my duties (for student)
-export function useMyDuties(params?: {
-  startDate?: string;
-  endDate?: string;
-  status?: DutyStatus;
-}) {
-  const queryParams = new URLSearchParams();
-  if (params?.startDate) queryParams.append("startDate", params.startDate);
-  if (params?.endDate) queryParams.append("endDate", params.endDate);
-  if (params?.status) queryParams.append("status", params.status);
-
-  return useQuery<DutyAssignment[]>({
-    queryKey: ["duty-assignments", "my-duties", params],
-    queryFn: async () => {
-      const response = await api.get<ApiResponse<DutyAssignment[]>>(
-        `/duty-assignments/my-duties?${queryParams.toString()}`,
-      );
-      return response.data.data;
-    },
-  });
-}
-
 // Get duty statistics
 export function useDutyStatistics(params?: {
   startDate?: string;
@@ -325,90 +289,6 @@ export function useUpdateDutyStatus() {
       queryClient.invalidateQueries({ queryKey: ["duty-rosters"] });
       queryClient.invalidateQueries({ queryKey: ["duty-assignments"] });
       queryClient.invalidateQueries({ queryKey: ["duty-statistics"] });
-    },
-  });
-}
-
-// Request substitution
-export function useRequestSubstitution() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      assignmentId,
-      substituteStudentId,
-      reason,
-    }: {
-      assignmentId: string;
-      substituteStudentId: string;
-      reason: string;
-    }) => {
-      const response = await api.post<ApiResponse<DutyAssignment>>(
-        `/duty-assignments/${assignmentId}/substitute`,
-        {
-          substituteStudentId,
-          reason,
-        },
-      );
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["duty-rosters"] });
-      queryClient.invalidateQueries({ queryKey: ["duty-assignments"] });
-    },
-  });
-}
-
-// Complete duty assignment
-export function useCompleteDutyAssignment() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      assignmentId,
-      notes,
-    }: {
-      assignmentId: string;
-      notes?: string;
-    }) => {
-      const response = await api.post<ApiResponse<DutyAssignment>>(
-        `/duty-assignments/${assignmentId}/complete`,
-        {
-          notes,
-        },
-      );
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["duty-rosters"] });
-      queryClient.invalidateQueries({ queryKey: ["duty-assignments"] });
-      queryClient.invalidateQueries({ queryKey: ["duty-statistics"] });
-    },
-  });
-}
-
-// Export duty roster report
-export function useExportDutyReport() {
-  return useMutation({
-    mutationFn: async (params: {
-      startDate: string;
-      endDate: string;
-      classId?: string;
-      format?: "pdf" | "excel";
-    }) => {
-      const queryParams = new URLSearchParams();
-      queryParams.append("startDate", params.startDate);
-      queryParams.append("endDate", params.endDate);
-      if (params.classId) queryParams.append("classId", params.classId);
-      if (params.format) queryParams.append("format", params.format);
-
-      const response = await api.get(
-        `/duty-roster/export?${queryParams.toString()}`,
-        {
-          responseType: "blob",
-        },
-      );
-      return response.data;
     },
   });
 }

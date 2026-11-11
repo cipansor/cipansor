@@ -4,6 +4,7 @@ import {
   createViolationSchema,
   updateViolationSchema,
   queryViolationSchema,
+  violationSummaryQuerySchema,
 } from './violations.schema';
 import { Errors } from '../../middleware/error';
 import { requireUser } from '../../middleware/auth';
@@ -94,6 +95,15 @@ export async function deleteViolation(req: Request, res: Response, next: NextFun
   }
 }
 
+export async function getViolationsSummary(req: Request, res: Response, next: NextFunction) {
+  try {
+    const range = violationSummaryQuerySchema.parse(res.locals.validatedQuery || req.query);
+    const summary = await violationService.getViolationsSummary(actor(req), range);
+    res.json({ success: true, data: summary });
+  } catch (error) {
+    next(error);
+  }
+}
 export async function getStudentViolationSummary(req: Request, res: Response, next: NextFunction) {
   try {
     const { studentId } = req.params;

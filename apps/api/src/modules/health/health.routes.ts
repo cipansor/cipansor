@@ -1,7 +1,13 @@
 import { Router } from 'express';
 import * as controller from './health.controller';
 import { authenticate, hasPermission } from '../../middleware/auth';
+import { validateParams } from '../../middleware/error';
 import { PERMISSIONS } from '../roles/permissions';
+import {
+  growthIdParamSchema,
+  medicalRecordIdParamSchema,
+  medicationIdParamSchema,
+} from './health.schema';
 
 const router = Router();
 
@@ -127,7 +133,11 @@ router.post('/records', controller.createMedicalRecord);
  *       200:
  *         description: Medical record updated
  */
-router.put('/records/:id', controller.updateMedicalRecord);
+router.put(
+  '/records/:id',
+  validateParams(medicalRecordIdParamSchema),
+  controller.updateMedicalRecord
+);
 
 /**
  * @swagger
@@ -147,7 +157,11 @@ router.put('/records/:id', controller.updateMedicalRecord);
  *       204:
  *         description: Medical record deleted
  */
-router.delete('/records/:id', controller.deleteMedicalRecord);
+router.delete(
+  '/records/:id',
+  validateParams(medicalRecordIdParamSchema),
+  controller.deleteMedicalRecord
+);
 
 /**
  * @swagger
@@ -269,7 +283,11 @@ router.post('/medications', controller.createMedication);
  *       200:
  *         description: Medication updated
  */
-router.put('/medications/:id', controller.updateMedication);
+router.put(
+  '/medications/:id',
+  validateParams(medicationIdParamSchema),
+  controller.updateMedication
+);
 
 /**
  * @swagger
@@ -289,7 +307,11 @@ router.put('/medications/:id', controller.updateMedication);
  *       204:
  *         description: Medication deleted
  */
-router.delete('/medications/:id', controller.deleteMedication);
+router.delete(
+  '/medications/:id',
+  validateParams(medicationIdParamSchema),
+  controller.deleteMedication
+);
 
 /**
  * @swagger
@@ -483,6 +505,26 @@ router.post('/growth', controller.createGrowthRecord);
  *         description: List of growth records
  */
 router.get('/growth', controller.getGrowthRecords);
+
+/**
+ * @swagger
+ * /api/health/growth/{id}:
+ *   delete:
+ *     summary: Delete growth record
+ *     tags: [Health]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema:
+ *           type: string
+ *     responses:
+ *       200:
+ *         description: Growth record deleted
+ */
+router.delete('/growth/:id', validateParams(growthIdParamSchema), controller.deleteGrowthRecord);
 
 // ==================== CLINIC (POLIKLINIK) ====================
 

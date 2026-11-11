@@ -1,11 +1,22 @@
 import { Router } from 'express';
-import { UserRole } from '@prisma/client';
+import { RoleCode, UserRole } from '@prisma/client';
+import { LEGACY_ROLE_EXPANSION } from '@cipansor/shared';
 import * as controller from './rewards.controller';
 import { authenticate, authorize } from '../../middleware/auth';
 import { validateQuery } from '../../middleware/error';
-import { queryRewardSchema } from './rewards.schema';
+import { queryRewardSchema, rewardSummaryQuerySchema } from './rewards.schema';
 
 const router = Router();
+
+/**
+ * Who reads the summary: the same accounts as `GET /rewards`, named by role code so
+ * the cards and the list below them never disagree on who may see them.
+ */
+const SUMMARY_READER_ROLE_CODES = [
+  RoleCode.SUPER_ADMIN,
+  ...LEGACY_ROLE_EXPANSION.UNIT_ADMIN,
+  ...LEGACY_ROLE_EXPANSION.TEACHER,
+];
 
 router.use(authenticate);
 
@@ -45,6 +56,35 @@ router.get(
   controller.getRewards
 );
 
+/**
+ * @swagger
+ * /api/rewards/summary:
+ *   get:
+ *     summary: Reward figures in the caller's scope (cards of the Penghargaan page)
+ *     tags: [Rewards]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *     responses:
+ *       200:
+ *         description: Totals, counts by category, top santri by points
+ */
+router.get(
+  '/summary',
+  authorize(...SUMMARY_READER_ROLE_CODES),
+  validateQuery(rewardSummaryQuerySchema),
+  controller.getRewardsSummary
+);
 /**
  * @swagger
  * /api/rewards/categories:

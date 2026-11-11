@@ -154,21 +154,6 @@ export interface AlumniEvent {
   updatedAt: string;
 }
 
-export interface AlumniDonation {
-  id: string;
-  alumniId: string;
-  alumni?: Alumni;
-  amount: number;
-  purpose: string;
-  message?: string;
-  status: "PENDING" | "CONFIRMED" | "REJECTED";
-  paymentMethod?: string;
-  paymentProofUrl?: string;
-  confirmedAt?: string;
-  createdAt: string;
-  updatedAt: string;
-}
-
 export interface AlumniStats {
   total: number;
   byStatus: Record<AlumniStatus, number>;
@@ -429,60 +414,6 @@ export function useDeleteAlumniEvent() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["alumni-events"] });
-    },
-  });
-}
-
-// Alumni Donations
-export function useAlumniDonations(params?: {
-  alumniId?: string;
-  status?: string;
-  page?: number;
-  limit?: number;
-}) {
-  return useQuery({
-    queryKey: ["alumni-donations", params],
-    queryFn: async () => {
-      const response = await api.get("/alumni/donations", { params });
-      return response.data as {
-        data: AlumniDonation[];
-        meta: {
-          total: number;
-          page: number;
-          limit: number;
-          totalPages: number;
-        };
-      };
-    },
-  });
-}
-
-export function useCreateAlumniDonation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (data: FormData) => {
-      const response = await api.post("/alumni/donations", data, {
-        headers: { "Content-Type": "multipart/form-data" },
-      });
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["alumni-donations"] });
-    },
-  });
-}
-
-export function useConfirmDonation() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async (id: string) => {
-      const response = await api.post(`/alumni/donations/${id}/confirm`);
-      return response.data.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["alumni-donations"] });
     },
   });
 }

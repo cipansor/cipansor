@@ -28,6 +28,18 @@ export const queryRewardSchema = z.object({
   limit: z.coerce.number().int().positive().max(100).default(20),
 });
 
+/** `GET /rewards/summary`: an optional WIB date range (YYYY-MM-DD). */
+export const rewardSummaryQuerySchema = z
+  .object({
+    startDate: z.iso.date().optional(),
+    endDate: z.iso.date().optional(),
+  })
+  // YYYY-MM-DD strings order like the days they name.
+  .refine((r) => !r.startDate || !r.endDate || r.startDate <= r.endDate, {
+    message: 'Tanggal akhir tidak boleh sebelum tanggal mulai',
+    path: ['endDate'],
+  });
+
 export type CreateRewardDto = z.infer<typeof createRewardSchema>;
 export type UpdateRewardDto = z.infer<typeof updateRewardSchema>;
 export type QueryRewardDto = z.infer<typeof queryRewardSchema>;

@@ -57,6 +57,9 @@ import {
   useFoundationFinancialOverview,
   DOCUMENT_TYPE_LABELS,
   type DocumentType,
+  type Foundation,
+  type FoundationProfileForm,
+  foundationProfilePayload,
 } from "@/hooks";
 import {
   BarChart,
@@ -97,8 +100,29 @@ import { id } from "date-fns/locale";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { toast } from "sonner";
+import { FOUNDATION_WRITER_ROLE_CODES } from "@cipansor/shared";
+import { useAuthStore } from "@/stores/auth";
+import { getActiveRoleCode } from "@/lib/rbac";
 
 const TABS = ["info", "documents", "board", "financial"] as const;
+
+type ProfileForm = FoundationProfileForm;
+
+/** The record as the form's fields: strings only, the date as YYYY-MM-DD. */
+function toProfileForm(f: Foundation | null | undefined): ProfileForm {
+  return {
+    name: f?.name ?? "",
+    legalName: f?.legalName ?? "",
+    taxId: f?.taxId ?? "",
+    address: f?.address ?? "",
+    phone: f?.phone ?? "",
+    email: f?.email ?? "",
+    website: f?.website ?? "",
+    vision: f?.vision ?? "",
+    mission: f?.mission ?? "",
+    foundingDate: f?.foundingDate ? f.foundingDate.slice(0, 10) : "",
+  };
+}
 
 function FoundationPageContent() {
   // The organ forms come back to `/foundation?tab=board`.
@@ -107,6 +131,12 @@ function FoundationPageContent() {
     TABS.find((t) => t === tabParam) ?? "info",
   );
   const [isEditing, setIsEditing] = useState(false);
+  // The other organs read the profile; `PUT /foundation/:id` refuses them, so
+  // they get no "Edit" to press.
+  const user = useAuthStore((state) => state.user);
+  const canEditProfile = FOUNDATION_WRITER_ROLE_CODES.includes(
+    getActiveRoleCode(user) ?? "",
+  );
 
   const { data: foundation, isLoading } = useFoundation();
   const { data: documents } = useFoundationDocuments();
@@ -138,18 +168,19 @@ function FoundationPageContent() {
     }).format(value);
   };
 
-  const { register, handleSubmit, reset } = useForm({
-    defaultValues: foundation || {},
+  const { register, handleSubmit, reset } = useForm<ProfileForm>({
+    defaultValues: toProfileForm(foundation),
   });
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  const onSubmit = async (data: any) => {
+  const onSubmit = async (values: ProfileForm) => {
+    if (!foundation) return;
+    const data = foundationProfilePayload(values);
     try {
-      await updateFoundation.mutateAsync(data);
+      await updateFoundation.mutateAsync({ id: foundation.id, data });
       toast.success("Data yayasan berhasil diperbarui");
       setIsEditing(false);
     } catch {
-      toast.error("Gagal memperbarui data yayasan");
+      // The shared client already shows the API's reason.
     }
   };
 
@@ -242,26 +273,30 @@ function FoundationPageContent() {
                   <CardTitle>Profil Yayasan</CardTitle>
                   <CardDescription>Informasi dasar yayasan</CardDescription>
                 </div>
-                <Button
-                  variant={isEditing ? "outline" : "default"}
-                  onClick={() => {
-                    if (isEditing) {
-                      reset(foundation || {});
-                    }
-                    setIsEditing(!isEditing);
-                  }}
-                >
-                  {isEditing ? (
-                    "Batal"
-                  ) : (
-                    <>
-                      <Edit className="mr-2 h-4 w-4" /> Edit
-                    </>
-                  )}
-                </Button>
+                {canEditProfile && foundation && (
+                  <Button
+                    variant={isEditing ? "outline" : "default"}
+                    onClick={() => {
+                      reset(toProfileForm(foundation));
+                      setIsEditing(!isEditing);
+                    }}
+                  >
+                    {isEditing ? (
+                      "Batal"
+                    ) : (
+                      <>
+                        <Edit className="mr-2 h-4 w-4" /> Edit
+                      </>
+                    )}
+                  </Button>
+                )}
               </CardHeader>
               <CardContent>
-                {isEditing ? (
+                {!foundation ? (
+                  <p className="text-muted-foreground">
+                    Data yayasan belum ada
+                  </p>
+                ) : isEditing && canEditProfile ? (
                   <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">
@@ -271,13 +306,6 @@ function FoundationPageContent() {
                       <div className="space-y-2">
                         <Label htmlFor="legalName">Nama Badan Hukum</Label>
                         <Input id="legalName" {...register("legalName")} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="registrationNumber">Nomor Akta</Label>
-                        <Input
-                          id="registrationNumber"
-                          {...register("registrationNumber")}
-                        />
                       </div>
                       <div className="space-y-2">
                         <Label htmlFor="taxId">NPWP</Label>
@@ -296,31 +324,17 @@ function FoundationPageContent() {
                         <Input id="website" {...register("website")} />
                       </div>
                       <div className="space-y-2">
-                        <Label htmlFor="foundedDate">Tanggal Berdiri</Label>
+                        <Label htmlFor="foundingDate">Tanggal Berdiri</Label>
                         <Input
-                          id="foundedDate"
+                          id="foundingDate"
                           type="date"
-                          {...register("foundedDate")}
+                          {...register("foundingDate")}
                         />
                       </div>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="address">Alamat</Label>
                       <Textarea id="address" {...register("address")} />
-                    </div>
-                    <div className="grid gap-4 md:grid-cols-3">
-                      <div className="space-y-2">
-                        <Label htmlFor="city">Kota</Label>
-                        <Input id="city" {...register("city")} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="province">Provinsi</Label>
-                        <Input id="province" {...register("province")} />
-                      </div>
-                      <div className="space-y-2">
-                        <Label htmlFor="postalCode">Kode Pos</Label>
-                        <Input id="postalCode" {...register("postalCode")} />
-                      </div>
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="vision">Visi</Label>
@@ -364,13 +378,13 @@ function FoundationPageContent() {
                         <div className="mt-2 flex flex-wrap gap-4 text-sm">
                           <span className="flex items-center gap-1">
                             <FileText className="h-4 w-4" />
-                            {foundation?.registrationNumber || "-"}
+                            NPWP {foundation?.taxId || "-"}
                           </span>
                           <span className="flex items-center gap-1">
                             <Calendar className="h-4 w-4" />
-                            {foundation?.foundedDate
+                            {foundation?.foundingDate
                               ? format(
-                                  new Date(foundation.foundedDate),
+                                  new Date(foundation.foundingDate),
                                   "d MMMM yyyy",
                                   { locale: id },
                                 )
@@ -412,12 +426,7 @@ function FoundationPageContent() {
                         <h3 className="font-semibold">Alamat</h3>
                         <p className="flex items-start gap-2 text-sm">
                           <MapPin className="h-4 w-4 text-muted-foreground mt-0.5" />
-                          <span>
-                            {foundation?.address || "-"}
-                            <br />
-                            {foundation?.city}, {foundation?.province}{" "}
-                            {foundation?.postalCode}
-                          </span>
+                          <span>{foundation?.address || "-"}</span>
                         </p>
                       </div>
                     </div>

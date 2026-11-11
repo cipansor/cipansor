@@ -8,7 +8,9 @@ Next.js 16 (App Router) + React 19 client. Read the root `AGENTS.md` first.
   Components with `"use client"` only when they need interactivity/hooks.
 - **Data layer:** the Axios instance in `src/lib/api.ts` (errors via
   `src/lib/api-error.ts`), wrapped by **React Query** hooks in `src/hooks/*`.
-  `src/lib/api-client.ts` is a back-compat re-export; import from `lib/api`.
+  A handful of non-hook call groups live beside it in `src/lib/*` (`authApi`,
+  `notifications-api.ts`) for hooks and the auth store to use; pages still go
+  through a hook.
   The response interceptor toasts every non-401 error. A best-effort or
   parallel call whose failure the page handles itself (a role dashboard's
   optional widgets) passes `skipErrorToast: true` in the axios config, or it

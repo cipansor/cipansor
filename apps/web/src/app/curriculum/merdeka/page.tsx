@@ -62,7 +62,6 @@ import {
   useCreateLearningPhase,
   useCreateLearningOutcome,
   useCreateP5Project,
-  useDeleteLearningPhase,
   useDeleteLearningOutcome,
   useDeleteP5Project,
   LearningPhase,
@@ -145,7 +144,6 @@ export default function KurikulumMerdekaPage() {
   const createPhase = useCreateLearningPhase();
   const createOutcome = useCreateLearningOutcome();
   const createProject = useCreateP5Project();
-  const deletePhase = useDeleteLearningPhase();
   const deleteOutcome = useDeleteLearningOutcome();
   const deleteProject = useDeleteP5Project();
 
@@ -207,14 +205,8 @@ export default function KurikulumMerdekaPage() {
           >
             <Eye className="h-4 w-4" />
           </Button>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={() => setDeleteId(row.original.id)}
-            className="text-destructive"
-          >
-            <Trash2 className="h-4 w-4" />
-          </Button>
+          {/* No delete: the phases (Fondasi, A–F) are set by national
+              curriculum regulation, and learning outcomes hang on them. */}
         </div>
       ),
     },
@@ -482,10 +474,7 @@ export default function KurikulumMerdekaPage() {
     if (!deleteId) return;
 
     try {
-      if (activeTab === "phases") {
-        await deletePhase.mutateAsync(deleteId);
-        toast.success("Fase berhasil dihapus");
-      } else if (activeTab === "outcomes") {
+      if (activeTab === "outcomes") {
         await deleteOutcome.mutateAsync(deleteId);
         toast.success("Capaian Pembelajaran berhasil dihapus");
       } else if (activeTab === "p5") {
@@ -1238,11 +1227,7 @@ export default function KurikulumMerdekaPage() {
         title={`Hapus ${getTabLabel()}`}
         description={`Apakah Anda yakin ingin menghapus ${getTabLabel().toLowerCase()} ini?`}
         onConfirm={handleDelete}
-        isLoading={
-          deletePhase.isPending ||
-          deleteOutcome.isPending ||
-          deleteProject.isPending
-        }
+        isLoading={deleteOutcome.isPending || deleteProject.isPending}
       />
     </MainLayout>
   );

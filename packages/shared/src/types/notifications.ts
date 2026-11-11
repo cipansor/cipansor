@@ -16,6 +16,23 @@ export type NotificationChannel =
   "IN_APP" | "EMAIL" | "SMS" | "PUSH" | "WHATSAPP";
 export type RecipientType = "ALL" | "UNIT" | "CLASS" | "ROLE" | "INDIVIDUAL";
 
+/** The mail transport the API runs with (`GET /notifications/settings/email-transport`). */
+export type EmailTransportKind = "gmail_api" | "smtp" | "log";
+
+export interface EmailTransportStatus {
+  kind: EmailTransportKind;
+  /** False only for `log`: nothing will be delivered. */
+  configured: boolean;
+  /** The From header recipients will see. */
+  from: string;
+  /** Where a reply goes. Deliberately not the From mailbox. */
+  replyTo: string;
+  /** Gmail API only: the impersonated mailbox. */
+  sender?: string;
+  /** SMTP only: host:port. */
+  host?: string;
+}
+
 /**
  * One notification in the caller's own inbox (GET /notifications), as the API
  * sends it: a `Notification` row. `type` is the type it was sent as — the
