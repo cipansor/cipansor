@@ -114,7 +114,10 @@ STATE_KEY="triage-state-"
 # more. `--purge-markers` clears the ones on issues the sweep no longer visits
 # (closed, or `ready` and finalised).
 MARK_PREFIX="<!-- triage-bridge-sweep:"
-
+# The state marker the bridge used before it moved to the KV store, same
+# one-shot read as the sweep marker: consulted for the burst window and then
+# deleted, so a label burst that began before the migration still collapses.
+STATE_PREFIX="<!-- triage-bridge:"
 
 # Dispatch the triage owner for one issue. The body is built with jq so an issue
 # number or a key can never break out of its JSON string. On a 2xx answer the run
@@ -213,13 +216,51 @@ issue_state() { # issue_state <number>
 # adopt the pre-KV checkpoints once (see `adopt_legacy_sweep_marker`).
 legacy_marker() { # legacy_marker <number> <prefix>; sets LEGACY_ID, LEGACY_BODY
   LEGACY_ID=""; LEGACY_BODY=""
+  # `--paginate` runs the filter on every page, so a page without the marker must
+  # emit *nothing* (`last // empty`, not a bare `last`, which emits `null`); the
+  # marker can sit past the first page, so the last line of the whole listing is
+  # the one to keep (#1031 review).
   row=$(gh api --paginate "repos/$REPO/issues/$1/comments?per_page=100" \
-    --jq "[.[] | select(.body | startswith(\"$2$1:\"))] | last | [(.id|tostring), .body] | @tsv" \
-    2>/dev/null || true) || return 1
+    --jq "[.[] | select(.body | startswith(\"$2$1:\")) | [(.id|tostring), .body] | @tsv] | last // empty" \
+    2>/dev/null | tail -n1 || true)
   [ -n "$row" ] || return 1
   LEGACY_ID=${row%%	*}
   LEGACY_BODY=${row#*	}
+  case "$LEGACY_ID" in '' | *[!0-9]*) return 1 ;; esac
   return 0
+}
+
+# The pre-KV state marker's newest `<!-- triage-bridge:<n>:<state> -->` comment:
+# its id, state and `updated_at`. Read once for the burst window, so a label burst
+# that started before the KV migration still collapses to one dispatch.
+LEGACY_ID=""; LEGACY_STATE=""; LEGACY_AT=0
+legacy_state_marker() { # legacy_state_marker <number>
+  LEGACY_ID=""; LEGACY_STATE=""; LEGACY_AT=0
+  row=$(gh api --paginate "repos/$REPO/issues/$1/comments?per_page=100" \
+    --jq "[.[] | select(.body | startswith(\"$STATE_PREFIX$1:\")) | [(.id|tostring), (.body | ltrimstr(\"$STATE_PREFIX$1:\") | rtrimstr(\" -->\")), .updated_at] | @tsv] | last // empty" \
+    2>/dev/null | tail -n1 || true)
+  [ -n "$row" ] || return 0
+  LEGACY_ID=${row%%	*}
+  rest=${row#*	}
+  LEGACY_STATE=${rest%%	*}
+  at=${rest#*	}
+  case "$LEGACY_ID" in '' | *[!0-9]*) LEGACY_ID=""; LEGACY_STATE=""; return 0 ;; esac
+  LEGACY_AT=$(date -u -d "$at" +%s 2>/dev/null || echo 0)
+  case "$LEGACY_AT" in '' | *[!0-9]*) LEGACY_AT=0 ;; esac
+  return 0
+}
+
+# Adopt the pre-KV state marker into the store, then delete the comment, so a
+# burst that began before the migration collapses. Best effort: the state marker
+# only dedups a burst, so a failed write is not worth failing the run over.
+adopt_legacy_state_marker() { # adopt_legacy_state_marker <number>
+  legacy_state_marker "$1"
+  [ -n "$LEGACY_STATE" ] || return 0
+  kv_put "$STATE_KEY$1" \
+    "$(jq -nc --arg s "$LEGACY_STATE" --argjson at "${LEGACY_AT:-0}" '{state: $s, at: $at}')" \
+    || { echo "::warning::could not adopt the legacy triage state marker on #$1."; return 0; }
+  gh api "repos/$REPO/issues/comments/$LEGACY_ID" -X DELETE >/dev/null 2>&1 \
+    || echo "::warning::could not remove the legacy triage state marker on #$1."
 }
 
 # The sweep checkpoint. Sets SIGNAL, MARK_RUN (the run answering the signal, or
@@ -230,7 +271,12 @@ MARK_RUN=""
 MARK_FORM="none"
 read_sweep_marker() { # read_sweep_marker <number>
   SIGNAL=""; MARK_RUN=""; MARK_FORM="none"
-  kv_get "$SWEEP_KEY$1"; rc=$?
+  # `|| rc=$?` (not `; rc=$?`): a 404 is a normal answer, and under `set -e` a
+  # bare failing command aborts the script — the direct callers in
+  # `recover_ready`/`purge_markers` are not inside an `if`, so the absent-key
+  # path must not be an unhandled failure (#1031 review).
+  rc=0
+  kv_get "$SWEEP_KEY$1" || rc=$?
   case "$rc" in
     2) MARK_FORM="unknown"; return 0 ;;
     1) adopt_legacy_sweep_marker "$1"; return 0 ;;
@@ -259,11 +305,20 @@ adopt_legacy_sweep_marker() { # adopt_legacy_sweep_marker <number>
     *) MARK_RUN="$PENDING_RUN" ;;
   esac
   [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_FORM="none"; return 0; }
-  MARK_FORM="some"
-  kv_put "$SWEEP_KEY$1" \
-    "$(jq -nc --arg s "$SIGNAL" --arg r "$MARK_RUN" '{signal: $s, run: $r}')" || true
-  gh api "repos/$REPO/issues/comments/$LEGACY_ID" -X DELETE >/dev/null 2>&1 \
-    || echo "::warning::could not remove the legacy triage marker on #$1."
+  # Write the checkpoint first and delete the marker only once it is stored. A
+  # failed write must NOT delete the marker: the marker is then the only copy of
+  # the run being waited on, so dropping it would lose the in-flight run and
+  # re-dispatch the issue. `unknown` leaves the checkpoint alone this sweep and
+  # re-adopts the marker next sweep (#1031 review).
+  if kv_put "$SWEEP_KEY$1" \
+       "$(jq -nc --arg s "$SIGNAL" --arg r "$MARK_RUN" '{signal: $s, run: $r}')"; then
+    MARK_FORM="some"
+    gh api "repos/$REPO/issues/comments/$LEGACY_ID" -X DELETE >/dev/null 2>&1 \
+      || echo "::warning::could not remove the legacy triage marker on #$1."
+  else
+    echo "::warning::could not adopt the legacy triage marker on #$1; keeping it for the next sweep."
+    MARK_FORM="unknown"
+  fi
 }
 
 # The status of a run, read from the run listing. The listing endpoint **ignores
@@ -378,19 +433,31 @@ on_label() { # on_label <event-json>
   # once BURST_WINDOW has passed, a return to a state the issue held before is a
   # fresh response and dispatches again. The state and when it was recorded live
   # in the KV store, keyed per issue.
+  # A state read that fails leaves `state` empty; the write below is guarded so
+  # the dispatch still records its sweep checkpoint (under `set -u` an unguarded
+  # expansion would abort the script *after* the dispatch, losing the run).
   cur_state=$(issue_state "$number")
+  state=""
+  prev_state=""; prev_at=0
   if [ -n "$cur_state" ]; then
     state=$(jq -nc --arg s "$cur_state" '{state: $s, at: (now|floor)}')
     if kv_get "$STATE_KEY$number"; then
       prev_state=$(printf '%s' "$KV_JSON" | jq -r '.state // ""' 2>/dev/null) || prev_state=""
       prev_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
       case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
-      if [ "$prev_state" = "$cur_state" ]; then
-        since=$(( $(date -u +%s) - prev_at ))
-        if [ "$since" -lt "$BURST_WINDOW" ]; then
-          echo "#$number already dispatched for this state ${since}s ago; burst collapsed."
-          exit 0
-        fi
+    else
+      # No state in the store. A burst may have begun before the KV migration, so
+      # read the pre-KV state marker before deciding: without this a second label
+      # of that burst starts a second run. Adoption is best effort (#1031 review).
+      adopt_legacy_state_marker "$number"
+      prev_state=$LEGACY_STATE
+      prev_at=$LEGACY_AT
+    fi
+    if [ -n "$prev_state" ] && [ "$prev_state" = "$cur_state" ]; then
+      since=$(( $(date -u +%s) - prev_at ))
+      if [ "$since" -lt "$BURST_WINDOW" ]; then
+        echo "#$number already dispatched for this state ${since}s ago; burst collapsed."
+        exit 0
       fi
     fi
   fi
@@ -416,7 +483,7 @@ on_label() { # on_label <event-json>
   if dispatch "$number" labeled "$cur_state"; then
     # Record the state that was answered and the run while it is in flight, so
     # the next sweep reads its outcome instead of trusting the 201 (#836).
-    [ -n "$state" ] && kv_put "$STATE_KEY$number" "$state"
+    [ -n "$state" ] && { kv_put "$STATE_KEY$number" "$state" || true; }
     if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
   else
     echo "::warning::#${number}'s label state stays unrecorded; a later label or the sweep retries."
@@ -535,7 +602,13 @@ recover_ready() {
   fails=0
   inflight=$(inflight_count)
   cand=$(mktemp)
-  sweep_keys > "$cand"
+  # Discovery is the store's sweep keys plus the legacy sweep markers still on
+  # `ready` issues. The ordinary sweep excludes `ready` issues, so a marker there
+  # is never adopted by that pass: without this the recovery would find nothing
+  # (the store has no key) and `--purge-markers` would then delete the marker,
+  # dropping a deferred dispatch. Only `ready` issues are listed, so this does not
+  # scale with every legacy marker in the repository (#1031 review).
+  { sweep_keys; legacy_ready_issues; } | sort -u > "$cand"
   while read -r n; do
     [ -n "${n:-}" ] || continue
     [ "$count" -lt "$SWEEP_MAX" ] || { echo "Reached SWEEP_MAX=$SWEEP_MAX; the rest wait for the next run."; break; }
@@ -590,6 +663,33 @@ sweep_keys() {
   done
 }
 
+# The number of every issue that still carries a legacy sweep marker comment and
+# is `ready` (so the ordinary sweep skips it and would never adopt the marker).
+# Only `ready` issues are printed, so the result stays small even though the
+# comment listing covers the whole repository. The page length is read from the
+# raw page, not from the marker rows, so a page with few markers but more
+# comments still pages on (#1031 review).
+legacy_ready_issues() {
+  for page in 1 2 3 4 5 6 7 8 9 10; do
+    page_json=$(gh api "repos/$REPO/issues/comments?per_page=100&page=$page" 2>/dev/null) || page_json='[]'
+    rows=$(printf '%s' "$page_json" | jq -r --arg p "$MARK_PREFIX" \
+      '.[] | select(.body | startswith($p)) | (.issue_url | split("/") | last)' 2>/dev/null || true)
+    if [ -n "$rows" ]; then
+      printf '%s\n' "$rows" | while IFS= read -r num; do
+        [ -n "$num" ] || continue
+        st=$(gh api "repos/$REPO/issues/$num" \
+          --jq '[.state, (.labels[].name)] | join(" ")' 2>/dev/null || echo "")
+        case " $st " in
+          *" ready "*) printf '%s\n' "$num" ;;
+        esac
+      done
+    fi
+    total=$(printf '%s' "$page_json" | jq -r 'length' 2>/dev/null || echo 0)
+    case "$total" in '' | *[!0-9]*) total=0 ;; esac
+    [ "$total" -ge 100 ] || break
+  done
+}
+
 # --purge-markers: delete the legacy marker comments the pre-KV bridge left on
 # issues the sweep no longer visits (closed, or `ready` with a finished
 # checkpoint). A one-shot cleanup; the bridge never writes a comment again.
@@ -598,19 +698,43 @@ purge_markers() {
   removed=0
   tmp=$(mktemp)
   for page in 1 2 3 4 5 6 7 8 9 10; do
-    rows=$(gh api --paginate "repos/$REPO/issues/comments?per_page=100&page=$page" \
-      --jq ".[] | select(.body | test(\"^<!-- triage-bridge(-sweep)?:\")) | [(.id|tostring), (.issue_url | split(\"/\") | last)] | @tsv" \
+    page_json=$(gh api "repos/$REPO/issues/comments?per_page=100&page=$page" 2>/dev/null) || page_json='[]'
+    rows=$(printf '%s' "$page_json" | jq -r \
+      '.[] | select(.body | test("^<!-- triage-bridge(-sweep)?:")) | [(.id|tostring), (.issue_url | split("/") | last)] | @tsv' \
       2>/dev/null || true)
-    [ -n "$rows" ] || break
-    printf '%s\n' "$rows" >> "$tmp"
-    got=$(printf '%s\n' "$rows" | grep -c . || true)
-    [ "$got" -ge 100 ] || break
+    [ -n "$rows" ] && printf '%s\n' "$rows" >> "$tmp"
+    # The page length, not the marker count, decides whether to page on.
+    total=$(printf '%s' "$page_json" | jq -r 'length' 2>/dev/null || echo 0)
+    case "$total" in '' | *[!0-9]*) total=0 ;; esac
+    [ "$total" -ge 100 ] || break
   done
   while IFS="$(printf '\t')" read -r cid num; do
     [ -n "${cid:-}" ] || continue
     st=$(gh api "repos/$REPO/issues/$num" --jq '[.state, (.labels[].name)] | join(" ")' 2>/dev/null || echo "")
     case " $st " in
-      *" closed "* | *" ready "*) : ;;
+      *" closed "*)
+        # A closed issue is out of scope; its checkpoint is gone either way, so
+        # the marker is safe to delete.
+        ;;
+      *" ready "*)
+        # Adopt before deleting: the marker may hold the only copy of a deferred
+        # dispatch, and the sweep skips `ready` issues (only `--recover-ready`
+        # adopts them). A purge that ran before either pass would otherwise drop
+        # the checkpoint. A failed read keeps the marker (#1031 review).
+        read_sweep_marker "$num"
+        if [ "$MARK_FORM" = "unknown" ]; then
+          echo "::warning::keeping the legacy marker on #$num; the checkpoint store could not be read."
+          continue
+        fi
+        # Adoption deletes the marker it adopts; re-read it so the delete below
+        # acts on a comment that is still there, and count an adopted marker as
+        # removed instead of warning that it is already gone.
+        if ! legacy_marker "$num" "$MARK_PREFIX"; then
+          removed=$((removed + 1))
+          continue
+        fi
+        cid=$LEGACY_ID
+        ;;
       *) continue ;;
     esac
     gh api "repos/$REPO/issues/comments/$cid" -X DELETE >/dev/null 2>&1 \

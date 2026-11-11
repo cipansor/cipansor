@@ -73,7 +73,7 @@ exit 0
 
 const CURL_STUB = `#!/bin/sh
 log() { [ -n "\${CURL_STUB_LOG:-}" ] && echo "$*" >> "$CURL_STUB_LOG"; }
-code="\${CURL_STUB_CODE:-200}"
+code="\${CURL_STUB_CODE:-200}"; exitcode=0
 out=""; method=""; bodyarg=""; wantcode=""
 while [ $# -gt 0 ]; do
   case "$1" in
@@ -116,9 +116,13 @@ case "$url" in
             code=200 ;;
           PUT)
             log "KV_PUT $k $bodyarg"
-            if [ -f "$kvdir/$k" ]; then code=200; else code=201; fi
-            printf '%s' "$bodyarg" > "$kvdir/$k"
-            body=$(jq -nc --arg k "$k" '{key:$k,created:false}') ;;
+            if [ -n "\${CURL_STUB_KV_PUT_FAIL:-}" ]; then
+              body='{"detail":"store unavailable"}'; code=503; exitcode=22
+            else
+              if [ -f "$kvdir/$k" ]; then code=200; else code=201; fi
+              printf '%s' "$bodyarg" > "$kvdir/$k"
+              body=$(jq -nc --arg k "$k" '{key:$k,created:false}')
+            fi ;;
           *)
             log "KV_GET $k"
             if [ -f "$kvdir/$k" ]; then
@@ -132,7 +136,7 @@ case "$url" in
     esac
     if [ -n "$out" ]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
     [ -n "$wantcode" ] && printf '%s' "$code"
-    exit 0 ;;
+    exit "$exitcode" ;;
 esac
 # A read of the triage owner's runs. The real API returns a *page of runs*, and
 # IGNORES a run_id= query (it always returns the newest page) — so the stub must
@@ -163,18 +167,57 @@ const BRIDGE_STUB = `#!/bin/sh
 log() { [ -n "\${GH_STUB_LOG:-}" ] && echo "$*" >> "\${GH_STUB_LOG}"; }
 post() { for a in "$@"; do last="$a"; done; log "POST_MARKER $(cat "$last" 2>/dev/null)"; }
 log "GH $*"
+# A synthesized comment page built from the legacy markers a test sets, so the
+# bridge's own jq filters run against a realistic listing. A marker comment is
+# authored by github-actions[bot], so the activity signal ignores it.
+stub_legacy_page() {
+  jq -nc \\
+    --arg lb "\${GH_STUB_LEGACY_BODY:-}" \\
+    --arg ls "\${GH_STUB_LEGACY_STATE:-}" \\
+    --arg lat "\${GH_STUB_LEGACY_STATE_AT:-2026-11-11T05:00:00Z}" \\
+    --arg url "https://api.github.com/repos/o/r/issues/818" \\
+    '[(if $lb != "" then {id: 1, body: $lb, issue_url: $url, user: {login: "github-actions[bot]"}, updated_at: "2026-11-11T05:00:00Z"} else empty end),
+      (if $ls != "" then {id: 2, body: ("<!-- triage-bridge:818:" + $ls + " -->"), issue_url: $url, user: {login: "github-actions[bot]"}, updated_at: $lat} else empty end)]'
+}
 case "$*" in
   *"search/issues"*) printf '%s\\n' "\${GH_STUB_SEARCH:-}" ;;
   *"[.state, (.labels[].name)]"*)
     [ "\${GH_STUB_READ_FAIL:-}" = state ] && exit 1
     printf '%s\\n' "\${GH_STUB_STATE_LABELS:-open bug priority:medium}" ;;
   *"select(("*) printf '%s\\n' "\${GH_STUB_NONFLEET:-}" ;;
-  # legacy_marker reads the pre-KV marker comment. The stub serves one from
-  # GH_STUB_LEGACY_BODY as "<id><TAB><body>", the shape the jq filter asks for.
-  *"triage-bridge-sweep:"*)
-    n=$(printf '%s' "$*" | sed -n 's#.*/issues/\\([0-9][0-9]*\\).*#\\1#p')
-    [ -n "\${GH_STUB_LEGACY_BODY:-}" ] && printf '%s\t%s' "1\${n}" "$GH_STUB_LEGACY_BODY" ;;
-  *"join(\\"+\\")"*) printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
+  # The legacy-marker readers: gh api --paginate ... --jq FILTER. gh runs the
+  # filter on every page and concatenates the results, so page 1 (which may hold
+  # no marker) must emit nothing and the marker on page 2 must still come through
+  # (#1031 review). GH_STUB_LEGACY_PAGE2, when set, is that second page.
+  *"comments?per_page=100"*"--jq"*)
+    f="\${*#*--jq }"
+    if [ -n "\${GH_STUB_COMMENTS_JSON:-}" ]; then
+      p1="\${GH_STUB_COMMENTS_JSON}"
+    elif [ -n "\${GH_STUB_LEGACY_PAGE2:-}" ]; then
+      p1='[]'
+    else
+      p1=$(stub_legacy_page)
+    fi
+    printf '%s' "$p1" | jq -r "$f" 2>/dev/null || true
+    if [ -n "\${GH_STUB_LEGACY_PAGE2:-}" ]; then
+      printf '%s' "\${GH_STUB_LEGACY_PAGE2}" | jq -r "$f" 2>/dev/null || true
+    fi ;;
+  # The raw comment listing, read a page at a time by --purge-markers and
+  # legacy_ready_issues; the bridge filters it itself.
+  *"comments?per_page=100&page="*)
+    pg=$(printf '%s' "$*" | sed -n 's#.*page=\\([0-9][0-9]*\\).*#\\1#p')
+    if [ "$pg" = "2" ] && [ -n "\${GH_STUB_LEGACY_PAGE2:-}" ]; then
+      printf '%s\\n' "\${GH_STUB_LEGACY_PAGE2}"
+    elif [ "$pg" = "1" ] && [ -n "\${GH_STUB_COMMENTS_JSON:-}" ]; then
+      printf '%s\\n' "\${GH_STUB_COMMENTS_JSON}"
+    else
+      stub_legacy_page
+    fi ;;
+  # issue_state (the type+priority read) matches here; GH_STUB_ISSUE_LABELS_FAIL
+  # makes it fail, so a test can drive the "label read failed" path.
+  *"join(\\"+\\")"*)
+    [ "\${GH_STUB_ISSUE_LABELS_FAIL:-}" = 1 ] && exit 1
+    printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
   *"/comments"*".[].body"*) printf '%s\\n' "\${GH_STUB_COMMENTS:-}" ;;
   *"/issues/comments/"*"-X PATCH"*) post "$@" ;;
   *"/issues/comments/"*"-X DELETE"*) log "DELETE_MARKER" ;;
@@ -2458,5 +2501,148 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).not.toContain('POST_MARKER');
     expect(calls).not.toContain('PATCH_BODY');
     expect(calls).not.toContain('/issues/comments/');
+  });
+
+  // ---- #1031 review: legacy-marker migration edge cases --------------------
+
+  const sweepMarkerComment = (n: number, body: string, id = 900) => ({
+    id,
+    body,
+    issue_url: `https://api.github.com/repos/o/r/issues/${n}`,
+    user: { login: 'github-actions[bot]' },
+    updated_at: '2026-11-11T05:00:00Z',
+  });
+
+  it('adopts a legacy sweep marker that sits past the first page of comments', () => {
+    // #1031 review: `gh api --paginate` runs the filter per page, so a page with
+    // no marker must emit nothing (not `null`) and the *last* line of the whole
+    // listing must win. The marker is the 101st comment here.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_COMMENTS_JSON: JSON.stringify([sweepMarkerComment(818, 'just a comment', 500)]),
+        GH_STUB_LEGACY_PAGE2: JSON.stringify([
+          sweepMarkerComment(
+            818,
+            `<!-- triage-bridge-sweep:818:${signal('edited')}:run-x -->`,
+            901
+          ),
+        ]),
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    // The marker on page 2 was adopted: the checkpoint names run-x (not a run
+    // built from a `null` id), and it is finalised rather than re-dispatched.
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+    expect(calls).not.toContain('DISPATCH');
+    expect(calls).toContain('DELETE_MARKER');
+  });
+
+  it('keeps the legacy marker when the store write fails, so the run is not lost', () => {
+    // #1031 review: deleting the marker before the checkpoint is stored loses the
+    // only copy of the run being waited on, so the next sweep re-dispatches.
+    const { calls, kv, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')}:run-x -->`,
+        CURL_STUB_KV_PUT_FAIL: '1',
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"RUNNING"}]}',
+      },
+      ['--sweep']
+    );
+    // The write failed: no checkpoint, the marker is kept, and the sweep leaves
+    // the issue alone instead of dispatching a second run.
+    expect(kv['triage-sweep-818']).toBeUndefined();
+    expect(calls).not.toContain('DELETE_MARKER');
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('keeping it for the next sweep');
+  });
+
+  it('adopts a legacy pending marker on a ready issue in the recovery pass', () => {
+    // #1031 review: the store listing is empty for a pre-KV checkpoint, and the
+    // ordinary sweep skips `ready` issues — so the recovery pass must also find
+    // the legacy marker, or the deferred dispatch is lost.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')} -->`,
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('adopts a legacy pending marker on a ready issue before purging it', () => {
+    // #1031 review: `--purge-markers` used to delete the marker without moving
+    // the checkpoint, dropping a deferred dispatch. It adopts first.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')} -->`,
+      },
+      ['--purge-markers']
+    );
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'pending' });
+    expect(calls).toContain('DELETE_MARKER');
+  });
+
+  it('records the sweep checkpoint when the label-state read fails, instead of aborting', () => {
+    // #1031 review: a failed `issue_state` read left `state` unset, and under
+    // `set -u` the unguarded expansion aborted the script *after* the dispatch —
+    // so the run was never recorded and the next sweep dispatched again.
+    const { calls, status, kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS_FAIL: '1',
+        GH_STUB_BODY: 'triaged',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(status).toBe(0);
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('triaged'), run: 'run-1' });
+    expect(kv['triage-state-818']).toBeUndefined();
+  });
+
+  it('still records the sweep checkpoint when the state write fails', () => {
+    // The state write is best effort: a store hiccup on the state key must not
+    // abort (set -e) before the sweep checkpoint of the accepted dispatch is
+    // written, or the next sweep would dispatch the same activity again.
+    const { calls, status, kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_KV_PUT_FAIL: '1',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(status).toBe(0);
+    expect(kv['triage-state-818']).toBeUndefined();
+    expect(kv['triage-sweep-818']).toBeUndefined();
+  });
+
+  it('collapses a label burst that began before the migration, via the legacy state marker', () => {
+    // #1031 review: with no state in the store, a second label of a burst that
+    // started before the deploy started a second run. The legacy state marker is
+    // adopted and the burst collapses.
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        GH_STUB_LEGACY_STATE: 'bug+priority:high',
+        GH_STUB_LEGACY_STATE_AT: new Date().toUTCString(),
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+    expect(kv['triage-state-818']).toMatchObject({ state: 'bug+priority:high' });
   });
 });
