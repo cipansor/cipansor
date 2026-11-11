@@ -121,6 +121,19 @@ BUG_HUNTER_SUBS = (
     ("`bug-hunter`", ""),
 )
 
+# The body block's exclusion list predates `blocked`: a live prompt still tells
+# the agent to withdraw only `question`/`needs-info`/`pending-maintainer` before
+# `ready`. The block is inserted once and a live prompt already carries it, so
+# the list is upgraded by text, the same way the identity bullet is.
+OLD_READY_EXCLUSION = (
+    "Sebelum memasang `ready`, cabut dulu "
+    "`question`/`needs-info`/`pending-maintainer` yang bertentangan."
+)
+NEW_READY_EXCLUSION = (
+    "Sebelum memasang `ready`, cabut dulu "
+    "`question`/`needs-info`/`pending-maintainer`/`blocked` yang bertentangan."
+)
+
 # The environment note used to tell the agent to do "any read and write on
 # GitHub" with the token baked into the `origin` remote. That token is the
 # writer's (`adminypc`), so an automation that opened an issue or a pull request
@@ -393,6 +406,13 @@ def new_prompt(name, prompt):
     tail_start = prompt.find(TAIL_MARK)
     orig_tail = prompt[tail_start:] if tail_start >= 0 else ""
     head = prompt[:tail_start] if tail_start >= 0 else prompt
+    # The retired `bug-hunter` provenance label is stripped from the text that
+    # comes from the live prompt only. Applying it to the assembled result would
+    # also rewrite the guidance this script authors below — the tail that says
+    # "JANGAN memakai label `bug-hunter`" — and leave a dangling sentence.
+    for old, new in BUG_HUNTER_SUBS:
+        head = head.replace(old, new)
+        orig_tail = orig_tail.replace(old, new)
     managed_tail = next((v for k, v in TAILS.items() if k in name), None)
     # A prompt with no `PERILAKU SASARAN` marker has lost its tail. For an
     # automation with a managed tail the loss is harmless — the tail (the task's
@@ -437,6 +457,8 @@ def new_prompt(name, prompt):
     # split on the next deploy.
     for legacy in (OLD_IDENTITY_LINE, FIRST_SPLIT_IDENTITY_LINE):
         head = head.replace(legacy, NEW_IDENTITY_LINE)
+    # The exclusion list inside the already-present body block gains `blocked`.
+    head = head.replace(OLD_READY_EXCLUSION, NEW_READY_EXCLUSION)
     if managed_tail is None:
         # Keep the original tail verbatim (its behaviour is unchanged); only the
         # head gained the body/reaction reminders that apply to every automation.
@@ -453,10 +475,6 @@ def new_prompt(name, prompt):
     # redeploy does not stack a second copy.
     if "ANGGARAN WAKTU" not in result:
         result = result.replace(TAIL_MARK, WORK_BUDGET + TAIL_MARK, 1)
-    # The `bug-hunter` provenance label is retired; drop it from any live tail
-    # that still applies it, so the next deploy stops creating the label.
-    for old, new in BUG_HUNTER_SUBS:
-        result = result.replace(old, new)
     return result
 
 

@@ -1469,6 +1469,23 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('Issue `blocked` TIDAK boleh `ready`');
   });
 
+  it.skipIf(!hasPy)(
+    'upgrades the exclusion list in a body block the live prompt already carries',
+    () => {
+      // The body block is inserted once, so a live prompt keeps its old one. The
+      // instruction to withdraw contradicting labels before `ready` must gain
+      // `blocked` by text, or the triage owner is never told about it.
+      const live =
+        'Header\n\nBODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)\n' +
+        'Sebelum memasang `ready`, cabut dulu `question`/`needs-info`/`pending-maintainer` yang bertentangan. ' +
+        'Bila belum `ready`, jangan mengubah body issue.';
+      const out = newPrompt('SDLC 15', live);
+      expect(out).toContain(
+        '`question`/`needs-info`/`pending-maintainer`/`blocked` yang bertentangan'
+      );
+    }
+  );
+
   it.skipIf(!hasPy)('strips the retired `bug-hunter` label from a live tail', () => {
     // The label is deleted from the repository, and the labels API creates a
     // missing label on `POST`, so a live prompt that still applies it would
@@ -1483,6 +1500,15 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('priority:critical/high/medium/low dan `bot-implement`');
     // Idempotent: a second pass changes nothing.
     expect(newPrompt('SDLC 19 · Pemburu bug', out)).toBe(out);
+  });
+
+  it.skipIf(!hasPy)('keeps the guidance sentence about the retired label intact', () => {
+    // The strip must touch the live prompt's text only. Applied to the whole
+    // assembled result it also rewrote the tail this script authors — leaving
+    // "JANGAN memakai label ;" — so the SDLC 15 rule about `bug-hunter` must
+    // survive a redeploy.
+    const out = newPrompt('SDLC 15', 'Header');
+    expect(out).toContain('JANGAN memakai label `bug-hunter`');
   });
 
   it.skipIf(!hasPy)('still enforces the 1800s timeout when a truncated prompt is refused', () => {
