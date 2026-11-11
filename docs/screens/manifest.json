@@ -755,5 +755,15 @@
     "url": "/quality/complaints",
     "bytes": 33916,
     "width": 1024
+  },
+  {
+    "path": "screens/absen-pegawai/01-buka-absen-saya.png",
+    "source": "absen-pegawai/01-buka-absen-saya.png",
+    "flow": "absen-pegawai",
+    "step": "01-buka-absen-saya",
+    "caption": "Halaman Absen Saya: status kehadiran hari ini dan bukti kehadiran yang diminta unit.",
+    "url": "/hr/attendance/me",
+    "bytes": 79032,
+    "width": 1024
   }
 ]

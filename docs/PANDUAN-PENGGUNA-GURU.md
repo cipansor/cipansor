@@ -6,12 +6,14 @@
 | 0.2 | 29 September 2026 | commit `aefc719` | dari kode, belum dicoba di aplikasi berjalan | Langkah dan nama tombol diperiksa ulang satu per satu ke kode layar; pesan yang dikutip disalin dari kode; istilah pengembang dan nomor PR dikeluarkan; kartu izin dipersempit ke wali kelas |
 | 0.3 | 29 September 2026 | commit `1a0e6b1e` (kode identik dengan `aefc719`) | dari kode, belum dicoba di aplikasi berjalan | Nama butir menu **Mengajar** ditulis persis seperti layar ("Siswa") supaya tidak terbaca sebagai prosa. Isi kartu tidak berubah |
 | 0.4 | 30 September 2026 | aplikasi berjalan dari kode PR #512 (setelah `main` `2377f5fb`) | **T1 — terverifikasi di aplikasi berjalan** | Keempat kartu dijalankan dengan akun demo `sdit.walikelas@` pada tumpukan lokal (PostgreSQL + API :3001 + web :3000); langkah, nama tombol, dan pesan dicocokkan ulang dengan layar sungguhan dan tangkapan layar disematkan. Pita ⚠ dibuka; Riwayat Revisi mencatat tingkat T1 |
+| 0.5 | 11 November 2026 | aplikasi berjalan dari kode `main` `76511a89` | **T1 — terverifikasi di aplikasi berjalan** | Kartu baru **Mencatat kehadiran Anda sendiri** (Absen Saya, `/hr/attendance/me`): langkah, nama tombol (**Buka Kamera**, **Ambil Foto**, **Absen Masuk**, **Absen Pulang**), dan pesan (**"Absen masuk tercatat"**) dicocokkan dengan layar sungguhan dan tangkapan layar disematkan. Butir menu **Absen Saya** ditambahkan ke ringkasan menu §1.1 dan tabel tugas §1.3 |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo wali kelas SD IT (absensi harian, tindak
-> lanjut Alpa, catatan perilaku, dan memutuskan izin). Tiap langkah diverifikasi
-> terhadap layar sungguhan dan tiap kartu memuat tangkapan layar asli. Bila Anda
-> menemukan layar yang berbeda dari gambar di sini, laporkan kepada admin unit.
+> lanjut Alpa, catatan perilaku, memutuskan izin, dan mencatat kehadiran sendiri
+> lewat Absen Saya). Tiap langkah diverifikasi terhadap layar sungguhan dan tiap
+> kartu memuat tangkapan layar asli. Bila Anda menemukan layar yang berbeda dari
+> gambar di sini, laporkan kepada admin unit.
 
 # 1. Tentang Buklet Ini
 
@@ -29,10 +31,10 @@ menulis nama tombol dan judul persis seperti di layar.
 
 Sebagai guru, dasbor awal Anda adalah halaman **Dashboard** di bawah kelompok
 **Ringkasan**. Menu Anda memuat kelompok **Mengajar** ("Tahfidz", "Kelas Saya",
-"Siswa", "Absensi", "Mutabaah Yaumiyah", "Portfolio Siswa") dan, bila Anda ditunjuk
-wali kelas sebuah kelas pada tahun ajaran berjalan, kelompok tambahan **Wali
-Kelas**. Wali kelas bukan peran terpisah: ia melekat pada kelas, sehingga
-kelompok itu bisa muncul dan hilang sesuai penugasan Anda.
+"Siswa", "Absensi", "Absen Saya", "Mutabaah Yaumiyah", "Portfolio Siswa") dan,
+bila Anda ditunjuk wali kelas sebuah kelas pada tahun ajaran berjalan, kelompok
+tambahan **Wali Kelas**. Wali kelas bukan peran terpisah: ia melekat pada kelas,
+sehingga kelompok itu bisa muncul dan hilang sesuai penugasan Anda.
 
 ## 1.2 Yang bisa dan tidak bisa Anda lakukan
 
@@ -52,6 +54,7 @@ kelompok itu bisa muncul dan hilang sesuai penugasan Anda.
 | Menindaklanjuti Alpa | Harian saat ada Alpa | Wali Kelas → Tindak Lanjut Absensi |
 | Menulis catatan perilaku | Sesuai kejadian | Wali Kelas → Catatan Perilaku |
 | Memutuskan izin santri harian | Sesuai pengajuan | Wali Kelas → Perizinan |
+| Mencatat kehadiran Anda sendiri | Harian | Mengajar → Absen Saya |
 
 # 2. Tugas
 
@@ -235,6 +238,58 @@ ke pemohon beserta alasannya.
 |---|---|---|
 | Izin tidak ada di daftar | Bukan tanggung jawab Anda | Pemutus yang benar adalah wali kelas atau musyrif santri itu |
 | Tombol **Setujui** dan **Tolak** tidak ada | Izin sudah diputuskan, atau di luar lingkup Anda | Muat ulang halaman; bila tetap, tanyakan admin unit |
+
+**Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).
+
+## Mencatat kehadiran Anda sendiri
+
+**Tujuan.** Mencatat jam masuk dan jam pulang Anda sebagai pegawai, lengkap
+dengan swafoto dan lokasi bila unit Anda mewajibkannya.
+
+**Siapa.** Anda sendiri, sebagai pegawai bergaji unit. Ini berbeda dari
+**Absensi** santri di kelompok **Mengajar**: di sini yang dicatat kehadiran
+Anda, bukan kehadiran kelas.
+
+**Jalur menu.** Mengajar → Absen Saya (`/hr/attendance/me`).
+
+**Sebelum mulai.** Admin unit sudah membuat data kepegawaian Anda. Bila belum,
+halaman menampilkan pemberitahuan "Data kepegawaian Anda belum dibuat" dan
+tombol absen tidak muncul; minta admin unit menambahkannya lebih dulu.
+
+**Langkah.**
+
+1. Buka **Absen Saya**.
+   *Halaman menampilkan kartu **Status Hari Ini** dan **Bukti Kehadiran**.*
+2. Pada **Bukti Kehadiran**, klik **Buka Kamera**, lalu klik **Ambil Foto**.
+   *Pratinjau swafoto tampil. Klik **Foto Ulang** bila perlu mengulang.*
+3. Klik **Baca Lokasi Saya** bila unit Anda mewajibkan lokasi.
+   *Muncul keterangan "Lokasi terbaca" beserta ketelitiannya.*
+4. Klik **Absen Masuk**.
+   *Muncul pesan "Absen masuk tercatat"; bila Anda terlambat, pesannya
+   menyebut jumlah menitnya.*
+5. Pada akhir jam kerja, klik **Absen Pulang**.
+   *Muncul pesan "Absen pulang tercatat".*
+
+![Gambar 8. Halaman Absen Saya: Status Hari Ini dan Bukti Kehadiran dengan tombol Absen Masuk.](screens/absen-pegawai/01-buka-absen-saya.png){width=14cm}
+
+*Gambar 8. Halaman Absen Saya: Status Hari Ini dan Bukti Kehadiran dengan tombol Absen Masuk.*
+
+**Hasilnya, dan giliran siapa berikutnya.** Jam masuk dan pulang Anda tercatat.
+Keterlambatan dipotong dari tunjangan kehadiran, bukan dari gaji pokok. Swafoto
+dan lokasi hanya dipakai untuk membuktikan kehadiran; yang dapat melihatnya
+adalah Anda dan admin unit Anda, dan setiap pembukaan swafoto dicatat.
+
+**Bila tidak berhasil.**
+
+| Yang terlihat | Penyebab umum | Yang perlu dilakukan |
+|---|---|---|
+| "Data kepegawaian Anda belum dibuat" | Akun Anda belum punya data pegawai | Minta admin unit menambahkannya |
+| "Hari ini bukan hari kerja" | Hari ini bukan hari kerja unit Anda dan tidak ada jadwal shift | Absen pada hari kerja, atau tanyakan jadwal shift Anda |
+| "Anda dikecualikan dari absensi harian" | Anda termasuk pengecualian kebijakan unit | Tanyakan admin unit bila Anda seharusnya wajib absen |
+| "Anda berada di luar lokasi absen yang diizinkan" | Anda di luar radius lokasi absen unit | Dekati lokasi absen unit, lalu ulangi |
+| "Anda sudah absen masuk hari ini" | Absen masuk hari ini sudah tercatat | Tidak perlu diulang; lanjutkan dengan absen pulang |
+| "Belum ada absen masuk hari ini" | Absen pulang ditekan sebelum absen masuk | Catat **Absen Masuk** lebih dulu |
+| "Foto ini sudah dipakai untuk absen lain; ambil foto lagi" | Swafoto yang sama dipakai dua kali | Ambil swafoto baru |
 
 **Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).
 

@@ -368,12 +368,21 @@ psql -U postgres cipansor < backup_20240101.sql
 
 ### Security Headers
 
-Headers yang sudah dikonfigurasi:
+Headers yang sudah dikonfigurasi (`apps/web/src/lib/security-headers.ts`,
+diterapkan pada setiap respons host web):
 
-- X-Frame-Options: SAMEORIGIN
+- Strict-Transport-Security: max-age=63072000; includeSubDomains
+- X-Frame-Options: DENY (sama dengan `frame-ancestors 'none'` pada CSP)
 - X-Content-Type-Options: nosniff
-- X-XSS-Protection: 1; mode=block
+- X-XSS-Protection: 0 (auditor XSS peramban sudah dihapus; CSP yang melindungi)
 - Referrer-Policy: strict-origin-when-cross-origin
+- Cross-Origin-Opener-Policy: same-origin
+- X-DNS-Prefetch-Control: on
+- Permissions-Policy: `fullscreen=(self), camera=(self), microphone=(self),
+  geolocation=(self), payment=()` — kamera dan geolokasi dibuka agar Absen Saya
+  dapat memakai swafoto dan membaca lokasi; dibataskan ke origin sendiri.
+- Content-Security-Policy: diterapkan `middleware.ts` (membawa nonce
+  per-permintaan), bukan daftar statis ini.
 
 ---
 
