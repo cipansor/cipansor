@@ -32,6 +32,8 @@ gh pr view "$PR" --repo "$REPO" --json files,body > "$TMP"
 touch_web="$(jq -r '[.files[].path] | map(select(startswith("apps/web/"))) | length > 0' "$TMP")"
 body="$(jq -r .body "$TMP")"
 
+# Lowercase on purpose: the count lowercases each line before matching, so
+# `.PNG`/`.JPG` count like `.png` (the old `grep -iE` was case-insensitive).
 img_re='user-images\.githubusercontent\.com|private-user-images\.githubusercontent\.com|github\.com/user-attachments/assets/|https?://[^ )]+\.(png|jpe?g|gif|webp|mp4|webm)'
 
 # The Evidence requirement is a *before* visual AND an *after* visual. The check
@@ -64,8 +66,10 @@ after_re="$(label_re 'after|sesudah')"
 media=$(printf '%s\n' "$body" | awk -v img="$img_re" '
   function side_of(word) {
     w = tolower(word)
-    gsub(/^[[:space:]]+/, "", w)
-    gsub(/[[:space:]]+$/, "", w)
+    # A table header may be bold (`| **Sebelum** | **Sesudah** |`), so strip
+    # markdown emphasis and whitespace from both ends before matching.
+    gsub(/^[[:space:]*_`]+/, "", w)
+    gsub(/[[:space:]*_`]+$/, "", w)
     if (w ~ /^before([^a-z0-9_]|$)/ || w ~ /^sebelum([^a-z0-9_]|$)/) return "b"
     if (w ~ /^after([^a-z0-9_]|$)/  || w ~ /^sesudah([^a-z0-9_]|$)/) return "a"
     return ""
@@ -88,7 +92,8 @@ media=$(printf '%s\n' "$body" | awk -v img="$img_re" '
       }
       if (intable) {
         for (i = 1; i <= n; i++) {
-          c = gsub(img, "&", cells[i])
+          t = tolower(cells[i])
+          c = gsub(img, "&", t)
           if (col[i] == "b") before += c
           else if (col[i] == "a") after += c
         }
@@ -100,7 +105,8 @@ media=$(printf '%s\n' "$body" | awk -v img="$img_re" '
     sub(/^(\*\*|#+[[:space:]]+)/, "", l)
     s = side_of(l)
     if (s != "") side = s
-    c = gsub(img, "&", line)
+    lt = tolower(line)
+    c = gsub(img, "&", lt)
     if (side == "b") before += c
     else if (side == "a") after += c
   }

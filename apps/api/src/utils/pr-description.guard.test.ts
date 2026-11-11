@@ -467,6 +467,23 @@ describe('pr-template-guard.sh', () => {
       expect(status).toBe(0);
     });
 
+    it('rejects an issue that is in-progress and also blocked or in question', () => {
+      // `label-guard` strips only `ready`, so `in-progress` can sit beside
+      // `blocked`/`question`. A claimed-but-unstartable issue is not a green
+      // light: `blocked`/`question` are checked before `ready`/`in-progress`.
+      for (const labels of [
+        'open issue bug,in-progress,blocked',
+        'open issue bug,in-progress,question',
+      ]) {
+        const { status, calls } = run(TEMPLATE, {
+          GH_STUB_BODY: COMPLETE,
+          GH_STUB_ISSUE_12: labels,
+        });
+        expect(status, labels).toBe(1);
+        expect(calls, labels).toContain('bukan `question`/`blocked`');
+      }
+    });
+
     it('still rejects an issue that is only in question or blocked', () => {
       for (const labels of ['open issue bug,question', 'open issue bug,blocked']) {
         const { status, calls } = run(TEMPLATE, {
@@ -814,6 +831,32 @@ describe('visual-evidence.sh', () => {
       GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
     });
     expect(calls).toContain('COMMENT');
+  });
+
+  it('counts a bold table header as a before/after side', () => {
+    // `| **Sebelum** | **Sesudah** |` leaves a `**` prefix on the cell, so
+    // `side_of` must strip markdown emphasis or the columns map to no side and
+    // the images fall back to the prose label above.
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body =
+      '| **Sebelum** | **Sesudah** |\n|---|---|\n' +
+      `| ![a](${U}/1.png) | ![b](${U}/2.png) |`;
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('counts an uppercase image extension like a lowercase one', () => {
+    // The awk match replaced a case-insensitive `grep -iE`, so `.PNG` must not
+    // silently count as zero media.
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body =
+      `- **Sebelum** — ![a](${U}/1.PNG)\n` + `- **Sesudah** — ![b](${U}/2.JPG)`;
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
   });
 
   it('asks when the body has two images but no before/after labels', () => {

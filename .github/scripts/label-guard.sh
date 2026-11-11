@@ -188,6 +188,9 @@ echo "Removed label '$LABEL' from $KIND #$NUMBER (applied by '$ACTOR')."
 
 # Say so once, and only alert the maintainer when the actor was not authorized
 # to label at all — a stray label by a maintainer is a slip, not an incident.
+# The notice names the real path (`@cipansor-bot`), not "state what you want":
+# the mention owner (SDLC 07) is what turns a request into a label or an issue,
+# so telling the actor to "ask" without the mention leaves them with no action.
 PERM=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq '.permission' 2>/dev/null || echo none)
 ALERT=""
 case "$PERM" in
@@ -195,7 +198,7 @@ case "$PERM" in
   *) ALERT=" (akun ini tidak punya izin menulis; @adminypc tolong tinjau)" ;;
 esac
 
-BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Sebutkan apa yang Anda inginkan dan bot akan memasangnya.$ALERT
+BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Label tidak dipasang atas permintaan langsung: sebut \`@cipansor-bot\` dengan apa yang Anda inginkan, lalu bot menindaklanjutinya — memasang label yang jelas, atau membuka issue ber-\`ready\` bila itu pekerjaan baru.$ALERT
 
 $REVOKE_MARK"
 

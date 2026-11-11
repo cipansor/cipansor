@@ -143,9 +143,14 @@ for N in $LINKED; do
   # already being worked on: `Tiket jadi PR` (SDLC 06) claims the issue by
   # moving `ready` -> `in-progress` the moment it opens the PR, so requiring
   # `ready` here would fail the check on every PR the bot opens, and the PR
-  # could never merge. A link to an issue still in `question` or `blocked` is
-  # not a green light.
+  # could never merge. `question` and `blocked` are checked FIRST and win: an
+  # issue that says it is still being discussed or is waiting on a dependency is
+  # not a green light even when it also carries `in-progress`, and `label-guard`
+  # only strips `ready`, so the pair can coexist.
   case ",$LABELS," in
+    *,question,*|*,blocked,*)
+      missing="$missing
+- issue tertaut #$N harus berlabel \`ready\` atau \`in-progress\` sebelum ditinjau, bukan \`question\`/\`blocked\` (sekarang: ${LABELS:-tidak ada})" ;;
     *,ready,*|*,in-progress,*) ;;
     *) missing="$missing
 - issue tertaut #$N harus berlabel \`ready\` atau \`in-progress\` sebelum ditinjau (sekarang: ${LABELS:-tidak ada})" ;;

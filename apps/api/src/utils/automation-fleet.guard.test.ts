@@ -543,6 +543,19 @@ describe('label-guard.sh', () => {
     expect(out).toContain('Removed label');
   });
 
+  it('points the actor at @cipansor-bot and claims no human-decision label', () => {
+    // "Sebutkan apa yang Anda inginkan" named no channel, and `bot-implement`
+    // was removed on 2026-11-11, so the old tail was both vague and false.
+    const { calls } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'triage' },
+      ['--stdin'],
+      labeledEvent('someone', 'ready')
+    );
+    expect(calls).toContain('@cipansor-bot');
+    expect(calls).not.toContain('keputusan manusia');
+  });
+
   it('leaves a label the bot applied', () => {
     const { calls } = run(
       LABEL_GUARD,

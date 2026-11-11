@@ -748,3 +748,27 @@ hanya berubah lewat `PATCH`, **audit armada harus membandingkan state live
 dengan repo setiap kali**, bukan mempercayai repo.
 
 **Kuota sandbox membatasi armada.** Banyak run `SKIPPED` dengan alasan `daily_sandbox_limit`, jadi automation yang konfigurasinya benar pun bisa jarang benar-benar bekerja. Kegagalan sunyi ini lebih sering menjelaskan "armada tidak jalan" daripada cacat konfigurasi: **jangan menilai kesehatan armada dari `enabled` saja — hitung dulu run yang `SKIPPED`.** Angka, automation terdampak, dan cara menaikkan kuota ada di memory mesin, bukan repo publik, karena memuat rincian operasional insiden — lihat aturan "sensitive" di `AGENTS.md`.
+
+**Pesan yang menyatakan sebuah aturan bisa hidup lebih lama daripada aturannya.**
+`bot-implement` dihapus 2026-11-11 dan `label-guard.sh` berhenti memperlakukannya
+khusus, tetapi kalimat di komentar pencabutannya masih berbunyi "Label keputusan
+manusia (`bot-implement`) tetap boleh dipasang manual" — pemilik menemukannya di
+#1046. Logika dan pesan diperbarui di dua tempat berbeda, jadi perubahan aturan
+harus diikuti `grep` atas **bunyi pesannya**, bukan hanya atas logikanya. Pesan
+barunya menyebut jalur yang nyata (`@cipansor-bot`), karena "sebutkan apa yang
+Anda inginkan" tidak menyebut kanal apa pun dan seolah label dipasang atas
+permintaan langsung — padahal SDLC 07 yang mengubah sebutan menjadi label atau
+issue.
+
+Tiga temuan lain dari ronde yang sama, semuanya cacat nyata:
+
+- `visual-evidence.sh` tidak mengenali header tabel bercetak tebal
+  (`| **Sebelum** | **Sesudah** |`), sehingga kolomnya jatuh ke label prosa di
+  atasnya dan pengingat muncul padahal buktinya lengkap; `side_of` kini
+  memangkas `*`, `_`, dan backtick.
+- Pencocokan media peka huruf besar-kecil setelah pindah dari `grep -iE` ke
+  `awk`, jadi `.PNG`/`.JPG` terhitung nol; setiap baris/k sel kini di-`tolower`
+  sebelum dicocokkan.
+- `pr-template-guard.sh` menerima issue `in-progress` yang juga `blocked` atau
+  `question`. `label-guard` hanya mencabut `ready`, jadi pasangan itu bisa
+  berdampingan; `question`/`blocked` kini diperiksa lebih dulu dan menang.
