@@ -158,13 +158,61 @@ LEGACY_LABEL_TEXTS = (
         "`question`/`needs-info`/`pending-maintainer`/`blocked` yang bertentangan.",
         "Sebelum memasang `ready`, cabut dulu `question`/`blocked` yang bertentangan.",
     ),
-    # the label-ownership bullet's `bot-implement` clause
+    # the label-ownership bullet's `bot-implement` clause. The live bullet also
+    # names the two retired release labels, and it ends at the period, not at
+    # "memasangnya." — a shorter pattern would not match and the labels would
+    # survive, which is exactly what happened until 2026-11-11. The whole bullet
+    # is replaced so no trailing space is left behind.
     (
         " Hanya `cipansor-bot` (GITHUB_BOT_TOKEN) yang boleh memasang label. "
-        "Jangan pasang label apa pun lewat `GITHUB_TOKEN`. `bot-implement` adalah "
-        "keputusan maintainer — jangan pernah memasangnya.",
+        "Jangan pasang label apa pun lewat `GITHUB_TOKEN`. `bot-implement`, "
+        "`rilis-disetujui`, `rilis-ditolak` adalah keputusan maintainer — jangan "
+        "pernah memasangnya.",
         " Hanya `cipansor-bot` (GITHUB_BOT_TOKEN) yang boleh memasang label. "
         "Jangan pasang label apa pun lewat `GITHUB_TOKEN`.",
+    ),
+)
+
+# Tail-level references to labels that no longer exist. Unlike the body block,
+# these are the task's own instructions, so they are the fleet's live behaviour:
+# `POST /issues/<n>/labels` CREATES a missing label, so a tail that still applies
+# `pending-maintainer` would resurrect it on the repository with every run. Each
+# entry is upgraded by text, applied to the live head and tail alike.
+DELETED_LABEL_TEXTS = (
+    # the shared preamble's hand-off sentence: implementation starts from the
+    # `ready` queue now, not from a maintainer applying `bot-implement`.
+    (
+        "automation lain yang menemukan masalah membuka ISSUE, bukan PR, lalu "
+        "`bot-implement` menyerahkannya ke `Tiket jadi PR`.",
+        "automation lain yang menemukan masalah membuka ISSUE, bukan PR.",
+    ),
+    # `Reproduksi bug` (SDLC 05): the human gate is `ready` alone.
+    (
+        "JANGAN menerapkan `ready` atau `needs-info` sendiri",
+        "JANGAN menerapkan `ready` sendiri",
+    ),
+    # `Pemindai celah uji` (SDLC 09): it files a `question` issue for triage.
+    (
+        "dan `pending-maintainer` — issue itu lalu mengikuti pipeline normal: "
+        "`Pelabel issue` menerapkan `ready`",
+        "dan `question` — issue itu lalu mengikuti pipeline normal: `Triase issue` menerapkan `ready`",
+    ),
+    # `Pemantau deployment` (SDLC 12): a fix waits for the maintainer's `ready`.
+    (
+        "perbaikan lewat `Tiket jadi PR` setelah maintainer menerapkan `bot-implement`",
+        "perbaikan lewat `Tiket jadi PR` setelah issue perbaikannya `ready`",
+    ),
+    # `Pelabel PR` (SDLC 17): the lifecycle list names two deleted labels.
+    (
+        "label siklus hidup issue (question, needs-info, duplicate, invalid, "
+        "wontfix, blocked, ready)",
+        "label siklus hidup issue (question, duplicate, invalid, wontfix, blocked, ready)",
+    ),
+    # `Pemindai standar` (SDLC 20): a standard's issue waits as `question`.
+    (
+        "satu prioritas, dan `pending-maintainer` (artinya: menunggu maintainer "
+        "memutuskan apakah dilanjutkan",
+        "satu prioritas, dan `question` (artinya: menunggu maintainer memutuskan apakah dilanjutkan",
     ),
 )
 
@@ -477,6 +525,13 @@ def new_prompt(name, prompt):
     # also rewrite the guidance this script authors below — the tail that says
     # "JANGAN memakai label `bug-hunter`" — and leave a dangling sentence.
     for old, new in BUG_HUNTER_SUBS:
+        head = head.replace(old, new)
+        orig_tail = orig_tail.replace(old, new)
+    # The same treatment for the labels retired on 2026-11-11: a tail that still
+    # applies one would re-create it on the repository (`POST labels` creates a
+    # missing label), so the live text must converge, not merely the new blocks
+    # this script authors.
+    for old, new in DELETED_LABEL_TEXTS:
         head = head.replace(old, new)
         orig_tail = orig_tail.replace(old, new)
     managed_tail = next((v for k, v in TAILS.items() if k in name), None)

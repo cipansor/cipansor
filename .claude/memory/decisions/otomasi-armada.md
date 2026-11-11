@@ -669,12 +669,36 @@ lama (terverifikasi 2026-11-11: prompt live belum menyebut `in-progress`
 maupun `ready_for_review`). Deploy ulang:
 `OPENHANDS_API_KEY=… DEPLOY=true python3 scripts/deploy-sdlc-agents.py`.
 
-**Drift live vs repo (audit 2026-11-11).** Empat automation yang sudah
-`RETIRED` masih `enabled` di cloud (SDLC 01, 03, 13, 17) dan tiga trigger masih
-menyaring label yang sudah dihapus (SDLC 06 `bot-implement`, SDLC 16
-`needs-info`, SDLC 22 `pending-maintainer`/`needs-info`). Semuanya hanya hilang
-setelah deploy di atas dijalankan. `Audit Kematangan` dimatikan manual
-2026-11-10 tanpa entri `RETIRED`; kini tercatat.
+**Deploy 2026-11-11 dijalankan.** Armada live kini 15 ON / 9 OFF dan cocok
+dengan `RETIRED`: SDLC 01/02/03/11/13/17/21/23 + `Audit Kematangan` mati. Tiga
+trigger yang menyaring label terhapus diperbaiki (SDLC 06 → cron 08:00 WIB,
+SDLC 16/22 → `question`). Semua prompt aktif kini nol penyebutan label yang
+sudah dihapus.
+
+**Cacat yang baru ketahuan saat deploy: pola substitusi label tidak cocok.**
+`LEGACY_LABEL_TEXTS` mencocokkan kalimat kepemilikan label yang berakhir di
+"`bot-implement` adalah keputusan maintainer — jangan pernah memasangnya.",
+padahal teks live menyebut tiga label: "`bot-implement`, `rilis-disetujui`,
+`rilis-ditolak` adalah keputusan maintainer — jangan pernah memasangnya."
+Akibatnya pola tidak pernah cocok dan ketiga label itu **selamat di 19 prompt
+aktif**. Lebih parah, tail beberapa automation masih *menyuruh memasang* label
+terhapus (SDLC 05 `needs-info`, SDLC 09/20 `pending-maintainer`, SDLC 12
+`bot-implement`) — dan `POST /issues/<n>/labels` **membuat** label yang tidak
+ada, jadi run berikutnya akan menghidupkan kembali label yang sengaja dihapus.
+Perbaikannya: `LEGACY_LABEL_TEXTS` diperluas ke kalimat penuh, dan
+`DELETED_LABEL_TEXTS` baru menambal rujukan label di tail (juga mengganti
+`Pelabel issue` → `Triase issue`). Pelajaran umum: **setiap substitusi teks
+harus diuji terhadap prompt live yang sebenarnya, bukan terhadap teks yang
+kita harap ada** — dan itu berlaku untuk head maupun tail.
+
+**Drift live vs repo (audit 2026-11-11) — SUDAH DITUTUP oleh deploy di atas.**
+Empat automation yang sudah `RETIRED` ternyata masih `enabled` di cloud (SDLC
+01, 03, 13, 17) dan tiga trigger masih menyaring label yang sudah dihapus (SDLC
+06 `bot-implement`, SDLC 16 `needs-info`, SDLC 22
+`pending-maintainer`/`needs-info`). `Audit Kematangan` dimatikan manual
+2026-11-10 tanpa entri `RETIRED`; kini tercatat. Karena `enabled` dan `trigger`
+hanya berubah lewat `PATCH`, **audit armada harus membandingkan state live
+dengan repo setiap kali**, bukan mempercayai repo.
 
 **Kuota sandbox 20/hari adalah plafon nyata armada, dan belum terdokumentasi.**
 Dari 10 run terakhir tiap automation yang `enabled`, **108 run** `SKIPPED`

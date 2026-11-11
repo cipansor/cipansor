@@ -446,6 +446,42 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
     expect(script()).not.toContain('dan `automation-health`');
     expect(script()).not.toContain('label `automation-health`');
   });
+
+  it('strips every deleted label from the live prompt it rewrites', () => {
+    // `POST /issues/<n>/labels` CREATES a missing label, so a tail that still
+    // applies `pending-maintainer` re-creates it on the repository on every run.
+    // The rewrite must converge the live text, not only the blocks the script
+    // authors. This is the guard for the 2026-11-11 defect: the pattern for the
+    // label-ownership bullet stopped at "memasangnya." while the live bullet
+    // names two more labels, so `bot-implement`/`rilis-disetujui`/
+    // `rilis-ditolak` survived in all 19 live prompts.
+    const r = py(
+      [
+        'import json',
+        'DELETED = ["needs-info", "pending-maintainer", "bot-implement", "rilis-disetujui", "rilis-ditolak", "bug-hunter"]',
+        'live = {',
+        '  "SDLC 06 · Tiket jadi PR": "automation lain yang menemukan masalah membuka ISSUE, bukan PR, lalu `bot-implement` menyerahkannya ke `Tiket jadi PR`. Hanya `cipansor-bot` (GITHUB_BOT_TOKEN) yang boleh memasang label. Jangan pasang label apa pun lewat `GITHUB_TOKEN`. `bot-implement`, `rilis-disetujui`, `rilis-ditolak` adalah keputusan maintainer — jangan pernah memasangnya.\\nSebelum memasang `ready`, cabut dulu `question`/`needs-info`/`pending-maintainer`/`blocked` yang bertentangan.\\nPERILAKU SASARAN (level agentic)\\ntail",',
+        '  "SDLC 05 · Reproduksi bug": "agar maintainer bisa menerapkan `ready` — JANGAN menerapkan `ready` atau `needs-info` sendiri; gerbang manusia tetap milik manusia.\\nPERILAKU SASARAN (level agentic)\\ntail",',
+        '  "SDLC 20 · Pemindai standar": "satu prioritas, dan `pending-maintainer` (artinya: menunggu maintainer memutuskan apakah dilanjutkan — menambahkan `ready` memulai implementasi).\\nPERILAKU SASARAN (level agentic)\\ntail",',
+        '}',
+        'res = {}',
+        'for name, prompt in live.items():',
+        '    new = m.new_prompt(name, prompt)',
+        '    res[name] = {lab: new.count(lab) for lab in DELETED}',
+        'print(json.dumps(res))',
+      ].join('\n')
+    );
+    expect(r.status, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as Record<string, Record<string, number>>;
+    expect(Object.keys(out).length).toBe(3);
+    for (const [name, counts] of Object.entries(out)) {
+      for (const [label, n] of Object.entries(counts)) {
+        expect(n, `${name} still names \`${label}\``).toBe(0);
+      }
+    }
+    // The rewrite must not leave a dangling connector where the label list was.
+    expect(out).not.toHaveProperty('SDLC 05 · Reproduksi bug.__missing__');
+  });
 });
 
 describe('label-guard.sh', () => {
