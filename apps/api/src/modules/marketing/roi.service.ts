@@ -35,74 +35,58 @@ export async function calculateCampaignROI(unitId?: string) {
 
   const conversionMap = new Map(conversions.map((c) => [c.campaignId, c._count._all]));
 
-  // 2. Get revenue in one query
-  // Support both Registrant -> Student -> Invoice AND Registrant -> Invoice directly
-  const [studentRevenueData, registrantRevenueData] = await Promise.all([
-    // Path: Registrant -> Student -> Invoice
-    prisma.invoice.findMany({
-      where: {
-        student: {
-          // Satu santri kini boleh punya beberapa pendaftaran (progresi internal
-          // antarunit), jadi penyaringnya `some`, bukan relasi tunggal.
-          registrants: {
-            some: { campaignId: { in: campaignIds } },
-          },
-        },
-        status: 'PAID',
-      },
-      select: {
-        paidAmount: true,
-        student: {
-          select: {
-            // Pendapatannya diakui pada kampanye yang PERTAMA membawanya masuk,
-            // supaya santri dengan dua pendaftaran tidak dihitung dua kali.
-            registrants: {
-              where: { campaignId: { in: campaignIds } },
-              orderBy: { createdAt: 'asc' },
-              take: 1,
-              select: { campaignId: true },
-            },
-          },
+  // 2. Revenue from settled student invoices. Only the campaign that FIRST
+  // brought the student in is credited, so a student carrying two registrations
+  // does not count the same revenue twice.
+  const studentRevenueData = await prisma.invoice.findMany({
+    where: {
+      student: {
+        // Satu santri kini boleh punya beberapa pendaftaran (progresi internal
+        // antarunit), jadi penyaringnya `some`, bukan relasi tunggal.
+        registrants: {
+          some: { campaignId: { in: campaignIds } },
         },
       },
-    }),
-    // Path: Registrant -> Invoice (for registration fees paid before promotion to student)
-    // Note: This requires an optional registrantId on the Invoice model
-    (prisma.invoice as any)
-      .findMany({
-        where: {
-          registrant: {
-            campaignId: { in: campaignIds },
-          },
-          status: 'PAID',
-        },
+      status: 'PAID',
+    },
+    select: {
+      paidAmount: true,
+      student: {
         select: {
-          paidAmount: true,
-          registrant: {
+          registrants: {
+            where: { campaignId: { in: campaignIds } },
+            orderBy: { createdAt: 'asc' },
+            take: 1,
             select: { campaignId: true },
           },
         },
-      })
-      .catch(() => []), // Gracefully handle if registrantId isn't on Invoice yet
-  ]);
+      },
+    },
+  });
+
+  // Registration fees live on the Registrant (`registrationFeeAmount`, recognised
+  // once `registrationFeePaidAt` is set), not on an Invoice. The `Invoice` model
+  // has no `registrant` relation, and no code path writes a REG_FEE invoice (the
+  // PaymentType is provisioned for one, but none is created), so this source is
+  // disjoint from the settled invoices above and cannot double count.
+  const registrationFeeRows = await prisma.registrant.findMany({
+    where: {
+      campaignId: { in: campaignIds },
+      registrationFeePaidAt: { not: null },
+    },
+    select: { campaignId: true, registrationFeeAmount: true },
+  });
 
   const revenueMap = new Map<string, number>();
+  const addRevenue = (campaignId: string | null | undefined, amount: unknown) => {
+    if (!campaignId) return;
+    revenueMap.set(campaignId, (revenueMap.get(campaignId) || 0) + Number(amount ?? 0));
+  };
 
-  // Add revenue from students
-  studentRevenueData.forEach((inv) => {
-    const cid = inv.student?.registrants?.[0]?.campaignId;
-    if (cid) {
-      revenueMap.set(cid, (revenueMap.get(cid) || 0) + Number(inv.paidAmount));
-    }
-  });
-
-  // Add revenue from direct registrants (e.g. registration fees)
-  registrantRevenueData.forEach((inv: any) => {
-    const cid = inv.registrant?.campaignId;
-    if (cid) {
-      revenueMap.set(cid, (revenueMap.get(cid) || 0) + Number(inv.paidAmount));
-    }
-  });
+  studentRevenueData.forEach((inv) =>
+    addRevenue(inv.student?.registrants?.[0]?.campaignId, inv.paidAmount)
+  );
+  registrationFeeRows.forEach((row) => addRevenue(row.campaignId, row.registrationFeeAmount));
 
   const results = campaigns.map((campaign) => {
     const convertedCount = conversionMap.get(campaign.id) || 0;
@@ -218,6 +202,19 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
     take: 5000,
   });
 
+  // Registration fees are recognised on the Registrant itself (no Invoice), so
+  // they are a separate source from the payments above — the same rule the
+  // campaign ROI uses, bucketed by `registrationFeePaidAt`.
+  const registrationFees = await prisma.registrant.findMany({
+    where: {
+      campaignId: { not: null },
+      registrationFeePaidAt: { gte: start },
+      ...(unitId ? { admissionPeriod: { unitId } } : {}),
+    },
+    select: { registrationFeePaidAt: true, registrationFeeAmount: true },
+    take: 5000,
+  });
+
   const buckets = new Map<string, { revenue: number; count: number }>();
   for (let i = 0; i < months; i++) {
     const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
@@ -226,14 +223,21 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
       count: 0,
     });
   }
+  const bucketKey = (at: Date) =>
+    `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}`;
+
   for (const payment of payments) {
-    const key = `${payment.paidAt.getFullYear()}-${String(payment.paidAt.getMonth() + 1).padStart(
-      2,
-      '0'
-    )}`;
-    const bucket = buckets.get(key);
+    const bucket = buckets.get(bucketKey(payment.paidAt));
     if (bucket) {
       bucket.revenue += Number(payment.amount);
+      bucket.count += 1;
+    }
+  }
+  for (const fee of registrationFees) {
+    if (!fee.registrationFeePaidAt) continue;
+    const bucket = buckets.get(bucketKey(fee.registrationFeePaidAt));
+    if (bucket) {
+      bucket.revenue += Number(fee.registrationFeeAmount ?? 0);
       bucket.count += 1;
     }
   }

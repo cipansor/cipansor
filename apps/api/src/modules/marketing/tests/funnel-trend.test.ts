@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    registrant: { groupBy: vi.fn() },
+    registrant: { groupBy: vi.fn(), findMany: vi.fn() },
     payment: { findMany: vi.fn() },
   },
 }));
@@ -54,7 +54,10 @@ describe('getAdmissionFunnel', () => {
 });
 
 describe('getMonthlyAttributedRevenue', () => {
-  beforeEach(() => vi.clearAllMocks());
+  beforeEach(() => {
+    vi.clearAllMocks();
+    mocked.registrant.findMany.mockResolvedValue([]);
+  });
 
   it('buckets campaign-attributed payments per month with zero-filled series', async () => {
     const now = new Date();
@@ -78,6 +81,36 @@ describe('getMonthlyAttributedRevenue', () => {
       expect.objectContaining({
         where: expect.objectContaining({
           invoice: { student: { registrants: { some: { campaignId: { not: null } } } } },
+        }),
+      })
+    );
+  });
+
+  it('menambahkan biaya daftar ulang lunas, per bulan registrationFeePaidAt', async () => {
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    mocked.payment.findMany.mockResolvedValue([]);
+    mocked.registrant.findMany.mockResolvedValue([
+      { registrationFeePaidAt: now, registrationFeeAmount: 750000 },
+    ]);
+
+    const trend = await getMonthlyAttributedRevenue(undefined, 3);
+
+    const current = trend.find((t) => t.month === thisMonthKey);
+    expect(current).toEqual({ month: thisMonthKey, revenue: 750000, transactionCount: 1 });
+  });
+
+  it('membatasi biaya daftar ulang dan pembayaran pada unit yang diminta', async () => {
+    mocked.payment.findMany.mockResolvedValue([]);
+    mocked.registrant.findMany.mockResolvedValue([]);
+
+    await getMonthlyAttributedRevenue('unit-7', 3);
+
+    expect(mocked.registrant.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          campaignId: { not: null },
+          admissionPeriod: { unitId: 'unit-7' },
         }),
       })
     );
