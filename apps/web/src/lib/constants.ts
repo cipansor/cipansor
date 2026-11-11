@@ -5,78 +5,11 @@ import { STUDENT_STATUS } from "@cipansor/shared";
  * Centralized constants for consistency throughout the application
  */
 
-// ============================================
-// API Constants
-// ============================================
-
-// `API_BASE_URL` used to live here. Nothing imported it — every caller goes
-// through the axios instance in lib/api.ts, which owns the base URL. Leaving a
-// second, unused definition of it around is how the two drift apart: it still
-// read `process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001"`, which is
-// exactly the `||` that would defeat a deliberately empty (relative) base.
-
-export const API_ENDPOINTS = {
-  // Auth
-  AUTH: {
-    LOGIN: "/api/auth/login",
-    LOGOUT: "/api/auth/logout",
-    REFRESH: "/api/auth/refresh",
-    ME: "/api/auth/me",
-    CHANGE_PASSWORD: "/api/auth/change-password",
-  },
-  // Users
-  USERS: "/api/users",
-  // Students
-  STUDENTS: "/api/students",
-  // Teachers
-  TEACHERS: "/api/teachers",
-  // Classes
-  CLASSES: "/api/classes",
-  // Academic Years
-  ACADEMIC_YEARS: "/api/academic-years",
-  // Units
-  UNITS: "/api/units",
-  // Attendance
-  ATTENDANCE: "/api/attendance",
-  // Tahfidz
-  TAHFIDZ: "/api/tahfidz",
-  // Dormitory
-  DORMITORY: "/api/dormitory",
-  // Finance
-  FINANCE: "/api/finance",
-  // Permits
-  PERMITS: "/api/permits",
-  // Violations
-  VIOLATIONS: "/api/violations",
-  // Rewards
-  REWARDS: "/api/rewards",
-  // Health
-  HEALTH: "/api/health",
-  // Inventory
-  INVENTORY: "/api/inventory",
-  // Library
-  LIBRARY: "/api/library",
-  // Foundation
-  FOUNDATION: "/api/foundation",
-  // PSB
-  PSB: "/api/admissions",
-  // HR
-  HR: "/api/hr",
-  // Curriculum
-  CURRICULUM: "/api/curriculum",
-  // Assessment
-  ASSESSMENT: "/api/assessment",
-  // Notifications
-  NOTIFICATIONS: "/api/notifications",
-  // Alumni
-  ALUMNI: "/api/alumni",
-  // Analytics
-  ANALYTICS: "/api/analytics",
-  // Reports
-  REPORTS: "/api/reports",
-  // Dashboard
-  DASHBOARD: "/api/dashboard",
-} as const;
+// `API_BASE_URL` and `API_ENDPOINTS` used to live here: a second, unused copy
+// of the API's shape. Every caller goes through the axios instance in
+// lib/api.ts, which owns the base URL, and web-api-contract.guard.test.ts keeps
+// the web's paths honest. A duplicate only drifts, and this one had: the
+// endpoint list still pointed the connectivity probe at `/api/health`.
 
 // ============================================
 // Pagination
