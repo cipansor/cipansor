@@ -174,13 +174,27 @@ stub_legacy_page() {
   jq -nc \\
     --arg lb "\${GH_STUB_LEGACY_BODY:-}" \\
     --arg ls "\${GH_STUB_LEGACY_STATE:-}" \\
+    --arg kd "\${GH_STUB_LEGACY_KIND:-sweep}" \\
     --arg lat "\${GH_STUB_LEGACY_STATE_AT:-2026-11-11T05:00:00Z}" \\
     --arg url "https://api.github.com/repos/o/r/issues/818" \\
-    '[(if $lb != "" then {id: 1, body: $lb, issue_url: $url, user: {login: "github-actions[bot]"}, updated_at: "2026-11-11T05:00:00Z"} else empty end),
+    '[(if ($lb != "" and $kd != "state") then {id: 1, body: $lb, issue_url: $url, user: {login: "github-actions[bot]"}, updated_at: "2026-11-11T05:00:00Z"} else empty end),
       (if $ls != "" then {id: 2, body: ("<!-- triage-bridge:818:" + $ls + " -->"), issue_url: $url, user: {login: "github-actions[bot]"}, updated_at: $lat} else empty end)]'
 }
 case "$*" in
   *"search/issues"*) printf '%s\\n' "\${GH_STUB_SEARCH:-}" ;;
+  # The open ready-issue list legacy_ready_issues enumerates (#1031 review).
+  # It checks each number for a legacy marker, so the marker is found however
+  # far back it sits in the comment history. GH_STUB_READY_PAGE2, when set, is a
+  # second page (page 1 then returns a full 100 numbers, so the loop pages on).
+  *"issues?state=open&labels=ready"*)
+    pg=$(printf '%s' "$*" | sed -n 's#.*page=\\([0-9][0-9]*\\).*#\\1#p')
+    if [ "$pg" = "2" ] && [ -n "\${GH_STUB_READY_PAGE2:-}" ]; then
+      printf '%s\\n' "\${GH_STUB_READY_PAGE2}"
+    elif [ -n "\${GH_STUB_READY_PAGE2:-}" ]; then
+      i=1; while [ "$i" -le 100 ]; do printf '%s\\n' "$i"; i=$((i+1)); done
+    else
+      printf '%s\\n' "\${GH_STUB_READY_ISSUES:-818}"
+    fi ;;
   *"[.state, (.labels[].name)]"*)
     [ "\${GH_STUB_READ_FAIL:-}" = state ] && exit 1
     printf '%s\\n' "\${GH_STUB_STATE_LABELS:-open bug priority:medium}" ;;
@@ -208,7 +222,9 @@ case "$*" in
     pg=$(printf '%s' "$*" | sed -n 's#.*page=\\([0-9][0-9]*\\).*#\\1#p')
     if [ "$pg" = "2" ] && [ -n "\${GH_STUB_LEGACY_PAGE2:-}" ]; then
       printf '%s\\n' "\${GH_STUB_LEGACY_PAGE2}"
-    elif [ "$pg" = "1" ] && [ -n "\${GH_STUB_COMMENTS_JSON:-}" ]; then
+    elif [ -n "\${GH_STUB_RAW_COMMENTS:-}" ]; then
+      printf '%s\\n' "\${GH_STUB_RAW_COMMENTS}"
+    elif [ -n "\${GH_STUB_COMMENTS_JSON:-}" ]; then
       printf '%s\\n' "\${GH_STUB_COMMENTS_JSON}"
     else
       stub_legacy_page
@@ -2575,6 +2591,64 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).toContain('DISPATCH');
     expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('adopts a legacy marker whose comment sits past the comment-page cap', () => {
+    // #1031 review (R673): `legacy_ready_issues` used to scan the repository's
+    // comment history, so a marker past the page cap (a busy repo) was never
+    // found and its deferred dispatch was lost. It now enumerates the open
+    // `ready` issues and checks each for a marker, so the marker's depth in the
+    // history is irrelevant.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_READY_ISSUES: '818',
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')} -->`,
+        // The repo-wide comment window the old discovery scanned holds no
+        // marker: only the `ready`-issue enumeration can find #818.
+        GH_STUB_RAW_COMMENTS: JSON.stringify([{ id: 7, body: 'ordinary chatter' }]),
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('/issues?state=open&labels=ready');
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('adopts a legacy marker found on a second page of ready issues', () => {
+    // #1031 review (R673): the enumeration must page, not stop at the first 100
+    // `ready` issues. #818 sits on page 2 and is still adopted.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_READY_PAGE2: '818',
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_LEGACY_BODY: `<!-- triage-bridge-sweep:818:${signal('edited')} -->`,
+        GH_STUB_RAW_COMMENTS: JSON.stringify([{ id: 7, body: 'ordinary chatter' }]),
+      },
+      ['--recover-ready']
+    );
+    expect(calls).toContain('page=2');
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('deletes a status-only legacy marker on a ready issue when purging', () => {
+    // #1031 review (R732): for a `ready` issue carrying only a status marker the
+    // purge looked for a *sweep* marker, found none, skipped the delete — yet
+    // still counted the comment as removed. The row's own id and kind are used
+    // now, so the status marker is deleted and the count is honest.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_LEGACY_KIND: 'state',
+        GH_STUB_LEGACY_STATE: 'bug+priority:medium',
+      },
+      ['--purge-markers']
+    );
+    expect(calls).toContain('DELETE_MARKER');
+    expect(out).toContain('1 legacy marker comment(s) removed.');
   });
 
   it('adopts a legacy pending marker on a ready issue before purging it', () => {

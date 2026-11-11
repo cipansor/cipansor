@@ -93,6 +93,12 @@ PENDING_RUN="pending"
 # window is not lost — the next sweep's `sort` by activity moves it in front once
 # it is touched.
 SWEEP_PAGES="${SWEEP_PAGES:-5}"
+# `--recover-ready` enumerates every open `ready` issue and checks each for a
+# legacy marker. This bound is only a runaway guard (5 000 issues); the loop
+# stops at the first short page, so the enumeration is exact in practice. It is
+# deliberately separate from SWEEP_PAGES, which caps the sweep's activity window
+# and is far too small to enumerate a label set (#1031 review).
+READY_PAGES="${READY_PAGES:-50}"
 # The labeler applies type, priority and status in one burst; a checkpoint younger
 # than this collapses the burst to one dispatch. A later change to a type or
 # priority the issue held before still dispatches once the window has passed.
@@ -663,30 +669,35 @@ sweep_keys() {
   done
 }
 
-# The number of every issue that still carries a legacy sweep marker comment and
-# is `ready` (so the ordinary sweep skips it and would never adopt the marker).
-# Only `ready` issues are printed, so the result stays small even though the
-# comment listing covers the whole repository. The page length is read from the
-# raw page, not from the marker rows, so a page with few markers but more
-# comments still pages on (#1031 review).
+# The number of every open issue labelled `ready` that still carries a legacy
+# sweep marker comment. The ordinary sweep excludes `ready` issues, so a marker
+# there would never be adopted; `--recover-ready` needs the numbers to do it.
+#
+# The open `ready` issues are enumerated first and each is checked for a marker,
+# rather than scanning the repository's comment history. A comment scan is
+# bounded by pages, and a marker can sit arbitrarily far back in that history —
+# past the page cap on a busy repository — which would silently drop a deferred
+# dispatch. The `ready` set is small (issues leave it once implemented), and the
+# check is exact however old the marker is (#1031 review).
 legacy_ready_issues() {
-  for page in 1 2 3 4 5 6 7 8 9 10; do
-    page_json=$(gh api "repos/$REPO/issues/comments?per_page=100&page=$page" 2>/dev/null) || page_json='[]'
-    rows=$(printf '%s' "$page_json" | jq -r --arg p "$MARK_PREFIX" \
-      '.[] | select(.body | startswith($p)) | (.issue_url | split("/") | last)' 2>/dev/null || true)
-    if [ -n "$rows" ]; then
-      printf '%s\n' "$rows" | while IFS= read -r num; do
-        [ -n "$num" ] || continue
-        st=$(gh api "repos/$REPO/issues/$num" \
-          --jq '[.state, (.labels[].name)] | join(" ")' 2>/dev/null || echo "")
-        case " $st " in
-          *" ready "*) printf '%s\n' "$num" ;;
-        esac
-      done
-    fi
-    total=$(printf '%s' "$page_json" | jq -r 'length' 2>/dev/null || echo 0)
-    case "$total" in '' | *[!0-9]*) total=0 ;; esac
-    [ "$total" -ge 100 ] || break
+  lp=1
+  while [ "$lp" -le "$READY_PAGES" ]; do
+    # `labels=ready` narrows the list; pull requests share the endpoint, so they
+    # are filtered out (a status label never sits on a PR — docs/LABELS.md).
+    nums=$(gh api "repos/$REPO/issues?state=open&labels=ready&per_page=100&page=$lp" \
+      --jq '.[] | select(.pull_request == null) | .number' 2>/dev/null) || nums=""
+    [ -n "$nums" ] || break
+    # `if`, not `legacy_marker ... && printf`: a number with no marker leaves an
+    # AND-OR list returning non-zero, which is the last command of the pipeline —
+    # under `set -e` that aborts the whole run before the next page (#1031 review).
+    printf '%s\n' "$nums" | while IFS= read -r num; do
+      [ -n "$num" ] || continue
+      if legacy_marker "$num" "$MARK_PREFIX"; then printf '%s\n' "$num"; fi
+    done
+    got=$(printf '%s\n' "$nums" | grep -c . || true)
+    case "$got" in '' | *[!0-9]*) got=0 ;; esac
+    [ "$got" -ge 100 ] || break
+    lp=$((lp + 1))
   done
 }
 
@@ -699,8 +710,14 @@ purge_markers() {
   tmp=$(mktemp)
   for page in 1 2 3 4 5 6 7 8 9 10; do
     page_json=$(gh api "repos/$REPO/issues/comments?per_page=100&page=$page" 2>/dev/null) || page_json='[]'
-    rows=$(printf '%s' "$page_json" | jq -r \
-      '.[] | select(.body | test("^<!-- triage-bridge(-sweep)?:")) | [(.id|tostring), (.issue_url | split("/") | last)] | @tsv' \
+    # The row carries the comment id and its kind. The kind is what the `ready`
+    # branch needs: a sweep marker is adopted before deletion, a state marker is
+    # deleted directly, and without it a status-only issue was counted as cleaned
+    # while its comment stayed (#1031 review).
+    rows=$(printf '%s' "$page_json" | jq -r --arg mp "$MARK_PREFIX" \
+      '.[] | select(.body | test("^<!-- triage-bridge(-sweep)?:"))
+       | [(.id|tostring), (.issue_url | split("/") | last),
+          (if (.body | startswith($mp)) then "sweep" else "state" end)] | @tsv' \
       2>/dev/null || true)
     [ -n "$rows" ] && printf '%s\n' "$rows" >> "$tmp"
     # The page length, not the marker count, decides whether to page on.
@@ -708,7 +725,7 @@ purge_markers() {
     case "$total" in '' | *[!0-9]*) total=0 ;; esac
     [ "$total" -ge 100 ] || break
   done
-  while IFS="$(printf '\t')" read -r cid num; do
+  while IFS="$(printf '\t')" read -r cid num kind; do
     [ -n "${cid:-}" ] || continue
     st=$(gh api "repos/$REPO/issues/$num" --jq '[.state, (.labels[].name)] | join(" ")' 2>/dev/null || echo "")
     case " $st " in
@@ -717,23 +734,33 @@ purge_markers() {
         # the marker is safe to delete.
         ;;
       *" ready "*)
-        # Adopt before deleting: the marker may hold the only copy of a deferred
-        # dispatch, and the sweep skips `ready` issues (only `--recover-ready`
-        # adopts them). A purge that ran before either pass would otherwise drop
-        # the checkpoint. A failed read keeps the marker (#1031 review).
-        read_sweep_marker "$num"
-        if [ "$MARK_FORM" = "unknown" ]; then
-          echo "::warning::keeping the legacy marker on #$num; the checkpoint store could not be read."
-          continue
-        fi
-        # Adoption deletes the marker it adopts; re-read it so the delete below
-        # acts on a comment that is still there, and count an adopted marker as
-        # removed instead of warning that it is already gone.
-        if ! legacy_marker "$num" "$MARK_PREFIX"; then
-          removed=$((removed + 1))
-          continue
-        fi
-        cid=$LEGACY_ID
+        # The kind decides: only a sweep marker holds a checkpoint. A state
+        # marker only dedups a label burst and is adopted by the next label
+        # event, so on a `ready` issue (which no sweep visits) it is a stale
+        # leftover and its own row is safe to delete (#1031 review).
+        case "$kind" in
+          sweep)
+            # Adopt before deleting: the marker may hold the only copy of a
+            # deferred dispatch, and the sweep skips `ready` issues (only
+            # `--recover-ready` adopts them). A purge that ran before either pass
+            # would otherwise drop the checkpoint. A failed read keeps the marker
+            # (#1031 review).
+            read_sweep_marker "$num"
+            if [ "$MARK_FORM" = "unknown" ]; then
+              echo "::warning::keeping the legacy marker on #$num; the checkpoint store could not be read."
+              continue
+            fi
+            # Adoption deletes the marker it adopts, so the id listed above may
+            # already be gone; re-read the newest remaining marker and delete
+            # that. With none left the checkpoint is adopted and there is
+            # nothing left to delete (#1031 review).
+            if ! legacy_marker "$num" "$MARK_PREFIX"; then
+              removed=$((removed + 1))
+              continue
+            fi
+            cid=$LEGACY_ID
+            ;;
+        esac
         ;;
       *) continue ;;
     esac
