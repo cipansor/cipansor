@@ -511,7 +511,11 @@ sampai ke kontainer; pada Azure App Service, ke app settings tiap kontainer.
 - **Otorisasi dua lapis.** Lapis API: `authorize(RoleCode…)` dan
   `hasPermission(perm)`; lapis web: kode peran memilih menu (`navigation.ts`),
   bucket lama memilih halaman yang boleh dibuka (`rbac.ts`). Lingkup baris data
-  ditentukan di service (`resolve-unit-id`, `studentScope`).
+  ditentukan di service (`resolve-unit-id`, `studentScope`). `studentScope`
+  melebarkan baca ke seluruh unit untuk organ yayasan dan peran lintas unit
+  (`seesAllUnits` atas `CROSS_UNIT_SCOPE_ROLES`: pengasuh, ustadz, musyrif,
+  muhafidz, tata usaha pesantren, dan layanan bersama), sedangkan peran lain
+  terkunci pada unitnya.
 - **Validasi.** Zod di tepi (`validate`, `validateQuery`, `validateParams`);
   skema bersama di `@cipansor/shared`; kontrak yang sama dipakai web.
 - **Amplop respons.** `{ success, data, meta? }` lewat `ApiResponse`; galat

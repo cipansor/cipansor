@@ -3,6 +3,7 @@
 | Versi | Tanggal | Basis aplikasi | Tingkat verifikasi | Perubahan |
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode PR #512 (setelah `main` `2377f5fb`) | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo musyrif (`pesantren.musyrif@cipansor.or.id`) pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
+| 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Kalimat cakupan §1.2 dikoreksi: data santri tidak lagi "sebatas santri binaan dan unit Anda". Kini dibedakan **per santri binaan** (Santri Binaan, Tindak Lanjut Absensi, Asrama, izin mukim) dari **bersama lintas unit** (tahfidz, muhadhoroh/muhadatsah, kitab kuning, ibadah, sanad), sesuai #714 (`seesAllUnits`, `CROSS_UNIT_SCOPE_ROLES`) |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo musyrif, dan tiap kartu memuat tangkapan
@@ -39,7 +40,12 @@ Kehadiran, Asrama, Musyrif, Mutabaah Yaumiyah, Jurnal Ibadah, Muhasabah),
 - Anda **mencatat setoran tahfidz** santri binaan Anda.
 - Kepala unit hanya turun tangan untuk izin lebih dari 7 hari, santri tanpa
   pembimbing, atau mengambil alih keputusan.
-- Data santri hanya tampil sebatas santri binaan dan unit Anda.
+- Data santri tampil dalam **dua lingkup**. **Per santri binaan Anda** — kartu
+  Santri Binaan, Tindak Lanjut Absensi, Asrama, dan keputusan izin santri mukim.
+  **Bersama seluruh unit** — Tahfidz, Muhadhoroh, Muhadatsah, Kitab Kuning,
+  Jurnal Ibadah, dan Sanad, yang memuat santri dari semua sekolah (TK Qur'an,
+  SD IT, SMP IT, SMA Qur'an) karena tugas Anda melayani pesantren, bukan satu
+  sekolah.
 
 ## 1.3 Tugas dalam buklet ini
 

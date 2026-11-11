@@ -98,8 +98,9 @@ dengan `apps/web/scripts/role-menus.ts`.
 
 ## Fitur Utama
 
-- **Banyak unit, satu portal.** Unit menjadi cakupan data. Organ yayasan dan
-  layanan lintas unit (asrama, klinik, perpustakaan, keamanan) melihat semua
+- **Banyak unit, satu portal.** Unit menjadi cakupan data. Organ yayasan,
+  petugas pesantren (ustadz, musyrif, muhafidz, pengasuh, tata usaha pesantren)
+  dan layanan lintas unit (asrama, klinik, perpustakaan, keamanan) melihat semua
   unit; peran lain terkunci pada unitnya.
 - **Tahfidz dan kepesantrenan.** Target dan setoran hafalan dari SD sampai SMA,
   simaan, takhosus, ibadah harian, kitab kuning, asrama, dan perizinan yang
@@ -140,8 +141,9 @@ packages/
   dicatat sebagai baseline yang hanya boleh menyusut.
 - **Akses berlapis:** menu (`config/navigation.ts`), halaman
   (`lib/rbac.ts` + `middleware.ts`), rute API (`authorize`), dan cakupan baris
-  di service (mis. `studentScope`). Izin per fitur yang diturunkan dari
-  penugasan ("Model A") sedang dibangun bertahap.
+  di service (mis. `studentScope`, yang melebarkan baca ke seluruh unit lewat
+  `seesAllUnits`). Izin per fitur yang diturunkan dari penugasan ("Model A")
+  sedang dibangun bertahap.
 - **Kontrak** request/response tinggal sekali di `@cipansor/shared`.
 
 Rinciannya di [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) dan dokumen teknis
