@@ -394,6 +394,18 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   `continue-on-error`. The Chromium run reports 41 skipped (2026-09-27);
   one of them, `tk-daily-report`, had been hiding a broken flow for months
   (`lessons/guard-tests-that-measure-the-wrong-thing.md`).
+
+- **Issue triage, 2026-11-11 (lanjutan):** #825 (`documentation`, kontrak
+  `dueDate` tanggal-saja + kalender WIB setelah #775) dikerjakan di **PR #1049**
+  pada `docs/825-dueDate-wib-contract`: `MOBILE_API.md` §3 menyebut `dueDate` =
+  `YYYY-MM-DD` dan bulan tagihan WIB; `DOKUMEN-TEKNIS.md` §8 dapat butir
+  konvensi tanggal/waktu (menunjuk `utils/wib-day.ts`) dan §6.6 menyebut bulan
+  WIB; `PANDUAN-PENGGUNA-BENDAHARA.md` menegaskan Tanggal Jatuh Tempo = satu
+  hari penuh WIB. `check_docs.py` tidak menambah ERROR (16 teknis / 2 pengguna =
+  baseline `main`). Murni dokumentasi → job kode CI di-skip. Beririsan berkas
+  dengan PR dokumen yang menunggu (#1035/#1036/#1046) tetapi di lokasi berbeda;
+  nomor versi diambil 1.4/0.3 agar tak bentrok.
+
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
   permissions, separation-of-duty rules locked in code, and the account
