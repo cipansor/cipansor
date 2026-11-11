@@ -215,8 +215,13 @@ function run(
 const runBridge = (env: Record<string, string>, args: string[], stdin?: string) =>
   run(BRIDGE, env, args, stdin, bridgeDir);
 
+// The repository labels the guard tests reason about, mirroring `gh label list`
+// for every one a test names — `blocked` included, because it is a real label
+// and the human path reads `protected_labels()`. A fixture that omits a label
+// the guard consults makes that label read as "not protected", and a test built
+// on it then proves the opposite of what happens in the repository.
 const LABELS =
-  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nbot-implement\nsource:template';
+  'bug\nenhancement\nready\nquestion\nneeds-info\nblocked\npriority:high\npriority:medium\nbot-implement\nsource:template';
 
 const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
   JSON.stringify({
@@ -392,6 +397,28 @@ describe('label-guard.sh', () => {
     );
     expect(calls).toContain('/issues/7/labels/ready');
     expect(calls).not.toContain('/issues/7/labels/blocked');
+  });
+
+  it('revokes a person’s `blocked` and leaves the bot’s `ready` — so the fixture must list it', () => {
+    // A person applying `blocked` takes the standard path, not the conflict
+    // path: `blocked` is a real repository label, so it is protected and revoked
+    // like any other, and the bot's `ready` stands. The fixture omission was not
+    // cosmetic — with `blocked` missing from `LABELS` the guard reads it as "not
+    // protected", leaves it in place, and then withdraws `ready` as the conflict:
+    // the opposite of what the repository does.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_PERM: 'admin',
+        GH_STUB_CURRENT: 'ready\nblocked',
+      },
+      ['--stdin'],
+      labeledEvent('adminypc', 'blocked')
+    );
+    expect(calls).toContain('/issues/7/labels/blocked');
+    expect(calls).not.toContain('/issues/7/labels/ready');
+    expect(out).toContain("Removed label 'blocked'");
   });
 
   it('leaves `ready` alone when nothing contradicts it', () => {
@@ -1030,6 +1057,30 @@ describe('fleet contracts', () => {
     expect(flow).toMatch(/Triase ganda — SELESAI/);
     expect(flow).toMatch(/Triase satu pemilik\*\* — SELESAI/);
     expect(flow).not.toMatch(/Triase ganda — sebagian/);
+  });
+
+  it('keeps every live report source in the flow diagram’s `IN` node', () => {
+    // The diagram's `IN` node is where a reader learns which reports reach
+    // triage. `Pemburu bug` (SDLC 19) is retired as a *label* (`bug-hunter`,
+    // 2026-11-10) but the *automation* still runs and still opens `bug` issues,
+    // so it stays a source; dropping it there loses the path from that
+    // automation to triage. Guard the invariant, not the one string: every
+    // report-opening role the doc names must appear in `IN`, and a role named
+    // `RETIRED` in the deploy script must not. `Pemburu bug` is deliberately
+    // absent from `RETIRED` — the label retired, not the automation.
+    const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
+    const inNode = flow.match(/^ {2}IN\(\["([^"]+)"\]\)/m);
+    expect(inNode, 'the flow diagram has an IN node').not.toBeNull();
+    const sources = inNode![1];
+    for (const source of ['manusia', 'Pemburu bug', 'Pemindai standar', 'Pemindai celah uji']) {
+      expect(sources, source).toContain(source);
+    }
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const retired = script.slice(
+      script.indexOf('RETIRED = {'),
+      script.indexOf('\n}', script.indexOf('RETIRED = {'))
+    );
+    expect(retired, 'Pemburu bug still runs').not.toMatch(/"SDLC 19":/);
   });
 
   it('releases production from a vX.Y.Z tag, and only that workflow', () => {
