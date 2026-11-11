@@ -176,7 +176,8 @@ setiap prompt dan dijaga workflow deterministik):
   `markdown` form tidak ikut ke body), dan `basmalah.yml` menambahkannya bila lupa.
 - **`ready` eksklusif dan kuat.** `ready` hanya bila sangat yakin, tanpa
   pertanyaan terbuka, dan tidak pernah bersama `question`/`needs-info`/
-  `pending-maintainer` (#814). Kritik habis-habisan dulu, baru `ready`.
+  `pending-maintainer`/`blocked` (#814; `blocked` ditambahkan 2026-11-10).
+  Kritik habis-habisan dulu, baru `ready`.
 - **Hanya `cipansor-bot` melabeli.** Label akun lain dicabut `label-guard.yml`,
   kecuali `bot-implement`. (`rilis-disetujui`/`rilis-ditolak` dihapus
   2026-11-09: keduanya tidak pernah ada di repo; persetujuan rilis kini tag

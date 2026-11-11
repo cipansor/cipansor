@@ -116,7 +116,12 @@ pertentangan itu dilaporkan sebagai issue.
     automation **sangat yakin**: tujuan jelas, kriteria penerimaan konkret, tanpa
     pertanyaan terbuka. Selama masih ada yang perlu dibahas, diputuskan, atau
     dikritisi, jangan `ready` dulu. `ready` tidak boleh bersama `question`,
-    `needs-info`, atau `pending-maintainer` (#814).
+    `needs-info`, `pending-maintainer`, atau `blocked` (#814; `blocked` ditambahkan
+    2026-11-10 atas keputusan pemilik). `blocked` adalah kontradiksi yang sama:
+    issue yang tidak bisa dilanjutkan sampai ketergantungannya selesai bukan
+    issue yang bisa diambil kontributor, dan itulah yang dijanjikan `ready`.
+    Yang dicabut selalu `ready`, bukan `blocked` — `blocked` membawa informasi
+    yang lebih keras, dan mencabutnya akan mengklaim issue itu bisa dimulai lagi.
 17. **Hanya `cipansor-bot` yang melabeli.** Label yang dipasang akun lain
     dicabut workflow `label-guard.yml`, kecuali label keputusan manusia
     (`bot-implement`). Automasi membaca label, jadi label manual membuat
@@ -184,7 +189,7 @@ flowchart TD
   classDef gh fill:#fff4e5,stroke:#f59e0b,color:#111;
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
-  IN(["laporan: manusia · Pemburu bug · Pemindai standar · Pemindai celah uji"]) --> TR["Triase issue: tipe · prioritas · duplikat · kesiapan + estimasi (satu komentar)"]:::cloud
+  IN(["laporan: manusia · Pemindai standar · Pemindai celah uji"]) --> TR["Triase issue: tipe · prioritas · duplikat · kesiapan + estimasi (satu komentar)"]:::cloud
   TR -- keamanan --> ADV["advisory privat"]:::human
   TR -- needs-info --> CL["Penjernih issue"]:::cloud --> TR
   TR -- decision --> DEC["riset + pilihan ganda"]:::cloud --> MD{"maintainer memilih"}:::human --> TR

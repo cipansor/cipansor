@@ -79,9 +79,18 @@ fi
 [ -n "$NUMBER" ] && [ -n "$LABEL" ] || { echo "No number/label in the event; nothing to do."; exit 0; }
 
 # `ready` is a strong claim and it is exclusive: it must never sit beside a label
-# that says the issue is still being discussed or decided (#814 carried `ready`
-# and `question` together, which makes the machine-readable state ambiguous).
-# `question`, `needs-info` and `pending-maintainer` all win over `ready`.
+# that says the issue is still being discussed, decided, or waiting on something
+# (#814 carried `ready` and `question` together, which makes the machine-readable
+# state ambiguous). `question`, `needs-info`, `pending-maintainer` and `blocked`
+# all win over `ready`.
+#
+# `blocked` belongs here because it is the same contradiction: an issue that
+# cannot proceed until a dependency resolves is not one a contributor can pick
+# up, which is exactly what `ready` promises. The two together also lie to the
+# queue — `Tiket jadi PR` reads `bot-implement`, but a reader (and the WIP
+# ordering) takes `ready` at face value. One of them has to go, and it is always
+# `ready`: `blocked` carries the harder information, and withdrawing it would
+# claim the issue is startable again (aturan pemilik, 2026-11-10).
 #
 # The decision is made from the issue's *effective* label set: the event's own
 # label counts unless the standard path below is about to revoke it (an
@@ -116,7 +125,7 @@ fi
 
 conflict=""
 if printf '%s\n' "$effective" | grep -qxF ready; then
-  for excl in question needs-info pending-maintainer; do
+  for excl in question needs-info pending-maintainer blocked; do
     printf '%s\n' "$effective" | grep -qxF "$excl" && conflict="$excl"
   done
 fi
@@ -128,7 +137,12 @@ if [ -n "$conflict" ]; then
   echo "Removed 'ready' from #$NUMBER: it contradicts '$conflict'."
   if ! gh api --paginate "repos/$REPO/issues/$NUMBER/comments?per_page=100" \
       --jq '.[].body' 2>/dev/null | grep -qF "$READY_MARK"; then
-    RBODY="Label \`ready\` dicabut dari #$NUMBER karena bertentangan dengan \`$conflict\`: issue yang masih punya pertanyaan terbuka atau menunggu keputusan belum siap dikerjakan. \`ready\` hanya diberikan bila sangat yakin — tanpa pertanyaan terbuka. Hilangkan dulu \`$conflict\`-nya (jawab pertanyaannya, atau putuskan), lalu \`ready\` boleh dipasang lagi.
+    if [ "$conflict" = "blocked" ]; then
+      RWHY="masih terhalang ketergantungan, jadi belum bisa dikerjakan siapa pun. Label \`ready\` dan \`blocked\` tidak boleh berdampingan; \`ready\` ditahan sampai penghambatnya hilang. \`blocked\` tetap dipasang supaya issue ini tidak ikut ditutup \`stale-sweep\`."
+    else
+      RWHY="masih punya pertanyaan terbuka atau menunggu keputusan, jadi belum siap dikerjakan. \`ready\` hanya diberikan bila sangat yakin — tanpa pertanyaan terbuka. Hilangkan dulu \`$conflict\`-nya (jawab pertanyaannya, atau putuskan), lalu \`ready\` boleh dipasang lagi."
+    fi
+    RBODY="Label \`ready\` dicabut dari #$NUMBER karena bertentangan dengan \`$conflict\`: issue yang $RWHY
 
 $READY_MARK"
     gh api "repos/$REPO/issues/$NUMBER/comments" -f body="$RBODY" >/dev/null \

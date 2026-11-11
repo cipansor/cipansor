@@ -371,6 +371,29 @@ describe('label-guard.sh', () => {
     expect(calls).toContain('/issues/7/labels/ready');
   });
 
+  it('removes a `ready` that contradicts `blocked`, even from the bot', () => {
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_CURRENT: 'ready\nblocked\nbug' },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'ready')
+    );
+    expect(calls).toContain('/issues/7/labels/ready');
+    expect(calls).toContain('COMMENT');
+    expect(out).toContain("contradicts 'blocked'");
+  });
+
+  it('keeps `blocked` when it wins over a conflicting `ready`', () => {
+    const { calls } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_CURRENT: 'ready\nblocked' },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'blocked')
+    );
+    expect(calls).toContain('/issues/7/labels/ready');
+    expect(calls).not.toContain('/issues/7/labels/blocked');
+  });
+
   it('leaves `ready` alone when nothing contradicts it', () => {
     const { calls } = run(
       LABEL_GUARD,
@@ -1432,6 +1455,29 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('BODY ISSUE/PR');
     expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
     expect(out).toContain(TAILS_SDLC_15_MARKER);
+  });
+
+  it.skipIf(!hasPy)('tells the triage owner never to pair `ready` with `blocked`', () => {
+    // `ready` and `blocked` contradict each other (owner decision 2026-11-10):
+    // an issue that cannot proceed is not one a contributor can pick up. The
+    // label-guard enforces it deterministically, but the prompt must not create
+    // the conflict in the first place — the triage owner wrote it 29 times.
+    const out = newPrompt('SDLC 15', 'Header');
+    expect(out).toContain(
+      '`ready` tidak boleh bersama `question`, `needs-info`, `pending-maintainer`, atau `blocked`'
+    );
+    expect(out).toContain('Issue `blocked` TIDAK boleh `ready`');
+  });
+
+  it.skipIf(!hasPy)('strips the retired `bug-hunter` label from a live tail', () => {
+    // The label is deleted from the repository, and the labels API creates a
+    // missing label on `POST`, so a live prompt that still applies it would
+    // resurrect it on the next run. The redeploy must drop the mention.
+    const original =
+      'Header\n\nPERILAKU SASARAN (level agentic)\nmembuka issue `bug`, satu prioritas, `bug-hunter`, `bot-implement`';
+    const out = newPrompt('SDLC 19', original);
+    expect(out).not.toContain('bug-hunter');
+    expect(out).toContain('`bot-implement`');
   });
 
   it.skipIf(!hasPy)('still enforces the 1800s timeout when a truncated prompt is refused', () => {
