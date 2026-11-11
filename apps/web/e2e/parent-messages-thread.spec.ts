@@ -38,6 +38,20 @@ test.describe("Pesan wali — utas yang dimulai wali", () => {
       content: reply,
     });
 
+    // Every mark-read call the page makes. The badge alone does not prove which
+    // call cleared it — opening the thread refetches `GET /messages/:id`, which
+    // marks read server-side — so assert the page's own `PATCH …/read`, which
+    // only the mark-read effect makes.
+    const markReadCalls: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "PATCH" &&
+        /\/messages\/[^/]+\/read$/.test(new URL(request.url()).pathname)
+      ) {
+        markReadCalls.push(request.url());
+      }
+    });
+
     await injectSession(page, parent);
     await gotoAuthedPage(page, "/parent/messages", /^Pesan$/);
 
@@ -49,7 +63,10 @@ test.describe("Pesan wali — utas yang dimulai wali", () => {
 
     await row.click();
     await expect(page.getByText(reply).last()).toBeVisible();
-    // Opening it reads the reply: the badge goes and stays gone.
+    // Opening it reads the reply: the page marks it read, and the badge goes.
+    await expect
+      .poll(() => markReadCalls.some((url) => url.includes(opened.data.id)))
+      .toBe(true);
     await expect(row.getByText("Baru")).toHaveCount(0);
     await page.reload();
     await expect(
@@ -62,10 +79,17 @@ test.describe("Pesan wali — utas yang dimulai wali", () => {
 
   /**
    * A reply that arrives while the wali already has the thread open. The
-   * stored conversation object is the snapshot taken when it was opened; the
-   * mark-read effect used to read the badge off that snapshot only, so a reply
-   * that landed afterwards stayed unread. It now reads the live list, so the
-   * badge clears without the wali reopening the thread.
+   * stored conversation object is the snapshot taken when the thread was
+   * opened; the mark-read effect used to read the badge off that snapshot
+   * only, so a reply that landed afterwards stayed unread. It now reads the
+   * live list, so the badge clears without the wali reopening the thread.
+   *
+   * The badge alone does not prove which call cleared it: the reply's
+   * invalidation refetches `GET /messages/:id`, and that read marks the thread
+   * read server-side too. So this asserts the page's own mark-read call —
+   * `PATCH /messages/:id/read` — which nothing else in this flow makes. The
+   * call is keyed on the thread's newest message, so the reply that landed
+   * while the thread was open is what fires it.
    */
   test("balasan yang tiba selagi utas terbuka ikut ditandai terbaca", async ({
     page,
@@ -89,12 +113,25 @@ test.describe("Pesan wali — utas yang dimulai wali", () => {
     // Read the thread first, so it opens with nothing unread.
     await apiRequest(parent, "GET", `/messages/${opened.data.id}`);
 
+    // Every mark-read call the page makes, in order.
+    const markReadCalls: string[] = [];
+    page.on("request", (request) => {
+      if (
+        request.method() === "PATCH" &&
+        /\/messages\/[^/]+\/read$/.test(new URL(request.url()).pathname)
+      ) {
+        markReadCalls.push(request.url());
+      }
+    });
+
     await injectSession(page, parent);
     await gotoAuthedPage(page, "/parent/messages", /^Pesan$/);
 
     const row = page.getByText(subject).locator("xpath=ancestor::div[2]");
     await expect(row).toBeVisible();
     await expect(row.getByText("Baru")).toHaveCount(0);
+    // Opening it (with nothing unread) must not have marked anything read.
+    expect(markReadCalls).toHaveLength(0);
 
     // Open the thread, then have the guru answer while it stays open.
     await row.click();
@@ -106,11 +143,19 @@ test.describe("Pesan wali — utas yang dimulai wali", () => {
     });
 
     // The wali sends a line: the reply mutation invalidates the list, the live
-    // conversation carries the new reply, and the mark-read effect clears it.
+    // conversation now carries the new reply, and the mark-read effect fires
+    // for the thread's newest message.
     const textarea = page.getByPlaceholder("Ketik pesan...");
     await textarea.fill("Baik, terima kasih.");
     await textarea.press("Enter");
     await waitForToast(page, /terkirim/i);
+
+    await expect
+      .poll(() => markReadCalls.length, { message: "a mark-read PATCH" })
+      .toBeGreaterThan(0);
+    expect(markReadCalls.some((url) => url.includes(opened.data.id))).toBe(
+      true,
+    );
 
     await expect(row.getByText("Baru")).toHaveCount(0);
     // And it is the API's state, not just local: a reload shows it read.
