@@ -556,19 +556,39 @@ describe('label-guard.sh', () => {
     expect(calls).not.toContain('keputusan manusia');
   });
 
-  it('sends an outside reporter to the maintainer, not to a mention that is filtered out', () => {
-    // `Bot sebutan` (SDLC 07) only forwards a mention from an
-    // OWNER/MEMBER/COLLABORATOR, so telling a non-collaborator to mention the
-    // bot sends them to a door that never opens.
+  it('keeps a triage collaborator on the mention path', () => {
+    // `triage` is the permission a person needs to apply a label at all, and a
+    // triage collaborator still satisfies `COLLABORATOR` in `MENTION_FILTER`, so
+    // the notice must not divert them to the maintainer. Regression: the first
+    // version treated every permission outside admin/maintain/write as an
+    // outsider, so a triage collaborator was told the bot would not answer them.
     const { calls } = run(
       LABEL_GUARD,
       { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'triage' },
       ['--stdin'],
-      labeledEvent('outsider', 'ready')
+      labeledEvent('triager', 'ready')
     );
     expect(calls).toContain('COMMENT');
-    expect(calls).toContain('maintainer');
-    expect(calls).not.toContain('@cipansor-bot');
+    expect(calls).toContain('@cipansor-bot');
+    expect(calls).not.toContain('maintainer');
+  });
+
+  it('sends an outside reporter to the maintainer, not to a mention that is filtered out', () => {
+    // `Bot sebutan` (SDLC 07) only forwards a mention from an
+    // OWNER/MEMBER/COLLABORATOR, so telling a non-collaborator to mention the
+    // bot sends them to a door that never opens. An unrelated public account
+    // reads as `read`, not `none`.
+    for (const perm of ['read', 'none']) {
+      const { calls } = run(
+        LABEL_GUARD,
+        { GH_STUB_LABELS: LABELS, GH_STUB_PERM: perm },
+        ['--stdin'],
+        labeledEvent('outsider', 'ready')
+      );
+      expect(calls, perm).toContain('COMMENT');
+      expect(calls, perm).toContain('maintainer');
+      expect(calls, perm).not.toContain('@cipansor-bot');
+    }
   });
 
   it('leaves a label the bot applied', () => {

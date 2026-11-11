@@ -763,14 +763,32 @@ Tiga temuan lain dari ronde yang sama, semuanya cacat nyata:
   `question`. `label-guard` hanya mencabut `ready`, jadi pasangan itu bisa
   berdampingan; `question`/`blocked` kini diperiksa lebih dulu dan menang.
 
-**Pesan harus sadar izin penerimanya.** Percobaan pertama memperbaiki bunyi
-pesan malah menyesatkan pelapor luar: pesan pencabutan dikirim ke siapa pun yang
-memasang label terlindungi, tetapi `MENTION_FILTER` (SDLC 07) hanya meneruskan
-sebutan dari OWNER/MEMBER/COLLABORATOR. Menyuruh pelapor luar menyebut
-`@cipansor-bot` berarti mengarahkannya ke pintu yang tidak terbuka. Pesan kini
-bercabang menurut `PERM`: kolaborator diarahkan ke sebutan, akun lain ke
-maintainer. **Sebelum menulis "lakukan X" di sebuah pesan, periksa filter siapa
-yang menerima pesan itu** — bukan hanya apakah kalimatnya enak dibaca.
+**Pesan harus sadar izin penerimanya, dan izin bukan asosiasi.** Pesan
+pencabutan dikirim ke siapa pun yang memasang label terlindungi, tetapi
+`MENTION_FILTER` (SDLC 07) menyaring lewat `comment.author_association` — bukan
+lewat izin repo. Dua kesalahan berturut-turut di sini:
+
+1. Versi pertama menyuruh **semua** penerima menyebut `@cipansor-bot`, padahal
+   pelapor luar tidak akan diproses: sebutannya gagal `COLLABORATOR`.
+2. Versi kedua memperbaiki itu tetapi memakai `admin|maintain|write` sebagai
+   daftar orang dalam. `triage` **adalah** izin yang cukup untuk memasang label,
+   dan kolaborator `triage` tetap ber-asosiasi `COLLABORATOR`, jadi ia justru
+   dialihkan dari jalur bot yang terbuka untuknya. Daftarnya kini
+   `admin|maintain|write|triage`.
+
+**Fakta API yang mahal dipelajari (terverifikasi 2026-11-11):**
+`GET /repos/{o}/{r}/collaborators/{user}/permission` menjawab **`read`/`read`**
+untuk akun publik yang sama sekali tidak terkait — bukan `none`. `none` hanya
+muncul saat `gh api` gagal (mis. 404 saat menjalankan dengan token akun lain).
+Jadi penanda "orang luar" adalah `read`, dan mencocokkan `!= none` akan salah
+mengklasifikasikan seluruh publik. Karena `triage` bisa muncul di salah satu
+field saja, keduanya dibaca dan salah satu cocok sudah cukup.
+
+**Sebelum menulis "lakukan X" di sebuah pesan, periksa filter siapa yang
+menerima pesan itu** — dan periksa **jenis** nilainya (izin repo vs asosiasi
+komentar), bukan hanya apakah kalimatnya enak dibaca. Tes yang saya tulis untuk
+temuan ini ikut salah karena memakai `triage` sebagai contoh "pelapor luar";
+tes yang mengunci asumsi salah lebih buruk daripada tidak ada tes.
 
 **Detail insiden bocor ke memory repo, lagi.** Catatan tentang label 404 dan
 waktu run terakhir workflow (jam, nomor run, nomor issue) ditulis ke

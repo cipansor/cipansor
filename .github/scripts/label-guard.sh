@@ -187,13 +187,22 @@ fi
 echo "Removed label '$LABEL' from $KIND #$NUMBER (applied by '$ACTOR')."
 
 # Say so once. The permission decides both the escalation pointer and what the
-# actor is told to do next: `Bot sebutan` (SDLC 07) only forwards a mention from
-# an OWNER/MEMBER/COLLABORATOR (`MENTION_FILTER`), so pointing an outside
-# reporter at `@cipansor-bot` would send them to a door that never opens.
-PERM=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq '.permission' 2>/dev/null || echo none)
+# actor is told to do next. `Bot sebutan` (SDLC 07) admits a mention by the
+# comment author's *association*, and `COLLABORATOR` covers every collaborator
+# role — including `triage`, which is exactly the permission a person needs to
+# apply a label. So `triage` belongs on the mention path, not the outsider one.
+#
+# `read` is the outsider signal, not `none`: `GET /collaborators/<user>/permission`
+# answers `read`/`read` for an unrelated public account (`triage` for a triage
+# collaborator, `admin` for the owner — verified 2026-11-11). Both fields are read
+# because `role_name` is the finer one; the notice is posted only when a label was
+# actually revoked, which itself requires `triage`+, so the `read` branch is the
+# rare case of a manual invocation rather than a label event.
+PERMS=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" \
+  --jq '"\(.permission // "none") \(.role_name // "none")"' 2>/dev/null || echo "none none")
 ALERT=""
-case "$PERM" in
-  admin | maintain | write)
+case " $PERMS " in
+  *" admin "* | *" maintain "* | *" write "* | *" triage "*)
     ASK="sebut \`@cipansor-bot\` dengan apa yang Anda inginkan, lalu bot menindaklanjutinya — memasang label yang jelas, atau membuka issue ber-\`ready\` bila itu pekerjaan baru." ;;
   *)
     ASK="mintakan penilaian kepada maintainer (\`@adminypc\`) di thread ini; bot tidak memproses permintaan dari akun di luar kolaborator."
