@@ -403,6 +403,18 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   after 2026-10-01 (the VM is the rollback target until then, and a guard test
   reads it).
 
+- **Issue triage, 2026-11-11 (continued, oldest open `ready` first):** #811
+  (`refactor`, the date-only sweep for `Invoice.dueDate` — K15) implemented in
+  **PR #1048** on `refactor/811-date-only-dueDate`: the non-formal course
+  invoice writer now stores `dayDate(wibDayOf(now + 7d))`, `getSppMatrix`
+  bounds the year and reads the month on the UTC calendar (dropping the dead
+  `monthDate`), the SPP seed uses `Date.UTC`, and `dayDate`'s comment again
+  claims the single canonical form. New coverage: `tests/spp-matrix.test.ts`
+  (runs under a non-UTC `TZ`) plus two non-formal dueDate cases; four of them
+  fail on `main`, all pass after. Gate green locally (api 5177, web 961,
+  build:strict, lint). E2E red on the **runner DNS flake** (apt cannot resolve
+  `security.ubuntu.com` in *Install Playwright*), not the diff.
+
 ## Recently done (2026-10-09 → 10)
 
 - **Merged:** #655 (SPMB banner and delayed dialog on the public site), #657
