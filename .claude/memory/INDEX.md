@@ -5,8 +5,8 @@ Claude loads this file in every session (through `CLAUDE.md`); any other agent
 should read it before starting, and open a file below when its line matches the
 task. The rules for what goes here and what does not are in `AGENTS.md` →
 "Where things live". **Nothing sensitive in this folder** — the repository is
-public until release, and the Security CI job and Claude's `guard.sh` refuse
-the mechanical cases.
+public until release, and the Security CI job and `guard.sh` (Claude and
+OpenHands) refuse the mechanical cases.
 
 ## State — update as the work moves
 
