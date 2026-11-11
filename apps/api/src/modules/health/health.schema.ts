@@ -106,6 +106,21 @@ export const queryGrowthRecordSchema = z.object({
   endDate: z.coerce.date().optional(),
 });
 
+/** The `:id` of a growth record, rejected at the edge before any query runs. */
+export const growthIdParamSchema = z.object({
+  id: z.string().uuid('Invalid growth record ID format'),
+});
+
+/** The `:id` of a medical record, rejected at the edge before any query runs. */
+export const medicalRecordIdParamSchema = z.object({
+  id: z.string().uuid('Invalid medical record ID format'),
+});
+
+/** The `:id` of a medication, rejected at the edge before any query runs. */
+export const medicationIdParamSchema = z.object({
+  id: z.string().uuid('Invalid medication ID format'),
+});
+
 // Clinic (poliklinik) schemas — external patients, appointments, prescriptions
 export const createPatientSchema = z.object({
   name: z.string().min(1),

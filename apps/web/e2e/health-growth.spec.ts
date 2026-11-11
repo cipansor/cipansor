@@ -25,6 +25,63 @@ function account(roleCode: string) {
   return found;
 }
 
+/** A class of the account's own unit with a santri that already has a weighing. */
+async function findSeeded(
+  session: Awaited<ReturnType<typeof apiLogin>>,
+  unitId?: string | null,
+) {
+  const scope = unitId ? `unitId=${unitId}&` : "";
+  const { data: classes } = await apiRequest<{
+    data: Array<{ id: string; name: string }>;
+  }>(session, "GET", `/classes?${scope}limit=100`);
+  expect(classes.length, "a class in the account's unit").toBeGreaterThan(0);
+
+  let chosen:
+    | {
+        classId: string;
+        className: string;
+        studentId: string;
+        studentName: string;
+      }
+    | undefined;
+  for (const cls of classes) {
+    const { data: enrollments } = await apiRequest<{
+      data: Array<{ student: { id: string; user: { name: string } } }>;
+    }>(session, "GET", `/classes/${cls.id}/enrollments`);
+    for (const e of enrollments) {
+      const { data: records } = await apiRequest<{
+        data: Array<unknown>;
+      }>(session, "GET", `/health/growth?studentId=${e.student.id}&limit=100`);
+      if (records.length) {
+        chosen = {
+          classId: cls.id,
+          className: cls.name,
+          studentId: e.student.id,
+          studentName: e.student.user.name,
+        };
+        break;
+      }
+    }
+    if (chosen) break;
+  }
+  expect(chosen, "a santri with a growth record").toBeTruthy();
+  return chosen!;
+}
+
+/** Choose the class and the santri, and wait for the history to render. */
+async function openStudent(
+  page: import("@playwright/test").Page,
+  chosen: { className: string; studentName: string },
+) {
+  await page.getByRole("combobox").first().click();
+  // Cross-unit readers see several classes of the same name (7A in each
+  // school), so take the first match rather than tripping strict mode.
+  await page.getByRole("option", { name: chosen.className }).first().click();
+  await page.getByRole("combobox").nth(1).click();
+  await page.getByRole("option", { name: chosen.studentName }).first().click();
+  await expect(page.getByText("Riwayat Pengukuran")).toBeVisible();
+}
+
 test.describe("Tumbuh kembang — baca dan catat dari halaman", () => {
   test("perawat melihat riwayat dan mencatat penimbangan baru", async ({
     page,
@@ -35,55 +92,13 @@ test.describe("Tumbuh kembang — baca dan catat dari halaman", () => {
 
     // A class of the nurse's own unit, and a santri in it that already has a
     // seeded weighing — so the read path has something to show.
-    const { data: classes } = await apiRequest<{
-      data: Array<{ id: string; name: string }>;
-    }>(nurse, "GET", `/classes?unitId=${unitId}&limit=100`);
-    expect(classes.length, "a class in the nurse's unit").toBeGreaterThan(0);
-
-    let chosen:
-      | {
-          classId: string;
-          className: string;
-          studentId: string;
-          studentName: string;
-        }
-      | undefined;
-    for (const cls of classes) {
-      const { data: enrollments } = await apiRequest<{
-        data: Array<{ student: { id: string; user: { name: string } } }>;
-      }>(nurse, "GET", `/classes/${cls.id}/enrollments`);
-      for (const e of enrollments) {
-        const { data: records } = await apiRequest<{
-          data: Array<unknown>;
-        }>(nurse, "GET", `/health/growth?studentId=${e.student.id}&limit=100`);
-        if (records.length) {
-          chosen = {
-            classId: cls.id,
-            className: cls.name,
-            studentId: e.student.id,
-            studentName: e.student.user.name,
-          };
-          break;
-        }
-      }
-      if (chosen) break;
-    }
-    expect(chosen, "a santri with a growth record").toBeTruthy();
+    const chosen = await findSeeded(nurse, unitId);
 
     await injectSession(page, nurse);
     await gotoAuthedPage(page, "/health/growth", /Pantau Tumbuh Kembang/);
-
-    // The class select carries only the nurse's unit's classes.
-    await page.getByRole("combobox").first().click();
-    await page.getByRole("option", { name: chosen!.className }).click();
-    await page.getByRole("combobox").nth(1).click();
-    await page
-      .getByRole("option", { name: chosen!.studentName })
-      .first()
-      .click();
+    await openStudent(page, chosen);
 
     // The seeded weighing renders: the read path reaches the API.
-    await expect(page.getByText("Riwayat Pengukuran")).toBeVisible();
     await expect(page.getByRole("cell", { name: /^\d/ }).first()).toBeVisible();
 
     // Record a new weighing through the dialog (the write path: cookie + CSRF).
@@ -131,5 +146,30 @@ test.describe("Tumbuh kembang — baca dan catat dari halaman", () => {
         }
       }
     }
+  });
+
+  /**
+   * The pengawas holds HEALTH_VIEW but not HEALTH_MANAGE: the route guard
+   * (health.routes.ts) refuses every non-GET with 403. Before this, the write
+   * controls rendered anyway and each confirmation ended in a server error, so
+   * both must be hidden for a reader.
+   */
+  test("pengawas membaca riwayat tanpa tombol kelola", async ({ page }) => {
+    test.setTimeout(120_000);
+    const reader = await apiLogin(account("YAYASAN_PENGAWAS"));
+    const unitId = (reader.user as { unitId: string | null }).unitId;
+    const chosen = await findSeeded(reader, unitId);
+
+    await injectSession(page, reader);
+    await gotoAuthedPage(page, "/health/growth", /Pantau Tumbuh Kembang/);
+    await openStudent(page, chosen);
+
+    // The reader sees the history…
+    await expect(page.getByRole("cell", { name: /^\d/ }).first()).toBeVisible();
+    // …and neither write control: the API would refuse both.
+    await expect(page.getByRole("button", { name: "Catat Data" })).toHaveCount(
+      0,
+    );
+    await expect(page.getByRole("button", { name: "Hapus" })).toHaveCount(0);
   });
 });

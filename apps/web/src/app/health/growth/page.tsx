@@ -76,9 +76,13 @@ import {
 } from "@/hooks/use-health";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
 import { MainLayout } from "@/components/layout";
+import { usePermission } from "@/hooks/use-permission";
 
 function GrowthTrackingPageContent() {
   const { user } = useAuthStore();
+  // The route guard requires HEALTH_MANAGE for anything but GET, so a reader
+  // (kepala sekolah, pengawas) sees the table without the write buttons.
+  const canManage = usePermission("HEALTH_MANAGE");
   const [selectedClassId, setSelectedClassId] = useState<string | null>(null);
   const [selectedStudentId, setSelectedStudentId] = useState<string | null>(
     null,
@@ -206,12 +210,14 @@ function GrowthTrackingPageContent() {
           </Select>
 
           <Dialog open={isAddOpen} onOpenChange={setIsAddOpen}>
-            <DialogTrigger asChild>
-              <Button disabled={!selectedStudentId}>
-                <Plus className="mr-2 h-4 w-4" />
-                Catat Data
-              </Button>
-            </DialogTrigger>
+            {canManage && (
+              <DialogTrigger asChild>
+                <Button disabled={!selectedStudentId}>
+                  <Plus className="mr-2 h-4 w-4" />
+                  Catat Data
+                </Button>
+              </DialogTrigger>
+            )}
             <DialogContent className="sm:max-w-[425px]">
               <DialogHeader>
                 <DialogTitle>Catat Tumbuh Kembang</DialogTitle>
@@ -393,7 +399,7 @@ function GrowthTrackingPageContent() {
                     <TableHead>TB (cm)</TableHead>
                     <TableHead>LK (cm)</TableHead>
                     <TableHead>Catatan</TableHead>
-                    <TableHead className="w-[60px]" />
+                    {canManage && <TableHead className="w-[60px]" />}
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -414,30 +420,33 @@ function GrowthTrackingPageContent() {
                       <TableCell className="text-muted-foreground text-sm">
                         {record.notes}
                       </TableCell>
-                      <TableCell className="text-right">
-                        <ConfirmDialog
-                          title="Hapus Data Tumbuh Kembang"
-                          description="Tindakan ini tidak dapat dibatalkan."
-                          confirmLabel="Hapus"
-                          onConfirm={() => handleDelete(record.id)}
-                          loading={deleteMutation.isPending}
-                        >
-                          <Button
-                            variant="ghost"
-                            size="sm"
-                            className="h-8 w-8 p-0"
-                            aria-label="Hapus"
+                      {canManage && (
+                        <TableCell className="text-right">
+                          <ConfirmDialog
+                            title="Hapus Data Tumbuh Kembang"
+                            description="Tindakan ini tidak dapat dibatalkan."
+                            confirmLabel="Hapus"
+                            cancelLabel="Batal"
+                            onConfirm={() => handleDelete(record.id)}
+                            loading={deleteMutation.isPending}
                           >
-                            <Trash2 className="h-4 w-4 text-red-500" />
-                          </Button>
-                        </ConfirmDialog>
-                      </TableCell>
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className="h-8 w-8 p-0"
+                              aria-label="Hapus"
+                            >
+                              <Trash2 className="h-4 w-4 text-red-500" />
+                            </Button>
+                          </ConfirmDialog>
+                        </TableCell>
+                      )}
                     </TableRow>
                   ))}
                   {growthData?.length === 0 && (
                     <TableRow>
                       <TableCell
-                        colSpan={6}
+                        colSpan={canManage ? 6 : 5}
                         className="text-center text-muted-foreground"
                       >
                         Belum ada data.
