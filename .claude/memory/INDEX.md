@@ -88,6 +88,7 @@ OpenHands) refuse the mechanical cases.
 - [select-empty-value-sentinel](lessons/select-empty-value-sentinel.md) — `""` vs the wrapper's sentinel; never `value={x || undefined}`; build a form of Selects after its data, do not reset it
 - [attendance-system-traps](lessons/attendance-system-traps.md) — a policy read as `policy?.flag` fails open; a `datetime()` schema refuses a date picker's value; two codes for one concept; a derived counter never incremented; a retention setting with no job; "recorded" that no one records; a punch written in two statements with no transaction (and its guard read outside the write); the lock behind a mocked `$queryRaw` that failed every punch; a camera and a location the site's own Permissions-Policy denied; a retention sweep that loads the whole history
 - [webkit-seen-only-after-merge](lessons/webkit-seen-only-after-merge.md) — Firefox/WebKit run only on `main`; a CSP that broke WebKit passed every PR check; an informational job that times out cancels the run and staging never deploys — dispatch E2E on the branch, check `/healthz` moved
+- [e2e-playwright-apt-dns-flake](lessons/e2e-playwright-apt-dns-flake.md) — E2E reds in "Install Playwright" on `Temporary failure resolving 'security.ubuntu.com'`; a runner DNS flake, no test ran — re-run, don't hunt a regression; `docs/DEPLOYMENT.md` counts as code so a docs PR still runs E2E
 
 Update a file in place — one subject, one file — on a branch and through a PR,
 like any other change. Keep this index to one line per file.
