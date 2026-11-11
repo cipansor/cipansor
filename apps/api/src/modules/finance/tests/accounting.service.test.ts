@@ -91,8 +91,14 @@ describe('createManualJournal', () => {
     expect(first.debit.toString()).toBe('1000');
     expect(first.credit.toString()).toBe('0');
     expect(first.referenceType).toBe('MANUAL');
-    // Every row of one journal shares the group reference.
-    expect(txCreate.mock.calls[0][0].data.reference).toBe(txCreate.mock.calls[1][0].data.reference);
+
+    // Every row of one journal shares the group reference, and the reference is
+    // a real value: if the group id were dropped the two sides would both be
+    // `undefined` and a bare `toBe` would pass without protecting grouping.
+    const second = txCreate.mock.calls[1][0].data;
+    expect(first.reference).toEqual(expect.any(String));
+    expect(first.reference).not.toBe('');
+    expect(second.reference).toBe(first.reference);
   });
 
   it('tolerates a rounding difference within one cent', async () => {
@@ -157,10 +163,13 @@ describe('financial statements', () => {
       account({ id: 'gaji', type: 'EXPENSE', normalBalance: 'DEBIT' }),
     ]);
 
+  // A balanced ledger: debits (10 000 + 1 500) equal credits (2 500 + 5 000 +
+  // 4 000). An unbalanced fixture would let a balance-sheet test pass while the
+  // accounting equation is broken, so the balance is asserted below.
   const withJournal = () =>
     mocked.journalEntry.groupBy.mockResolvedValue([
       { accountId: 'kas', ...sum(10000, 0) },
-      { accountId: 'utang', ...sum(0, 3000) },
+      { accountId: 'utang', ...sum(0, 2500) },
       { accountId: 'modal', ...sum(0, 5000) },
       { accountId: 'spp', ...sum(0, 4000) },
       { accountId: 'gaji', ...sum(1500, 0) },
@@ -180,17 +189,19 @@ describe('financial statements', () => {
     expect(result.netIncome).toBe(2500);
   });
 
-  it('getBalanceSheet folds netIncome into total equity', async () => {
+  it('getBalanceSheet folds netIncome into total equity and stays balanced', async () => {
     ledger();
     withJournal();
 
     const result = await getBalanceSheet({ endDate: new Date('2026-12-31') });
 
     expect(result.totalAssets).toBe(10000);
-    expect(result.totalLiabilities).toBe(3000);
+    expect(result.totalLiabilities).toBe(2500);
     // Equity accounts (5000) + the period's net income (4000 - 1500).
     expect(result.netIncome).toBe(2500);
     expect(result.totalEquity).toBe(7500);
+    // The accounting equation: assets = liabilities + equity.
+    expect(result.totalAssets).toBe(result.totalLiabilities + result.totalEquity);
   });
 });
 
