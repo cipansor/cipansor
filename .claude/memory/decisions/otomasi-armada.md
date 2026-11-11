@@ -580,3 +580,29 @@
   (token kedaluwarsa dalam satu jam, izin dan repo bisa dipersempit; riset untuk
   rencana App butir 15 yang dibatalkan 2026-10-15) —
   <https://docs.github.com/en/apps/creating-github-apps/authenticating-with-a-github-app/generating-an-installation-access-token-for-a-github-app>
+
+## 2026-11-10 — `ready` and `blocked` are mutually exclusive; `bug-hunter` retired
+
+The owner ruled that `ready` and `blocked` must never sit on the same issue, and
+that the `bug-hunter` label is not wanted. Both were true before this date: 29
+open issues carried `ready`+`blocked` and 7 carried `bug-hunter`, every one of
+them applied by `cipansor-bot`. The triage owner created the conflict itself —
+`label-guard.sh` enforced `ready` against `question`/`needs-info`/
+`pending-maintainer` but not `blocked`, and the `SDLC 15` prompt never named it.
+**Adding a new exclusive label means updating the triage prompt in the same
+change; otherwise the automation keeps violating its own rule.**
+
+Which label is withdrawn: always `ready`, never `blocked`. `blocked` carries the
+stronger information, withdrawing it would claim the issue can start again, and
+`stale-sweep.sh` keeps `blocked` exempt from automatic closing so a blocked
+issue does not disappear on its own.
+
+`bug-hunter` was the `Pemburu bug` provenance label. Removing the label from the
+repository is not enough: `POST /repos/:o/:r/issues/:n/labels` **creates** a
+label that does not exist, so a live prompt that still applies it resurrects it
+on the next run. Delete the label *and* strip the mention from the prompt
+(`scripts/deploy-sdlc-agents.py`). `SDLC 15` keeps one mention — the sentence
+forbidding it.
+
+Deployed and verified on 2026-11-10: `SDLC 15 · Triase issue` (renamed from
+`Pelabel issue`) and `SDLC 19 · Pemburu bug`.

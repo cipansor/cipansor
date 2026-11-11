@@ -34,6 +34,41 @@ rebuilds from the original instead of the corrupted live copy. **A repair path
 is not the same code as the deploy path, even when the transform is the same
 function.**
 
+## A pattern written from memory misses the live text (2026-11-10)
+
+Three traps, all found by deploying and then reading the live prompt back —
+every one of them passed the unit tests.
+
+**A substitution keyed on remembered wording never fires.** The strip that
+retires a label looked for `` `bug-hunter`, `bot-implement` ``; the live SDLC 19
+tail reads `` priority:critical/high/medium/low, `bug-hunter`, dan
+`bot-implement` ``. The transform reported "changed" (other edits applied), the
+tests passed (they fed it the remembered wording), and the label would have been
+recreated on the next run. Copy the key from the live prompt, and make the test
+use that exact sentence — a pattern is only as good as the text it was taken
+from.
+
+**A global replace also rewrites the text the script authors.** The strip ran
+over the assembled result, so it also cut the guidance sentence the script
+itself emits — ``JANGAN memakai label `bug-hunter` `` became ``JANGAN memakai
+label ;``. Scope a strip to the text that came from the live prompt (`head` and
+`orig_tail`), before assembling; never to the finished prompt.
+
+**Insert-once means a live block is never upgraded.** `BODY_BLOCK` is inserted
+only when its marker is absent, so the live prompt keeps the copy it already
+has. The new `blocked` rule reached the `ready` bullet (in the managed tail,
+which is replaced whole) but not the exclusion list inside the body block, which
+still told the agent to withdraw only `question`/`needs-info`/
+`pending-maintainer`. A block that is not replaced wholesale needs a text
+substitution for each edit — the idiom already used for the identity bullet
+(`OLD_IDENTITY_LINE` → `NEW_IDENTITY_LINE`).
+
+The check that catches all three is the same: **dry run with `ONLY=<name>`,
+deploy, then read the live prompt back and assert on the property, not on the
+transform's own report.** Re-running the deploy without `DEPLOY=1` must say
+`already current`; when it does not, the transform is not yet idempotent and the
+live copy still differs from the intended one.
+
 ## Where the originals came from
 
 The pre-deploy prompts were not in the repo (only `deploy-sdlc-agents.py` is).
