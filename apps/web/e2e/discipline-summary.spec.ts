@@ -68,7 +68,10 @@ test.describe("Kartu ringkasan pelanggaran dan penghargaan", () => {
     await page.goto(`/students/${student.id}`);
     await page.getByRole("tab", { name: "Behavior" }).click();
     await expect(page.getByText("Ringkasan Perilaku")).toBeVisible();
-    await expect(page.getByRole("alert")).toHaveCount(0);
+    // Scoped to <main>: Playwright pierces shadow DOM, so a page-wide
+    // getByRole("alert") also matches Next.js' route announcer
+    // (<next-route-announcer>), which is always present.
+    await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
     const points = page
       .getByText("Poin pelanggaran", { exact: true })
       .locator("xpath=..");
