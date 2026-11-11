@@ -47,6 +47,11 @@ export function wibYearBounds(moment: Date): { start: Date; end: Date } {
  * holds the same value, so every reader that stringifies it without a timezone
  * (`toLocaleDateString('id-ID')`) and every filter that bounds it with a UTC
  * first-of-month agree on the day.
+ *
+ * `Invoice.dueDate` now has this one canonical form: every writer stores it
+ * through here or through `wibDate` — the manual `createInvoice`/`updateInvoice`
+ * path, the recurring and bulk SPP runs, the course enrollment invoice, and the
+ * seed — so the column holds midnight UTC everywhere (#811).
  */
 export function dayDate(day: string): Date {
   return new Date(`${day}T00:00:00.000Z`);

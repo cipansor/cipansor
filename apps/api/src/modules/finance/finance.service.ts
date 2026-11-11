@@ -1336,8 +1336,12 @@ export async function getSppMatrix(query: SppMatrixQuery) {
     'Dec',
   ];
 
-  const startDate = new Date(year, 0, 1);
-  const endDate = new Date(year, 11, 31, 23, 59, 59);
+  // `Invoice.dueDate` is date-only (midnight UTC), so bound the year and read
+  // the month on the UTC calendar — the same calendar `dayDate`/`wibDate` write
+  // to. A server-local `new Date(year, …)` would read the column in the
+  // server's zone and lose the last day for a negative-offset server (#811).
+  const startDate = new Date(Date.UTC(year, 0, 1));
+  const endDate = new Date(Date.UTC(year + 1, 0, 1));
 
   // Get all invoices for these students for the year
   const studentIds = students.map((s) => s.id);
@@ -1347,7 +1351,7 @@ export async function getSppMatrix(query: SppMatrixQuery) {
       paymentTypeId: sppPaymentType.id,
       dueDate: {
         gte: startDate,
-        lte: endDate,
+        lt: endDate,
       },
     },
     include: {
@@ -1365,9 +1369,8 @@ export async function getSppMatrix(query: SppMatrixQuery) {
     let totalPaid = 0;
 
     months.forEach((monthName, index) => {
-      const monthDate = new Date(year, index, 10); // Due date is 10th of each month
       const invoice = studentInvoices.find((inv) => {
-        const invMonth = new Date(inv.dueDate).getMonth();
+        const invMonth = new Date(inv.dueDate).getUTCMonth();
         return invMonth === index;
       });
 
