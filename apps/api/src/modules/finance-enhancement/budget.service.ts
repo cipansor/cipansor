@@ -1,9 +1,17 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { CreateBudgetInput, UpdateBudgetInput } from '@cipansor/shared';
+import { Errors } from '../../middleware/error';
+import { actorReachesUnit, writeUnitScopeFor, type UnitActor } from '../../utils/resolve-unit-id';
 
-export async function createBudget(data: CreateBudgetInput & { createdById: string }) {
-  const { unitId, academicYearId, accountId, amount, periodType, notes, createdById } = data;
+export async function createBudget(
+  data: CreateBudgetInput & { createdById: string },
+  actor: UnitActor
+) {
+  const { academicYearId, accountId, amount, periodType, notes, createdById } = data;
+  // The budget belongs to a unit the account may write: a unit admin is pinned
+  // to its own whatever the body says, a foundation role names one.
+  const unitId = writeUnitScopeFor(actor, data.unitId);
 
   // Check if budget already exists
   const existing = await prisma.budget.findUnique({
@@ -37,8 +45,13 @@ export async function createBudget(data: CreateBudgetInput & { createdById: stri
   });
 }
 
-export async function updateBudget(id: string, data: UpdateBudgetInput) {
+export async function updateBudget(id: string, data: UpdateBudgetInput, actor: UnitActor) {
   const { amount, periodType, notes } = data;
+
+  // The row's unit must be one the account reaches; 404 otherwise, as for an id
+  // that does not exist. The write path used to update by id alone.
+  const existing = await prisma.budget.findUnique({ where: { id }, select: { unitId: true } });
+  if (!existing || !actorReachesUnit(actor, existing.unitId)) throw Errors.notFound('Budget');
 
   return prisma.budget.update({
     where: { id },
@@ -95,7 +108,11 @@ export async function getBudgets(query: {
   };
 }
 
-export async function deleteBudget(id: string) {
+export async function deleteBudget(id: string, actor: UnitActor) {
+  // The row's unit must be one the account reaches; 404 otherwise.
+  const budget = await prisma.budget.findUnique({ where: { id }, select: { unitId: true } });
+  if (!budget || !actorReachesUnit(actor, budget.unitId)) throw Errors.notFound('Budget');
+
   // Check for Purchase Request dependencies first
   const purchaseRequestCount = await prisma.purchaseRequestItem.count({
     where: { budgetId: id },
@@ -114,18 +131,19 @@ export async function deleteBudget(id: string) {
   });
 
   if (result.count === 0) {
-    // Determine why it failed
-    const budget = await prisma.budget.findUnique({ where: { id } });
-    if (!budget) {
-      throw new Error('Budget not found');
-    }
     throw new Error('Cannot delete budget with existing usage');
   }
 
   return { success: true };
 }
 
-export async function recalculateBudgetUsage(unitId: string, academicYearId: string) {
+export async function recalculateBudgetUsage(
+  unitId: string,
+  academicYearId: string,
+  actor: UnitActor
+) {
+  if (!actorReachesUnit(actor, unitId)) throw Errors.notFound('Unit');
+
   // 1. Get Academic Year dates
   const academicYear = await prisma.academicYear.findUnique({
     where: { id: academicYearId },

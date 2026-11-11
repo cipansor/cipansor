@@ -1,11 +1,16 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { CreateFinancialPeriodInput } from '@cipansor/shared';
+import { Errors } from '../../middleware/error';
+import { actorReachesUnit, writeUnitScopeFor, type UnitActor } from '../../utils/resolve-unit-id';
 
 type TransactionClient = Prisma.TransactionClient;
 
-export async function createFinancialPeriod(data: CreateFinancialPeriodInput) {
-  const { unitId, name, startDate, endDate, notes } = data;
+export async function createFinancialPeriod(data: CreateFinancialPeriodInput, actor: UnitActor) {
+  const { name, startDate, endDate, notes } = data;
+  // A unit admin is pinned to its own unit whatever the body says; a foundation
+  // role names one.
+  const unitId = writeUnitScopeFor(actor, data.unitId);
 
   // Check overlap
   const overlap = await prisma.financialPeriod.findFirst({
@@ -30,7 +35,14 @@ export async function createFinancialPeriod(data: CreateFinancialPeriodInput) {
   });
 }
 
-export async function closePeriod(id: string, closedById: string) {
+export async function closePeriod(id: string, closedById: string, actor: UnitActor) {
+  // The period's unit must be one the account reaches; 404 otherwise.
+  const period = await prisma.financialPeriod.findUnique({
+    where: { id },
+    select: { unitId: true },
+  });
+  if (!period || !actorReachesUnit(actor, period.unitId)) throw Errors.notFound('Financial period');
+
   return prisma.financialPeriod.update({
     where: { id },
     data: {

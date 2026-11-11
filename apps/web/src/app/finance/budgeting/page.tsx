@@ -56,7 +56,9 @@ const useBudgets = (unitId: string, academicYearId: string) => {
       const res = await api.get(`/finance-enhancement/budgets`, {
         params: { unitId, academicYearId },
       });
-      return res.data.data;
+      // The endpoint answers a paginated envelope ({ data, meta }); the table
+      // below maps the rows, so unwrap it here (#749).
+      return res.data.data?.data ?? [];
     },
     enabled: !!unitId && !!academicYearId,
   });
