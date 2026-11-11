@@ -4,9 +4,9 @@ import type { NextFunction, Request, Response } from 'express';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    growthRecord: { findFirst: vi.fn(), delete: vi.fn() },
-    medicalRecord: { findFirst: vi.fn(), delete: vi.fn(), update: vi.fn() },
-    medication: { findFirst: vi.fn(), delete: vi.fn(), update: vi.fn() },
+    growthRecord: { findFirst: vi.fn(), delete: vi.fn(), deleteMany: vi.fn() },
+    medicalRecord: { findFirst: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), update: vi.fn() },
+    medication: { findFirst: vi.fn(), delete: vi.fn(), deleteMany: vi.fn(), update: vi.fn() },
     $queryRaw: vi.fn(),
   },
 }));
@@ -55,15 +55,24 @@ describe.each([
     expect(res.status).toBe(400);
     expect(mocked[model].findFirst).not.toHaveBeenCalled();
     expect(mocked[model].delete).not.toHaveBeenCalled();
+    expect(mocked[model].deleteMany).not.toHaveBeenCalled();
   });
 });
 
 describe('DELETE /api/health/growth/:id', () => {
-  it('passes a valid UUID through to the service', async () => {
-    mocked.growthRecord.findFirst.mockResolvedValue({ id: UUID });
-    mocked.growthRecord.delete.mockResolvedValue({ id: UUID });
+  it('passes a valid UUID through to the scoped delete', async () => {
+    mocked.growthRecord.deleteMany.mockResolvedValue({ count: 1 });
     const res = await request(app).delete(`/api/health/growth/${UUID}`);
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
+    expect(mocked.growthRecord.deleteMany).toHaveBeenCalledWith({
+      where: { id: UUID, student: { unitId: 'unit-1' } },
+    });
+  });
+
+  it('answers 404 for a record outside the caller scope', async () => {
+    mocked.growthRecord.deleteMany.mockResolvedValue({ count: 0 });
+    const res = await request(app).delete(`/api/health/growth/${UUID}`);
+    expect(res.status).toBe(404);
   });
 });

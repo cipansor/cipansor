@@ -123,7 +123,11 @@ function GrowthTrackingPageContent() {
   )?.unitId;
 
   const handleSubmit = () => {
-    if (!selectedStudentId || !selectedClassUnitId) return;
+    if (!selectedStudentId) return;
+    if (!selectedClassUnitId) {
+      toast.error("Unit kelas belum termuat, coba lagi");
+      return;
+    }
     createMutation.mutate(
       {
         studentId: selectedStudentId,
@@ -326,7 +330,7 @@ function GrowthTrackingPageContent() {
               <DialogFooter>
                 <Button
                   onClick={handleSubmit}
-                  disabled={createMutation.isPending}
+                  disabled={createMutation.isPending || !selectedClassUnitId}
                 >
                   {createMutation.isPending && (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />

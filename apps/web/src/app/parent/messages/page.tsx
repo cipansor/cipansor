@@ -88,12 +88,31 @@ export default function ParentMessagesPage() {
 
   // Opening a thread with something unread for the wali marks the whole
   // thread read (the API reads every reply in it addressed to them).
+  //
+  // The stored object is the snapshot taken when the thread was opened; the
+  // live list is what carries a reply that arrived since. Read the badge from
+  // the live copy, so a reply that lands while the thread is open — or on
+  // refocus — still marks it read. The ref records the unread episode already
+  // sent to the API: a failed call must not fire again on every render, and a
+  // genuinely new reply (a newer lastMessageAt) is what starts a new attempt.
+  const activeConversation =
+    conversations.find((c) => c.id === selectedConversation?.id) ??
+    selectedConversation;
+  const { mutate: markThreadRead, isPending: isMarkingRead } = markAsRead;
+  const markedRef = useRef<string | null>(null);
   useEffect(() => {
-    if (selectedConversation?.unread) {
-      markAsRead.mutate(selectedConversation.id);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedConversation?.id]);
+    if (!activeConversation?.unread) return;
+    const episode = `${activeConversation.id}:${activeConversation.lastMessageAt}`;
+    if (markedRef.current === episode || isMarkingRead) return;
+    markedRef.current = episode;
+    markThreadRead(activeConversation.id);
+  }, [
+    activeConversation?.id,
+    activeConversation?.unread,
+    activeConversation?.lastMessageAt,
+    isMarkingRead,
+    markThreadRead,
+  ]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });

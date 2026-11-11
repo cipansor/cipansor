@@ -273,7 +273,7 @@ function FoundationPageContent() {
                   <CardTitle>Profil Yayasan</CardTitle>
                   <CardDescription>Informasi dasar yayasan</CardDescription>
                 </div>
-                {canEditProfile && (
+                {canEditProfile && foundation && (
                   <Button
                     variant={isEditing ? "outline" : "default"}
                     onClick={() => {
@@ -292,7 +292,11 @@ function FoundationPageContent() {
                 )}
               </CardHeader>
               <CardContent>
-                {isEditing && canEditProfile ? (
+                {!foundation ? (
+                  <p className="text-muted-foreground">
+                    Data yayasan belum ada
+                  </p>
+                ) : isEditing && canEditProfile ? (
                   <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
                     <div className="grid gap-4 md:grid-cols-2">
                       <div className="space-y-2">

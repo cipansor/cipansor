@@ -954,10 +954,11 @@ export async function getGrowthRecords(
 }
 
 export async function deleteGrowthRecord(id: string, scope: Prisma.StudentWhereInput) {
-  const found = await prisma.growthRecord.findFirst({
+  // One scoped statement, not a scoped read followed by an unscoped delete:
+  // between the two the record could move out of the caller's reach (TOCTOU).
+  const { count } = await prisma.growthRecord.deleteMany({
     where: { id, ...onlyScopedStudents(scope) },
-    select: { id: true },
   });
-  if (!found) throw Errors.notFound('Growth record');
-  return prisma.growthRecord.delete({ where: { id } });
+  if (count === 0) throw Errors.notFound('Growth record');
+  return { id };
 }

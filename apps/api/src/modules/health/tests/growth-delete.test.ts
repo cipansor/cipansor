@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    growthRecord: { findFirst: vi.fn(), delete: vi.fn() },
+    growthRecord: { deleteMany: vi.fn() },
   },
 }));
 
@@ -21,25 +21,22 @@ describe('deleteGrowthRecord', () => {
     vi.clearAllMocks();
   });
 
-  it('deletes the record once the scope check finds it', async () => {
-    mocked.growthRecord.findFirst.mockResolvedValue({ id: 'gr-1' });
-    mocked.growthRecord.delete.mockResolvedValue({ id: 'gr-1' });
+  it('deletes the record with the scope in the same statement', async () => {
+    mocked.growthRecord.deleteMany.mockResolvedValue({ count: 1 });
 
-    await deleteGrowthRecord('gr-1', scope);
+    await expect(deleteGrowthRecord('gr-1', scope)).resolves.toEqual({ id: 'gr-1' });
 
-    // The scope rides the lookup, not the delete: a record outside it reads as
-    // not found, never deleted.
-    expect(mocked.growthRecord.findFirst).toHaveBeenCalledWith({
+    // The scope rides the delete itself, so a record outside it can never be
+    // removed — not even if it leaves the caller's reach between a read and a
+    // write (TOCTOU).
+    expect(mocked.growthRecord.deleteMany).toHaveBeenCalledWith({
       where: { id: 'gr-1', student: { unitId: 'unit-1' } },
-      select: { id: true },
     });
-    expect(mocked.growthRecord.delete).toHaveBeenCalledWith({ where: { id: 'gr-1' } });
   });
 
   it('refuses a record outside the caller scope, and deletes nothing', async () => {
-    mocked.growthRecord.findFirst.mockResolvedValue(null);
+    mocked.growthRecord.deleteMany.mockResolvedValue({ count: 0 });
 
     await expect(deleteGrowthRecord('gr-2', scope)).rejects.toThrow(/not found/i);
-    expect(mocked.growthRecord.delete).not.toHaveBeenCalled();
   });
 });
