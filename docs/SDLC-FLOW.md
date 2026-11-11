@@ -137,19 +137,23 @@ pertentangan itu dilaporkan sebagai issue.
     komentar **bukan-armada** (penulis + `updated_at` + body) — jadi suntingan
     deskripsi, komentar baru, atau komentar yang disunting semuanya mengubah
     sinyal. Karena sinyalnya isi, bukan timestamp beresolusi detik, suntingan
-    pelapor pada detik yang sama dengan tulisan penanda tetap tertangkap
+    pelapor pada detik yang sama dengan tulisan checkpoint tetap tertangkap
     (perbandingan `<=`-detik lama menelannya). Komentar armada sendiri (bot dan
     GitHub Actions) tidak dihitung, sehingga balasan bot tak pernah memicu
     triase ulang dirinya — itu yang menutup loop. Idempoten: satu putaran = satu
-    dispatch (penanda per keadaan tipe+prioritas dalam jendela burst 300 dtk,
-    dan satu penanda sweep per issue). Penanda hanya ditulis setelah dispatch
-    diterima (HTTP 2xx), jadi dispatch yang gagal diulang sweep berikutnya dan
-    run-nya gagal keras. Issue lama yang ringkasannya ada di body tanpa
-    komentar penanda (ditriase sebelum jembatan ini ada) tetap disapu sekali,
-    bukan dilewati selamanya. Sapuan memproses setiap kandidat tanpa membiarkan
-    satu issue yang tak perlu dispatch menghentikannya, dan membaca sampai
-    `SWEEP_PAGES` halaman (urut aktivitas terbaru) sementara `SWEEP_MAX`
-    membatasi jumlah dispatch per run.
+    dispatch (checkpoint per keadaan tipe+prioritas dalam jendela burst 300 dtk,
+    dan satu checkpoint sweep per issue). Checkpoint disimpan di **KV store
+    otomasi**, bukan di komentar: penanda yang hanya berisi HTML tampil sebagai
+    komentar **kosong**, memberi notifikasi ke setiap pelanggan issue dan
+    meninggalkan cangkang tak terbaca (2026-11-11: 153 penanda). Jembatan tidak
+    menulis komentar di jalur mana pun; penanda lama diadopsi ke store sekali
+    lalu dihapus. Checkpoint ditulis setelah dispatch diterima (HTTP 2xx), jadi
+    dispatch yang gagal diulang sweep berikutnya dan run-nya gagal keras. Issue
+    lama yang ringkasannya ada di body tanpa checkpoint (ditriase sebelum
+    jembatan ini ada) tetap disapu sekali, bukan dilewati selamanya. Sapuan
+    memproses setiap kandidat tanpa membiarkan satu issue yang tak perlu
+    dispatch menghentikannya, dan membaca sampai `SWEEP_PAGES` halaman (urut
+    aktivitas terbaru) sementara `SWEEP_MAX` membatasi jumlah dispatch per run.
 20. **Dinding jam setiap automation adalah 1800 detik — platform tidak
     menerima lebih.** Sebuah run yang melewati `timeout`-nya mati sebagai
     `execution/timeout`, bukan karena tugasnya salah. Batas itu bukan pilihan

@@ -25,13 +25,20 @@
 #
 # The checkpoint is NOT written when the dispatch is accepted. A 2xx only means
 # the run was *created*; it can still die for lack of a sandbox (#836: 15 runs
-# started at once, 14 died with `Sandbox not available`, and a marker written at
-# 2xx made the sweep skip them forever). Instead the marker records the run id as
-# *pending* (`<!-- triage-bridge-sweep:<n>:<signal>:<run-id> -->`) and the next
-# sweep reads that run's outcome: COMPLETED finalises the checkpoint,
-# FAILED/CANCELLED/SKIPPED re-dispatches, RUNNING/PENDING leaves it in flight. A
-# checkpoint therefore means "a run finished", never merely "a request was
-# accepted" — retrying on the run's result, not on when the marker was written.
+# started at once, 14 died with `Sandbox not available`, and a checkpoint written
+# at 2xx made the sweep skip them forever). Instead the checkpoint records the
+# run id while it is *in flight* (`{"signal": …, "run": …}`) and the next sweep
+# reads that run's outcome: COMPLETED finalises the checkpoint (the run field is
+# cleared), FAILED/CANCELLED/SKIPPED re-dispatches, RUNNING/PENDING leaves it in
+# flight. A checkpoint therefore means "a run finished", never merely "a request
+# was accepted" — retrying on the run's result, not on when the checkpoint was
+# written.
+#
+# Checkpoints live in the automation KV store, not in issue comments. An
+# HTML-only marker comment renders as an empty comment: every write notified the
+# issue's subscribers and left an unreadable husk (2026-11-11: 153 of them). The
+# KV store holds the same data silently — see the `SWEEP_KEY`/`STATE_KEY` note
+# below. `automation-retry.sh` keeps its ledger there too.
 #
 # The sweep also caps how many triage runs may be RUNNING/PENDING at once
 # (MAX_INFLIGHT). A sweep that finds the cap reached defers the rest to the next
@@ -86,25 +93,34 @@ PENDING_RUN="pending"
 # window is not lost — the next sweep's `sort` by activity moves it in front once
 # it is touched.
 SWEEP_PAGES="${SWEEP_PAGES:-5}"
-# The labeler applies type, priority and status in one burst; a marker younger
+# The labeler applies type, priority and status in one burst; a checkpoint younger
 # than this collapses the burst to one dispatch. A later change to a type or
 # priority the issue held before still dispatches once the window has passed.
 BURST_WINDOW="${BURST_WINDOW:-300}"
-# Every marker comment is posted as `github-actions[bot]`, so the comment-triggered
-# automations (Penjernih issue on `needs-info`, acknowledge.yml) already tell it
-# from a reporter by its author — the `*[bot]` login — and no AI-disclosure
-# footer is needed (#680).
+# Checkpoints live in the automation KV store, never in issue comments. A marker
+# comment renders as an empty comment (it is only HTML), so creating one notifies
+# every subscriber of the issue and leaves an unreadable husk behind: the sweep's
+# `pending` writes alone posted ~35 empty comments in a single run (2026-11-11).
+# The KV store is the same one `automation-retry.sh` uses — it has optimistic
+# locking, a `nx` create, a list, and a delete, and it notifies no one.
+#   `<SWEEP_KEY><n>` -> {"signal": "<hash>", "run": "<run-id>" | "pending" | ""}
+#   `<STATE_KEY><n>` -> {"state": "<type+priority>", "at": <epoch seconds>}
+# `run` empty is the finished checkpoint; `pending` is a dispatch deferred while
+# the pool was full; anything else is the run that is answering the signal.
+SWEEP_KEY="triage-sweep-"
+STATE_KEY="triage-state-"
+# The marker prefix the bridge used before it moved to the KV store. It is read
+# once, to adopt an existing checkpoint, and then deleted; nothing writes it any
+# more. `--purge-markers` clears the ones on issues the sweep no longer visits
+# (closed, or `ready` and finalised).
 MARK_PREFIX="<!-- triage-bridge-sweep:"
 
 
-# A UTC timestamp as epoch seconds (0 on a parse failure).
-epoch() { date -u -d "$1" +%s 2>/dev/null || echo 0; }
-
 # Dispatch the triage owner for one issue. The body is built with jq so an issue
-# number or a marker can never break out of its JSON string. On a 2xx answer the
-# run id is captured in RUN_ID (the marker records it so the next sweep can read
+# number or a key can never break out of its JSON string. On a 2xx answer the run
+# id is captured in RUN_ID (the checkpoint records it so the next sweep can read
 # the run's outcome); returns non-zero on a non-2xx answer so the caller can
-# withhold the marker and retry later.
+# withhold the checkpoint and retry later.
 RUN_ID=""
 dispatch() { # dispatch <number> <reason> <key>
   n="$1"; reason="$2"; key="$3"
@@ -141,71 +157,113 @@ dispatch() { # dispatch <number> <reason> <key>
   esac
 }
 
-# The marker for the issue's current type+priority state. Keyed on the labels so
-# a label burst collapses to one dispatch while a real change re-dispatches.
-state_marker() { # state_marker <number>
-  n="$1"
-  state=$(gh api "repos/$REPO/issues/$n" \
+# --- Checkpoints, in the automation KV store -------------------------------
+#
+# Nothing below posts a comment. The old design wrote every checkpoint as an
+# HTML marker comment, and an HTML-only comment renders as *empty*: each write
+# notified the issue's subscribers and left behind a husk that reads as a blank
+# comment (2026-11-11: 153 of them — 81 sweep markers, 72 state markers). The KV
+# store holds the same data with no notification, no issue update time, and no
+# husk. `automation-retry.sh` already keeps its ledger there.
+
+# Read a KV value into KV_JSON (the stored object). Returns 0 when the key
+# exists, 1 when it does not, 2 when the store could not be read — so a hiccup is
+# never mistaken for "no checkpoint".
+KV_JSON=""
+kv_get() { # kv_get <key>
+  KV_JSON=""
+  tmp=$(mktemp)
+  code=$("$CURL" -sS -o "$tmp" -w '%{http_code}' \
+    "$API/kv/$1?meta=true&automation_id=$TRIAGE_ID" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null) \
+    || { rm -f "$tmp"; return 2; }
+  case "$code" in
+    404) rm -f "$tmp"; return 1 ;;
+    2??) : ;;
+    *) rm -f "$tmp"; return 2 ;;
+  esac
+  KV_JSON=$(jq -c '.value // {}' "$tmp" 2>/dev/null) || { rm -f "$tmp"; return 2; }
+  rm -f "$tmp"
+  return 0
+}
+
+# Upsert a KV value. A plain PUT creates (201) or replaces (200); no comment is
+# written, so rewriting the same checkpoint is free and needs no dedup guard.
+kv_put() { # kv_put <key> <json-object>
+  "$CURL" -fsS -o /dev/null -X PUT "$API/kv/$1?automation_id=$TRIAGE_ID" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" \
+    -H "Content-Type: application/json" -d "$2" 2>/dev/null
+}
+
+kv_del() { # kv_del <key>
+  "$CURL" -fsS -o /dev/null -X DELETE "$API/kv/$1?automation_id=$TRIAGE_ID" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null || true
+}
+
+# The issue's current type+priority state, or "" when the read fails. Keyed on
+# the labels so a label burst collapses to one dispatch while a real change
+# re-dispatches.
+issue_state() { # issue_state <number>
+  gh api "repos/$REPO/issues/$1" \
     --jq '[.labels[].name | select(test("^(bug|enhancement|documentation|refactor|chore|security)$") or startswith("priority:"))] | sort | join("+")' \
-    2>/dev/null || echo "")
-  [ -n "$state" ] || state="none"
-  echo "<!-- triage-bridge:$n:$state -->"
-}
-
-has_comment() { # has_comment <number> <marker>
-  n="$1"; m="$2"
-  gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" --jq '.[].body' 2>/dev/null \
-    | grep -Fq -- "$m"
-}
-
-# The state marker's newest `updated_at`, or "" when it is absent.
-state_marker_age() { # state_marker_age <number> <marker>
-  gh api --paginate "repos/$REPO/issues/$1/comments?per_page=100" \
-    --jq "[.[] | select(.body | contains(\"$2\")) | .updated_at] | max // \"\"" \
     2>/dev/null || echo ""
 }
 
-post_marker() { # post_marker <number> <marker>
-  n="$1"; m="$2"
-  tmp=$(mktemp)
-  # The marker stays greppable (has_comment matches it as a substring).
-  jq -n --arg body "$m" '{body: $body}' > "$tmp"
-  gh api "repos/$REPO/issues/$n/comments" -X POST --input "$tmp" >/dev/null 2>&1 \
-    || echo "::warning::could not record the triage-bridge marker on #$n."
-  rm -f "$tmp"
+# A legacy marker comment's id and body, or "" when there is none. Only used to
+# adopt the pre-KV checkpoints once (see `adopt_legacy_sweep_marker`).
+legacy_marker() { # legacy_marker <number> <prefix>; sets LEGACY_ID, LEGACY_BODY
+  LEGACY_ID=""; LEGACY_BODY=""
+  row=$(gh api --paginate "repos/$REPO/issues/$1/comments?per_page=100" \
+    --jq "[.[] | select(.body | startswith(\"$2$1:\"))] | last | [(.id|tostring), .body] | @tsv" \
+    2>/dev/null || true) || return 1
+  [ -n "$row" ] || return 1
+  LEGACY_ID=${row%%	*}
+  LEGACY_BODY=${row#*	}
+  return 0
 }
 
-# The sweep marker's checkpoint. Three forms share the prefix:
-#   `…:<n>:<signal>`         — the legacy form (before #836): written at the 201
-#                              with no run recorded, so its outcome is unknown;
-#   `…:<n>:<signal>:<run>`    — the run that is answering the signal, in flight;
-#   `…:<n>:<signal>: -->`     — the final form: the run finished, run field empty.
-# `read_sweep_marker` sets SIGNAL, MARK_RUN (the run, or "") and MARK_FORM
-# (`legacy`/`inflight`/`final`), so a legacy marker is never mistaken for a run
-# that finished — its `run` was never written, not cleared.
+# The sweep checkpoint. Sets SIGNAL, MARK_RUN (the run answering the signal, or
+# "" for a finished checkpoint, or `pending` for a deferred dispatch) and
+# MARK_FORM (`none`/`some`/`unknown`).
 SIGNAL=""
 MARK_RUN=""
 MARK_FORM="none"
 read_sweep_marker() { # read_sweep_marker <number>
   SIGNAL=""; MARK_RUN=""; MARK_FORM="none"
-  body=$(gh api --paginate "repos/$REPO/issues/$1/comments?per_page=100" \
-    --jq "[.[] | select(.body | startswith(\"$MARK_PREFIX$1:\"))] | last | .body // \"\"" \
-    2>/dev/null || true) || return 0
-  [ -n "$body" ] || return 0
-  inner=${body#"$MARK_PREFIX$1:"}
+  kv_get "$SWEEP_KEY$1"; rc=$?
+  case "$rc" in
+    2) MARK_FORM="unknown"; return 0 ;;
+    1) adopt_legacy_sweep_marker "$1"; return 0 ;;
+  esac
+  SIGNAL=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || SIGNAL=""
+  MARK_RUN=$(printf '%s' "$KV_JSON" | jq -r '.run // ""' 2>/dev/null) || MARK_RUN=""
+  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_FORM="none"; return 0; }
+  MARK_FORM="some"
+}
+
+# Adopt a legacy marker comment into the KV store, once, then delete it. Reached
+# only when the KV key is absent, so an issue that was mid-episode when the store
+# moved keeps its checkpoint instead of being re-dispatched (a finished
+# checkpoint would otherwise read as "never triaged"). The pre-#836 form (no run
+# field) maps to `pending`: its outcome was never recorded, so it re-dispatches
+# once, exactly as before. The checkpoint is written before the comment is
+# deleted, so a crash between the two re-adopts the same comment next run rather
+# than losing it.
+adopt_legacy_sweep_marker() { # adopt_legacy_sweep_marker <number>
+  legacy_marker "$1" "$MARK_PREFIX" || return 0
+  inner=${LEGACY_BODY#"$MARK_PREFIX$1:"}
   inner=${inner%% -->*}
   SIGNAL=${inner%%:*}
   case "$inner" in
     *:*) MARK_RUN=${inner#*:} ;;
-    *) MARK_RUN="" ;;
+    *) MARK_RUN="$PENDING_RUN" ;;
   esac
-  # Distinguish the legacy form (no run field at all) from the new final form
-  # (a run field that is present and empty). Both leave MARK_RUN empty, so the
-  # field's *presence* is what tells them apart.
-  case "$inner" in
-    *:*) [ -n "$MARK_RUN" ] && MARK_FORM="inflight" || MARK_FORM="final" ;;
-    *) MARK_FORM="legacy" ;;
-  esac
+  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_FORM="none"; return 0; }
+  MARK_FORM="some"
+  kv_put "$SWEEP_KEY$1" \
+    "$(jq -nc --arg s "$SIGNAL" --arg r "$MARK_RUN" '{signal: $s, run: $r}')" || true
+  gh api "repos/$REPO/issues/comments/$LEGACY_ID" -X DELETE >/dev/null 2>&1 \
+    || echo "::warning::could not remove the legacy triage marker on #$1."
 }
 
 # The status of a run, read from the run listing. The listing endpoint **ignores
@@ -277,38 +335,21 @@ activity_signal() { # activity_signal <number>; non-zero when a read fails
   printf '%s' "$sig"
 }
 
-# Create or update the single sweep marker, editing the existing one in place.
-# `run` is the run that is answering the signal: it is written while the run is in
-# flight (so the next sweep can read its outcome) and cleared once the run
-# COMPLETED (a final checkpoint). An empty `run` is the finished form.
+# Write the sweep checkpoint. `run` is the run answering the signal: it is
+# written while the run is in flight (so the next sweep can read its outcome) and
+# cleared once the run COMPLETED (a finished checkpoint). An empty `run` is the
+# finished form. A plain KV upsert, so re-writing the same value is free — no
+# dedup guard is needed now that nothing is posted.
 write_sweep_marker() { # write_sweep_marker <number> <signal> <run>
-  n="$1"; sig="$2"; run="${3:-}"
-  cid=$(gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" \
-    --jq "[.[] | select(.body | startswith(\"$MARK_PREFIX$n:\"))] | last | .id // \"\"" 2>/dev/null || echo "")
-  tmp=$(mktemp)
-  # The signal is the checkpoint: it is the activity this run has answered, so
-  # the next sweep only re-dispatches when the signal changes again — or when the
-  # run this marker names did not finish.
-  jq -n --arg body "$MARK_PREFIX$n:$sig:$run -->" '{body: $body}' > "$tmp"
-  if [ -n "$cid" ]; then
-    gh api "repos/$REPO/issues/comments/$cid" -X PATCH --input "$tmp" >/dev/null 2>&1 \
-      || echo "::warning::could not update the triage-bridge marker on #$n."
-  else
-    gh api "repos/$REPO/issues/$n/comments" -X POST --input "$tmp" >/dev/null 2>&1 \
-      || echo "::warning::could not record the triage-bridge marker on #$n."
-  fi
-  rm -f "$tmp"
+  kv_put "$SWEEP_KEY$1" \
+    "$(jq -nc --arg s "$2" --arg r "${3:-}" '{signal: $s, run: $r}')" \
+    || echo "::warning::could not record the triage checkpoint on #$1."
 }
 
-# Drop the sweep marker: the issue is closed or `ready`, so it is out of scope
-# and a stale marker must not linger to mislead a later reader.
+# Drop the checkpoint: the issue is closed or `ready`, so it is out of scope and
+# a stale checkpoint must not linger to mislead a later sweep.
 remove_sweep_marker() { # remove_sweep_marker <number>
-  cid=$(gh api --paginate "repos/$REPO/issues/$1/comments?per_page=100" \
-    --jq "[.[] | select(.body | startswith(\"$MARK_PREFIX$1:\"))] | last | .id // \"\"" 2>/dev/null || echo "")
-  if [ -n "$cid" ]; then
-    gh api "repos/$REPO/issues/comments/$cid" -X DELETE >/dev/null 2>&1 \
-      || echo "::warning::could not remove the triage-bridge marker on #$1."
-  fi
+  kv_del "$SWEEP_KEY$1"
 }
 
 # --stdin: a bot applied a type or priority label.
@@ -333,28 +374,34 @@ on_label() { # on_label <event-json>
   [ "$is_signal" = 1 ] || { echo "label '$label' is not a type or priority; nothing to do."; exit 0; }
   [ -n "$number" ] || { echo "no issue number in the event; nothing to do."; exit 0; }
 
-  marker=$(state_marker "$number")
-  if has_comment "$number" "$marker"; then
-    # The same type+priority state was already dispatched. Collapse only a burst:
-    # once BURST_WINDOW has passed, a return to a state the issue held before is a
-    # fresh response and dispatches again.
-    age=$(state_marker_age "$number" "$marker")
-    if [ -n "$age" ]; then
-      since=$(( $(date -u +%s) - $(epoch "$age") ))
-      if [ "$since" -lt "$BURST_WINDOW" ]; then
-        echo "#$number already dispatched for this state ${since}s ago; burst collapsed."
-        exit 0
+  # The same type+priority state was already dispatched. Collapse only a burst:
+  # once BURST_WINDOW has passed, a return to a state the issue held before is a
+  # fresh response and dispatches again. The state and when it was recorded live
+  # in the KV store, keyed per issue.
+  cur_state=$(issue_state "$number")
+  if [ -n "$cur_state" ]; then
+    state=$(jq -nc --arg s "$cur_state" '{state: $s, at: (now|floor)}')
+    if kv_get "$STATE_KEY$number"; then
+      prev_state=$(printf '%s' "$KV_JSON" | jq -r '.state // ""' 2>/dev/null) || prev_state=""
+      prev_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
+      case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
+      if [ "$prev_state" = "$cur_state" ]; then
+        since=$(( $(date -u +%s) - prev_at ))
+        if [ "$since" -lt "$BURST_WINDOW" ]; then
+          echo "#$number already dispatched for this state ${since}s ago; burst collapsed."
+          exit 0
+        fi
       fi
     fi
   fi
   # Snapshot the activity *before* the dispatch, then record that snapshot as the
   # checkpoint only after the dispatch is accepted. The dispatch answers the
-  # activity seen here; an edit landing between the snapshot and the marker write
-  # changes the signal, so the next sweep still catches it (taking the signal
-  # after the dispatch would fold that edit into the checkpoint and lose it).
-  # A failed read must not write a checkpoint (an empty signal would look like a
-  # change and re-dispatch every sweep); the label still dispatches, the sweep
-  # catches the activity up later.
+  # activity seen here; an edit landing between the snapshot and the checkpoint
+  # write changes the signal, so the next sweep still catches it (taking the
+  # signal after the dispatch would fold that edit into the checkpoint and lose
+  # it). A failed read must not write a checkpoint (an empty signal would look
+  # like a change and re-dispatch every sweep); the label still dispatches, the
+  # sweep catches the activity up later.
   sig=$(activity_signal "$number") || sig=""
   # Honour the same in-flight cap the sweep uses (#837 follow-up): many issues
   # labelled at once each run their own labelled job, so without this the label
@@ -366,13 +413,13 @@ on_label() { # on_label <event-json>
     if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
     exit 0
   fi
-  if dispatch "$number" labeled "$marker"; then
-    post_marker "$number" "$marker"
-    # Record the run while it is in flight, so the next sweep reads its outcome
-    # instead of trusting the 201 (#836).
+  if dispatch "$number" labeled "$cur_state"; then
+    # Record the state that was answered and the run while it is in flight, so
+    # the next sweep reads its outcome instead of trusting the 201 (#836).
+    [ -n "$state" ] && kv_put "$STATE_KEY$number" "$state"
     if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
   else
-    echo "::warning::#${number}'s label state stays unmarked; a later label or the sweep retries."
+    echo "::warning::#${number}'s label state stays unrecorded; a later label or the sweep retries."
     exit 1
   fi
 }
@@ -386,7 +433,7 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   n="$1"; inflight="${2:-0}"; ready_ok="${3:-0}"
 
   # A closed issue — or a `ready` one on the ordinary pass — is out of scope;
-  # drop any stale marker and stop.
+  # drop any stale checkpoint and stop.
   state=$(gh api "repos/$REPO/issues/$n" \
     --jq '[.state, (.labels[].name)] | join(" ")' 2>/dev/null) \
     || { echo "::warning::could not read #$n; skipped this sweep."; return 1; }
@@ -410,23 +457,25 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   read_sweep_marker "$n"
   prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_form="$MARK_FORM"
 
-  # The marker names a run that answered this same activity. Read its outcome
+  # The checkpoint names a run that answered this same activity. Read its outcome
   # instead of trusting the 201: only a COMPLETED run is a finished checkpoint; a
   # RUNNING/PENDING run is left in flight (and counted), and a FAILED/CANCELLED/
   # SKIPPED one is retried below. A run id absent from the whole listing is
   # treated as failed (the run is gone), so it retries; an *unreadable* listing is
   # left alone rather than re-dispatched on a hiccup (run_status returns UNKNOWN).
   #
-  # `prev_sig`/`prev_run` are left as read: the capacity check below dedups a
-  # `pending` marker by comparing them, so clearing them here would make every
-  # sweep rewrite an identical marker (and bump the issue's update time) while the
-  # pool stays full (#837 R402). A `pending` run is not a run id, so the outcome
-  # branch is skipped for it; the capacity check decides it instead.
+  # An unreadable KV store (`unknown`) is left alone too: re-dispatching on a
+  # hiccup would start a run the checkpoint cannot record, and the next sweep
+  # reads the store again.
+  if [ "$prev_form" = "unknown" ]; then
+    echo "#$n: the checkpoint store could not be read; leaving it for the next sweep."
+    return 1
+  fi
   if [ "$prev_sig" = "$sig" ] && [ -n "$prev_run" ] && [ "$prev_run" != "$PENDING_RUN" ]; then
     st=$(run_status "$prev_run")
     case "$st" in
       UNKNOWN)
-        echo "#$n: the run listing could not be read; leaving the marker for the next sweep."
+        echo "#$n: the run listing could not be read; leaving the checkpoint for the next sweep."
         return 1
         ;;
       RUNNING | PENDING)
@@ -442,29 +491,20 @@ process_one() { # process_one <number> <inflight> [ready_ok]
         echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying."
         ;;
     esac
-  elif [ "$prev_sig" = "$sig" ] && [ "$prev_form" = "legacy" ]; then
-    # A legacy marker (no run field) was written at the 201, so whether its run
-    # finished was never recorded. It is not a finished checkpoint: re-dispatch
-    # once, which rewrites the marker in the new form so the next sweep can read
-    # the run's outcome. The triage owner is idempotent, so this is one extra
-    # run, not a duplicate comment (#837 follow-up).
-    echo "#$n: legacy marker with no run recorded; re-dispatching once to migrate it."
   elif [ "$prev_sig" = "$sig" ] && [ "$prev_run" = "$PENDING_RUN" ]; then
     : # A deferred dispatch; the capacity check below dispatches or keeps it.
   elif [ "$prev_sig" = "$sig" ]; then
-    # Same activity, a final checkpoint (run finished): already answered. Not a
-    # reason to triage.
+    # Same activity, a finished checkpoint (run completed): already answered. Not
+    # a reason to triage.
     return 1
   fi
 
   # The activity needs a dispatch. Defer while the pool is full so a burst is not
-  # formed (#841): the next sweep picks the issue up, so nothing is lost.
+  # formed (#841): the next sweep picks the issue up, so nothing is lost. The
+  # checkpoint is a plain KV upsert, so re-writing the same `pending` value is
+  # harmless (no comment, no issue update time).
   if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
-    # Record a pending checkpoint. It is not written when the marker is already
-    # this exact pending one, so a busy sweep does not re-PATCH it every run.
-    if [ "$prev_sig" != "$sig" ] || [ "$prev_run" != "$PENDING_RUN" ]; then
-      write_sweep_marker "$n" "$sig" "$PENDING_RUN"
-    fi
+    write_sweep_marker "$n" "$sig" "$PENDING_RUN"
     echo "#$n: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT)."
     return 3
   fi
@@ -478,40 +518,40 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   return 2
 }
 
-# --recover-ready: the recovery pass for a `ready` issue whose sweep marker is
+# --recover-ready: the recovery pass for a `ready` issue whose checkpoint is
 # unfinished. The ordinary sweep excludes `ready` issues, so without this pass a
-# marker on one is never examined again: a deferred label dispatch (`pending`)
+# checkpoint on one is never examined again: a deferred label dispatch (`pending`)
 # would sit forever, and a recovered run that later fails would never be retried
-# (#837 R348, R474). It discovers the markers by scanning the marker comments
-# directly — not by a `ready`-issue search bounded by update time, which would
-# forget an old pending marker once newer issues filled the page window (#837
-# R475). Discovery is unbounded; only the number of dispatches per pass
-# (`SWEEP_MAX`) and the pool cap (`MAX_INFLIGHT`) bound the work. A final
-# checkpoint is skipped, so a new comment on a `ready` issue is not re-triaged
-# (#837 R496); a `pending` or run-field marker is handed to `process_one`, which
-# dispatches it, finalises a completed run, or retries a failed one.
+# (#837 R348, R474). It discovers the checkpoints by listing the KV store's sweep
+# keys — not by a `ready`-issue search bounded by update time, which would forget
+# an old pending checkpoint once newer issues filled the page window (#837 R475).
+# Discovery is unbounded; only the number of dispatches per pass (`SWEEP_MAX`)
+# and the pool cap (`MAX_INFLIGHT`) bound the work. A finished checkpoint is
+# skipped, so a new comment on a `ready` issue is not re-triaged (#837 R496); a
+# `pending` or run-field checkpoint is handed to `process_one`, which dispatches
+# it, finalises a completed run, or retries a failed one.
 recover_ready() {
   count=0
   fails=0
   inflight=$(inflight_count)
   cand=$(mktemp)
-  sweep_markers | sort -u > "$cand"
+  sweep_keys > "$cand"
   while read -r n; do
     [ -n "${n:-}" ] || continue
     [ "$count" -lt "$SWEEP_MAX" ] || { echo "Reached SWEEP_MAX=$SWEEP_MAX; the rest wait for the next run."; break; }
-    # The listing is built from marker comments across the repository, so a
-    # comment that merely quotes the marker syntax names an issue it does not
-    # belong to (#837 R512). Re-read the marker from the issue's own comments:
-    # `read_sweep_marker` looks only there, so a quoted marker leaves MARK_FORM
-    # at `none`, and a stale one (a newer final marker exists) at `final` — both
-    # skipped. Only a marker actually on `n` and not final is a candidate.
+    # The key names the issue, so the candidate is exact: `read_sweep_marker`
+    # reads the store directly (no comment to quote the syntax), leaving
+    # MARK_FORM at `none` when the key is gone and skipping a finished one.
     read_sweep_marker "$n"
     case "$MARK_FORM" in
-      none | final) continue ;;
+      none) continue ;;
     esac
-    # A marker naming a run needs no capacity (it checks an outcome); a pending
-    # one is a dispatch, so it waits while the pool is full — but other markers
-    # later in the list may still be checked.
+    # A finished checkpoint (`run` empty) is answered; only a `pending` or a run
+    # in flight is a recovery candidate.
+    [ -n "$MARK_RUN" ] || continue
+    # A checkpoint naming a run needs no capacity (it checks an outcome); a
+    # pending one is a dispatch, so it waits while the pool is full — but other
+    # checkpoints later in the list may still be checked.
     if [ "$MARK_RUN" = "$PENDING_RUN" ] && [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
       continue
     fi
@@ -530,24 +570,55 @@ recover_ready() {
   fi
 }
 
-# The issue number of every comment whose body contains a sweep marker, one per
-# line. The number is taken from the marker text, not the comment's own issue, so
-# it is only a *candidate* list: `recover_ready` re-reads each issue's own marker
-# to confirm the marker really belongs to it (a comment that quotes the syntax
-# would otherwise name an unrelated issue, #837 R512). Read from the comments
-# rather than a per-issue lookup, so a marker the search window would miss is
-# still discovered (#837 R475).
-sweep_markers() {
-  gh api --paginate "repos/$REPO/issues/comments?per_page=100" \
-    --jq '.[] | select(.body | test("<!-- triage-bridge-sweep:[0-9]+:[0-9a-f]+(:[A-Za-z0-9_-]*)? -->")) | .body' 2>/dev/null \
-    | while IFS= read -r body; do
-        case "$body" in
-          *triage-bridge-sweep:*) ;;
-          *) continue ;;
-        esac
-        n=${body#*triage-bridge-sweep:}; n=${n%%:*}
-        printf '%s\n' "$n"
-      done || true
+# The issue number of every sweep checkpoint in the KV store, one per line. The
+# key is `triage-sweep-<n>`, so the number is exact — no comment can quote the
+# syntax and name an unrelated issue (#837 R512). The listing is paged by
+# `limit`/`offset`; `total` from the first page bounds the loop.
+sweep_keys() {
+  offset=0; limit=100; total=1
+  while [ "$offset" -lt "$total" ]; do
+    page=$("$CURL" -sS "$API/kv?prefix=$SWEEP_KEY&limit=$limit&offset=$offset&automation_id=$TRIAGE_ID" \
+      -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null) || return 0
+    total=$(printf '%s' "$page" | jq -r '.total // 0' 2>/dev/null) || total=0
+    case "$total" in '' | *[!0-9]*) total=0 ;; esac
+    printf '%s' "$page" | jq -r --arg p "$SWEEP_KEY" \
+      '.keys[]? | select(startswith($p)) | ltrimstr($p) | select(test("^[0-9]+$"))' 2>/dev/null || true
+    n=$(printf '%s' "$page" | jq -r '.count // 0' 2>/dev/null) || n=0
+    case "$n" in '' | *[!0-9]*) n=0 ;; esac
+    [ "$n" -gt 0 ] || break
+    offset=$((offset + limit))
+  done
+}
+
+# --purge-markers: delete the legacy marker comments the pre-KV bridge left on
+# issues the sweep no longer visits (closed, or `ready` with a finished
+# checkpoint). A one-shot cleanup; the bridge never writes a comment again.
+# The marker prefixes are matched in the body, and the comment is deleted by id.
+purge_markers() {
+  removed=0
+  tmp=$(mktemp)
+  for page in 1 2 3 4 5 6 7 8 9 10; do
+    rows=$(gh api --paginate "repos/$REPO/issues/comments?per_page=100&page=$page" \
+      --jq ".[] | select(.body | test(\"^<!-- triage-bridge(-sweep)?:\")) | [(.id|tostring), (.issue_url | split(\"/\") | last)] | @tsv" \
+      2>/dev/null || true)
+    [ -n "$rows" ] || break
+    printf '%s\n' "$rows" >> "$tmp"
+    got=$(printf '%s\n' "$rows" | grep -c . || true)
+    [ "$got" -ge 100 ] || break
+  done
+  while IFS="$(printf '\t')" read -r cid num; do
+    [ -n "${cid:-}" ] || continue
+    st=$(gh api "repos/$REPO/issues/$num" --jq '[.state, (.labels[].name)] | join(" ")' 2>/dev/null || echo "")
+    case " $st " in
+      *" closed "* | *" ready "*) : ;;
+      *) continue ;;
+    esac
+    gh api "repos/$REPO/issues/comments/$cid" -X DELETE >/dev/null 2>&1 \
+      && removed=$((removed + 1)) \
+      || echo "::warning::could not delete legacy marker comment $cid on #$num."
+  done < "$tmp"
+  rm -f "$tmp"
+  echo "$removed legacy marker comment(s) removed."
 }
 
 # --sweep: an open, not-`ready` issue whose activity changed since the checkpoint.
@@ -615,5 +686,6 @@ case "${1:-}" in
   --stdin) on_label "$(cat)" ;;
   --sweep) sweep ;;
   --recover-ready) recover_ready ;;
-  *) echo "usage: issue-triage-bridge.sh --stdin | --sweep | --recover-ready" >&2; exit 2 ;;
+  --purge-markers) purge_markers ;;
+  *) echo "usage: issue-triage-bridge.sh --stdin | --sweep | --recover-ready | --purge-markers" >&2; exit 2 ;;
 esac

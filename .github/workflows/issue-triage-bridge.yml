@@ -40,6 +40,13 @@ on:
   schedule:
     - cron: '17 * * * *' # hourly, off the top of the hour (gate-watch uses :23)
   workflow_dispatch:
+    inputs:
+      mode:
+        description: 'sweep (default) or purge-markers (delete the legacy marker comments)'
+        required: false
+        default: sweep
+        type: choice
+        options: [sweep, purge-markers]
 
 permissions:
   contents: read
@@ -78,18 +85,30 @@ jobs:
           sparse-checkout: .github/scripts
           persist-credentials: false
       - name: Dispatch the triage owner for issues with activity since triage
+        if: github.event.inputs.mode != 'purge-markers'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: sh .github/scripts/issue-triage-bridge.sh --sweep
 
+      # A manual run to delete the legacy marker comments the pre-KV bridge left
+      # behind, so the empty comments stop notifying subscribers. The bridge
+      # itself never writes a comment; this only removes old ones.
+      - name: Purge the legacy marker comments (manual)
+        if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'purge-markers'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: sh .github/scripts/issue-triage-bridge.sh --purge-markers
+
       # The recovery pass for a label dispatch deferred while the pool was full
       # on an issue that is (or has become) `ready`. The sweep excludes `ready`
       # issues, so without this the pending marker would sit forever. It runs
       # even when the sweep step failed, so a sweep failure does not strand it.
       - name: Recover deferred label dispatches on ready issues
-        if: always()
+        if: always() && github.event.inputs.mode != 'purge-markers'
         env:
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}

@@ -194,8 +194,9 @@ sync` workflow adds anything missing and **fails the check** when the type
     applying a type or priority label, or a not-yet-`ready` issue gaining
     activity (an edited description or a new comment) newer than its last
     triage, dispatches the triage owner — deterministically, from
-    `.github/scripts/issue-triage-bridge.sh`, and idempotently (a marker comment
-    per type+priority state, and one per activity timestamp). This is why
+    `.github/scripts/issue-triage-bridge.sh`, and idempotently (a checkpoint in
+    the automation KV store per type+priority state, and one per activity
+    timestamp). This is why
     nothing needs to fire on `issues.edited`: the bridge polls and the label
     event is the hook.
 
