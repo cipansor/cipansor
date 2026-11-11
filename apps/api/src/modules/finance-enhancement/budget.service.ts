@@ -2,7 +2,12 @@ import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { CreateBudgetInput, UpdateBudgetInput } from '@cipansor/shared';
 import { Errors } from '../../middleware/error';
-import { actorReachesUnit, writeUnitScopeFor, type UnitActor } from '../../utils/resolve-unit-id';
+import {
+  actorReachesUnit,
+  isFoundationScopedRole,
+  writeUnitScopeFor,
+  type UnitActor,
+} from '../../utils/resolve-unit-id';
 
 export async function createBudget(
   data: CreateBudgetInput & { createdById: string },
@@ -67,17 +72,28 @@ export async function updateBudget(id: string, data: UpdateBudgetInput, actor: U
   });
 }
 
-export async function getBudgets(query: {
-  unitId?: string;
-  academicYearId?: string;
-  page?: number;
-  limit?: number;
-}) {
+export async function getBudgets(
+  query: {
+    unitId?: string;
+    academicYearId?: string;
+    page?: number;
+    limit?: number;
+  },
+  actor: UnitActor
+) {
   const { unitId, academicYearId, page = 1, limit = 20 } = query;
   const skip = (page - 1) * limit;
 
+  // A unit admin reads only its own unit whatever the query says; a foundation
+  // role names one (or none, for every unit). The read path used to take the
+  // query's unitId verbatim, so any unit admin could read another unit's budget.
+  const scopedUnitId = isFoundationScopedRole(actor.roleCode) ? unitId : actor.unitId;
+  if (!isFoundationScopedRole(actor.roleCode) && !scopedUnitId) {
+    throw Errors.forbidden('Akun ini tidak terikat pada unit mana pun');
+  }
+
   const where: Prisma.BudgetWhereInput = {
-    ...(unitId && { unitId }),
+    ...(scopedUnitId && { unitId: scopedUnitId }),
     ...(academicYearId && { academicYearId }),
   };
 

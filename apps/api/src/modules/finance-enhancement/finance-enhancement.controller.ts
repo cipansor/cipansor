@@ -444,12 +444,15 @@ export class FinanceEnhancementController {
       const { unitId, academicYearId } = req.query;
       const { page, limit } = parsePagination(req);
 
-      const result = await getBudgets({
-        unitId: unitId as string,
-        academicYearId: academicYearId as string,
-        page,
-        limit,
-      });
+      const result = await getBudgets(
+        {
+          unitId: unitId as string,
+          academicYearId: academicYearId as string,
+          page,
+          limit,
+        },
+        requireUser(req)
+      );
 
       res.json({ success: true, data: result });
     } catch (error) {

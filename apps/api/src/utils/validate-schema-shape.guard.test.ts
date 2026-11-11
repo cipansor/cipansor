@@ -58,14 +58,29 @@ function collect(
   return out;
 }
 
+/** Peel `optional`/`nullable`/`default` wrappers to reach the schema they hold. */
+function unwrap(schema: unknown): unknown {
+  let s = schema as { def?: { type?: string; innerType?: unknown }; unwrap?: () => unknown };
+  // ZodOptional/ZodNullable/ZodDefault each expose `unwrap()`; `.refine()` keeps
+  // the object type, so it needs no peeling.
+  let guard = 0;
+  while (s && typeof s.unwrap === 'function' && guard++ < 10) {
+    const inner = s.unwrap();
+    if (inner === s) break;
+    s = inner as typeof s;
+  }
+  return s;
+}
+
 /** The single top-level key name when a schema is a `{ body|params|query: ZodObject }` wrapper. */
 function wrapperKey(schema: unknown): string | null {
-  if (!(schema instanceof ZodObject)) return null;
-  const keys = Object.keys(schema.shape);
+  const s = unwrap(schema);
+  if (!(s instanceof ZodObject)) return null;
+  const keys = Object.keys(s.shape);
   if (keys.length !== 1) return null;
   const [key] = keys;
   if (key !== 'body' && key !== 'params' && key !== 'query') return null;
-  return (schema.shape as Record<string, unknown>)[key] instanceof ZodObject ? key : null;
+  return (s.shape as Record<string, unknown>)[key] instanceof ZodObject ? key : null;
 }
 
 const SCHEMAS = collect(rootStack, '');
@@ -95,5 +110,10 @@ describe('validate() schemas describe the body, not a wrapper', () => {
     expect(
       wrapperKey(z.object({ query: z.object({ a: z.string() }), page: z.number() }))
     ).toBeNull();
+    // The wrapper is still caught when it is wrapped in optional/nullable/refine.
+    expect(wrapperKey(wrapped.optional())).toBe('body');
+    expect(wrapperKey(wrapped.nullable())).toBe('body');
+    expect(wrapperKey(wrapped.refine(() => true))).toBe('body');
+    expect(wrapperKey(wrapped.optional().refine(() => true))).toBe('body');
   });
 });

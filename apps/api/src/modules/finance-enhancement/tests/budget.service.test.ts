@@ -166,10 +166,32 @@ describe('Budget Service', () => {
     (prisma.budget.findMany as any).mockResolvedValue(mockBudgets);
     (prisma.budget.count as any).mockResolvedValue(1);
 
-    const result = await getBudgets({});
+    const result = await getBudgets({}, UNIT_ADMIN);
 
     expect(result.data[0].amount).toBe(1000);
     expect(result.data[0].usedAmount).toBe(200);
+  });
+
+  it('getBudgets pins a unit admin to its own unit, ignoring a query unitId', async () => {
+    (prisma.budget.findMany as any).mockResolvedValue([]);
+    (prisma.budget.count as any).mockResolvedValue(0);
+
+    await getBudgets({ unitId: 'other-unit' }, UNIT_ADMIN);
+
+    expect(prisma.budget.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ unitId: 'unit-1' }) })
+    );
+  });
+
+  it('getBudgets lets a foundation role read the unit it names', async () => {
+    (prisma.budget.findMany as any).mockResolvedValue([]);
+    (prisma.budget.count as any).mockResolvedValue(0);
+
+    await getBudgets({ unitId: 'other-unit' }, FOUNDATION);
+
+    expect(prisma.budget.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ unitId: 'other-unit' }) })
+    );
   });
 
   it('updateBudget refuses a budget in another unit with 404', async () => {

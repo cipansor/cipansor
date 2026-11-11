@@ -344,6 +344,7 @@ export const createPackage = async (
       expedition: data.expedition,
       content: data.content,
       photoUrl: data.photoUrl,
+      storageLocation: data.storageLocation,
       notes: data.notes,
       receivedById: userId,
       receivedAt: new Date(),
@@ -385,11 +386,12 @@ export const updatePackage = async (
   };
 
   if (data.pickedUpAt) {
-    updateData.pickedUpAt = data.pickedUpAt;
+    updateData.pickedUpAt = new Date(data.pickedUpAt);
   }
 
-  // Stamp pickup time when the package transitions to PICKED_UP.
-  if (data.status === PackageStatus.PICKED_UP && !pkg.pickedUpAt) {
+  // Stamp pickup time when the package transitions to PICKED_UP and none is on
+  // record. An explicit pickedUpAt wins; otherwise the status change stamps it.
+  if (data.status === PackageStatus.PICKED_UP && !data.pickedUpAt && !pkg.pickedUpAt) {
     updateData.pickedUpAt = new Date();
   }
 

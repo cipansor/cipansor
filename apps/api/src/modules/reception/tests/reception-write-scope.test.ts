@@ -10,6 +10,9 @@ vi.mock('@/lib/prisma', () => ({
 }));
 
 import { prisma } from '@/lib/prisma';
+// The service's inputs are the `@cipansor/shared` DTOs, whose `status` is the
+// shared `PackageStatus`; the test must use that enum, not Prisma's twin.
+import { PackageStatus } from '@cipansor/shared';
 import * as service from '../reception.service';
 import {
   createStudentVisitSchema,
@@ -84,6 +87,63 @@ describe('ReceptionService — write scope', () => {
       )
     ).rejects.toMatchObject({ statusCode: 404 });
     expect(prisma.studentPackage.create).not.toHaveBeenCalled();
+  });
+
+  it('createPackage persists the storageLocation the form sends', async () => {
+    vi.mocked(prisma.student.findFirst).mockResolvedValue({ id: 's-1' } as never);
+    vi.mocked(prisma.studentPackage.create).mockResolvedValue({
+      id: 'p-1',
+      student: null,
+    } as never);
+
+    await service.createPackage(
+      'unit-1',
+      'user-1',
+      {
+        studentId: 's-1',
+        senderName: 'JNE',
+        expedition: 'JNE',
+        content: 'Buku',
+        storageLocation: 'Rak A1',
+      },
+      ACTOR
+    );
+
+    expect(prisma.studentPackage.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ storageLocation: 'Rak A1' }) })
+    );
+  });
+
+  it('updatePackage keeps an explicit pickedUpAt instead of overwriting it with now()', async () => {
+    const pickedUpAt = new Date('2026-11-01T02:00:00.000Z');
+    vi.mocked(prisma.studentPackage.findUnique).mockResolvedValue({
+      unitId: 'unit-1',
+      pickedUpAt: null,
+    } as never);
+    vi.mocked(prisma.studentPackage.update).mockResolvedValue({ id: 'p-1' } as never);
+
+    await service.updatePackage('p-1', { status: PackageStatus.PICKED_UP, pickedUpAt }, ACTOR);
+
+    expect(prisma.studentPackage.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ pickedUpAt }),
+      })
+    );
+  });
+
+  it('updatePackage stamps pickedUpAt on a PICKED_UP transition with none given', async () => {
+    vi.mocked(prisma.studentPackage.findUnique).mockResolvedValue({
+      unitId: 'unit-1',
+      pickedUpAt: null,
+    } as never);
+    vi.mocked(prisma.studentPackage.update).mockResolvedValue({ id: 'p-1' } as never);
+
+    await service.updatePackage('p-1', { status: PackageStatus.PICKED_UP }, ACTOR);
+
+    const call = vi.mocked(prisma.studentPackage.update).mock.calls[0][0] as {
+      data: { pickedUpAt?: Date };
+    };
+    expect(call.data.pickedUpAt).toBeInstanceOf(Date);
   });
 });
 
