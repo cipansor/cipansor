@@ -85,11 +85,13 @@ test.describe("Pesan wali — utas yang dimulai wali", () => {
    * live list, so the badge clears without the wali reopening the thread.
    *
    * The badge alone does not prove which call cleared it: the reply's
-   * invalidation refetches `GET /messages/:id`, and that read marks the thread
-   * read server-side too. So this asserts the page's own mark-read call —
-   * `PATCH /messages/:id/read` — which nothing else in this flow makes. The
-   * call is keyed on the thread's newest message, so the reply that landed
-   * while the thread was open is what fires it.
+   * invalidation refetches `GET /messages/:id` as well as the list, and that
+   * read marks the reply read on the server — so the badge can clear without
+   * the page's own call, depending on which response arrives first. To isolate
+   * the effect, the thread-detail read is served from its first response for
+   * every later request, so it can never mark the reply read. The only call
+   * left that can clear it is the page's `PATCH /messages/:id/read`, which
+   * nothing else in this flow makes.
    */
   test("balasan yang tiba selagi utas terbuka ikut ditandai terbaca", async ({
     page,
@@ -112,6 +114,26 @@ test.describe("Pesan wali — utas yang dimulai wali", () => {
     );
     // Read the thread first, so it opens with nothing unread.
     await apiRequest(parent, "GET", `/messages/${opened.data.id}`);
+
+    // Pin the thread-detail read to its first response. The first read is the
+    // wali opening the thread (nothing unread); the reply's invalidation
+    // refetches it too, and that read would mark the reply read on the server
+    // and clear the badge without the page's own call. Serving the first
+    // response keeps the detail read from clearing anything.
+    let detailBody: string | undefined;
+    await page.route(`**/api/messages/${opened.data.id}`, async (route) => {
+      if (route.request().method() !== "GET") return route.continue();
+      if (detailBody === undefined) {
+        const response = await route.fetch();
+        detailBody = await response.text();
+        return route.fulfill({ response, body: detailBody });
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: detailBody,
+      });
+    });
 
     // Every mark-read call the page makes, in order.
     const markReadCalls: string[] = [];
@@ -143,8 +165,8 @@ test.describe("Pesan wali — utas yang dimulai wali", () => {
     });
 
     // The wali sends a line: the reply mutation invalidates the list, the live
-    // conversation now carries the new reply, and the mark-read effect fires
-    // for the thread's newest message.
+    // conversation now carries the new reply as unread, and the mark-read
+    // effect fires for the thread's newest message.
     const textarea = page.getByPlaceholder("Ketik pesan...");
     await textarea.fill("Baik, terima kasih.");
     await textarea.press("Enter");
