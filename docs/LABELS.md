@@ -50,14 +50,13 @@ The evidence rule, enforced in the triage owner's prompt:
 | `pending-maintainer` | Waiting for a maintainer to decide whether to proceed; `ready` starts implementation                                               |
 | `needs-info`         | Waiting on the reporter for a missing detail                                                                                       |
 | `in-progress`        | Someone or an automation is actively working on it                                                                                 |
-| `blocked`            | Cannot proceed until a dependency is resolved                                                                                      |
+| `blocked`            | Cannot proceed until a dependency is resolved; never beside `ready`                                                                |
 | `stale`              | No activity for a long time; will close unless kept                                                                                |
 | `question`           | A question, not a change request                                                                                                   |
 | `duplicate`          | An issue already reported elsewhere; the original is linked                                                                        |
 | `duplicate-pr`       | A pull request probably covered by another PR; a candidate a maintainer weighs, never auto-closed                                  |
 | `invalid`            | Not a valid report                                                                                                                 |
 | `wontfix`            | Deliberately not going to be done                                                                                                  |
-| `bug-hunter`         | Provenance: found by the Bug hunter automation                                                                                     |
 | `automation-health`  | Fleet-health report from the watchdog; needs a maintainer                                                                          |
 | `automation`         | Report or action from an automation; skip in manual triage                                                                         |
 
@@ -162,10 +161,14 @@ sync` workflow adds anything missing and **fails the check** when the type
    anything still has to be discussed, decided, or criticized — a design choice,
    an unknown scope, a premise that may not hold — it is not `ready` yet; apply
    `needs-info` (or `question`, for a question rather than a change) and name
-   what is missing. `ready` must never sit beside `question`, `needs-info`, or
-   `pending-maintainer`: two labels that contradict each other make the
-   machine-readable state ambiguous (#814 carried `ready` and `question`
-   together). The automations are told to criticize hard and ask probing
+   what is missing. `ready` must never sit beside `question`, `needs-info`,
+   `pending-maintainer` or `blocked`: two labels that contradict each other make
+   the machine-readable state ambiguous (#814 carried `ready` and `question`
+   together). `blocked` is the same contradiction — an issue that cannot proceed
+   until a dependency resolves is not one a contributor can pick up, which is
+   what `ready` promises. The withdrawal is always `ready`, never `blocked`:
+   `blocked` carries the harder information and `stale-sweep.sh` exempts it from
+   closing (owner decision, 2026-11-10). The automations are told to criticize hard and ask probing
    questions until they are sure, precisely so `ready` is not applied early.
    `label-guard.sh` enforces the exclusivity: it removes `ready` whenever it
    still coexists with an exclusion once the event's own label is accounted for,
@@ -243,7 +246,7 @@ sync` workflow adds anything missing and **fails the check** when the type
 | `pr-duplicate.sh`   | jadwal harian                                   | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama |
 | `stale-sweep.sh`    | jadwal harian                                   | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`) |
 | `Gerbang tinjau PR` | PR ready for review, or CI-green dispatch      | tidak ada — ia meninjau atau menyetujui                            |
-| `Pemburu bug`       | daily cron                                     | membuka issue `bug`, satu prioritas, `bug-hunter`, `bot-implement` |
+| `Pemburu bug`       | daily cron                                     | membuka issue `bug`, satu prioritas, `bot-implement` (tanpa label provenans) |
 | `Pemindai standar`  | weekly cron                                    | membuka issue dengan tipe, prioritas, `pending-maintainer`         |
 | `Diskusi`           | comment on `pending-maintainer` / `needs-info` | `ready`, `wontfix`, `needs-info`                                   |
 | `Pengawas armada`   | daily cron                                     | `automation-health` pada laporannya                                |

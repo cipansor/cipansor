@@ -106,6 +106,34 @@ FOOTER_LINE_PREFIX = "_This comment was created by an AI agent"
 LEGACY_GUARD_FILTER = "!icontains(comment.body, 'This comment was created by an AI agent')"
 AUTHOR_GUARD_FILTER = "comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'"
 
+# `bug-hunter` was a provenance label `Pemburu bug` applied to the issues it
+# opened. The maintainer retired it (2026-11-10): `bug` already says what the
+# issue is, and the provenance is the issue's author. The label is deleted from
+# the repository, so leaving it in the prompt would make the next run create it
+# again (the labels API creates a missing label on `POST`). Stripped from every
+# tail so a live prompt that still applies it is upgraded on the next deploy.
+# The live SDLC 19 tail reads "satu prioritas dari
+# priority:critical/high/medium/low, `bug-hunter`, dan `bot-implement`", so the
+# first entry also repairs the connector; the later ones catch any other position.
+BUG_HUNTER_SUBS = (
+    (", `bug-hunter`, dan `bot-implement`", " dan `bot-implement`"),
+    ("`bug-hunter`, ", ""),
+    ("`bug-hunter`", ""),
+)
+
+# The body block's exclusion list predates `blocked`: a live prompt still tells
+# the agent to withdraw only `question`/`needs-info`/`pending-maintainer` before
+# `ready`. The block is inserted once and a live prompt already carries it, so
+# the list is upgraded by text, the same way the identity bullet is.
+OLD_READY_EXCLUSION = (
+    "Sebelum memasang `ready`, cabut dulu "
+    "`question`/`needs-info`/`pending-maintainer` yang bertentangan."
+)
+NEW_READY_EXCLUSION = (
+    "Sebelum memasang `ready`, cabut dulu "
+    "`question`/`needs-info`/`pending-maintainer`/`blocked` yang bertentangan."
+)
+
 # The environment note used to tell the agent to do "any read and write on
 # GitHub" with the token baked into the `origin` remote. That token is the
 # writer's (`adminypc`), so an automation that opened an issue or a pull request
@@ -200,7 +228,7 @@ BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
   - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS. Hanya untuk tiga hal: `POST /repos/<owner>/<repo>/issues` dan `/pulls` bila tugas ini MEMBUAT issue atau pull request, serta push commit, supaya artefaknya teratribusi ke `adminypc`. Buat issue/PR itu TANPA field `labels`: label yang dipasang akun selain `cipansor-bot` dicabut `label-guard` (#838). Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` salah pemilik — jangan.
   - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, label (termasuk label issue/PR yang baru Anda buat), review, reaction, dan setiap `PATCH` body issue atau PR (ringkasan saat `ready`, penanda `<!-- sdlc:... -->`). Suntingan lewat `GITHUB_TOKEN` terbaca sebagai aktivitas manusia dan memicu triase ulang serta `Diskusi`.
   - Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` sendiri — guard anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-disclosure yang perlu ditulis.
-- ISSUE — komentar dulu, body saat `ready`. Selama issue belum `ready`, triase, estimasi, kriteria, dan pertanyaan terbuka ditulis sebagai KOMENTAR BARU, bukan ke body. Body issue hanya diperbarui saat Anda memasang `ready`: saat itu tulis ringkasan final ke body lewat `PATCH /repos/<owner>/<repo>/issues/<n>` (body adalah field `body`) di bawah penanda tetap (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. Sebelum memasang `ready`, cabut dulu `question`/`needs-info`/`pending-maintainer` yang bertentangan. Bila belum `ready`, jangan mengubah body issue.
+- ISSUE — komentar dulu, body saat `ready`. Selama issue belum `ready`, triase, estimasi, kriteria, dan pertanyaan terbuka ditulis sebagai KOMENTAR BARU, bukan ke body. Body issue hanya diperbarui saat Anda memasang `ready`: saat itu tulis ringkasan final ke body lewat `PATCH /repos/<owner>/<repo>/issues/<n>` (body adalah field `body`) di bawah penanda tetap (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. Sebelum memasang `ready`, cabut dulu `question`/`needs-info`/`pending-maintainer`/`blocked` yang bertentangan. Bila belum `ready`, jangan mengubah body issue.
 - PR — kesimpulan final (putusan tinjauan, hasil QA) tetap ditulis ke DESKRIPSI UTAMA PR di bawah penanda tetap (mis. `<!-- sdlc:gerbang -->`), diperbarui di tempat.
 - Idempoten (invarian 4): satu pemicu = satu tulisan; perbarui komentar berpenanda Anda, jangan menumpuk. Jangan menanggapi komentar atau reaction milik Anda sendiri.
 - Sebelum menangani apa pun, tambahkan reaction 👀 pada objek yang Anda tangani (issue/PR/komentar) agar orang tahu automation bekerja: `POST /repos/<owner>/<repo>/issues/<n>/reactions` dengan body `{"content":"eyes"}`; untuk komentar: `POST /repos/<owner>/<repo>/issues/comments/<id>/reactions`. Jangan menumpuk reaction.
@@ -228,7 +256,8 @@ Prioritas — beri bukti, jangan mengira-ngira. Nilai dampak, urgensi, dan risik
 
 Label:
 - Tepat satu tipe (bug/enhancement/documentation/refactor/chore/security) — tipe yang benar-benar dialami, bukan yang diminta. Issue bisa datang dengan label template (`bug` dari `bug_report.yml`, `enhancement` dari `feature_request.yml`) yang tidak dicabut label-guard; bila tipe itu keliru, CABUT saat memasang tipe yang benar — jangan biarkan dua tipe berdampingan.
-- `ready` HANYA bila SANGAT-SANGAT yakin: tujuan jelas, kriteria penerimaan konkret, tanpa pertanyaan terbuka. `ready` tidak boleh bersama `question`, `needs-info`, atau `pending-maintainer` — bila masih ada yang perlu dibahas, diputuskan, atau dikritisi, jangan `ready` dulu. Issue yang membawa `ready` dan `question` sekaligus adalah cacat yang harus dicegah.
+- `ready` HANYA bila SANGAT-SANGAT yakin: tujuan jelas, kriteria penerimaan konkret, tanpa pertanyaan terbuka. `ready` tidak boleh bersama `question`, `needs-info`, `pending-maintainer`, atau `blocked` — bila masih ada yang perlu dibahas, diputuskan, atau dikritisi, jangan `ready` dulu. Issue yang membawa `ready` dan `question` sekaligus adalah cacat yang harus dicegah.
+- `blocked` HANYA bila ada ketergantungan nyata yang belum selesai (PR/issue lain belum digabung, primitif yang belum ada). Sebut ketergantungannya. Issue `blocked` TIDAK boleh `ready`: kalau terhalang, jangan pasang `ready` sama sekali — jangan pernah memasang keduanya bersama. `blocked` mengecualikannya dari penutupan otomatis `stale-sweep`. JANGAN memakai label `bug-hunter`; label itu sudah dihapus (keputusan pemilik 2026-11-10).
 - `question` bila ini pertanyaan, bukan perubahan. `duplicate` + tautkan aslinya bila duplikat. Cacat tipis yang penyebabnya belum diketahui tetap `bug` + satu prioritas, bukan `needs-info` (Reproduksi bug menyelidikinya).
 - Jangan mengarang label; baca label repo dulu. Jangan pasang `bot-implement`.
 
@@ -241,7 +270,7 @@ Tulis hasilnya sebagai KOMENTAR BARU, bukan ke body, dengan bagian:
 - Estimasi usaha (lihat bagian di bawah)
 - Pertanyaan terbuka (kosong bila `ready`)
 - Duplikat (bila ada)
-Bila issue sudah siap: cabut `question`/`needs-info`/`pending-maintainer` yang bertentangan, pasang `ready`, lalu tulis ringkasan final itu ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`, perbarui di tempat).
+Bila issue sudah siap: cabut `question`/`needs-info`/`pending-maintainer` yang bertentangan, pasang `ready`, lalu tulis ringkasan final itu ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`, perbarui di tempat). Bila terhalang ketergantungan: pasang `blocked` dan JANGAN pasang `ready`; tulis ringkasannya sebagai komentar, bukan ke body.
 
 ESTIMASI USAHA — SATU BAGIAN DARI KOMENTAR YANG SAMA (WAJIB). Dulu ini automation tersendiri (`SDLC 02`); sejak 2026-11-09 ia melebur ke sini, jadi JANGAN menulis komentar kedua untuk estimasi. Isi bagian `## Estimasi usaha` di dalam komentar triase itu:
 - Kalibrasi terhadap pekerjaan serupa yang sudah di-merge di repo ini, dan SEBUT nomor PR pembandingnya — jangan menebak angka.
@@ -377,6 +406,13 @@ def new_prompt(name, prompt):
     tail_start = prompt.find(TAIL_MARK)
     orig_tail = prompt[tail_start:] if tail_start >= 0 else ""
     head = prompt[:tail_start] if tail_start >= 0 else prompt
+    # The retired `bug-hunter` provenance label is stripped from the text that
+    # comes from the live prompt only. Applying it to the assembled result would
+    # also rewrite the guidance this script authors below — the tail that says
+    # "JANGAN memakai label `bug-hunter`" — and leave a dangling sentence.
+    for old, new in BUG_HUNTER_SUBS:
+        head = head.replace(old, new)
+        orig_tail = orig_tail.replace(old, new)
     managed_tail = next((v for k, v in TAILS.items() if k in name), None)
     # A prompt with no `PERILAKU SASARAN` marker has lost its tail. For an
     # automation with a managed tail the loss is harmless — the tail (the task's
@@ -421,6 +457,8 @@ def new_prompt(name, prompt):
     # split on the next deploy.
     for legacy in (OLD_IDENTITY_LINE, FIRST_SPLIT_IDENTITY_LINE):
         head = head.replace(legacy, NEW_IDENTITY_LINE)
+    # The exclusion list inside the already-present body block gains `blocked`.
+    head = head.replace(OLD_READY_EXCLUSION, NEW_READY_EXCLUSION)
     if managed_tail is None:
         # Keep the original tail verbatim (its behaviour is unchanged); only the
         # head gained the body/reaction reminders that apply to every automation.

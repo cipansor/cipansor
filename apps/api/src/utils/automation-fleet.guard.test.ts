@@ -215,8 +215,13 @@ function run(
 const runBridge = (env: Record<string, string>, args: string[], stdin?: string) =>
   run(BRIDGE, env, args, stdin, bridgeDir);
 
+// The repository labels the guard tests reason about, mirroring `gh label list`
+// for every one a test names — `blocked` included, because it is a real label
+// and the human path reads `protected_labels()`. A fixture that omits a label
+// the guard consults makes that label read as "not protected", and a test built
+// on it then proves the opposite of what happens in the repository.
 const LABELS =
-  'bug\nenhancement\nready\nquestion\nneeds-info\npriority:high\npriority:medium\nbot-implement\nsource:template';
+  'bug\nenhancement\nready\nquestion\nneeds-info\nblocked\npriority:high\npriority:medium\nbot-implement\nsource:template';
 
 const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
   JSON.stringify({
@@ -369,6 +374,51 @@ describe('label-guard.sh', () => {
       labeledEvent('cipansor-bot', 'ready')
     );
     expect(calls).toContain('/issues/7/labels/ready');
+  });
+
+  it('removes a `ready` that contradicts `blocked`, even from the bot', () => {
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_CURRENT: 'ready\nblocked\nbug' },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'ready')
+    );
+    expect(calls).toContain('/issues/7/labels/ready');
+    expect(calls).toContain('COMMENT');
+    expect(out).toContain("contradicts 'blocked'");
+  });
+
+  it('keeps `blocked` when it wins over a conflicting `ready`', () => {
+    const { calls } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_CURRENT: 'ready\nblocked' },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'blocked')
+    );
+    expect(calls).toContain('/issues/7/labels/ready');
+    expect(calls).not.toContain('/issues/7/labels/blocked');
+  });
+
+  it('revokes a person’s `blocked` and leaves the bot’s `ready` — so the fixture must list it', () => {
+    // A person applying `blocked` takes the standard path, not the conflict
+    // path: `blocked` is a real repository label, so it is protected and revoked
+    // like any other, and the bot's `ready` stands. The fixture omission was not
+    // cosmetic — with `blocked` missing from `LABELS` the guard reads it as "not
+    // protected", leaves it in place, and then withdraws `ready` as the conflict:
+    // the opposite of what the repository does.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_PERM: 'admin',
+        GH_STUB_CURRENT: 'ready\nblocked',
+      },
+      ['--stdin'],
+      labeledEvent('adminypc', 'blocked')
+    );
+    expect(calls).toContain('/issues/7/labels/blocked');
+    expect(calls).not.toContain('/issues/7/labels/ready');
+    expect(out).toContain("Removed label 'blocked'");
   });
 
   it('leaves `ready` alone when nothing contradicts it', () => {
@@ -1024,6 +1074,30 @@ describe('fleet contracts', () => {
     expect(flow).not.toMatch(/Triase ganda — sebagian/);
   });
 
+  it('keeps every live report source in the flow diagram’s `IN` node', () => {
+    // The diagram's `IN` node is where a reader learns which reports reach
+    // triage. `Pemburu bug` (SDLC 19) is retired as a *label* (`bug-hunter`,
+    // 2026-11-10) but the *automation* still runs and still opens `bug` issues,
+    // so it stays a source; dropping it there loses the path from that
+    // automation to triage. Guard the invariant, not the one string: every
+    // report-opening role the doc names must appear in `IN`, and a role named
+    // `RETIRED` in the deploy script must not. `Pemburu bug` is deliberately
+    // absent from `RETIRED` — the label retired, not the automation.
+    const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
+    const inNode = flow.match(/^ {2}IN\(\["([^"]+)"\]\)/m);
+    expect(inNode, 'the flow diagram has an IN node').not.toBeNull();
+    const sources = inNode![1];
+    for (const source of ['manusia', 'Pemburu bug', 'Pemindai standar', 'Pemindai celah uji']) {
+      expect(sources, source).toContain(source);
+    }
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const retired = script.slice(
+      script.indexOf('RETIRED = {'),
+      script.indexOf('\n}', script.indexOf('RETIRED = {'))
+    );
+    expect(retired, 'Pemburu bug still runs').not.toMatch(/"SDLC 19":/);
+  });
+
   it('releases production from a vX.Y.Z tag, and only that workflow', () => {
     // 2026-11-09 decision. `Pembuat catatan rilis` (SDLC 13) cut `-rc` tags that
     // nothing consumed; it is retired, and a human-pushed `vX.Y.Z` tag is now the
@@ -1447,6 +1521,60 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('BODY ISSUE/PR');
     expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
     expect(out).toContain(TAILS_SDLC_15_MARKER);
+  });
+
+  it.skipIf(!hasPy)('tells the triage owner never to pair `ready` with `blocked`', () => {
+    // `ready` and `blocked` contradict each other (owner decision 2026-11-10):
+    // an issue that cannot proceed is not one a contributor can pick up. The
+    // label-guard enforces it deterministically, but the prompt must not create
+    // the conflict in the first place — the triage owner wrote it 29 times.
+    const out = newPrompt('SDLC 15', 'Header');
+    expect(out).toContain(
+      '`ready` tidak boleh bersama `question`, `needs-info`, `pending-maintainer`, atau `blocked`'
+    );
+    expect(out).toContain('Issue `blocked` TIDAK boleh `ready`');
+  });
+
+  it.skipIf(!hasPy)(
+    'upgrades the exclusion list in a body block the live prompt already carries',
+    () => {
+      // The body block is inserted once, so a live prompt keeps its old one. The
+      // instruction to withdraw contradicting labels before `ready` must gain
+      // `blocked` by text, or the triage owner is never told about it.
+      const live =
+        'Header\n\nBODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)\n' +
+        'Sebelum memasang `ready`, cabut dulu `question`/`needs-info`/`pending-maintainer` yang bertentangan. ' +
+        'Bila belum `ready`, jangan mengubah body issue.';
+      const out = newPrompt('SDLC 15', live);
+      expect(out).toContain(
+        '`question`/`needs-info`/`pending-maintainer`/`blocked` yang bertentangan'
+      );
+    }
+  );
+
+  it.skipIf(!hasPy)('strips the retired `bug-hunter` label from a live tail', () => {
+    // The label is deleted from the repository, and the labels API creates a
+    // missing label on `POST`, so a live prompt that still applies it would
+    // resurrect it on the next run. The redeploy must drop the mention, and it
+    // must match the real SDLC 19 wording (a narrower pattern missed it).
+    const original =
+      'Header\n\nPERILAKU SASARAN (level agentic)\n' +
+      'berlabel `bug`, satu prioritas dari priority:critical/high/medium/low, `bug-hunter`, ' +
+      'dan `bot-implement` — jangan membuka pull request.';
+    const out = newPrompt('SDLC 19 · Pemburu bug', original);
+    expect(out).not.toContain('bug-hunter');
+    expect(out).toContain('priority:critical/high/medium/low dan `bot-implement`');
+    // Idempotent: a second pass changes nothing.
+    expect(newPrompt('SDLC 19 · Pemburu bug', out)).toBe(out);
+  });
+
+  it.skipIf(!hasPy)('keeps the guidance sentence about the retired label intact', () => {
+    // The strip must touch the live prompt's text only. Applied to the whole
+    // assembled result it also rewrote the tail this script authors — leaving
+    // "JANGAN memakai label ;" — so the SDLC 15 rule about `bug-hunter` must
+    // survive a redeploy.
+    const out = newPrompt('SDLC 15', 'Header');
+    expect(out).toContain('JANGAN memakai label `bug-hunter`');
   });
 
   it.skipIf(!hasPy)('still enforces the 1800s timeout when a truncated prompt is refused', () => {
