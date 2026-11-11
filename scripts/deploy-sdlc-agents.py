@@ -214,6 +214,35 @@ DELETED_LABEL_TEXTS = (
         "memutuskan apakah dilanjutkan",
         "satu prioritas, dan `question` (artinya: menunggu maintainer memutuskan apakah dilanjutkan",
     ),
+    # The estimate step, dropped 2026-11-11 (user decision): the work is done by
+    # an AI, so a size/calibration estimate is noise. The bullet and the whole
+    # "ESTIMASI USAHA" section are removed from a live SDLC 15 prompt, and the
+    # body marker goes with them.
+    ("- Estimasi usaha (lihat bagian di bawah)\n", ""),
+    (
+        "\nESTIMASI USAHA — SATU BAGIAN DARI KOMENTAR YANG SAMA (WAJIB). Dulu ini "
+        "automation tersendiri (`SDLC 02`); sejak 2026-11-09 ia melebur ke sini, "
+        "jadi JANGAN menulis komentar kedua untuk estimasi. Isi bagian "
+        "`## Estimasi usaha` di dalam komentar triase itu:\n"
+        "- Kalibrasi terhadap pekerjaan serupa yang sudah di-merge di repo ini, dan SEBUT nomor PR pembandingnya — jangan menebak angka.\n"
+        "- Baca issue dan PR/issue pembanding lebih dulu; verifikasi klaim issue langsung ke kode, bukan dari teks issue.\n"
+        "- Tulis ukuran (XS/S/M/L/XL), berkas/area yang kemungkinan tersentuh, risiko utama, dan kalibrasi.\n"
+        "- Selama issue belum `ready`, bagian ini hidup di KOMENTAR. Hanya bila issue sudah `ready` tulis atau perbarui estimasi di DESKRIPSI UTAMA issue (bagian `<!-- sdlc:estimasi -->`), perbarui di tempat.\n"
+        "- Bila issue terlalu kabur untuk diestimasi, katakan itu dan daftar pertanyaan yang akan membukanya — jangan menebak angka.\n",
+        "",
+    ),
+)
+
+# A step the fleet no longer performs at all, so its mention is dropped from the
+# live text rather than repaired. The body block is inserted once and a live
+# prompt already carries it, so this must be a text substitution like the rest.
+DROPPED_STEP_TEXTS = (
+    # 2026-11-11 (user decision): the estimate is dropped — an AI does the work,
+    # so a size/calibration estimate is noise the reader scrolls past.
+    (
+        "Selama issue belum `ready`, triase, estimasi, kriteria, dan pertanyaan terbuka",
+        "Selama issue belum `ready`, triase, kriteria, dan pertanyaan terbuka",
+    ),
 )
 
 # The environment note used to tell the agent to do "any read and write on
@@ -317,7 +346,7 @@ BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
   - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS. Hanya untuk tiga hal: `POST /repos/<owner>/<repo>/issues` dan `/pulls` bila tugas ini MEMBUAT issue atau pull request, serta push commit, supaya artefaknya teratribusi ke `adminypc`. Buat issue/PR itu TANPA field `labels`: label yang dipasang akun selain `cipansor-bot` dicabut `label-guard` (#838). Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` salah pemilik — jangan.
   - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, label (termasuk label issue/PR yang baru Anda buat), review, reaction, dan setiap `PATCH` body issue atau PR (ringkasan saat `ready`, penanda `<!-- sdlc:... -->`). Suntingan lewat `GITHUB_TOKEN` terbaca sebagai aktivitas manusia dan memicu triase ulang serta `Diskusi`.
   - Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` sendiri — guard anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-disclosure yang perlu ditulis.
-- ISSUE — komentar dulu, body saat `ready`. Selama issue belum `ready`, triase, estimasi, kriteria, dan pertanyaan terbuka ditulis sebagai KOMENTAR BARU, bukan ke body. Body issue hanya diperbarui saat Anda memasang `ready`: saat itu tulis ringkasan final ke body lewat `PATCH /repos/<owner>/<repo>/issues/<n>` (body adalah field `body`) di bawah penanda tetap (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. Sebelum memasang `ready`, cabut dulu `question`/`blocked` yang bertentangan. Bila belum `ready`, jangan mengubah body issue.
+- ISSUE — komentar dulu, body saat `ready`. Selama issue belum `ready`, triase, kriteria, dan pertanyaan terbuka ditulis sebagai KOMENTAR BARU, bukan ke body. Body issue hanya diperbarui saat Anda memasang `ready`: saat itu tulis ringkasan final ke body lewat `PATCH /repos/<owner>/<repo>/issues/<n>` (body adalah field `body`) di bawah penanda tetap (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. Sebelum memasang `ready`, cabut dulu `question`/`blocked` yang bertentangan. Bila belum `ready`, jangan mengubah body issue.
 - PR — kesimpulan final (putusan tinjauan, hasil QA) tetap ditulis ke DESKRIPSI UTAMA PR di bawah penanda tetap (mis. `<!-- sdlc:gerbang -->`), diperbarui di tempat.
 - Idempoten (invarian 4): satu pemicu = satu tulisan; perbarui komentar berpenanda Anda, jangan menumpuk. Jangan menanggapi komentar atau reaction milik Anda sendiri.
 - Sebelum menangani apa pun, tambahkan reaction 👀 pada objek yang Anda tangani (issue/PR/komentar) agar orang tahu automation bekerja: `POST /repos/<owner>/<repo>/issues/<n>/reactions` dengan body `{"content":"eyes"}`; untuk komentar: `POST /repos/<owner>/<repo>/issues/comments/<id>/reactions`. Jangan menumpuk reaction.
@@ -330,8 +359,8 @@ TAILS = {
     # `Triase bug` (SDLC 01) was folded into this tail on 2026-11-09 (user
     # decision, closing "Triase ganda" #848). SDLC 01 had the deeper criticality
     # pass (what fails and why, which module, whether the premise holds); SDLC 15
-    # had the label taxonomy, the evidence-backed priority rubric and the
-    # estimate. One owner now writes ONE comment carrying all of it, instead of
+    # had the label taxonomy and the evidence-backed priority rubric. One owner
+    # now writes ONE comment carrying all of it, instead of
     # two automations writing two triage comments on the same `issues.opened`
     # event. `Estimasi usaha` (SDLC 02) had been folded in earlier the same day.
     "SDLC 15": """PERILAKU SASARAN (level agentic)
@@ -356,17 +385,9 @@ Tulis hasilnya sebagai KOMENTAR BARU, bukan ke body, dengan bagian:
 - Bukti prioritas (siapa/berapa terdampak, dampak, tenggat, workaround)
 - Area/modul (path nyata)
 - Kriteria penerimaan
-- Estimasi usaha (lihat bagian di bawah)
 - Pertanyaan terbuka (kosong bila `ready`)
 - Duplikat (bila ada)
 Bila issue sudah siap: cabut `question` yang bertentangan, pasang `ready`, lalu tulis ringkasan final itu ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`, perbarui di tempat). Bila terhalang ketergantungan: pasang `blocked` dan JANGAN pasang `ready`; tulis ringkasannya sebagai komentar, bukan ke body.
-
-ESTIMASI USAHA — SATU BAGIAN DARI KOMENTAR YANG SAMA (WAJIB). Dulu ini automation tersendiri (`SDLC 02`); sejak 2026-11-09 ia melebur ke sini, jadi JANGAN menulis komentar kedua untuk estimasi. Isi bagian `## Estimasi usaha` di dalam komentar triase itu:
-- Kalibrasi terhadap pekerjaan serupa yang sudah di-merge di repo ini, dan SEBUT nomor PR pembandingnya — jangan menebak angka.
-- Baca issue dan PR/issue pembanding lebih dulu; verifikasi klaim issue langsung ke kode, bukan dari teks issue.
-- Tulis ukuran (XS/S/M/L/XL), berkas/area yang kemungkinan tersentuh, risiko utama, dan kalibrasi.
-- Selama issue belum `ready`, bagian ini hidup di KOMENTAR. Hanya bila issue sudah `ready` tulis atau perbarui estimasi di DESKRIPSI UTAMA issue (bagian `<!-- sdlc:estimasi -->`), perbarui di tempat.
-- Bila issue terlalu kabur untuk diestimasi, katakan itu dan daftar pertanyaan yang akan membukanya — jangan menebak angka.
 """,
     # `SDLC 14` restored 2026-11-09 (see the `RETIRED` note above): judging which
     # prose went stale is not a path diff. It also inherits SDLC 03's judgement
@@ -532,6 +553,11 @@ def new_prompt(name, prompt):
     # missing label), so the live text must converge, not merely the new blocks
     # this script authors.
     for old, new in DELETED_LABEL_TEXTS:
+        head = head.replace(old, new)
+        orig_tail = orig_tail.replace(old, new)
+    # A step the fleet dropped entirely (the estimate, 2026-11-11) is removed the
+    # same way, so a live prompt converges instead of keeping the stale step.
+    for old, new in DROPPED_STEP_TEXTS:
         head = head.replace(old, new)
         orig_tail = orig_tail.replace(old, new)
     managed_tail = next((v for k, v in TAILS.items() if k in name), None)
@@ -820,10 +846,12 @@ TRIGGERS = {
 # duplicate comment it was retired for.
 #
 # `SDLC 02` (`Estimasi usaha`) folded into `SDLC 15` (`Triase issue`) on
-# 2026-11-09 (user decision): the estimate is a section of the single triage
-# comment (`docs/SDLC-FLOW.md` invariant 3), and its runs were one more thing
-# that could die on the 1800s wall clock. Re-enable it only by deleting this
-# entry and restoring the `TAILS` entry the merge removed.
+# 2026-11-09 (user decision), and the estimate step itself was dropped
+# 2026-11-11 (user decision): an AI does the work, so a size/calibration
+# estimate only adds lines the reader scrolls past without changing a
+# decision. Re-enable it only by deleting this entry AND restoring the step
+# in `TAILS["SDLC 15"]` — disabling the automation alone no longer brings the
+# estimate back.
 #
 # `SDLC 21` (`Penjaga issue`) moved to a GitHub Action on 2026-11-09
 # (`.github/workflows/stale-sweep.yml`): its job is a label and a timestamp,
@@ -865,11 +893,11 @@ TRIGGERS = {
 # would have silently resurrected the monthly staging load against a baseline
 # nothing refreshes. This entry is the missing safety net.
 RETIRED = {
-    "SDLC 02": "dilebur ke SDLC 15 (Triase issue) pada 2026-11-09 — estimasi "
-    "kini satu bagian dari komentar triase tunggal (invarian 3).",
+    "SDLC 02": "dilebur ke SDLC 15 (Triase issue) pada 2026-11-09; langkah "
+    "estimasinya sendiri dihapus 2026-11-11 — pekerjaannya dikerjakan AI.",
     "SDLC 01": "dilebur ke SDLC 15 (Triase issue) pada 2026-11-09 — triase kini "
     "satu pemilik: satu komentar (tipe, prioritas, kesiapan, area, keparahan, "
-    "duplikat, estimasi), bukan dua. Ini menutup 'Triase ganda' (#848).",
+    "duplikat), bukan dua. Ini menutup 'Triase ganda' (#848).",
     "SDLC 21": "diport ke .github/workflows/stale-sweep.yml pada 2026-11-09 — "
     "timer label/stempel waktu, deterministik, tanpa sandbox.",
     "SDLC 23": "`Pengawas armada` dipensiunkan pada 2026-11-11 (keputusan "

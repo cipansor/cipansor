@@ -1241,22 +1241,43 @@ describe('fleet contracts', () => {
     expect(flow).toContain('`ready`');
   });
 
-  it('folds the estimate into the single triage owner (SDLC 02 -> SDLC 15)', () => {
+  it('removes the estimate step from the single triage owner (SDLC 15)', () => {
     // 2026-11-09 (user decision): `Estimasi usaha` (SDLC 02) was folded into
-    // `Triase issue` (SDLC 15) so one automation writes triage + estimate +
-    // label in one comment — invariant 3, and one fewer run to die on the
-    // 1800s wall clock. This locks the merge so a later edit cannot quietly
-    // restore the duplicate writer.
+    // `Triase issue` (SDLC 15). 2026-11-11 (user decision): the estimate itself
+    // is dropped — the work is done by an AI, so a size/calibration estimate is
+    // noise the reader has to scroll past. The step is removed from the prompt,
+    // not merely retired, so no automation asks for it again.
     const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
-    // The retired automation is skipped and disabled, not redeployed.
+    // `TAILS` is a dict (`\n}\n`), `DROPPED_STEP_TEXTS` a tuple (`\n)\n`).
+    const block = (name: string) => {
+      const start =
+        script.indexOf(`${name} = {`) >= 0
+          ? script.indexOf(`${name} = {`)
+          : script.indexOf(`${name} = (`);
+      expect(start, `${name} block`).toBeGreaterThan(-1);
+      const dict = script.indexOf('\n}\n', start);
+      const tuple = script.indexOf('\n)\n', start);
+      const end = dict >= 0 && (tuple < 0 || dict < tuple) ? dict : tuple;
+      return script.slice(start, end);
+    };
+    // The retired automation stays retired.
     expect(script).toMatch(/RETIRED\s*=\s*\{/);
     expect(script).toMatch(/"SDLC 02":/);
     expect(script).toContain('apply_retire');
     // Its old managed tail is gone: no `"SDLC 02": """PERILAKU SASARAN` entry.
     expect(script).not.toMatch(/"SDLC 02":\s*"""PERILAKU SASARAN/);
-    // The estimate instruction now lives inside SDLC 15's tail.
-    expect(script).toMatch(/ESTIMASI USAHA — SATU BAGIAN DARI KOMENTAR YANG SAMA/);
-    expect(script).toContain('JANGAN menulis komentar kedua untuk estimasi');
+    // The estimate instruction no longer lives inside SDLC 15's tail either.
+    const tails = block('TAILS');
+    expect(tails).not.toMatch(/ESTIMASI USAHA/);
+    expect(tails).not.toContain('JANGAN menulis komentar kedua untuk estimasi');
+    expect(tails).not.toContain('- Estimasi usaha');
+    expect(tails).not.toContain('sdlc:estimasi');
+    expect(tails).not.toMatch(/lihat bagian di bawah/);
+    // A live prompt is converged by a substitution, so the step cannot survive
+    // a redeploy of an already-deployed prompt.
+    const dropped = block('DROPPED_STEP_TEXTS');
+    expect(dropped).toContain('triase, estimasi, kriteria');
+    expect(script).toContain('for old, new in DROPPED_STEP_TEXTS');
   });
 
   it('folds Triase bug into the single triage owner (SDLC 01 -> SDLC 15)', () => {
@@ -1309,11 +1330,15 @@ describe('fleet contracts', () => {
 
   it('keeps docs/SDLC-FLOW.md consistent with the folded estimate', () => {
     const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
-    // The stage table and the issue subgraph name one triage owner that also
-    // carries the estimate; the separate `Estimasi usaha` automation is gone.
+    // The stage table and the issue subgraph name one triage owner; the separate
+    // `Estimasi usaha` automation is gone, and so is the estimate step itself
+    // (dropped 2026-11-11 — an AI does the work).
     expect(flow).not.toContain('| Estimasi usaha ');
     expect(flow).not.toContain('C2["Estimasi usaha"]');
-    expect(flow).toMatch(/Triase issue — tipe \+ keparahan \+ estimasi \+ label/);
+    expect(flow).toMatch(/Triase issue — tipe \+ keparahan \+ label/);
+    // No live instruction may still ask for an estimate.
+    expect(flow).not.toMatch(/kesiapan, estimasi/);
+    expect(flow).not.toMatch(/duplikat, dan estimasi/);
     // `Triase bug` (SDLC 01) was folded in the same day, so "Triase ganda" is
     // now finished (#848): one owner writes one comment. The doc must say so.
     expect(flow).toMatch(/Triase ganda — SELESAI/);

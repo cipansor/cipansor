@@ -59,7 +59,7 @@ pertentangan itu dilaporkan sebagai issue.
    penyapu, pengawas deploy, pemeriksa label, pembaruan cabang) adalah skrip di
    `.github/scripts/` dengan uji di `apps/api/src/utils/*.guard.test.ts`.
 3. **Satu pemilik per langkah.** Hanya satu automation boleh berkomentar
-   sebagai pemilik sebuah langkah pada sebuah objek. Triase, estimasi, dan
+   sebagai pemilik sebuah langkah pada sebuah objek. Triase dan
    label sebuah issue ditulis oleh **satu** automation dalam **satu**
    komentar, yang diperbarui di tempat (bukan ditambah).
 4. **Idempoten per kunci.** Setiap tulisan bot membawa penanda
@@ -105,7 +105,7 @@ pertentangan itu dilaporkan sebagai issue.
     (diminta pengguna 2026-10-13). Pemicu komentar ditangani workflow
     `acknowledge.yml`; automation lain melakukannya dari promptnya.
 15. **Issue: komentar dulu, body saat `ready`.** Selama issue belum `ready`,
-    triase, estimasi, kriteria, dan pertanyaan terbuka ditulis sebagai
+    triase, kriteria, dan pertanyaan terbuka ditulis sebagai
     **komentar** — percakapan kerja. **Body** issue hanya diperbarui saat bot
     memasang `ready`: ringkasan final ditulis ke body di bawah penanda tetap
     (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. PR berbeda — putusan
@@ -196,7 +196,7 @@ flowchart TD
   classDef gh fill:#fff4e5,stroke:#f59e0b,color:#111;
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
-  IN(["laporan: manusia · Pemburu bug · Pemindai standar · Pemindai celah uji"]) --> TR["Triase issue: tipe · prioritas · duplikat · kesiapan + estimasi (satu komentar)"]:::cloud
+  IN(["laporan: manusia · Pemburu bug · Pemindai standar · Pemindai celah uji"]) --> TR["Triase issue: tipe · prioritas · duplikat · kesiapan (satu komentar)"]:::cloud
   TR -- keamanan --> ADV["advisory privat"]:::human
   TR -- question --> CL["Penjernih issue"]:::cloud --> TR
   TR -- decision --> DEC["riset + pilihan ganda"]:::cloud --> MD{"maintainer memilih"}:::human --> TR
@@ -214,7 +214,7 @@ flowchart TD
 | #   | Tahap        | Pemicu                                                                                                                              | Pemilik                                           | Keluaran                                                                                                                                                                                                           | Lanjut bila                                                                                 |
 | --- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
 | 1   | Laporan      | manusia, atau temuan automation berkala                                                                                             | pelapor                                           | issue sesuai templat; temuan keamanan → advisory privat                                                                                                                                                            | issue terbuka                                                                               |
-| 2   | Triase       | `issues.opened`                                                                                                                     | `Triase issue`                                    | **satu** komentar: tipe, prioritas (berbukti), duplikat, kesiapan, estimasi                                                                                                                                        | label `ready` / `question` / `decision` / `duplicate`                                       |
+| 2   | Triase       | `issues.opened`                                                                                                                     | `Triase issue`                                    | **satu** komentar: tipe, prioritas (berbukti), duplikat, kesiapan                                                                                                                                        | label `ready` / `question` / `decision` / `duplicate`                                       |
 | 3   | Klarifikasi  | balasan pada issue `question`, label bot, atau aktivitas baru (jembatan triase)                                                     | `Penjernih issue`                                 | komentar penilaian ulang; body issue diperbarui hanya saat `ready`                                                                                                                                                 | `ready`                                                                                     |
 | 4   | Keputusan    | label `decision`                                                                                                                    | agen riset → maintainer                           | riset bersumber + pilihan ganda; maintainer memilih                                                                                                                                                                | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready`                             |
 | 5   | Implementasi | cron harian `Tiket jadi PR`: memindai antrean `ready` **terlama dulu**, membuka ≤ 3 PR per run                                      | `Tiket jadi PR`                                   | PR draf dengan templat, uji, bukti, `Fixes #n`                                                                                                                                                                     | daftar periksa penulis lengkap → ready for review                                           |
@@ -269,13 +269,15 @@ Daftar ini yang perlu disesuaikan. Setiap butir menjadi issue tersendiri;
 Pemeriksa manual menandai butir yang sudah selesai.
 
 1. **Triase ganda — SELESAI (2026-11-09).** Issue baru dulu mendapat dua
-   sampai tiga komentar triase atau estimasi dari automation berbeda. Kini
-   hanya satu pemilik: `Estimasi usaha` (SDLC 02) dan `Triase bug` (SDLC 01)
-   sama-sama dilebur ke `Triase issue` (SDLC 15), yang menulis satu komentar
-   berisi tipe, prioritas (berbukti), keparahan dan sebab, area, kesiapan,
-   duplikat, dan estimasi. Kedua automation lama dinonaktifkan; jembatan
-   triase (`issue-triage-bridge.sh`) kini mengarah ke SDLC 15. Ini menutup
-   #848 (invarian 3–4).
+   sampai tiga komentar triase dari automation berbeda. Kini hanya satu
+   pemilik: `Estimasi usaha` (SDLC 02) dan `Triase bug` (SDLC 01) sama-sama
+   dilebur ke `Triase issue` (SDLC 15), yang menulis satu komentar berisi
+   tipe, prioritas (berbukti), keparahan dan sebab, area, kesiapan, dan
+   duplikat. Langkah estimasi usaha dihapus 2026-11-11 — pekerjaannya
+   dikerjakan AI, jadi ukuran XS–XL dan kalibrasi hanya menambah baris yang
+   dibaca tanpa mengubah keputusan. Kedua automation lama dinonaktifkan;
+   jembatan triase (`issue-triage-bridge.sh`) kini mengarah ke SDLC 15. Ini
+   menutup #848 (invarian 3–4).
 2. **Gerbang tinjau diam.** Gerbang pernah tidak menjawab sebelas jam tanpa
    ada yang tahu, lalu sehari penuh pada lima PR (2026-10-10). Pemeriksa
    Actions-nya dulu `gate-watch.yml` (#776, dihapus 2026-11-11); butir ini selesai begitu PR-nya
@@ -438,7 +440,8 @@ butir mengikuti aturan emas di `AGENTS.md`):
    diperiksa manual dari riwayat run OpenHands Cloud, dan dispatch ulang
    dijalankan dari sana.
 3. **Triase satu pemilik** — SELESAI (2026-11-09): hanya `Triase issue` yang
-   menulis triase, estimasi, dan label, dalam satu komentar yang diperbarui.
+   menulis triase dan label, dalam satu komentar yang diperbarui (estimasi
+   usaha dihapus 2026-11-11).
    `Estimasi usaha` (SDLC 02) dan `Triase bug` (SDLC 01) sama-sama dilebur ke
    sini; kedua automation lamanya dinonaktifkan. `Penjernih issue` tetap
    menangani penilaian ulang saat pelapor menjawab, dan jembatan triase
@@ -489,7 +492,7 @@ flowchart TB
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
   subgraph ISSUE["1 · Issue"]
-    I([Issue dibuka]) --> C3["Triase issue — tipe + keparahan + estimasi + label, satu komentar"]:::cloud
+    I([Issue dibuka]) --> C3["Triase issue — tipe + keparahan + label, satu komentar"]:::cloud
     C3 --> D{"Cukup jelas?"}
     D -- ya --> R(["ready"])
     D -- tidak --> NI(["question"])
@@ -685,7 +688,7 @@ Timer dan pengecualiannya sama seperti `Penjaga issue` dulu.
 | Uji beban             | k6 vs staging — kini `load-tests.yml`, dijalankan manual sebelum tiap rilis (bukan cron)                                                                                                                                                                                                                                                                                                                                                                                          |
 | Pemantau deployment   | CI atau E2E yang gagal di `main` → issue diagnosis (penyebabnya)                                                                                                                                                                                                                                                                                                                                                                                                                  |
 | Pembuat catatan rilis | **dipensiunkan 2026-11-09** — pre-release `-rc` tak dikonsumsi apa pun; rilis kini tag `vX.Y.Z` manual                                                                                                                                                                                                                                                                                                                                                                            |
-| Triase issue          | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar                                                                                                                                                                                                                                                                                                                                                     |
+| Triase issue          | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat, satu komentar                                                                                                                                                                                                                                                                                                                                                     |
 | Pengelola dokumentasi | merge yang berdampak dokumentasi → satu issue `documentation`: dokumen mana yang basi dan apa yang perlu ditulis ulang (penilaian, bukan diff path); juga menilai apakah peta modul `docs/ARCHITECTURE.md` masih benar                                                                                                                                                                                                                                                            |
 | Penjernih issue       | menilai ulang saat pelapor menjawab issue `question`                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `duplicate-detect.sh` melabeli `duplicate` saat dua issue **terbuka** berjudul sama setelah dinormalkan (menautkan yang lebih baru ke yang lebih awal, tidak menutup apa pun; hanya pencabutan oleh `cipansor-bot` yang permanen); `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`); label itu kandidat untuk maintainer, tidak menutup PR |
@@ -704,7 +707,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 | Akun           | Peran                                          | Automation                                                                                                                                      |
 | -------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `adminypc`     | Penulis — membuat issue dan pull request       | Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar       |
-| `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Peninjau kode, Otomasi QA, Triase issue (tipe + keparahan + estimasi + label), Penjernih issue, Gerbang tinjau PR, Diskusi |
+| `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Peninjau kode, Otomasi QA, Triase issue (tipe + keparahan + label), Penjernih issue, Gerbang tinjau PR, Diskusi |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
   memakai `GITHUB_TOKEN` (`adminypc`). Selebihnya memposting lewat

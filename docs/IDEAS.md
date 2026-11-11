@@ -164,7 +164,7 @@ setiap prompt dan dijaga workflow deterministik):
   `…/issues/comments/<id>/reactions`), supaya orang tahu automation bekerja.
   Pemicu komentar dijaga `acknowledge.yml`.
 - **Komentar dulu, body saat `ready` (issue).** Selama issue belum `ready`,
-  triase/estimasi/kriteria/pertanyaan ditulis sebagai **komentar**; **body** issue
+  triase/kriteria/pertanyaan ditulis sebagai **komentar**; **body** issue
   diperbarui hanya saat bot memasang `ready` (ringkasan final di bawah penanda
   `<!-- sdlc:triase -->`). PR berbeda: putusan tinjauan/QA tetap ke body PR di
   bawah penanda (`<!-- sdlc:gerbang -->`).
@@ -264,6 +264,6 @@ ia tetap LLM.
 - **`Triase bug` (SDLC 01) dilebur ke `Triase issue` (SDLC 15).** Keduanya
   menyala pada `issues.opened` dan keduanya menulis komentar triase — itulah
   "Triase ganda" (#848). SDLC 01 punya penelusuran kritis lebih dalam; SDLC 15
-  punya taksonomi label, rubrik prioritas berbukti, dan estimasi. Yang kedua
+  punya taksonomi label dan rubrik prioritas berbukti. Yang kedua
   menyerap yang pertama, dan jembatan triase kini mengarah ke SDLC 15. Hemat
   ~50 run/7 hari dan satu komentar per issue baru.

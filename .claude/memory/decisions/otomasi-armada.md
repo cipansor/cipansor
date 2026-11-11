@@ -103,7 +103,7 @@
       automation lain melakukannya dari promptnya.
     - **Komentar dulu, body saat `ready`.** (2026-10-14, pengguna; menggantikan
       "Satu deskripsi" versi 2026-10-13.) Selama issue belum `ready`, triase,
-      estimasi, kriteria, dan pertanyaan terbuka ditulis sebagai **komentar**
+      kriteria, dan pertanyaan terbuka ditulis sebagai **komentar**
       (percakapan kerja); **body** issue diperbarui hanya saat bot memasang
       `ready`, dengan ringkasan final di bawah penanda tetap
       (`<!-- sdlc:triase -->`). PR tetap: putusan tinjauan/QA ke **body** PR di
@@ -436,7 +436,18 @@ nothing has succeeded in 24 hours."`) **diaktifkan kembali** dengan
       ulang baca; ≤ 40 perintah terminal lalu WAJIB kirim review) supaya diff
       besar tak bisa menelan anggaran sebelum review terkirim.
 
-28. **`Estimasi usaha` (SDLC 02) dilebur ke `Triase issue` (SDLC 15)**
+28. **Langkah estimasi DIHAPUS (2026-11-11, pengguna).** `Estimasi usaha`
+    (SDLC 02) sudah dilebur ke `Triase issue` (SDLC 15) pada 2026-11-09, tetapi
+    langkahnya sendiri kini dibuang sama sekali: pekerjaannya dikerjakan AI, jadi
+    ukuran XS–XL dan kalibrasi hanya menambah baris yang dibaca tanpa mengubah
+    keputusan. Yang dihapus: butir `- Estimasi usaha (lihat bagian di bawah)` dari
+    template komentar triase, seluruh bagian `ESTIMASI USAHA`, dan penanda body
+    `<!-- sdlc:estimasi -->`. Karena blok BODY dan tail hanya ditulis ulang saat
+    prompt hilang, penghapusan di prompt live dikerjakan lewat
+    `DROPPED_STEP_TEXTS` di `scripts/deploy-sdlc-agents.py` — bukan cukup dengan
+    mengubah `TAILS`.
+
+    **`Estimasi usaha` (SDLC 02) dilebur ke `Triase issue` (SDLC 15)**
     (2026-11-09, pengguna). Estimasi bukan langkah tersendiri: ia bagian dari
     satu komentar triase yang sudah ditulis `Triase issue`. Invarian 3
     (`docs/SDLC-FLOW.md`) dan butir "Triase ganda" pada "Selisih dari keadaan
@@ -526,10 +537,11 @@ OPENHANDS_API_KEY=... python3 scripts/deploy-sdlc-agents.py` — `ORIGINALS`
 32. **Peran `Pelabel issue` (SDLC 15) berganti nama menjadi `Triase issue`**
     (2026-11-09, pengguna). Nama lama menyebut separuh pekerjaan saja
     ("pelabel"), padahal automation itu **satu-satunya pemilik triase** sejak
-    `Triase bug` (SDLC 01) dan `Estimasi usaha` (SDLC 02) dilebur ke dalamnya:
+    `Triase bug` (SDLC 01) dan `Estimasi usaha` (SDLC 02) dilebur ke dalamnya
+    (langkah estimasinya dihapus 2026-11-11):
     keluaran satu komentarnya mencakup tipe, prioritas berbukti, keparahan dan
-    sebab, area, kesiapan, duplikat, dan estimasi. "Triase" adalah nama yang
-    jujur untuk keseluruhan itu.
+    sebab, area, kesiapan, dan duplikat (estimasi menyusul dihapus 2026-11-11).
+    "Triase" adalah nama yang jujur untuk keseluruhan itu.
     Pelaksanaan: dokumen (`docs/SDLC-FLOW.md`, `docs/LABELS.md`,
     `docs/IDEAS.md`, `docs/COVERAGE.md`), templat issue, dan jembatan triase
     menyebut `Triase issue`; entri `RENAMES` baru di `scripts/deploy-sdlc-agents.py`
