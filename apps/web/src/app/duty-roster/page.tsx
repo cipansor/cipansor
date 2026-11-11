@@ -203,6 +203,9 @@ function DutyRosterPageContent() {
     setSelectedDate(wibDayOf(date));
   };
 
+  // The label names the WIB day the page asked the API for. `new Date("YYYY-MM-DD")`
+  // is UTC midnight, so formatting it in the device zone prints the previous day on
+  // any device west of UTC — pinning `timeZone` keeps the label on the requested day.
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString("id-ID", {
@@ -210,6 +213,7 @@ function DutyRosterPageContent() {
       year: "numeric",
       month: "long",
       day: "numeric",
+      timeZone: "Asia/Jakarta",
     });
   };
 

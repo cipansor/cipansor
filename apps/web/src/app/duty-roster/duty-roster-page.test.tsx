@@ -54,6 +54,23 @@ describe("duty-roster 'Jadwal Hari Ini'", () => {
     expect(rosterDateArg()).toBe("2026-11-02");
   });
 
+  it("labels the day it asked for even on a device west of WIB", () => {
+    // `new Date("2026-11-02")` is UTC midnight, so the device zone decides which
+    // calendar day the label prints: a device west of UTC would render "1
+    // November" for the day the page asked the API for. The label is pinned to
+    // Asia/Jakarta, so it stays on the requested day on any device clock.
+    const original = process.env.TZ;
+    process.env.TZ = "America/New_York";
+    try {
+      render(<DutyRosterPage />);
+
+      expect(rosterDateArg()).toBe("2026-11-02");
+      expect(screen.getByText("Senin, 2 November 2026")).toBeInTheDocument();
+    } finally {
+      process.env.TZ = original;
+    }
+  });
+
   it("reports the statistics window from WIB start of month to WIB today", () => {
     render(<DutyRosterPage />);
 

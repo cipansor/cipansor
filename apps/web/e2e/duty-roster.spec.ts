@@ -48,6 +48,32 @@ test.describe("Piket & Jaga — 'Hari Ini' memakai hari WIB", () => {
     await expect(page.getByText("Senin, 2 November 2026")).toBeVisible();
   });
 
+  // A device clock west of WIB is where the label and the request disagree: the
+  // page asks for the WIB day but `new Date("YYYY-MM-DD")` is UTC midnight, so
+  // formatting it in the device zone would print the previous day. The label is
+  // pinned to Asia/Jakarta, so it must still name the day that was requested.
+  test.describe("perangkat di sebelah barat WIB", () => {
+    test.use({ timezoneId: "America/New_York" });
+
+    test("label tanggal tetap sama dengan hari yang diminta", async ({
+      page,
+    }) => {
+      await loginAs(page, "superAdmin");
+      await page.clock.install({ time: FIXED_INSTANT });
+
+      const rosterRequest = page.waitForRequest(
+        (r) => r.url().includes("/duty-roster?") && r.url().includes("date="),
+      );
+      await page.goto("/duty-roster");
+
+      const requestedDay = new URL((await rosterRequest).url()).searchParams.get(
+        "date",
+      );
+      expect(requestedDay).toBe(WIB_DAY);
+      await expect(page.getByText("Senin, 2 November 2026")).toBeVisible();
+    });
+  });
+
   test("jendela statistik dihitung dari hari WIB", async ({ page }) => {
     await loginAs(page, "superAdmin");
     await page.clock.install({ time: FIXED_INSTANT });
