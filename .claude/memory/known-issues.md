@@ -459,6 +459,14 @@ decision.
   column holds (`select x, count(*) … group by x`), then a Prisma enum or a
   CHECK, and `z.enum` at the edge
   (`lessons/student-status-case-mismatch.md`).
+
+<!-- The next cluster records defects found in `gate-watch.sh`. The script and
+its workflow were deleted on 2026-11-11 (owner decision, with
+`deploy-watch.sh`/`automation-retry.sh`), so none of them is open work any
+more. They are kept because each one is a trap a replacement watcher would hit
+again: the API gives a run no payload, and a watch that reads run history
+loosely mis-attributes runs. -->
+
 - **`gate-watch.sh` attributes a gate run to a head by recording the run id it
   dispatched** (found 2026-10-15, #837; fixed the same day). The automation runs
   API exposes `status`, `status_detail`, `created_at`, `sandbox_id`, `cost` and

@@ -404,20 +404,20 @@ Seorang owner, member, atau collaborator menyebut @cipansor-bot pada issue atau 
 Balas selalu di thread asal. Abaikan sebutan yang bukan dari asosiasi terpercaya (sudah difilter).
 """,
     "SDLC 23": """PERILAKU SASARAN (level agentic)
-Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya tetap sehat. Setiap run automation dapat dibaca melalui API OpenHands dengan account API key: `GET https://app.all-hands.dev/api/automation/v1` (daftar automation) dan `GET https://app.all-hands.dev/api/automation/v1/{id}/runs?limit=5` (riwayat run). **Akar API itu tanpa segmen `/automations`** — `GET /automations` menjawab `422` (dibaca sebagai UUID) dan `GET /automations/{id}/runs` menjawab `404`; bentuk yang benar sama dengan yang dipakai `.github/scripts/automation-retry.sh`. Guard repositori sendiri adalah GitHub Actions workflow di `.github/workflows/`. Jika API automation tidak terjangkau dari lingkungan Anda (tidak ada key, 401/403), katakan itu di awal laporan Anda dan dasarkan setiap temuan pada repositori dan run GitHub Actions saja — jangan mengarang status run. Setiap hari:
+Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya tetap sehat. Setiap run automation dapat dibaca melalui API OpenHands dengan account API key: `GET https://app.all-hands.dev/api/automation/v1` (daftar automation) dan `GET https://app.all-hands.dev/api/automation/v1/{id}/runs?limit=5` (riwayat run). **Akar API itu tanpa segmen `/automations`** — `GET /automations` menjawab `422` (dibaca sebagai UUID) dan `GET /automations/{id}/runs` menjawab `404`; bentuk yang benar adalah akar API itu sendiri. Guard repositori sendiri adalah GitHub Actions workflow di `.github/workflows/`. Jika API automation tidak terjangkau dari lingkungan Anda (tidak ada key, 401/403), katakan itu di awal laporan Anda dan dasarkan setiap temuan pada repositori dan run GitHub Actions saja — jangan mengarang status run. Setiap hari:
 1. Baca run terbaru setiap automation dan klasifikasikan setiap kegagalan **dari `error_detail` dan waktu**, bukan dari nama atau dari `conversation_id`. `conversation_id` **bukan** penanda sandbox: ia null pada hampir setiap run yang mati di dinding jam (hanya terisi saat run selesai bersih), padahal run itu tetap punya `sandbox_id` dan `current_phase` "Agent is working on the task" — artinya agen memang bekerja. Lima kelas:
    - `wall` — `error_detail` diawali "Timed out: command timed out or was killed" **dan** run itu mati di tenggatnya sendiri: `completed_at >= timeout_at` (bila `timeout_at` tidak ada, jatuhkan ke durasi `completed_at - started_at` ≥ 1780 detik). Pakai `timeout_at`, **bukan** ambang durasi tetap: tenggat tiap run berbeda sepanjang riwayat (dulu ada `timeout=900`, sebelum armada diseragamkan 1800), sehingga run yang mati pada ~1000 detik dulu tetap `wall`, bukan kelas lain. Agen masih bekerja saat tenggat menabraknya; tugasnya lebih panjang daripada tenggatnya (sering: perintah yang menggantung — `pnpm install`, suite tes, atau build). **Ini kelas yang mendominasi armada**, dan satu-satunya yang menunjuk ke anggaran kerja prompt: saran yang benar adalah menambahkan/memperketat ANGGARAN WAKTU, bukan menyalahkan isi tugas.
    - `wall-short` — `error_detail` "Timed out: command timed out or was killed" tetapi run mati **sebelum** tenggatnya sendiri (`completed_at < timeout_at`). Perintahnya yang kehabisan waktu, bukan run-nya; agen mungkin menggantung pada satu perintah, atau tenggat run berubah di tengah jalan. Laporkan jumlahnya terpisah dari `wall` — jangan campur ke `wall`, karena saran `wall` (menambah anggaran) tidak berlaku untuk perintah yang menggantung.
    - `sandbox` — `error_detail` "Timed out: Sandbox not available": kolam sandbox kehabisan slot saat banyak dispatch serentak (#841). Laporkan jumlahnya; perbaikannya di sisi penjadwalan, bukan prompt.
    - `dispatch` — `error_detail` "Failed to get execution context": sandbox tidak pernah siap. Transien.
-   - `llm` — `error_detail` memuat `OpenAIError` dengan `<!DOCTYPE`/`Connection`/`503`: proxy LLM menjawab halaman HTML alih-alih API. Transien, ditangani `automation-retry.yml`; laporkan hanya bila beruntun.
+   - `llm` — `error_detail` memuat `OpenAIError` dengan `<!DOCTYPE`/`Connection`/`503`: proxy LLM menjawab halaman HTML alih-alih API. Transien; dulu ditangani `automation-retry.yml` (dihapus 2026-11-11), jadi laporkan hanya bila beruntun.
    Jangan menyebut `content` (agent menghasilkan hasil buruk) kecuali Anda memegang keluaran agent yang salah sebagai bukti; kegagalan `wall`/`wall-short`/`sandbox`/`dispatch`/`llm` bukan `content`.
 2. Periksa guard determinisme: setiap automation dengan trigger `issue_comment.created` harus membawa filter self-comment `comment.user.login != 'cipansor-bot' && comment.user.type != 'Bot'`. Trigger komentar tanpa itu akan loop (#680).
 3. Periksa setiap automation `enabled`, tidak ada dua automation berbagi slot cron, dan setiap automation ber-`timeout` tepat 1800. Platform menolak `timeout` > 1800 (`422 timeout must not exceed 1800 seconds`), dan angka yang lebih kecil tidak menghemat apa pun — ia hanya memindahkan kematian ke run yang tugasnya jujur. Lima automation pernah dijeda otomatis platform setelah lima `execution/timeout` beruntun karena ini (SDLC 01 dan 15 `timeout=900`, SDLC 23 `1500`). `timeout` < 1800 adalah cacat `config`.
-4. Anda TIDAK membuat pull request dan TIDAK menyunting `main`. Setiap cacat — termasuk cacat `config` yang aman dikenal seperti guard self-comment yang hilang, automation yang dinonaktifkan padahal seharusnya aktif, `timeout` di bawah 1800, dua automation berbagi slot cron, atau pin kedaluwarsa yang dilaporkan pemeriksa `Security` — dilaporkan sebagai SATU issue berlabel `bug` atau `chore`, satu prioritas, dan `automation-health`. Jangan menyentuh filter di luar guard, `automation-loop-guard.py`, tesnya, rahasia apa pun, login, kredensial, hasil run, atau timer `stale-sweep`; cukup laporkan.
-5. Sebelum membuka issue, cari issue `automation-health` terbuka dengan penyebab yang sama. Jika ada, komentari dengan bukti baru alih-alih membuka yang kedua. Buka paling banyak satu issue per penyebab per minggu.
+4. Anda TIDAK membuat pull request dan TIDAK menyunting `main`. Setiap cacat — termasuk cacat `config` yang aman dikenal seperti guard self-comment yang hilang, automation yang dinonaktifkan padahal seharusnya aktif, `timeout` di bawah 1800, dua automation berbagi slot cron, atau pin kedaluwarsa yang dilaporkan pemeriksa `Security` — dilaporkan sebagai SATU issue berlabel `bug` atau `chore` dan satu prioritas. Jangan menyentuh filter di luar guard, `automation-loop-guard.py`, tesnya, rahasia apa pun, login, kredensial, hasil run, atau timer `stale-sweep`; cukup laporkan.
+5. Sebelum membuka issue, cari issue terbuka dengan penyebab yang sama. Jika ada, komentari dengan bukti baru alih-alih membuka yang kedua. Buka paling banyak satu issue per penyebab per minggu.
 6. Perbedaan `content` antara dua automation (misalnya dua peninjau yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
-7. Jangan pernah bertindak atas komentar yang Anda tulis sendiri. Jangan pernah merge. Laporkan ke maintainer hanya lewat issue GitHub (label `automation-health`) — tidak ada kanal lain.
+7. Jangan pernah bertindak atas komentar yang Anda tulis sendiri. Jangan pernah merge. Laporkan ke maintainer hanya lewat issue GitHub — tidak ada kanal lain.
 8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run setiap automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir: `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, buka issue/komentar dengan apa yang sudah Anda punya.
 
    ROTASI WAJIB — JANGAN BIARKAN EKOR ARMADA LUPUT. Daftar automation lebih panjang daripada anggaran (~19 riwayat run), jadi dengan urutan tetap automation terakhir tak pernah diperiksa. Hitung `jumlah_automation` dari daftar yang Anda baca, jangan dari angka di prompt ini. Pilih titik mulai secara bergilir memakai hari-dalam-tahun UTC (`date -u +%j`) sebagai indeks: `start = (%j) % jumlah_automation`, lalu periksa riwayat berurutan **melingkar** dari `start` sampai anggaran habis. Setiap hari titik mulainya bergeser, sehingga setiap automation akhirnya masuk laporan. Tulis di laporan automation mana saja yang diperiksa pada run ini dan mana yang ditunda ke run berikutnya, supaya cakupan hari itu jujur dan bisa dilacak. Yang **selalu** diperiksa lebih dulu, sebelum rotasi: konfigurasi seluruh daftar (langkah 2 dan 3 — `enabled`, `timeout`, guard self-comment, tabrakan cron) tidak butuh satu pun panggilan run, jadi setiap automation dalam daftar selalu tersapu untuk kelas cacat `config`; yang dirotasi hanya pemeriksaan riwayat run.
@@ -710,6 +710,10 @@ def extract(dest):
 # script's prompt/tarball PATCH. It is applied here as a separate `PATCH {trigger}`
 # so the claim "SDLC 07/16/22 filter updated" (and SDLC 18's `on`) can be made,
 # reproduced and rolled forward from ONE place, not by a hand edit in the cloud.
+#
+# Each entry names only the fields this script owns; `target_trigger` completes
+# it against the live trigger before sending, because the API validates the
+# trigger as a whole and rejects a fragment.
 # Reasons (all settled 2026-10-14):
 #   - the mention is the fleet's own account `@cipansor-bot`, not `@openhands`
 #     (which belongs to the OpenHands GitHub App and was firing two responders);
@@ -739,7 +743,17 @@ TRIGGERS = {
     # the `ready` queue oldest-first and opens at most DAILY_PR_MAX pull
     # requests (owner decision 2026-11-11). The old `bot-implement` label trigger
     # is gone with the label.
-    "SDLC 06": {"on": ["schedule"]},
+    #
+    # 08:00 WIB: the sandbox quota refills at 07:00 WIB, so the queue is claimed
+    # an hour later against a fresh pool. 09:00 is taken by `Pemburu bug`
+    # (SDLC 19) and two automations must not share a cron slot (invariant 20).
+    #
+    # The whole `CronTrigger` is sent, not a fragment: `PATCH {trigger}` replaces
+    # the trigger object, and a partial cron body would leave the old event's
+    # `source`/`filter` behind — a `bot-implement` filter that no longer matches
+    # anything, on a trigger that no longer fires. Verified 2026-11-11: the PATCH
+    # drops every event-only key and keeps `enabled` untouched.
+    "SDLC 06": {"type": "cron", "schedule": "0 8 * * *", "timezone": "Asia/Jakarta"},
     # the review gate runs only on a manual review request, never on
     # `ready_for_review` — so it is not woken before CI is green (#840).
     "SDLC 18": {"on": ["pull_request.review_requested"]},
@@ -807,6 +821,13 @@ RETIRED = {
     "pemilik): laporannya kini diperiksa manual di OpenHands Cloud, dan "
     "`automation-health` dihapus dari taksonomi label. Retry infra "
     "(`automation-retry.sh`) dan gerbang tinjau (`gate-watch.sh`) ikut dihapus.",
+    "Audit Kematangan": "`Audit Kematangan SDLC Agentic` dimatikan pemilik "
+    "pada 2026-11-10, sehari setelah pembersihan armada, dan tidak pernah "
+    "tercatat di sini — sehingga laporan bulanannya berhenti tanpa satu pun "
+    "dokumen yang menyebutnya (ditemukan 2026-11-11 saat audit armada). "
+    "Keluarannya satu issue penilaian 18 item sebulan sekali; pemilik menilainya "
+    "manual dari OpenHands Cloud, seperti `Pengawas armada`. Ia juga memakan "
+    "satu dari 20 slot sandbox harian yang armada perebutkan.",
     "SDLC 11": "`Uji beban` dipensiunkan pada 2026-10-20 (#677) — k6 smoke "
     "pindah ke .github/workflows/load-tests.yml, dijalankan manual sebelum tiap "
     "rilis terhadap baseline terekam, bukan cron bulanan.",
@@ -893,20 +914,41 @@ def apply_retire(aid, name, enabled, dry):
     return True
 
 
+def target_trigger(old, want):
+    """The trigger to send: `want` completed against the live trigger.
+
+    `PATCH {trigger}` takes the trigger as a whole and validates it, so a bare
+    `{"filter": …}` is rejected — `422 union_tag_invalid`, because the
+    discriminator cannot find `type` (verified 2026-11-11; every `TRIGGERS`
+    entry had been a fragment, so none of them could ever deploy). Fields the
+    script does not own (`on`, `source`, `destination`, the conversation-reuse
+    keys) are therefore kept from the live trigger and only the owned field is
+    overridden.
+
+    A different trigger *kind* is the exception: a `CronTrigger` carries no
+    `source`/`on`/`filter`, and sending the old event's keys alongside it is
+    `422 extra_forbidden`. Switching SDLC 06 from its event trigger to a cron
+    therefore sends `want` alone.
+    """
+    if want.get("type") and want["type"] != old.get("type"):
+        return dict(want)
+    return {**old, **want}
+
+
 def apply_trigger(aid, name, old_trigger, dry):
     """PATCH one automation's trigger to the fleet standard. Returns True on change."""
     want = next((v for k, v in TRIGGERS.items() if k in name), None)
     if not want:
         return False
-    patch = {k: v for k, v in want.items() if old_trigger.get(k) != v}
-    if not patch:
+    target = target_trigger(old_trigger, want)
+    if target == old_trigger:
         print(f"    trigger already current ({', '.join(want)})")
         return False
     if dry:
-        print(f"    trigger would change: {patch}")
+        print(f"    trigger would change: {target}")
         return True
-    req("PATCH", f"/{aid}", {"trigger": patch})
-    print(f"    trigger deployed ({', '.join(patch)})")
+    req("PATCH", f"/{aid}", {"trigger": target})
+    print(f"    trigger deployed ({', '.join(want)})")
     return True
 
 

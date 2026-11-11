@@ -8,7 +8,10 @@
 ## Yang diputuskan
 
 1. **Pemantauan dipicu event, bukan cron.** Deploy diawasi `deploy-watch.yml`
-   pada `workflow_run` dari kedua workflow deploy (#664). Kegagalan CI/E2E di
+   pada `workflow_run` dari kedua workflow deploy (#664).
+   _(Digantikan 2026-11-11: `deploy-watch.yml` dihapus; pemilik mengawasi tab
+   Actions dan email GitHub langsung. Prinsipnya tetap — tidak ada pemeriksa
+   berjadwal.)_ Kegagalan CI/E2E di
    `main` dilaporkan `main-failure-bridge.yml` (#711). Satu masalah, satu
    peringatan: kedua jalur tidak saling mengulang. Usulan pemeriksa berjadwal
    yang menumpuk ditutup.
@@ -16,7 +19,7 @@
    terhadap baseline yang direkam, bukan terjadwal. Cron cloud "Uji beban" dan
    "Penjaga issue" dimatikan oleh pengguna. **Keduanya kini juga tercatat
    pensiun di `RETIRED` (`scripts/deploy-sdlc-agents.py`)** — `Uji beban`
-   (SDLC 11) ditambahkan 2026-11-09 setelah sempat hanya *dimatikan* tanpa
+   (SDLC 11) ditambahkan 2026-11-09 setelah sempat hanya _dimatikan_ tanpa
    entri: automation yang nonaktif tanpa entri `RETIRED` tak terlihat oleh
    deploy berikutnya, dan menghidupkannya lagi akan mengembalikan uji beban
    bulanan terhadap baseline yang tak ada job menyegarkannya.
@@ -72,6 +75,9 @@
     check-nya hijau lebih dari 60 menit tanpa review gerbang di head-nya
     didispatch ulang sekali, diberi satu komentar per head, dan dicatat dalam
     satu issue `automation-health`.
+    _(Digantikan 2026-11-11: `gate-watch.yml` dan label `automation-health`
+    dihapus. Gerbang tetap idempoten dan `pr-lifecycle.sh` tetap mendispatch
+    ulang head yang belum ditinjau; yang hilang hanya pengawas otomatisnya.)_
 14. **Panduan tidak menyalin angka jumlah** (#782/#783). Jumlah modul, model,
     job, dan berkas uji ditunjuk lewat perintah ukurnya. Pengukuran bertanggal
     beserta definisinya hanya di `known-issues.md` dan di dokumen teknis
@@ -84,7 +90,7 @@
     `cipansor-bot` tetap akun penyetuju, karena approval dari akun ber-izin
     write terbukti dihitung ruleset. Rencana memindahkan penulis ke GitHub App
     `cipansor-contributor-bot` **dibatalkan pemilik pada 2026-10-15** (#781
-    ditutup *not planned*): tidak ada App yang perlu ditunggu atau dibangun.
+    ditutup _not planned_): tidak ada App yang perlu ditunggu atau dibangun.
     Hak token otomasi penulis ditinjau ulang bersama daftar pra-rilis, saat
     repositori dijadikan privat.
 16. **Armada mengakui, memusatkan kesimpulan, dan tidak melabeli sendiri**
@@ -131,19 +137,19 @@
       menambahkannya bila lupa (idempoten; body dibaca ulang tepat sebelum PATCH
       agar ringkasan `<!-- sdlc:… -->` yang mendarat bersamaan tidak tertimpa).
     - **`ready` kuat dan eksklusif.** `ready` hanya bila sangat yakin, tanpa
-      pertanyaan terbuka; tidak pernah bersama `question`/`needs-info`/
-      `pending-maintainer` (#814). Kritik habis-habisan dulu, baru `ready`.
+      pertanyaan terbuka; tidak pernah bersama `question`/`blocked` (#814;
+      `needs-info`/`pending-maintainer` dihapus 2026-11-11 — dulu ikut daftar
+      ini). Kritik habis-habisan dulu, baru `ready`.
       `label-guard.sh` mencabut `ready` yang bertentangan, dari akun mana pun.
       Konflik dihitung dari himpunan label **efektif**: label pada event
       diabaikan hanya bila jalur standar memang akan mencabutnya, sehingga
-      exclusion **lain** yang tersisa (mis. `ready`+`needs-info` saat manusia
-      menambah `question`) tetap membuat `ready` dicabut (temuan tinjauan
-      PR #817, 2026-10-13).
+      exclusion **lain** yang tersisa tetap membuat `ready` dicabut (temuan
+      tinjauan PR #817, 2026-10-13).
     - **Hanya `cipansor-bot` melabeli.** Label yang dipasang akun lain dicabut
-      `label-guard.yml` dan pelakunya diberi tahu sekali; label keputusan
-      manusia (`bot-implement`) tetap boleh
-      manual. Automasi membaca label, jadi label manual membuat keduanya
-      berbeda pendapat.
+      `label-guard.yml` dan pelakunya diberi tahu sekali. Automasi membaca
+      label, jadi label manual membuat keduanya berbeda pendapat.
+      _(Diperketat 2026-11-11: pengecualian `bot-implement` dihapus bersama
+      labelnya, jadi tidak ada lagi pengecualian keputusan manusia.)_
     - **Dua sebutan, dua penanggap; guard penulis, tanpa footer** (2026-10-14,
       pengguna; keputusan "A dan lanjut E"). `@openhands` membangunkan OpenHands
       GitHub App (`openhands-ai[bot]`) — yang membuka conversation OpenHands
@@ -152,7 +158,7 @@
       `@openhands`, jadi satu sebutan memicu **dua** penanggap (terbukti di
       timeline PR #828). Guard anti-loop (#680) pindah dari teks footer ke
       **penulis komentar**: filter `comment.user.login != 'cipansor-bot' &&
-      comment.user.type != 'Bot'`. Karena itu footer AI-disclosure dihapus dari
+comment.user.type != 'Bot'`. Karena itu footer AI-disclosure dihapus dari
       setiap komentar `cipansor-bot` — nama akunnya sudah menandai komentar itu
       otomatis. Penghapusan footer dan pemindahan guard harus bersama: tanpa
       footer, guard teks tidak lagi menemukan apa pun; tanpa guard penulis,
@@ -161,9 +167,9 @@
       `pr-lifecycle.sh`, `pr-template-guard.sh`, `visual-evidence.sh`,
       `issue-triage-bridge.sh`) dan di prompt 24 automation (paragraf mandat
       footer dihapus oleh `deploy-sdlc-agents.py`).
-    Prompt dan tarball runner 24 automation diperbarui lewat
-    `scripts/deploy-sdlc-agents.py` (idempoten; `main.py`/`setup.sh` tidak
-    disentuh).
+      Prompt dan tarball runner 24 automation diperbarui lewat
+      `scripts/deploy-sdlc-agents.py` (idempoten; `main.py`/`setup.sh` tidak
+      disentuh).
 17. **Gerbang tinjau hanya berjalan setelah siap + hijau** (2026-10-14,
     pengguna; #840). `pr-lifecycle.sh` sudah men-dispatch gerbang pada
     `workflow_run` begitu semua check wajib hijau — untuk PR biasa maupun PR
@@ -177,7 +183,7 @@
     `requested_reviewer.login == 'cipansor-bot'`); dispatch biasa tetap milik
     `pr-lifecycle.sh`. Diterapkan lewat `PATCH` trigger automation `SDLC 18`
     (id tetap `96eebf19…`). Kegagalan sandbox saat dispatch (`Timed out: Sandbox
-    not available`, `Failed to get execution context`) adalah masalah kapasitas
+not available`, `Failed to get execution context`) adalah masalah kapasitas
     terpisah — #839/#841.
 
 18. **Sweep triase mengantre sendiri; checkpoint = hasil run, bukan 201**
@@ -196,8 +202,9 @@
     bukan `gh api` (bearer GitHub).
 19. **`label-guard` tidak mencabut label tipe bawaan template — hanya pada
     issue** (2026-10-14, pengguna; #842/#838, disempitkan #837). `bug_report.yml`
-    memasang `bug` dan `feature_request.yml` memasang `enhancement` saat issue
-    dibuka; `label-guard` mencabutnya karena bukan `cipansor-bot`, sehingga issue
+    memasang `bug` dan form tipe lain memasang label tipe masing-masing
+    (`feature_request.yml` dulu memasang `enhancement`; 2026-11-11 form dipecah
+    per tipe) saat issue dibuka; `label-guard` mencabutnya karena bukan `cipansor-bot`, sehingga issue
     baru kehilangan label dan mendapat komentar pencabutan yang tidak perlu.
     `ALLOWED_LABELS` (default `bug enhancement`) dibiarkan **pada issue**: label
     tipe adalah maksud pelapor, dan pelabel (SDLC 15) mencabut tipe yang
@@ -329,7 +336,7 @@
       memintanya dari API saja — dan run terbaru milik PR lain bisa salah
       menahan atau salah memicu retry. Karena itu skrip **mencatat run id** yang
       ia dispatch di penanda komentar head itu (`<!-- gate-watch-run:<sha>:<id>
-      -->`) dan membaca status **id itu** kembali; hanya bila head belum punya
+-->`) dan membaca status **id itu** kembali; hanya bila head belum punya
       id tercatat ia membaca run terbaru global, dan itu pun hanya untuk tahu
       ada run yang sedang berjalan. Klasifikasi: `RUNNING`/`PENDING` →
       **tunggu**; `FAILED` infrastruktur, run id yang jatuh keluar jendela
@@ -360,7 +367,7 @@
       hanya ke operand terakhir — bungkus `(expr) as $x`.
     - Automation yang auto-paused karena kegagalan beruntun (SDLC 14,
       `disabled_reason: "Paused automatically: the last 5 runs all failed and
-      nothing has succeeded in 24 hours."`) **diaktifkan kembali** dengan
+nothing has succeeded in 24 hours."`) **diaktifkan kembali** dengan
       `PATCH /api/automation/v1/<id>` body `{"enabled":true}`; kelima
       kegagalannya murni infrastruktur. Tidak ada endpoint enable/disable
       terpisah.
@@ -467,24 +474,24 @@
       push commit. Hanya automation pembuat artefak yang memakainya.
     - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR: semua komentar,
       label, review, reaction.
-    Akarnya bukan niat agen, melainkan **prompt**: kalimat "Catatan lingkungan"
-    menyuruh memakai token yang tertanam di remote `origin` untuk "operasi baca
-    dan tulis apa pun", dan blok IDENTITAS lama hanya menyebut `cipansor-bot`
-    tanpa pernah mengatakan token mana yang membuat issue/PR. Keduanya diperbaiki
-    di `scripts/deploy-sdlc-agents.py` (`AMBIENT_TOKEN_NOTE` ->
-    `IDENTITY_TOKEN_NOTE`, `OLD_IDENTITY_LINE` -> `NEW_IDENTITY_LINE`) supaya
-    deploy berikutnya memperbarui seluruh armada. Dua mitigasi ditambahkan
-    dalam tinjauan #968: issue/PR dibuat lewat `GITHUB_TOKEN` **tanpa** field
-    `labels`, lalu label dipasang lewat `GITHUB_BOT_TOKEN` (label akun lain
-    dicabut `label-guard`, #838); dan setiap `PATCH` body issue/PR memakai
-    `GITHUB_BOT_TOKEN`, karena suntingan lewat `adminypc` terbaca sebagai
-    aktivitas manusia oleh jembatan triase dan `Diskusi`. Masih menunggu
-    keputusan maintainer: satu akun manusia (`adminypc`) sekaligus penulis
-    armada melemahkan guard anti-loop berbasis penulis dan pemisahan tugas
-    (penulis tidak bisa meng-approve PR-nya sendiri); alternatifnya machine
-    Catatan: automation yang **tidak** membuat artefak juga memegang
-    `GITHUB_TOKEN` (grant otomatis platform), jadi larangan itu harus eksplisit
-    di prompt, bukan diasumsikan dari ketiadaan token.
+      Akarnya bukan niat agen, melainkan **prompt**: kalimat "Catatan lingkungan"
+      menyuruh memakai token yang tertanam di remote `origin` untuk "operasi baca
+      dan tulis apa pun", dan blok IDENTITAS lama hanya menyebut `cipansor-bot`
+      tanpa pernah mengatakan token mana yang membuat issue/PR. Keduanya diperbaiki
+      di `scripts/deploy-sdlc-agents.py` (`AMBIENT_TOKEN_NOTE` ->
+      `IDENTITY_TOKEN_NOTE`, `OLD_IDENTITY_LINE` -> `NEW_IDENTITY_LINE`) supaya
+      deploy berikutnya memperbarui seluruh armada. Dua mitigasi ditambahkan
+      dalam tinjauan #968: issue/PR dibuat lewat `GITHUB_TOKEN` **tanpa** field
+      `labels`, lalu label dipasang lewat `GITHUB_BOT_TOKEN` (label akun lain
+      dicabut `label-guard`, #838); dan setiap `PATCH` body issue/PR memakai
+      `GITHUB_BOT_TOKEN`, karena suntingan lewat `adminypc` terbaca sebagai
+      aktivitas manusia oleh jembatan triase dan `Diskusi`. Masih menunggu
+      keputusan maintainer: satu akun manusia (`adminypc`) sekaligus penulis
+      armada melemahkan guard anti-loop berbasis penulis dan pemisahan tugas
+      (penulis tidak bisa meng-approve PR-nya sendiri); alternatifnya machine
+      Catatan: automation yang **tidak** membuat artefak juga memegang
+      `GITHUB_TOKEN` (grant otomatis platform), jadi larangan itu harus eksplisit
+      di prompt, bukan diasumsikan dari ketiadaan token.
 
 30. **Penomoran ulang armada dibatalkan — dokumen menyebut peran, bukan nomor**
     (2026-11-09, pengguna). #710/#711 (Okt 2026) sudah menomori ulang armada
@@ -508,13 +515,13 @@
     1. Simpan prompt hidup sebelum deploy (`GET /api/automation/v1` -> JSON
        `name` -> `prompt`). Tanpa ini rollback tidak mungkin.
     2. Bangun ulang dari `main`: `ORIGINALS=<backup.json> DEPLOY=true
-       OPENHANDS_API_KEY=... python3 scripts/deploy-sdlc-agents.py` — `ORIGINALS`
+OPENHANDS_API_KEY=... python3 scripts/deploy-sdlc-agents.py` — `ORIGINALS`
        mengganti basis, sehingga head dibangun dari prompt asli, bukan yang
        sudah berubah.
     3. Nyalakan kembali automation pensiun: `PATCH /api/automation/v1/{id}`
        `{"enabled": true}` (mis. SDLC 02).
-    Pelajaran proses: deploy sesudah PR disetujui, atau tulis rencana rollback
-    di body PR bila deploy mendahului tinjauan.
+       Pelajaran proses: deploy sesudah PR disetujui, atau tulis rencana rollback
+       di body PR bila deploy mendahului tinjauan.
 
 32. **Peran `Pelabel issue` (SDLC 15) berganti nama menjadi `Triase issue`**
     (2026-11-09, pengguna). Nama lama menyebut separuh pekerjaan saja
@@ -551,7 +558,7 @@
     komentar blok `0.` dan komentar `deploy-production.yml` diperbarui; tes
     "does not require an admin actor for a rollback dispatch" dibalik menjadi
     penolakan (`refuses a rollback dispatch by an actor without admin
-    permission`) plus tes positif untuk maintainer. `ACTOR` sudah diisi
+permission`) plus tes positif untuk maintainer. `ACTOR` sudah diisi
     `${{ github.actor }}` untuk kedua peristiwa, jadi tak ada perubahan
     workflow. Alternatif yang tidak dipilih: memasang required reviewers pada
     environment `production` (butuh admin, di luar PR). `docs/SDLC-FLOW.md` dan
@@ -600,9 +607,82 @@ issue does not disappear on its own.
 `bug-hunter` was the `Pemburu bug` provenance label. Removing the label from the
 repository is not enough: `POST /repos/:o/:r/issues/:n/labels` **creates** a
 label that does not exist, so a live prompt that still applies it resurrects it
-on the next run. Delete the label *and* strip the mention from the prompt
+on the next run. Delete the label _and_ strip the mention from the prompt
 (`scripts/deploy-sdlc-agents.py`). `SDLC 15` keeps one mention — the sentence
 forbidding it.
 
 Deployed and verified on 2026-11-10: `SDLC 15 · Triase issue` (renamed from
 `Pelabel issue`) and `SDLC 19 · Pemburu bug`.
+
+## 2026-11-11 — taksonomi label dirampingkan; pengawas otomatis dipensiunkan
+
+Pemilik memutuskan (dilaksanakan 2026-11-11):
+
+- **`needs-info` dan `pending-maintainer` dihapus.** `question` menampung
+  keduanya: "sedang dibahas" dan "ini pertanyaan, bukan perubahan". Timer
+  `needs-info` (20 hari) ikut pindah; peringatan kini 8 hari, penutupan 15.
+- **`bot-implement` dihapus; `ready` sendiri adalah serah-terima.**
+  `Tiket jadi PR` (SDLC 06) kini cron harian **08:00 WIB** (`0 8 * * *`,
+  `Asia/Jakarta`): memindai antrean `ready` terlama dulu, membuka paling banyak
+  `DAILY_PR_MAX` = 3 PR per run. Jam itu dipilih karena kuota sandbox pulih
+  07:00 WIB dan slot 09:00 sudah milik `Pemburu bug` — dua automation tidak boleh
+  berbagi slot cron. Konsekuensinya `label-guard` tidak punya pengecualian
+  keputusan manusia lagi.
+  - **Trigger harus lengkap, bukan fragmen.** `PATCH {trigger}` memvalidasi dan
+    mengganti trigger sebagai satu objek: `{"filter": …}` saja dijawab `422
+    union_tag_invalid`, dan cron yang digabung ke event menyisakan `source`/
+    `filter` lama. Rewrite 2026-11-11 meninggalkan `{"on": ["schedule"]}` —
+    bukan trigger sama sekali (`schedule` bukan tipe event GitHub) — sehingga
+    SDLC 06 akan diam begitu di-deploy. `target_trigger()` kini melengkapi
+    fragmen dari trigger live, dan mengirim cron sendirian saat jenisnya
+    berganti (ditemukan 2026-11-11 saat audit armada).
+- **`automation` dan `github_actions` dihapus** (tak ada lagi yang memakainya).
+- **`deploy-watch`, `gate-watch`, `automation-retry` dan SDLC 23
+  `Pengawas armada` dipensiunkan.** Skrip, workflow, dan guard test-nya dihapus;
+  label `automation-health` ikut. Pemilik mengawasi OpenHands Cloud dan tab
+  Actions langsung, dengan email GitHub sebagai saluran peringatan.
+- **Form issue dipecah per tipe** (`bug_report`, `enhancement`,
+  `documentation`, `refactor`, `chore`, `security`), masing-masing memasang
+  label tipe yang cocok — menggantikan `feature_request.yml` tunggal.
+
+### Pelajaran: serah-terima stateful butuh langkah acknowledgement
+
+`bot-implement` adalah **sinyal sekali pakai** (pemilik memasang, automation
+memakai, run berikutnya tak punya sisa). `ready` adalah **keadaan**. Automation
+yang membaca antrean keadaan wajib mengeluarkan item itu dari antrean di run
+yang sama, atau run berikutnya mengambil ulang pekerjaan yang sudah ada PR-nya.
+
+Bug #857/PR #878 memperlihatkan bentuk lain dari lubang yang sama: prompt
+membuka PR **draf** lalu berhenti — tidak ada yang menandainya siap ditinjau,
+dan gerbang tinjau hanya menunggu PR non-draf, jadi PR itu menganggur 19 hari
+sampai manusia menandainya. Issue-nya pun tetap `ready`. Perbaikannya: SDLC 06
+memindahkan issue `ready` → `in-progress` **dan** memanggil
+`POST /pulls/<n>/ready_for_review`, menyisakan draf hanya bila pekerjaan
+benar-benar belum selesai. Rinciannya di
+`lessons/handoff-stops-one-step-short.md`.
+
+### Yang masih menggantung
+
+Prompt armada belum di-deploy ulang: `scripts/deploy-sdlc-agents.py` sudah
+memuat SDLC 06 yang baru di repo, tetapi API OpenHands masih menyajikan prompt
+lama (terverifikasi 2026-11-11: prompt live belum menyebut `in-progress`
+maupun `ready_for_review`). Deploy ulang:
+`OPENHANDS_API_KEY=… DEPLOY=true python3 scripts/deploy-sdlc-agents.py`.
+
+**Drift live vs repo (audit 2026-11-11).** Empat automation yang sudah
+`RETIRED` masih `enabled` di cloud (SDLC 01, 03, 13, 17) dan tiga trigger masih
+menyaring label yang sudah dihapus (SDLC 06 `bot-implement`, SDLC 16
+`needs-info`, SDLC 22 `pending-maintainer`/`needs-info`). Semuanya hanya hilang
+setelah deploy di atas dijalankan. `Audit Kematangan` dimatikan manual
+2026-11-10 tanpa entri `RETIRED`; kini tercatat.
+
+**Kuota sandbox 20/hari adalah plafon nyata armada, dan belum terdokumentasi.**
+Dari 10 run terakhir tiap automation yang `enabled`, **108 run** `SKIPPED`
+dengan `daily_sandbox_limit` ("Daily sandbox limit of 20 reached", transient,
+`source: sandbox_api`). Yang paling parah: SDLC 22/18/15/14/03 → 10 dari 10
+run; SDLC 17/10/08/05/01 → 9 dari 10. Automation yang konfigurasinya benar pun
+jarang benar-benar bekerja, jadi kegagalan sunyi ini lebih sering menjelaskan
+"armada tidak jalan" daripada cacat konfigurasi. Memensiunkan SDLC 01/03/13/17
+mengembalikan empat slot; kuota itu sendiri naik lewat permintaan di
+`/settings/quota`. Jangan menilai kesehatan armada dari `enabled` saja — hitung
+dulu run yang `SKIPPED`.

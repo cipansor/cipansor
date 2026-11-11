@@ -8,26 +8,26 @@ travels from a merged PR to production. The VM procedure in
 
 Everything lives in resource group `cipansor-prod` (Indonesia Central).
 
-| Piece | Resource | Notes |
-|---|---|---|
-| App hosting | App Service plan `cipansor-plan` (Linux B2) | Holds both apps below |
-| Production | Web app `cipansor-produksi` | `cipansor.or.id`, `www.`, `portal.` |
-| Staging | Web app `cipansor-staging` | `staging.cipansor.or.id`, public (noindex), **demo data only** |
-| Database | PostgreSQL Flexible `cipansor-pg` (B1ms, 32 GB) | Private network only; databases `cipansor` and `cipansor_staging` |
-| Images | Container Registry `cipansoracr` (Basic) | `cipansor-{api,web,nginx}:<commit sha>` |
-| Files | Each app's own `/home` (App Service storage) | Uploads and identity documents; see [Files](#files) |
-| Secrets | Key Vaults `cipansor-kv-prod`, `cipansor-kv-stg` | App settings reference them; no secrets in files |
-| Logs | Log Analytics `cipansor-logs` | 30-day retention |
+| Piece       | Resource                                         | Notes                                                             |
+| ----------- | ------------------------------------------------ | ----------------------------------------------------------------- |
+| App hosting | App Service plan `cipansor-plan` (Linux B2)      | Holds both apps below                                             |
+| Production  | Web app `cipansor-produksi`                      | `cipansor.or.id`, `www.`, `portal.`                               |
+| Staging     | Web app `cipansor-staging`                       | `staging.cipansor.or.id`, public (noindex), **demo data only**    |
+| Database    | PostgreSQL Flexible `cipansor-pg` (B1ms, 32 GB)  | Private network only; databases `cipansor` and `cipansor_staging` |
+| Images      | Container Registry `cipansoracr` (Basic)         | `cipansor-{api,web,nginx}:<commit sha>`                           |
+| Files       | Each app's own `/home` (App Service storage)     | Uploads and identity documents; see [Files](#files)               |
+| Secrets     | Key Vaults `cipansor-kv-prod`, `cipansor-kv-stg` | App settings reference them; no secrets in files                  |
+| Logs        | Log Analytics `cipansor-logs`                    | 30-day retention                                                  |
 
 Each app is a **sidecar set**: four containers sharing `localhost`, the same
 shape as `docker-compose.yml`.
 
-| Container | Image | Port | Role |
-|---|---|---|---|
-| `nginx` (main) | `deploy/azure/nginx` | 80 | The only one App Service sends traffic to; routes `/api`, `/uploads` to api, the rest to web |
-| `web` | `apps/web/Dockerfile` | 3000 | Next.js |
-| `api` | `apps/api/Dockerfile` | 3001 | Express, cron jobs |
-| `redis` | `redis:7-alpine` | 6379 | Cache (dashboard metrics, permissions, chatbot answers); contents may be lost |
+| Container      | Image                 | Port | Role                                                                                         |
+| -------------- | --------------------- | ---- | -------------------------------------------------------------------------------------------- |
+| `nginx` (main) | `deploy/azure/nginx`  | 80   | The only one App Service sends traffic to; routes `/api`, `/uploads` to api, the rest to web |
+| `web`          | `apps/web/Dockerfile` | 3000 | Next.js                                                                                      |
+| `api`          | `apps/api/Dockerfile` | 3001 | Express, cron jobs                                                                           |
+| `redis`        | `redis:7-alpine`      | 6379 | Cache (dashboard metrics, permissions, chatbot answers); contents may be lost                |
 
 The api runs cron jobs in-process, so each app stays at **one instance** with
 Always On. Scaling out would run every job twice.
@@ -48,17 +48,17 @@ outgrow it, they belong in Blob Storage, which the api cannot write to yet.
 
 ## Differences between staging and production
 
-| Setting | Production | Staging | Why |
-|---|---|---|---|
-| `APP_ENV` | `production`, set by `deploy-production.yml` | `staging`, set by `deploy-staging.yml` | Which deployed copy this is — distinct from `NODE_ENV`, which is `production` on both because both run the same images. It is what `/health` reports as `environment`, and what lets a guard say "not in production" and mean it: the chatbot refuses its `stub` provider in production, so staging — where the assistant is exercised with the real provider — needs to be distinguishable. A production build with it unset resolves to `production`; anything else to `local`. |
-| `SCHEDULER_ENABLED` | unset (on) | `false` | Staging must not bill, remind or escalate, even from demo data |
-| `OUTBOUND_MESSAGES_ENABLED` | unset (on) | `false` | E-mail, SMS and WhatsApp are logged, never sent — even if real credentials leak into staging |
-| `DOCUMENT_TEST_COPY` | unset (off) | `true`, set by `deploy-staging.yml` on every release | Every PDF the api renders and every page printed from the web is stamped "SALINAN UJI — BUKAN DOKUMEN SAH": staging's demo accounts carry the names of real office holders, their passwords are public, and the letterhead is the real one |
-| `CHATBOT_PROVIDER` | `openai-compatible` with a Key Vault key (when enabled) | `openai-compatible` with staging's own `CHATBOT_API_KEY`, set by `deploy-staging.yml` | Staging runs the REAL provider, not a double, so a walkthrough there answers the way production answers. It needs its own key (`secrets.CHATBOT_API_KEY`, plus `vars.CHATBOT_API_BASE_URL` and `vars.CHATBOT_MODEL` on the `staging` environment). When the key is absent the workflow sets `disabled` and warns — the assistant stays off rather than answering from a stub that could be mistaken for a release-ready model. |
-| `MIGRATE_ON_START` | `true` | `true` | The database is private; CI cannot reach it |
-| `PERSISTENT_DIR` | `/home/data` | `/home/data` | Uploads and identity documents survive restarts ([Files](#files)) |
-| Gmail / SMTP / WhatsApp credentials | Key Vault references | none | Second line of defence behind the switch above |
-| `TURNSTILE_SECRET_KEY` | Key Vault reference | none | Without it the api's Turnstile check is off; no production secret is copied to staging |
+| Setting                             | Production                                              | Staging                                                                               | Why                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| ----------------------------------- | ------------------------------------------------------- | ------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `APP_ENV`                           | `production`, set by `deploy-production.yml`            | `staging`, set by `deploy-staging.yml`                                                | Which deployed copy this is — distinct from `NODE_ENV`, which is `production` on both because both run the same images. It is what `/health` reports as `environment`, and what lets a guard say "not in production" and mean it: the chatbot refuses its `stub` provider in production, so staging — where the assistant is exercised with the real provider — needs to be distinguishable. A production build with it unset resolves to `production`; anything else to `local`. |
+| `SCHEDULER_ENABLED`                 | unset (on)                                              | `false`                                                                               | Staging must not bill, remind or escalate, even from demo data                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `OUTBOUND_MESSAGES_ENABLED`         | unset (on)                                              | `false`                                                                               | E-mail, SMS and WhatsApp are logged, never sent — even if real credentials leak into staging                                                                                                                                                                                                                                                                                                                                                                                      |
+| `DOCUMENT_TEST_COPY`                | unset (off)                                             | `true`, set by `deploy-staging.yml` on every release                                  | Every PDF the api renders and every page printed from the web is stamped "SALINAN UJI — BUKAN DOKUMEN SAH": staging's demo accounts carry the names of real office holders, their passwords are public, and the letterhead is the real one                                                                                                                                                                                                                                        |
+| `CHATBOT_PROVIDER`                  | `openai-compatible` with a Key Vault key (when enabled) | `openai-compatible` with staging's own `CHATBOT_API_KEY`, set by `deploy-staging.yml` | Staging runs the REAL provider, not a double, so a walkthrough there answers the way production answers. It needs its own key (`secrets.CHATBOT_API_KEY`, plus `vars.CHATBOT_API_BASE_URL` and `vars.CHATBOT_MODEL` on the `staging` environment). When the key is absent the workflow sets `disabled` and warns — the assistant stays off rather than answering from a stub that could be mistaken for a release-ready model.                                                    |
+| `MIGRATE_ON_START`                  | `true`                                                  | `true`                                                                                | The database is private; CI cannot reach it                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `PERSISTENT_DIR`                    | `/home/data`                                            | `/home/data`                                                                          | Uploads and identity documents survive restarts ([Files](#files))                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| Gmail / SMTP / WhatsApp credentials | Key Vault references                                    | none                                                                                  | Second line of defence behind the switch above                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `TURNSTILE_SECRET_KEY`              | Key Vault reference                                     | none                                                                                  | Without it the api's Turnstile check is off; no production secret is copied to staging                                                                                                                                                                                                                                                                                                                                                                                            |
 
 **Staging holds demo data only — never a copy of real data.** It is reachable
 by anyone who knows the name: there is no Cloudflare Access in front of it (the
@@ -121,6 +121,7 @@ from the backup, as the VM runbook describes, not on staging.
       there is no weekly candidate: `Pembuat catatan rilis` cut `-rc` tags that
       nothing consumed, and the number stopped marking verified code (it only
       advanced on `fix:`/`feat:`, and this repository is mostly `chore(deps)`).
+
    5. Its first job, `gate`, re-checks the facts of 3.1 mechanically
       (`.github/scripts/release-gate.sh`): the tag was pushed by an account with
       admin permission (write access alone can push a `v*` tag, and the
@@ -129,12 +130,13 @@ from the backup, as the VM runbook describes, not on staging.
       and a `load-tests.yml` run for that SHA finished green against staging. The `deploy` job waits on it (`needs: gate`), so a
       forgotten load test, a load test pointed at another host, or a commit off
       `main` can no longer be released. The gate does not decide
-      *whether* to release — that is the maintainer's call — only that the
+      _whether_ to release — that is the maintainer's call — only that the
       prerequisites are in place. `deploy` then refuses a SHA whose images
       staging never built, points `cipansor-produksi` at them and waits until
       `https://cipansor.or.id/healthz` reports that SHA.
    6. Verify behaviour (a real page and an authenticated API call), not just
       that the containers started.
+
 4. **Rollback** — `workflow_dispatch` is kept for this one case: dispatch
    `deploy-production.yml` with the previous release's SHA. The gate runs in
    `MODE=rollback`, which skips the staging and load-test checks by design — a
@@ -160,7 +162,7 @@ release, because the release now triggers on a tag rather than on a label:
   `load-tests.yml` comparison run exits `3` ("no baseline recorded") and never
   goes green — the gate would refuse every release. Record the staging baseline
   from a GitHub runner (Actions → Load Tests → Run workflow, tick
-  *record_baseline*) and commit the artifact through a PR, as
+  _record_baseline_) and commit the artifact through a PR, as
   `tests/load/README.md` describes.
 
 ## Verifying a release
@@ -181,49 +183,48 @@ to the SCM (Kudu) site, which is closed to everything but Cloudflare as well.
 
 ## Watching a release
 
-`deploy-watch.yml` runs each time `Deploy staging` or `Deploy production`
-finishes, and asks the GitHub API for the latest run of both. It opens an issue
-labelled `deploy-watch` when the latest run failed or was cancelled, has been
-stuck past 45 minutes, or finished green while the site it released is not
-answering with its commit — the same `/healthz` and `/manifest.json` probes
-[Verifying a release](#verifying-a-release) uses.
+There is no watcher in this repository. `deploy-watch.yml` and its script were
+deleted on 2026-11-11: the owner watches the Actions tab and the GitHub email
+notifications directly, so a second automated reporter was cost without a
+reader. This section is kept for the design it settled, which is what a
+replacement would have to honour.
 
-It runs on completion, not on a clock (decided 2026-10-10): a cron every 30
-minutes was ~1,440 runs a month to watch sites that mostly had not changed. A
-site that degrades later with no deploy — a container that restarts, a bad app
-setting — is the platform's to report: turn on **Health check** for each web
-app (Monitoring → Health check, path `/healthz`), which pings it every minute
-and replaces an instance that stays unhealthy, and add an **availability test**
-with an alert in Application Insights. Neither is configured from this
+What it did, and what a replacement must keep:
+
+- It ran on completion of `Deploy staging` / `Deploy production`, not on a clock
+  (decided 2026-10-10): a cron every 30 minutes was ~1,440 runs a month to watch
+  sites that mostly had not changed.
+- It reported a release that failed, was cancelled, had been stuck past 45
+  minutes, or finished green while the site it released did not answer with its
+  commit — the same `/healthz` and `/manifest.json` probes
+  [Verifying a release](#verifying-a-release) uses.
+- It was read-only with respect to the deployment: **it never rolled back,
+  reran or repointed a container.** The report carried the run id, the commit
+  and the failing job's log lines; a human decided what to do (step 3 or step 4
+  above).
+- **One open issue per workflow, not one per run** (#850). While a workflow had
+  an open report, a later failed, stuck or degraded run of it was added as a
+  comment, and the issue closed once the workflow's latest run deployed, was
+  green and its site served that commit. A green run that deployed nothing (its
+  `Update …` job skipped because no code changed) never reached `azure/login` or
+  the release, so it left the issue open. The log lines came from the job that
+  failed, not a sibling the workflow cancelled after it (#861). If the existing
+  issues could not be listed, the watch reported nothing and ended red rather
+  than opening a duplicate. A run was never reported twice: its
+  `deploy-watch:run=<id>` marker was looked for in the issue bodies and in the
+  comments written since the run started, closed issues included, so closing a
+  report by hand did not bring the same run back. Before this, one cause (an
+  OIDC subject Azure no longer matched, 2026-10-12) opened eleven issues, one
+  per run.
+- The issue opened with the basmalah itself: `basmalah.yml` never sees an issue
+  opened with `GITHUB_TOKEN`.
+
+A site that degrades later with no deploy — a container that restarts, a bad app
+setting — is still the platform's to report: turn on **Health check** for each
+web app (Monitoring → Health check, path `/healthz`), which pings it every
+minute and replaces an instance that stays unhealthy, and add an **availability
+test** with an alert in Application Insights. Neither is configured from this
 repository.
-
-It is read-only with respect to the deployment: **it never rolls back, reruns or
-repoints a container.** The issue carries the run id, the commit and the failing
-job's log lines; a human decides what to do (step 3 or step 4 above).
-
-**One open issue per workflow, not one per run** (#850). While a workflow has an
-open `deploy-watch` issue, a later failed, stuck or degraded run of it is added
-to that issue as a comment, and once the workflow's latest run deployed, is
-green and its site serves that commit, the issue is closed with the evidence. A
-green run that deployed nothing (its `Update …` job skipped because no code
-changed) never reached `azure/login` or the release, so it leaves the issue
-open. The log lines come from the job that failed, not a sibling the workflow
-cancelled after it (#861). If the existing issues cannot be listed, the watch
-reports nothing and ends red rather than opening a duplicate. A run is never
-reported twice: its `deploy-watch:run=<id>` marker is looked for in the issue
-bodies and in the comments written since the run started, closed issues
-included, so closing a report by hand does not bring the same run back. Before
-this, one cause (an OIDC subject Azure no longer matched, 2026-10-12) opened
-eleven issues, one per run. The issue opens with the basmalah itself:
-`basmalah.yml` never sees an issue opened with `GITHUB_TOKEN`.
-
-Run it by hand against the real repository with
-`GITHUB_REPOSITORY=cipansor/cipansor GH_TOKEN=… bash .github/scripts/deploy-watch.sh`,
-or add `DEPLOY_WATCH_DRY_RUN=1` to print what it would open without creating
-anything. `DEPLOY_WATCH_STUCK_MINUTES` and `DEPLOY_WATCH_WORKFLOWS` override the
-threshold and the watched workflows. Its behaviour is pinned by
-`apps/api/src/utils/deploy-watch.guard.test.ts`, which drives the real script
-against a fake API.
 
 ## Cloudflare
 

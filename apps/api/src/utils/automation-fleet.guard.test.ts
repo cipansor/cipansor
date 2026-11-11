@@ -351,6 +351,103 @@ const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {})
     ...(opts.pr ? { pull_request: { number: 7 } } : { issue: { number: 7, pull_request: null } }),
   });
 
+describe('deploy-sdlc-agents.py fleet triggers', () => {
+  const read = (p: string) => readFileSync(p, 'utf8');
+  const hasPy = spawnSync('python3', ['--version']).status === 0;
+  const script = () => read(DEPLOY);
+  const block = (name: string) => {
+    const s = script();
+    const start = s.indexOf(`${name} = {`);
+    expect(start, `${name} block`).toBeGreaterThan(-1);
+    return s.slice(start, s.indexOf('\n}\n', start));
+  };
+  const py = (code: string) =>
+    spawnSync(
+      'python3',
+      [
+        '-c',
+        [
+          'import importlib.util, json, sys',
+          'spec = importlib.util.spec_from_file_location("d", sys.argv[1])',
+          'm = importlib.util.module_from_spec(spec)',
+          'spec.loader.exec_module(m)',
+          code,
+        ].join('\n'),
+        DEPLOY,
+      ],
+      { encoding: 'utf8' }
+    );
+
+  it('runs `Tiket jadi PR` on the daily cron, and sends a complete trigger', () => {
+    // The 2026-11-11 rewrite dropped the `bot-implement` event trigger and left
+    // `{"on": ["schedule"]}` behind — not a trigger at all. `schedule` is not a
+    // GitHub event type, the discriminator only accepts `cron`/`event`, and no
+    // cron slot was ever named, so the one automation that opens pull requests
+    // would have gone quiet the moment it was deployed. Assert the real shape.
+    const triggers = block('TRIGGERS');
+    expect(triggers).toContain(
+      '"SDLC 06": {"type": "cron", "schedule": "0 8 * * *", "timezone": "Asia/Jakarta"}'
+    );
+    // 08:00 WIB: the quota refills at 07:00, and 09:00 belongs to `Pemburu bug`.
+    expect(triggers).not.toMatch(/"SDLC 06": \{"on": \["schedule"\]\}/);
+    expect(triggers).not.toMatch(/\["schedule"\]/);
+    // The dead label filter must not survive on the entry itself.
+    const entry = triggers.slice(triggers.indexOf('"SDLC 06"'), triggers.indexOf('"SDLC 18"'));
+    expect(entry).not.toContain('bot-implement');
+    expect(entry).not.toContain('"filter"');
+    // A cron slot must not collide with the other scheduled automations.
+    expect(triggers).not.toMatch(/schedule": "0 9 \* \* \*/);
+  });
+
+  it.skipIf(!hasPy)('completes a trigger fragment against the live trigger before PATCHing', () => {
+    // `PATCH {trigger}` validates the trigger as a whole and replaces it: a bare
+    // `{"filter": …}` is `422 union_tag_invalid`, and merging a cron into an
+    // event leaves the dead event keys behind. Every `TRIGGERS` entry but SDLC
+    // 06 is a fragment, so without completion none of them could deploy.
+    const r = py(
+      [
+        'import json',
+        'event = {"on": "issue_comment.created", "type": "event", "filter": "OLD", "source": "github", "wake_agent": True, "destination": "dispatch_run", "turn_text_expr": None, "subject_key_expr": None}',
+        'frag = m.target_trigger(event, {"filter": "NEW"})',
+        'cron = m.target_trigger(event, {"type": "cron", "schedule": "0 8 * * *", "timezone": "Asia/Jakarta"})',
+        'res = {',
+        '  "fragment_keeps_kind": frag["type"] == "event" and frag["on"] == "issue_comment.created" and frag["source"] == "github",',
+        '  "fragment_overrides_owned": frag["filter"] == "NEW",',
+        '  "fragment_keeps_destination": frag["destination"] == "dispatch_run",',
+        '  "cron_is_bare": cron == {"type": "cron", "schedule": "0 8 * * *", "timezone": "Asia/Jakarta"},',
+        '  "cron_drops_event_keys": not ({"on", "filter", "source", "destination"} & set(cron)),',
+        '  "idempotent": m.target_trigger(frag, {"filter": "NEW"}) == frag,',
+        '}',
+        'print(json.dumps(res))',
+      ].join('\n')
+    );
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({
+      fragment_keeps_kind: true,
+      fragment_overrides_owned: true,
+      fragment_keeps_destination: true,
+      cron_is_bare: true,
+      cron_drops_event_keys: true,
+      idempotent: true,
+    });
+  });
+
+  it('records every disabled automation in RETIRED, so a deploy cannot leave it dark', () => {
+    // `Audit Kematangan` was switched off by hand on 2026-11-10 and never listed,
+    // so its monthly report simply stopped with no document naming it. The
+    // deploy treats an unlisted automation as live; the list is the only thing
+    // that makes a retirement visible.
+    expect(block('RETIRED')).toContain('"Audit Kematangan"');
+  });
+
+  it('keeps the deleted `automation-health` label out of the fleet prompts', () => {
+    // The label was dropped from the taxonomy on 2026-11-11. A prompt that still
+    // tells its agent to label an issue with it produces a label-less issue.
+    expect(script()).not.toContain('dan `automation-health`');
+    expect(script()).not.toContain('label `automation-health`');
+  });
+});
+
 describe('label-guard.sh', () => {
   it('removes a protected label applied by a person and says so once', () => {
     const { calls, out } = run(
@@ -1328,9 +1425,7 @@ describe('fleet contracts', () => {
     // still held work that was already in review. The prompt must move the issue
     // out of the queue and the PR out of draft.
     const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
-    const start = script.indexOf(
-      'Anda adalah SATU-SATUNYA pembuka pull request'
-    );
+    const start = script.indexOf('Anda adalah SATU-SATUNYA pembuka pull request');
     expect(start, 'SDLC 06 prompt body').toBeGreaterThan(-1);
     const prompt = script.slice(start, script.indexOf('"SDLC 07"', start));
     expect(prompt).toContain('`in-progress`');

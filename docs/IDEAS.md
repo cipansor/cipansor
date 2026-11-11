@@ -37,9 +37,9 @@ Mengusangkan issue yang macet. Timer, dari yang dipakai proyek sebanding:
 | anything else | 90 days (`stale`) | 14 more     | `actions/stale` default    |
 
 Exempt: `ready`, `blocked`, `in-progress`, dan apa pun yang dikomentari
-maintainer. `duplicate` dimiliki oleh sweep workflow. (`needs-info` punya timer
-20 hari sampai 2026-11-11, saat label itu dihapus dan `question` mengambil
-alih artinya.)
+maintainer. `duplicate` dimiliki oleh sweep workflow. (`question` mengambil alih
+timer 20 hari milik `needs-info` saat label itu dihapus 2026-11-11; timer
+peringatan kini 8 hari, penutupan 15.)
 
 ## 4. Diskusi
 
@@ -48,16 +48,19 @@ Menyuplai detail yang kurang atau lampu hijau memberi `ready`, yang menyerahkan
 ke `Tiket jadi PR`; penolakan memberi `wontfix` dan menutup. Ia tidak pernah
 bertindak atas komentarnya sendiri.
 
-## 5. Pengawas armada
+## 5. Pengawas armada — **dipensiunkan 2026-11-11**
+
+> Automation `SDLC 23` dimatikan dan laporannya tidak lagi diproduksi. Pemilik
+> memeriksa OpenHands Cloud dan tab Actions langsung; label `automation-health`
+> ikut dihapus. Butir di bawah dipertahankan sebagai catatan apa yang dulu
+> dijaganya, kalau-kalau pengawas dibangun ulang.
 
 Mengawasi setiap automation dan melaporkan ke maintainer.
 
 - **Membuka satu issue per penyebab, paling banyak satu per penyebab per
   minggu.** Ini mencakup cacat konfigurasi (guard self-comment yang hilang,
   automation yang mati padahal seharusnya hidup, dua automation pada satu slot
-  cron, pin kedaluwarsa yang dilaporkan check `Security`). Pengawas ini
-  dipensiunkan 2026-11-11; laporannya kini diperiksa manual di OpenHands Cloud,
-  dan label `automation-health` dihapus.
+  cron, pin kedaluwarsa yang dilaporkan check `Security`).
 - **Tidak pernah menulis perbaikan.** Pengawas hanya melaporkan; perbaikan
   berjalan lewat jalur PR normal (`Tiket jadi PR`), bukan lewat perbaikan
   otomatis. Ini menghapus kebutuhan akan automation verifikasi terpisah.
@@ -75,10 +78,10 @@ Mengawasi setiap automation dan melaporkan ke maintainer.
 Repo ini dulu **tidak punya templat sama sekali**. Ditambahkan form issue dan
 templat PR yang terikat ke sistem label, bukan prosa bebas:
 
-- `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.yml` — form issue, wajib
-  berisi reproduksi + kriteria penerimaan, otomatis memasang label tipe
-  `bug`/`enhancement`; `config.yml` mengarahkan pembaca ke `docs/LABELS.md` dan
-  berkas ini.
+- `.github/ISSUE_TEMPLATE/*.yml` — satu form per tipe (`bug_report`,
+  `enhancement`, `documentation`, `refactor`, `chore`, `security`), masing-masing
+  memasang label tipe yang cocok; wajib berisi kriteria penerimaan.
+  `config.yml` mengarahkan pembaca ke `docs/LABELS.md` dan berkas ini.
 - `.github/pull_request_template.md` — bagian `Mengapa`, `Yang diubah`,
   `Issue tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko`,
   `Catatan`; wajib `Fixes #<n>` ke issue `ready` dan kriteria

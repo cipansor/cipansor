@@ -10,11 +10,11 @@ the mechanical cases.
 
 ## State — update as the work moves
 
-| File | Holds | Update when |
-|---|---|---|
-| [`progress.md`](progress.md) | what is merged, on staging, in production; what waits on the user; what is in flight | a PR merges, a deploy runs, the user decides something |
-| [`roadmap.md`](roadmap.md) | the ordered backlog — what to do next, and why in that order | priorities change, or an item is done |
-| [`known-issues.md`](known-issues.md) | open defects, in detail | a defect is found, or fixed (delete a fixed entry; git keeps it) |
+| File                                 | Holds                                                                                | Update when                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| [`progress.md`](progress.md)         | what is merged, on staging, in production; what waits on the user; what is in flight | a PR merges, a deploy runs, the user decides something           |
+| [`roadmap.md`](roadmap.md)           | the ordered backlog — what to do next, and why in that order                         | priorities change, or an item is done                            |
+| [`known-issues.md`](known-issues.md) | open defects, in detail                                                              | a defect is found, or fixed (delete a fixed entry; git keeps it) |
 
 ## Decisions — settled; do not re-open without a new reason
 

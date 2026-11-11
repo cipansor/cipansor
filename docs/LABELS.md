@@ -23,12 +23,12 @@ Priority is **evidence-backed**, not a feeling: `Triase issue` weighs impact,
 urgency and risk, and anything above `medium` must name the concrete evidence.
 A higher label with no evidence is a defect the triage owner must correct.
 
-| Label               | Use for                                                                                                                                                                                                                                            |
-| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Label               | Use for                                                                                                                                                                                                                                                |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `priority:critical` | Exactly one of: layanan mati total; kehilangan/korupsi data; kerentanan keamanan atau kebocoran data pribadi (UU PDP) yang aktif bisa dieksploitasi; pipeline rilis macet total. Naming the concrete victim (unit/peran) and the evidence is required. |
-| `priority:high`     | Menghambat pekerjaan unit/peran sekarang; a regulatory/accreditation deadline this cycle; many users with no workaround; or a security weakness that cannot yet be exploited. Naming the blocker or the deadline is required.                        |
-| `priority:medium`   | Normal; the default for triaged work — real, but not blocking and with a workaround.                                                                                                                                                                |
-| `priority:low`      | Nice to have, no urgency (cosmetic).                                                                                                                                                                                                                |
+| `priority:high`     | Menghambat pekerjaan unit/peran sekarang; a regulatory/accreditation deadline this cycle; many users with no workaround; or a security weakness that cannot yet be exploited. Naming the blocker or the deadline is required.                          |
+| `priority:medium`   | Normal; the default for triaged work — real, but not blocking and with a workaround.                                                                                                                                                                   |
+| `priority:low`      | Nice to have, no urgency (cosmetic).                                                                                                                                                                                                                   |
 
 The evidence rule, enforced in the triage owner's prompt:
 
@@ -43,18 +43,18 @@ The evidence rule, enforced in the triage owner's prompt:
 
 ## Status — where it is in the lifecycle
 
-| Label                | Meaning                                                                                                                            |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
-| `ready`              | Specified enough to implement; `Tiket jadi PR` picks it up on its daily run, and it stays open to a contributor too                |
-| `in-progress`        | Someone or an automation is actively working on it                                                                                 |
-| `blocked`            | Cannot proceed until a dependency is resolved; never beside `ready`                                                                |
-| `stale`              | No activity for a long time; will close unless kept                                                                                |
-| `question`           | Still needs discussion: a question, or a decision the maintainer has not made yet                                                  |
-| `duplicate`          | An issue already reported elsewhere; the original is linked                                                                        |
-| `duplicate-pr`       | A pull request probably covered by another PR; a candidate a maintainer weighs, never auto-closed                                  |
-| `invalid`            | Not a valid report                                                                                                                 |
-| `wontfix`            | Deliberately not going to be done                                                                                                  |
-| `automation`         | Report or action from an automation; skip in manual triage                                                                         |
+| Label          | Meaning                                                                                                             |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| `ready`        | Specified enough to implement; `Tiket jadi PR` picks it up on its daily run, and it stays open to a contributor too |
+| `in-progress`  | Someone or an automation is actively working on it                                                                  |
+| `blocked`      | Cannot proceed until a dependency is resolved; never beside `ready`                                                 |
+| `stale`        | No activity for a long time; will close unless kept                                                                 |
+| `question`     | Still needs discussion: a question, or a decision the maintainer has not made yet                                   |
+| `duplicate`    | An issue already reported elsewhere; the original is linked                                                         |
+| `duplicate-pr` | A pull request probably covered by another PR; a candidate a maintainer weighs, never auto-closed                   |
+| `invalid`      | Not a valid report                                                                                                  |
+| `wontfix`      | Deliberately not going to be done                                                                                   |
+| `automation`   | Report or action from an automation; skip in manual triage                                                          |
 
 ## The rules
 
@@ -93,7 +93,7 @@ sync` workflow adds anything missing and **fails the check** when the type
 4. **A duplicate closes itself.** `Triase issue` applies `duplicate` to an issue and
    links the original; the same detection on a pull request applies
    `duplicate-pr`. The deterministic half of the detection is the `Duplicate
-   detect` workflow: when two **open** issues share a title once normalised
+detect` workflow: when two **open** issues share a title once normalised
    (lowercased, whitespace collapsed, trailing punctuation dropped, long digit
    runs masked), it labels the newer one `duplicate` and links the earlier one —
    it never closes anything itself, and a title whose only same-titled sibling is
@@ -231,27 +231,26 @@ sync` workflow adds anything missing and **fails the check** when the type
     through the `Acknowledge` workflow, the rest from their own prompts — so a
     person can see the automation is working before the answer lands.
 
-
 ## Which automation owns which label
 
-| Automation          | Trigger                                        | Labels it sets                                                     |
-| ------------------- | ---------------------------------------------- | ------------------------------------------------------------------ |
-| `Triase issue`     | issue opened                                   | tipe, prioritas, `ready` / `question` / `duplicate`                |
-| `Tiket jadi PR`     | daily cron, `ready` queue oldest-first         | tidak ada — ia membuka PR                                          |
-| `Penjernih issue`   | comment on a `question` issue                  | `question` ↔ `ready`, `duplicate`, `invalid`                       |
-| `Issue label sync`  | PR opened / issue relabeled                     | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`) |
-| `duplicate-detect.sh` | issue opened / jadwal harian                  | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan |
-| `pr-duplicate.sh`   | jadwal harian                                   | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama |
-| `stale-sweep.sh`    | jadwal harian                                   | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`) |
-| `Gerbang tinjau PR` | PR ready for review, or CI-green dispatch      | tidak ada — ia meninjau atau menyetujui                            |
-| `Pemburu bug`       | daily cron                                     | membuka issue `bug`, satu prioritas (tanpa label provenans)        |
-| `Pemindai standar`  | weekly cron                                    | membuka issue dengan tipe, prioritas, `question`                   |
-| `Diskusi`           | comment on a `question` issue                  | `ready`, `wontfix`, `question`                                     |
+| Automation            | Trigger                                   | Labels it sets                                                                                               |
+| --------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| `Triase issue`        | issue opened                              | tipe, prioritas, `ready` / `question` / `duplicate`                                                          |
+| `Tiket jadi PR`       | daily cron 08:00 WIB, `ready` queue oldest-first | tidak ada — ia membuka PR                                                                                    |
+| `Penjernih issue`     | comment on a `question` issue             | `question` ↔ `ready`, `duplicate`, `invalid`                                                                 |
+| `Issue label sync`    | PR opened / issue relabeled               | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`)                                     |
+| `duplicate-detect.sh` | issue opened / jadwal harian              | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan |
+| `pr-duplicate.sh`     | jadwal harian                             | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama                         |
+| `stale-sweep.sh`      | jadwal harian                             | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`)              |
+| `Gerbang tinjau PR`   | PR ready for review, or CI-green dispatch | tidak ada — ia meninjau atau menyetujui                                                                      |
+| `Pemburu bug`         | daily cron                                | membuka issue `bug`, satu prioritas (tanpa label provenans)                                                  |
+| `Pemindai standar`    | weekly cron                               | membuka issue dengan tipe, prioritas, `question`                                                             |
+| `Diskusi`             | comment on a `question` issue             | `ready`, `wontfix`, `question`                                                                               |
 
 The deterministic consequences are GitHub Actions workflows
 (`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-detect.yml`,
 `duplicate-sweep.yml`,
-`stale-sweep.yml`, `gate-watch.yml`, `docs-drift.yml`, `label-guard.yml`,
+`stale-sweep.yml`, `docs-drift.yml`, `label-guard.yml`,
 `basmalah.yml`,
 `acknowledge.yml`, `issue-triage-bridge.yml`), not automations: they must fire every time and cost
 no tokens. `label-guard.yml` enforces rule 12, `basmalah.yml` rule 13,
@@ -312,7 +311,7 @@ to produce the labels above, not prose to read and forget:
   reproduces it and attaches a screenshot to the issue by editing its body. It
   does not send the issue to `question` for being incomplete.
 - The **PR template** has the sections `Mengapa`, `Yang diubah`, `Issue
-  tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko` and
+tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko` and
   `Catatan` (no `HUMAN`/`AGENT` split and no `Type` checklist since 2026-11-09,
   #965: the type comes from the issue's label). It requires `Fixes #<n>` for
   every issue the PR resolves (each an open `ready` issue,

@@ -168,7 +168,7 @@ describe('stale-sweep.sh', () => {
 
   it('keeps an issue open when a person replied after the warning', () => {
     const { out, calls } = run({
-      GH_STUB_ISSUE_LIST: row(7, 40, 'bug,needs-info,priority:medium'),
+      GH_STUB_ISSUE_LIST: row(7, 40, 'bug,question,priority:medium'),
       GH_STUB_COMMENTS: `${warned()}\n${daysAgo(2)}\treporter\tStill working on it`,
       GH_STUB_BODY: '',
     });
@@ -418,7 +418,7 @@ describe('stale-sweep.sh', () => {
 
   it('paginates the comment list so a later reply is seen', () => {
     const { out, calls } = run({
-      GH_STUB_ISSUE_LIST: row(7, 40, 'bug,needs-info,priority:medium'),
+      GH_STUB_ISSUE_LIST: row(7, 40, 'bug,question,priority:medium'),
       GH_STUB_COMMENTS: warned(),
       GH_STUB_PAGE2: `${daysAgo(1)}\treporter\tPlease keep this open`,
       GH_STUB_BODY: '',
@@ -430,7 +430,7 @@ describe('stale-sweep.sh', () => {
 
   it('writes nothing when STALE_SWEEP_DRY_RUN is set', () => {
     const { calls } = run({
-      GH_STUB_ISSUE_LIST: row(7, 40, 'bug,needs-info,priority:medium'),
+      GH_STUB_ISSUE_LIST: row(7, 40, 'bug,question,priority:medium'),
       GH_STUB_COMMENTS: warned(),
       GH_STUB_BODY: '',
       STALE_SWEEP_DRY_RUN: '1',

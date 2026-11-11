@@ -94,7 +94,7 @@ pertentangan itu dilaporkan sebagai issue.
 12. **Pengawas pun diawasi.** Setiap automation meninggalkan jejak run.
     Kegagalan yang **diam** — gerbang yang tidak menjawab, cron yang tidak
     jalan — dideteksi oleh pemeriksa yang tidak bergantung pada automation
-    yang diawasinya (pola *dead man's switch*).
+    yang diawasinya (pola _dead man's switch_).
 13. **Biaya terukur.** Setiap automation punya anggaran token atau menit.
     Laporan pemakaian per automation diperiksa manual setiap minggu, dan
     automation yang melampaui anggarannya berhenti sampai maintainer
@@ -211,22 +211,22 @@ flowchart TD
   REL["maintainer push tag vX.Y.Z (setelah k6 smoke manual)"]:::human --> PRD["deploy-production: gerbang release-gate.sh lalu deploy"]:::gh
 ```
 
-| # | Tahap | Pemicu | Pemilik | Keluaran | Lanjut bila |
-|---|---|---|---|---|---|
-| 1 | Laporan | manusia, atau temuan automation berkala | pelapor | issue sesuai templat; temuan keamanan → advisory privat | issue terbuka |
-| 2 | Triase | `issues.opened` | `Triase issue` | **satu** komentar: tipe, prioritas (berbukti), duplikat, kesiapan, estimasi | label `ready` / `question` / `decision` / `duplicate` |
-| 3 | Klarifikasi | balasan pada issue `question`, label bot, atau aktivitas baru (jembatan triase) | `Penjernih issue` | komentar penilaian ulang; body issue diperbarui hanya saat `ready` | `ready` |
-| 4 | Keputusan | label `decision` | agen riset → maintainer | riset bersumber + pilihan ganda; maintainer memilih | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready` |
-| 5 | Implementasi | cron harian `Tiket jadi PR`: memindai antrean `ready` **terlama dulu**, membuka ≤ 3 PR per run | `Tiket jadi PR` | PR draf dengan templat, uji, bukti, `Fixes #n` | daftar periksa penulis lengkap → ready for review |
-| 6 | CI | push | Actions | Build, Lint, Tests, Security, E2E | semua hijau |
-| 7 | Tinjauan | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`), otomatis untuk **setiap head hijau yang belum ditinjau** | `Gerbang tinjau PR` | satu review per head, dengan blok `suggestion`; payload kosong → gerbang memilih sendiri satu PR yang `requested_reviewers` memuat `cipansor-bot` dan head-nya belum ditinjau, tiebreak **head paling baru hijau** | approve |
-| 8 | Perbaikan | review minta perubahan | `Tiket jadi PR` | ikuti atau tolak dengan alasan; ≤ 3 putaran | head baru hijau → tahap 7 otomatis (gerbang meninjau setiap head hijau yang belum ditinjau) |
-| 9 | Merge | approve + check hijau + cabang mutakhir | Actions (auto-merge) | squash ke `main` | — |
-| 10 | Staging | E2E hijau di `main` | `deploy-staging` | staging menyajikan SHA itu | — |
-| 11 | Calon rilis | manual: k6 smoke dijalankan terhadap staging, lalu tag `vX.Y.Z` di-push | maintainer | tag rilis pada commit yang sudah diverifikasi staging | tag ter-push |
-| 12 | Produksi | push tag `vX.Y.Z` | `deploy-production` (gerbang `release-gate.sh`) | produksi menyajikan SHA itu; langkah data pasca-rilis masing-masing dengan persetujuan | — |
-| 13 | Operasi | CI/E2E gagal di `main`; Health check / availability test | bridge → `Pemantau deployment`; platform | satu issue per masalah | — |
-| 14 | Pengawasan | manual | OpenHands Cloud (riwayat run) + pemeriksa Actions | kesehatan, pemakaian, kegagalan diam | — |
+| #   | Tahap        | Pemicu                                                                                                                              | Pemilik                                           | Keluaran                                                                                                                                                                                                           | Lanjut bila                                                                                 |
+| --- | ------------ | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------- |
+| 1   | Laporan      | manusia, atau temuan automation berkala                                                                                             | pelapor                                           | issue sesuai templat; temuan keamanan → advisory privat                                                                                                                                                            | issue terbuka                                                                               |
+| 2   | Triase       | `issues.opened`                                                                                                                     | `Triase issue`                                    | **satu** komentar: tipe, prioritas (berbukti), duplikat, kesiapan, estimasi                                                                                                                                        | label `ready` / `question` / `decision` / `duplicate`                                       |
+| 3   | Klarifikasi  | balasan pada issue `question`, label bot, atau aktivitas baru (jembatan triase)                                                     | `Penjernih issue`                                 | komentar penilaian ulang; body issue diperbarui hanya saat `ready`                                                                                                                                                 | `ready`                                                                                     |
+| 4   | Keputusan    | label `decision`                                                                                                                    | agen riset → maintainer                           | riset bersumber + pilihan ganda; maintainer memilih                                                                                                                                                                | keputusan tercatat di `.claude/memory/decisions/`, lalu `ready`                             |
+| 5   | Implementasi | cron harian `Tiket jadi PR`: memindai antrean `ready` **terlama dulu**, membuka ≤ 3 PR per run                                      | `Tiket jadi PR`                                   | PR draf dengan templat, uji, bukti, `Fixes #n`                                                                                                                                                                     | daftar periksa penulis lengkap → ready for review                                           |
+| 6   | CI           | push                                                                                                                                | Actions                                           | Build, Lint, Tests, Security, E2E                                                                                                                                                                                  | semua hijau                                                                                 |
+| 7   | Tinjauan     | `pr-lifecycle.sh` (hijau + ready; `workflow_run` atau `ready_for_review`), otomatis untuk **setiap head hijau yang belum ditinjau** | `Gerbang tinjau PR`                               | satu review per head, dengan blok `suggestion`; payload kosong → gerbang memilih sendiri satu PR yang `requested_reviewers` memuat `cipansor-bot` dan head-nya belum ditinjau, tiebreak **head paling baru hijau** | approve                                                                                     |
+| 8   | Perbaikan    | review minta perubahan                                                                                                              | `Tiket jadi PR`                                   | ikuti atau tolak dengan alasan; ≤ 3 putaran                                                                                                                                                                        | head baru hijau → tahap 7 otomatis (gerbang meninjau setiap head hijau yang belum ditinjau) |
+| 9   | Merge        | approve + check hijau + cabang mutakhir                                                                                             | Actions (auto-merge)                              | squash ke `main`                                                                                                                                                                                                   | —                                                                                           |
+| 10  | Staging      | E2E hijau di `main`                                                                                                                 | `deploy-staging`                                  | staging menyajikan SHA itu                                                                                                                                                                                         | —                                                                                           |
+| 11  | Calon rilis  | manual: k6 smoke dijalankan terhadap staging, lalu tag `vX.Y.Z` di-push                                                             | maintainer                                        | tag rilis pada commit yang sudah diverifikasi staging                                                                                                                                                              | tag ter-push                                                                                |
+| 12  | Produksi     | push tag `vX.Y.Z`                                                                                                                   | `deploy-production` (gerbang `release-gate.sh`)   | produksi menyajikan SHA itu; langkah data pasca-rilis masing-masing dengan persetujuan                                                                                                                             | —                                                                                           |
+| 13  | Operasi      | CI/E2E gagal di `main`; Health check / availability test                                                                            | bridge → `Pemantau deployment`; platform          | satu issue per masalah                                                                                                                                                                                             | —                                                                                           |
+| 14  | Pengawasan   | manual                                                                                                                              | OpenHands Cloud (riwayat run) + pemeriksa Actions | kesehatan, pemakaian, kegagalan diam                                                                                                                                                                               | —                                                                                           |
 
 ### Gerbang manusia — hanya empat
 
@@ -246,22 +246,22 @@ Dua fitur GitHub yang paling cocok di sini hanya tersedia untuk repositori
 publik pada paket Team. Desainnya memakai mekanisme yang tetap berjalan sesudah
 repositori privat:
 
-| Kebutuhan | Selama publik | Sesudah privat (Team) | Dipakai di sini |
-|---|---|---|---|
-| Persetujuan rilis produksi | *required reviewers* pada environment `production` | tidak tersedia | **tag `vX.Y.Z`** (dipush maintainer) — memicu `deploy-production.yml`; environment `production` tetap menjadi gerbang identitas OIDC-nya. Lebih ringkas daripada label pada issue: satu artefak yang sama menyatakan rilis **dan** memicunya. Bisa dipakai di kedua fase. |
-| Uji gabungan PR yang bertumpuk (aturan emas 9) | *merge queue* | tidak tersedia | **ruleset `strict` (cabang harus mutakhir)** + job Actions yang memperbarui cabang PR ber-auto-merge saat `main` bergerak. Bisa dipakai di kedua fase. |
-| Kuota menit Actions | gratis | 3.000 menit/bulan | event dulu (invarian 1); laporan pemakaian mingguan (invarian 13) |
+| Kebutuhan                                      | Selama publik                                      | Sesudah privat (Team) | Dipakai di sini                                                                                                                                                                                                                                                           |
+| ---------------------------------------------- | -------------------------------------------------- | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Persetujuan rilis produksi                     | _required reviewers_ pada environment `production` | tidak tersedia        | **tag `vX.Y.Z`** (dipush maintainer) — memicu `deploy-production.yml`; environment `production` tetap menjadi gerbang identitas OIDC-nya. Lebih ringkas daripada label pada issue: satu artefak yang sama menyatakan rilis **dan** memicunya. Bisa dipakai di kedua fase. |
+| Uji gabungan PR yang bertumpuk (aturan emas 9) | _merge queue_                                      | tidak tersedia        | **ruleset `strict` (cabang harus mutakhir)** + job Actions yang memperbarui cabang PR ber-auto-merge saat `main` bergerak. Bisa dipakai di kedua fase.                                                                                                                    |
+| Kuota menit Actions                            | gratis                                             | 3.000 menit/bulan     | event dulu (invarian 1); laporan pemakaian mingguan (invarian 13)                                                                                                                                                                                                         |
 
 ### Kegagalan dan penanganannya
 
-| Kegagalan | Deteksi | Tindakan |
-|---|---|---|
-| CI/E2E merah di `main` | `main-failure-bridge.yml` | `Pemantau deployment` menulis diagnosis |
-| Gerbang tinjau tidak menjawab, atau run automation mati infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | **manual**: riwayat run di OpenHands Cloud, tab Actions untuk gerbang | jalankan ulang run yang gagal dari OpenHands Cloud. Deteksi otomatis (`gate-watch.yml`, `automation-retry.yml`) dihapus 2026-11-11 atas keputusan pemilik — laporan `Pengawas armada` dan email GitHub sudah cukup |
-| Deploy gagal, macet, atau commit salah | **manual**: tab Actions `Deploy staging` / `Deploy production` | jalankan ulang atau perbaiki; email notifikasi GitHub sudah ada. `deploy-watch.yml` dihapus 2026-11-11 (pemilik mengawasi langsung) |
-| Situs menurun tanpa deploy | Health check App Service + availability test | alert dari platform |
-| Anggaran terlampaui | laporan pemakaian | automation berhenti; maintainer memutuskan |
-| Bot memicu dirinya sendiri | guard penulis komentar pada setiap pemicu komentar | — (pencegahan) |
+| Kegagalan                                                                                                                   | Deteksi                                                               | Tindakan                                                                                                                                                                                             |
+| --------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CI/E2E merah di `main`                                                                                                      | `main-failure-bridge.yml`                                             | `Pemantau deployment` menulis diagnosis                                                                                                                                                              |
+| Gerbang tinjau tidak menjawab, atau run automation mati infrastruktur (timeout, sandbox tidak tersedia, 502, proxy LLM 503) | **manual**: riwayat run di OpenHands Cloud, tab Actions untuk gerbang | jalankan ulang run yang gagal dari OpenHands Cloud. Deteksi otomatis (`gate-watch.yml`, `automation-retry.yml`) dihapus 2026-11-11 atas keputusan pemilik — tab Actions dan email GitHub sudah cukup |
+| Deploy gagal, macet, atau commit salah                                                                                      | **manual**: tab Actions `Deploy staging` / `Deploy production`        | jalankan ulang atau perbaiki; email notifikasi GitHub sudah ada. `deploy-watch.yml` dihapus 2026-11-11 (pemilik mengawasi langsung)                                                                  |
+| Situs menurun tanpa deploy                                                                                                  | Health check App Service + availability test                          | alert dari platform                                                                                                                                                                                  |
+| Anggaran terlampaui                                                                                                         | laporan pemakaian                                                     | automation berhenti; maintainer memutuskan                                                                                                                                                           |
+| Bot memicu dirinya sendiri                                                                                                  | guard penulis komentar pada setiap pemicu komentar                    | — (pencegahan)                                                                                                                                                                                       |
 
 ### Selisih dari keadaan sekarang
 
@@ -289,7 +289,7 @@ Pemeriksa manual menandai butir yang sudah selesai.
    punya endpoint per-run id, dan tanpa pencatatan ini run terbaru milik PR
    lain bisa salah menahan atau salah memicu retry.
 3. **Cron yang bertentangan dengan keputusan — selesai 2026-11-09.** `Penjaga
-   issue` dan `Uji beban` dimatikan; k6 berjalan lewat `load-tests.yml` sebelum
+issue` dan `Uji beban` dimatikan; k6 berjalan lewat `load-tests.yml` sebelum
    rilis. Penutupan berdasarkan umur **dihidupkan kembali sebagai GitHub Action**
    (`.github/workflows/stale-sweep.yml` + `.github/scripts/stale-sweep.sh`),
    timer sama: `question` 8+7, lain-lain 90+14. Ia
@@ -338,7 +338,7 @@ Pemeriksa manual menandai butir yang sudah selesai.
    `timeout=900` yang matinya ~1000 detik, dan ambang 1780 detik salah
    mengkelaskannya. Dua koreksi lain pada `Pengawas armada` (2026-10-20, sejak itu dipensiunkan):
    endpoint-nya adalah **akar API** (`GET /api/automation/v1`, `GET
-   /api/automation/v1/{id}/runs?limit=5`) seperti
+/api/automation/v1/{id}/runs?limit=5`) seperti
    `.github/scripts/automation-retry.sh` (dihapus 2026-11-11) — `/automations` menjawab `422` dan
    `/automations/{id}/runs` menjawab `404`, jadi watchdog yang memakai bentuk
    itu tidak membaca apa pun; dan riwayat run diperiksa **berotasi**
@@ -368,7 +368,6 @@ Pemeriksa manual menandai butir yang sudah selesai.
    jam 1800 detik) dan guard trigger tidak bergantung pada isi prompt, jadi
    keduanya diterapkan lebih dulu — automation yang promptnya ditolak tetap
    dinaikkan ke `timeout=1800`, hanya prompt-nya yang ditahan.
-
 
 ### Instruksi pelaksanaan
 
@@ -456,15 +455,15 @@ butir mengikuti aturan emas di `AGENTS.md`):
    (admin) dan **wajib ada sebelum rilis tag pertama**, karena tanpa keduanya
    deploy produksi tidak akan berjalan:
    a. environment `production` di repo hanya mengizinkan ref `main`
-      (`deployment-branch-policies`), sedangkan deploy kini dipicu tag `v*`.
-      Tambahkan pola tag `v*` ke kebijakan cabang environment itu, atau rilis
-      pertama akan tertahan di job `deploy` (butuh persetujuan environment).
+   (`deployment-branch-policies`), sedangkan deploy kini dipicu tag `v*`.
+   Tambahkan pola tag `v*` ke kebijakan cabang environment itu, atau rilis
+   pertama akan tertahan di job `deploy` (butuh persetujuan environment).
    b. belum ada baseline k6 tersimpan (`tests/load/baselines/` tidak ada), jadi
-      run `load-tests.yml` keluar dengan kode `3` ("no baseline recorded") dan
-      **tidak pernah hijau**. Rekam baseline staging dari GitHub runner
-      (`load-tests.yml`, centang *record_baseline*) lalu commit artefaknya
-      lewat PR — kalau tidak, gerbang rilis menolak setiap rilis.
-6. **Temuan keamanan ke advisory privat**: *private vulnerability reporting*
+   run `load-tests.yml` keluar dengan kode `3` ("no baseline recorded") dan
+   **tidak pernah hijau**. Rekam baseline staging dari GitHub runner
+   (`load-tests.yml`, centang _record_baseline_) lalu commit artefaknya
+   lewat PR — kalau tidak, gerbang rilis menolak setiap rilis.
+6. **Temuan keamanan ke advisory privat**: _private vulnerability reporting_
    menyala, `SECURITY.md` menjelaskan cara melapor, dan `Pemburu bug`,
    `Pemindai standar`, serta `Pemindai celah uji` membuka draf advisory, bukan
    issue, untuk temuan keamanan.
@@ -631,14 +630,15 @@ flowchart TD
 
 ## Armada terjadwal (cron cloud, WIB)
 
-| Waktu           | Automation            | Tugas                                                           |
-| --------------- | --------------------- | --------------------------------------------------------------- |
-| (manual)        | OpenHands Cloud       | kesehatan semua automation                                      |
-| 09:00 harian    | Pemburu bug           | bug terbukti → satu issue berbukti                              |
-| 06:00 Senin     | Pemindai standar      | penyimpangan standar → `question`                               |
-| 08:15 Senin     | Pemindai celah uji    | satu celah uji berisiko → issue                                 |
-| (tidak ada)     | —                     | rilis kini peristiwa manual: tag `vX.Y.Z` (`Pembuat catatan rilis` dipensiunkan 2026-11-09) |
-| 08:30 tanggal 1 | Audit kematangan      | menilai 18 item → satu issue                                    |
+| Waktu        | Automation         | Tugas                                                                                       |
+| ------------ | ------------------ | ------------------------------------------------------------------------------------------- |
+| (manual)     | OpenHands Cloud    | kesehatan semua automation                                                                  |
+| 09:00 harian | Pemburu bug        | bug terbukti → satu issue berbukti                                                          |
+| 06:00 Senin  | Pemindai standar   | penyimpangan standar → `question`                                                           |
+| 08:00 harian | Tiket jadi PR      | antrean `ready` terlama dulu → ≤ 3 PR (kuota sandbox pulih 07:00)                           |
+| 08:15 Senin  | Pemindai celah uji | satu celah uji berisiko → issue                                                             |
+| (tidak ada)  | —                  | rilis kini peristiwa manual: tag `vX.Y.Z` (`Pembuat catatan rilis` dipensiunkan 2026-11-09) |
+| (manual)     | Audit kematangan   | menilai 18 item → satu issue; dinonaktifkan 2026-11-10, dinilai manual dari OpenHands Cloud |
 
 Actions terjadwal: `duplicate-detect` (harian 01:15 UTC = 08:15 WIB, dan saat
 `issues.opened`: dua issue **terbuka** berjudul sama setelah dinormalkan →
@@ -672,38 +672,38 @@ Timer dan pengecualiannya sama seperti `Penjaga issue` dulu.
 
 ## Peran — siapa berbuat sebagai siapa
 
-| Automation            | Peran                                                                                                          |
-| --------------------- | -------------------------------------------------------------------------------------------------------------- |
-| (deterministik)       | `docs-drift.yml` — `collect_facts.py` + `check_docs.py` menyegarkan **badan issue induk #782** (angka, Lampiran A); menggantikan `Peta basis kode` |
-| Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                |
-| Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                  |
-| Tiket jadi PR         | **satu-satunya pembuat PR**; cron harian, memindai antrean `ready` terlama dulu, ≤ 3 PR per run                |
-| Bot sebutan           | menyerahkan permintaan `@cipansor-bot` yang berupa pekerjaan ke issue + `ready`, atau menjawab pertanyaan      |
-| Peninjau kode         | tinjauan baris demi baris + blok `suggestion`                                                                  |
-| Pemindai celah uji    | satu celah pengujian berisiko → issue                                                                          |
-| Otomasi QA            | menjalankan alur yang berubah, melaporkan lulus/gagal                                                          |
-| Uji beban             | k6 vs staging — kini `load-tests.yml`, dijalankan manual sebelum tiap rilis (bukan cron)                       |
-| Pemantau deployment   | CI atau E2E yang gagal di `main` → issue diagnosis (penyebabnya)                                               |
-| Pembuat catatan rilis | **dipensiunkan 2026-11-09** — pre-release `-rc` tak dikonsumsi apa pun; rilis kini tag `vX.Y.Z` manual            |
-| Triase issue         | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar |
-| Pengelola dokumentasi | merge yang berdampak dokumentasi → satu issue `documentation`: dokumen mana yang basi dan apa yang perlu ditulis ulang (penilaian, bukan diff path); juga menilai apakah peta modul `docs/ARCHITECTURE.md` masih benar |
-| Penjernih issue       | menilai ulang saat pelapor menjawab issue `question`                                                          |
+| Automation            | Peran                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| (deterministik)       | `docs-drift.yml` — `collect_facts.py` + `check_docs.py` menyegarkan **badan issue induk #782** (angka, Lampiran A); menggantikan `Peta basis kode`                                                                                                                                                                                                                                                                                                                                |
+| Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Tiket jadi PR         | **satu-satunya pembuat PR**; cron harian, memindai antrean `ready` terlama dulu, ≤ 3 PR per run                                                                                                                                                                                                                                                                                                                                                                                   |
+| Bot sebutan           | menyerahkan permintaan `@cipansor-bot` yang berupa pekerjaan ke issue + `ready`, atau menjawab pertanyaan                                                                                                                                                                                                                                                                                                                                                                         |
+| Peninjau kode         | tinjauan baris demi baris + blok `suggestion`                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| Pemindai celah uji    | satu celah pengujian berisiko → issue                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Otomasi QA            | menjalankan alur yang berubah, melaporkan lulus/gagal                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| Uji beban             | k6 vs staging — kini `load-tests.yml`, dijalankan manual sebelum tiap rilis (bukan cron)                                                                                                                                                                                                                                                                                                                                                                                          |
+| Pemantau deployment   | CI atau E2E yang gagal di `main` → issue diagnosis (penyebabnya)                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Pembuat catatan rilis | **dipensiunkan 2026-11-09** — pre-release `-rc` tak dikonsumsi apa pun; rilis kini tag `vX.Y.Z` manual                                                                                                                                                                                                                                                                                                                                                                            |
+| Triase issue          | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat + estimasi, satu komentar                                                                                                                                                                                                                                                                                                                                                     |
+| Pengelola dokumentasi | merge yang berdampak dokumentasi → satu issue `documentation`: dokumen mana yang basi dan apa yang perlu ditulis ulang (penilaian, bukan diff path); juga menilai apakah peta modul `docs/ARCHITECTURE.md` masih benar                                                                                                                                                                                                                                                            |
+| Penjernih issue       | menilai ulang saat pelapor menjawab issue `question`                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `duplicate-detect.sh` melabeli `duplicate` saat dua issue **terbuka** berjudul sama setelah dinormalkan (menautkan yang lebih baru ke yang lebih awal, tidak menutup apa pun; hanya pencabutan oleh `cipansor-bot` yang permanen); `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`); label itu kandidat untuk maintainer, tidak menutup PR |
-| Gerbang tinjau PR     | **satu-satunya yang boleh APPROVE**; menunggu CI hijau                                                         |
-| Pemburu bug           | bug proaktif yang bisa direproduksi → issue berbukti                                                           |
-| Pemindai standar      | standar/regulasi terbaru → issue `question`                                                                    |
-| Penjaga issue         | timer usang untuk `question`/lainnya — **kini `stale-sweep.yml`** (deterministik, 2026-11-09)                  |
-| Diskusi               | berdiskusi dengan maintainer; setuju → `ready`, tolak → `wontfix`                                              |
-| Audit kematangan      | menilai 18 item kerangka → satu issue laporan                                                                  |
+| Gerbang tinjau PR     | **satu-satunya yang boleh APPROVE**; menunggu CI hijau                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| Pemburu bug           | bug proaktif yang bisa direproduksi → issue berbukti                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| Pemindai standar      | standar/regulasi terbaru → issue `question`                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| Penjaga issue         | timer usang untuk `question`/lainnya — **kini `stale-sweep.yml`** (deterministik, 2026-11-09)                                                                                                                                                                                                                                                                                                                                                                                     |
+| Diskusi               | berdiskusi dengan maintainer pada issue `question`; setuju → `ready`, tolak → `wontfix`                                                                                                                                                                                                                                                                                                                                                                                           |
+| Audit kematangan      | **dinonaktifkan 2026-11-10** — menilai 18 item kerangka → satu issue; pemilik menilainya manual dari OpenHands Cloud                                                                                                                                                                                                                                                                                                                                                              |
 
 ## Identitas — siapa berbuat sebagai siapa
 
 Dua akun GitHub membawa armada ini, dan pemisahannya disengaja: akun yang
 _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 
-| Akun           | Peran                                          | Automation                                                                                                                                                                                          |
-| -------------- | ---------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `adminypc`     | Penulis — membuat issue dan pull request       | Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar, Pengawas armada, Audit kematangan       |
+| Akun           | Peran                                          | Automation                                                                                                                                      |
+| -------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
+| `adminypc`     | Penulis — membuat issue dan pull request       | Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pemantau deployment, Pengelola dokumentasi, Pemburu bug, Pemindai standar       |
 | `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Peninjau kode, Otomasi QA, Triase issue (tipe + keparahan + estimasi + label), Penjernih issue, Gerbang tinjau PR, Diskusi |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
@@ -735,7 +735,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   ditandai siap tanpa tahu check-nya sudah hijau, sehingga run bisa dimulai lalu
   berhenti tanpa meninjau. Pemicu event gerbang kini hanya
   `pull_request.review_requested`, disaring ke `requested_reviewer.login ==
-  'cipansor-bot'`. Gerbang berjalan untuk **setiap head siap yang hijau dan belum
+'cipansor-bot'`. Gerbang berjalan untuk **setiap head siap yang hijau dan belum
   ditinjau** — bukan hanya tinjauan pertama (2026-10-16, menggantikan aturan
   "hanya sekali" 2026-10-15): PR siap memang tugas gerbang, jadi penulis tidak
   perlu meminta ulang secara manual. Yang membatasinya adalah idempotensi gerbang
@@ -755,19 +755,20 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   pelapor, dan pelapor itu menyimpan penanda per run sehingga run yang sama
   tidak dilaporkan dua kali:
 
-  | Yang gagal | Pelapor | Isi issue |
-  |---|---|---|
-  | CI atau E2E di `main` | `main-failure-bridge.yml` → `Pemantau deployment` | diagnosis penyebab (kode mana, mengapa) — butuh penilaian, jadi agen |
-  | Deploy gagal, macet, atau hijau tetapi `/healthz` tidak menyajikan commit-nya | **manual**: tab Actions `Deploy staging`/`Deploy production` + email GitHub | `deploy-watch.yml` dihapus 2026-11-11; pemilik mengawasi langsung |
-  | Situs menurun tanpa deploy (kontainer restart, pengaturan rusak) | Health check App Service + availability test Application Insights | dari platform, di luar repositori |
+  | Yang gagal                                                                    | Pelapor                                                                     | Isi issue                                                            |
+  | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------- | -------------------------------------------------------------------- |
+  | CI atau E2E di `main`                                                         | `main-failure-bridge.yml` → `Pemantau deployment`                           | diagnosis penyebab (kode mana, mengapa) — butuh penilaian, jadi agen |
+  | Deploy gagal, macet, atau hijau tetapi `/healthz` tidak menyajikan commit-nya | **manual**: tab Actions `Deploy staging`/`Deploy production` + email GitHub | `deploy-watch.yml` dihapus 2026-11-11; pemilik mengawasi langsung    |
+  | Situs menurun tanpa deploy (kontainer restart, pengaturan rusak)              | Health check App Service + availability test Application Insights           | dari platform, di luar repositori                                    |
 
   Run deploy yang `skipped` (gerbangnya tidak jalan karena CI/E2E gagal) tidak
   dilaporkan siapa pun; penyebabnya sudah dilaporkan bridge. Dasarnya: Google SRE meminta setiap peringatan dapat ditindaklanjuti,
   membedakan gejala ("apa yang rusak") dari penyebab ("mengapa"), dan
   menghindari halaman ganda untuk masalah yang sama; manajemen event PagerDuty
   menyatukan event dengan kunci dedupe per masalah; dan DORA mengukur
-  *change fail rate* serta *failed deployment recovery time*, yang hanya bisa
+  _change fail rate_ serta _failed deployment recovery time_, yang hanya bisa
   dihitung bila setiap deploy gagal tercatat tepat sekali. Rujukan di bawah.
+
 - **Satu penulis PR.** Hanya `Tiket jadi PR` yang membuka PR. Semua temuan lain
   membuka issue; `ready` memasukkannya ke antrean penulis tunggal itu. Ini
   menghapus PR spekulatif dari automation lain dan menjaga satu bentuk diff.
@@ -816,9 +817,10 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   dipensiunkan; tag rilis kini manual dan sekaligus memicu deploy.
 - **Armada adalah kerangka plus saluran pipanya.** `Peninjau arsitektur` …
   `Gerbang tinjau PR` (item Agentic SDLC) dipetakan satu-ke-satu; `Triase issue`
-  … `Pengawas armada` menambahkan pipeline label/siklus hidup, pemburu proaktif,
-  dan pengawas; `Audit kematangan` menilai item yang sama dan menyebut yang
-  terlemah. Sebagian butir mekanis dipindahkan ke Actions deterministik
+  … `Pemindai standar` menambahkan pipeline label/siklus hidup dan pemburu
+  proaktif; `Audit kematangan` (nonaktif 2026-11-10, dinilai manual) menilai
+  item yang sama dan menyebut yang terlemah.
+  (`Pengawas armada` dulu bagian dari peta ini; dipensiunkan 2026-11-11.) Sebagian butir mekanis dipindahkan ke Actions deterministik
   (`docs-drift`, `stale-sweep`, `issue-label-sync`, `duplicate-detect`,
   `pr-duplicate`, `release-gate`) karena keluarannya sebuah daftar, label, atau
   fakta yang bisa dibaca skrip — bukan penilaian.
@@ -840,8 +842,8 @@ arsitektur`/`Gerbang tinjau PR` memposting blok `suggestion` GitHub sehingga
   <https://sre.google/sre-book/monitoring-distributed-systems/>
 - PagerDuty, "Event Management" — `dedup_key` menyatukan event satu masalah ke
   satu insiden: <https://support.pagerduty.com/main/docs/event-management>
-- DORA, "DORA's software delivery metrics: the four keys" — *change fail rate*,
-  *failed deployment recovery time*: <https://dora.dev/guides/dora-metrics-four-keys/>
+- DORA, "DORA's software delivery metrics: the four keys" — _change fail rate_,
+  _failed deployment recovery time_: <https://dora.dev/guides/dora-metrics-four-keys/>
 - GitHub Docs, "Events that trigger workflows" → `workflow_run` — paling banyak
   tiga tingkat rantai, dan hanya dari berkas di cabang bawaan:
   <https://docs.github.com/en/actions/reference/workflows-and-actions/events-that-trigger-workflows#workflow_run>
@@ -855,8 +857,8 @@ arsitektur`/`Gerbang tinjau PR` memposting blok `suggestion` GitHub sehingga
   <https://drewdevault.com/2021/10/26/stalebot.html>; Khatoonabadi dkk.,
   "Understanding the Helpfulness of Stale Bot for Pull-Based Development"
   (ACM TOSEM 2023): <https://doi.org/10.1145/3624739>
-- GitHub Docs, "Deployments and environments" — *required reviewers*, *prevent
-  self-review*, dan ketersediaannya: pada paket Free/Pro/Team hanya untuk
+- GitHub Docs, "Deployments and environments" — _required reviewers_, _prevent
+  self-review_, dan ketersediaannya: pada paket Free/Pro/Team hanya untuk
   repositori publik:
   <https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments>
 - GitHub Changelog, "Pull request merge queue is now generally available"
@@ -868,7 +870,7 @@ arsitektur`/`Gerbang tinjau PR` memposting blok `suggestion` GitHub sehingga
   mengumumkan kerentanan secara privat:
   <https://docs.github.com/en/code-security/concepts/vulnerability-reporting-and-management/repository-security-advisories>
 - Prometheus Operator runbook, "Watchdog" — peringatan yang selalu menyala
-  sebagai *dead man's switch* untuk jalur peringatan itu sendiri:
+  sebagai _dead man's switch_ untuk jalur peringatan itu sendiri:
   <https://runbooks.prometheus-operator.dev/runbooks/general/watchdog/>
 - DORA, "Streamlining change approval" — persetujuan yang berat memperlambat
   pengiriman dan memperbesar dampak tiap rilis; tinjauan sejawat yang didukung

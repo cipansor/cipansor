@@ -21,9 +21,9 @@ the outside it looked finished. It was not.
 
 ## Why the old trigger hid it
 
-`bot-implement` was a *one-shot* signal: the maintainer applied it, the
+`bot-implement` was a _one-shot_ signal: the maintainer applied it, the
 automation consumed it, and the next run had nothing left to pick up. `ready`
-is a *state*, not an event. Any automation that reads a stateful queue must
+is a _state_, not an event. Any automation that reads a stateful queue must
 move the item out of the queue as its own step, or the next run re-picks work
 that is already in review — the same trap as a consumer that never acknowledges
 its message. A queue with no acknowledgement is a queue that only grows.
@@ -47,7 +47,7 @@ Assert the prompt contains both steps, and that the draft path is conditional:
 
 ```ts
 expect(prompt).toMatch(/CABUT `ready`/);
-expect(prompt).toContain('ready_for_review');
+expect(prompt).toContain("ready_for_review");
 expect(prompt).toMatch(/BIARKAN draf/);
 ```
 
