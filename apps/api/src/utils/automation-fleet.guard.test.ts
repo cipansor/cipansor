@@ -47,7 +47,17 @@ case "$1" in
     esac ;;
   api)
     case "$*" in
-      *"/collaborators/"*"/permission"*) printf '%s\\n' "\${GH_STUB_PERM:-none}" ;;
+      # The real endpoint answers an object with two fields, and the script
+      # selects both with --jq. Honouring --jq here is what makes the
+      # role_name branch testable: permission read + role_name triage
+      # (a triage collaborator) must not read as an outsider.
+      *"/collaborators/"*"/permission"*)
+        perm="\${GH_STUB_PERM:-none}"; role="\${GH_STUB_ROLE:-$perm}"
+        json=$(printf '{"permission":"%s","role_name":"%s"}' "$perm" "$role")
+        jqexpr=""; prev=""
+        for a in "$@"; do [ "$prev" = "--jq" ] && jqexpr="$a"; prev="$a"; done
+        if [ -n "$jqexpr" ]; then printf '%s\\n' "$json" | jq -r "$jqexpr"
+        else printf '%s\\n' "$json"; fi ;;
       *"/comments?per_page"*) [ -n "\${GH_STUB_COMMENTS:-}" ] && printf '%s\\n' "\${GH_STUB_COMMENTS}" ;;
       *"/reactions?per_page"*) [ -n "\${GH_STUB_REACTIONS:-}" ] && printf '%s\\n' "\${GH_STUB_REACTIONS}" ;;
       *"/issues/"*"/labels"*"--jq"*) [ -n "\${GH_STUB_CURRENT:-}" ] && printf '%s\\n' "\${GH_STUB_CURRENT}" ;;
@@ -562,15 +572,23 @@ describe('label-guard.sh', () => {
     // the notice must not divert them to the maintainer. Regression: the first
     // version treated every permission outside admin/maintain/write as an
     // outsider, so a triage collaborator was told the bot would not answer them.
-    const { calls } = run(
-      LABEL_GUARD,
-      { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'triage' },
-      ['--stdin'],
-      labeledEvent('triager', 'ready')
-    );
-    expect(calls).toContain('COMMENT');
-    expect(calls).toContain('@cipansor-bot');
-    expect(calls).not.toContain('maintainer');
+    // `permission: read` with `role_name: triage` is the case that forces the
+    // script to read *both* fields: a triage collaborator whose coarse
+    // permission reads like an outsider's must still reach the mention path.
+    for (const perm of [
+      { GH_STUB_PERM: 'triage' },
+      { GH_STUB_PERM: 'read', GH_STUB_ROLE: 'triage' },
+    ]) {
+      const { calls } = run(
+        LABEL_GUARD,
+        { GH_STUB_LABELS: LABELS, ...perm },
+        ['--stdin'],
+        labeledEvent('triager', 'ready')
+      );
+      expect(calls, JSON.stringify(perm)).toContain('COMMENT');
+      expect(calls, JSON.stringify(perm)).toContain('@cipansor-bot');
+      expect(calls, JSON.stringify(perm)).not.toContain('maintainer');
+    }
   });
 
   it('sends an outside reporter to the maintainer, not to a mention that is filtered out', () => {

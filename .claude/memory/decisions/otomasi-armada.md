@@ -790,6 +790,20 @@ komentar), bukan hanya apakah kalimatnya enak dibaca. Tes yang saya tulis untuk
 temuan ini ikut salah karena memakai `triage` sebagai contoh "pelapor luar";
 tes yang mengunci asumsi salah lebih buruk daripada tidak ada tes.
 
+**Stub yang mengabaikan `--jq` membuat cabangnya tidak teruji.** Stub `gh` di
+guard test menjawab satu kata dan mengabaikan `--jq`, jadi tes `triage` versi
+pertama hanya membuktikan kasus satu-field dan tidak pernah menyentuh alasan
+kedua field dibaca. Stub sekarang mengembalikan objek `{permission, role_name}`
+dan menjalankan ekspresi `--jq` yang diminta, sehingga `permission: read` +
+`role_name: triage` bisa diuji. Dibuktikan dengan uji mutasi: mengembalikan
+skrip sesaat ke `--jq '.permission'` membuat tes itu **gagal** (dialihkan ke
+maintainer), lalu dipulihkan. **Stub yang menyederhanakan bentuk respons akan
+menyembunyikan cabang yang justru ingin diuji — tiru bentuk respons API-nya.**
+
+Catatan kecil: komentar di dalam template literal stub tidak boleh memakai
+backtick; backtick menutup template dan `vite` gagal dengan "Cannot assign to
+this expression".
+
 **Detail insiden bocor ke memory repo, lagi.** Catatan tentang label 404 dan
 waktu run terakhir workflow (jam, nomor run, nomor issue) ditulis ke
 `.claude/memory/` padahal `AGENTS.md` menyebut "incident details" eksplisit
