@@ -17,7 +17,10 @@ vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 vi.mock('../budget.service', () => ({
   createBudget: vi.fn(async () => ({ id: 'b-1' })),
   updateBudget: vi.fn(async () => ({ id: 'b-1' })),
-  getBudgets: vi.fn(async () => ({ data: [], pagination: {} })),
+  getBudgets: vi.fn(async () => ({
+    data: [{ id: 'b-1', amount: 1500000 }],
+    meta: { pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } },
+  })),
   deleteBudget: vi.fn(async () => ({ success: true })),
   recalculateBudgetUsage: vi.fn(async () => ({ updated: 0 })),
   getBudgetUtilizationAlerts: vi.fn(async () => []),
@@ -102,5 +105,17 @@ describe('Anggaran write routes accept the web form body (#749)', () => {
     });
     expect(res.status).toBe(400);
     expect(budgetService.createBudget).not.toHaveBeenCalled();
+  });
+
+  it('GET /budgets answers a flat envelope ({ success, data, meta }), not a nested data.data', async () => {
+    const res = await authed(
+      request(app).get('/finance-enhancement/budgets?unitId=unit-smp&academicYearId=ay-1')
+    );
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data[0]).toMatchObject({ id: 'b-1' });
+    expect(res.body.meta.pagination).toMatchObject({ page: 1, total: 1 });
+    expect(res.body.data.data).toBeUndefined();
   });
 });

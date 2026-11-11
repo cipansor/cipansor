@@ -454,7 +454,10 @@ export class FinanceEnhancementController {
         requireUser(req)
       );
 
-      res.json({ success: true, data: result });
+      // The service answers a paginated envelope ({ data, meta }); flatten it
+      // into the standard response so the body is { success, data, meta } like
+      // every other list endpoint, not a nested data.data.
+      res.json({ success: true, data: result.data, meta: result.meta });
     } catch (error) {
       next(error);
     }
@@ -568,7 +571,9 @@ export class FinanceEnhancementController {
         requireUser(req)
       );
 
-      res.json({ success: true, data: result });
+      // Flatten the service's paginated envelope into the standard body shape
+      // ({ success, data, meta }), not a nested data.data.
+      res.json({ success: true, data: result.data, meta: result.meta });
     } catch (error) {
       next(error);
     }

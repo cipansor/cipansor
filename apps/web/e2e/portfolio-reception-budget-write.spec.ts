@@ -139,13 +139,13 @@ test("Anggaran: the budget form saves a budget", async ({ page }) => {
 
   const unitId = (session.user as { unitId?: string }).unitId;
   const list = await apiRequest<{
-    data: { data: Array<{ id: string; amount: string | number }> };
+    data: Array<{ id: string; amount: string | number }>;
   }>(
     session,
     "GET",
     `/finance-enhancement/budgets?unitId=${unitId}&academicYearId=${year.id}`,
   );
-  const created = list.data.data.find((b) => Number(b.amount) === 1500000);
+  const created = list.data.find((b) => Number(b.amount) === 1500000);
   expect(created, "the saved budget is readable back").toBeTruthy();
 
   // A budget is unique per (unit, year, account); deleting it here keeps a
