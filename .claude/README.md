@@ -27,7 +27,7 @@ public until release, so what an agent writes down as it works is published.
 An audit of the machine-local memory that day found that 37 of 85 notes
 touched infrastructure, open weaknesses, credentials or incidents. The rule
 ("Where things live" in `AGENTS.md`) is advisory; `guard.sh` makes its
-mechanical half binding for Claude by running `.github/scripts/check-sensitive.py`
+mechanical half binding for Claude and OpenHands by running `.github/scripts/check-sensitive.py`
 on the text of every Write/Edit to a Markdown file inside the repository, and
 the Security CI job runs the same script on every PR for the agents no hook
 reaches. It checks the *new* text only, so an edit elsewhere in a file with an

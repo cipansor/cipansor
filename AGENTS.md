@@ -44,8 +44,9 @@ monorepo**:
    it to the first branch of `is_code()` (a guard test enforces this for
    markdown). Staging deploys only after CI **and** E2E pass on `main`.
    **Format before pushing** (`pnpm format`): every `.ts`/`.tsx` is kept in
-   Prettier's format, CI's Lint job fails otherwise, and for Claude a
-   pre-push hook refuses the push and names the files and the fix command.
+   Prettier's format, CI's Lint job fails otherwise, and for Claude and
+   OpenHands a pre-push hook refuses the push and names the files and the fix
+   command.
 6. **Develop on the feature branch, commit with clear messages, never push to
    `main`.** Every PR starts from an issue and names **every** issue it
    resolves: `Fixes #n` once per issue (GitHub closes them only when the PR
@@ -241,11 +242,11 @@ keys, tokens, connection strings, cloud resource names and ids (vault, storage,
 database server), IP addresses, host paths, a weakness still open in
 production, incident details, personal data. The repository is **public until
 release** and git history keeps everything. `.github/scripts/check-sensitive.py`
-rejects the mechanical cases — Claude's `guard.sh` before the write, the
-Security CI job on every PR — and the judgement cases are on whoever writes the
-note. Until the repository is private, moving a machine-local memory into
-`.claude/memory/` needs the user's approval, file by file; once it is private,
-the two are merged.
+rejects the mechanical cases — `guard.sh` before the write (run by both Claude
+and OpenHands) and the Security CI job on every PR — and the judgement cases
+are on whoever writes the note. Until the repository is private, moving a
+machine-local memory into `.claude/memory/` needs the user's approval, file by
+file; once it is private, the two are merged.
 
 **Lifecycle.** Add a skill when the same procedure or domain knowledge is needed
 a second time; a hook when a written rule was broken anyway; a memory when a
@@ -279,9 +280,12 @@ task.
 | [`google-ad-grants`](.claude/skills/google-ad-grants/SKILL.md) | the Google Ad Grant: eligibility, monthly compliance (CTR, keywords, sitelinks, geo, conversions), the 2025–2026 program changes, the campaign plan, and the site gaps to close first (GA4/GTM host-aware, conversion tracking) |
 
 The Claude Code hooks, what each one enforces, and why each works the way it
-does are in [`.claude/README.md`](./.claude/README.md). Read it before touching
-a hook: most of these designs replaced an earlier one that looked right and did
-nothing.
+does are in [`.claude/README.md`](./.claude/README.md); the OpenHands side —
+`setup.sh`, the hook adapters, and the memory pointer — is in
+[`.openhands/README.md`](./.openhands/README.md), because `guard.sh` and
+`format-before-push.sh` are shared by both. Read the matching one before
+touching a hook: most of these designs replaced an earlier one that looked right
+and did nothing.
 
 <!-- BEGIN:turborepo-agent-rules -->
 
