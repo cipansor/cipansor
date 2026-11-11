@@ -3,6 +3,7 @@
 | Versi | Tanggal | Basis aplikasi | Tingkat verifikasi | Perubahan |
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo kepala unit pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
+| 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Nama kontrol Pengumuman dicocokkan ke layar: tombol **Buat Pengumuman** (bukan "Buat Baru"), judul formulir **Buat Pengumuman**, dan kolom **Judul**/**Isi** (bukan "Konten"); pesan validasi **"Judul dan isi wajib diisi"** disalin dari `announcements/page.tsx` (#779) |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo kepala unit, dan tiap kartu memuat
@@ -381,15 +382,15 @@ evaluasi kinerja periodik pegawai itu.
 
 **Langkah.**
 
-1. Buka **Pengumuman**, lalu klik **Buat Baru**.
-   *Formulir **Buat Pengumuman Baru** terbuka.*
-2. Isi **Judul*** dan **Konten***.
+1. Buka **Pengumuman**, lalu klik **Buat Pengumuman**.
+   *Formulir **Buat Pengumuman** terbuka.*
+2. Isi **Judul** dan **Isi**.
 3. Klik **Simpan**.
    *Muncul pesan "Pengumuman berhasil dibuat".*
 
-![Gambar 10. Halaman Pengumuman unit dan formulir Buat Pengumuman Baru.](screens/kepemimpinan-kepala-unit/15-pengumuman.png){width=14cm}
+![Gambar 10. Halaman Pengumuman unit dan formulir Buat Pengumuman.](screens/kepemimpinan-kepala-unit/15-pengumuman.png){width=14cm}
 
-*Gambar 10. Halaman Pengumuman unit dan formulir Buat Pengumuman Baru.*
+*Gambar 10. Halaman Pengumuman unit dan formulir Buat Pengumuman.*
 
 **Hasilnya, dan giliran siapa berikutnya.** Pengumuman tampil di halaman
 Pengumuman pengguna yang berhak membacanya.
@@ -398,7 +399,7 @@ Pengumuman pengguna yang berhak membacanya.
 
 | Yang terlihat | Penyebab umum | Yang perlu dilakukan |
 |---|---|---|
-| "Judul dan konten wajib diisi" | Ada isian wajib yang kosong | Isi **Judul*** dan **Konten*** |
+| "Judul dan isi wajib diisi" | Ada isian wajib yang kosong | Isi **Judul** dan **Isi** |
 
 **Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).
 
