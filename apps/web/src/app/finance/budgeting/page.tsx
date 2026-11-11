@@ -47,22 +47,9 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { MainLayout } from "@/components/layout";
+import { useBudgets } from "@/hooks/use-finance-enhancement";
 
-// Helper Hooks
-const useBudgets = (unitId: string, academicYearId: string) => {
-  return useQuery({
-    queryKey: ["budgets", unitId, academicYearId],
-    queryFn: async () => {
-      const res = await api.get(`/finance-enhancement/budgets`, {
-        params: { unitId, academicYearId },
-      });
-      // The endpoint answers a paginated envelope ({ data, meta }); the table
-      // below maps the rows, so unwrap it here (#749).
-      return res.data.data?.data ?? [];
-    },
-    enabled: !!unitId && !!academicYearId,
-  });
-};
+const PAGE_SIZE = 20;
 
 const useUnits = () => {
   return useQuery({
@@ -150,11 +137,18 @@ function BudgetingPageContent() {
 
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedYearId, setSelectedYearId] = useState<string>("");
+  const [page, setPage] = useState(1);
 
-  const { data: budgets, isLoading } = useBudgets(
-    selectedUnitId,
-    selectedYearId,
-  );
+  const { data: budgetResult, isLoading } = useBudgets({
+    unitId: selectedUnitId,
+    academicYearId: selectedYearId,
+    page,
+    limit: PAGE_SIZE,
+    enabled: !!selectedUnitId && !!selectedYearId,
+  });
+  const budgets = budgetResult?.data ?? [];
+  const meta = budgetResult?.meta;
+  const totalPages = meta?.pagination?.totalPages ?? 1;
   const createBudget = useCreateBudget();
   const deleteBudget = useDeleteBudget();
   const updateBudget = useUpdateBudget();
@@ -321,7 +315,13 @@ function BudgetingPageContent() {
       </div>
 
       <div className="flex gap-4">
-        <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
+        <Select
+          value={selectedUnitId}
+          onValueChange={(val) => {
+            setSelectedUnitId(val);
+            setPage(1);
+          }}
+        >
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Pilih Unit" />
           </SelectTrigger>
@@ -334,7 +334,13 @@ function BudgetingPageContent() {
           </SelectContent>
         </Select>
 
-        <Select value={selectedYearId} onValueChange={setSelectedYearId}>
+        <Select
+          value={selectedYearId}
+          onValueChange={(val) => {
+            setSelectedYearId(val);
+            setPage(1);
+          }}
+        >
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Pilih Tahun Ajaran" />
           </SelectTrigger>
@@ -469,6 +475,32 @@ function BudgetingPageContent() {
                 )}
               </TableBody>
             </Table>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4">
+              <span className="text-sm text-muted-foreground">
+                Halaman {page} dari {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Sebelumnya
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Berikutnya
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

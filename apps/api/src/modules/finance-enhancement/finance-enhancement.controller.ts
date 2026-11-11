@@ -559,11 +559,14 @@ export class FinanceEnhancementController {
       const { unitId } = req.query;
       const { page, limit } = parsePagination(req);
 
-      const result = await getFinancialPeriods({
-        unitId: unitId as string,
-        page,
-        limit,
-      });
+      const result = await getFinancialPeriods(
+        {
+          unitId: unitId as string,
+          page,
+          limit,
+        },
+        requireUser(req)
+      );
 
       res.json({ success: true, data: result });
     } catch (error) {

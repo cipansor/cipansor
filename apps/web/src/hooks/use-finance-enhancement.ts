@@ -18,6 +18,7 @@ import {
   PaymentCategory, // Mapped from PaymentComponentCategory
   SharedPaginatedResponse,
   FinanceReportPeriod,
+  Budget,
 } from "@cipansor/shared";
 
 // Re-export types
@@ -436,22 +437,25 @@ export function useBudgets(
     academicYearId?: string;
     page?: number;
     limit?: number;
+    enabled?: boolean;
   } = {},
 ) {
+  const { enabled = true, ...query } = filters;
   return useQuery({
-    queryKey: ["budgets", filters],
+    queryKey: ["budgets", query],
+    enabled,
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (filters.unitId) params.append("unitId", filters.unitId);
-      if (filters.academicYearId)
-        params.append("academicYearId", filters.academicYearId);
-      if (filters.page) params.append("page", String(filters.page));
-      if (filters.limit) params.append("limit", String(filters.limit));
+      if (query.unitId) params.append("unitId", query.unitId);
+      if (query.academicYearId)
+        params.append("academicYearId", query.academicYearId);
+      if (query.page) params.append("page", String(query.page));
+      if (query.limit) params.append("limit", String(query.limit));
 
-      const response = await api.get<{ success: boolean; data: any }>(
+      const response = await api.get<SharedPaginatedResponse<Budget>>(
         `/finance-enhancement/budgets?${params}`,
       );
-      return response.data.data;
+      return response.data;
     },
   });
 }

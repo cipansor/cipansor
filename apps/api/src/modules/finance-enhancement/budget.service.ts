@@ -18,6 +18,20 @@ export async function createBudget(
   // to its own whatever the body says, a foundation role names one.
   const unitId = writeUnitScopeFor(actor, data.unitId);
 
+  // The account must belong to the budget's unit. `AccountCode.unitId` is
+  // nullable for legacy/shared rows, so a null account is allowed; one pinned
+  // to a *different* unit is refused. Without this a unit admin could budget
+  // against another unit's account and read its code and name back from the
+  // list.
+  const account = await prisma.accountCode.findUnique({
+    where: { id: accountId },
+    select: { unitId: true },
+  });
+  if (!account) throw Errors.badRequest('Akun tidak ditemukan');
+  if (account.unitId && account.unitId !== unitId) {
+    throw Errors.badRequest('Akun ini milik unit lain');
+  }
+
   // Check if budget already exists
   const existing = await prisma.budget.findUnique({
     where: {
@@ -120,7 +134,7 @@ export async function getBudgets(
 
   return {
     data: result,
-    meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    meta: { pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } },
   };
 }
 

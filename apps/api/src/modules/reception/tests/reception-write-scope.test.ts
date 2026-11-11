@@ -75,6 +75,43 @@ describe('ReceptionService — write scope', () => {
     expect(prisma.studentVisit.create).not.toHaveBeenCalled();
   });
 
+  it('createStudentVisit looks the santri up in the record own unit, not scope alone', async () => {
+    // A foundation account reaches every santri, so scope alone would let it
+    // file a unit-1 visit about a unit-2 santri; the lookup must carry unit-1.
+    vi.mocked(prisma.student.findFirst).mockResolvedValue(null);
+
+    await expect(
+      service.createStudentVisit(
+        'unit-1',
+        { studentId: 's-1', visitorName: 'Budi', relationship: 'Ayah', needs: 'Jenguk' },
+        { sub: 'u-1', roleCode: 'YAYASAN_KETUA', unitId: null }
+      )
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    const where = vi.mocked(prisma.student.findFirst).mock.calls[0][0]?.where as {
+      AND: Array<Record<string, unknown>>;
+    };
+    expect(where.AND).toContainEqual({ unitId: 'unit-1' });
+  });
+
+  it('createPackage looks the santri up in the record own unit, not scope alone', async () => {
+    vi.mocked(prisma.student.findFirst).mockResolvedValue(null);
+
+    await expect(
+      service.createPackage(
+        'unit-1',
+        'user-1',
+        { studentId: 's-1', senderName: 'JNE', expedition: 'JNE', content: 'Buku' },
+        { sub: 'u-1', roleCode: 'YAYASAN_KETUA', unitId: null }
+      )
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    const where = vi.mocked(prisma.student.findFirst).mock.calls[0][0]?.where as {
+      AND: Array<Record<string, unknown>>;
+    };
+    expect(where.AND).toContainEqual({ unitId: 'unit-1' });
+  });
+
   it('createPackage refuses a santri the actor does not reach (404)', async () => {
     vi.mocked(prisma.student.findFirst).mockResolvedValue(null);
 

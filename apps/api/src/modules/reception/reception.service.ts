@@ -13,7 +13,7 @@ import {
 import { Errors } from '../../middleware/error';
 import { todayWib } from '../../utils/wib';
 import { wibDayStart, wibDayEnd } from '../../utils/wib-day';
-import { assertStudentInScope, type ScopeActor } from '../../utils/student-scope';
+import { assertStudentInUnit, type ScopeActor } from '../../utils/student-scope';
 import { actorReachesUnit } from '../../utils/resolve-unit-id';
 // DB enums are the source of truth from Prisma, not the shared package.
 import { Prisma, VisitStatus, PackageStatus } from '@prisma/client';
@@ -223,10 +223,11 @@ export const createStudentVisit = async (
   data: CreateStudentVisitInput,
   actor: ScopeActor
 ) => {
-  // The visit is about one santri, so it follows the santri the account
-  // reaches: 404 for a santri in another unit, as for an id that does not
-  // exist. The write path used to look the santri up by id alone.
-  await assertStudentInScope(data.studentId, actor);
+  // The visit is about one santri *of this unit*, so the santri must both be
+  // in the account's scope and belong to the record's unit: 404 otherwise, as
+  // for an id that does not exist. Scope alone let a foundation account file a
+  // unit-A visit about a unit-B santri, whose identity unit A then read.
+  await assertStudentInUnit(data.studentId, unitId, actor);
   const row = await prisma.studentVisit.create({
     data: {
       unitId,
@@ -333,9 +334,9 @@ export const createPackage = async (
   data: CreateStudentPackageInput,
   actor: ScopeActor
 ) => {
-  // The parcel is about one santri, so it follows the santri the account
-  // reaches: 404 for a santri in another unit.
-  await assertStudentInScope(data.studentId, actor);
+  // The parcel is about one santri *of this unit*, so the santri must both be
+  // in the account's scope and belong to the record's unit: 404 otherwise.
+  await assertStudentInUnit(data.studentId, unitId, actor);
   const row = await prisma.studentPackage.create({
     data: {
       unitId,

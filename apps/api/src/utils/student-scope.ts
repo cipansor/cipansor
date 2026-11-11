@@ -90,6 +90,26 @@ export async function assertStudentInScope(studentId: string, actor: ScopeActor)
 }
 
 /**
+ * 404 unless `studentId` is a santri of `unitId` *and* one this account may
+ * see — for a record that carries a unit of its own (a visit, a parcel). The
+ * scope check alone is not enough: a foundation account reaches every santri,
+ * so it could file a unit-A record about a unit-B santri, and unit A's staff
+ * would then read that santri's identity from a record they are allowed to
+ * see. The record's unit must match the santri's.
+ */
+export async function assertStudentInUnit(
+  studentId: string,
+  unitId: string,
+  actor: ScopeActor
+): Promise<void> {
+  const found = await prisma.student.findFirst({
+    where: { AND: [{ id: studentId }, { unitId }, studentScope(actor)] },
+    select: { id: true },
+  });
+  if (!found) throw Errors.notFound('Student');
+}
+
+/**
  * `{ student: scope }` for a record's `where`, or nothing when the scope is
  * unrestricted. An empty filter on an optional relation would also drop rows
  * that have no santri at all (a clinic patient who is staff, say), which an

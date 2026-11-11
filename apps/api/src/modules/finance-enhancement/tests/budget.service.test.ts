@@ -40,6 +40,9 @@ vi.mock('../../../lib/prisma', () => ({
       count: vi.fn(),
       deleteMany: vi.fn(),
     },
+    accountCode: {
+      findUnique: vi.fn(),
+    },
     journalEntry: {
       aggregate: vi.fn(),
     },
@@ -77,6 +80,7 @@ describe('Budget Service', () => {
       updatedAt: new Date(),
     };
 
+    (prisma.accountCode.findUnique as any).mockResolvedValue({ unitId: 'unit-1' });
     (prisma.budget.findUnique as any).mockResolvedValue(null);
     (prisma.budget.create as any).mockResolvedValue(mockCreatedBudget);
 
@@ -104,6 +108,7 @@ describe('Budget Service', () => {
   });
 
   it('should pin a unit admin to its own unit, ignoring the body unitId', async () => {
+    (prisma.accountCode.findUnique as any).mockResolvedValue({ unitId: 'unit-1' });
     (prisma.budget.findUnique as any).mockResolvedValue(null);
     (prisma.budget.create as any).mockResolvedValue({ id: 'budget-1' });
 
@@ -135,6 +140,7 @@ describe('Budget Service', () => {
   });
 
   it('should throw error if budget already exists', async () => {
+    (prisma.accountCode.findUnique as any).mockResolvedValue({ unitId: 'unit-1' });
     (prisma.budget.findUnique as any).mockResolvedValue({ id: 'existing' });
 
     await expect(
@@ -149,6 +155,43 @@ describe('Budget Service', () => {
         UNIT_ADMIN
       )
     ).rejects.toThrow('Budget for this account and academic year already exists');
+  });
+
+  it('createBudget refuses an account pinned to another unit', async () => {
+    (prisma.accountCode.findUnique as any).mockResolvedValue({ unitId: 'other-unit' });
+
+    await expect(
+      createBudget(
+        {
+          unitId: 'unit-1',
+          academicYearId: 'year-1',
+          accountId: 'acc-1',
+          amount: 1000000,
+          createdById: 'user-1',
+        },
+        UNIT_ADMIN
+      )
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(prisma.budget.create).not.toHaveBeenCalled();
+  });
+
+  it('createBudget allows a legacy shared account with no unit', async () => {
+    (prisma.accountCode.findUnique as any).mockResolvedValue({ unitId: null });
+    (prisma.budget.findUnique as any).mockResolvedValue(null);
+    (prisma.budget.create as any).mockResolvedValue({ id: 'budget-1' });
+
+    await expect(
+      createBudget(
+        {
+          unitId: 'unit-1',
+          academicYearId: 'year-1',
+          accountId: 'acc-1',
+          amount: 1000000,
+          createdById: 'user-1',
+        },
+        UNIT_ADMIN
+      )
+    ).resolves.toBeDefined();
   });
 
   it('should get budgets with correct transformation', async () => {
@@ -192,6 +235,14 @@ describe('Budget Service', () => {
     expect(prisma.budget.findMany).toHaveBeenCalledWith(
       expect.objectContaining({ where: expect.objectContaining({ unitId: 'other-unit' }) })
     );
+  });
+
+  it('getBudgets refuses a unit-bound account with no unit (403, no query)', async () => {
+    await expect(getBudgets({}, { roleCode: 'SDIT_ADMIN', unitId: null })).rejects.toMatchObject({
+      statusCode: 403,
+    });
+    expect(prisma.budget.findMany).not.toHaveBeenCalled();
+    expect(prisma.budget.count).not.toHaveBeenCalled();
   });
 
   it('updateBudget refuses a budget in another unit with 404', async () => {
