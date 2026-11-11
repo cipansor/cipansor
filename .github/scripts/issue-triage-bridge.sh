@@ -595,12 +595,14 @@ process_one() { # process_one <number> <inflight> [ready_ok]
 # unfinished. The ordinary sweep excludes `ready` issues, so without this pass a
 # checkpoint on one is never examined again: a deferred label dispatch (`pending`)
 # would sit forever, and a recovered run that later fails would never be retried
-# (#837 R348, R474). It discovers the checkpoints by listing the KV store's sweep
-# keys — not by a `ready`-issue search bounded by update time, which would forget
-# an old pending checkpoint once newer issues filled the page window (#837 R475).
-# Discovery is unbounded; only the number of dispatches per pass (`SWEEP_MAX`)
-# and the pool cap (`MAX_INFLIGHT`) bound the work. A finished checkpoint is
-# skipped, so a new comment on a `ready` issue is not re-triaged (#837 R496); a
+# (#837 R348, R474). It discovers candidates from two sources: the KV store's
+# sweep keys, and the legacy sweep markers still sitting on `ready` issues (see
+# `recover_ready`). Neither is a `ready`-issue search bounded by update time,
+# which would forget an old pending checkpoint once newer issues filled the page
+# window (#837 R475). Discovery is unbounded; only the number of dispatches per
+# pass (`SWEEP_MAX`) and the pool cap (`MAX_INFLIGHT`) bound the work. A finished
+# checkpoint is skipped, so a new comment on a `ready` issue is not re-triaged
+# (#837 R496); a
 # `pending` or run-field checkpoint is handed to `process_one`, which dispatches
 # it, finalises a completed run, or retries a failed one.
 recover_ready() {
@@ -608,12 +610,19 @@ recover_ready() {
   fails=0
   inflight=$(inflight_count)
   cand=$(mktemp)
-  # Discovery is the store's sweep keys plus the legacy sweep markers still on
-  # `ready` issues. The ordinary sweep excludes `ready` issues, so a marker there
-  # is never adopted by that pass: without this the recovery would find nothing
-  # (the store has no key) and `--purge-markers` would then delete the marker,
-  # dropping a deferred dispatch. Only `ready` issues are listed, so this does not
-  # scale with every legacy marker in the repository (#1031 review).
+  # Discovery has two sources, unioned by `sort -u`:
+  #   1. `sweep_keys` — the store's own sweep keys (exact, one paginated listing).
+  #   2. `legacy_ready_issues` — the legacy sweep markers still on `ready` issues.
+  # The ordinary sweep excludes `ready` issues, so a marker there is never adopted
+  # by that pass: without source 2 the recovery would find nothing (the store has
+  # no key) and `--purge-markers` would then delete the marker, dropping a
+  # deferred dispatch.
+  #
+  # Source 2 is not free: it lists the open `ready` issues (one call per 100) and
+  # then checks each number for a marker, which reads that issue's whole comment
+  # listing (paginated). So a pass costs O(#ready issues) comment listings, not
+  # just the store listing. Only `ready` issues are touched, so it does not scale
+  # with every legacy marker in the repository (#1031 review).
   { sweep_keys; legacy_ready_issues; } | sort -u > "$cand"
   while read -r n; do
     [ -n "${n:-}" ] || continue
