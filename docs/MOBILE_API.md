@@ -47,9 +47,9 @@ dan saat membaca:
   **`YYYY-MM-DD`** (mis. `2026-08-10`). Timestamp ISO seperti
   `2026-08-10T12:00:00Z` **ditolak** dengan 400.
 - **Membaca** (`GET /parent/children/:studentId/finance`): setiap tagihan
-  mengembalikan `dueDate` sebagai **timestamp ISO** di tengah malam UTC
-  (`2026-08-10T00:00:00.000Z`). Ambil sepuluh aksara pertama (`YYYY-MM-DD`)
-  sebagai tanggalnya; jangan menafsirkan jamnya.
+  mengembalikan `dueDate` sebagai **timestamp ISO** (mis.
+  `2026-08-10T00:00:00.000Z`), bukan string tanggal. Ambil sepuluh aksara
+  pertama (`YYYY-MM-DD`) sebagai tanggalnya; jangan menafsirkan jamnya.
 
 Bulan penagihan otomatis bulanan dan pengingat SPP mengikuti **kalender WIB**,
 bukan kalender server.
