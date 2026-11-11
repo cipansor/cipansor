@@ -186,19 +186,21 @@ if ! gh api -X DELETE "repos/$REPO/issues/$NUMBER/labels/$LABEL" >/dev/null 2>&1
 fi
 echo "Removed label '$LABEL' from $KIND #$NUMBER (applied by '$ACTOR')."
 
-# Say so once, and only alert the maintainer when the actor was not authorized
-# to label at all — a stray label by a maintainer is a slip, not an incident.
-# The notice names the real path (`@cipansor-bot`), not "state what you want":
-# the mention owner (SDLC 07) is what turns a request into a label or an issue,
-# so telling the actor to "ask" without the mention leaves them with no action.
+# Say so once. The permission decides both the escalation pointer and what the
+# actor is told to do next: `Bot sebutan` (SDLC 07) only forwards a mention from
+# an OWNER/MEMBER/COLLABORATOR (`MENTION_FILTER`), so pointing an outside
+# reporter at `@cipansor-bot` would send them to a door that never opens.
 PERM=$(gh api "repos/$REPO/collaborators/$ACTOR/permission" --jq '.permission' 2>/dev/null || echo none)
 ALERT=""
 case "$PERM" in
-  admin | maintain | write) ;;
-  *) ALERT=" (akun ini tidak punya izin menulis; @adminypc tolong tinjau)" ;;
+  admin | maintain | write)
+    ASK="sebut \`@cipansor-bot\` dengan apa yang Anda inginkan, lalu bot menindaklanjutinya — memasang label yang jelas, atau membuka issue ber-\`ready\` bila itu pekerjaan baru." ;;
+  *)
+    ASK="mintakan penilaian kepada maintainer (\`@adminypc\`) di thread ini; bot tidak memproses permintaan dari akun di luar kolaborator."
+    ALERT=" (@adminypc tolong tinjau)" ;;
 esac
 
-BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Label tidak dipasang atas permintaan langsung: sebut \`@cipansor-bot\` dengan apa yang Anda inginkan, lalu bot menindaklanjutinya — memasang label yang jelas, atau membuka issue ber-\`ready\` bila itu pekerjaan baru.$ALERT
+BODY="Label \`$LABEL\` dicabut dari $KIND #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh memasang label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md), jadi label manual membuat keduanya berbeda pendapat soal keadaan sebenarnya. Label tidak dipasang atas permintaan langsung: $ASK$ALERT
 
 $REVOKE_MARK"
 

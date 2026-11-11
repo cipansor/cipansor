@@ -658,19 +658,9 @@ Pemilik memutuskan (dilaksanakan 2026-11-11):
   label `automation-health` ikut. Pemilik mengawasi OpenHands Cloud dan tab
   Actions langsung, dengan email GitHub sebagai saluran peringatan.
   Label `deploy-watch` dan `watchdog-repair` dihapus dari repo 2026-11-11.
-  **Urutan penting:** `.github/workflows/deploy-watch.yml` masih ada di `main`
-  (hanya terhapus di branch ini) dan masih berjalan — run #84 pada 2026-11-11
-  12:01 membuat #1043/#1044. `main()` di `deploy-watch.sh` memanggil
-  `ensure_label` pada setiap run, jadi label `deploy-watch` akan **dibuat
-  kembali** setiap deploy berikutnya sampai penghapusan workflow ini mendarat di
-  `main`. `watchdog-repair` yatim total (nol rujukan di kode dan dokumen, nol
-  issue) sehingga aman dihapus kapan saja.
-  Label `deploy-watch` dan `watchdog-repair` dihapus dari repo 2026-11-11.
-  **Urutan penting:** `.github/workflows/deploy-watch.yml` masih ada di `main`
-  (hanya terhapus di branch ini) dan masih berjalan — run #84 pada 2026-11-11
-  12:01 membuat #1043/#1044. `main()` di `deploy-watch.sh` memanggil
-  `ensure_label` pada setiap run, jadi label `deploy-watch` akan **dibuat
-  kembali** setiap deploy berikutnya sampai penghapusan workflow ini mendarat di
+  **Urutan penting:** workflow `deploy-watch.yml` masih hidup di `main` (hanya
+  terhapus di branch ini) dan memanggil `ensure_label` setiap run, jadi label
+  `deploy-watch` akan **dibuat kembali** sampai penghapusan itu mendarat di
   `main`. `watchdog-repair` yatim total (nol rujukan di kode dan dokumen, nol
   issue) sehingga aman dihapus kapan saja.
 - **Form issue dipecah per tipe** (`bug_report`, `enhancement`,
@@ -711,8 +701,8 @@ COLLABORATOR), `SDLC 16 · Penjernih issue` → filter pelapor (kebalikannya),
 `SDLC 06 · Tiket jadi PR` → prompt baru (paginasi `&page=2`, `in-progress`,
 `ready_for_review`). Sebelumnya kedua filter 16/22 identik, jadi satu balasan
 maintainer menjalankan dua agen. `deploy-watch` dan `watchdog-repair` tetap
-hilang dari repo pada 2026-11-11 13:2x (404), dan workflow `deploy-watch` di
-`main` belum berjalan lagi sejak run #84 (12:01) — label akan dibuat ulang
+hilang dari repo, dan workflow `deploy-watch` di
+`main` belum berjalan lagi sejak penghapusan label — label akan dibuat ulang
 begitu run berikutnya jalan, sebelum PR #1045 mendarat.
 
 Prompt automation yang **pensiun/OFF** masih menyebut label terhapus dan
@@ -772,3 +762,20 @@ Tiga temuan lain dari ronde yang sama, semuanya cacat nyata:
 - `pr-template-guard.sh` menerima issue `in-progress` yang juga `blocked` atau
   `question`. `label-guard` hanya mencabut `ready`, jadi pasangan itu bisa
   berdampingan; `question`/`blocked` kini diperiksa lebih dulu dan menang.
+
+**Pesan harus sadar izin penerimanya.** Percobaan pertama memperbaiki bunyi
+pesan malah menyesatkan pelapor luar: pesan pencabutan dikirim ke siapa pun yang
+memasang label terlindungi, tetapi `MENTION_FILTER` (SDLC 07) hanya meneruskan
+sebutan dari OWNER/MEMBER/COLLABORATOR. Menyuruh pelapor luar menyebut
+`@cipansor-bot` berarti mengarahkannya ke pintu yang tidak terbuka. Pesan kini
+bercabang menurut `PERM`: kolaborator diarahkan ke sebutan, akun lain ke
+maintainer. **Sebelum menulis "lakukan X" di sebuah pesan, periksa filter siapa
+yang menerima pesan itu** — bukan hanya apakah kalimatnya enak dibaca.
+
+**Detail insiden bocor ke memory repo, lagi.** Catatan tentang label 404 dan
+waktu run terakhir workflow (jam, nomor run, nomor issue) ditulis ke
+`.claude/memory/` padahal `AGENTS.md` menyebut "incident details" eksplisit
+sensitif; peninjau menandainya. Angka-angka itu dihapus dari repo (pelajarannya
+tetap, angkanya tidak) dan hanya hidup di memory mesin. Pola yang sama sudah
+pernah terjadi sebelumnya dengan kuota sandbox: **menulis hasil observasi live
+terasa seperti pengetahuan, tetapi jam dan nomor run adalah detail insiden.**

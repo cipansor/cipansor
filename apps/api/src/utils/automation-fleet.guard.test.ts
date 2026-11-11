@@ -543,17 +543,32 @@ describe('label-guard.sh', () => {
     expect(out).toContain('Removed label');
   });
 
-  it('points the actor at @cipansor-bot and claims no human-decision label', () => {
+  it('points a collaborator at @cipansor-bot and claims no human-decision label', () => {
     // "Sebutkan apa yang Anda inginkan" named no channel, and `bot-implement`
     // was removed on 2026-11-11, so the old tail was both vague and false.
     const { calls } = run(
       LABEL_GUARD,
-      { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'triage' },
+      { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'write' },
       ['--stdin'],
       labeledEvent('someone', 'ready')
     );
     expect(calls).toContain('@cipansor-bot');
     expect(calls).not.toContain('keputusan manusia');
+  });
+
+  it('sends an outside reporter to the maintainer, not to a mention that is filtered out', () => {
+    // `Bot sebutan` (SDLC 07) only forwards a mention from an
+    // OWNER/MEMBER/COLLABORATOR, so telling a non-collaborator to mention the
+    // bot sends them to a door that never opens.
+    const { calls } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'triage' },
+      ['--stdin'],
+      labeledEvent('outsider', 'ready')
+    );
+    expect(calls).toContain('COMMENT');
+    expect(calls).toContain('maintainer');
+    expect(calls).not.toContain('@cipansor-bot');
   });
 
   it('leaves a label the bot applied', () => {
