@@ -112,8 +112,14 @@ AUTHOR_GUARD_FILTER = "comment.user.login != 'cipansor-bot' && comment.user.type
 # the repository, so leaving it in the prompt would make the next run create it
 # again (the labels API creates a missing label on `POST`). Stripped from every
 # tail so a live prompt that still applies it is upgraded on the next deploy.
-BUG_HUNTER_MENTION = "`bug-hunter`, `bot-implement`"
-BUG_HUNTER_STRIPPED = "`bot-implement`"
+# The live SDLC 19 tail reads "satu prioritas dari
+# priority:critical/high/medium/low, `bug-hunter`, dan `bot-implement`", so the
+# first entry also repairs the connector; the later ones catch any other position.
+BUG_HUNTER_SUBS = (
+    (", `bug-hunter`, dan `bot-implement`", " dan `bot-implement`"),
+    ("`bug-hunter`, ", ""),
+    ("`bug-hunter`", ""),
+)
 
 # The environment note used to tell the agent to do "any read and write on
 # GitHub" with the token baked into the `origin` remote. That token is the
@@ -449,7 +455,8 @@ def new_prompt(name, prompt):
         result = result.replace(TAIL_MARK, WORK_BUDGET + TAIL_MARK, 1)
     # The `bug-hunter` provenance label is retired; drop it from any live tail
     # that still applies it, so the next deploy stops creating the label.
-    result = result.replace(BUG_HUNTER_MENTION, BUG_HUNTER_STRIPPED)
+    for old, new in BUG_HUNTER_SUBS:
+        result = result.replace(old, new)
     return result
 
 

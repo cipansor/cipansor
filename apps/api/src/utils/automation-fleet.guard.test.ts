@@ -1472,12 +1472,17 @@ describe('deploy-sdlc-agents.py', () => {
   it.skipIf(!hasPy)('strips the retired `bug-hunter` label from a live tail', () => {
     // The label is deleted from the repository, and the labels API creates a
     // missing label on `POST`, so a live prompt that still applies it would
-    // resurrect it on the next run. The redeploy must drop the mention.
+    // resurrect it on the next run. The redeploy must drop the mention, and it
+    // must match the real SDLC 19 wording (a narrower pattern missed it).
     const original =
-      'Header\n\nPERILAKU SASARAN (level agentic)\nmembuka issue `bug`, satu prioritas, `bug-hunter`, `bot-implement`';
-    const out = newPrompt('SDLC 19', original);
+      'Header\n\nPERILAKU SASARAN (level agentic)\n' +
+      'berlabel `bug`, satu prioritas dari priority:critical/high/medium/low, `bug-hunter`, ' +
+      'dan `bot-implement` — jangan membuka pull request.';
+    const out = newPrompt('SDLC 19 · Pemburu bug', original);
     expect(out).not.toContain('bug-hunter');
-    expect(out).toContain('`bot-implement`');
+    expect(out).toContain('priority:critical/high/medium/low dan `bot-implement`');
+    // Idempotent: a second pass changes nothing.
+    expect(newPrompt('SDLC 19 · Pemburu bug', out)).toBe(out);
   });
 
   it.skipIf(!hasPy)('still enforces the 1800s timeout when a truncated prompt is refused', () => {
