@@ -75,7 +75,7 @@ setiap orang pada data yang berhak dilihatnya.
 | Guru, guru BK, wali kelas | Per kelas / unit | Mengajar, mengisi absensi, menilai, membina |
 | Pendidik pesantren (ustadz, musyrif, muhafidz) dan Pimpinan Pesantren | Pesantren | Tahfidz, ibadah, perizinan santri mukim, asrama |
 | Tata usaha, bendahara, pustakawan, perawat, keamanan, laboran, pengelola unit usaha | Per unit / layanan | Administrasi, keuangan, layanan, keamanan |
-| Wali santri | Data anaknya sendiri | Memantau perkembangan, tagihan, perizinan, laporan harian |
+| Wali santri | Data anaknya sendiri | Memantau perkembangan, tagihan, perizinan, laporan harian; membaca dan mengomentari portofolio anaknya tanpa boleh menulis |
 | Santri / siswa | Data diri sendiri | Capaian hafalan, ujian, jadwal, portofolio |
 | Alumni dan komite | Terbatas | Direktori, dokumen, kontribusi; komite membaca laporan |
 | Pengunjung situs publik | Umum | Profil yayasan, berita, unit, program, donasi, verifikasi dokumen |
@@ -515,7 +515,20 @@ sampai ke kontainer; pada Azure App Service, ke app settings tiap kontainer.
   melebarkan baca ke seluruh unit untuk organ yayasan dan peran lintas unit
   (`seesAllUnits` atas `CROSS_UNIT_SCOPE_ROLES`: pengasuh, ustadz, musyrif,
   muhafidz, tata usaha pesantren, dan layanan bersama), sedangkan peran lain
-  terkunci pada unitnya.
+  terkunci pada unitnya. Aturannya per aktor: santri → dirinya sendiri; wali →
+  anaknya; alumni dan komite → tidak ada baris santri; peran lintas unit →
+  semua unit; selain itu → unitnya sendiri. Portofolio mengikuti aturan itu
+  (`portfolio.service.ts`): santri membaca miliknya, wali membaca dan
+  mengomentari portofolio anaknya **tanpa boleh menulis**, staf membaca
+  portofolio unitnya, peran lintas unit membaca semua unit; portofolio di luar
+  jangkauan dijawab **404**, bukan 403, agar keberadaan id tidak terkonfirmasi.
+  Showcase santri (`isShowcase`/`isPublic`) hanya memilih karya yang ditampilkan,
+  bukan siapa yang boleh melihatnya — jangkauannya tetap `studentScope`.
+- **Balasan pesan dua pihak.** Percakapan pesan (`/api/messages`) terikat pada
+  dua orangnya: `createMessage` dan `replyToMessage` menolak pengirim dari luar
+  percakapan dan penerima pihak ketiga dengan **404**, bukan 403, sehingga id
+  percakapan orang lain tidak terkonfirmasi
+  (`apps/api/src/modules/messages/messages.service.ts`).
 - **Validasi.** Zod di tepi (`validate`, `validateQuery`, `validateParams`);
   skema bersama di `@cipansor/shared`; kontrak yang sama dipakai web.
 - **Amplop respons.** `{ success, data, meta? }` lewat `ApiResponse`; galat
@@ -844,7 +857,10 @@ Setiap halaman web (`page.tsx` di `apps/web/src/app`) dikelompokkan menurut
 segmen URL pertamanya. Kolom host mengikuti `PUBLIC_PATH_PREFIXES` di
 `lib/host-split.ts`; kolom bucket mengikuti `roleRouteAccess` di `lib/rbac.ts`,
 yaitu siapa yang boleh **membuka** halaman. Apa yang boleh dilakukan di sana tetap
-diputuskan API (bab 8). Menu tiap kode peran dicetak dengan
+diputuskan API (bab 8). Bucket adalah gerbang **halaman**, bukan cakupan **baris**:
+`/portfolio`, misalnya, boleh dibuka Santri dan staf, tetapi baris yang terbaca
+tetap dibatasi `studentScope` (bab 8) — santri melihat miliknya, staf unitnya.
+Menu tiap kode peran dicetak dengan
 `apps/web/scripts/role-menus.ts`.
 
 Gambar tampilan tidak disimpan di sini. Tangkapan per tugas ada di panduan
