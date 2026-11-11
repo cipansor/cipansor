@@ -69,22 +69,43 @@ describe('Marketing ROI Service', () => {
     );
   });
 
-  it('tidak menghitung ganda biaya daftar ulang yang sudah jadi tagihan santri', async () => {
-    // Satu pendaftaran lunas (500) DAN satu tagihan santri lunas (500) untuk
-    // kampanye yang sama: dua sumber terpisah, keduanya dijumlahkan sekali.
+  it('mengecualikan tagihan REG_FEE agar tidak menghitung ganda biaya daftar ulang', async () => {
+    // Biaya daftar ulang sudah dicatat di Registrant; tagihan REG_FEE untuk
+    // santri yang sama menuliskannya ulang. Sumber invoice harus mengecualikan
+    // REG_FEE supaya keduanya tidak dijumlahkan.
     vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([
       { id: 'c1', name: 'X', code: 'X', budget: 1000, _count: { registrants: 1 } },
     ] as any);
     vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
-    vi.mocked(prisma.invoice.findMany).mockResolvedValue([
-      { paidAmount: 500, student: { registrants: [{ campaignId: 'c1' }] } },
+    vi.mocked(prisma.invoice.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.registrant.findMany).mockResolvedValue([] as any);
+
+    await calculateCampaignROI();
+
+    const pilihInvoice = vi.mocked(prisma.invoice.findMany).mock.calls[0][0] as any;
+    expect(pilihInvoice.where.NOT).toEqual({ paymentType: { code: 'REG_FEE' } });
+  });
+
+  it('membaca seluruh halaman biaya daftar ulang, bukan hanya 5.000 baris pertama', async () => {
+    vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([
+      { id: 'c1', name: 'X', code: 'X', budget: 1, _count: { registrants: 1 } },
     ] as any);
-    vi.mocked(prisma.registrant.findMany).mockResolvedValue([
-      { campaignId: 'c1', registrationFeeAmount: 500 },
-    ] as any);
+    vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
+    vi.mocked(prisma.invoice.findMany).mockResolvedValue([] as any);
+    const halamanPenuh = Array.from({ length: 5000 }, (_, i) => ({
+      id: `r${i}`,
+      campaignId: 'c1',
+      registrationFeeAmount: 1,
+    }));
+    vi.mocked(prisma.registrant.findMany)
+      .mockResolvedValueOnce(halamanPenuh as any)
+      .mockResolvedValueOnce([{ id: 'z', campaignId: 'c1', registrationFeeAmount: 1 }] as any);
 
     const result = await calculateCampaignROI();
-    expect(result[0].metrics.revenue).toBe(1000);
+
+    // Halaman penuh memicu halaman berikutnya; barisnya tidak terpotong.
+    expect(vi.mocked(prisma.registrant.findMany)).toHaveBeenCalledTimes(2);
+    expect(result[0].metrics.revenue).toBe(5001);
   });
 
   it('mengakui pendapatan pada kampanye yang PERTAMA membawa santri itu masuk', async () => {

@@ -77,10 +77,15 @@ describe('getMonthlyAttributedRevenue', () => {
 
     // The campaign link hangs off the to-many `registrants` relation on
     // Student; a bare `registrant` is not a relation and Prisma rejects it.
+    // The REG_FEE invoice is excluded so the fee is not counted twice (it is
+    // read from the Registrant instead).
     expect(mocked.payment.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
-          invoice: { student: { registrants: { some: { campaignId: { not: null } } } } },
+          invoice: expect.objectContaining({
+            NOT: { paymentType: { code: 'REG_FEE' } },
+            student: { registrants: { some: { campaignId: { not: null } } } },
+          }),
         }),
       })
     );
@@ -114,5 +119,22 @@ describe('getMonthlyAttributedRevenue', () => {
         }),
       })
     );
+  });
+
+  it('membaca seluruh halaman pembayaran dan biaya daftar ulang (bukan `take` tunggal)', async () => {
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const halamanPenuh = Array.from({ length: 5000 }, () => ({ id: 'p', paidAt: now, amount: 1 }));
+    mocked.payment.findMany
+      .mockResolvedValueOnce(halamanPenuh)
+      .mockResolvedValueOnce([{ id: 'z', paidAt: now, amount: 1 }]);
+    mocked.registrant.findMany.mockResolvedValue([]);
+
+    const trend = await getMonthlyAttributedRevenue(undefined, 3);
+
+    // Halaman penuh memicu halaman berikutnya; tidak ada baris yang dibuang.
+    expect(mocked.payment.findMany).toHaveBeenCalledTimes(2);
+    const current = trend.find((t) => t.month === thisMonthKey);
+    expect(current).toEqual({ month: thisMonthKey, revenue: 5001, transactionCount: 5001 });
   });
 });
