@@ -518,7 +518,14 @@ sampai ke kontainer; pada Azure App Service, ke app settings tiap kontainer.
 - **Amplop respons.** `{ success, data, meta? }` lewat `ApiResponse`; galat
   memakai `{ success:false, error:{ code, message } }`.
 - **Penanganan galat.** `src/middleware/error.ts` memetakan galat Prisma, Zod,
-  dan JWT; `Errors.notFound/badRequest/…` di service.
+  dan JWT; `Errors.notFound/badRequest/conflict/…` di service. `Errors.conflict`
+  memetakan ke **HTTP 409**: permintaannya sendiri sah, keadaan barisnya yang
+  tidak cocok. Modul `hr` memakainya pada keputusan cuti bersamaan — menyetujui
+  atau menolak pengajuan yang sudah diputuskan oleh permintaan lain dijawab 409
+  ("Cuti ini sudah diputuskan oleh permintaan lain. Muat ulang halaman untuk
+  melihat status terbarunya."), dan mengubah pengajuan yang bukan lagi menunggu
+  keputusan dijawab 409 juga. Menyetujui cuti yang sudah disetujui mengembalikan
+  barisnya apa adanya (idempoten), sedangkan menolaknya dijawab 400.
 - **Data pribadi.** Pilih kolom eksplisit (`select`) alih-alih `include` relasi
   penuh; `include: { student }` pernah mengirim 69 kolom data anak
   (`lessons/prisma-include-leaks-pii.md`).

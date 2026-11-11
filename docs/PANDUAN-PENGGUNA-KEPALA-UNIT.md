@@ -3,6 +3,7 @@
 | Versi | Tanggal | Basis aplikasi | Tingkat verifikasi | Perubahan |
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo kepala unit pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
+| 0.2 | 11 November 2026 | kode `25693e32` | **T1** (kartu tak berubah; baris galat dibaca dari kode) | Kartu *Mengelola pegawai dan cuti* menambah baris pemecahan masalah untuk keputusan bersamaan: pesan "Cuti ini sudah diputuskan oleh permintaan lain. Muat ulang halaman untuk melihat status terbarunya" (HTTP 409), disalin dari `hr.service.ts` (#668) |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo kepala unit, dan tiap kartu memuat
@@ -263,6 +264,7 @@ keputusan. Giliran pimpinan unit menyetujui atau menolaknya.
 |---|---|---|
 | Pegawai tidak muncul | Unit belum dipilih dengan benar | Saring dengan **Semua Unit** |
 | Cuti tetap **Menunggu** | Belum diputuskan | Buka pengajuannya, lalu setujui |
+| Muncul "Cuti ini sudah diputuskan oleh permintaan lain. Muat ulang halaman untuk melihat status terbarunya" | Keputusan lain sudah lebih dulu tersimpan | Muat ulang halaman untuk melihat status terbarunya |
 
 **Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).
 
