@@ -14,7 +14,7 @@
 | 1.0 | 5 Oktober 2026 | commit `3ba5cb974` (`main` digabung ke cabang README/galeri; 33 commit sejak `aefc719`) | Seluruh angka diukur ulang terhadap pohon hasil gabung: **95 modul API**, **292 model**, **162 enum**, ~**1.407 hulu rute API**, **432 halaman web**, **16 entri jadwal** atas **14 berkas pekerjaan**, **81 kunci** `.env.example`; Lampiran A diganti baris demi baris; modul `environment` masuk tabel ranah 5.3; alamat SPMB publik di bab 6 diperbaiki menjadi `GET /api/admissions/public/intakes`; lima keputusan baru (`fasilitas-dan-kegiatan-situs-publik`, `notifikasi-push`, `siaran-pengumuman`, `spmb-2027-2028`, `surat-keterangan-lewat-eoffice`) ditambahkan ke bab 9. `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
 | 1.1 | 10 Oktober 2026 | `main` digabung ke cabang README/galeri (`66609623d`) dan perbaikan tinjauan | Angka diukur ulang: **294 model**, **163 enum**, ~**1.411 hulu rute API**, **434 halaman web**, **82 kunci** `.env.example`; Lampiran A `correspondence` 15→18 dan `esign` 18→19 handler; empat keputusan ditambahkan ke bab 9; **Lampiran F — Peta Tampilan** baru (galeri gambar dikeluarkan dari git, lihat `decisions/dokumentasi-bergambar.md`). `check_docs.py --final` 0 ERROR | Claude Code |
 | 1.2 | 11 Oktober 2026 | commit `c56078f04` | Angka tata letak modul dan jadwal diukur ulang dan kini diperiksa mesin (#771): 68 dari 95 modul empat berkas, 26 lima bagian, 17 entri jadwal atas 15 berkas pekerjaan. Pemeriksa `check_docs.py` tidak lagi hanya mengenali "dari 93". | Agen Claude Code |
-| 1.4 | 11 November 2026 | kode `af09e9a6` | Konvensi tanggal/waktu ditambahkan ke §8 (tanggal-saja `YYYY-MM-DD` pada tengah malam UTC vs kalender WIB, menunjuk `utils/wib-day.ts`), dan §6.6 menyebut bulan penagihan/pengingat mengikuti kalender WIB. Angka 17 entri/15 berkas tidak berubah (#825). | Agen OpenHands |
+| 1.4 | 11 November 2026 | kode `af09e9a6` | Konvensi tanggal/waktu ditambahkan ke §8 (tanggal-saja `YYYY-MM-DD` pada tengah malam UTC, pembacaan sebagai timestamp ISO, perbandingan lewat jatuh tempo memakai instan itu — bukan akhir hari WIB — dan bulan penagihan WIB lewat `utils/wib-day.ts`), dan §6.6 menyebut bulan penagihan/pengingat mengikuti kalender WIB. Angka 17 entri/15 berkas tidak berubah (#825). | Agen OpenHands |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
 > seiring pengembangan. Dokumen diperbarui dengan menjalankan ulang pengukuran, bukan dengan menyunting angka.
@@ -528,10 +528,12 @@ sampai ke kontainer; pada Azure App Service, ke app settings tiap kontainer.
   dapat diputar dari basis data kosong; migrasi dijalankan saat kontainer
   mulai (`MIGRATE_ON_START`).
 - **Tanggal dan waktu.** Kolom tanggal-saja (mis. `Invoice.dueDate`) disimpan
-  pada **tengah malam UTC** dan dipertukarkan sebagai **`YYYY-MM-DD`** — satu
-  hari kalender penuh menurut WIB, bukan satu jam tertentu. Periode bulanan
-  (penagihan otomatis, pengingat SPP, nomor invoice) dihitung pada **kalender
-  WIB**, bukan pada jam server, lewat `apps/api/src/utils/wib-day.ts`.
+  pada **tengah malam UTC** — sebuah hari, bukan jam. Kontrak tulisnya
+  **`YYYY-MM-DD`** (Zod `z.string().date`); pembacaan menyerialkannya sebagai
+  timestamp ISO di tengah malam UTC. Perbandingan "lewat jatuh tempo" memakai
+  instan tengah malam UTC itu (pukul 07.00 WIB), bukan akhir hari WIB. Periode
+  bulanan (penagihan otomatis, pengingat SPP, nomor invoice) dihitung pada
+  **kalender WIB**, bukan pada jam server, lewat `apps/api/src/utils/wib-day.ts`.
 - **Pengujian.** Uji unit (vitest, Prisma dimock), e2e Playwright, dan uji
   penjaga (kontrak web↔API, route shadowing, sinkron peran).
 - **Pekerjaan terjadwal.** `node-cron` di dalam proses API (lihat 6.6).

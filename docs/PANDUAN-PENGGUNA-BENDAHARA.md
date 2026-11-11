@@ -3,7 +3,7 @@
 | Versi | Tanggal | Basis aplikasi | Tingkat verifikasi | Perubahan |
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo bendahara unit pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
-| 0.3 | 11 November 2026 | kode `af09e9a6` | **T1** (kartu tak berubah; catatan tanggal dibaca dari kode) | **Tanggal Jatuh Tempo** ditegaskan sebagai satu hari kalender penuh menurut WIB (bukan jam tertentu), dan penagihan otomatis/pengingat SPP menagih bulan WIB — dibaca dari kontrak `dueDate` tanggal-saja (#775), kartu *Membuat tagihan santri*, *Membuat tagihan massal*, dan *Memantau tunggakan* (#825) |
+| 0.3 | 11 November 2026 | kode `af09e9a6` | **T1** (kartu tak berubah; catatan tanggal dibaca dari kode) | **Tanggal Jatuh Tempo** dijelaskan sebagai tanggal (bukan jam) dengan ambang menunggak pukul **07.00 WIB** pada tanggal itu, dan penagihan otomatis/pengingat SPP menagih bulan WIB — dibaca dari `finance.service.ts` (#775), kartu *Membuat tagihan santri*, *Membuat tagihan massal*, dan *Memantau tunggakan* (#825) |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo bendahara unit, dan tiap kartu memuat
@@ -78,9 +78,8 @@ ada di halaman itu; formulirnya di `/finance/bills/new`.
 
 *Gambar 1. Formulir Buat Tagihan: pilih santri, jenis tagihan, jumlah, dan jatuh tempo.*
 
-**Catatan.** **Tanggal Jatuh Tempo** adalah satu hari kalender penuh: jatuh
-tempo "10 Agustus 2026" berarti sepanjang hari itu menurut waktu Indonesia
-barat (WIB), bukan satu jam tertentu.
+**Catatan.** **Tanggal Jatuh Tempo** adalah sebuah tanggal, bukan jam tertentu.
+Tagihan dihitung **menunggak mulai pukul 07.00 WIB** pada tanggal itu.
 
 **Hasilnya, dan giliran siapa berikutnya.** Tagihan tampil di daftar dan
 notifikasinya terkirim ke santri. Giliran keluarga membayar; setelah itu bukti
@@ -120,8 +119,8 @@ ada di halaman itu; formulirnya di `/finance/bills/bulk`.
 
 *Gambar 2. Formulir Buat Tagihan Massal: satu jenis tagihan untuk banyak santri sekaligus.*
 
-**Catatan.** **Tanggal Jatuh Tempo** adalah satu hari kalender penuh menurut
-waktu Indonesia barat (WIB), bukan satu jam tertentu.
+**Catatan.** **Tanggal Jatuh Tempo** adalah sebuah tanggal, bukan jam tertentu.
+Tagihan dihitung **menunggak mulai pukul 07.00 WIB** pada tanggal itu.
 
 **Hasilnya, dan giliran siapa berikutnya.** Tagihan terbentuk untuk setiap
 santri yang dicentang. Giliran keluarga membayar.

@@ -40,11 +40,18 @@ dikirim dan aplikasi tidak dapat menyelesaikan tantangan 2FA.
 | `GET /parent/children/:studentId/finance`  | Tagihan + ringkasan pembayaran anak.                                                                                                                                                                                                                                                             |
 | `POST /finance/invoices/:id/payment-proof` | **Upload bukti transfer** — body `{amount, method, referenceNo?, proofUrl, notes?}`. Membuat Payment `PENDING_VERIFICATION`; kepemilikan diverifikasi (orang tua hanya bisa membayar tagihan anaknya). Unggah berkas gambarnya sendiri via `POST /upload` lalu pakai URL-nya sebagai `proofUrl`. |
 
-Setiap tagihan memuat **`dueDate`** dalam bentuk **`YYYY-MM-DD`** (tanggal-saja,
-tanpa jam). Artinya "jatuh tempo 2026-08-10" adalah **sepanjang hari 10 Agustus
-2026 menurut WIB**, bukan satu jam tertentu. Kirim tanggal dalam bentuk itu:
-timestamp ISO seperti `2026-08-10T12:00:00Z` **ditolak** dengan 400. Bulan
-penagihan otomatis bulanan dan pengingat SPP juga mengikuti **kalender WIB**,
+`dueDate` adalah sebuah **tanggal**, bukan jam. Bentuknya berbeda saat menulis
+dan saat membaca:
+
+- **Menulis** (`POST /finance/invoices`, `PUT /finance/invoices/:id`): kirim
+  **`YYYY-MM-DD`** (mis. `2026-08-10`). Timestamp ISO seperti
+  `2026-08-10T12:00:00Z` **ditolak** dengan 400.
+- **Membaca** (`GET /parent/children/:studentId/finance`): setiap tagihan
+  mengembalikan `dueDate` sebagai **timestamp ISO** di tengah malam UTC
+  (`2026-08-10T00:00:00.000Z`). Ambil sepuluh aksara pertama (`YYYY-MM-DD`)
+  sebagai tanggalnya; jangan menafsirkan jamnya.
+
+Bulan penagihan otomatis bulanan dan pengingat SPP mengikuti **kalender WIB**,
 bukan kalender server.
 
 ### Alur verifikasi (maker-checker Tata Usaha)
