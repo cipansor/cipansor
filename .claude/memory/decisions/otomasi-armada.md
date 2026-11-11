@@ -653,6 +653,14 @@ Pemilik memutuskan (dilaksanakan 2026-11-11):
   `Pengawas armada` dipensiunkan.** Skrip, workflow, dan guard test-nya dihapus;
   label `automation-health` ikut. Pemilik mengawasi OpenHands Cloud dan tab
   Actions langsung, dengan email GitHub sebagai saluran peringatan.
+  Label `deploy-watch` dan `watchdog-repair` dihapus dari repo 2026-11-11.
+  **Urutan penting:** `.github/workflows/deploy-watch.yml` masih ada di `main`
+  (hanya terhapus di branch ini) dan masih berjalan — run #84 pada 2026-11-11
+  12:01 membuat #1043/#1044. `main()` di `deploy-watch.sh` memanggil
+  `ensure_label` pada setiap run, jadi label `deploy-watch` akan **dibuat
+  kembali** setiap deploy berikutnya sampai penghapusan workflow ini mendarat di
+  `main`. `watchdog-repair` yatim total (nol rujukan di kode dan dokumen, nol
+  issue) sehingga aman dihapus kapan saja.
 - **Form issue dipecah per tipe** (`bug_report`, `enhancement`,
   `documentation`, `refactor`, `chore`, `security`), masing-masing memasang
   label tipe yang cocok — menggantikan `feature_request.yml` tunggal.
