@@ -378,6 +378,42 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
       { encoding: 'utf8' }
     );
 
+  it('splits the two `question` reply owners so one comment starts one agent', () => {
+    // SDLC 16 (`Penjernih issue`) and SDLC 22 (`Diskusi`) both watch a reply on
+    // a `question` issue. Their filters were byte-identical, so every maintainer
+    // reply ran both agents for one answer — two sandbox slots, two replies.
+    // The split is by author: the reporter's reply re-judges, the maintainer's
+    // reply is answered.
+    const triggers = block('TRIGGERS');
+    const entry = (key: string) => {
+      const at = triggers.indexOf(`"${key}": {`);
+      expect(at, `${key} entry`).toBeGreaterThan(-1);
+      return triggers.slice(at, triggers.indexOf('},', at));
+    };
+    const sixteen = entry('SDLC 16');
+    const twentytwo = entry('SDLC 22');
+    expect(sixteen).not.toBe(twentytwo);
+    // `Penjernih issue` is the reporter's, so it excludes maintainers.
+    expect(sixteen).toContain("comment.author_association != 'OWNER'");
+    expect(sixteen).toContain("comment.author_association != 'MEMBER'");
+    expect(sixteen).toContain("comment.author_association != 'COLLABORATOR'");
+    // `Diskusi` is the maintainer's.
+    expect(twentytwo).toContain("comment.author_association == 'OWNER'");
+    expect(twentytwo).toContain("comment.author_association == 'MEMBER'");
+    expect(twentytwo).toContain("comment.author_association == 'COLLABORATOR'");
+    // Both still require a `question` issue and keep the author guard.
+    for (const f of [sixteen, twentytwo]) {
+      expect(f).toContain("contains(issue.labels[].name, 'question')");
+      expect(f).toContain('AUTHOR_GUARD');
+    }
+    // The split must be total: every maintainer association that SDLC 22
+    // accepts, SDLC 16 rejects, so no reply matches both.
+    for (const role of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
+      expect(sixteen).toContain(`comment.author_association != '${role}'`);
+      expect(twentytwo).toContain(`comment.author_association == '${role}'`);
+    }
+  });
+
   it('runs `Tiket jadi PR` on the daily cron, and sends a complete trigger', () => {
     // The 2026-11-11 rewrite dropped the `bot-implement` event trigger and left
     // `{"on": ["schedule"]}` behind — not a trigger at all. `schedule` is not a

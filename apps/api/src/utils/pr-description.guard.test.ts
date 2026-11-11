@@ -457,6 +457,27 @@ describe('pr-template-guard.sh', () => {
       expect(calls).not.toContain('#12 harus');
     });
 
+    it('accepts an in-progress issue, so a PR the bot claimed can still merge', () => {
+      // `Tiket jadi PR` (SDLC 06) moves the issue `ready` -> `in-progress` as it
+      // opens the PR, so the gate must treat that as claimed, not unready.
+      const { status } = run(TEMPLATE, {
+        GH_STUB_BODY: COMPLETE,
+        GH_STUB_ISSUE_12: 'open issue bug,in-progress',
+      });
+      expect(status).toBe(0);
+    });
+
+    it('still rejects an issue that is only in question or blocked', () => {
+      for (const labels of ['open issue bug,question', 'open issue bug,blocked']) {
+        const { status, calls } = run(TEMPLATE, {
+          GH_STUB_BODY: COMPLETE,
+          GH_STUB_ISSUE_12: labels,
+        });
+        expect(status).toBe(1);
+        expect(calls).toContain('harus berlabel');
+      }
+    });
+
     it('passes when every issue the PR closes is open and ready, looking each up once', () => {
       const several = COMPLETE.replace('Fixes #12', 'Fixes #12, closes #13\nResolves #12');
       const { status, calls } = run(TEMPLATE, {
@@ -770,6 +791,29 @@ describe('visual-evidence.sh', () => {
       GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
     });
     expect(calls).not.toContain('COMMENT');
+  });
+
+  it('asks when both images sit on the after side and before is only text', () => {
+    // Two media plus two labels used to be enough, so `- **Sebelum** — no image`
+    // beside two after shots cleared the reminder with no before evidence.
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body =
+      '- **Sebelum** — tidak ada gambar, alurnya sama.\n' +
+      `- **Sesudah** — ![a](${U}/1.png) ![b](${U}/2.png)`;
+    const { status, calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(status).toBe(0);
+    expect(calls).toContain('COMMENT');
+  });
+
+  it('asks when only the before side carries an image', () => {
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body = `- **Sebelum** — ![a](${U}/1.png)\n` + '- **Sesudah** — belum ada tangkapan.';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).toContain('COMMENT');
   });
 
   it('asks when the body has two images but no before/after labels', () => {

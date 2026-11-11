@@ -445,7 +445,7 @@ KEPUTUSAN: `APPROVE` bila tidak ada masalah yang menghalangi merge; `REQUEST_CHA
 Anda adalah SATU-SATUNYA pembuka pull request di repositori ini (docs/SDLC-FLOW.md). Setiap run harian memilih pekerjaan dari antrean `ready`, terlama lebih dulu, dan membuka paling banyak {DAILY_PR_MAX} pull request. Jangan pernah membuka PR untuk issue yang tidak `ready`, jangan menunggu label lain, dan jangan meminta konfirmasi.
 
 CARA MEMILIH (WAJIB, JANGAN MENYIMPANG):
-1. Baca semua issue terbuka berlabel `ready` SEKALI saja: `GET /repos/cipansor/cipansor/issues?state=open&labels=ready&sort=created&direction=asc&per_page=100`. Urutkan menurut `created_at` menaik — issue TERLAMA lebih dulu. Urutan itu yang dipakai; jangan mengurutkan ulang menurut selera sendiri.
+1. Baca issue terbuka berlabel `ready`, TERLAMA lebih dulu: `GET /repos/cipansor/cipansor/issues?state=open&labels=ready&sort=created&direction=asc&per_page=100`. GitHub mengembalikan paling banyak 100 per halaman, jadi **telusuri halaman berikutnya (`&page=2`, `&page=3`, …) sampai halaman itu kosong atau sampai kandidatmu cukup** — tanpa itu, antrean di atas 100 terpotong dan issue di luar halaman pertama tidak pernah terpilih meski bisa dikerjakan. Urutkan menurut `created_at` menaik; urutan itu yang dipakai, jangan mengurutkan ulang menurut selera sendiri.
 2. Buang issue yang belum bisa dikerjakan, dengan alasan yang ditulis di langkah 5: yang masih membawa `blocked`; yang sudah punya PR terbuka (`Fixes #<n>` / `Refs #<n>` di deskripsi PR, atau disebut di issue itu); dan yang pernyataannya terlalu kabur untuk dikerjakan.
 3. Ambil dari depan daftar yang tersisa sampai {DAILY_PR_MAX} issue. Jangan lebih: plafon itu yang menjaga armada tidak menyapu seluruh backlog dalam sehari. Sisa antrean tetap menunggu run berikutnya.
 4. Bila tidak ada issue `ready` yang bisa dikerjakan, laporkan "antrean kosong" dan berhenti. Itu hasil yang sah — jangan mengerjakan issue yang tidak `ready` demi terlihat produktif.
@@ -812,13 +812,28 @@ MENTION_FILTER = (
 TRIGGERS = {
     # on an `@cipansor-bot` mention by a maintainer (was `@openhands`).
     "SDLC 07": {"filter": MENTION_FILTER},
-    # on a reply to a `question` issue; author-guarded, no label gate.
-    "SDLC 16": {"filter": FLEET_REPO + " && contains(issue.labels[].name, 'question') && " + AUTHOR_GUARD},
+    # on a reporter's reply to a `question` issue. Two automations watch a
+    # `question` reply, so their filters must be mutually exclusive or one
+    # comment starts both: `Penjernih issue` re-judges what the REPORTER
+    # clarified, `Diskusi` answers the MAINTAINER. Without the split, SDLC 16
+    # and SDLC 22 carried byte-identical filters and every maintainer reply ran
+    # both agents for one answer (found 2026-11-11).
+    "SDLC 16": {
+        "filter": FLEET_REPO
+        + " && contains(issue.labels[].name, 'question') && "
+        + AUTHOR_GUARD
+        + " && comment.author_association != 'OWNER'"
+        + " && comment.author_association != 'MEMBER'"
+        + " && comment.author_association != 'COLLABORATOR'"
+    },
     # on a maintainer reply to a `question` issue.
     "SDLC 22": {
         "filter": FLEET_REPO
         + " && contains(issue.labels[].name, 'question') && "
         + AUTHOR_GUARD
+        + " && (comment.author_association == 'OWNER'"
+        + " || comment.author_association == 'MEMBER'"
+        + " || comment.author_association == 'COLLABORATOR')"
     },
     # `Tiket jadi PR` (SDLC 06) runs on a daily cron, not on a label: it scans
     # the `ready` queue oldest-first and opens at most DAILY_PR_MAX pull

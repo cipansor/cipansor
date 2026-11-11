@@ -442,10 +442,14 @@ nothing has succeeded in 24 hours."`) **diaktifkan kembali** dengan
     ukuran XS–XL dan kalibrasi hanya menambah baris yang dibaca tanpa mengubah
     keputusan. Yang dihapus: butir `- Estimasi usaha (lihat bagian di bawah)` dari
     template komentar triase, seluruh bagian `ESTIMASI USAHA`, dan penanda body
-    `<!-- sdlc:estimasi -->`. Karena blok BODY dan tail hanya ditulis ulang saat
-    prompt hilang, penghapusan di prompt live dikerjakan lewat
-    `DROPPED_STEP_TEXTS` di `scripts/deploy-sdlc-agents.py` — bukan cukup dengan
-    mengubah `TAILS`.
+    `<!-- sdlc:estimasi -->`. Butir dan bagiannya hidup di `TAILS["SDLC 15"]`,
+    yang **diganti utuh** setiap deploy, jadi mengubah `TAILS` sudah cukup untuk
+    keduanya. Yang tidak ikut berubah adalah kalimat di blok BODY
+    ("… triase, estimasi, kriteria, dan pertanyaan terbuka …"): blok BODY hanya
+    disisipkan saat penandanya belum ada, sehingga prompt live menyimpan salinan
+    lamanya. Itu yang dihapus lewat `DROPPED_STEP_TEXTS`. Aturannya: perubahan di
+    managed tail mendarat sendiri; perubahan di blok insert-once dan di
+    `orig_tail` (prompt tanpa managed tail) butuh substitusi teks.
 
     **`Estimasi usaha` (SDLC 02) dilebur ke `Triase issue` (SDLC 15)**
     (2026-11-09, pengguna). Estimasi bukan langkah tersendiri: ia bagian dari
@@ -661,6 +665,14 @@ Pemilik memutuskan (dilaksanakan 2026-11-11):
   kembali** setiap deploy berikutnya sampai penghapusan workflow ini mendarat di
   `main`. `watchdog-repair` yatim total (nol rujukan di kode dan dokumen, nol
   issue) sehingga aman dihapus kapan saja.
+  Label `deploy-watch` dan `watchdog-repair` dihapus dari repo 2026-11-11.
+  **Urutan penting:** `.github/workflows/deploy-watch.yml` masih ada di `main`
+  (hanya terhapus di branch ini) dan masih berjalan — run #84 pada 2026-11-11
+  12:01 membuat #1043/#1044. `main()` di `deploy-watch.sh` memanggil
+  `ensure_label` pada setiap run, jadi label `deploy-watch` akan **dibuat
+  kembali** setiap deploy berikutnya sampai penghapusan workflow ini mendarat di
+  `main`. `watchdog-repair` yatim total (nol rujukan di kode dan dokumen, nol
+  issue) sehingga aman dihapus kapan saja.
 - **Form issue dipecah per tipe** (`bug_report`, `enhancement`,
   `documentation`, `refactor`, `chore`, `security`), masing-masing memasang
   label tipe yang cocok — menggantikan `feature_request.yml` tunggal.
@@ -720,13 +732,4 @@ Empat automation yang sudah `RETIRED` ternyata masih `enabled` di cloud (SDLC
 hanya berubah lewat `PATCH`, **audit armada harus membandingkan state live
 dengan repo setiap kali**, bukan mempercayai repo.
 
-**Kuota sandbox 20/hari adalah plafon nyata armada, dan belum terdokumentasi.**
-Dari 10 run terakhir tiap automation yang `enabled`, **108 run** `SKIPPED`
-dengan `daily_sandbox_limit` ("Daily sandbox limit of 20 reached", transient,
-`source: sandbox_api`). Yang paling parah: SDLC 22/18/15/14/03 → 10 dari 10
-run; SDLC 17/10/08/05/01 → 9 dari 10. Automation yang konfigurasinya benar pun
-jarang benar-benar bekerja, jadi kegagalan sunyi ini lebih sering menjelaskan
-"armada tidak jalan" daripada cacat konfigurasi. Memensiunkan SDLC 01/03/13/17
-mengembalikan empat slot; kuota itu sendiri naik lewat permintaan di
-`/settings/quota`. Jangan menilai kesehatan armada dari `enabled` saja — hitung
-dulu run yang `SKIPPED`.
+**Kuota sandbox membatasi armada.** Banyak run `SKIPPED` dengan alasan `daily_sandbox_limit`, jadi automation yang konfigurasinya benar pun bisa jarang benar-benar bekerja. Kegagalan sunyi ini lebih sering menjelaskan "armada tidak jalan" daripada cacat konfigurasi: **jangan menilai kesehatan armada dari `enabled` saja — hitung dulu run yang `SKIPPED`.** Angka, automation terdampak, dan cara menaikkan kuota ada di memory mesin, bukan repo publik, karena memuat rincian operasional insiden — lihat aturan "sensitive" di `AGENTS.md`.

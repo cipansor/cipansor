@@ -171,7 +171,7 @@ detect` workflow: when two **open** issues share a title once normalised
    leave the issue contradictory.
 
 9. **Issues: comment first, description when `ready`.** While an issue is not
-   yet `ready`, the triage, the estimate, the acceptance criteria and the open
+   yet `ready`, the triage, the acceptance criteria and the open
    questions are written as **comments** — the working conversation. The issue
    **body** is updated only when the bot applies `ready`: then the final summary
    is written into the description under a stable marker (for example
@@ -289,8 +289,7 @@ sample automated comment before it is enabled.
 Blank issues are **enabled**: the forms cover a defect and a change request, not
 a question, an operational incident, or anything the forms do not fit, and
 forcing those into a `bug` form produces a wrong label. An unstructured issue is
-not turned away — the automation absorbs it: `Triase issue` triages it and
-sizes it (the estimate is part of its single triage comment), or
+not turned away — the automation absorbs it: `Triase issue` triages it, or
 lists the questions that would unblock it, then applies `question` with the
 exact missing detail rather than `ready`. A security
 vulnerability is routed to a private advisory (`SECURITY.md`), never a public

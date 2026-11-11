@@ -139,12 +139,16 @@ for N in $LINKED; do
 - issue #$N sudah tertutup; tautkan issue yang masih terbuka, atau buka kembali bila belum selesai"
     continue
   fi
-  # A link is only a green light when the issue is ready for development. A link
-  # to an issue still in `question` or `blocked` is not.
+  # A link is only a green light when the issue is ready for development, or
+  # already being worked on: `Tiket jadi PR` (SDLC 06) claims the issue by
+  # moving `ready` -> `in-progress` the moment it opens the PR, so requiring
+  # `ready` here would fail the check on every PR the bot opens, and the PR
+  # could never merge. A link to an issue still in `question` or `blocked` is
+  # not a green light.
   case ",$LABELS," in
-    *,ready,*) ;;
+    *,ready,*|*,in-progress,*) ;;
     *) missing="$missing
-- issue tertaut #$N harus berlabel \`ready\` sebelum ditinjau (sekarang: ${LABELS:-tidak ada})" ;;
+- issue tertaut #$N harus berlabel \`ready\` atau \`in-progress\` sebelum ditinjau (sekarang: ${LABELS:-tidak ada})" ;;
   esac
 done
 if [ -n "$LINKED" ] && [ -n "${BASE_REF:-}" ] && [ -n "${DEFAULT_BRANCH:-}" ] && [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then

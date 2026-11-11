@@ -56,13 +56,60 @@ label_re() { printf '^[[:space:]]*([-*+][[:space:]]+)?(\\*\\*|#+[[:space:]]+)?[[
 before_re="$(label_re 'before|sebelum')"
 after_re="$(label_re 'after|sesudah')"
 
-media_count=$(printf '%s\n' "$body" | grep -oiE "$img_re" | grep -c . || true)
-has_before_label=0
-has_after_label=0
-printf '%s\n' "$body" | grep -qiE "$before_re" && has_before_label=1
-printf '%s\n' "$body" | grep -qiE "$after_re" && has_after_label=1
+# Media is grouped per side, not merely counted: two images on the *after* side
+# and a text-only before used to satisfy "two media + both labels" and clear the
+# reminder without any before evidence. Each labelled side owns the media that
+# follows it until the next label, and a `| Sebelum | Sesudah |` table maps each
+# column to its own side.
+media=$(printf '%s\n' "$body" | awk -v img="$img_re" '
+  function side_of(word) {
+    w = tolower(word)
+    gsub(/^[[:space:]]+/, "", w)
+    gsub(/[[:space:]]+$/, "", w)
+    if (w ~ /^before([^a-z0-9_]|$)/ || w ~ /^sebelum([^a-z0-9_]|$)/) return "b"
+    if (w ~ /^after([^a-z0-9_]|$)/  || w ~ /^sesudah([^a-z0-9_]|$)/) return "a"
+    return ""
+  }
+  BEGIN { before = 0; after = 0; side = ""; intable = 0 }
+  {
+    line = $0
+    if (line ~ /^[[:space:]]*\|/) {
+      n = split(line, cells, "|")
+      hasb = 0; hasa = 0
+      delete nc
+      for (i = 1; i <= n; i++) {
+        s = side_of(cells[i])
+        if (s != "") { nc[i] = s; if (s == "b") hasb = 1; else hasa = 1 }
+      }
+      if (hasb && hasa) {
+        delete col
+        for (i in nc) col[i] = nc[i]
+        intable = 1; next
+      }
+      if (intable) {
+        for (i = 1; i <= n; i++) {
+          c = gsub(img, "&", cells[i])
+          if (col[i] == "b") before += c
+          else if (col[i] == "a") after += c
+        }
+        next
+      }
+    }
+    l = line
+    sub(/^[[:space:]]*([-*+][[:space:]]+)?/, "", l)
+    sub(/^(\*\*|#+[[:space:]]+)/, "", l)
+    s = side_of(l)
+    if (s != "") side = s
+    c = gsub(img, "&", line)
+    if (side == "b") before += c
+    else if (side == "a") after += c
+  }
+  END { printf "%d %d\n", before, after }
+')
+media_before=${media%% *}
+media_after=${media##* }
 has_pair=0
-if [ "$media_count" -ge 2 ] && [ "$has_before_label" = "1" ] && [ "$has_after_label" = "1" ]; then
+if [ "${media_before:-0}" -ge 1 ] && [ "${media_after:-0}" -ge 1 ]; then
   has_pair=1
 fi
 
