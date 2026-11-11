@@ -188,7 +188,8 @@ GitHub Actions, Azure App Service ([`docs/deploy-azure.md`](docs/deploy-azure.md
 
 ### Prasyarat
 
-- Node.js 22 dan pnpm 12.11.2 (lewat Corepack)
+- Node.js 26 dan pnpm 12.11.2 — Node 25 ke atas tidak lagi memuat Corepack,
+  jadi pasang dulu: `npm i -g corepack@0.36.0`, lalu `corepack enable`
 - Docker, untuk PostgreSQL 16 dan Redis 7 (layanan `db` dan `redis` di `docker-compose.yml`)
 
 ### Langkah

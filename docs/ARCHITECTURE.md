@@ -16,7 +16,8 @@ packages/
 ```
 
 Tooling: **pnpm** workspaces + **Turborepo**. Package manager is pinned
-(the version pinned in `package.json` → `packageManager`); use `corepack` rather than a global pnpm.
+(the version pinned in `package.json` → `packageManager`); use `corepack` rather than a global pnpm (install it from npm on Node 25+, which
+no longer bundles it).
 
 ## Backend (`apps/api`)
 

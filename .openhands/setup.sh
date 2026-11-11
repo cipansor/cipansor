@@ -21,10 +21,13 @@ warn() { printf '!!! [cipansor setup] %s\n' "$*" >&2; }
 
 # --- toolchain -------------------------------------------------------------
 # pnpm 12.11.2 is pinned by package.json "packageManager"; corepack activates
-# exactly that version. Node >= 20 (CI pins 22).
+# exactly that version. Node >= 26 (CI pins 26). Node 25+ no longer bundles
+# corepack, so install it from npm when it is missing.
 log "toolchain"
-command -v node >/dev/null 2>&1 && echo "node $(node --version)" || warn "node not found (need >= 20)"
+command -v node >/dev/null 2>&1 && echo "node $(node --version)" || warn "node not found (need >= 26)"
 if ! command -v pnpm >/dev/null 2>&1; then
+  command -v corepack >/dev/null 2>&1 || \
+    npm install -g corepack@0.36.0 >/dev/null 2>&1 || true
   command -v corepack >/dev/null 2>&1 && \
     { corepack enable pnpm >/dev/null 2>&1 || sudo -n corepack enable pnpm >/dev/null 2>&1; } || true
   hash -r
@@ -34,7 +37,7 @@ if ! command -v pnpm >/dev/null 2>&1; then
   hash -r
 fi
 if ! command -v pnpm >/dev/null 2>&1; then
-  warn "pnpm unavailable — install Node >= 20 + corepack, then re-run. Skipping the rest."
+  warn "pnpm unavailable — install Node >= 26 + corepack, then re-run. Skipping the rest."
   exit 0
 fi
 echo "pnpm $(pnpm --version)"

@@ -23,7 +23,7 @@ Panduan deployment sistem Cipansor untuk production.
 
 ### System Requirements
 
-- **Node.js**: v22 (semua image memakai `node:22-alpine`)
+- **Node.js**: v26 (semua image memakai `node:26-alpine`)
 - **PostgreSQL**: v14 atau lebih baru
 - **pnpm**: 12.11.2 (dipaku lewat `packageManager` di `package.json`; CI memakai `--frozen-lockfile`)
 - **Docker** (opsional): v24 atau lebih baru
