@@ -36,7 +36,7 @@ is_code() {
     docs/SDLC-FLOW.md) return 0 ;; # automation-fleet.guard.test.ts checks its comment-first rule
     docs/IDEAS.md) return 0 ;; # automation-fleet.guard.test.ts pins the fleet decisions recorded there
     .github/pull_request_template.md) return 0 ;; # automation-fleet.guard.test.ts checks its basmalah
-    .github/ISSUE_TEMPLATE/bug_report.yml | .github/ISSUE_TEMPLATE/feature_request.yml) return 0 ;; # automation-fleet.guard.test.ts checks their basmalah
+    .github/ISSUE_TEMPLATE/*.yml) return 0 ;; # automation-fleet.guard.test.ts checks their basmalah
     .claude/hooks/guard.sh) return 0 ;; # agent-guard.guard.test.ts runs it
     *.md | docs/* | .claude/* | .github/ISSUE_TEMPLATE/* | LICENSE | LICENSE.*) return 1 ;;
     *) return 0 ;;

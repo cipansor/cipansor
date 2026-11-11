@@ -1,31 +1,24 @@
-name: Permintaan fitur atau perubahan
-description: Usulkan kemampuan baru, atau perubahan pada yang sudah ada.
-labels: ["enhancement"]
+name: Pemeliharaan
+description: Perkakas, dependensi, konfigurasi, atau pekerjaan rutin.
+labels: ["chore"]
 body:
   - type: markdown
     attributes:
       value: |
         بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
 
-        Automation `Triase issue` menetapkan tipe yang benar (`enhancement`,
-        `documentation`, `refactor`, `chore`, `security`) dan prioritas, lalu
-        menandai issue ini `ready` begitu kolom di bawah terisi cukup untuk
-        diimplementasikan tanpa pertanyaan lanjutan. Lihat
+        Automation `Triase issue` menetapkan prioritas dan status, lalu menandai
+        issue ini `ready` begitu kolom di bawah terisi cukup untuk
+        diimplementasikan tanpa pertanyaan lanjutan. Tipe sudah terpasang dari
+        formulir yang Anda pilih. Lihat
         [docs/LABELS.md](https://github.com/cipansor/cipansor/blob/main/docs/LABELS.md).
 
-  - type: dropdown
-    id: type
-    attributes:
-      label: Jenis permintaan
-      description: Tipe yang paling mendekati. `Triase issue` mengoreksinya bila perlu.
-      options:
-        - enhancement — kemampuan baru
-        - documentation — hanya dokumen
-        - refactor — perilaku sama, kode lebih bersih
-        - chore — perkakas, dependensi, pemeliharaan
-        - security — pengerasan
-    validations:
-      required: true
+        Salah formulir? Kembali dan pilih yang lain: **Perbaikan bug**,
+        **Permintaan fitur**, **Perapian kode**, **Pemeliharaan**, atau
+        **Pengerasan keamanan**.
+
+        Formulir ini untuk pekerjaan yang tidak terlihat pengguna — menaikkan
+        dependensi, merapikan skrip, memperbarui konfigurasi CI.
 
   - type: textarea
     id: problem

@@ -19,9 +19,9 @@
 ## Issue tertaut
 
 <!-- Wajib. Satu `Fixes #<n>` per issue yang diselesaikan PR ini; setiap issue
-     harus terbuka dan berlabel `ready` atau `bot-implement`. `Refs #<n>` untuk
-     issue yang baru maju sebagian (tulis sisanya di issue itu). Tanpa issue,
-     buka issue-nya dulu. Lihat docs/LABELS.md. -->
+     harus terbuka dan berlabel `ready`. `Refs #<n>` untuk issue yang baru maju
+     sebagian (tulis sisanya di issue itu). Tanpa issue, buka issue-nya dulu.
+     Lihat docs/LABELS.md. -->
 
 Fixes #
 
