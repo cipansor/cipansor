@@ -400,11 +400,18 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   pada `docs/825-dueDate-wib-contract`: `MOBILE_API.md` §3 menyebut `dueDate` =
   `YYYY-MM-DD` dan bulan tagihan WIB; `DOKUMEN-TEKNIS.md` §8 dapat butir
   konvensi tanggal/waktu (menunjuk `utils/wib-day.ts`) dan §6.6 menyebut bulan
-  WIB; `PANDUAN-PENGGUNA-BENDAHARA.md` menegaskan Tanggal Jatuh Tempo = satu
-  hari penuh WIB. `check_docs.py` tidak menambah ERROR (16 teknis / 2 pengguna =
+  WIB; `PANDUAN-PENGGUNA-BENDAHARA.md` menjelaskan Tanggal Jatuh Tempo = sebuah
+  tanggal (bukan jam), dengan ambang menunggak 07.00 WIB. `check_docs.py` tidak
+  menambah ERROR (16 teknis / 2 pengguna =
   baseline `main`). Murni dokumentasi → job kode CI di-skip. Beririsan berkas
   dengan PR dokumen yang menunggu (#1035/#1036/#1046) tetapi di lokasi berbeda;
-  nomor versi diambil 1.4/0.3 agar tak bentrok.
+  nomor versi diambil 1.4/0.3 agar tak bentrok. **Koreksi tinjauan:** versi awal
+  salah dua kali — (a) `getChildFinance` mengembalikan `dueDate` sebagai
+  **timestamp ISO**, bukan `YYYY-MM-DD` (Prisma `Date` diserialkan `res.json`);
+  (b) `getStudentOutstandingBalances` (`dueDate < new Date()`) membuat tagihan
+  menunggak **07.00 WIB** pada tanggal jatuh tempo, bukan akhir hari — jadi
+  "sehari penuh" itu tidak benar. Dokumen dikoreksi; cacat kode dilacak di
+  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`).
 
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from

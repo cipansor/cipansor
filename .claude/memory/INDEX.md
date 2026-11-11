@@ -69,6 +69,7 @@ OpenHands) refuse the mechanical cases.
 - [api-integration-traps](lessons/api-integration-traps.md) — empty permission matrix, Express 5 `req.query`, `/:id` shadowing, unmounted paths; a file over multer's limit answering 500
 - [auth-session-traps](lessons/auth-session-traps.md) — refresh-token stampede, pre-rehydration redirects, the 4 KB cookie; an HttpOnly routing cookie every refusal must clear, no refresh without a session, the bucket minted in one place, e2e tests that rotate a shared session
 - [stale-temporal-data](lessons/stale-temporal-data.md) — derive dates from now; `isActive` is not a schedule
+- [date-only-midnight-utc-vs-now](lessons/date-only-midnight-utc-vs-now.md) — a date-only column at midnight UTC (07.00 WIB) compared to `new Date()` goes "overdue" at 07.00, not end of day; and reading it back serializes as an ISO timestamp, not `YYYY-MM-DD`
 - [migration-history-baselined](lessons/migration-history-baselined.md) — `0_init`; `migrate diff` blind to triggers; CI's `db push`; wrap data migrations in BEGIN/COMMIT; renumber a branch's migrations from the diff, never a date glob
 - [seed-verify-throwaway-db](lessons/seed-verify-throwaway-db.md) — prove a seed change on a disposable, isolated Postgres
 - [git-three-dot-diff-hides-stale-base](lessons/git-three-dot-diff-hides-stale-base.md) — measure from the merge base; paired PRs; a bot's stale-tree commit

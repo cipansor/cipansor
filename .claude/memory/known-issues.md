@@ -63,6 +63,19 @@ workers refused on a closed day. Still open:
 
 ## Broken flows and wrong figures
 
+- **An invoice enters the arrears list at 07.00 WIB on its due date, not after
+  the day ends** (found 2026-11-11 reviewing the #825 docs; tracked in #1050).
+  `Invoice.dueDate` is a date-only `DateTime` at midnight UTC (`dayDate()` in
+  `utils/wib-day.ts`) — which is 07:00 WIB. Readers that compare it to
+  `new Date()` therefore call the invoice overdue from 07:00 WIB on the due
+  date: `getStudentOutstandingBalances` (`finance.service.ts`, `dueDate: { lt:
+  new Date() }`, feeds the *Tunggakan* tab), `getSppMatrix`, `dashboard.service.ts`,
+  `analytics/alerts.service.ts`, `analytics/forecast.service.ts`. The intent is
+  "one calendar day", so the comparison should use the next midnight UTC (or a
+  WIB helper). The same column *reads* back as an ISO timestamp, not
+  `YYYY-MM-DD` (`parent.service.ts` `getChildFinance`) — see
+  `lessons/date-only-midnight-utc-vs-now.md`.
+
 - **The head of school's dashboard shows a 403 toast on every load**
   (found 2026-10-10, already on `main`). `/dashboard` calls
   `useDonationStats` for every role, and `GET /donation/stats` refuses the
