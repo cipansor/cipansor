@@ -3,7 +3,7 @@
 | Versi | Tanggal | Basis aplikasi | Tingkat verifikasi | Perubahan |
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode PR #512 (setelah `main` `2377f5fb`) | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo musyrif (`pesantren.musyrif@cipansor.or.id`) pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
-| 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Kalimat cakupan §1.2 dikoreksi: data santri tidak lagi "sebatas santri binaan dan unit Anda". Kini dibedakan **per santri binaan** (Santri Binaan, Tindak Lanjut Absensi, Asrama, izin mukim) dari **bersama lintas unit** (tahfidz, muhadhoroh/muhadatsah, kitab kuning, ibadah, sanad), sesuai #714 (`seesAllUnits`, `CROSS_UNIT_SCOPE_ROLES`) |
+| 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Kalimat cakupan §1.2 dikoreksi: data santri tidak lagi "sebatas santri binaan dan unit Anda". Kini dibedakan **daftar yang terbuka lintas unit** (menu Santri Binaan → Daftar Santri, Tahfidz, Takhosus, Kitab Kuning, Jurnal Ibadah, Muhasabah, Sanad, daftar Asrama) dari **tindakan yang terbatas pada penugasan** (Tindak Lanjut Absensi, Pola Kehadiran, keputusan izin mukim, pengelolaan kamar), sesuai #714 (`seesAllUnits` untuk baca; `actorReachesUnit` tetap membatasi tindakan) |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo musyrif, dan tiap kartu memuat tangkapan
@@ -40,12 +40,16 @@ Kehadiran, Asrama, Musyrif, Mutabaah Yaumiyah, Jurnal Ibadah, Muhasabah),
 - Anda **mencatat setoran tahfidz** santri binaan Anda.
 - Kepala unit hanya turun tangan untuk izin lebih dari 7 hari, santri tanpa
   pembimbing, atau mengambil alih keputusan.
-- Data santri tampil dalam **dua lingkup**. **Per santri binaan Anda** — kartu
-  Santri Binaan, Tindak Lanjut Absensi, Asrama, dan keputusan izin santri mukim.
-  **Bersama seluruh unit** — Tahfidz, Muhadhoroh, Muhadatsah, Kitab Kuning,
-  Jurnal Ibadah, dan Sanad, yang memuat santri dari semua sekolah (TK Qur'an,
-  SD IT, SMP IT, SMA Qur'an) karena tugas Anda melayani pesantren, bukan satu
-  sekolah.
+- **Daftar santri terbuka lintas unit, tindakan Anda terbatas pada binaan.**
+  Menu Santri Binaan membuka **Daftar Santri** yang sama dengan yang dibuka
+  petugas lain, memuat santri dari semua sekolah (TK Qur'an, SD IT, SMP IT, SMA
+  Qur'an) — bukan hanya santri binaan Anda; gunakan kotak pencarian untuk
+  menemukan santri Anda. Yang terbatas pada penugasan Anda adalah **tindakan**:
+  Tindak Lanjut Absensi dan Pola Kehadiran hanya memuat kelas wali kelas Anda
+  dan santri mukim yang Anda bina, keputusan izin mukim hanya untuk binaan Anda,
+  dan Anda hanya mengurus kamar yang ditugaskan kepada Anda. Layanan
+  kepesantrenan lain (Tahfidz, Takhosus, Kitab Kuning, Jurnal Ibadah, Muhasabah,
+  Sanad, dan daftar Asrama) juga terbuka lintas unit.
 
 ## 1.3 Tugas dalam buklet ini
 

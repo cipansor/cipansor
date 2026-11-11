@@ -100,8 +100,9 @@ dengan `apps/web/scripts/role-menus.ts`.
 
 - **Banyak unit, satu portal.** Unit menjadi cakupan data. Organ yayasan,
   petugas pesantren (ustadz, musyrif, muhafidz, pengasuh, tata usaha pesantren)
-  dan layanan lintas unit (asrama, klinik, perpustakaan, keamanan) melihat semua
-  unit; peran lain terkunci pada unitnya.
+  dan layanan lintas unit (asrama, klinik, perpustakaan, keamanan) **membaca**
+  data santri seluruh unit; peran lain terkunci pada unitnya. Yang boleh
+  **ditindaklanjuti** tetap mengikuti unit dan penugasan akun.
 - **Tahfidz dan kepesantrenan.** Target dan setoran hafalan dari SD sampai SMA,
   simaan, takhosus, ibadah harian, kitab kuning, asrama, dan perizinan yang
   diputuskan musyrif atau wali kelas santri itu.
@@ -141,9 +142,11 @@ packages/
   dicatat sebagai baseline yang hanya boleh menyusut.
 - **Akses berlapis:** menu (`config/navigation.ts`), halaman
   (`lib/rbac.ts` + `middleware.ts`), rute API (`authorize`), dan cakupan baris
-  di service (mis. `studentScope`, yang melebarkan baca ke seluruh unit lewat
-  `seesAllUnits`). Izin per fitur yang diturunkan dari penugasan ("Model A")
-  sedang dibangun bertahap.
+  di service (mis. `studentScope`). `seesAllUnits` melebarkan **baca** ke seluruh
+  unit pada layanan yang memakainya, sedangkan **tindakan** per baris tetap
+  dibatasi unit akun (`actorReachesUnit`); peran lintas unit membaca luas tanpa
+  memperoleh kuasa lintas unit. Izin per fitur yang diturunkan dari penugasan
+  ("Model A") sedang dibangun bertahap.
 - **Kontrak** request/response tinggal sekali di `@cipansor/shared`.
 
 Rinciannya di [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) dan dokumen teknis
