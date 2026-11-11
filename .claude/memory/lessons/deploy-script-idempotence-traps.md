@@ -69,6 +69,45 @@ transform's own report.** Re-running the deploy without `DEPLOY=1` must say
 `already current`; when it does not, the transform is not yet idempotent and the
 live copy still differs from the intended one.
 
+## The pattern that was too short to match, again (2026-11-11)
+
+The same class of miss, one round later, and it had shipped to all 19 live
+prompts.
+
+`LEGACY_LABEL_TEXTS` replaced the label-ownership bullet by keying on
+`` `bot-implement` adalah keputusan maintainer — jangan pernah memasangnya. ``
+The live bullet names **three** labels and ends at the same period:
+`` `bot-implement`, `rilis-disetujui`, `rilis-ditolak` adalah keputusan
+maintainer — jangan pernah memasangnya. `` The key was a suffix of the live
+sentence, not the sentence, so `str.replace` found nothing and all three labels
+survived. **A key must be copied whole from the live text, including the
+enumeration that precedes it** — a partial key that "looks like it matches"
+matches nothing, and the transform still reports other edits, so the run looks
+successful.
+
+Worse, the surviving text was not merely stale prose: several tails still
+*told the agent to apply* a deleted label (SDLC 05 `needs-info`, SDLC 09/20
+`pending-maintainer`, SDLC 12 `bot-implement`). `POST /issues/<n>/labels`
+**creates** a label that does not exist, so the next run would have resurrected
+a label the taxonomy deliberately deleted. Check what the text instructs, not
+just whether it is current: **stale prose is a no-op; stale instructions are
+live behaviour.**
+
+## Removing a step, not repairing it (2026-11-11)
+
+Retiring an automation does not remove its step from a prompt the automation was
+already folded into. `Estimasi usaha` (SDLC 02) was retired on 2026-11-09 and
+its step moved into `TAILS["SDLC 15"]`; when the owner then dropped the step
+entirely, editing `TAILS` changed only what a *rebuilt* prompt would say. The
+live SDLC 15 prompt kept the step, because a managed tail is only re-attached
+when the prompt is rebuilt, and `new_prompt` treats an intact prompt as
+`already current`.
+
+A deletion therefore needs the same treatment as an edit: a
+`DROPPED_STEP_TEXTS` substitution applied to the live `head` and `orig_tail`,
+with the test asserting on the live text rather than on the script's constant.
+**When you delete a step, ask which already-deployed prompts still carry it.**
+
 ## Where the originals came from
 
 The pre-deploy prompts were not in the repo (only `deploy-sdlc-agents.py` is).
