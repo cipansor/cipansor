@@ -16,6 +16,7 @@
 | 1.2 | 11 Oktober 2026 | commit `c56078f04` | Angka tata letak modul dan jadwal diukur ulang dan kini diperiksa mesin (#771): 68 dari 95 modul empat berkas, 26 lima bagian, 17 entri jadwal atas 15 berkas pekerjaan. Pemeriksa `check_docs.py` tidak lagi hanya mengenali "dari 93". | Agen Claude Code |
 | 1.3 | 11 November 2026 | commit `76511a89` | Angka diukur ulang setelah fitur absensi pegawai (#630) dan pekerjaan lain: **307 model**, ~**1.459 hulu rute API**, **436 halaman web**, **19 entri jadwal** atas **17 berkas pekerjaan**. §6.6 memuat empat pekerjaan yang sebelumnya terlewat (`holiday-sync`, `attendance-retention`, `letter-retention`, `admission-wave-status`) dan dua berkas tak terjadwal; Lampiran A diukur ulang baris demi baris; bab 9 menambah keputusan `absensi-pegawai.md` dan `persetujuan-pengguna.md`; Lampiran F peta halaman `/hr` 17→20. `check_docs.py` 0 ERROR | Agen OpenHands |
 | 1.4 | 11 November 2026 | kode `af09e9a6` | Konvensi tanggal/waktu ditambahkan ke §8 (tanggal-saja `YYYY-MM-DD` pada tengah malam UTC, pembacaan sebagai timestamp ISO, perbandingan lewat jatuh tempo memakai instan itu — bukan akhir hari WIB — dan bulan penagihan WIB lewat `utils/wib-day.ts`), dan §6.6 menyebut bulan penagihan/pengingat mengikuti kalender WIB (#825). | Agen OpenHands |
+| 1.5 | 12 November 2026 | commit `3cc543b5` | Tabel 2 (Batasan) tidak lagi memaku versi **patch** Prisma: `Prisma 7.10.0` → `Prisma 7` (tingkat mayor), seperti baris yang sama sudah menulis `Next.js 16`, `React 19`, `React Query 5`, dan `Tailwind 4`; baris itu tetap mencantumkan `package.json` sebagai sumbernya (#874). Angka diukur ulang terhadap `facts.json`, tidak berubah. `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
 > seiring pengembangan. Dokumen diperbarui dengan menjalankan ulang pengukuran, bukan dengan menyunting angka.
@@ -114,7 +115,7 @@ setiap orang pada data yang berhak dilihatnya.
 
 | Jenis | Batasan | Sumber |
 |---|---|---|
-| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7.10.0, Zod 4, PostgreSQL, Redis (opsional), Node 26, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
+| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7, Zod 4, PostgreSQL, Redis (opsional), Node 26, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
 | Organisasi | Tim pengembang kecil; yayasan nirlaba memakai perkakas hibah; satu basis data untuk semua unit; repositori bersifat **publik sampai rilis** (lisensi proprietary, menjadi privat saat rilis). | `AGENTS.md`, `LICENSE` |
 | Hukum (yang tercatat di repo) | UU 16/2001 (Yayasan) untuk wewenang organ; UU 27/2022 (PDP) untuk data pribadi; PP 71/2019 untuk tanda tangan elektronik. | `decisions/pengesahan-dokumen-yayasan.md`, `decisions/esign-standards-ceiling.md`, `skills/tata-kelola-yayasan` |
 | Konvensi | Portal berbahasa Indonesia; situs publik tiga bahasa (Indonesia, Inggris, Arab; Arab ditulis kanan ke kiri). Istilah pesantren tidak diterjemahkan; istilah umum berbahasa Inggris di kode/URL, label berbahasa Indonesia. | `decisions/istilah-dan-penamaan.md` |
