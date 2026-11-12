@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
-import { UserRole, Prisma, MealType, MealAttendanceStatus } from '@prisma/client';
-import { actorReachesUnit, seesAllUnits } from '@/utils/resolve-unit-id';
+import { Prisma, MealType, MealAttendanceStatus } from '@prisma/client';
+import { actorReachesUnit, seesAllUnits, writeUnitScopeFor } from '@/utils/resolve-unit-id';
 import { dayOf, todayWib } from '@/utils/wib';
 
 // User type from JwtPayload
@@ -141,12 +141,13 @@ export class MealsService {
       },
     });
 
-    if (!menu) {
-      throw Errors.notFound('Menu not found');
-    }
-
-    if (currentUser.role !== UserRole.SUPER_ADMIN && menu.unitId !== currentUser.unitId) {
-      throw Errors.forbidden('Access denied');
+    // A menu of a unit the actor does not reach answers 404, exactly as for an
+    // id that does not exist, so the answer never confirms another unit's menu
+    // (K10, decisions/akses-data-pegawai.md). The legacy `role` comparison
+    // classified every YAYASAN_* account as a unit admin, so the board was
+    // refused a menu `listMenus` had just shown it.
+    if (!menu || !actorReachesUnit(currentUser, menu.unitId)) {
+      throw Errors.notFound('Menu');
     }
 
     return menu;
@@ -156,15 +157,15 @@ export class MealsService {
    * Create menu
    */
   async createMenu(input: CreateMenuInput, currentUser: AuthenticatedUser) {
-    if (currentUser.role !== UserRole.SUPER_ADMIN && input.unitId !== currentUser.unitId) {
-      throw Errors.forbidden('Cannot create menu for another unit');
-    }
+    // The body's `unitId` is a request, not a grant: a unit admin writes to
+    // their own unit whatever the body says, a foundation role names the unit.
+    const unitId = writeUnitScopeFor(currentUser, input.unitId);
 
     // Check for existing menu on same date/type
     const existing = await prisma.mealMenu.findUnique({
       where: {
         unitId_date_mealType: {
-          unitId: input.unitId,
+          unitId,
           date: new Date(input.date),
           mealType: input.mealType,
         },
@@ -177,7 +178,7 @@ export class MealsService {
 
     const menu = await prisma.mealMenu.create({
       data: {
-        unitId: input.unitId,
+        unitId,
         date: new Date(input.date),
         mealType: input.mealType,
         mainDish: input.mainDish,
@@ -391,15 +392,10 @@ export class MealsService {
       include: { menu: { select: { unitId: true } } },
     });
 
-    if (!attendance) {
-      throw Errors.notFound('Attendance record not found');
-    }
-
-    if (
-      currentUser.role !== UserRole.SUPER_ADMIN &&
-      attendance.menu.unitId !== currentUser.unitId
-    ) {
-      throw Errors.forbidden('Access denied');
+    // Out of reach answers 404, as for an id that does not exist, so the answer
+    // never confirms another unit's attendance row (K10).
+    if (!attendance || !actorReachesUnit(currentUser, attendance.menu.unitId)) {
+      throw Errors.notFound('Attendance record');
     }
 
     const updated = await prisma.mealAttendance.update({
@@ -421,8 +417,23 @@ export class MealsService {
   /**
    * Get meal statistics
    */
-  async getStatistics(unitId: string, startDate?: string, endDate?: string) {
-    const where: Prisma.MealMenuWhereInput = { unitId };
+  async getStatistics(
+    currentUser: AuthenticatedUser,
+    unitId?: string,
+    startDate?: string,
+    endDate?: string
+  ) {
+    const where: Prisma.MealMenuWhereInput = {};
+
+    // The `?unitId=` query is a request, not a grant: a unit-bound account is
+    // pinned to its own unit whatever the query says, so the statistics never
+    // count another unit's menus (K10). A role that sees every unit may narrow
+    // to one, exactly as `listMenus` does.
+    if (!seesAllUnits(currentUser)) {
+      where.unitId = currentUser.unitId || 'none';
+    } else if (unitId) {
+      where.unitId = unitId;
+    }
 
     if (startDate && endDate) {
       where.date = {
@@ -457,12 +468,8 @@ export class MealsService {
       where: { id: studentId, deletedAt: null },
     });
 
-    if (!student) {
-      throw Errors.notFound('Student not found');
-    }
-
-    if (currentUser.role !== UserRole.SUPER_ADMIN && student.unitId !== currentUser.unitId) {
-      throw Errors.forbidden('Access denied');
+    if (!student || !actorReachesUnit(currentUser, student.unitId)) {
+      throw Errors.notFound('Student');
     }
 
     const history = await prisma.mealAttendance.findMany({
