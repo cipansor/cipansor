@@ -487,6 +487,35 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
     });
   });
 
+  it.skipIf(!hasPy)(
+    'never wakes an automation on `ready_for_review`, only on a manual review request',
+    () => {
+      // `Gerbang tinjau PR` (SDLC 18) used to also carry
+      // `pull_request.ready_for_review`, so it could start in the middle of CI,
+      // read the check runs once, find them still running and stop without
+      // reviewing — a run spent for nothing (#840). The trigger is now only
+      // `pull_request.review_requested`; the deterministic caller is
+      // `pr-lifecycle.yml`, which dispatches once every required check is green.
+      // The deploy PATCHes the live trigger from this dict, so a re-added
+      // `ready_for_review` here would silently restore the defect.
+      const r = py(
+        [
+          'import json',
+          'print(json.dumps({"sdlc18": m.TRIGGERS.get("SDLC 18")}))',
+        ].join('\n')
+      );
+      expect(r.status, r.stderr).toBe(0);
+      const parsed = JSON.parse(r.stdout) as { sdlc18: { on?: string[] } | null };
+      // The gate keeps a trigger of its own; dropping the entry would make the
+      // deploy skip the gate entirely and leave it on whatever it last had.
+      expect(parsed.sdlc18).toBeTruthy();
+      expect(parsed.sdlc18?.on).toEqual(['pull_request.review_requested']);
+      // The gate must not be woken by the ready transition: it fires while CI is
+      // still running, which is exactly the wasted run #840 reports.
+      expect(parsed.sdlc18?.on ?? []).not.toContain('pull_request.ready_for_review');
+    }
+  );
+
   it('records every disabled automation in RETIRED, so a deploy cannot leave it dark', () => {
     // `Audit Kematangan` was switched off by hand on 2026-11-10 and never listed,
     // so its monthly report simply stopped with no document naming it. The
