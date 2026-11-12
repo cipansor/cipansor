@@ -186,7 +186,7 @@ def read(text: str) -> dict:
         block = text[start:end]
         f: dict = {}
         for key, pat in FIELD_PATTERNS.items():
-            m = re.search(rf"(?im)^\s*[-*]?\s*\*{{0,2}}{pat}\*{{0,2}}\s*[::]\s*(.+)$", block)
+            m = re.search(rf"(?im)^\s*[-*]?\s*\*{{0,2}}{pat}\*{{0,2}}\s*:\s*(.+)$", block)
             if not m:
                 err(f"{fid}: butir wajib hilang — {key}")
             else:
@@ -259,7 +259,7 @@ def summary_errors(text: str) -> list[str]:
         start = b.end()
         end = blocks[i + 1].start() if i + 1 < len(blocks) else len(text)
         block = text[start:end]
-        m = re.search(r"(?im)^\s*[-*]?\s*\**status\**\s*[::]\s*(.+)$", block)
+        m = re.search(r"(?im)^\s*[-*]?\s*\**status\**\s*:\s*(.+)$", block)
         status = canonical(m.group(1), STATUS_LEVELS) if m else None
         if status in (None, "open", "mitigated", "accepted"):
             errs.append(
