@@ -228,7 +228,27 @@ if [ "${1:-}" = "--issue" ]; then
     fi
     # The `PR template reminder` gate reads the issue's labels at run time; a
     # relabel here invalidated its last result, so re-evaluate it on the PR head.
+    # Dependabot is skipped by the workflow itself (`pr-description-checks.yml`
+    # keys the skip on the PR author, since Dependabot writes its own body and
+    # cannot link an issue); a job skipped by `if` reports success. Re-evaluating
+    # it here would publish a red the workflow deliberately never runs.
+    AUTHOR=$(gh pr view "$p" --repo "$REPO" --json author --jq .author.login 2>/dev/null || true)
+    if [ "$AUTHOR" = "dependabot[bot]" ]; then
+      echo "PR #$p is Dependabot; leaving the \`PR template reminder\` check as it is."
+      continue
+    fi
+    # The guard applies its "targets a non-default branch" rule only when
+    # BASE_REF is present. A failed read leaves it empty, the rule is skipped,
+    # and a PR that targets a non-default branch would be republished green —
+    # a result it never earned. Fail and keep the previous check instead of
+    # minting one. (DEFAULT_BRANCH comes from the workflow, which always sets
+    # it on this path.)
     BASE=$(gh pr view "$p" --repo "$REPO" --json baseRefName --jq .baseRefName 2>/dev/null || true)
+    if [ -z "$BASE" ]; then
+      echo "::error::could not read the base branch of PR #$p; the \`PR template reminder\` check is left as it is."
+      RC=1
+      continue
+    fi
     publish_template_check "$p" "$SHA" "$BASE" || RC=1
   done
   exit "$RC"

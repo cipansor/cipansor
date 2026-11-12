@@ -64,7 +64,8 @@ case "$1" in
     case "$2" in
       view) case "$*" in
           *"--json headRefOid"*) printf '%s\\n' "\${GH_STUB_PR_HEAD:-deadbeef}" ;;
-          *"--json baseRefName"*) printf '%s\\n' "\${GH_STUB_PR_BASE:-main}" ;;
+          *"--json baseRefName"*) [ "\${GH_STUB_BASE_FAIL:-0}" = "1" ] && { echo "gh: baseRefName unavailable" >&2; exit 1; }; printf '%s\\n' "\${GH_STUB_PR_BASE:-main}" ;;
+          *"--json author"*) printf '%s\\n' "\${GH_STUB_PR_AUTHOR:-human}" ;;
           *"--json body"*) printf '%s\\n' "\${GH_STUB_PR_BODY:-}" ;;
           *) printf '%s\\n' "\${GH_STUB_PR_LABELS:-}" ;;
         esac ;;
@@ -105,6 +106,20 @@ function run(script: string, env: Record<string, string>, args: string[] = []) {
     out: `${r.stdout}${r.stderr}`,
     calls: existsSync(log) ? readFileSync(log, 'utf8') : '',
   };
+}
+
+/**
+ * The one logged `CHECKRUN` line whose `name=` is `name`. Assertions about a
+ * check run must run against its own line: `calls` holds every run the script
+ * published, so a `toContain('conclusion=success')` over the whole log is
+ * satisfied by a *different* check and cannot tell a red template check from a
+ * green one.
+ */
+function checkRun(calls: string, name: string): string {
+  const line = calls
+    .split('\n')
+    .find((l) => l.startsWith('CHECKRUN') && l.includes(`name=${name}`));
+  return line ?? '';
 }
 
 const WARNED = '2020-01-01T00:00:00Z';
@@ -453,14 +468,17 @@ pnpm --filter api test
         GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
         GH_STUB_PR_BODY: `${COMPLETE_BODY}\nFixes #12\n`,
         GH_STUB_TEMPLATE_ISSUE_LABELS: 'ready',
+        DEFAULT_BRANCH: 'main',
       },
       ['--issue', '3']
     );
     // A `PR template reminder` check run is published against the PR head, not
-    // just the label-sync one.
-    expect(calls).toContain('name=PR template reminder');
-    expect(calls).toContain('head_sha=sha7');
-    expect(calls).toContain('conclusion=success');
+    // just the label-sync one. Assert name, SHA and conclusion on the SAME
+    // entry: `toContain` over the whole log would also match the label-sync
+    // run's `conclusion=success`, so a template check that came out `failure`
+    // would still read as green.
+    expect(checkRun(calls, 'PR template reminder')).toContain('head_sha=sha7');
+    expect(checkRun(calls, 'PR template reminder')).toContain('conclusion=success');
   });
 
   it('publishes a failing template check when the linked issue is no longer ready', () => {
@@ -476,12 +494,12 @@ pnpm --filter api test
         GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
         GH_STUB_PR_BODY: `${COMPLETE_BODY}\nFixes #12\n`,
         GH_STUB_TEMPLATE_ISSUE_LABELS: '',
+        DEFAULT_BRANCH: 'main',
       },
       ['--issue', '3']
     );
-    expect(calls).toContain('name=PR template reminder');
-    expect(calls).toContain('head_sha=sha7');
-    expect(calls).toContain('conclusion=failure');
+    expect(checkRun(calls, 'PR template reminder')).toContain('head_sha=sha7');
+    expect(checkRun(calls, 'PR template reminder')).toContain('conclusion=failure');
   });
 
   it('publishes the template check alongside the label-sync check, once each', () => {
@@ -495,11 +513,58 @@ pnpm --filter api test
         GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
         GH_STUB_PR_BODY: `${COMPLETE_BODY}\nFixes #12\n`,
         GH_STUB_TEMPLATE_ISSUE_LABELS: 'ready',
+        DEFAULT_BRANCH: 'main',
       },
       ['--issue', '3']
     );
     const runs = calls.split('\n').filter((l) => l.startsWith('CHECKRUN'));
     expect(runs.filter((l) => l.includes('name=Issue label sync'))).toHaveLength(1);
     expect(runs.filter((l) => l.includes('name=PR template reminder'))).toHaveLength(1);
+  });
+
+  it('leaves a Dependabot PR alone: the workflow skips it, so no red is published', () => {
+    // `pr-description-checks.yml` keys its skip on the PR author; Dependabot
+    // writes its own body and links no issue, so the guard would fail it. The
+    // issue event must not publish a red the pull-request workflow never runs.
+    const { calls, out } = run(
+      SYNC,
+      {
+        GH_STUB_PRS: '70',
+        GH_STUB_CLOSING: '3',
+        GH_STUB_PR_HEAD: 'sha70',
+        GH_STUB_PR_AUTHOR: 'dependabot[bot]',
+        GH_STUB_PR_LABELS: 'dependencies',
+        GH_STUB_ISSUE_LABELS_3: 'dependencies',
+        GH_STUB_PR_BODY: 'Bumps lodash from 4.17.20 to 4.17.21.',
+        GH_STUB_TEMPLATE_ISSUE_LABELS: 'ready',
+        DEFAULT_BRANCH: 'main',
+      },
+      ['--issue', '3']
+    );
+    expect(calls).not.toContain('name=PR template reminder');
+    expect(out).toContain('Dependabot');
+  });
+
+  it('fails instead of publishing a green when the base branch cannot be read', () => {
+    // The guard drops its non-default-branch rule when BASE_REF is empty, so a
+    // failed read must not mint a green: keep the previous result and fail.
+    const { status, calls } = run(
+      SYNC,
+      {
+        GH_STUB_PRS: '7',
+        GH_STUB_CLOSING: '3',
+        GH_STUB_PR_HEAD: 'sha7',
+        GH_STUB_PR_BASE: 'staging',
+        GH_STUB_BASE_FAIL: '1',
+        GH_STUB_PR_LABELS: 'bug\npriority:high',
+        GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
+        GH_STUB_PR_BODY: `${COMPLETE_BODY}\nFixes #12\n`,
+        GH_STUB_TEMPLATE_ISSUE_LABELS: 'ready',
+        DEFAULT_BRANCH: 'main',
+      },
+      ['--issue', '3']
+    );
+    expect(calls).not.toContain('name=PR template reminder');
+    expect(status).toBe(1);
   });
 });
