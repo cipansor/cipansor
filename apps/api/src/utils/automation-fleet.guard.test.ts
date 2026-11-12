@@ -2442,6 +2442,29 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toMatch(/Jangan pernah melewati 30 perintah/);
   });
 
+  it.skipIf(!hasPy)('gives the triage owner a target rule for a payload-less dispatch', () => {
+    // #877: the bridge dispatches SDLC 15 with `POST /dispatch`, which carries
+    // no body, so the run cannot know which issue it was started for — and one
+    // sweep may dispatch several issues at once. Without a target rule the run
+    // either guesses or triages the wrong issue. SDLC 18 already had one; SDLC
+    // 15 must too.
+    const out = newPrompt(
+      'SDLC 15',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(out).toContain('SASARAN (WAJIB saat payload kosong)');
+    // It finds the target from GitHub state — the freshest non-`ready` issue
+    // whose last non-fleet activity is unanswered — never from an env var: the
+    // automation process holds `$AUTOMATION_*`, but the agent's terminal does
+    // not inherit them (OpenHands preset), so a KV read would never resolve.
+    expect(out).toContain('-label:ready');
+    expect(out).toContain('TIDAK mewarisi `$AUTOMATION_*`');
+    expect(out).not.toContain('triage-run-');
+    // One target only, and the choice is written before any investigation.
+    expect(out).toMatch(/jangan men-triase lebih dari satu issue/);
+    expect(out).toContain('tak ada sasaran');
+  });
+
   it.skipIf(!hasPy)('forbids the review gate from calling its verdict the final word', () => {
     // The owner asked (2026-11-12, on PR #1033): the gate's verdict is a
     // recommendation, not the last word — merge stays with the maintainer.
@@ -3383,5 +3406,78 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).not.toContain('DISPATCH');
     expect(out).toContain('burst collapsed');
     expect(kv['triage-state-818']).toMatchObject({ state: 'bug+priority:high' });
+  });
+
+  // ---- #877: bounded deterministic retry for a payload-less dispatch -------
+
+  it('raises the attempt counter on each infra-failed run, scoped to the signal', () => {
+    // A FAILED run re-dispatches the same issue, and the attempt is counted so
+    // the episode can be bounded. A fresh signal (a new activity) resets it.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-attempt-818']).toEqual({ signal: signal('edited'), count: 1 });
+  });
+
+  it('stops retrying an issue once RETRY_MAX is reached, finalising the checkpoint', () => {
+    // #877: an issue whose every run dies must not re-dispatch on every sweep
+    // forever. At the cap the checkpoint is finalised (so the sweep stops) and a
+    // warning is emitted for a human.
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x' },
+          'triage-attempt-818': { signal: signal('edited'), count: 3 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('attempt cap');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+  });
+
+  it('clears the attempt counter when the run completes, so a later episode starts fresh', () => {
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x' },
+          'triage-attempt-818': { signal: signal('edited'), count: 2 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-attempt-818']).toBeUndefined();
+  });
+
+  it('counts a fresh signal from zero, not from the previous episode', () => {
+    // The counter is scoped to the activity signal: an edited description is a
+    // new episode, so the previous episode's count must not shorten it.
+    const { kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited-again',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x' },
+          'triage-attempt-818': { signal: signal('edited'), count: 3 },
+        },
+      },
+      ['--sweep']
+    );
+    expect(kv['triage-attempt-818']).toEqual({ signal: signal('edited-again'), count: 0 });
   });
 });

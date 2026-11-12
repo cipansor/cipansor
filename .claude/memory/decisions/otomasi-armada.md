@@ -358,6 +358,32 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       `gh api --paginate` mencetak **satu array JSON per halaman**, jadi halaman
       harus di-`jq -rs` (slurp) dulu: tanpa itu `attempts` menjadi `"3\n0"`,
       perbandingan angka gagal, dan gerbang bisa di-dispatch ulang tanpa batas.
+    - **`issue-triage-bridge.sh`** (#877, 2026-11-11): sweep men-dispatch
+      `Triase issue` (SDLC 15) pada setiap aktivitas non-armada issue
+      non-`ready`, lalu **membaca hasil run** dari checkpoint (`triage-sweep-<n>`
+      menyimpan run id). Run yang mati infrastruktur di-retry ke **issue yang
+      sama** — kuncinya nomor issue, jadi sasarannya deterministik — tetapi
+      **dibatasi**: hitungan percobaan disimpan di kunci `triage-attempt-<n>`
+      (`{signal, count}`, kunci sendiri — bukan `triage-retry-<n>` milik
+      penundaan), naik satu tiap retry, dan pada `ATTEMPT_MAX` (3)
+      checkpoint difinalkan + `::warning::` supaya maintainer melihatnya,
+      bukan re-dispatch tiap sweep selamanya. Hitungan **scoped ke sinyal**
+      (komentar/suntingan baru = episode baru, mulai 0) dan dibersihkan saat run
+      `COMPLETED`. **Sasaran dispatch payload-less** juga ditutup: dispatch
+      membawa **tanpa body**, jadi prompt SDLC 15 kini memuat aturan
+      `SASARAN (WAJIB saat payload kosong)` yang menetapkan sasaran dari
+      **keadaan GitHub** — `## Event Payload` bila ada, jika tidak SATU issue
+      terbuka non-`ready` dengan aktivitas non-armada terbaru yang belum
+      dijawab (`search/issues` diurut `updated desc`) — sehingga run yang
+      dipicu jembatan (atau dispatch manual) tak menebak issue. **Jangan baca
+      `$AUTOMATION_*` dari terminal agen**: proses automation memegang
+      `$AUTOMATION_EVENT_PAYLOAD`/`$AUTOMATION_KV_TOKEN`/`$AUTOMATION_RUN_ID`,
+      tetapi terminal agen **tidak mewarisinya** (dinyatakan preset OpenHands
+      `presets/*/sdk_main.py`), jadi aturan sasaran yang membaca KV
+      `triage-run-<run-id>` tak akan pernah resolve — dihapus sebelum rilis.
+      Ini melengkapi `gate-watch.sh`: keduanya retrier **deterministik** untuk
+      run ber-pemicu event, yang tak bisa di-retry oleh `automation-retry.sh`
+      (payload-nya tak diekspos API runs).
     - **`set -eu` + pipa ke `while` = subshell**: variabel yang di-set di dalam
       `| while` tidak bertahan setelah loop. Karena itu hitungan percobaan
       disimpan di **penanda komentar**, bukan variabel shell.

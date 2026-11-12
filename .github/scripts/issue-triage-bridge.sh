@@ -103,6 +103,15 @@ READY_PAGES="${READY_PAGES:-50}"
 # than this collapses the burst to one dispatch. A later change to a type or
 # priority the issue held before still dispatches once the window has passed.
 BURST_WINDOW="${BURST_WINDOW:-300}"
+# How many times a triage run that died in infrastructure (FAILED/CANCELLED/
+# SKIPPED, or gone from the run listing) is retried for the *same* activity
+# before the sweep gives up and leaves the checkpoint final. The retry is
+# deterministic — the checkpoint key is `triage-sweep-<n>`, so the same issue is
+# re-dispatched — but an unbounded retry against an issue that always kills the
+# run burns a sandbox slot every sweep forever (#877). The count lives in its own
+# KV key so the sweep checkpoint keeps its shape; it is cleared when a run
+# COMPLETED (the episode is over) and when the cap is hit.
+ATTEMPT_MAX="${ATTEMPT_MAX:-3}"
 # Checkpoints live in the automation KV store, never in issue comments. A marker
 # comment renders as an empty comment (it is only HTML), so creating one notifies
 # every subscriber of the issue and leaves an unreadable husk behind: the sweep's
@@ -115,6 +124,12 @@ BURST_WINDOW="${BURST_WINDOW:-300}"
 # the pool was full; anything else is the run that is answering the signal.
 SWEEP_KEY="triage-sweep-"
 STATE_KEY="triage-state-"
+# The attempt counter for an issue whose triage runs keep dying in
+# infrastructure: `{"signal": "<hash>", "count": <n>}`. Scoped to the activity
+# signal, so a new comment or an edited description (a fresh signal) starts a
+# fresh episode at 0. Its own key (not `triage-retry-`, which a deferral marker
+# uses) so the two never share a value shape.
+ATTEMPT_KEY="triage-attempt-"
 # The marker prefix the bridge used before it moved to the KV store. It is read
 # once, to adopt an existing checkpoint, and then deleted; nothing writes it any
 # more. `--purge-markers` clears the ones on issues the sweep no longer visits
@@ -411,6 +426,45 @@ write_sweep_marker() { # write_sweep_marker <number> <signal> <run>
 # a stale checkpoint must not linger to mislead a later sweep.
 remove_sweep_marker() { # remove_sweep_marker <number>
   kv_del "$SWEEP_KEY$1"
+  clear_attempt "$1"
+}
+
+# The attempt counter for one issue, scoped to the activity signal: a new signal
+# (a fresh comment, or an edited description) is a new episode and starts at 0.
+# `ATTEMPT_COUNT` carries the value; 0 for a key that is absent, 2 when the store
+# could not be read (the caller leaves the checkpoint for the next sweep, the
+# same way an unreadable sweep checkpoint is left alone).
+ATTEMPT_COUNT=0
+read_attempt() { # read_attempt <number> <signal>; 0 ok, 2 unreadable
+  ATTEMPT_COUNT=0
+  # `|| rc=$?`: an absent key is a normal answer, and under `set -e` a bare
+  # failing command would abort the script (same reason as `read_sweep_marker`).
+  rc=0
+  kv_get "$ATTEMPT_KEY$1" || rc=$?
+  case "$rc" in
+    0) : ;;
+    1) return 0 ;;
+    *) return 2 ;;
+  esac
+  s=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || s=""
+  c=$(printf '%s' "$KV_JSON" | jq -r '.count // 0' 2>/dev/null) || c=0
+  case "$c" in '' | *[!0-9]*) c=0 ;; esac
+  [ "$s" = "$2" ] && ATTEMPT_COUNT="$c" || ATTEMPT_COUNT=0
+  return 0
+}
+
+# Record the attempt count for an issue. Best effort: a failed write only means the
+# bound is one attempt looser on the next sweep, not a lost dispatch.
+set_attempt() { # set_attempt <number> <signal> <count>
+  kv_put "$ATTEMPT_KEY$1" \
+    "$(jq -nc --arg s "$2" --argjson c "$3" '{signal: $s, count: $c}')" \
+    || echo "::warning::could not record the triage attempt counter on #$1."
+}
+
+# The episode is over (the run completed, or the issue left scope): drop the
+# counter so a later activity starts fresh.
+clear_attempt() { # clear_attempt <number>
+  kv_del "$ATTEMPT_KEY$1"
 }
 
 # --stdin: a bot applied a type or priority label.
@@ -529,6 +583,10 @@ process_one() { # process_one <number> <inflight> [ready_ok]
 
   read_sweep_marker "$n"
   prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_form="$MARK_FORM"
+  # The attempt count to record once this pass dispatches. 0 for a fresh signal (no
+  # retries yet); the failure branch below raises it by one per retry, and the cap
+  # stops the episode before it can burn a sandbox slot on every sweep forever.
+  attempt_next=0
 
   # The checkpoint names a run that answered this same activity. Read its outcome
   # instead of trusting the 201: only a COMPLETED run is a finished checkpoint; a
@@ -558,10 +616,28 @@ process_one() { # process_one <number> <inflight> [ready_ok]
       COMPLETED)
         echo "#$n: run ${prev_run} completed; the checkpoint is final."
         write_sweep_marker "$n" "$sig" ""
+        clear_attempt "$n"
         return 1
         ;;
       *)
-        echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying."
+        # The run died in infrastructure. Retry the SAME issue deterministically —
+        # the checkpoint key is the issue number — but bound the attempts: an
+        # issue whose every run dies (or a persistent platform fault) would
+        # otherwise re-dispatch on every sweep and hold a sandbox slot forever
+        # (#877). Past the cap the checkpoint is finalised with a warning, so the
+        # issue is reported once and then left to a human, not re-run silently.
+        if ! read_attempt "$n" "$sig"; then
+          echo "#$n: the attempt counter could not be read; leaving the checkpoint for the next sweep."
+          return 1
+        fi
+        if [ "$ATTEMPT_COUNT" -ge "$ATTEMPT_MAX" ]; then
+          echo "::warning::#$n: run ${prev_run} did not complete (${st:-unreadable}) and the attempt cap (ATTEMPT_MAX=$ATTEMPT_MAX) is reached; leaving the checkpoint final. A human must look at this issue."
+          write_sweep_marker "$n" "$sig" ""
+          clear_attempt "$n"
+          return 1
+        fi
+        attempt_next=$((ATTEMPT_COUNT + 1))
+        echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying (attempt ${attempt_next}/${ATTEMPT_MAX})."
         ;;
     esac
   elif [ "$prev_sig" = "$sig" ] && [ "$prev_run" = "$PENDING_RUN" ]; then
@@ -585,6 +661,9 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   # Dispatch; record the run so the next sweep reads its result, not the 201.
   if dispatch "$n" sweep-activity "$sig"; then
     write_sweep_marker "$n" "$sig" "$RUN_ID"
+    # Record the attempt count for this episode, so a run that keeps dying is
+    # bounded. A fresh signal resets it to 0; a retry stores the raised count.
+    set_attempt "$n" "$sig" "$attempt_next"
     return 0
   fi
   echo "::warning::dispatch failed for #$n; the checkpoint is unchanged, so the next sweep retries."
