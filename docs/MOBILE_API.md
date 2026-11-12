@@ -87,11 +87,14 @@ PENDING/TU_APPROVED → REJECTED (dengan alasan)
   pada H-7/H-3/H-1.
 
 WhatsApp lewat transport yang belum dikonfigurasi (mis. `SIMULATOR`) tidak
-benar-benar terkirim. Pada jalur `payment-reminder` yang ber-`dedupeKey`,
-kegagalan transport dicatat `PENDING` (dapat diulang), bukan `SENT`. Jalur SPP
-bulanan (`jobs/spp-reminder.job.ts`) **tidak** menyimpan status pengiriman yang
-dapat diulang — kegagalannya dicatat `FAILED`, bukan `PENDING` — jadi jangan
-menganggapnya terkirim sampai provider disetel.
+benar-benar terkirim. Hanya notifikasi ber-`dedupeKey` (mis. jalur
+`payment-reminder`) yang menyimpan status pengiriman per kanal: transport
+log-only dicatat `PENDING`, kesalahan transport dicatat `FAILED`, dan keduanya
+dicoba ulang pada run berikutnya — bukan `SENT`. Jalur SPP bulanan
+(`jobs/spp-reminder.job.ts`) **tidak** menyimpan status itu sama sekali, jadi
+pengingat yang gagal pada tanggal 1 tidak pernah dicoba ulang; jangan
+menganggapnya terkirim sampai provider disetel, dan kirim ulang secara manual
+bila provider baru diaktifkan setelah tanggal 1.
 
 ## 5. Konfigurasi server (env)
 

@@ -447,9 +447,9 @@ decision.
   reports for the same santri). The three tasks that do pass a `dedupeKey`
   (`payment-reminder`, `event-reminder`, `budget-overrun-alert`) are the safe
   ones. Give the bulk tasks a key (or a concurrency-safe slot claim) before
-  claiming the whole notification scheduler is multi-instance safe — this is
-  what `docs/ARCHITECTURE.md` §"Scheduled work" and §6.6 of
-  `docs/DOKUMEN-TEKNIS.md` now say.
+  claiming the whole notification scheduler is multi-instance safe; the public
+  docs deliberately say only that tasks are idempotent individually, not as a
+  group, and name no task.
 - **`payment-reminder` reminds once per invoice, not on H-7/H-3/H-1.** The
   scheduler selects every unpaid invoice inside a seven-day window and sends
   with `dedupeKey: payment-reminder:<id>`, so the first run to see the invoice
