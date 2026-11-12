@@ -105,12 +105,30 @@ if [ "${1:-}" = "--sweep" ]; then
   #
   # A fork PR's `pull_request` token is read-only, so a claim it needs cannot be
   # made here; the sweep names the move instead of passing silently.
-  ROWS=$(gh pr list --repo "$REPO" --state open --limit 500 \
-    --json number,isCrossRepository,closingIssuesReferences \
-    --jq '.[] | "\(.number)|\(.isCrossRepository)|\([.closingIssuesReferences[].number] | join(","))"' || true)
+  #
+  # A failed listing must not look like "no open PR": that would report success
+  # while an issue that needs claiming was never looked at. The single-PR path
+  # draws the same line (`closing_open_issues` failing is an error, an empty set
+  # is not).
+  if ! ROWS=$(gh pr list --repo "$REPO" --state open --limit 500 \
+      --json number,isCrossRepository,closingIssuesReferences \
+      --jq '.[] | "\(.number)|\(.isCrossRepository)|\([.closingIssuesReferences[].number] | join(","))"'); then
+    echo "::error::could not list open pull requests; the sweep cannot reconcile and must not report success."
+    exit 1
+  fi
   if [ -z "$ROWS" ]; then
     echo "No open pull requests; nothing to claim."
     exit 0
+  fi
+  # `closingIssuesReferences` carries no `state` — the object is
+  # {id, number, repository, url} (checked 2026-11-12) — so the filter the
+  # single-PR path gets from GraphQL is rebuilt here from one listing of open
+  # issues. Without it the sweep would move a closed issue's `ready` to
+  # `in-progress`, a move the event path explicitly refuses to make.
+  if ! OPEN_ISSUES=$(gh issue list --repo "$REPO" --state open --limit 1000 \
+      --json number --jq '.[].number'); then
+    echo "::error::could not list open issues; the sweep cannot tell an open issue from a closed one."
+    exit 1
   fi
   # A pipeline runs the loop in a subshell, so a failure recorded in a variable
   # would be lost. A temp file survives it, and the sweep must not report success
@@ -126,6 +144,8 @@ if [ "${1:-}" = "--sweep" ]; then
       continue
     fi
     for N in $(printf '%s' "$ISSUES" | tr ',' ' '); do
+      # Only an OPEN issue is claimable; a closed issue's labels are frozen.
+      has "$OPEN_ISSUES" "$N" || continue
       claim_issue "$N" || echo "claim failed for issue #$N (PR #$PR)" >> "$FAILS"
     done
   done

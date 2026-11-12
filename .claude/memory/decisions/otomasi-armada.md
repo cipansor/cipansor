@@ -1080,7 +1080,10 @@ pembagian ini.
 **Konsekuensi aman yang diperiksa:** `label-guard` mengecualikan `*[bot]`, jadi
 tak ada pencabutan; `issue-triage-bridge` mencocokkan `*bot`/`*[bot]` (bukan
 login spesifik); `stale-sweep`/`duplicate-sweep` menganggap `cipansor-bot`
-bukan manusia (perilaku benar). **Prasyarat deploy:** secret repo
-`CIPANSOR_BOT_TOKEN` harus ada, jika tidak semua workflow komunikator gagal di
-langkah pertama (fallback hanya menyelamatkan bila secret kosong, bukan bila
-tidak ada).
+bukan manusia (perilaku benar). **Koreksi 2026-11-12 (review PR #1077):** klaim awal saya salah. Secret yang
+**tidak ada** dan secret yang **kosong** sama-sama menghasilkan string kosong di
+ekspresi Actions, jadi `|| github.token` tetap memilih token bawaan — workflow
+**tidak** gagal, identitasnya saja yang mundur ke `github-actions[bot]`. Jadi
+fallback ini memang membuat identitas bot "best effort", bukan jaminan: bila
+secret hilang, armada tetap jalan tapi menulis sebagai bot platform. Yang benar
+untuk diwaspadai: kegagalan senyap, bukan crash.

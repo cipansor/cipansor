@@ -350,11 +350,12 @@ done
 # exempt from the linking rule by design (`pr-description-checks.yml` skips it by
 # author), so applying the rule here would close it for doing nothing wrong.
 #
-# Activity that ends a cycle: a person's comment, and — for a PR that already has
-# its issue — a new head commit, which is the author working on it. A push does
-# *not* end the no-issue cycle: it leaves the defect (no linked issue) untouched,
-# so it must not buy another 5 days. Linking an issue does end it, which is what
-# the `kind` in the marker detects.
+# Activity that ends a cycle: a person's comment, a review or diff comment (the
+# reviewer talking, not just the author), and — for a PR that already has its
+# issue — a head commit, counted from the commit's own date rather than from the
+# PR's creation. A push does *not* end the no-issue cycle: it leaves the defect
+# (no linked issue) untouched, so it must not buy another 5 days. Linking an
+# issue does end it, which is what the `kind` in the marker detects.
 PR_MARK="<!-- stale-sweep:pr:warned -->"
 PR_NOISSUE_MARK="<!-- stale-sweep:pr:noissue -->"
 HEAD_MARK="stale-sweep:head:"
@@ -389,9 +390,31 @@ printf '%s\n' "$PRS" | while IFS='|' read -r pr DRAFT IS_BOT CREATED HEAD ISSUES
   RAW=$(gh api --paginate "repos/$REPO/issues/$pr/comments?per_page=100" \
     --jq '.[] | "\(.created_at)\t\(.user.login)\t\(.body | gsub("\n"; " ") | gsub("\t"; " "))"' 2>/dev/null || true)
 
+  # A review and a diff comment are activity too, and they live on their own
+  # endpoints (`pulls/reviews`, `pulls/comments`) — the issue-comment list alone
+  # would let a PR under active review be closed. Same tab-separated shape, so
+  # the human/reply scans below cover them without a second pass. A pending
+  # review has no `submitted_at` and is not activity yet.
+  REVIEWS=$(gh api --paginate "repos/$REPO/pulls/$pr/reviews?per_page=100" \
+    --jq '.[] | select(.submitted_at != null) | "\(.submitted_at)\t\(.user.login)\t\(.body // "" | gsub("\n"; " ") | gsub("\t"; " "))"' 2>/dev/null || true)
+  DIFF_COMMENTS=$(gh api --paginate "repos/$REPO/pulls/$pr/comments?per_page=100" \
+    --jq '.[] | "\(.created_at)\t\(.user.login)\t\(.body // "" | gsub("\n"; " ") | gsub("\t"; " "))"' 2>/dev/null || true)
+  RAW=$(printf '%s\n%s\n%s' "$RAW" "$REVIEWS" "$DIFF_COMMENTS")
+
   LAST_HUMAN=$(printf '%s\n' "$RAW" \
     | awk -F '\t' -v bot="$BOT_LOGIN" '$2 != bot && $2 !~ /\[bot\]$/ && $1 != "" { t = $1 } END { print t }' || true)
   LAST_HUMAN="${LAST_HUMAN:-$CREATED}"
+
+  # A head commit is the author working, so it is an activity timestamp too —
+  # not merely a difference against the head a warning recorded. Without this the
+  # idle clock kept counting from the comment/creation date, so a PR pushed today
+  # but created 120 days ago read as 120 days idle and was closed a week later.
+  # Only for a PR that has its issue: for a PR with none, a push leaves the
+  # defect (no linked issue) untouched and must not buy another window.
+  if [ "$KIND" = "hasissue" ] && [ -n "$HEAD" ]; then
+    HEAD_AT=$(gh api "repos/$REPO/commits/$HEAD" --jq '.commit.committer.date' 2>/dev/null || true)
+    [ -z "$HEAD_AT" ] || LAST_HUMAN=$(printf '%s\n%s\n' "$LAST_HUMAN" "$HEAD_AT" | sort | tail -1)
+  fi
 
   WARNED_LINE=$(printf '%s\n' "$RAW" | grep -F "$PR_MARK" | tail -1 || true)
   WARNED_AT=$(printf '%s\n' "$WARNED_LINE" | cut -f1 || true)

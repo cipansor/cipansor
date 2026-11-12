@@ -774,7 +774,12 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   menutup, atau menyunting issue/PR memakai `secrets.CIPANSOR_BOT_TOKEN` dengan
   fallback `github.token` (nama secret tidak boleh berawalan `GITHUB_`, jadi
   `CIPANSOR_BOT_TOKEN`). Identitas `github-actions[bot]` anonim dan mudah
-  disalahartikan sebagai platform. Tiga suite yang **memverifikasi**, bukan
+  disalahartikan sebagai platform. Perlu diketahui: secret yang hilang **tidak**
+  menggagalkan workflow — ekspresi Actions menganggapnya string kosong, jadi
+  `|| github.token` terpilih dan identitasnya **diam-diam** mundur ke
+  `github-actions[bot]`. Karena itu identitas bot bersifat best-effort: bila
+  secret hilang, armada tetap jalan tetapi tulisannya kembali anonim, tanpa
+  error yang terlihat. Tiga suite yang **memverifikasi**, bukan
   berbicara, tetap memakai token Actions: `issue-label-sync.yml` menerbitkan
   check-run, dan `ci.yml`/`e2e-tests.yml`/`deploy-*` hanya membaca status —
   selain itu PR dari fork tidak bisa melihat secret repositori, jadi jalur

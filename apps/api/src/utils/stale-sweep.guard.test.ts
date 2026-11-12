@@ -39,6 +39,15 @@ log() { [ -n "\${GH_STUB_LOG:-}" ] && echo "$*" >> "$GH_STUB_LOG"; }
 case "$1" in
   api)
     case "$*" in
+      *"/reviews"*)
+        log "API $*"
+        printf '%s\\n' "\${GH_STUB_REVIEWS:-}" ;;
+      *"/pulls/"*"/comments"*)
+        log "API $*"
+        printf '%s\\n' "\${GH_STUB_DIFF_COMMENTS:-}" ;;
+      *"/commits/"*)
+        log "API $*"
+        printf '%s\\n' "\${GH_STUB_COMMIT_DATE:-}" ;;
       *"/comments"*)
         log "API $*"
         printf '%s\\n' "\${GH_STUB_COMMENTS:-}"
@@ -587,5 +596,67 @@ describe('stale-sweep.sh: pull requests', () => {
     });
     expect(calls).not.toContain('PRCOMMENT');
     expect(calls).not.toContain('PRCLOSE');
+  });
+
+  it('counts the head commit as activity, so a fresh push keeps the PR open', () => {
+    // The idle clock used to run from the comment/creation date only, so a PR
+    // created long ago but pushed today still read as idle for its whole life and
+    // was warned again and closed a week later — even though the commit was a
+    // week old at most.
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 120, head: 'bbbb', issues: '9' }),
+      GH_STUB_COMMENTS: '',
+      GH_STUB_COMMIT_DATE: daysAgo(0),
+    });
+    expect(calls).not.toContain('PRCOMMENT');
+    expect(calls).not.toContain('PRCLOSE');
+    expect(out).toContain('nothing to do');
+  });
+
+  it('still warns a linked-issue PR whose head commit is genuinely old', () => {
+    // The commit date must not exempt everything: a PR whose last commit is also
+    // ancient is still stale.
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 200, head: 'bbbb', issues: '9' }),
+      GH_STUB_COMMENTS: '',
+      GH_STUB_COMMIT_DATE: daysAgo(200),
+    });
+    expect(calls).toContain('PRCOMMENT 50');
+  });
+
+  it('keeps a PR open when a reviewer submitted a review after the warning', () => {
+    // A review is not an issue comment: it lives on `pulls/reviews`. Counting only
+    // the comment list closed a PR that was under active review.
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 120, issues: '9' }),
+      GH_STUB_COMMENTS: prWarned(daysAgo(10)),
+      GH_STUB_REVIEWS: `${daysAgo(1)}\treviewer\tLooks close, one nit`,
+    });
+    expect(calls).not.toContain('PRCLOSE');
+    expect(out).toContain('reply after the warning');
+  });
+
+  it('keeps a PR open when a reviewer left a diff comment after the warning', () => {
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 120, issues: '9' }),
+      GH_STUB_COMMENTS: prWarned(daysAgo(10)),
+      GH_STUB_DIFF_COMMENTS: `${daysAgo(1)}\treviewer\tThis line can be simpler`,
+    });
+    expect(calls).not.toContain('PRCLOSE');
+    expect(out).toContain('reply after the warning');
+  });
+
+  it("does not let the bot's own review count as a person", () => {
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 120, issues: '9' }),
+      GH_STUB_COMMENTS: prWarned(daysAgo(10)),
+      GH_STUB_REVIEWS: `${daysAgo(1)}\tcipansor-bot\treviewed`,
+    });
+    expect(calls).toContain('PRCLOSE 50');
   });
 });
