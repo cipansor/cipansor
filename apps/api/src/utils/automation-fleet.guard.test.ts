@@ -2245,6 +2245,15 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).not.toMatch(/keputusan akhir/i);
     expect(out).toContain('BAHASA — PUTUSANMU REKOMENDASI, BUKAN KATA TERAKHIR');
     expect(out).toContain('## Gerbang tinjau — putusan (head <sha>)');
+    // The rule is fleet-wide, not gate-only: it rides in the shared BODY_BLOCK
+    // that every automation's prompt gains, so a non-gate automation (e.g. the
+    // verifier that titled a comment "putusan akhir") is bound by it too.
+    const other = newPrompt(
+      'SDLC 05',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(other).toContain('BAHASA — JANGAN MENGAKUI WEWENANG YANG BUKAN MILIKMU');
+    expect(other).not.toMatch(/putusan akhir/i);
   });
 });
 

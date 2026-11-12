@@ -351,6 +351,7 @@ BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
 - Idempoten (invarian 4): satu pemicu = satu tulisan; perbarui komentar berpenanda Anda, jangan menumpuk. Jangan menanggapi komentar atau reaction milik Anda sendiri.
 - Sebelum menangani apa pun, tambahkan reaction 👀 pada objek yang Anda tangani (issue/PR/komentar) agar orang tahu automation bekerja: `POST /repos/<owner>/<repo>/issues/<n>/reactions` dengan body `{"content":"eyes"}`; untuk komentar: `POST /repos/<owner>/<repo>/issues/comments/<id>/reactions`. Jangan menumpuk reaction.
 - Hanya `cipansor-bot` (GITHUB_BOT_TOKEN) yang boleh memasang label. Jangan pasang label apa pun lewat `GITHUB_TOKEN`.
+- BAHASA — JANGAN MENGAKUI WEWENANG YANG BUKAN MILIKMU. Putusanmu selalu rekomendasi, bukan kata terakhir: merge, penutupan, dan keputusan produk tetap milik maintainer. Jangan menyebut hasil kerjamu sebagai keputusan yang final atau terakhir, atau kata lain yang menyiratkan bot memutuskan sendiri; pakai "putusan", "putusan tinjauan", atau "rekomendasi". Ini berlaku di judul bagian, komentar, review, dan deskripsi issue/PR.
 """
 
 # The hardened triage/review tail per automation. Everything else keeps its tail

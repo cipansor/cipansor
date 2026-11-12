@@ -854,7 +854,10 @@ lewat `.github/scripts/main-failure-report.sh` (deterministik, tanpa
 deskripsi PR ("Gerbang tinjau — putusan akhir", PR #1033, 2026-11-12): putusan
 gerbang adalah **rekomendasi**, bukan kata terakhir — merge tetap milik
 maintainer, dan bahasa yang menyebut dirinya final membuat bot tampak memutuskan
-sendiri. Prompt SDLC 18 kini melarangnya (pakai "putusan tinjauan"/"putusan
-gerbang", judul `## Gerbang tinjau — putusan (head <sha>)`), dan satu guard test
-menolak frasa itu kembali ke prompt. Aturan tetap: **kata-kata yang memberi bot
+sendiri. Aturan itu tidak hanya untuk gerbang: ia hidup di `BODY_BLOCK`
+bersama (deploy script), sehingga SETIAP automation terikat — satu automation
+lain pun pernah memberi judul komentarnya "putusan akhir". Prompt SDLC 18
+menambahkan penegasannya (pakai "putusan tinjauan"/"putusan gerbang", judul
+`## Gerbang tinjau — putusan (head <sha>)`), dan satu guard test menolak frasa
+itu kembali ke prompt mana pun. Aturan tetap: **kata-kata yang memberi bot
 wewenang yang bukan miliknya adalah cacat, bukan gaya bahasa.**
