@@ -282,7 +282,7 @@ task.
 | [`sync-records`](.claude/skills/sync-records/SKILL.md) | end of a work session or before compaction: update memory, roadmap, guides |
 | [`panduan-peran`](.claude/skills/panduan-peran/SKILL.md) | who a role is, the menu it sees (printed from code), the menu path a report gives, "can role X do Y", user manuals for staff |
 | [`tata-kelola-yayasan`](.claude/skills/tata-kelola-yayasan/SKILL.md) | yayasan organs, the RPJP → Renstra → RKA chain and its ratification, PK and atasan penilai |
-| [`naskah-dinas`](.claude/skills/naskah-dinas/SKILL.md) | E-Office letters, TTE keys and identity, the signed PDF, verification by upload, revocation |
+| [`naskah-dinas`](.claude/skills/naskah-dinas/SKILL.md) | drafting a letter (jenis, sifat, urgency, wording, templates) and E-Office letters, TTE keys and identity, the signed PDF, verification by upload, revocation |
 | [`dokumen-aplikasi-cipansor`](.claude/skills/dokumen-aplikasi-cipansor/SKILL.md) | technical document (arc42 + C4) or user manual (Diátaxis, per role) for this app — handover, grant/donor/auditor pack, staff training |
 | [`google-ad-grants`](.claude/skills/google-ad-grants/SKILL.md) | the Google Ad Grant: eligibility, monthly compliance (CTR, keywords, sitelinks, geo, conversions), the 2025–2026 program changes, the campaign plan, and the site gaps to close first (GA4/GTM host-aware, conversion tracking) |
 
