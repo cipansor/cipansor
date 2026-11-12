@@ -24,7 +24,7 @@ import type {
 import { DAY_OF_WEEK_BY_INDEX } from '@cipansor/shared';
 import { studentInUnitAt } from '@/utils/student-unit-history';
 import { dayOf, shiftWibDay, todayWib, wibWeekday } from '@/utils/wib';
-import { wibDayStart } from '@/utils/wib-day';
+import { wibDayStart, wibOverdueCutoff } from '@/utils/wib-day';
 import { memorizedJuz } from '@/modules/tahfidz/quran-surahs';
 import { STUDENT_STATUS } from '@cipansor/shared';
 
@@ -670,7 +670,7 @@ export class DashboardService {
       const overdueInvoices = await prisma.invoice.count({
         where: {
           status: { in: ['PENDING', 'PARTIAL', 'OVERDUE'] },
-          dueDate: { lt: new Date() },
+          dueDate: { lt: wibOverdueCutoff() },
           createdAt: { gte: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) },
           ...(unitId ? { student: studentInUnitAt(unitId, new Date()) } : {}),
         },

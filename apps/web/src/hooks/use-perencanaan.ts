@@ -495,19 +495,17 @@ export function useActivityBudgetOptions(unitId?: string | null) {
     queryKey: ["perencanaan", "budget-options", unitId ?? null],
     queryFn: async () => {
       const res = await api.get<{
-        data: {
-          data: Array<{
-            id: string;
-            amount: number;
-            account?: { code: string; name: string };
-          }>;
-        };
+        data: Array<{
+          id: string;
+          amount: number;
+          account?: { code: string; name: string };
+        }>;
       }>("/finance-enhancement/budgets", {
         // The plan's own unit only: a unit plan links to its unit's budget.
         params: { limit: 100, ...(unitId ? { unitId } : {}) },
         skipErrorToast: true,
       });
-      return res.data.data?.data ?? [];
+      return res.data.data ?? [];
     },
     retry: false,
   });

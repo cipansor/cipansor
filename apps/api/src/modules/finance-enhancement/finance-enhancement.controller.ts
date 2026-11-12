@@ -43,13 +43,14 @@ export class FinanceEnhancementController {
 
   async getAccountCodes(req: Request, res: Response, next: NextFunction) {
     try {
-      const { type, isActive, search } = req.query;
+      const { type, isActive, search, unitId } = req.query;
       const { page, limit } = parsePagination(req);
 
       const result = await financeEnhancementService.getAccountCodes({
         type: type as string,
         isActive: isActive !== undefined ? isActive === 'true' : undefined,
         search: search as string,
+        unitId: unitId as string,
         page,
         limit,
       });
@@ -444,14 +445,20 @@ export class FinanceEnhancementController {
       const { unitId, academicYearId } = req.query;
       const { page, limit } = parsePagination(req);
 
-      const result = await getBudgets({
-        unitId: unitId as string,
-        academicYearId: academicYearId as string,
-        page,
-        limit,
-      });
+      const result = await getBudgets(
+        {
+          unitId: unitId as string,
+          academicYearId: academicYearId as string,
+          page,
+          limit,
+        },
+        requireUser(req)
+      );
 
-      res.json({ success: true, data: result });
+      // The service answers a paginated envelope ({ data, meta }); flatten it
+      // into the standard response so the body is { success, data, meta } like
+      // every other list endpoint, not a nested data.data.
+      res.json({ success: true, data: result.data, meta: result.meta });
     } catch (error) {
       next(error);
     }
@@ -460,12 +467,15 @@ export class FinanceEnhancementController {
   async createBudget(req: Request, res: Response, next: NextFunction) {
     try {
       const input: CreateBudgetInput = req.body;
-      const userId = requireUser(req).id;
+      const user = requireUser(req);
 
-      const result = await createBudget({
-        ...input,
-        createdById: userId,
-      });
+      const result = await createBudget(
+        {
+          ...input,
+          createdById: user.id,
+        },
+        user
+      );
 
       res.status(201).json({ success: true, data: result });
     } catch (error) {
@@ -477,7 +487,7 @@ export class FinanceEnhancementController {
     try {
       const { id } = req.params;
       const input: UpdateBudgetInput = req.body;
-      const result = await updateBudget(id, input);
+      const result = await updateBudget(id, input, requireUser(req));
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -487,7 +497,7 @@ export class FinanceEnhancementController {
   async deleteBudget(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      await deleteBudget(id);
+      await deleteBudget(id, requireUser(req));
       res.json({ success: true, message: 'Budget deleted successfully' });
     } catch (error) {
       next(error);
@@ -539,7 +549,7 @@ export class FinanceEnhancementController {
           .json({ success: false, message: 'Unit ID and Academic Year ID are required' });
       }
 
-      const result = await recalculateBudgetUsage(unitId, academicYearId);
+      const result = await recalculateBudgetUsage(unitId, academicYearId, requireUser(req));
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -553,13 +563,18 @@ export class FinanceEnhancementController {
       const { unitId } = req.query;
       const { page, limit } = parsePagination(req);
 
-      const result = await getFinancialPeriods({
-        unitId: unitId as string,
-        page,
-        limit,
-      });
+      const result = await getFinancialPeriods(
+        {
+          unitId: unitId as string,
+          page,
+          limit,
+        },
+        requireUser(req)
+      );
 
-      res.json({ success: true, data: result });
+      // Flatten the service's paginated envelope into the standard body shape
+      // ({ success, data, meta }), not a nested data.data.
+      res.json({ success: true, data: result.data, meta: result.meta });
     } catch (error) {
       next(error);
     }
@@ -568,7 +583,7 @@ export class FinanceEnhancementController {
   async createFinancialPeriod(req: Request, res: Response, next: NextFunction) {
     try {
       const input: CreateFinancialPeriodInput = req.body;
-      const result = await createFinancialPeriod(input);
+      const result = await createFinancialPeriod(input, requireUser(req));
       res.status(201).json({ success: true, data: result });
     } catch (error) {
       next(error);
@@ -596,8 +611,8 @@ export class FinanceEnhancementController {
   async closeFinancialPeriod(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
-      const userId = requireUser(req).id;
-      const result = await closePeriod(id, userId);
+      const user = requireUser(req);
+      const result = await closePeriod(id, user.id, user);
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);

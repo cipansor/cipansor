@@ -73,6 +73,8 @@ export interface AccountCode {
   code: string;
   name: string;
   type: AccountType | string;
+  // Owning unit, or null for a shared/legacy row any unit may use.
+  unitId?: string | null;
   parentId?: string | null;
   isActive: boolean;
   normalBalance?: "DEBIT" | "CREDIT";

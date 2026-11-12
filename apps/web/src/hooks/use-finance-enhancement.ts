@@ -18,6 +18,7 @@ import {
   PaymentCategory, // Mapped from PaymentComponentCategory
   SharedPaginatedResponse,
   FinanceReportPeriod,
+  Budget,
 } from "@cipansor/shared";
 
 // Re-export types
@@ -55,19 +56,30 @@ interface AccountCodeFilters {
   search?: string;
   page?: number;
   limit?: number;
+  /**
+   * Scope the list to a unit's own accounts plus the shared (`unitId` null)
+   * ones — the set `createBudget` accepts. Server-side: filtering client-side
+   * over the first page hid a unit's accounts that fell past it.
+   */
+  unitId?: string;
+  /** Hold the request until its inputs are ready (e.g. a unit is chosen). */
+  enabled?: boolean;
 }
 
 export function useAccountCodes(filters: AccountCodeFilters = {}) {
+  const { enabled = true, ...query } = filters;
   return useQuery({
-    queryKey: ["account-codes", filters],
+    queryKey: ["account-codes", query],
+    enabled,
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (filters.type) params.append("type", filters.type);
-      if (filters.isActive !== undefined)
-        params.append("isActive", String(filters.isActive));
-      if (filters.search) params.append("search", filters.search);
-      if (filters.page) params.append("page", String(filters.page));
-      if (filters.limit) params.append("limit", String(filters.limit));
+      if (query.type) params.append("type", query.type);
+      if (query.isActive !== undefined)
+        params.append("isActive", String(query.isActive));
+      if (query.search) params.append("search", query.search);
+      if (query.page) params.append("page", String(query.page));
+      if (query.limit) params.append("limit", String(query.limit));
+      if (query.unitId) params.append("unitId", query.unitId);
 
       const response = await api.get<SharedPaginatedResponse<AccountCode>>(
         `/finance-enhancement/account-codes?${params}`,
@@ -436,22 +448,25 @@ export function useBudgets(
     academicYearId?: string;
     page?: number;
     limit?: number;
+    enabled?: boolean;
   } = {},
 ) {
+  const { enabled = true, ...query } = filters;
   return useQuery({
-    queryKey: ["budgets", filters],
+    queryKey: ["budgets", query],
+    enabled,
     queryFn: async () => {
       const params = new URLSearchParams();
-      if (filters.unitId) params.append("unitId", filters.unitId);
-      if (filters.academicYearId)
-        params.append("academicYearId", filters.academicYearId);
-      if (filters.page) params.append("page", String(filters.page));
-      if (filters.limit) params.append("limit", String(filters.limit));
+      if (query.unitId) params.append("unitId", query.unitId);
+      if (query.academicYearId)
+        params.append("academicYearId", query.academicYearId);
+      if (query.page) params.append("page", String(query.page));
+      if (query.limit) params.append("limit", String(query.limit));
 
-      const response = await api.get<{ success: boolean; data: any }>(
+      const response = await api.get<SharedPaginatedResponse<Budget>>(
         `/finance-enhancement/budgets?${params}`,
       );
-      return response.data.data;
+      return response.data;
     },
   });
 }

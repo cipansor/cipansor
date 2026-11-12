@@ -1,11 +1,21 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { CreateFinancialPeriodInput } from '@cipansor/shared';
+import { Errors } from '../../middleware/error';
+import {
+  actorReachesUnit,
+  isFoundationScopedRole,
+  writeUnitScopeFor,
+  type UnitActor,
+} from '../../utils/resolve-unit-id';
 
 type TransactionClient = Prisma.TransactionClient;
 
-export async function createFinancialPeriod(data: CreateFinancialPeriodInput) {
-  const { unitId, name, startDate, endDate, notes } = data;
+export async function createFinancialPeriod(data: CreateFinancialPeriodInput, actor: UnitActor) {
+  const { name, startDate, endDate, notes } = data;
+  // A unit admin is pinned to its own unit whatever the body says; a foundation
+  // role names one.
+  const unitId = writeUnitScopeFor(actor, data.unitId);
 
   // Check overlap
   const overlap = await prisma.financialPeriod.findFirst({
@@ -30,7 +40,14 @@ export async function createFinancialPeriod(data: CreateFinancialPeriodInput) {
   });
 }
 
-export async function closePeriod(id: string, closedById: string) {
+export async function closePeriod(id: string, closedById: string, actor: UnitActor) {
+  // The period's unit must be one the account reaches; 404 otherwise.
+  const period = await prisma.financialPeriod.findUnique({
+    where: { id },
+    select: { unitId: true },
+  });
+  if (!period || !actorReachesUnit(actor, period.unitId)) throw Errors.notFound('Financial period');
+
   return prisma.financialPeriod.update({
     where: { id },
     data: {
@@ -52,16 +69,28 @@ export async function reopenPeriod(id: string) {
   });
 }
 
-export async function getFinancialPeriods(query: {
-  unitId?: string;
-  page?: number;
-  limit?: number;
-}) {
+export async function getFinancialPeriods(
+  query: {
+    unitId?: string;
+    page?: number;
+    limit?: number;
+  },
+  actor: UnitActor
+) {
   const { unitId, page = 1, limit = 20 } = query;
   const skip = (page - 1) * limit;
 
+  // A unit admin reads only its own unit whatever the query says; a foundation
+  // role names one (or none, for every unit). The read path used to take the
+  // query's unitId verbatim, so any unit admin could read another unit's
+  // periods.
+  const scopedUnitId = isFoundationScopedRole(actor.roleCode) ? unitId : actor.unitId;
+  if (!isFoundationScopedRole(actor.roleCode) && !scopedUnitId) {
+    throw Errors.forbidden('Akun ini tidak terikat pada unit mana pun');
+  }
+
   const where = {
-    ...(unitId && { unitId }),
+    ...(scopedUnitId && { unitId: scopedUnitId }),
   };
 
   const [data, total] = await Promise.all([
@@ -77,7 +106,7 @@ export async function getFinancialPeriods(query: {
 
   return {
     data,
-    meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    meta: { pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } },
   };
 }
 

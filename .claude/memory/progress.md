@@ -412,7 +412,26 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   (b) `getStudentOutstandingBalances` (`dueDate < new Date()`) membuat tagihan
   menunggak **07.00 WIB** pada tanggal jatuh tempo, bukan akhir hari — jadi
   "sehari penuh" itu tidak benar. Dokumen dikoreksi; cacat kode dilacak di
-  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`).
+  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`). **PR #1049 sudah
+  MERGED ke `main`** (merge commit `25693e32`, 2026-11-11), jadi #825 selesai.
+
+- **Issue triage, 2026-11-11 (lanjutan 2):** #830 (`docs`: aturan pin GitHub
+  Actions ke commit SHA) + #943 (`docs`: batas bawah `overrides` + penjaga
+  pnpm-supply-chain) dikerjakan bersama sesuai keputusan maintainer **K16** di
+  **PR #1051** pada `docs/830-943-ci-supply-chain`. Subbagian baru **"Rantai
+  pasok CI"** di `docs/SDLC-FLOW.md` (kedua aturan), satu baris di blok gerbang
+  mutu `AGENTS.md`, satu baris DT §10 "Keamanan: rantai pasok", satu kalimat
+  kebijakan `overrides` di `docs/DEPLOYMENT.md`, dan tiga berkas `.claude/`
+  (gate/SKILL.md, lessons/audit-deps…, roadmap.md) diubah dari "pin" menjadi
+  "batas bawah ≥ rilis perbaikan pertama". `docs/SDLC-FLOW.md` tergolong
+  **kode** (`is_code()`, dibaca `automation-fleet.guard.test.ts`), jadi job CI
+  berjalan. `check_docs.py` 16 ERROR = baseline; guard (automation-fleet,
+  github-actions-pinning, decommissioned-modules) lulus 189; sensitive bersih.
+  Satu uji `pnpm-supply-chain.guard.test.ts` gagal **lingkungan** (pnpm tak
+  terpasang di sini) — lulus di CI. **#801** (docs #747: cakupan baca portofolio
+  + balasan pesan) sudah ditangani di PR #1035 (branch #778), jadi tidak
+  diduplikasi. **#749** sudah ditangani PR #1033. **#778/#779/#792/#811**
+  masing-masing sudah punya PR terbuka (#1035/#1036/#1046/#1048).
 
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
@@ -422,6 +441,28 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   any code. `docs/DEPLOYMENT.md` goes
   after 2026-10-01 (the VM is the rollback target until then, and a guard test
   reads it).
+
+- **Issue triage, 2026-11-11 (continued, oldest open `ready` first):** #811
+  (`refactor`, the date-only sweep for `Invoice.dueDate` — K15) implemented in
+  **PR #1048** on `refactor/811-date-only-dueDate`: the non-formal course
+  invoice writer now stores `dayDate(wibDayOf(now + 7d))`, `getSppMatrix`
+  bounds the year and reads the month on the UTC calendar (dropping the dead
+  `monthDate`), the SPP seed uses `Date.UTC`, and `dayDate`'s comment again
+  claims the single canonical form. New coverage: `tests/spp-matrix.test.ts`
+  (runs under a non-UTC `TZ`) plus two non-formal dueDate cases; four of them
+  fail on `main`, all pass after. Gate green locally (api 5177, web 961,
+  build:strict, lint). E2E red on the **runner DNS flake** (apt cannot resolve
+  `security.ubuntu.com` in *Install Playwright*), not the diff. The review's
+  first round then found the regression this PR's own canonical form caused —
+  a date-only `dueDate` compared to `new Date()` marks a bill overdue at 07:00
+  WIB on its due day — so a follow-up commit adds `wibOverdueCutoff()` and
+  replaces that bound in `getInvoices`, `getStudentFinanceSummary`,
+  `getFinancialSummary`, `getStudentOutstandingBalances`, `getSppMatrix`, the
+  dashboard alert, `checkOverdueInvoices` and parent-engagement. The review
+  asked for tests pinning the three changed services (golden rule #7); added
+  in `dashboard/tests/wib-day-bounds.test.ts`, `analytics/tests/wib-day-bounds.test.ts`
+  and a new `analytics/tests/alerts-overdue-bound.test.ts` — all three fail on
+  the pre-fix code. Gate green locally (api 5188, build:strict, lint).
 
 ## Recently done (2026-10-09 → 10)
 

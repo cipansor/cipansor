@@ -8,6 +8,7 @@ import { createNotification } from '@/modules/notifications/notifications.servic
 import { NotificationType, AttendanceStatus } from '@prisma/client';
 import { logger } from '@/lib/logger';
 import { STUDENT_STATUS } from '@cipansor/shared';
+import { wibOverdueCutoff } from '@/utils/wib-day';
 
 export interface AlertRule {
   id: string;
@@ -223,7 +224,7 @@ async function checkOverdueInvoices(rule: AlertRule): Promise<AlertTrigger[]> {
   const overdueInvoices = await prisma.invoice.findMany({
     where: {
       status: 'OVERDUE',
-      dueDate: { lte: new Date() },
+      dueDate: { lt: wibOverdueCutoff() },
     },
     include: {
       student: {
