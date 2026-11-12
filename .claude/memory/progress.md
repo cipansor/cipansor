@@ -103,6 +103,19 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
+- **Versi patch Prisma di dokumen teknis (#874, 2026-11-12).** Tabel 2
+  (Batasan) memaku `Prisma 7.10.0` sementara `apps/api/package.json` sudah
+  `7.10.1` — sisa bump Dependabot (#870). Tidak ada pemeriksa yang menangkapnya
+  (`check_docs.py` mencocokkan jumlah modul/model/rute/job, bukan versi
+  dependensi), jadi baris itu akan basi lagi tiap bump. Diperbaiki dengan opsi 2
+  issue: `Prisma 7` (tingkat mayor), sejalan keputusan #782/#783 dan baris yang
+  sama (`Next.js 16`, `React 19`, …). Satu baris + entri Riwayat Revisi `1.5`
+  pada cabang ini.
+  Rule 9: #1052 (#833) menyentuh berkas yang sama; digabung di worktree hanya
+  bentrok pada baris Riwayat Revisi (dua-duanya menambah `1.5`) → siapa yang
+  digabung kedua menomori ulang (mis. #1052 tetap `1.5`, #874 jadi `1.6`);
+  `check_docs.py --final` 0 ERROR pada pohon gabungan.
+
 - **EMIS teacher export + module tests (#868 + #873, one PR, 2026-11-12).**
   `exportTeacherData` invented `jenisKelamin: 'L'`, `tempatLahir: ''` and
   `tanggalLahir: ''` although `Teacher.gender`/`birthPlace`/`birthDate` exist
