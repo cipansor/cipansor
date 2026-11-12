@@ -43,6 +43,12 @@ case "$1" in
         log "API $*"
         printf '%s\\n' "\${GH_STUB_COMMENTS:-}"
         case "$*" in *--paginate*) [ -n "\${GH_STUB_PAGE2:-}" ] && printf '%s\\n' "\${GH_STUB_PAGE2}" ;; esac ;;
+      *"/issues/"*)
+        # The linked-issue lookup the nested pr-template-guard.sh makes:
+        # "<state> <issue|pr> <labels CSV>". GH_STUB_TEMPLATE_ISSUE_LABELS
+        # answers for it, so a test can make the linked issue lose ready.
+        log "API $*"
+        printf 'open issue %s\\n' "\${GH_STUB_TEMPLATE_ISSUE_LABELS-ready}" ;;
     esac ;;
   issue)
     case "$2" in
@@ -58,6 +64,7 @@ case "$1" in
     case "$2" in
       view) case "$*" in
           *"--json headRefOid"*) printf '%s\\n' "\${GH_STUB_PR_HEAD:-deadbeef}" ;;
+          *"--json baseRefName"*) printf '%s\\n' "\${GH_STUB_PR_BASE:-main}" ;;
           *"--json body"*) printf '%s\\n' "\${GH_STUB_PR_BODY:-}" ;;
           *) printf '%s\\n' "\${GH_STUB_PR_LABELS:-}" ;;
         esac ;;
@@ -404,6 +411,95 @@ describe('issue-label-sync.sh', () => {
       ['--issue', '3']
     );
     expect(status).toBe(1);
-    expect(out).toContain('could not publish a check run');
+    expect(out).toContain('could not publish');
+    expect(out).toContain('Issue label sync');
+  });
+});
+
+// #866: a `PR template reminder` check that reads the linked issue's labels at
+// run time can end red permanently when the issue is relabelled after the PR is
+// opened (label-guard strips `ready`, the re-label comes minutes later), and the
+// `pr-description-checks` workflow only fires on pull-request events. The
+// issue-event run of this script must re-evaluate that gate on each affected PR
+// head and publish the result there.
+describe('issue-label-sync.sh — PR template reminder re-publish (#866)', () => {
+  // A complete PR body: the sections the guard requires, a linked issue, and
+  // Indonesian prose (so the language rule passes).
+  const COMPLETE_BODY = `## Mengapa
+
+Issue tertaut kehilangan labelnya setelah pull request dibuka.
+
+## Yang diubah
+
+- memeriksa ulang deskripsi pada kepala pull request
+
+## Kriteria penerimaan
+
+- [x] check hijau setelah issue dilabeli ulang
+
+## Cara menguji
+
+pnpm --filter api test
+`;
+
+  it('re-evaluates the template gate on the PR head when a linked issue changes', () => {
+    const { calls } = run(
+      SYNC,
+      {
+        GH_STUB_PRS: '7',
+        GH_STUB_CLOSING: '3',
+        GH_STUB_PR_HEAD: 'sha7',
+        GH_STUB_PR_LABELS: 'bug\npriority:high',
+        GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
+        GH_STUB_PR_BODY: `${COMPLETE_BODY}\nFixes #12\n`,
+        GH_STUB_TEMPLATE_ISSUE_LABELS: 'ready',
+      },
+      ['--issue', '3']
+    );
+    // A `PR template reminder` check run is published against the PR head, not
+    // just the label-sync one.
+    expect(calls).toContain('name=PR template reminder');
+    expect(calls).toContain('head_sha=sha7');
+    expect(calls).toContain('conclusion=success');
+  });
+
+  it('publishes a failing template check when the linked issue is no longer ready', () => {
+    // The window that caused the bug: the issue lost `ready` (and the label sync
+    // itself is fine, so only the template check moves).
+    const { calls } = run(
+      SYNC,
+      {
+        GH_STUB_PRS: '7',
+        GH_STUB_CLOSING: '3',
+        GH_STUB_PR_HEAD: 'sha7',
+        GH_STUB_PR_LABELS: 'bug\npriority:high',
+        GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
+        GH_STUB_PR_BODY: `${COMPLETE_BODY}\nFixes #12\n`,
+        GH_STUB_TEMPLATE_ISSUE_LABELS: '',
+      },
+      ['--issue', '3']
+    );
+    expect(calls).toContain('name=PR template reminder');
+    expect(calls).toContain('head_sha=sha7');
+    expect(calls).toContain('conclusion=failure');
+  });
+
+  it('publishes the template check alongside the label-sync check, once each', () => {
+    const { calls } = run(
+      SYNC,
+      {
+        GH_STUB_PRS: '7',
+        GH_STUB_CLOSING: '3',
+        GH_STUB_PR_HEAD: 'sha7',
+        GH_STUB_PR_LABELS: 'bug\npriority:high',
+        GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
+        GH_STUB_PR_BODY: `${COMPLETE_BODY}\nFixes #12\n`,
+        GH_STUB_TEMPLATE_ISSUE_LABELS: 'ready',
+      },
+      ['--issue', '3']
+    );
+    const runs = calls.split('\n').filter((l) => l.startsWith('CHECKRUN'));
+    expect(runs.filter((l) => l.includes('name=Issue label sync'))).toHaveLength(1);
+    expect(runs.filter((l) => l.includes('name=PR template reminder'))).toHaveLength(1);
   });
 });

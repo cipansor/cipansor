@@ -811,7 +811,13 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   menuju cabang default, atau prosanya terbaca sebagai Bahasa Inggris. Check ini
   termasuk required status checks ruleset `main` sejak 2026-10-11, jadi ia
   menahan merge. Hanya Dependabot yang dilewati, berdasarkan penulis PR. Job
-  `visual` tetap advisory.
+  `visual` tetap advisory. Karena gate membaca label issue tertaut **saat run**,
+  sementara workflow ini hanya dipicu event **PR**, sebuah PR yang dibuka pada
+  jendela label issue dicabut `label-guard` sebelum dilabeli ulang bisa berakhir
+  merah permanen (#866). `issue-label-sync.sh --issue` menutup celah itu: saat
+  label issue tertaut berubah, ia menjalankan ulang gate terhadap kepala setiap
+  PR yang menutup issue itu dan menerbitkan hasilnya sebagai check
+  `PR template reminder` di commit PR tersebut.
 - **Templat PR ringkas, risiko ditulis pada PR berisiko** (keputusan pemilik
   2026-11-09, #965, menggantikan catatan `## HUMAN` dari #760). Templat memuat
   `Mengapa`, `Yang diubah`, `Issue tertaut`, `Kriteria penerimaan`,
