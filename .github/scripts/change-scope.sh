@@ -34,6 +34,7 @@ is_code() {
     docs/DEPLOYMENT.md) return 0 ;; # decommissioned-modules.guard.test.ts pins its numbers
     docs/LABELS.md) return 0 ;; # the label/lifecycle guard tests read it
     docs/SDLC-FLOW.md) return 0 ;; # automation-fleet.guard.test.ts checks its comment-first rule
+    .claude/skills/*/SKILL.md) return 0 ;; # pr-description.guard.test.ts pins the buat-pr skill
     docs/IDEAS.md) return 0 ;; # automation-fleet.guard.test.ts pins the fleet decisions recorded there
     .github/pull_request_template.md) return 0 ;; # automation-fleet.guard.test.ts checks its basmalah
     .github/ISSUE_TEMPLATE/*.yml) return 0 ;; # automation-fleet.guard.test.ts checks their basmalah

@@ -84,4 +84,35 @@ describe('mealsService.getTodayMenu — mencari hari kalender WIB', () => {
     await expect(mealsService.getTodayMenu(UNIT, unitAdmin)).rejects.toThrow('Access denied');
     expect(prisma.mealMenu.findMany).not.toHaveBeenCalled();
   });
+
+  it('mengizinkan peran unit membaca unitnya sendiri', async () => {
+    vi.setSystemTime(new Date('2026-10-27T05:00:00.000Z'));
+    const unitAdmin = {
+      sub: 'user-2',
+      role: UserRole.UNIT_ADMIN,
+      roleCode: 'UNIT_ADMIN',
+      unitId: UNIT,
+    };
+
+    await mealsService.getTodayMenu(UNIT, unitAdmin);
+
+    expect(prisma.mealMenu.findMany).toHaveBeenCalled();
+  });
+
+  it('mengizinkan peran yayasan membaca unit mana pun (#849)', async () => {
+    // A yayasan account carries no `unitId`; the old check compared it to the
+    // requested unit and refused every unit, so the tab stayed empty even after
+    // the route was fixed. `actorReachesUnit` lets a foundation role through.
+    vi.setSystemTime(new Date('2026-10-27T05:00:00.000Z'));
+    const ketua = {
+      sub: 'user-3',
+      role: UserRole.UNIT_ADMIN,
+      roleCode: 'YAYASAN_KETUA',
+      unitId: null,
+    };
+
+    await mealsService.getTodayMenu(UNIT, ketua);
+
+    expect(prisma.mealMenu.findMany).toHaveBeenCalled();
+  });
 });

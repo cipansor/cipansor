@@ -112,7 +112,7 @@ setiap orang pada data yang berhak dilihatnya.
 
 | Jenis | Batasan | Sumber |
 |---|---|---|
-| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7.10.0, Zod 4, PostgreSQL, Redis (opsional), Node 22, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
+| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7.10.0, Zod 4, PostgreSQL, Redis (opsional), Node 26, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
 | Organisasi | Tim pengembang kecil; yayasan nirlaba memakai perkakas hibah; satu basis data untuk semua unit; repositori bersifat **publik sampai rilis** (lisensi proprietary, menjadi privat saat rilis). | `AGENTS.md`, `LICENSE` |
 | Hukum (yang tercatat di repo) | UU 16/2001 (Yayasan) untuk wewenang organ; UU 27/2022 (PDP) untuk data pribadi; PP 71/2019 untuk tanda tangan elektronik. | `decisions/pengesahan-dokumen-yayasan.md`, `decisions/esign-standards-ceiling.md`, `skills/tata-kelola-yayasan` |
 | Konvensi | Portal berbahasa Indonesia; situs publik tiga bahasa (Indonesia, Inggris, Arab; Arab ditulis kanan ke kiri). Istilah pesantren tidak diterjemahkan; istilah umum berbahasa Inggris di kode/URL, label berbahasa Indonesia. | `decisions/istilah-dan-penamaan.md` |
@@ -191,7 +191,7 @@ flowchart TB
   subgraph Cipansor["Sistem Informasi Cipansor"]
     Nginx["nginx<br/>reverse proxy (staging dan produksi)"]
     Web["Web<br/>Next.js 16, React 19"]
-    API["API<br/>Express 5, Node 22<br/>penjadwal node-cron di dalamnya"]
+    API["API<br/>Express 5, Node 26<br/>penjadwal node-cron di dalamnya"]
     DB[("PostgreSQL<br/>lewat Prisma 7")]
     Redis[("Redis<br/>cache")]
     Files[("Berkas unggahan<br/>disk aplikasi")]
@@ -591,6 +591,7 @@ berkata demikian; itu jujur, dan itu utang (bab 11).
 |---|---|---|---|---|
 | Keamanan: akses | Rute tulis yang dapat dijangkau tanpa sesi → dijaga Turnstile | 0 rute tulis publik tanpa Turnstile di luar daftar pengecualian beralasan | `public-routes-gated.test.ts` memindai pohon rute | Terbukti (uji di CI) |
 | Keamanan: kode | Perubahan yang memicu peringatan CodeQL tingkat tinggi → tidak dapat digabung ke `main` | 0 peringatan CodeQL tingkat tinggi ke atas yang lolos ke `main` (CodeQL berstatus wajib) | aturan repositori sejak 25 September 2026 (`progress.md`) | Terbukti |
+| Keamanan: rantai pasok | Action pihak ketiga memakai tag yang bisa digeser, atau batas bawah `overrides` turun di bawah rilis perbaikan advisory → uji merah | 0 `uses:` pihak ketiga tanpa SHA 40 karakter; 0 batas bawah `overrides` di bawah rilis perbaikan pertama | `github-actions-pinning.guard.test.ts`, `pnpm-supply-chain.guard.test.ts` | Terbukti (uji di CI) |
 | Keterpeliharaan: kontrak | Halaman web memanggil alamat API yang tak ada → uji merah | jumlah panggilan tak terlayani hanya boleh menyusut dari baseline | `web-api-contract.guard.test.ts` | Sebagian: baseline lama belum nol |
 | Keterpeliharaan: rute | Rute berparameter menutupi rute statis → uji merah | 0 rute yang tertutup bayangan | `route-shadowing.guard.test.ts` | Terbukti |
 | Kemudahan pakai: bahasa | String situs publik hanya ada di satu bahasa → uji merah | 0 string yang hilang di salah satu dari 3 bahasa | `i18n-coverage.test.ts` | Terbukti |

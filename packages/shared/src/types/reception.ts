@@ -69,6 +69,7 @@ export interface StudentPackage {
   expedition: string; // Added to match page
   content: string; // Added to match page (description -> content)
   photoUrl?: string | null;
+  storageLocation?: string | null;
   receivedAt: Date;
   receivedById: string;
   status: PackageStatus;

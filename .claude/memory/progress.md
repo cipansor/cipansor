@@ -412,7 +412,26 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   (b) `getStudentOutstandingBalances` (`dueDate < new Date()`) membuat tagihan
   menunggak **07.00 WIB** pada tanggal jatuh tempo, bukan akhir hari — jadi
   "sehari penuh" itu tidak benar. Dokumen dikoreksi; cacat kode dilacak di
-  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`).
+  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`). **PR #1049 sudah
+  MERGED ke `main`** (merge commit `25693e32`, 2026-11-11), jadi #825 selesai.
+
+- **Issue triage, 2026-11-11 (lanjutan 2):** #830 (`docs`: aturan pin GitHub
+  Actions ke commit SHA) + #943 (`docs`: batas bawah `overrides` + penjaga
+  pnpm-supply-chain) dikerjakan bersama sesuai keputusan maintainer **K16** di
+  **PR #1051** pada `docs/830-943-ci-supply-chain`. Subbagian baru **"Rantai
+  pasok CI"** di `docs/SDLC-FLOW.md` (kedua aturan), satu baris di blok gerbang
+  mutu `AGENTS.md`, satu baris DT §10 "Keamanan: rantai pasok", satu kalimat
+  kebijakan `overrides` di `docs/DEPLOYMENT.md`, dan tiga berkas `.claude/`
+  (gate/SKILL.md, lessons/audit-deps…, roadmap.md) diubah dari "pin" menjadi
+  "batas bawah ≥ rilis perbaikan pertama". `docs/SDLC-FLOW.md` tergolong
+  **kode** (`is_code()`, dibaca `automation-fleet.guard.test.ts`), jadi job CI
+  berjalan. `check_docs.py` 16 ERROR = baseline; guard (automation-fleet,
+  github-actions-pinning, decommissioned-modules) lulus 189; sensitive bersih.
+  Satu uji `pnpm-supply-chain.guard.test.ts` gagal **lingkungan** (pnpm tak
+  terpasang di sini) — lulus di CI. **#801** (docs #747: cakupan baca portofolio
+  + balasan pesan) sudah ditangani di PR #1035 (branch #778), jadi tidak
+  diduplikasi. **#749** sudah ditangani PR #1033. **#778/#779/#792/#811**
+  masing-masing sudah punya PR terbuka (#1035/#1036/#1046/#1048).
 
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
@@ -422,6 +441,71 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   any code. `docs/DEPLOYMENT.md` goes
   after 2026-10-01 (the VM is the rollback target until then, and a guard test
   reads it).
+
+- **Issue triage, 2026-11-11 (continued, oldest open `ready` first):** #811
+  (`refactor`, the date-only sweep for `Invoice.dueDate` — K15) implemented in
+  **PR #1048** on `refactor/811-date-only-dueDate`: the non-formal course
+  invoice writer now stores `dayDate(wibDayOf(now + 7d))`, `getSppMatrix`
+  bounds the year and reads the month on the UTC calendar (dropping the dead
+  `monthDate`), the SPP seed uses `Date.UTC`, and `dayDate`'s comment again
+  claims the single canonical form. New coverage: `tests/spp-matrix.test.ts`
+  (runs under a non-UTC `TZ`) plus two non-formal dueDate cases; four of them
+  fail on `main`, all pass after. Gate green locally (api 5177, web 961,
+  build:strict, lint). E2E red on the **runner DNS flake** (apt cannot resolve
+  `security.ubuntu.com` in *Install Playwright*), not the diff. The review's
+  first round then found the regression this PR's own canonical form caused —
+  a date-only `dueDate` compared to `new Date()` marks a bill overdue at 07:00
+  WIB on its due day — so a follow-up commit adds `wibOverdueCutoff()` and
+  replaces that bound in `getInvoices`, `getStudentFinanceSummary`,
+  `getFinancialSummary`, `getStudentOutstandingBalances`, `getSppMatrix`, the
+  dashboard alert, `checkOverdueInvoices` and parent-engagement. The review
+  asked for tests pinning the three changed services (golden rule #7); added
+  in `dashboard/tests/wib-day-bounds.test.ts`, `analytics/tests/wib-day-bounds.test.ts`
+  and a new `analytics/tests/alerts-overdue-bound.test.ts` — all three fail on
+  the pre-fix code. Gate green locally (api 5188, build:strict, lint).
+
+- **Issue triage, 2026-11-11 (lanjutan 5):** #848 (`bug`, `priority:medium`,
+  jembatan triase mendispatch `SDLC 01` pada label bot → triase ganda)
+  **ditutup dengan bukti** — bukan karena kurang bermanfaat. **K26** sudah
+  terpenuhi oleh commit `c86b9969` (2026-11-09, masuk `main` lewat PR #972 yang
+  tidak menyebut nomor issue ini, sehingga ia tertinggal terbuka): `SDLC 01 ·
+  Triase bug` dilebur ke `SDLC 15 · Triase issue`, dan
+  `issue-triage-bridge.sh:71` kini mendispatch id SDLC 15 (`42ec7401…`) saja.
+  Penjaga `apps/api/src/utils/automation-fleet.guard.test.ts` (*"folds Triase
+  bug into the single triage owner"*, 163 tes lulus) menegaskan jembatan memuat
+  id SDLC 15 dan **tidak** memuat id SDLC 01; `docs/SDLC-FLOW.md` butir 1 & 3
+  ditandai **SELESAI (2026-11-09)**. Komentar penutup mencatat tiap kriteria
+  penerimaan beserta buktinya.
+
+- **Issue triage, 2026-11-11 (lanjutan 4):** #849 (`bug`, `priority:high`, tab
+  **Hari Ini** halaman Menu Makan selalu 404) dikerjakan sesuai **K5** di
+  **PR #1059** pada `fix/849-meals-today-routing`. Cacatnya routing **dan**
+  bentuk respons: web memanggil `GET /meals/menus/today?unitId=`, tidak ada
+  rute yang menjawabnya — `/menus/:id` mengambilnya dengan `id = "today"` →
+  selalu 404; dan handler hari ini mengembalikan array sedangkan halaman
+  membaca `{ breakfast, lunch, dinner, snack }`. Perbaikan: hook memanggil rute
+  kanonik `GET /meals/menus/today/:unitId` (unit di path, seperti
+  `calendar`/`duty-roster`) lalu **melipat** array ke objek yang dibaca
+  halaman; query nonaktif tanpa unit; tab Hari Ini meminta memilih satu unit
+  saat "Semua Unit" (tidak ada agregasi, K5). Tes: `use-meals.test.tsx` (3),
+  `today-menu-route.test.ts` (mengunci rute kanonik + 404 path lama),
+  `e2e/meals.spec.ts` (gagal sebelum, lulus sesudah). Tangkapan sebelum/sesudah
+  di cabang `screenshots/849` (`docs/pr-screens/849/`). Cakupan hanya tab Hari
+  Ini; tab Mingguan & `/meals/stats` menyusul sebagai issue terpisah (K5 poin
+  3). Cacat WIB di `getTodayMenu` sudah beres di `main`. Tidak ada PR terbuka
+  lain yang menyentuh berkas `meals` → aturan emas 9 tidak berlaku. Pelajaran
+  ditambahkan ke `lessons/api-integration-traps.md`.
+
+- **Issue triage, 2026-11-11 (lanjutan 6):** #867 (`chore`, lima job Actions
+  tanpa `timeout-minutes`) dikerjakan di **PR #1064** pada
+  `chore/867-workflow-job-timeouts`. Jumlahnya sudah bergeser: kini **6 job**
+  (bukan 5) — `deploy-production.yml` menambah job `gate` setelah issue ditulis;
+  total 31 job di 19 workflow. Ditambahkan plafon sesuai durasi nyata + margin:
+  15 (release gate), 45 (kedua job deploy; staging 7–9 mnt, produksi 2–3 mnt),
+  30 (kedua job load-test). Guard baru `workflow-job-timeout.guard.test.ts`
+  menuntut **setiap** job di `.github/workflows/*.yml` punya `timeout-minutes`
+  berupa bilangan bulat positif < 360; **gagal** pada workflow pra-perbaikan
+  (keenam job terdaftar), **lulus** sesudahnya. Suite API penuh 5183 lulus.
 
 ## Recently done (2026-10-09 → 10)
 

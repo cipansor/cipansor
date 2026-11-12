@@ -2127,7 +2127,7 @@ async function main() {
 
   for (const student of students.slice(0, 3)) {
     for (let monthIdx = 0; monthIdx < months.length; monthIdx++) {
-      const dueDate = new Date(2024, 6 + monthIdx, 10); // 10th of each month
+      const dueDate = new Date(Date.UTC(2024, 6 + monthIdx, 10)); // 10th of each month, date-only
       const status =
         monthIdx === 0
           ? PaymentStatus.PAID

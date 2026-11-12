@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { UserRole, Prisma, MealType, MealAttendanceStatus } from '@prisma/client';
-import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { actorReachesUnit, seesAllUnits } from '@/utils/resolve-unit-id';
 import { dayOf, todayWib } from '@/utils/wib';
 
 // User type from JwtPayload
@@ -230,7 +230,7 @@ export class MealsService {
    * Get today's menu
    */
   async getTodayMenu(unitId: string, currentUser: AuthenticatedUser) {
-    if (currentUser.role !== UserRole.SUPER_ADMIN && unitId !== currentUser.unitId) {
+    if (!actorReachesUnit(currentUser, unitId)) {
       throw Errors.forbidden('Access denied');
     }
 
