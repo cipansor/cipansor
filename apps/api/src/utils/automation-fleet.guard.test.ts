@@ -1383,6 +1383,33 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     const { calls } = runBridge({ GH_STUB_STATE_LABELS: 'open bug ready' }, ['--recover-ready']);
     expect(calls).not.toContain('DISPATCH');
   });
+
+  it('recovers a deferred type conflict on a ready issue, which the sweep skips', () => {
+    // #838 follow-up: `--type-conflict` defers while the pool is full and writes
+    // the same `pending` sweep checkpoint; if the issue is `ready` the ordinary
+    // sweep skips it, so the recovery pass must pick it up or the conflict is lost
+    // and the wrong type survives. Round-trip: defer, then recover.
+    const deferred = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        GH_STUB_STATE_LABELS: 'open enhancement ready',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(deferred.kv['triage-sweep-818']).toMatchObject({ run: 'pending' });
+
+    const recovered = runBridge(
+      {
+        KV_SEED: { 'triage-sweep-818': deferred.kv['triage-sweep-818'] },
+        GH_STUB_STATE_LABELS: 'open enhancement ready',
+        GH_STUB_BODY: 'triaged',
+      },
+      ['--recover-ready']
+    );
+    expect(recovered.calls).toContain('DISPATCH');
+  });
 });
 
 describe('basmalah.sh', () => {
@@ -2840,6 +2867,53 @@ describe('issue-triage-bridge.sh', () => {
       ['--type-conflict', '818', 'bug']
     );
     expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('does not collapse a type conflict behind a recent relabel dispatch', () => {
+    // #838 follow-up: a revocation can dispatch `--relabel` (a missing priority)
+    // and a type change can follow within the burst window. They are different
+    // responses — the relabel fills a gap, the conflict reconciles a type — so the
+    // relabel's burst key must not collapse the conflict, or the wrong type
+    // survives and `issue-label-sync` fails the closing PR's sync.
+    const { calls } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        KV_SEED: { 'triage-unlabeled-818': { at: Math.floor(Date.now() / 1000) } },
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('collapses a type-conflict burst to one dispatch per issue', () => {
+    // The conflict's own burst: a person who removes several bot labels signals a
+    // conflict for each, and the guard's concurrency group is per label, so the
+    // runs race. The collapse is keyed on the issue and the burst window.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        KV_SEED: { 'triage-conflict-818': { at: Math.floor(Date.now() / 1000) } },
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+  });
+
+  it('records a pending checkpoint when it defers a type conflict, so the sweep recovers it', () => {
+    // A deferred conflict must not be lost. The `pending` form (the same the
+    // MAX_INFLIGHT deferral writes) names no run, so the next sweep — or
+    // `--recover-ready` on a `ready` issue — dispatches it.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({ run: 'pending' });
   });
 
   it('collapses the guard’s removal burst to one relabel dispatch per issue', () => {

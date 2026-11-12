@@ -1088,6 +1088,17 @@ seorang manusia **dipasang kembali** secara deterministik, tanpa LLM.
   singleton tipe (docs/LABELS.md aturan 1). Bila label bukan tipe (mis.
   `priority:*`) atau tipe yang sama sudah kembali, jalur pemulihan biasa tetap
   berjalan.
+- **Koreksi kedua (2026-11-12, review #1058 putaran 2).** Awalnya mode konflik
+  memakai kunci collapse `UNLABELED_KEY` yang sama dengan `--relabel`. Akibatnya
+  bila pencabutan memicu `--relabel` (mis. prioritas kosong) lalu pergantian tipe
+  menyusul dalam `BURST_WINDOW` (300 dtk), `--type-conflict` membaca waktu
+  `--relabel` dan **menganggap konflik sudah ditangani** — padahal `--relabel`
+  hanya mengisi celah, bukan merekonsiliasi tipe. `activity_signal` tak mencatat
+  label, jadi sweep pun melihat checkpoint lama "selesai". Tipe salah bertahan →
+  sinkronisasi PR gagal. Perbaikan: kunci collapse **terpisah**
+  (`CONFLICT_KEY="triage-conflict-"`), dan konflik yang ditunda menulis checkpoint
+  `pending` yang sama sehingga sweep (atau `--recover-ready` pada issue `ready`)
+  memulihkannya.
 
 **Bug 1 (severe) — dispatch gagal membuat issue tetap tanpa label.**
 `relabel_after_revocation` tidak menulis checkpoint sweep saat dispatch gagal.
@@ -1106,7 +1117,7 @@ himpunan digabung `+` dan **terurut**, `priority:high+refactor` dan
 Ganti dengan pemeriksaan keanggotaan per elemen
 (`case "+$left+" in *"+refactor+"*|… )`).
 
-**Bukti.** `automation-fleet.guard.test.ts`: **195 passed**. Golden rule 7
+**Bukti.** `automation-fleet.guard.test.ts`: **199 passed**. Golden rule 7
 dibuktikan dengan memulihkan `.github/scripts/label-guard.sh`,
 `.github/scripts/issue-triage-bridge.sh`, dan `.github/workflows/label-guard.yml`
 ke `HEAD` sementara tes baru tetap ada: **10 tes gagal** (pemulihan label,
@@ -1114,5 +1125,6 @@ gate `unlabeled`, `refactor`/`security`, checkpoint `pending`), lalu hijau setel
 perubahan dipulihkan. Tes pemulihan tipe label (`bug`) juga dibuktikan gagal
 dengan `protected_labels()` dan hijau dengan `repo_labels()`; tes konflik tipe
 (manusia mencabut `bug`, issue memuat `enhancement`) dibuktikan gagal tanpa
-penjaga konflik dan hijau dengannya. Seluruh 68 berkas guard `src/utils/`:
-**1147 passed**.
+penjaga konflik dan hijau dengannya; tes kunci konflik terpisah dibuktikan gagal
+saat memakai `UNLABELED_KEY` dan hijau dengan `CONFLICT_KEY`. Seluruh 68 berkas
+guard `src/utils/`: **1151 passed**.

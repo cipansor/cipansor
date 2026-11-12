@@ -142,6 +142,12 @@ pertentangan itu dilaporkan sebagai issue.
     dua tipe, yang ditolak `issue-label-sync`. Guard menyimpan tipe yang tersisa,
     menandai `type_conflict=1`, dan workflow memanggil mode `--type-conflict` untuk
     mendispatch pemilik triase — pemilik taksonomi — mencabut tipe yang salah.
+    Konflik punya kunci burst sendiri (`triage-conflict-`), terpisah dari kunci
+    relabel (`triage-unlabeled-`): pencabutan yang memicu `--relabel` lalu
+    pergantian tipe dalam jendela yang sama adalah dua respons berbeda, dan yang
+    pertama tak boleh menciutkan yang kedua. Konflik yang ditunda menulis
+    checkpoint `pending`, jadi sweep (atau `--recover-ready` pada issue `ready`)
+    memulihkannya.
     `rilis-disetujui`/`rilis-ditolak`
     dihapus 2026-11-09: keduanya tidak pernah ada di repo, dan persetujuan rilis
     kini tag `vX.Y.Z`.

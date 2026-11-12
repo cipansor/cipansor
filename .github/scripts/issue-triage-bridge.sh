@@ -128,6 +128,12 @@ STATE_KEY="triage-state-"
 # labeler set, this one on a burst of revocations for one issue, and the two must
 # not collapse each other.
 UNLABELED_KEY="triage-unlabeled-"
+# The collapse key of the type-conflict path (`label-guard` declined a type
+# restore, #838 follow-up). A separate key from UNLABELED_KEY: a revocation can
+# dispatch `--relabel` (a missing priority) and a type change can follow within
+# the burst window — different responses — so sharing the key would let the
+# relabel's burst collapse the conflict and the wrong type would survive.
+CONFLICT_KEY="triage-conflict-"
 # The marker prefix the bridge used before it moved to the KV store. It is read
 # once, to adopt an existing checkpoint, and then deleted; nothing writes it any
 # more. `--purge-markers` clears the ones on issues the sweep no longer visits
@@ -663,14 +669,16 @@ type_conflict_dispatch() { # type_conflict_dispatch <number> <declined-type>
 
   # A real conflict: the issue holds one or more types and the declined one is not
   # among them. The triage owner decides which type is right. Collapse the burst
-  # the same way the relabel path does — a type change is a burst of events.
+  # the same way the relabel path does — a type change is a burst of events — but
+  # on this path's *own* key: a revocation can dispatch `--relabel` within the
+  # window and that must not collapse the conflict (different responses).
   state=$(jq -nc '{at: (now|floor)}')
-  if kv_get "$UNLABELED_KEY$number"; then
+  if kv_get "$CONFLICT_KEY$number"; then
     prev_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
     case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
     since=$(( $(date -u +%s) - prev_at ))
     if [ "$prev_at" -gt 0 ] && [ "$since" -lt "$BURST_WINDOW" ]; then
-      echo "#$number already dispatched a label reconciliation ${since}s ago; burst collapsed."
+      echo "#$number already dispatched a type-conflict reconciliation ${since}s ago; burst collapsed."
       exit 0
     fi
   fi
@@ -683,7 +691,7 @@ type_conflict_dispatch() { # type_conflict_dispatch <number> <declined-type>
     exit 0
   fi
   if dispatch "$number" type-conflict "$types"; then
-    kv_put "$UNLABELED_KEY$number" "$state" || true
+    kv_put "$CONFLICT_KEY$number" "$state" || true
     if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
   else
     if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi

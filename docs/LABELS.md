@@ -249,6 +249,10 @@ detect` workflow: when two **open** issues share a title once normalised
     `issue-label-sync` refuses and which rule 1 above forbids. The guard keeps the
     single surviving type and signals `type_conflict=1`; the workflow then
     dispatches the triage owner, who owns the taxonomy and revokes the wrong type.
+    That dispatch has its own burst key (`triage-conflict-`), separate from the
+    relabel path's (`triage-unlabeled-`): a revocation that dispatches `--relabel`
+    and a type change in the same window are two different responses, and the
+    first must not collapse the second.
 
 13. **Every main description opens with the basmalah.** Each issue and pull
     request body starts with «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»
