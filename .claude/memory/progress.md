@@ -429,6 +429,20 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   tiga cabang (#1049 sudah merged; #1051 & #1052 menambah blok di titik yang
   sama) sehingga resolusi konflik = simpan kedua blok.
 
+- **Koreksi tinjauan #1052, 2026-11-12.** Tinjauan `adminypc` meminta lebih dari
+  sekadar kutipan pesan: kartu panduan Kepala Unit menjanjikan kemampuan yang
+  tidak dimiliki perannya. Diverifikasi pada tumpukan berjalan: `POST
+  /hr/employees` dan `PATCH /hr/leaves/:id/approve` sama-sama dijawab **403**
+  untuk `*_KEPALA_SEKOLAH` (kelompok TEACHER; rute `authorize(SUPER_ADMIN,
+  UNIT_ADMIN)`). Maka kartu *Mengelola pegawai dan cuti* diganti menjadi
+  *Memantau pegawai dan cuti* (hanya tab Karyawan/Cuti/Risiko Retensi), baris
+  galat 409 dilepas dari kartu (peran tak dapat mencapainya; tetap di DT §8),
+  dan Riwayat Revisi 0.2 kembali jujur **T1** karena langkah barunya dijalankan
+  ulang. `README.md` menyebut aktor yang benar (admin unit / Super Admin).
+  Sekaligus ditemukan cacat aplikasi di luar lingkup dokumen: **formulir
+  *Ajukan Cuti*** mengirim **id pengguna** sebagai `staffId` (API menuntut id
+  profil pegawai) → 404 "Staff not found"; dilacak di **#1061**.
+
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
   permissions, separation-of-duty rules locked in code, and the account

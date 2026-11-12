@@ -55,6 +55,13 @@ workers refused on a closed day. Still open:
   evidence) instead of marking it.
 - **Non-teaching staff cannot file leave.** `/hr/leaves/new` is under `/hr`,
   and the `STAFF` bucket in `rbac.ts` opens only `/hr/attendance/me`.
+- **The *Ajukan Cuti* form sends the user id where the API wants a staff id.**
+  `hr/leaves/new` binds each employee `<SelectItem value={emp.id}>`, and
+  `emp.id` is the **user** id (`normalizeEmployee`), then posts it as `staffId`.
+  `createLeave` resolves `staffId` against the `staff` profile (or a teacher's
+  `staffId`), so a user id matches neither and the API answers 404 "Staff not
+  found" (a non-admin is refused earlier by the route). Reproduced on the
+  running stack 2026-11-12; tracked in **#1061**.
 - **The bulk register loads the first 100 employees only** (`useStaffList`
   forces `limit: 100`).
 - **Dead code.** `teacherId` is still in three `hr.schema.ts` schemas and in
