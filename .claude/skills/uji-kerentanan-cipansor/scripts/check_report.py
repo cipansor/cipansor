@@ -218,46 +218,60 @@ def _strip_comments(text: str) -> str:
 OWASP_CODE_RE = re.compile(r"\b(API\d{1,2}|A\d{2})\b", re.I)
 
 
-def _category_code(text: str) -> str | None:
-    m = OWASP_CODE_RE.search(text or "")
-    return m.group(1).upper() if m else None
+def _category_codes(text: str) -> set[str]:
+    """Semua kode OWASP pada kategori (satu temuan bisa memetakan ke beberapa)."""
+    return {m.group(1).upper() for m in OWASP_CODE_RE.finditer(text or "")}
+
+
+def _norm_text(text: str) -> str:
+    """Normalisasi untuk perbandingan: huruf kecil, tanda baca jadi spasi.
+
+    `\\W` pada mode Unicode mempertahankan huruf dan angka dari aksara apa pun
+    (termasuk Arab); hanya tanda baca dan spasi berlebih yang dirapikan. Kalau
+    tidak, dua kategori Arab yang berbeda sama-sama menjadi string kosong dan
+    dianggap cocok.
+    """
+    return re.sub(r"[\W_]+", " ", (text or "").lower()).strip()
 
 
 def _categories_match(a: str, b: str) -> bool:
-    """Cocok bila kode OWASP sama, atau (tanpa kode) teks ternormalisasi sama.
+    """Cocok bila himpunan kode OWASP sama, atau (tanpa kode) teks ternormalisasi sama.
 
     Bila hanya satu sisi memuat kode dan sisi lain prosa, keduanya tak dapat
     dibandingkan dengan andal — jangan menuduh salah. Kontradiksi yang nyata
-    (kode berbeda, mis. `A01` vs `A02`) tetap tertangkap.
+    (mis. `A01` vs `A02`, atau `A01, A03` vs `A01, A02`) tetap tertangkap.
     """
-    ca, cb = _category_code(a), _category_code(b)
+    ca, cb = _category_codes(a), _category_codes(b)
+    if ca and cb:
+        return ca == cb
     if ca or cb:
-        return not ca or not cb or ca == cb
-    na = re.sub(r"[^a-z0-9]+", " ", (a or "").lower()).strip()
-    nb = re.sub(r"[^a-z0-9]+", " ", (b or "").lower()).strip()
-    return na == nb
+        return True
+    return _norm_text(a) == _norm_text(b)
 
 
-def summary_table(text: str) -> tuple[dict[str, list[str]], list[str]] | None:
+def summary_table(text: str) -> tuple[dict[str, list[str]], dict[str, list[str | None]]] | None:
     """Baris Bagian 4 (Ringkasan Temuan): ID -> [peringkat, kategori, status].
 
-    Mengembalikan `(rows, duplicate_ids)`; `None` bila bagiannya tidak ada,
-    supaya pemanggil dapat membedakan "tidak ada tabel" dari "tabel kosong".
-    Bila sebuah ID muncul dua kali, baris **terakhir** yang menang — pemeriksaan
-    tak boleh dilewati oleh baris pertama — dan ID-nya dilaporkan ganda.
+    Mengembalikan `(rows, statuses)`; `None` bila bagiannya tidak ada, supaya
+    pemanggil dapat membedakan "tidak ada tabel" dari "tabel kosong".
+
+    `rows[fid]` adalah baris **terakhir** untuk ID itu (pemeriksaan tak boleh
+    dilewati oleh baris pertama), sedangkan `statuses[fid]` menyimpan status
+    **setiap** baris ID itu secara berurutan — supaya satu baris "Terbuka" yang
+    diikuti duplikat "Ditutup" tetap terlihat. Status `None` berarti kolom status
+    tidak ada.
     """
     body = _heading_body(text, r"ringkasan\s+temuan|summary\s+of\s+findings", max_level=3)
     if body is None:
         return None
     rows: dict[str, list[str]] = {}
-    dups: list[str] = []
+    statuses: dict[str, list[str | None]] = {}
     for m in TABLE_ROW_RE.finditer(body):
         fid = m.group(1)
         cells = [c.strip() for c in m.group(2).split("|")]
-        if fid in rows:
-            dups.append(fid)
         rows[fid] = cells
-    return rows, dups
+        statuses.setdefault(fid, []).append(cells[2] if len(cells) >= 3 else None)
+    return rows, statuses
 
 
 def read(text: str, final: bool = False) -> dict:
@@ -279,8 +293,12 @@ def read(text: str, final: bool = False) -> dict:
     sub25 = _heading_body(text, r"^\s*2\.5\b", max_level=4)
     if sub25 is None:
         err("bagian wajib hilang: 2.5 Batas yang memengaruhi hasil")
-    elif not _strip_comments(sub25).strip():
-        (err if final else warn)("bagian 2.5 ada tetapi kosong — tulis cakupan sampel, alat, dan perbedaan lingkungan")
+    else:
+        # Baris judul subbagian bukan uraian: buang heading (dan komentar) dulu,
+        # lalu periksa apakah benar-benar ada paragraf isi.
+        content = re.sub(r"(?m)^#{1,6}\s+.*$", "", _strip_comments(sub25))
+        if not content.strip():
+            (err if final else warn)("bagian 2.5 ada tetapi kosong — tulis cakupan sampel, alat, dan perbedaan lingkungan")
 
     # temuan: pisah blok per `F-nn`
     blocks = list(FINDING_RE.finditer(text))
@@ -335,8 +353,9 @@ def read(text: str, final: bool = False) -> dict:
     parsed = summary_table(text)
     table = parsed[0] if parsed else None
     if parsed:
-        for fid in sorted(set(parsed[1])):
-            err(f"ringkasan: {fid} muncul lebih dari sekali di tabel Bagian 4 — satu baris per temuan")
+        for fid, statuses in parsed[1].items():
+            if len(statuses) > 1:
+                err(f"ringkasan: {fid} muncul lebih dari sekali di tabel Bagian 4 — satu baris per temuan")
     if table is not None:
         for fid in sorted(set(table) - set(out["findings"])):
             err(f"ringkasan: {fid} ada di tabel Bagian 4 tetapi tidak ada di Register (Bagian 5)")
@@ -410,15 +429,19 @@ def summary_errors(text: str) -> list[str]:
                 f"hanya boleh ada di laporan penuh di luar repo (K37)"
             )
     parsed = summary_table(text)
-    table = parsed[0] if parsed else None
-    if table:
-        for fid, cells in table.items():
-            status = canonical_status(cells[2]) if len(cells) >= 3 else None
-            if status in (None, "open", "mitigated", "accepted"):
-                shown = cells[2] if len(cells) >= 3 else "tidak disebut"
+    if parsed:
+        for fid, statuses in parsed[1].items():
+            bad: list[str] = []
+            for shown in statuses:
+                status = canonical_status(shown) if shown is not None else None
+                if status in (None, "open", "mitigated", "accepted"):
+                    label = shown if shown is not None else "tidak disebut"
+                    if label not in bad:
+                        bad.append(label)
+            for label in bad:
                 errs.append(
                     f"{fid}: tabel Ringkasan publik mencantumkan temuan berstatus "
-                    f"'{shown}' — temuan terbuka hanya boleh ada di laporan penuh "
+                    f"'{label}' — temuan terbuka hanya boleh ada di laporan penuh "
                     f"di luar repo (K37)"
                 )
     return errs

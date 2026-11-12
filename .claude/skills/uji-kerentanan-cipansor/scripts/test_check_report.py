@@ -238,6 +238,25 @@ class ReadTest(unittest.TestCase):
         res = cr.read(ok)
         self.assertEqual([e for e in res["errors"] if "kategori" in e], [], res["errors"])
 
+    def test_summary_table_category_multiple_codes_mismatch_is_error(self):
+        # Kode pertama sama (A01) tetapi kode kedua berbeda (A03 vs A02).
+        broken = REPORT.replace("- Kategori: A01\n", "- Kategori: A01, A02\n")
+        broken = broken.replace("| F-01 | Tinggi | A01 |", "| F-01 | Tinggi | A01, A03 |")
+        res = cr.read(broken)
+        self.assertTrue(
+            any("kategori" in e and "Register" in e for e in res["errors"]), res["errors"]
+        )
+
+    def test_summary_table_arabic_category_mismatch_is_error(self):
+        # Dua kategori Arab yang berbeda (tanpa kode OWASP) harus dibedakan,
+        # bukan sama-sama menjadi string kosong.
+        broken = REPORT.replace("- Kategori: A01\n", "- Kategori: الحقن\n")
+        broken = broken.replace("| F-01 | Tinggi | A01 |", "| F-01 | Tinggi | التحكم بالوصول |")
+        res = cr.read(broken)
+        self.assertTrue(
+            any("kategori" in e and "Register" in e for e in res["errors"]), res["errors"]
+        )
+
     def test_orphan_summary_row_without_register_is_error(self):
         # Register kosong (tak ada blok F-nn) tetapi tabel Bagian 4 punya F-01.
         broken = REPORT.replace(
@@ -282,6 +301,17 @@ class ReadTest(unittest.TestCase):
         )
         res = cr.read(filled, final=True)
         self.assertEqual([e for e in res["errors"] if "2.5" in e], [], res["errors"])
+
+    def test_subsection_2_5_with_only_a_bare_subheading_is_empty(self):
+        # Subjudul tanpa uraian bukan isi: baris judul tak boleh membuatnya lulus.
+        bare = REPORT.replace(
+            "## 2.5 Batas yang memengaruhi hasil\n\n"
+            "Sampel 30 dari 300 rute; pemindai otomatis ZAP tidak dijalankan; lingkungan uji\n"
+            "lokal + data seed, berbeda dari produksi.\n",
+            "## 2.5 Batas yang memengaruhi hasil\n\n### 2.5.1 Cakupan\n\n<!-- belum diisi -->\n",
+        )
+        res = cr.read(bare, final=True)
+        self.assertTrue(any("2.5" in e for e in res["errors"]), res["errors"])
 
 
 class ParityTest(unittest.TestCase):
@@ -367,6 +397,17 @@ class SummaryTest(unittest.TestCase):
             "| ID | Peringkat | Kategori OWASP | Status |\n|---|---|---|---|\n"
             "| F-01 | Tinggi | A01 | Ditutup |\n"
             "| F-01 | Tinggi | A01 | Terbuka |\n"
+        )
+        self.assertTrue(any("F-01" in e for e in cr.summary_errors(text)))
+
+    def test_duplicate_row_open_then_closed_is_rejected(self):
+        # Urutan sebaliknya: baris "Terbuka" lebih dulu, duplikat "Ditutup"
+        # belakangan. Temuan terbuka tetap harus ditolak.
+        text = (
+            "# Ringkasan\n\n## 4. Ringkasan Temuan\n\n"
+            "| ID | Peringkat | Kategori OWASP | Status |\n|---|---|---|---|\n"
+            "| F-01 | Tinggi | A01 | Terbuka |\n"
+            "| F-01 | Tinggi | A01 | Ditutup |\n"
         )
         self.assertTrue(any("F-01" in e for e in cr.summary_errors(text)))
 

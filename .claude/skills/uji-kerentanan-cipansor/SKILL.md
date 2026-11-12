@@ -57,12 +57,12 @@ python scripts/check_report.py /luar/repo/LAPORAN.md --final            # 0 ERRO
 ```
 
 Pemeriksa memverifikasi: struktur bagian lengkap (termasuk Bagian 2.5 yang
-terisi, walau isinya ditulis di subjudul), lima butir tiap temuan, ID temuan
-unik, **skor CVSS cocok dengan vektornya**, peringkat cocok dengan pita skornya
-(`<4 rendah`, `4–6.9 sedang`, `7–8.9 tinggi`, `≥9 kritis`), dan **baris tabel
-Bagian 4 cocok dengan Register Bagian 5** (himpunan ID, peringkat, kategori
-OWASP, status; ID ganda ditolak). Pada `--final`, vektor CVSS dan skor tertulis
-menjadi **wajib** untuk tiap temuan.
+terisi — walau isinya ditulis di subjudul, bukan hanya judul subbagiannya), lima
+butir tiap temuan, ID temuan unik, **skor CVSS cocok dengan vektornya**, peringkat
+cocok dengan pita skornya (`<4 rendah`, `4–6.9 sedang`, `7–8.9 tinggi`, `≥9
+kritis`), dan **baris tabel Bagian 4 cocok dengan Register Bagian 5** (himpunan
+ID, peringkat, **himpunan kategori OWASP**, status; ID ganda ditolak). Pada
+`--final`, vektor CVSS dan skor tertulis menjadi **wajib** untuk tiap temuan.
 
 ### 3. Tiga bahasa (bila diminta) — gerbang: `--parity` 0 ERROR
 

@@ -12,8 +12,10 @@ Tiap baris adalah cacat nyata yang pernah lolos ke laporan; kode pemeriksa di
 | Vektor ada tanpa skor tertulis | Skor tak terverifikasi mesin | `--final` → ERROR "tanpa skor tertulis"; draf → WARN |
 | Peringkat tak dikenali (mis. "Urgent") | Pita skor tak dapat dibandingkan | "peringkat '…' tidak dikenali (critical/high/medium/low/none)" |
 | Baris Bagian 4 hilang/berlebih atau peringkat/kategori/statusnya melenceng dari Register | Ringkasan publik bertentangan dengan Register | `summary_table()` + perbandingan baris — "ringkasan: F-01 … ≠ Register …" |
-| ID sama muncul dua kali di tabel Bagian 4 (mis. "Ditutup" lalu "Terbuka") | Baris terbuka disembunyikan oleh baris pertama | `summary_table()` melaporkan ID ganda; baris terakhir yang dinilai |
+| ID sama muncul dua kali di tabel Bagian 4 (mis. "Ditutup" lalu "Terbuka", atau sebaliknya) | Baris terbuka disembunyikan oleh baris pertama/terakhir | `summary_table()` mengumpulkan status **setiap** baris ID itu; ID ganda dilaporkan |
 | Baris Bagian 4 tanpa kolom status | ID/peringkat/kategori temuan terbuka terbit tanpa kesalahan | `summary_errors()` — baris tanpa status dihitung terbuka |
+| Kategori berbeda kode OWASP kedua (mis. tabel `A01, A03` vs Register `A01, A02`) | Pemetaan OWASP temuan keliru | `_categories_match()` membandingkan **himpunan** kode, bukan kode pertama saja |
+| Dua kategori Arab berbeda (tanpa kode OWASP) dianggap sama | Ringkasan dan Register bertentangan lolos | `_norm_text()` mempertahankan huruf Arab (normalisasi Unicode), bukan membuangnya |
 | Bagian 4 berjudul tingkat tiga (`### 4. …`) | Pemeriksaan bagian wajib menerimanya, tetapi perbandingan baris dulu dilewati | `summary_table()` menerima heading tingkat 1–3, sama dengan pemeriksaan bagian wajib |
 | Tabel Bagian 4 berisi temuan yatim (Register kosong) | Baris temuan yang tak ada di Register lolos | perbandingan baris kini jalan tanpa syarat "ada temuan" |
 | Baris Bagian 4 mencantumkan temuan berstatus terbuka | Temuan terbuka bocor ke ringkasan publik | `summary_errors()` — "tabel Ringkasan publik mencantumkan … terbuka" |
@@ -21,6 +23,7 @@ Tiap baris adalah cacat nyata yang pernah lolos ke laporan; kode pemeriksa di
 | ID temuan dipakai dua kali | Satu temuan menimpa yang lain di Register | `read()` — "F-01: ID temuan ganda" |
 | Bagian 2.5 hilang atau dikosongkan | Batas uji tak terlihat pembaca | "bagian wajib hilang: 2.5 …" / `--final` → ERROR kosong |
 | Bagian 2.5 diisi lewat subjudul (`### 2.5.1`) | Dulu terbaca "kosong" (positif palsu) | `_heading_body()` membaca sampai heading setingkat/lebih tinggi, jadi isi subbagian ikut |
+| Bagian 2.5 hanya berisi subjudul tanpa uraian | Batas uji kosong lolos (baris judul dihitung isi) | `read()` membuang baris heading sebelum menguji isi 2.5 |
 | Satu edisi bahasa punya `F-nn` yang tidak ada di edisi lain | Tiga laporan yang berbeda, bukan satu | `parity()` — "F-01 ada di id tetapi tidak di en" |
 | Peringkat/status berbeda antar bahasa untuk temuan yang sama | Pembaca berbeda bahasa melihat keparahan berbeda | `parity()` — "peringkat berbeda"/"status berbeda" |
 | Bagian wajib hilang (mis. 9 uji ulang) | Laporan tak lengkap untuk auditor | `read()` — "bagian wajib hilang: …" |
