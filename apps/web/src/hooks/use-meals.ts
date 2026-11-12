@@ -105,20 +105,38 @@ export function useMealMenu(id: string) {
   });
 }
 
+/**
+ * Today's menu for one unit, keyed by meal type as the page reads it.
+ *
+ * The canonical route carries the unit in the path
+ * (`GET /meals/menus/today/:unitId`), consistent with `calendar` and
+ * `duty-roster`. The page used to call `/meals/menus/today?unitId=`, which no
+ * route answers: `/menus/:id` matched it with `id = "today"` and always
+ * returned 404 (#849). The handler returns an array of menus, so the hook folds
+ * it into the `{ breakfast, lunch, dinner, snack }` object the page reads.
+ *
+ * "Semua Unit" has no aggregation (K5): with no unit the query does not fire and
+ * the page asks the user to pick one.
+ */
 export function useTodayMenus(unitId?: string) {
   return useQuery({
     queryKey: ["today-menus", unitId],
     queryFn: async () => {
-      const response = await api.get("/meals/menus/today", {
-        params: { unitId },
-      });
-      return response.data.data as {
+      const response = await api.get(`/meals/menus/today/${unitId}`);
+      const menus = (response.data.data ?? []) as MealMenu[];
+      return menus.reduce<{
         breakfast?: MealMenu;
         lunch?: MealMenu;
         dinner?: MealMenu;
         snack?: MealMenu;
-      };
+      }>((byType, menu) => {
+        const key = menu.mealType.toLowerCase() as
+          "breakfast" | "lunch" | "dinner" | "snack";
+        byType[key] = menu;
+        return byType;
+      }, {});
     },
+    enabled: !!unitId,
   });
 }
 

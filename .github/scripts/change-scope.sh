@@ -34,10 +34,12 @@ is_code() {
     docs/DEPLOYMENT.md) return 0 ;; # decommissioned-modules.guard.test.ts pins its numbers
     docs/LABELS.md) return 0 ;; # the label/lifecycle guard tests read it
     docs/SDLC-FLOW.md) return 0 ;; # automation-fleet.guard.test.ts checks its comment-first rule
+    .claude/skills/*/SKILL.md) return 0 ;; # pr-description.guard.test.ts pins the buat-pr skill
     docs/IDEAS.md) return 0 ;; # automation-fleet.guard.test.ts pins the fleet decisions recorded there
     .github/pull_request_template.md) return 0 ;; # automation-fleet.guard.test.ts checks its basmalah
     .github/ISSUE_TEMPLATE/*.yml) return 0 ;; # automation-fleet.guard.test.ts checks their basmalah
     .claude/hooks/guard.sh) return 0 ;; # agent-guard.guard.test.ts runs it
+    .claude/skills/dokumen-aplikasi-cipansor/scripts/*.py) return 0 ;; # test_tooling.py reads them; the Tests job runs it
     *.md | docs/* | .claude/* | .github/ISSUE_TEMPLATE/* | LICENSE | LICENSE.*) return 1 ;;
     *) return 0 ;;
   esac

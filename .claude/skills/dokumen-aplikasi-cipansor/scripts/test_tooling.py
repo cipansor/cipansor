@@ -18,10 +18,75 @@ atau langsung:
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
+import importlib.util
 import sys
+import types
 import unittest
 from pathlib import Path
+
+
+def _has(module: str) -> bool:
+    return importlib.util.find_spec(module) is not None
+
+
+@contextlib.contextmanager
+def _only_modules(**modules):
+    """Make only the named modules importable, as if the others were absent.
+
+    `verify_pdf` imports `pymupdf` with a `fitz` fallback; simulating the two
+    layouts needs the import to fail for the blocked name, which a
+    `sys.modules` entry alone does not do.
+    """
+    import builtins
+
+    real = builtins.__import__
+    saved = {name: sys.modules.get(name) for name in modules}
+    for name, module in modules.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
+    def fake_import(name, *args, **kwargs):
+        if name in modules and modules[name] is None:
+            raise ImportError(f"simulated: {name} is not installed")
+        return real(name, *args, **kwargs)
+
+    builtins.__import__ = fake_import
+    try:
+        yield
+    finally:
+        builtins.__import__ = real
+        for name, value in saved.items():
+            if value is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = value
+
+
+def _fake_pdf_module(pages: list[str]):
+    """A stand-in PyMuPDF exposing only what `verify_pdf` reads."""
+    module = types.ModuleType("fitz")
+
+    class _Page:
+        def __init__(self, text: str):
+            self._text = text
+
+        def get_text(self) -> str:
+            return self._text
+
+    class _Doc:
+        def __init__(self, texts: list[str]):
+            self._pages = [_Page(t) for t in texts]
+
+        def __iter__(self):
+            return iter(self._pages)
+
+    module.open = lambda _path: _Doc(pages)
+    return module
+
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -156,6 +221,79 @@ class CheckNumbersTest(unittest.TestCase):
         self.assertEqual(self._run("| 0.7 | 30 September 2026 | ~1.413 hulu rute API | Agen |"), [])
 
 
+class QuotedMessageTest(unittest.TestCase):
+    """A quoted screen message must exist in the web/API source (#779: a guide
+    quoted "… orang" where the code interpolates the count, and the old
+    case-sensitive rule let the sentence-initial "Muncul pesan" slip past)."""
+
+    WEB = 'toast.success(`Pengumuman terbit — masuk ke lonceng ${n} orang`);'
+
+    def test_a_quote_that_matches_the_source_passes(self):
+        line = '   *Muncul pesan "Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima.*'
+        self.assertEqual(check_docs.quoted_message_errors([line], self.WEB, ""), [])
+
+    def test_a_capitalised_muncul_pesan_is_checked(self):
+        # The gap the old lowercase-only pattern left open.
+        line = '   *Muncul pesan "Pesan yang tidak ada di kode".*'
+        self.assertEqual(check_docs.quoted_message_errors([line], self.WEB, ""),
+                         [(1, "Pesan yang tidak ada di kode")])
+
+    def test_a_lowercase_muncul_pesan_is_checked(self):
+        line = '   *muncul pesan "Pesan yang tidak ada di kode".*'
+        self.assertEqual(check_docs.quoted_message_errors([line], self.WEB, ""),
+                         [(1, "Pesan yang tidak ada di kode")])
+
+    def test_a_quote_found_only_in_the_api_passes(self):
+        line = '   *Muncul pesan "Pesan dari API".*'
+        self.assertEqual(check_docs.quoted_message_errors([line], "", '"Pesan dari API"'), [])
+
+
+class PartialCardMarkerTest(unittest.TestCase):
+    """A card whose *steps* were revised from code keeps its screenshot but must
+    carry a per-step ⚠ (#779 review): only a whole-card marker clashes with the
+    image, so `kartu-bergambar-masih-t2` must fire on the card-level form alone."""
+
+    def test_card_level_warning_detects_blockquote_and_bare_marker(self):
+        self.assertTrue(check_docs.card_level_warning(["> ⚠ Belum dicoba di aplikasi berjalan"], 1, 1))
+        self.assertTrue(check_docs.card_level_warning(["⚠ Belum dicoba di aplikasi berjalan"], 1, 1))
+
+    def test_card_level_warning_ignores_a_step_marker(self):
+        lines = ["3. Klik **Terbitkan**.",
+                 "   > ⚠ Belum dicoba di aplikasi berjalan — langkah ini dari kode."]
+        self.assertFalse(check_docs.card_level_warning(lines, 1, 2))
+
+    @staticmethod
+    def _png(path: Path) -> None:
+        head = (b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big") + b"IHDR"
+                + (1024).to_bytes(4, "big") + (600).to_bytes(4, "big"))
+        path.write_bytes(head + b"\x00" * 64)
+
+    def _run(self, marker_line: str) -> list[tuple]:
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            md = Path(d)
+            (md / "screens").mkdir()
+            self._png(md / "screens" / "x.png")
+            (md / "screens" / "manifest.json").write_text(
+                json.dumps([{"path": "screens/x.png", "url": "/x"}]), encoding="utf-8")
+            text = ("## Mencatat sesuatu\n\n**Langkah.**\n\n"
+                    "1. Buka halaman.\n2. Klik **Simpan**.\n" + marker_line + "\n\n"
+                    "![Gambar 1. Halaman contoh yang cukup panjang.](screens/x.png){width=14cm}\n\n"
+                    "*Gambar 1. Halaman contoh.*\n")
+            r = check_docs.Report()
+            check_docs.check_images(text, text.split("\n"), md, "pengguna", r)
+            return [i for i in r.items if i[2] == "kartu-bergambar-masih-t2"]
+
+    def test_a_step_level_marker_keeps_the_screenshot(self):
+        self.assertEqual(self._run("   > ⚠ Belum dicoba di aplikasi berjalan — langkah ini dari kode."), [])
+
+    def test_a_card_level_marker_on_an_illustrated_card_is_reported(self):
+        found = self._run("> ⚠ Belum dicoba di aplikasi berjalan")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0][0], "WARN")
+
+
+@unittest.skipUnless(_has("docx"), "python-docx not installed (optional: pip install python-docx lxml)")
 class VerifyDocxTest(unittest.TestCase):
     """A .docx whose structure drifted from the Markdown must be reported, not passed."""
 
@@ -211,12 +349,18 @@ class VerifyDocxTest(unittest.TestCase):
             self.assertTrue(any("Daftar Isi" in x for x in problems), problems)
 
 
+@unittest.skipUnless(_has("pymupdf") or _has("fitz"), "pymupdf not installed (optional: pip install pymupdf)")
 class VerifyPdfTest(unittest.TestCase):
     """The PDF gate must notice a near-empty page and a table whose header did not render."""
 
     @staticmethod
     def _pdf(tmp: Path, pages: list[str]):
-        import pymupdf
+        # The module is `pymupdf` or its legacy alias `fitz`; build with
+        # whichever is installed, as build_docs.verify_pdf does.
+        try:
+            import pymupdf  # type: ignore
+        except ImportError:
+            import fitz as pymupdf  # type: ignore
 
         doc = pymupdf.open()
         for text in pages:
@@ -243,6 +387,40 @@ class VerifyPdfTest(unittest.TestCase):
             p = self._pdf(Path(td), ["Modul Jumlah api 3 — teks yang cukup panjang untuk diperiksa mesin."])
             md = "| Modul | Jumlah |\n|---|---|\n| api | 3 |\n"
             self.assertEqual(build_docs.verify_pdf(p, md), [])
+
+
+class VerifyPdfFallbackTest(unittest.TestCase):
+    """`verify_pdf` must accept the `fitz` alias, not only `pymupdf`.
+
+    Runs without any PDF library: it injects a stand-in module and exercises the
+    real `build_docs.verify_pdf`, so the fallback is covered even on the CI
+    runner, where the PDF cases above are skipped.
+    """
+
+    _MD = "| Modul | Jumlah |\n|---|---|\n| api | 3 |\n"
+
+    def test_uses_the_pymupdf_name_when_present(self):
+        fake = _fake_pdf_module(["Modul Jumlah api 3 — teks yang cukup panjang untuk diperiksa mesin."])
+        with _only_modules(pymupdf=fake, fitz=None):
+            self.assertEqual(build_docs.verify_pdf("x.pdf", self._MD), [])
+
+    def test_falls_back_to_the_fitz_alias(self):
+        # Only `fitz` present (older PyMuPDF): `import pymupdf` must fail and the
+        # fallback must take over — the regression the review flagged.
+        fake = _fake_pdf_module(["Modul Jumlah api 3 — teks yang cukup panjang untuk diperiksa mesin."])
+        with _only_modules(pymupdf=None, fitz=fake):
+            self.assertEqual(build_docs.verify_pdf("x.pdf", self._MD), [])
+
+    def test_reports_when_no_pdf_library_is_installed(self):
+        with _only_modules(pymupdf=None, fitz=None):
+            problems = build_docs.verify_pdf("x.pdf", self._MD)
+        self.assertTrue(any("PyMuPDF" in p for p in problems), problems)
+
+    def test_a_missing_table_header_is_reported_through_the_alias(self):
+        fake = _fake_pdf_module(["Halaman dengan teks yang cukup panjang untuk diperiksa mesin dokumen ini."])
+        with _only_modules(pymupdf=None, fitz=fake):
+            problems = build_docs.verify_pdf("x.pdf", self._MD)
+        self.assertTrue(any("Modul" in p for p in problems), problems)
 
 
 if __name__ == "__main__":

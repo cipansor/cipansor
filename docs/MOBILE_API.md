@@ -76,9 +76,30 @@ PENDING/TU_APPROVED → REJECTED (dengan alasan)
 | `GET /parent/notifications`          | Daftar notifikasi + unread count. |
 | `PUT /parent/notifications/:id/read` | Tandai dibaca.                    |
 
-**Pengingat bulanan otomatis**: setiap tanggal 1 pukul 06:00 scheduler
-mengirim pengingat tagihan SPP bulan berjalan ke SEMUA orang tua
-(in-app + WhatsApp Business API via template `payment_reminder`).
+**Pengingat tagihan otomatis**, dua jalur yang saling melengkapi:
+
+- **Bulanan (tanggal 1, 06:00 WIB).** `jobs/spp-reminder.job.ts` mengirim
+  pengingat tagihan SPP bulan berjalan ke orang tua santri yang tagihannya belum
+  lunas (in-app + WhatsApp bila provider dikonfigurasi).
+- **Jelang jatuh tempo (harian, 08:00 WIB).** Tugas `payment-reminder` penjadwal
+  notifikasi mengingatkan **sekali per tagihan** saat tagihan memasuki jendela
+  tujuh hari sebelum jatuh tempo (kunci `payment-reminder:<id>`), bukan tiga kali
+  pada H-7/H-3/H-1.
+
+WhatsApp lewat transport yang belum dikonfigurasi (mis. `SIMULATOR`) tidak
+benar-benar terkirim. Hanya notifikasi ber-`dedupeKey` (mis. jalur
+`payment-reminder`) yang menyimpan status pengiriman per kanal: transport
+log-only dicatat `PENDING`, kesalahan transport dicatat `FAILED` — keduanya
+bukan `SENT`. Percobaan ulangnya terikat jendela seleksi tugas itu
+(`dueDate: { gte: now, lte: now + 7 hari }`): selama tagihan masih terpilih, run
+harian berikutnya mencoba kanal yang belum `SENT`; begitu tanggal jatuh tempo
+terlewati, tagihan keluar dari seleksi dan status `PENDING`/`FAILED` itu tidak
+pernah dicoba lagi (pada praktiknya percobaan terakhir jatuh pada run sehari
+sebelum jatuh tempo, karena `dueDate` disimpan pada tengah malam UTC). Jalur SPP
+bulanan (`jobs/spp-reminder.job.ts`) **tidak** menyimpan status itu sama sekali,
+jadi pengingat yang gagal pada tanggal 1 tidak pernah dicoba ulang; jangan
+menganggapnya terkirim sampai provider disetel, dan kirim ulang secara manual
+bila provider baru diaktifkan setelah tanggal 1.
 
 ## 5. Konfigurasi server (env)
 

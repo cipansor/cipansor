@@ -1,0 +1,69 @@
+# Move an issue from `ready` to `in-progress` the moment a pull request opens
+# for it — and, in the other order, when its `ready` arrives after the PR.
+#
+# `ready` means "specified enough to be picked up"; a PR is the proof it has
+# been. `in-progress` is the honest status then, and it keeps the label
+# machine-readable state truthful without an LLM in the loop
+# (docs/SDLC-FLOW.md invariant 2). The rule lives in
+# `.github/scripts/issue-claim.sh` so it can be run by hand.
+#
+# The move is narrow on purpose: only `ready` becomes `in-progress`. An issue
+# that is `question`, `blocked`, or unlabelled is never claimed — a PR alone is
+# not enough to declare work started, and the `PR template reminder` check keeps
+# failing until the issue is genuinely `ready`.
+name: Issue claim
+
+on:
+  pull_request:
+    types: [opened, reopened, edited]
+  # A PR may exist first and its issue become `ready` only later (the triage
+  # owner clears a question). The label event is the hook for that order, so the
+  # claim does not wait for the PR to be touched again.
+  issues:
+    types: [labeled]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+
+concurrency:
+  group: issue-claim-${{ github.event.pull_request.number || github.event.issue.number }}
+  cancel-in-progress: true
+
+jobs:
+  claim:
+    name: Issue claim
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Claim the issue a pull request opens (pull request)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+        run: sh .github/scripts/issue-claim.sh "$PR"
+      # On a fork PR the `pull_request` token is read-only, so the edit cannot
+      # run. Verify and report the move a maintainer has to make; do not pass
+      # silently on a PR whose issue is still `ready`.
+      - name: Verify the claim only (fork pull request)
+        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          READ_ONLY: '1'
+        run: sh .github/scripts/issue-claim.sh "$PR"
+      - name: Claim the issue if a PR already closes it (issue labeled)
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: sh .github/scripts/issue-claim.sh --issue "$ISSUE"
