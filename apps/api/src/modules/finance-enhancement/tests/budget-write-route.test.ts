@@ -123,7 +123,9 @@ describe('Anggaran write routes accept the web form body (#749)', () => {
   });
 
   it('GET /financial-periods answers meta.pagination, matching the shared contract', async () => {
-    const res = await authed(request(app).get('/finance-enhancement/financial-periods?unitId=unit-smp'));
+    const res = await authed(
+      request(app).get('/finance-enhancement/financial-periods?unitId=unit-smp')
+    );
     expect(res.status).toBe(200);
     expect(res.body.success).toBe(true);
     expect(Array.isArray(res.body.data)).toBe(true);

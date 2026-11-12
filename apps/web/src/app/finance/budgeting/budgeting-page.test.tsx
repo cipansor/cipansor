@@ -36,9 +36,27 @@ vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 import BudgetingPage from "./page";
 
 const ACCOUNTS = [
-  { id: "a1", code: "5101", name: "Beban unit satu", unitId: "unit-1", isActive: true },
-  { id: "a2", code: "5102", name: "Beban unit dua", unitId: "unit-2", isActive: true },
-  { id: "a3", code: "5103", name: "Beban bersama", unitId: null, isActive: true },
+  {
+    id: "a1",
+    code: "5101",
+    name: "Beban unit satu",
+    unitId: "unit-1",
+    isActive: true,
+  },
+  {
+    id: "a2",
+    code: "5102",
+    name: "Beban unit dua",
+    unitId: "unit-2",
+    isActive: true,
+  },
+  {
+    id: "a3",
+    code: "5103",
+    name: "Beban bersama",
+    unitId: null,
+    isActive: true,
+  },
 ];
 
 beforeEach(() => {
