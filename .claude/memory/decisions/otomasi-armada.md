@@ -1075,6 +1075,19 @@ seorang manusia **dipasang kembali** secara deterministik, tanpa LLM.
   dicabut manusia tak akan pernah dipulihkan — padahal itu justru kasus #838.
   Guard standar tetap memakai `protected_labels()` (tipe label pada issue form
   dibiarkan), jadi kedua paruh kini memakai daftar yang berbeda dan beralasan.
+- **Koreksi (2026-11-12, review #1058).** Memakai `repo_labels()` saja
+  menciptakan **dua tipe**: bila manusia memasang `enhancement` lalu mencabut
+  `bug` milik bot, pemulihan menaruh kembali `bug` → issue punya `bug` +
+  `enhancement`, dan `issue-label-sync.sh` menolaknya ("more than one type"),
+  sehingga PR yang menutup issue itu gagal sinkron. Karena itu jalur pemulihan
+  kini: (a) bila label adalah **tipe** (`TYPE_LABELS`, default = `ALLOWED_LABELS`)
+  dan issue memuat tipe **lain**, **jangan** pulihkan — tulis
+  `type_conflict=1` ke `$GITHUB_OUTPUT`; (b) `label-guard.yml` memanggil mode baru
+  `issue-triage-bridge.sh --type-conflict <n> <tipe-ditolak>`, yang men-dispatch
+  pemilik triase (pemilik taksonomi) untuk mencabut tipe yang salah. Ini menjaga
+  singleton tipe (docs/LABELS.md aturan 1). Bila label bukan tipe (mis.
+  `priority:*`) atau tipe yang sama sudah kembali, jalur pemulihan biasa tetap
+  berjalan.
 
 **Bug 1 (severe) — dispatch gagal membuat issue tetap tanpa label.**
 `relabel_after_revocation` tidak menulis checkpoint sweep saat dispatch gagal.
@@ -1093,10 +1106,13 @@ himpunan digabung `+` dan **terurut**, `priority:high+refactor` dan
 Ganti dengan pemeriksaan keanggotaan per elemen
 (`case "+$left+" in *"+refactor+"*|… )`).
 
-**Bukti.** `automation-fleet.guard.test.ts`: **187 passed**. Golden rule 7
+**Bukti.** `automation-fleet.guard.test.ts`: **195 passed**. Golden rule 7
 dibuktikan dengan memulihkan `.github/scripts/label-guard.sh`,
 `.github/scripts/issue-triage-bridge.sh`, dan `.github/workflows/label-guard.yml`
 ke `HEAD` sementara tes baru tetap ada: **10 tes gagal** (pemulihan label,
 gate `unlabeled`, `refactor`/`security`, checkpoint `pending`), lalu hijau setelah
 perubahan dipulihkan. Tes pemulihan tipe label (`bug`) juga dibuktikan gagal
-dengan `protected_labels()` dan hijau dengan `repo_labels()`.
+dengan `protected_labels()` dan hijau dengan `repo_labels()`; tes konflik tipe
+(manusia mencabut `bug`, issue memuat `enhancement`) dibuktikan gagal tanpa
+penjaga konflik dan hijau dengannya. Seluruh 68 berkas guard `src/utils/`:
+**1147 passed**.

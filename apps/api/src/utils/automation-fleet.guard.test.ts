@@ -827,6 +827,64 @@ describe('label-guard.sh', () => {
     expect(out).toContain('Restored label');
   });
 
+  it('does not restore a type label when the issue now carries a different type', () => {
+    // A person who removes the bot's type while holding another type is changing
+    // the type. Restoring the old one would leave two types, which
+    // `issue-label-sync` refuses (`more than one type`), so the guard leaves the
+    // single remaining type and hands the reconciliation to the triage owner.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_EVENTS: 'cipansor-bot',
+        GH_STUB_CURRENT: 'enhancement',
+      },
+      ['--stdin'],
+      unlabeledEvent('someone', 'bug')
+    );
+    expect(calls).not.toContain('RESTORE_LABEL');
+    expect(calls).not.toContain('COMMENT');
+    expect(out).toContain('enhancement');
+  });
+
+  it('restores a type label when the surviving labels are not a type', () => {
+    // The conflict check must not overcorrect: a surviving priority (or status)
+    // label is not a competing type, so the bot's type still comes back.
+    const { calls } = run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_EVENTS: 'cipansor-bot',
+        GH_STUB_CURRENT: 'priority:high',
+      },
+      ['--stdin'],
+      unlabeledEvent('someone', 'bug')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
+    expect(calls).toContain('labels[]=bug');
+  });
+
+  it('reports the type conflict so the workflow dispatches the triage owner', () => {
+    // The guard cannot dispatch (the bridge does), so it signals the conflict
+    // through an output and `label-guard.yml` calls the bridge's
+    // `--type-conflict` mode — the triage owner owns the taxonomy and revokes
+    // the wrong type (docs/LABELS.md).
+    const outFile = join(dir, 'guard-output');
+    writeFileSync(outFile, '');
+    run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_EVENTS: 'cipansor-bot',
+        GH_STUB_CURRENT: 'enhancement',
+        GITHUB_OUTPUT: outFile,
+      },
+      ['--stdin'],
+      unlabeledEvent('someone', 'bug')
+    );
+    expect(readFileSync(outFile, 'utf8')).toContain('type_conflict=1');
+  });
+
   it('does not restore a label a person last applied', () => {
     // Only the bot's own label comes back; a person's label stays gone (the
     // standard path would have revoked it anyway).
@@ -1509,6 +1567,16 @@ describe('fleet contracts', () => {
     expect(wf).toContain('issue-triage-bridge.sh --relabel');
     expect(wf).toMatch(/steps\.guard\.outputs\.revoked == '1'/);
     expect(wf).toContain('OPENHANDS_API_KEY');
+  });
+
+  it('calls the triage bridge on a type conflict so the triage owner reconciles it (#838)', () => {
+    // A person who removes the bot's type while holding another type is changing
+    // the type; the guard declines the restore (two types break the sync) and
+    // signals `type_conflict=1`, and the workflow dispatches the triage owner —
+    // the taxonomy's owner — to revoke the wrong type.
+    const wf = read(join(WORKFLOWS, 'label-guard.yml'));
+    expect(wf).toContain('issue-triage-bridge.sh --type-conflict');
+    expect(wf).toMatch(/steps\.guard\.outputs\.type_conflict == '1'/);
   });
 
   it('triggers the label guard on `unlabeled` too, so a human removal is restored', () => {
@@ -2729,6 +2797,49 @@ describe('issue-triage-bridge.sh', () => {
     ]);
     expect(calls).not.toContain('DISPATCH');
     expect(out).toContain('closed');
+  });
+
+  // #838 follow-up: a person who removes the bot's type while holding another
+  // type is changing the type. Restoring the old one would leave two types, which
+  // `issue-label-sync` refuses, so the guard declines and signals the workflow,
+  // which calls this mode to dispatch the triage owner — the taxonomy's owner.
+  it('dispatches the triage owner when a type change leaves a conflicting type', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: 'enhancement' }, [
+      '--type-conflict',
+      '818',
+      'bug',
+    ]);
+    expect(calls).toContain('DISPATCH');
+    expect(out).toContain('Dispatched the triage owner for #818');
+  });
+
+  it('does not dispatch a type conflict when the declined type is back', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: 'bug' }, [
+      '--type-conflict',
+      '818',
+      'bug',
+    ]);
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('again');
+  });
+
+  it('does not dispatch a type conflict when the issue has no type left', () => {
+    // No type at all is the `--relabel` path's job, not this one's.
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: '' }, [
+      '--type-conflict',
+      '818',
+      'bug',
+    ]);
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('no type');
+  });
+
+  it('does not dispatch a type conflict for a closed issue', () => {
+    const { calls } = runBridge(
+      { GH_STUB_LABELS_LIST: 'enhancement', GH_STUB_ISSUE_STATE: 'closed' },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(calls).not.toContain('DISPATCH');
   });
 
   it('collapses the guard’s removal burst to one relabel dispatch per issue', () => {

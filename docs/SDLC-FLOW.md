@@ -136,7 +136,13 @@ pertentangan itu dilaporkan sebagai issue.
     itu sengaja: armada mencabut `ready` yang bertentangan, `stale-sweep`,
     `issue-label-sync`), bila linimasa tak terbaca (gagal baca bukan berarti
     "boleh dipulihkan"), atau bila labelnya `ready` dan issue kini ber-`question`
-    atau `blocked` (aturan 16 melarangnya). `rilis-disetujui`/`rilis-ditolak`
+    atau `blocked` (aturan 16 melarangnya). Satu pencabutan yang **ditolak**
+    dipulihkan: label **tipe** milik bot saat issue kini memuat tipe **lain** —
+    itu pergantian tipe, bukan pencabutan kosong; memulihkannya akan meninggalkan
+    dua tipe, yang ditolak `issue-label-sync`. Guard menyimpan tipe yang tersisa,
+    menandai `type_conflict=1`, dan workflow memanggil mode `--type-conflict` untuk
+    mendispatch pemilik triase — pemilik taksonomi — mencabut tipe yang salah.
+    `rilis-disetujui`/`rilis-ditolak`
     dihapus 2026-11-09: keduanya tidak pernah ada di repo, dan persetujuan rilis
     kini tag `vX.Y.Z`.
 18. **Prioritas berbukti.** Prioritas dinilai dari dampak, urgensi, dan risiko;

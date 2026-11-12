@@ -80,3 +80,18 @@ jobs:
           N=$(jq -r '.issue.number // empty' "$GITHUB_EVENT_PATH")
           [ -n "$N" ] || exit 0
           sh .github/scripts/issue-triage-bridge.sh --relabel "$N"
+      # #838 follow-up: a person who removes the bot's type while the issue holds
+      # another type is changing the type. The guard declines the restore (two
+      # types break `issue-label-sync`) and signals `type_conflict=1`; the triage
+      # owner — the taxonomy's owner — reconciles it and revokes the wrong type.
+      - name: Dispatch the triage owner to reconcile a type conflict
+        if: github.event_name == 'issues' && steps.guard.outputs.type_conflict == '1'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: |
+          N=$(jq -r '.issue.number // empty' "$GITHUB_EVENT_PATH")
+          L=$(jq -r '.label.name // empty' "$GITHUB_EVENT_PATH")
+          [ -n "$N" ] || exit 0
+          sh .github/scripts/issue-triage-bridge.sh --type-conflict "$N" "$L"

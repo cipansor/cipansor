@@ -617,6 +617,81 @@ relabel_after_revocation() { # relabel_after_revocation <number>
   fi
 }
 
+# --type-conflict <number> <declined-type>: `label-guard` declined to restore a
+# type label the bot applied because the issue now carries a *different* type —
+# the person is changing the type, not overruling the bot with nothing in place
+# (#838 follow-up). Restoring the old type would leave two, which
+# `issue-label-sync` refuses; the guard keeps the single surviving type and
+# signals `type_conflict=1`, and `label-guard.yml` calls this mode so the triage
+# owner — the taxonomy's owner (docs/LABELS.md) — reconciles the conflict and
+# revokes the wrong type. Deterministic guards, one LLM decision.
+type_conflict_dispatch() { # type_conflict_dispatch <number> <declined-type>
+  number="$1"; declined="$2"
+  [ -n "$number" ] || { echo "no issue number; nothing to do."; exit 0; }
+  [ -n "$declined" ] || { echo "no declined type; nothing to do."; exit 0; }
+
+  # A closed issue needs no reconciliation (nothing reads its labels).
+  state_now=$(gh api "repos/$REPO/issues/$number" --jq '.state // empty' 2>/dev/null) \
+    || { echo "::warning::could not read the state of #$number; skipped the type-conflict dispatch."; exit 1; }
+  [ "$state_now" = "open" ] || { echo "#$number is '${state_now:-unknown}'; nothing to do."; exit 0; }
+
+  # The issue's current type set. A read failure is "skip", never "dispatch".
+  left=$(remaining_labels "$number") \
+    || { echo "::warning::could not read the labels of #$number; skipped the type-conflict dispatch."; exit 1; }
+
+  # Count the types the issue holds now. The declined label is *not* back (the
+  # guard declined), so it is not among them.
+  types=""
+  for t in $TYPE_LABELS; do
+    case "+$left+" in *"+$t+"*) types="$types $t" ;; esac
+  done
+  n_types=$(printf '%s\n' $types | grep -c . || true)
+  case "$n_types" in '' | *[!0-9]*) n_types=0 ;; esac
+
+  if [ "$n_types" -eq 0 ]; then
+    # No type at all: that is the `--relabel` path's job (a bare removal), not a
+    # type change. Nothing for the triage owner here.
+    echo "#$number holds no type; the relabel path owns that gap, not the type conflict."
+    exit 0
+  fi
+  if printf '%s\n' $types | grep -qxF "$declined"; then
+    # The declined type is back (a race, or a person re-added it). The conflict is
+    # gone; nothing to reconcile.
+    echo "#$number holds '$declined' again; the type conflict is gone."
+    exit 0
+  fi
+
+  # A real conflict: the issue holds one or more types and the declined one is not
+  # among them. The triage owner decides which type is right. Collapse the burst
+  # the same way the relabel path does — a type change is a burst of events.
+  state=$(jq -nc '{at: (now|floor)}')
+  if kv_get "$UNLABELED_KEY$number"; then
+    prev_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
+    case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
+    since=$(( $(date -u +%s) - prev_at ))
+    if [ "$prev_at" -gt 0 ] && [ "$since" -lt "$BURST_WINDOW" ]; then
+      echo "#$number already dispatched a label reconciliation ${since}s ago; burst collapsed."
+      exit 0
+    fi
+  fi
+
+  sig=$(activity_signal "$number") || sig=""
+  inflight=$(inflight_count)
+  if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    echo "#$number: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the sweep retries it."
+    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
+    exit 0
+  fi
+  if dispatch "$number" type-conflict "$types"; then
+    kv_put "$UNLABELED_KEY$number" "$state" || true
+    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
+  else
+    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
+    echo "::warning::#${number}'s type-conflict dispatch failed; the sweep retries."
+    exit 1
+  fi
+}
+
 # One candidate issue: decide whether it needs a dispatch. Returns 0 when a
 # dispatch was accepted, 2 when a dispatch was attempted and failed, 3 when the
 # issue is deferred because the in-flight cap is reached, 1 otherwise.
@@ -965,8 +1040,9 @@ sweep() {
 case "${1:-}" in
   --stdin) on_label "$(cat)" ;;
   --relabel) relabel_after_revocation "${2:?usage: issue-triage-bridge.sh --relabel <number>}" ;;
+  --type-conflict) type_conflict_dispatch "${2:?usage: issue-triage-bridge.sh --type-conflict <number> <declined-type>}" "${3:-}" ;;
   --sweep) sweep ;;
   --recover-ready) recover_ready ;;
   --purge-markers) purge_markers ;;
-  *) echo "usage: issue-triage-bridge.sh --stdin | --relabel <n> | --sweep | --recover-ready | --purge-markers" >&2; exit 2 ;;
+  *) echo "usage: issue-triage-bridge.sh --stdin | --relabel <n> | --type-conflict <n> <type> | --sweep | --recover-ready | --purge-markers" >&2; exit 2 ;;
 esac

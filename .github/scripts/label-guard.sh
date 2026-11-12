@@ -13,7 +13,11 @@
 # The restore is deterministic: it reads the issue's own event timeline, restores
 # only what `cipansor-bot` applied, and never when the remover is the bot or a
 # GitHub App (a bot removal is deliberate — the fleet withdrawing `ready`,
-# `stale-sweep` closing, `issue-label-sync` correcting). See
+# `stale-sweep` closing, `issue-label-sync` correcting). One removal it declines
+# for a different reason: a type label the bot applied when the issue now carries
+# a *different* type — that is a type change, not a bare removal, and restoring
+# the old type would leave two, which `issue-label-sync` refuses. It signals
+# `type_conflict=1` instead and the workflow dispatches the triage owner. See
 # `restore_after_revocation` below.
 #
 # The protected set is every label that exists in the repository minus the
@@ -51,8 +55,14 @@ BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
 # only so the variable can still be set for a one-off exception.
 EXEMPT_LABELS="${EXEMPT_LABELS:-}"
 # Labels the issue forms apply by themselves. Left in place so a fresh issue is
-# not met with a revocation notice (#842).
+# not met with a revocation notice (#842). These are exactly the type labels
+# (docs/LABELS.md): type is a singleton category, which is what the restore
+# path's conflict check below enforces.
 ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement documentation refactor chore security}"
+# The type labels, as a set the restore path can test membership against. Kept
+# equal to ALLOWED_LABELS by default: the issue forms apply a type label, and a
+# type label is the singleton the restore must not double.
+TYPE_LABELS="${TYPE_LABELS:-$ALLOWED_LABELS}"
 
 REVOKE_MARK="<!-- label-guard:revoked -->"
 # The restore notice, posted once per issue when the guard puts a label back that
@@ -66,6 +76,12 @@ RESTORE_MARK="<!-- label-guard:restored -->"
 # when a label is actually removed; a no-op when run by hand. The workflow treats
 # a missing value as "nothing revoked".
 set_revoked() { echo "revoked=$1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
+
+# Whether the restore path declined a type label because the issue now carries a
+# *different* type. `label-guard.yml` reads it to call the triage bridge's
+# `--type-conflict` mode: the guard cannot dispatch, and the triage owner owns
+# the taxonomy — it revokes the wrong type (docs/LABELS.md). A no-op by hand.
+set_type_conflict() { echo "type_conflict=1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 
 # Every label that exists in the repository, read fresh from `gh label list`.
 # The restore path reads this, not `protected_labels`: a type label is in
@@ -103,6 +119,9 @@ protected_labels() {
 #     a read failure must never be read as "safe to restore";
 #   - the label is `ready` and the issue now carries `question` or `blocked`: the
 #     restore would recreate the exclusivity conflict rule 8 forbids;
+#   - the label is a type and the issue now carries a *different* type: the
+#     restore would leave two types, which `issue-label-sync` refuses; the guard
+#     signals `type_conflict=1` and the workflow dispatches the triage owner;
 #   - the label is already back (the workflow's concurrency group is per label,
 #     so the runs race and a later one may see the earlier one's restore).
 restore_after_revocation() {
@@ -152,6 +171,24 @@ restore_after_revocation() {
     for excl in question blocked; do
       if printf '%s\n' "$current" | grep -qxF "$excl"; then
         echo "#$NUMBER: not restoring 'ready' — it contradicts '$excl'."
+        return 0
+      fi
+    done
+  fi
+
+  # Type is a singleton (docs/LABELS.md). If the label is a type and the issue
+  # already carries a *different* type, the person is changing the type, not
+  # overruling the bot with nothing in place: restoring the old type would leave
+  # two types, which `issue-label-sync` refuses and which no automation can
+  # guess past. Decline, keep the single surviving type, and signal the workflow
+  # to dispatch the triage owner — it owns the taxonomy and revokes the wrong
+  # type. The conflict is read from the *current* labels, so a race that already
+  # restored the label reads as "already back" above, not as a conflict.
+  if printf '%s\n' $TYPE_LABELS | grep -qxF "$LABEL"; then
+    for other in $TYPE_LABELS; do
+      if [ "$other" != "$LABEL" ] && printf '%s\n' "$current" | grep -qxF "$other"; then
+        echo "#$NUMBER: not restoring '$LABEL' — the issue now carries the type '$other'; the triage owner reconciles it."
+        set_type_conflict
         return 0
       fi
     done

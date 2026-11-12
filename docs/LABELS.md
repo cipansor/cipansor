@@ -243,6 +243,12 @@ detect` workflow: when two **open** issues share a title once normalised
     `blocked` (that would recreate the exclusivity conflict rule 8 forbids). One
     notice per issue says the label is back and to ask `@cipansor-bot` for a
     change.
+    One removal the guard **declines** rather than restores: a type label the bot
+    applied, when the issue now carries a *different* type. That is a type change,
+    not a bare removal — restoring the old type would leave two types, which
+    `issue-label-sync` refuses and which rule 1 above forbids. The guard keeps the
+    single surviving type and signals `type_conflict=1`; the workflow then
+    dispatches the triage owner, who owns the taxonomy and revokes the wrong type.
 
 13. **Every main description opens with the basmalah.** Each issue and pull
     request body starts with «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»
