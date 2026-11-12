@@ -212,8 +212,11 @@ dispatch() { # dispatch <number> <reason> <key>
 # exists, 1 when it does not, 2 when the store could not be read — so a hiccup is
 # never mistaken for "no checkpoint".
 KV_JSON=""
+# The version the last `kv_get` read, for a conditional write (`kv_put_if`): 0
+# when the key is absent — a create. The store returns it under `meta=true`.
+KV_VERSION=0
 kv_get() { # kv_get <key>
-  KV_JSON=""
+  KV_JSON=""; KV_VERSION=0
   tmp=$(mktemp)
   code=$("$CURL" -sS -o "$tmp" -w '%{http_code}' \
     "$API/kv/$1?meta=true&automation_id=$TRIAGE_ID" \
@@ -225,6 +228,8 @@ kv_get() { # kv_get <key>
     *) rm -f "$tmp"; return 2 ;;
   esac
   KV_JSON=$(jq -c '.value // {}' "$tmp" 2>/dev/null) || { rm -f "$tmp"; return 2; }
+  KV_VERSION=$(jq -r '.version // 0' "$tmp" 2>/dev/null) || KV_VERSION=0
+  case "$KV_VERSION" in '' | *[!0-9]*) KV_VERSION=0 ;; esac
   rm -f "$tmp"
   return 0
 }
@@ -235,6 +240,32 @@ kv_put() { # kv_put <key> <json-object>
   "$CURL" -fsS -o /dev/null -X PUT "$API/kv/$1?automation_id=$TRIAGE_ID" \
     -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" \
     -H "Content-Type: application/json" -d "$2" 2>/dev/null
+}
+
+# Conditional upsert: write only if the store still holds version <expected> (a
+# create, `nx`, when <expected> is 0). Returns 0 on success, 1 when the version
+# moved — the store answers 409, so the caller re-reads and re-merges rather than
+# clobbering a concurrent writer's field — and 2 on any other failure (give up).
+# This is what makes the shared checkpoint safe when two workflows write one
+# issue at once (#838 follow-up; the reviewer's "pelestarian slot belum atomik").
+kv_put_if() { # kv_put_if <key> <json-object> <expected-version>
+  if [ "$3" -gt 0 ]; then
+    url="$API/kv/$1?if_version=$3&automation_id=$TRIAGE_ID"
+  else
+    url="$API/kv/$1?nx=true&automation_id=$TRIAGE_ID"
+  fi
+  # Capture the HTTP code; the exit status is neutralised (`|| rc=$?`) so a
+  # non-2xx answer is read from the code, not mistaken for a transport failure —
+  # and `set -e` does not abort on it.
+  rc=0
+  code=$("$CURL" -sS -o /dev/null -w '%{http_code}' -X PUT "$url" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" \
+    -H "Content-Type: application/json" -d "$2" 2>/dev/null) || rc=$?
+  case "$code" in
+    409) return 1 ;;
+    2??) return 0 ;;
+    *) return 2 ;;
+  esac
 }
 
 kv_del() { # kv_del <key>
@@ -474,8 +505,7 @@ activity_signal() { # activity_signal <number>; non-zero when a read fails
 # Write the sweep checkpoint. `run` is the run answering the signal: it is
 # written while the run is in flight (so the next sweep can read its outcome) and
 # cleared once the run COMPLETED (a finished checkpoint). An empty `run` is the
-# finished form. A plain KV upsert, so re-writing the same value is free — no
-# dedup guard is needed now that nothing is posted.
+# finished form.
 #
 # The checkpoint is shared with the side responses (`--relabel`,
 # `--type-conflict`) and with `at` (the first-deferral time). This writer owns
@@ -497,26 +527,93 @@ activity_signal() { # activity_signal <number>; non-zero when a read fails
 # #872), so a candidate deferred while the pool is full cannot sink behind newer
 # activity forever. The caller passes the existing `at` to keep it across
 # re-deferrals; it defaults to `now` on the first.
+#
+# Both writers build the value from a read, so the read and the write must be one
+# atomic step: the label path and a side response write the same issue from
+# different workflows, and a plain PUT — read, merge, write — lets the slower
+# writer clobber the field the faster one just stored. That is the very slot loss
+# the merge above prevents, only moved to the interleaving between the two
+# workflows (#838 follow-up; the reviewer's "pelestarian slot belum atomik"). The
+# write is therefore conditional: `sweep_cas_write` reads the key's version,
+# merges, and PUTs only if the version still matches; a 409 re-reads and
+# re-merges, so neither writer's field is lost.
 SWEEP_MARKER_PRESERVE_SLOTS=1
+# How many times a conditional write re-reads and re-merges before it gives up
+# (with a warning; the next sweep retries). A 409 means another workflow wrote
+# the key between this writer's read and its write; the bound stops a hot key
+# from spinning forever.
+SWEEP_MARKER_CAS_MAX="${SWEEP_MARKER_CAS_MAX:-5}"
 MARK_WRITE_OK=0
+
+# The value a main write stores: the fields this writer owns (`signal`, `run`,
+# `at`) plus the fields it carries forward from <stored> when <preserve> is 1 and
+# the signal matches. Echoed for `sweep_cas_write` to PUT.
+sweep_marker_value() { # sweep_marker_value <stored> <sig> <run> <at> <preserve>
+  stored="$1"; v_sig="$2"; v_run="$3"; v_at="$4"; v_preserve="$5"
+  carry="{}"
+  if [ "$v_preserve" = 1 ] && [ -n "$v_run" ]; then
+    prev_sig=$(printf '%s' "$stored" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
+    if [ "$prev_sig" = "$v_sig" ]; then
+      carry=$(printf '%s' "$stored" | jq -c 'del(.signal, .run, .at)' 2>/dev/null) || carry="{}"
+    fi
+  fi
+  jq -nc --arg s "$v_sig" --arg r "$v_run" --arg a "$v_at" --argjson c "$carry" \
+    '$c + {signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)'
+}
+
+# The value a side write stores: <stored> minus `signal`, with this response's
+# run added under its own `extra.<kind>` slot, preserving the main `run`, `at` and
+# every other field. A different signal is a new episode, so the base starts empty
+# and the slots are dropped. Echoed for `sweep_cas_write` to PUT.
+side_marker_value() { # side_marker_value <stored> <sig> <kind> <run>
+  stored="$1"; v_sig="$2"; v_kind="$3"; v_run="$4"
+  base="{}"
+  prev_sig=$(printf '%s' "$stored" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
+  if [ "$prev_sig" = "$v_sig" ]; then
+    base=$(printf '%s' "$stored" | jq -c 'del(.signal)' 2>/dev/null) || base="{}"
+  fi
+  jq -nc --argjson b "$base" --arg s "$v_sig" --arg k "$v_kind" --arg r "$v_run" \
+    '$b + {signal: $s, run: ($b.run // ""), extra: (($b.extra // {}) + {($k): $r})}'
+}
+
+# Conditional checkpoint write: read the key (its version), build the value with
+# <value-fn> from the stored object, and PUT only if the version still matches. A
+# 409 — the version moved — re-reads and rebuilds, so a concurrent writer's field
+# survives instead of being clobbered by a stale merge. Sets MARK_WRITE_OK on
+# success; returns non-zero when it could not write. Bounded by
+# SWEEP_MARKER_CAS_MAX.
+sweep_cas_write() { # sweep_cas_write <key> <value-fn> <value-fn-args...>
+  cas_key="$1"; cas_fn="$2"; shift 2
+  cas_attempt=0
+  while [ "$cas_attempt" -lt "$SWEEP_MARKER_CAS_MAX" ]; do
+    cas_rc=0; kv_get "$cas_key" || cas_rc=$?
+    if [ "$cas_rc" = 2 ]; then
+      # The store could not be read, so no version can be matched. Write
+      # unconditionally (best effort) so an accepted dispatch is still recorded,
+      # and let the next sweep re-read. This is the only path that can clobber,
+      # and only under a read hiccup.
+      if kv_put "$cas_key" "$("$cas_fn" '{}' "$@")"; then MARK_WRITE_OK=1; return 0; fi
+      MARK_WRITE_OK=0; return 1
+    fi
+    if [ "$cas_rc" = 1 ]; then cas_stored="{}"; cas_ver=0; else cas_stored="$KV_JSON"; cas_ver="$KV_VERSION"; fi
+    cas_put_rc=0
+    kv_put_if "$cas_key" "$("$cas_fn" "$cas_stored" "$@")" "$cas_ver" || cas_put_rc=$?
+    case "$cas_put_rc" in
+      0) MARK_WRITE_OK=1; return 0 ;;
+      1) cas_attempt=$((cas_attempt + 1)) ;;  # version moved: re-read and re-merge
+      *) MARK_WRITE_OK=0; return 1 ;;         # a hard failure: give up
+    esac
+  done
+  MARK_WRITE_OK=0
+  return 1
+}
+
 write_sweep_marker() { # write_sweep_marker <number> <signal> <run> [first-deferred-at]
   n="$1"; sig="$2"; run="${3:-}"; at="${4:-}"
   if [ "$run" = "$PENDING_RUN" ] && [ -z "$at" ]; then
     at=$(date -u +%s)
   fi
-  carry="{}"
-  if [ "$SWEEP_MARKER_PRESERVE_SLOTS" = 1 ] && [ -n "$run" ] && kv_get "$SWEEP_KEY$n"; then
-    prev_sig=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
-    if [ "$prev_sig" = "$sig" ]; then
-      carry=$(printf '%s' "$KV_JSON" | jq -c 'del(.signal, .run, .at)' 2>/dev/null) || carry="{}"
-    fi
-  fi
-  MARK_WRITE_OK=0
-  if kv_put "$SWEEP_KEY$n" \
-    "$(jq -nc --arg s "$sig" --arg r "$run" --arg a "$at" --argjson c "$carry" \
-      '$c + {signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)')"; then
-    MARK_WRITE_OK=1
-  else
+  if ! sweep_cas_write "$SWEEP_KEY$n" sweep_marker_value "$sig" "$run" "$at" "$SWEEP_MARKER_PRESERVE_SLOTS"; then
     echo "::warning::could not record the triage checkpoint on #$n."
   fi
 }
@@ -527,20 +624,12 @@ write_sweep_marker() { # write_sweep_marker <number> <signal> <run> [first-defer
 # one issue share the checkpoint; without per-kind slots the later write would
 # overwrite the earlier run id, and `process_one` — reading only the surviving
 # one — would finalise the issue while a failed run is never retried (#838
-# follow-up). A different signal is a new episode: the slots are dropped.
+# follow-up).
 write_sweep_side_marker() { # write_sweep_side_marker <number> <signal> <kind> <run>
   n="$1"; sig="$2"; kind="$3"; run="${4:-}"
-  base="{}"
-  if kv_get "$SWEEP_KEY$n"; then
-    prev_sig=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
-    if [ "$prev_sig" = "$sig" ]; then
-      base=$(printf '%s' "$KV_JSON" | jq -c 'del(.signal)' 2>/dev/null) || base="{}"
-    fi
+  if ! sweep_cas_write "$SWEEP_KEY$n" side_marker_value "$sig" "$kind" "$run"; then
+    echo "::warning::could not record the triage checkpoint on #$n."
   fi
-  kv_put "$SWEEP_KEY$n" \
-    "$(jq -nc --argjson b "$base" --arg s "$sig" --arg k "$kind" --arg r "$run" \
-      '$b + {signal: $s, run: ($b.run // ""), extra: (($b.extra // {}) + {($k): $r})}')" \
-    || echo "::warning::could not record the triage checkpoint on #$n."
 }
 
 # Drop the checkpoint: the issue is closed or `ready`, so it is out of scope and

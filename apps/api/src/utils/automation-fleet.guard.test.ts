@@ -128,7 +128,7 @@ case "$url" in
         case "$method" in
           DELETE)
             log "KV_DELETE $k"
-            if [ -f "$kvdir/$k" ]; then rm -f "$kvdir/$k"; body=$(jq -nc --arg k "$k" '{key:$k,deleted:true}')
+            if [ -f "$kvdir/$k" ]; then rm -f "$kvdir/$k" "$kvdir/$k.ver" "$kvdir/$k.raced"; body=$(jq -nc --arg k "$k" '{key:$k,deleted:true}')
             else body=$(jq -nc --arg k "$k" '{key:$k,deleted:false}'); fi
             code=200 ;;
           PUT)
@@ -136,9 +136,46 @@ case "$url" in
             if [ -n "\${CURL_STUB_KV_PUT_FAIL:-}" ]; then
               body='{"detail":"store unavailable"}'; code=503; exitcode=22
             else
-              if [ -f "$kvdir/$k" ]; then code=200; else code=201; fi
-              printf '%s' "$bodyarg" > "$kvdir/$k"
-              body=$(jq -nc --arg k "$k" '{key:$k,created:false}')
+              # A concurrent writer can commit between this writer's read and its
+              # write. CURL_STUB_KV_RACE_KEY names the key, CURL_STUB_KV_RACE_TO
+              # the JSON the interloper stores, CURL_STUB_KV_RACE_ONCE=1 to fire
+              # only on the first write so a re-merge can then succeed. The
+              # interloper bumps the version, so a conditional write sees the
+              # mismatch (409) and re-merges, while a plain PUT clobbers it.
+              if [ -n "\${CURL_STUB_KV_RACE_KEY:-}" ] && [ "$k" = "$CURL_STUB_KV_RACE_KEY" ]; then
+                if [ "\${CURL_STUB_KV_RACE_ONCE:-}" != 1 ] || [ ! -f "$kvdir/$k.raced" ]; then
+                  printf '%s' "\${CURL_STUB_KV_RACE_TO:-}" > "$kvdir/$k"
+                  rv=$(cat "$kvdir/$k.ver" 2>/dev/null || echo 1)
+                  case "$rv" in '' | *[!0-9]*) rv=1 ;; esac
+                  echo $((rv + 1)) > "$kvdir/$k.ver"
+                  : > "$kvdir/$k.raced"
+                fi
+              fi
+              # The store's current version: 0 for an absent key, else the value
+              # in the key's .ver file (default 1, so a seed file written by a
+              # test is version 1 — the version the store assigns on create).
+              cur=0
+              if [ -f "$kvdir/$k" ]; then
+                cur=$(cat "$kvdir/$k.ver" 2>/dev/null || echo 1)
+                case "$cur" in '' | *[!0-9]*) cur=1 ;; esac
+              fi
+              # A conditional write: nx=true creates only if absent, if_version=N
+              # writes only if the store still holds version N. A mismatch is 409,
+              # the conflict the caller re-reads and re-merges on.
+              cond=""; exp=""
+              case "$url" in *"nx=true"*) cond="nx" ;; esac
+              case "$url" in *if_version=*) exp="\${url#*if_version=}"; exp="\${exp%%&*}" ;; esac
+              conflict=0
+              if [ "$cond" = "nx" ] && [ "$cur" != 0 ]; then conflict=1; fi
+              if [ -n "$exp" ] && [ "$exp" != "$cur" ]; then conflict=1; fi
+              if [ "$conflict" = 1 ]; then
+                body='{"detail":"version_conflict"}'; code=409; exitcode=22
+              else
+                if [ "$cur" = 0 ]; then code=201; else code=200; fi
+                printf '%s' "$bodyarg" > "$kvdir/$k"
+                echo $((cur + 1)) > "$kvdir/$k.ver"
+                body=$(jq -nc --arg k "$k" '{key:$k,created:false}')
+              fi
             fi ;;
           *)
             log "KV_GET $k"
@@ -148,7 +185,9 @@ case "$url" in
               body='{"detail":"store unavailable"}'; code=503; exitcode=22
             elif [ -f "$kvdir/$k" ]; then
               v=$(cat "$kvdir/$k")
-              body=$(jq -nc --arg k "$k" --argjson v "$v" '{key:$k,value:$v,version:1}')
+              ver=$(cat "$kvdir/$k.ver" 2>/dev/null || echo 1)
+              case "$ver" in '' | *[!0-9]*) ver=1 ;; esac
+              body=$(jq -nc --arg k "$k" --argjson v "$v" --argjson ver "$ver" '{key:$k,value:$v,version:$ver}')
               code=200
             else
               body='{"detail":"key_not_found"}'; code=404
@@ -344,9 +383,11 @@ function run(
     },
   });
   // What the store holds after the run, so a test can assert on the checkpoint
-  // itself (key -> parsed value) instead of on a comment body.
+  // itself (key -> parsed value) instead of on a comment body. `.ver` and
+  // `.raced` are the stub's version bookkeeping, not keys.
   const kv: Record<string, unknown> = {};
   for (const f of readdirSync(kvDir)) {
+    if (f.endsWith('.ver') || f.endsWith('.raced')) continue;
     try {
       kv[f] = JSON.parse(readFileSync(join(kvDir, f), 'utf8'));
     } catch {
@@ -3282,6 +3323,84 @@ describe('issue-triage-bridge.sh', () => {
       extra: { relabel: 'relabel-run' },
       at: 1794493156,
     });
+  });
+
+  it('keeps a side slot a concurrent writer stored while the label path writes', () => {
+    // #838 follow-up, the reviewer's "pelestarian slot belum atomik": the label
+    // path (`--stdin`) and a side response run in *different* workflows and can
+    // write the same checkpoint at once. A plain read-merge-write lets the slower
+    // writer clobber the field the faster one just stored — the slot loss the
+    // merge prevents, only moved to the interleaving. The write is conditional:
+    // the label path's stale version gets a 409, it re-reads and re-merges, and
+    // the conflict slot the concurrent writer stored survives.
+    const sig = signal('triaged');
+    const { kv, calls } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_RUN_ID: 'labeler-run',
+        // The store the label path reads: the checkpoint, with no side slot yet.
+        KV_SEED: { 'triage-sweep-818': { signal: sig, run: '' } },
+        // A concurrent writer stores a conflict slot between that read and the
+        // write. It bumps the version, so only a conditional write notices.
+        CURL_STUB_KV_RACE_KEY: 'triage-sweep-818',
+        CURL_STUB_KV_RACE_TO: JSON.stringify({ signal: sig, run: '', extra: { conflict: 'c1' } }),
+        CURL_STUB_KV_RACE_ONCE: '1',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'labeler-run',
+      extra: { conflict: 'c1' },
+    });
+  });
+
+  it('keeps a main slot a concurrent writer stored while the side writer records', () => {
+    // The mirror race: a `--relabel` side write races the label path's main
+    // write. The side writer's stale version gets a 409, it re-reads and
+    // re-merges, and the main `run` slot the concurrent writer stored survives
+    // instead of being reset to the empty string the side writer had read.
+    const sig = signal('');
+    const { kv } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: '',
+        CURL_STUB_RUN_ID: 'relabel-run',
+        KV_SEED: { 'triage-sweep-818': { signal: sig, run: '' } },
+        CURL_STUB_KV_RACE_KEY: 'triage-sweep-818',
+        CURL_STUB_KV_RACE_TO: JSON.stringify({ signal: sig, run: 'labeler-run' }),
+        CURL_STUB_KV_RACE_ONCE: '1',
+      },
+      ['--relabel', '818']
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'labeler-run',
+      extra: { relabel: 'relabel-run' },
+    });
+  });
+
+  it('gives up on a checkpoint that keeps moving, with a warning', () => {
+    // A hot key — another workflow writing between every read and write — must
+    // not spin forever. The conditional write is bounded; when the bound is
+    // reached it leaves the store as the last writer left it and warns, so the
+    // next sweep re-reads rather than the run hanging.
+    const sig = signal('triaged');
+    const { kv, out } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_RUN_ID: 'labeler-run',
+        KV_SEED: { 'triage-sweep-818': { signal: sig, run: '' } },
+        SWEEP_MARKER_CAS_MAX: '1',
+        CURL_STUB_KV_RACE_KEY: 'triage-sweep-818',
+        CURL_STUB_KV_RACE_TO: JSON.stringify({ signal: sig, run: 'other-run' }),
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(out).toContain('could not record the triage checkpoint on #818');
+    expect(kv['triage-sweep-818']).toEqual({ signal: sig, run: 'other-run' });
   });
 
   it('collapses the guard’s removal burst to one relabel dispatch per issue', () => {
