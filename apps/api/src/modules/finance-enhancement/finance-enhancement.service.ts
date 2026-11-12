@@ -29,20 +29,30 @@ export class FinanceEnhancementService {
     type?: string;
     isActive?: boolean;
     search?: string;
+    unitId?: string;
     page: number;
     limit: number;
   }): Promise<SharedPaginatedResponse<AccountCode>> {
-    const { type, isActive, search, page, limit } = params;
+    const { type, isActive, search, unitId, page, limit } = params;
 
-    const whereClause: Prisma.AccountCodeWhereInput = {};
-    if (type) whereClause.type = type;
-    if (isActive !== undefined) whereClause.isActive = isActive;
+    // A unit's chart of accounts also holds shared rows (`unitId: null`, legacy
+    // or foundation-wide), so a `unitId` filter answers "accounts this unit may
+    // use" rather than an exact match. It exists because the budgeting form must
+    // offer only accounts `createBudget` accepts — filtering client-side over
+    // the first page hid a unit's own accounts that fell past it.
+    const and: Prisma.AccountCodeWhereInput[] = [];
+    if (type) and.push({ type });
+    if (isActive !== undefined) and.push({ isActive });
     if (search) {
-      whereClause.OR = [
-        { code: { contains: search, mode: 'insensitive' } },
-        { name: { contains: search, mode: 'insensitive' } },
-      ];
+      and.push({
+        OR: [
+          { code: { contains: search, mode: 'insensitive' } },
+          { name: { contains: search, mode: 'insensitive' } },
+        ],
+      });
     }
+    if (unitId) and.push({ OR: [{ unitId }, { unitId: null }] });
+    const whereClause: Prisma.AccountCodeWhereInput = and.length ? { AND: and } : {};
 
     const [data, total] = await Promise.all([
       prisma.accountCode.findMany({

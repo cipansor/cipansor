@@ -71,12 +71,16 @@ const useAcademicYears = () => {
   });
 };
 
-const useExpenseAccounts = () => {
+const useExpenseAccounts = (unitId?: string) => {
   return useQuery({
-    queryKey: ["accounts", "EXPENSE"],
+    queryKey: ["accounts", "EXPENSE", unitId ?? null],
+    // The API filters server-side: the unit's own accounts plus the shared
+    // (`unitId: null`) ones. Doing it client-side over the first page hid a
+    // unit's own accounts that fell past it.
+    enabled: !!unitId,
     queryFn: async () => {
       const res = await api.get("/finance-enhancement/account-codes", {
-        params: { type: "EXPENSE", limit: 100 },
+        params: { type: "EXPENSE", limit: 100, unitId },
       });
       return res.data.data as AccountCode[];
     },
@@ -136,12 +140,10 @@ function BudgetingPageContent() {
 
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedYearId, setSelectedYearId] = useState<string>("");
-  const { data: accounts } = useExpenseAccounts();
-  // The write path refuses an account pinned to another unit; offer only the
-  // chosen unit's accounts and the shared ones (`unitId` null).
-  const availableAccounts = (accounts ?? []).filter(
-    (acc) => !acc.unitId || acc.unitId === selectedUnitId,
-  );
+  // The API already scopes to the chosen unit plus the shared accounts, so the
+  // list is used as returned.
+  const { data: accounts } = useExpenseAccounts(selectedUnitId || undefined);
+  const availableAccounts = accounts ?? [];
   const [page, setPage] = useState(1);
 
   const { data: budgetResult, isLoading } = useBudgets({

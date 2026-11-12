@@ -43,13 +43,14 @@ export class FinanceEnhancementController {
 
   async getAccountCodes(req: Request, res: Response, next: NextFunction) {
     try {
-      const { type, isActive, search } = req.query;
+      const { type, isActive, search, unitId } = req.query;
       const { page, limit } = parsePagination(req);
 
       const result = await financeEnhancementService.getAccountCodes({
         type: type as string,
         isActive: isActive !== undefined ? isActive === 'true' : undefined,
         search: search as string,
+        unitId: unitId as string,
         page,
         limit,
       });

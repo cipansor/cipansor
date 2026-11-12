@@ -14,8 +14,10 @@ beforeAll(() => {
 /**
  * The account picker used to list every EXPENSE account, so a unit admin could
  * choose one pinned to another unit and the save came back 400
- * (`createBudget` refuses a foreign-unit account). The picker must offer the
- * chosen unit's own accounts plus the shared (`unitId` null) ones.
+ * (`createBudget` refuses a foreign-unit account). The API now scopes the list
+ * to the chosen unit plus the shared (`unitId` null) accounts, and the picker
+ * sends that unit — filtering client-side over the first page hid a unit's own
+ * accounts that fell past it.
  */
 const { apiGet, useBudgets } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -61,15 +63,24 @@ const ACCOUNTS = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  apiGet.mockImplementation(async (url: string) => {
-    if (url === "/units")
-      return { data: { data: [{ id: "unit-1", name: "SD IT" }] } };
-    if (url === "/academic-years")
-      return { data: { data: [{ id: "ay-1", name: "2026/2027" }] } };
-    if (url === "/finance-enhancement/account-codes")
-      return { data: { data: ACCOUNTS } };
-    return { data: { data: [] } };
-  });
+  apiGet.mockImplementation(
+    async (url: string, config?: { params?: { unitId?: string } }) => {
+      if (url === "/units")
+        return { data: { data: [{ id: "unit-1", name: "SD IT" }] } };
+      if (url === "/academic-years")
+        return { data: { data: [{ id: "ay-1", name: "2026/2027" }] } };
+      if (url === "/finance-enhancement/account-codes") {
+        // Mirror the API: the chosen unit's own accounts plus the shared ones.
+        const unitId = config?.params?.unitId;
+        return {
+          data: {
+            data: ACCOUNTS.filter((a) => !a.unitId || a.unitId === unitId),
+          },
+        };
+      }
+      return { data: { data: [] } };
+    },
+  );
   useBudgets.mockReturnValue({
     data: { data: [], meta: { pagination: { totalPages: 1 } } },
     isLoading: false,
@@ -98,7 +109,7 @@ const renderPage = () => {
 };
 
 describe("Anggaran — the account picker respects the chosen unit", () => {
-  it("offers the unit's own accounts and the shared ones, never another unit's", async () => {
+  it("asks the API for the unit's own accounts plus the shared ones, never another unit's", async () => {
     renderPage();
     const user = await openBudgetDialog();
 
@@ -112,5 +123,12 @@ describe("Anggaran — the account picker respects the chosen unit", () => {
       screen.getByRole("option", { name: "5103 - Beban bersama" }),
     ).toBeTruthy();
     expect(screen.queryByRole("option", { name: /unit dua/ })).toBeNull();
+
+    // The scoping is the API's, keyed by the chosen unit — not a client-side
+    // filter over the first page.
+    const call = apiGet.mock.calls.find(
+      ([url]) => url === "/finance-enhancement/account-codes",
+    );
+    expect(call?.[1]?.params?.unitId).toBe("unit-1");
   });
 });

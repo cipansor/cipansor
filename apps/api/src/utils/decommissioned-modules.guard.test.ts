@@ -571,10 +571,15 @@ describe('decommission purge — migrations', () => {
     );
     const getAccountCodes = financeEnhancement.slice(
       financeEnhancement.indexOf('async getAccountCodes'),
-      financeEnhancement.indexOf('async getAccountCodes') + 900
+      financeEnhancement.indexOf('async createAccountCode')
     );
     expect(getAccountCodes).toMatch(/isActive/);
-    expect(getAccountCodes).not.toMatch(/unitId/);
+    // The list gained an opt-in `unitId` filter (the budgeting dropdown must
+    // offer only accounts `createBudget` accepts). The property this pin guards
+    // is unchanged, and now stated directly: a NULL-unit row stays visible to
+    // every unit, so the filter matches the shared `unitId: null` rows too — a
+    // detached PT row would still sit on every chart.
+    expect(getAccountCodes).toMatch(/\{ OR: \[\{ unitId \}, \{ unitId: null \}\] \}/);
 
     const accountingConfig = read(
       join(API_ROOT, 'src', 'modules', 'finance', 'accounting-config.service.ts')
