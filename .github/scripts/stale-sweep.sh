@@ -7,11 +7,20 @@
 # judgement an LLM is needed for. The timers are the same ones its prompt
 # carried; only the executor changed.
 #
-# One open issue at a time, skipping pull requests and anything labelled
-# `duplicate` (the duplicate sweep owns those):
+# One open issue at a time, skipping anything labelled `duplicate` (the duplicate
+# sweep owns those):
 #
 #   question      `stale` at 8 days, closed not-planned at 15
 #   anything else `stale` at 90 days, closed not-planned at 104
+#
+# It then ages out pull requests, which get no label at all — the taxonomy has no
+# `stale` state for a PR:
+#
+#   no linked issue  warned at once, closed at 5 days if the issue is still
+#                    missing (a PR must be born from a `ready` issue, #772)
+#   linked issue     warned at 90 quiet days, closed at 104
+#
+# A draft or bot-authored PR is left alone. See the pull-request pass below.
 #
 # The warn day is the close day minus the grace window, so the close still
 # happens on the day the old prompt named while the author gets a warning
@@ -320,4 +329,125 @@ printf '%s\n' "$ISSUES" | while IFS='|' read -r n CREATED LABEL_CSV; do
   fi
 
   echo "Issue #$n is active (idle ${IDLE}d); nothing to do."
+done
+
+# --- the pull-request pass ---------------------------------------------------
+# A pull request ages out too, and the timers differ from an issue's because the
+# defect differs. Neither rule adds a label: the taxonomy has no `stale` state
+# for a pull request (`duplicate-pr` and the type labels belong to other
+# automations), so a PR is only ever warned and closed.
+#
+#   no linked issue   warned at once; closed if 5 days pass with the issue still
+#                     missing. The entry rule is that a PR must be born from a
+#                     `ready` issue (#772), so a PR that never links one is
+#                     outside the process, not merely quiet.
+#   linked issue      the idle timer, with the same warning-first grace as an
+#                     issue (90 quiet days warn, 104 close).
+#
+# A draft is left alone: it is the author's explicit "not ready yet", and
+# `pr-lifecycle.sh` treats a draft as work still being iterated on rather than
+# abandoned work. A bot-authored PR (Dependabot) is left alone too — it is
+# exempt from the linking rule by design (`pr-description-checks.yml` skips it by
+# author), so applying the rule here would close it for doing nothing wrong.
+#
+# Activity that ends a cycle: a person's comment, and — for a PR that already has
+# its issue — a new head commit, which is the author working on it. A push does
+# *not* end the no-issue cycle: it leaves the defect (no linked issue) untouched,
+# so it must not buy another 5 days. Linking an issue does end it, which is what
+# the `kind` in the marker detects.
+PR_MARK="<!-- stale-sweep:pr:warned -->"
+PR_NOISSUE_MARK="<!-- stale-sweep:pr:noissue -->"
+HEAD_MARK="stale-sweep:head:"
+NO_ISSUE_DAYS=5
+
+write_pr_comment() { # write_pr_comment <number> <body>
+  if [ -n "$DRY" ]; then say "would comment on PR #$1"; else gh pr comment "$1" --repo "$REPO" --body "$2"; fi
+}
+write_pr_close() { # write_pr_close <number> <body>
+  if [ -n "$DRY" ]; then say "would close PR #$1"; else gh pr close "$1" --repo "$REPO" --comment "$2"; fi
+}
+# The warning records the moment, the kind of rule that fired (`noissue` marker
+# present or not), and the head it saw, so a later run can tell a linked issue
+# and a pushed commit from quiet.
+write_pr_warning() { # write_pr_warning <number> <body> <kind> <head>
+  if [ "$3" = "noissue" ]; then kind_marker=" $PR_NOISSUE_MARK"; else kind_marker=""; fi
+  write_pr_comment "$1" "$2 $PR_MARK
+<!-- $AT_MARK$(date -u +%Y-%m-%dT%H:%M:%SZ) -->$kind_marker <!-- $HEAD_MARK$4 -->"
+}
+
+PRS=$(gh pr list --repo "$REPO" --state open --limit 500 \
+  --json number,isDraft,author,createdAt,headRefOid,closingIssuesReferences \
+  --jq '.[] | "\(.number)|\(.isDraft)|\(.author.is_bot)|\(.createdAt)|\(.headRefOid)|\([.closingIssuesReferences[].number] | join(","))"')
+
+printf '%s\n' "$PRS" | while IFS='|' read -r pr DRAFT IS_BOT CREATED HEAD ISSUES; do
+  [ -n "$pr" ] || continue
+  if [ "$DRAFT" = "true" ]; then echo "PR #$pr is a draft; leaving it alone."; continue; fi
+  if [ "$IS_BOT" = "true" ]; then echo "PR #$pr is bot-authored; leaving it alone."; continue; fi
+
+  if [ -n "$ISSUES" ]; then KIND=hasissue; else KIND=noissue; fi
+
+  RAW=$(gh api --paginate "repos/$REPO/issues/$pr/comments?per_page=100" \
+    --jq '.[] | "\(.created_at)\t\(.user.login)\t\(.body | gsub("\n"; " ") | gsub("\t"; " "))"' 2>/dev/null || true)
+
+  LAST_HUMAN=$(printf '%s\n' "$RAW" \
+    | awk -F '\t' -v bot="$BOT_LOGIN" '$2 != bot && $2 !~ /\[bot\]$/ && $1 != "" { t = $1 } END { print t }' || true)
+  LAST_HUMAN="${LAST_HUMAN:-$CREATED}"
+
+  WARNED_LINE=$(printf '%s\n' "$RAW" | grep -F "$PR_MARK" | tail -1 || true)
+  WARNED_AT=$(printf '%s\n' "$WARNED_LINE" | cut -f1 || true)
+  WARNED_HEAD=$(printf '%s\n' "$WARNED_LINE" | grep -oE "$HEAD_MARK[0-9a-f]+" | head -1 | cut -d: -f3 || true)
+  WARNED_KIND=hasissue
+  printf '%s\n' "$WARNED_LINE" | grep -qF "$PR_NOISSUE_MARK" && WARNED_KIND=noissue
+
+  REPLY=$(printf '%s\n' "$RAW" \
+    | awk -F '\t' -v warned="$WARNED_AT" -v bot="$BOT_LOGIN" \
+        '$1 > warned && $2 != bot && $2 !~ /\[bot\]$/ { line = $1 } END { print line }' || true)
+  PUSHED=""
+  [ -n "$WARNED_HEAD" ] && [ "$HEAD" != "$WARNED_HEAD" ] && PUSHED=1
+
+  IDLE=$(days_since "${LAST_HUMAN:-$CREATED}")
+
+  if [ -n "$WARNED_AT" ]; then
+    if [ -z "$REPLY" ]; then
+      if [ "$KIND" = "noissue" ] && [ "$WARNED_KIND" = "noissue" ]; then
+        # The clock runs from the warning and a push does not stop it: only
+        # linking an issue (which changes the kind, above) or a reply does.
+        WARNED_AGE=$(days_since "$WARNED_AT")
+        if [ "$WARNED_AGE" -ge "$NO_ISSUE_DAYS" ]; then
+          write_pr_close "$pr" "Menutup karena pull request ini tidak menautkan issue sama sekali selama $NO_ISSUE_DAYS hari setelah peringatan. Buka lagi dengan menyebut issue terbuka berlabel \`ready\` lewat \`Fixes #<n>\` di deskripsi. $PR_MARK"
+          echo "Closed PR #$pr: still no linked issue after $NO_ISSUE_DAYS days."
+        else
+          echo "PR #$pr has no linked issue (warned ${WARNED_AGE}d ago); within the ${NO_ISSUE_DAYS}d window."
+        fi
+        continue
+      fi
+      if [ "$KIND" = "hasissue" ] && [ "$WARNED_KIND" = "hasissue" ] && [ -z "$PUSHED" ]; then
+        WARNED_AGE=$(days_since "$WARNED_AT")
+        if [ "$WARNED_AGE" -ge "$GRACE_DAYS" ] && [ "$IDLE" -ge "$IDLE_CLOSE" ]; then
+          write_pr_close "$pr" "Menutup karena tidak ada aktivitas selama $IDLE hari. Buka lagi bila masih berlaku, atau dorong commit baru sebelum timer berikutnya. $PR_MARK"
+          echo "Closed PR #$pr as stale after $IDLE quiet days."
+        else
+          echo "PR #$pr warned ${WARNED_AGE}d ago (idle ${IDLE}d); within the grace period."
+        fi
+        continue
+      fi
+      echo "PR #$pr changed state after its warning; the cycle restarts."
+    else
+      echo "PR #$pr has a reply after the warning; the cycle restarts."
+    fi
+  fi
+
+  if [ "$KIND" = "noissue" ]; then
+    write_pr_warning "$pr" "Pull request ini belum menautkan issue sama sekali. Tambahkan \`Fixes #<n>\` pada deskripsi yang menunjuk issue terbuka berlabel \`ready\`; tanpa itu PR ini ditutup otomatis dalam $NO_ISSUE_DAYS hari." "noissue" "$HEAD"
+    echo "Warned PR #$pr: no linked issue."
+    continue
+  fi
+
+  if [ "$IDLE" -ge "$IDLE_WARN" ]; then
+    write_pr_warning "$pr" "Pull request ini tidak ada aktivitas selama $IDLE hari dan akan ditutup otomatis setelah $IDLE_CLOSE hari tanpa balasan atau commit baru." "hasissue" "$HEAD"
+    echo "Warned PR #$pr (idle ${IDLE}d)."
+    continue
+  fi
+
+  echo "PR #$pr is active (idle ${IDLE}d); nothing to do."
 done

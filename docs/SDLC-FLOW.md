@@ -712,7 +712,9 @@ otomasi lain — bisa dipasang ulang pada sapuan berikutnya), `duplicate-sweep`
 menutup issue `duplicate` 7 hari setelah peringatan — PR hanya dilabeli
 `duplicate-pr` sebagai kandidat, tidak pernah ditutup), `stale-sweep`
 (harian 18:30 UTC = 01:30 WIB, port deterministik `Penjaga issue`:
-`question`/lain-lain menua lalu ditutup), dan `docs-drift`
+`question`/lain-lain menua lalu ditutup; **sejak 2026-11-12 PR ikut menua juga** —
+tanpa label sama sekali: PR tanpa issue ditutup 5 hari setelah peringatan, PR
+ber-issue mengikuti timer diam, draf dan PR bot dilewati), dan `docs-drift`
 (harian 21:41 UTC, menyegarkan badan issue induk #782). Dua pengawas
 (`gate-watch`, `automation-retry`) dan `deploy-watch.yml` dihapus 2026-11-11:
 pemilik mengawasi langsung dari OpenHands Cloud dan tab Actions, dengan email
@@ -767,6 +769,16 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
   memakai `GITHUB_TOKEN` (`adminypc`). Selebihnya memposting lewat
   `GITHUB_BOT_TOKEN` (`cipansor-bot`).
+- **Workflow Actions pun memposting sebagai `cipansor-bot`, bukan
+  `github-actions[bot]`.** Setiap workflow yang mengomentari, melabeli,
+  menutup, atau menyunting issue/PR memakai `secrets.CIPANSOR_BOT_TOKEN` dengan
+  fallback `github.token` (nama secret tidak boleh berawalan `GITHUB_`, jadi
+  `CIPANSOR_BOT_TOKEN`). Identitas `github-actions[bot]` anonim dan mudah
+  disalahartikan sebagai platform. Tiga suite yang **memverifikasi**, bukan
+  berbicara, tetap memakai token Actions: `issue-label-sync.yml` menerbitkan
+  check-run, dan `ci.yml`/`e2e-tests.yml`/`deploy-*` hanya membaca status —
+  selain itu PR dari fork tidak bisa melihat secret repositori, jadi jalur
+  `pull_request` harus tetap bisa berjalan tanpa PAT.
 - `Gerbang tinjau PR` adalah satu-satunya automation yang boleh `APPROVE`. Ia
   berjalan sebagai `cipansor-bot`, identitas yang berbeda dari penulis
   `adminypc`, sehingga GitHub menerima approval-nya; bot yang menyetujui PR yang

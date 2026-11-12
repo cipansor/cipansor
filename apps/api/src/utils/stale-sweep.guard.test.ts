@@ -53,7 +53,12 @@ case "$1" in
       close) log "CLOSE $3"; log "CMD $*" ;;
     esac ;;
   pr)
-    log "PR $*" ;;
+    case "$2" in
+      list) log "PRLIST $*"; printf '%s\\n' "\${GH_STUB_PR_LIST:-}" ;;
+      comment) log "PRCOMMENT $3" ;;
+      close) log "PRCLOSE $3" ;;
+      *) log "PR $*" ;;
+    esac ;;
 esac
 exit 0
 `;
@@ -109,6 +114,26 @@ const warnedStale = (at = daysAgo(30), hash = EMPTY_HASH) =>
 // cycle's clock starts at the edit rather than at the pre-edit idle age.
 const seen = (at = daysAgo(20), hash = EMPTY_HASH) =>
   `${at}\tcipansor-bot\t<!-- stale-sweep:seen:at:${at} hash:${hash} -->`;
+
+// --- pull-request fixtures ---------------------------------------------------
+const PR_MARK = '<!-- stale-sweep:pr:warned -->';
+const PR_NOISSUE = '<!-- stale-sweep:pr:noissue -->';
+
+// A PR listing row is `number|isDraft|authorIsBot|createdAt|headOid|issues`.
+const prRow = (
+  n: number,
+  opts: { days: number; head?: string; issues?: string; draft?: boolean; bot?: boolean }
+) =>
+  `${n}|${opts.draft ? 'true' : 'false'}|${opts.bot ? 'true' : 'false'}|${daysAgo(
+    opts.days
+  )}|${opts.head ?? 'aaaa'}|${opts.issues ?? ''}`;
+
+// A warning comment on a PR: the marker, the timestamp, an optional `noissue`
+// marker, and the head it saw. One line, as the `--jq` collapses newlines.
+const prWarned = (at = daysAgo(10), head = 'aaaa', kind: 'hasissue' | 'noissue' = 'hasissue') =>
+  `${at}\tcipansor-bot\tWarning ${PR_MARK} <!-- stale-sweep:at:${at} -->${
+    kind === 'noissue' ? ` ${PR_NOISSUE}` : ''
+  } <!-- stale-sweep:head:${head} -->`;
 
 describe('stale-sweep.sh', () => {
   it('closes a question issue warned about and left unanswered past the grace window', () => {
@@ -437,5 +462,130 @@ describe('stale-sweep.sh', () => {
     });
     expect(calls).not.toContain('CLOSE 7');
     expect(calls).not.toContain('COMMENT 7');
+  });
+});
+
+describe('stale-sweep.sh: pull requests', () => {
+  it('warns a PR that links no issue, and closes it after 5 days', () => {
+    const warnedNoIssue = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 1 }),
+      GH_STUB_COMMENTS: '',
+    });
+    expect(warnedNoIssue.calls).toContain('PRCOMMENT 50');
+    expect(warnedNoIssue.calls).not.toContain('PRCLOSE 50');
+    expect(warnedNoIssue.out).toContain('no linked issue');
+
+    const closed = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 30 }),
+      GH_STUB_COMMENTS: prWarned(daysAgo(6), 'aaaa', 'noissue'),
+    });
+    expect(closed.calls).toContain('PRCLOSE 50');
+  });
+
+  it('does not close a no-issue PR whose warning is younger than 5 days', () => {
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 3 }),
+      GH_STUB_COMMENTS: prWarned(daysAgo(2), 'aaaa', 'noissue'),
+    });
+    expect(calls).not.toContain('PRCLOSE 50');
+    expect(out).toContain('within the 5d window');
+  });
+
+  it('lets a push reset the no-issue clock only by linking an issue', () => {
+    // A new head does NOT buy another window: the defect (no linked issue) is
+    // untouched, so the PR still closes on the original clock.
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 30, head: 'bbbb' }),
+      GH_STUB_COMMENTS: prWarned(daysAgo(6), 'aaaa', 'noissue'),
+    });
+    expect(calls).toContain('PRCLOSE 50');
+  });
+
+  it('restarts the no-issue cycle once an issue is linked', () => {
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(50, { days: 30, issues: '9' }),
+      GH_STUB_COMMENTS: prWarned(daysAgo(6), 'aaaa', 'noissue'),
+    });
+    expect(calls).not.toContain('PRCLOSE 50');
+    expect(out).toContain('changed state after its warning');
+  });
+
+  it('warns and closes a PR that links an issue, with no label written', () => {
+    const warn = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(51, { days: 95, issues: '9' }),
+      GH_STUB_COMMENTS: '',
+    });
+    expect(warn.calls).toContain('PRCOMMENT 51');
+    expect(warn.out).toContain('Warned PR #51');
+
+    const close = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(51, { days: 120, issues: '9' }),
+      GH_STUB_COMMENTS: prWarned(daysAgo(10), 'aaaa', 'hasissue'),
+    });
+    expect(close.calls).toContain('PRCLOSE 51');
+  });
+
+  it('never adds a label to a pull request', () => {
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(51, { days: 95, issues: '9' }),
+      GH_STUB_COMMENTS: '',
+    });
+    expect(calls).not.toContain('--add-label');
+    expect(calls).not.toContain('EDIT');
+  });
+
+  it('keeps a PR open when a person replied after the warning', () => {
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(51, { days: 120, issues: '9' }),
+      GH_STUB_COMMENTS: `${prWarned(daysAgo(10), 'aaaa', 'hasissue')}\n${daysAgo(1)}\treviewer\tmasih dikerjakan`,
+    });
+    expect(calls).not.toContain('PRCLOSE 51');
+    expect(out).toContain('has a reply after the warning');
+  });
+
+  it('lets a new head commit reset the linked-issue clock', () => {
+    const { calls, out } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: prRow(51, { days: 120, head: 'cccc', issues: '9' }),
+      GH_STUB_COMMENTS: prWarned(daysAgo(10), 'aaaa', 'hasissue'),
+    });
+    expect(calls).not.toContain('PRCLOSE 51');
+    expect(out).toContain('changed state after its warning');
+  });
+
+  it('leaves a draft or bot-authored PR alone', () => {
+    for (const opts of [
+      { days: 400, draft: true },
+      { days: 400, bot: true },
+    ]) {
+      const { calls, out } = run({
+        GH_STUB_ISSUE_LIST: '',
+        GH_STUB_PR_LIST: prRow(52, opts),
+        GH_STUB_COMMENTS: '',
+      });
+      expect(calls, JSON.stringify(opts)).not.toContain('PRCLOSE 52');
+      expect(calls, JSON.stringify(opts)).not.toContain('PRCOMMENT 52');
+      expect(out, JSON.stringify(opts)).toContain('leaving it alone');
+    }
+  });
+
+  it('writes no PR comment or close under DRY_RUN', () => {
+    const { calls } = run({
+      GH_STUB_ISSUE_LIST: '',
+      GH_STUB_PR_LIST: `${prRow(50, { days: 1 })}\n${prRow(51, { days: 95, issues: '9' })}`,
+      GH_STUB_COMMENTS: '',
+      STALE_SWEEP_DRY_RUN: '1',
+    });
+    expect(calls).not.toContain('PRCOMMENT');
+    expect(calls).not.toContain('PRCLOSE');
   });
 });

@@ -21,6 +21,13 @@ on:
   # claim does not wait for the PR to be touched again.
   issues:
     types: [labeled]
+  # The repair pass for events that never arrived. Every claim above depends on
+  # GitHub delivering an event; a dropped `pull_request`, a run cancelled by
+  # concurrency, or a PR opened before this workflow existed leaves the issue
+  # `ready` while a PR works it, and nothing retries it. The sweep re-derives the
+  # claim from state alone.
+  schedule:
+    - cron: '43 2 * * *' # 09:43 WIB, daily
   workflow_dispatch:
 
 permissions:
@@ -45,7 +52,10 @@ jobs:
       - name: Claim the issue a pull request opens (pull request)
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == false
         env:
-          GH_TOKEN: ${{ github.token }}
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: sh .github/scripts/issue-claim.sh "$PR"
@@ -55,7 +65,7 @@ jobs:
       - name: Verify the claim only (fork pull request)
         if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.fork == true
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           READ_ONLY: '1'
@@ -63,7 +73,13 @@ jobs:
       - name: Claim the issue if a PR already closes it (issue labeled)
         if: github.event_name == 'issues'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           ISSUE: ${{ github.event.issue.number }}
         run: sh .github/scripts/issue-claim.sh --issue "$ISSUE"
+      - name: Re-claim every open pull request (sweep)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+        run: sh .github/scripts/issue-claim.sh --sweep

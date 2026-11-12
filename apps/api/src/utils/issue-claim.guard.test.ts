@@ -162,6 +162,16 @@ describe('issue-claim.sh', () => {
     expect(wf).toContain('issue-claim.sh');
   });
 
+  it('repairs a missed event with a daily sweep, not only an event', () => {
+    // The claim is only as reliable as the event that fires it. #857/#927: a
+    // `pull_request` run that never arrives (dropped event, cancelled run, a PR
+    // opened before the workflow existed) left the issue `ready` while a PR
+    // worked it, and nothing retried the claim. The schedule is the repair pass.
+    const wf = readFileSync(WORKFLOW, 'utf8');
+    expect(wf).toMatch(/schedule:\s*\n\s*-\s*cron:/);
+    expect(wf).toContain('--sweep');
+  });
+
   it('removes the hand-rolled claim from Tiket jadi PR, now that Actions owns it', () => {
     const script = readFileSync(DEPLOY, 'utf8');
     const at = script.indexOf('"SDLC 06": f"""');
@@ -171,5 +181,36 @@ describe('issue-claim.sh', () => {
     expect(tail).not.toContain('pasang `in-progress` pada issue');
     expect(tail).not.toMatch(/CABUT `ready`/);
     expect(tail).toContain('issue-claim');
+  });
+});
+
+describe('issue-claim.sh --sweep', () => {
+  it('claims every open issue an open PR closes, from state alone', () => {
+    const r = run(['--sweep'], {
+      GH_STUB_PRS: '7|false|9',
+      GH_STUB_LABELS: 'bug\nready\npriority:medium',
+    });
+    expect(r.status).toBe(0);
+    expect(r.log).toContain('EDIT');
+    expect(r.log).toContain('--add-label in-progress');
+  });
+
+  it('leaves an already-claimed issue alone', () => {
+    const r = run(['--sweep'], {
+      GH_STUB_PRS: '7|false|9',
+      GH_STUB_LABELS: 'bug\nin-progress',
+    });
+    expect(r.status).toBe(0);
+    expect(r.log).not.toContain('EDIT');
+  });
+
+  it('reports a fork PR instead of failing the whole sweep', () => {
+    const r = run(['--sweep'], {
+      GH_STUB_PRS: '7|true|9',
+      GH_STUB_LABELS: 'bug\nready',
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout + r.stderr).toContain('needs a maintainer');
+    expect(r.log).not.toContain('EDIT');
   });
 });
