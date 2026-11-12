@@ -212,6 +212,33 @@ def api_source_text(repo: Path) -> str:
 
 # --------------------------------------------------------------------------- pemeriksaan umum
 
+def quoted_message_errors(lines: list[str], web: str, api: str) -> list[tuple[int, str]]:
+    """(line, quoted text) pairs that claim to be a screen message but appear in
+    neither the web nor the API source.
+
+    The rule is case-insensitive on purpose: "Muncul pesan ..." starts a
+    sentence and so is capitalised, while the old pattern matched only the
+    lowercase form — a real, unverified quote ("Pengumuman terbit — masuk ke
+    lonceng … orang", where the code interpolates the count) slipped through
+    that gap and was caught by a human reviewer instead (#779).
+    """
+    out: list[tuple[int, str]] = []
+    for t in find_tables(lines):
+        if t["header"] and t["header"][0].lower().startswith("yang terlihat"):
+            for ln, cells in t["rows"]:
+                for q in re.findall(r"[\"“]([^\"”]{6,})[\"”]", cells[0] if cells else ""):
+                    q = q.strip(" .…")
+                    if q not in web and q not in api:
+                        out.append((ln, q))
+    rx = re.compile(r'muncul pesan\s+"([^"]+)"|pesan\s+"([^"]+)"', re.I)
+    for n, l in enumerate(lines, 1):
+        for m in rx.finditer(l):
+            q = (m.group(1) or m.group(2)).strip(" .")
+            if q and q not in web and q not in api:
+                out.append((n, q))
+    return out
+
+
 def check_common(text: str, lines: list[str], r: Report, final: bool) -> None:
     for n, l in enumerate(lines, 1):
         if re.search(r"\[ISI[^\]]*\]|\bTODO\b|\bTBD\b", l):
@@ -579,19 +606,9 @@ def check_pengguna(text: str, lines: list[str], repo: Path, facts: dict, r: Repo
             rows.append(f"| {n} | {lab} | {', '.join(f'`{h}`' for h in hits) or '**TIDAK ADA**'} |")
         Path(TRACE_OUT).write_text("\n".join(rows) + "\n", encoding="utf-8")
     # pesan yang dikutip
-    for t in find_tables(lines):
-        if t["header"] and t["header"][0].lower().startswith("yang terlihat"):
-            for ln, cells in t["rows"]:
-                for q in re.findall(r"[\"“]([^\"”]{6,})[\"”]", cells[0] if cells else ""):
-                    q = q.strip(" .…")
-                    if q not in web and q not in api:
-                        r.add("ERROR", ln, "pesan-karangan",
-                              f"pesan \"{q}\" tidak ada di kode web maupun API — salin dari toast/Alert/ApiError, jangan mengarang")
-    for n, l in enumerate(lines, 1):
-        for q in re.findall(r"muncul pesan\s+\"([^\"]+)\"|Pesan\s+\"([^\"]+)\"", l):
-            q = (q[0] or q[1]).strip(" .")
-            if q and q not in web and q not in api:
-                r.add("ERROR", n, "pesan-karangan", f"pesan \"{q}\" tidak ada di kode")
+    for ln, q in quoted_message_errors(lines, web, api):
+        r.add("ERROR", ln, "pesan-karangan",
+              f"pesan \"{q}\" tidak ada di kode web maupun API — salin dari toast/Alert/ApiError, jangan mengarang")
 
     # kelengkapan kartu tugas
     for k, (title, a, b) in enumerate(secs):

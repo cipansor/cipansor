@@ -156,6 +156,33 @@ class CheckNumbersTest(unittest.TestCase):
         self.assertEqual(self._run("| 0.7 | 30 September 2026 | ~1.413 hulu rute API | Agen |"), [])
 
 
+class QuotedMessageTest(unittest.TestCase):
+    """A quoted screen message must exist in the web/API source (#779: a guide
+    quoted "… orang" where the code interpolates the count, and the old
+    case-sensitive rule let the sentence-initial "Muncul pesan" slip past)."""
+
+    WEB = 'toast.success(`Pengumuman terbit — masuk ke lonceng ${n} orang`);'
+
+    def test_a_quote_that_matches_the_source_passes(self):
+        line = '   *Muncul pesan "Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima.*'
+        self.assertEqual(check_docs.quoted_message_errors([line], self.WEB, ""), [])
+
+    def test_a_capitalised_muncul_pesan_is_checked(self):
+        # The gap the old lowercase-only pattern left open.
+        line = '   *Muncul pesan "Pesan yang tidak ada di kode".*'
+        self.assertEqual(check_docs.quoted_message_errors([line], self.WEB, ""),
+                         [(1, "Pesan yang tidak ada di kode")])
+
+    def test_a_lowercase_muncul_pesan_is_checked(self):
+        line = '   *muncul pesan "Pesan yang tidak ada di kode".*'
+        self.assertEqual(check_docs.quoted_message_errors([line], self.WEB, ""),
+                         [(1, "Pesan yang tidak ada di kode")])
+
+    def test_a_quote_found_only_in_the_api_passes(self):
+        line = '   *Muncul pesan "Pesan dari API".*'
+        self.assertEqual(check_docs.quoted_message_errors([line], "", '"Pesan dari API"'), [])
+
+
 class VerifyDocxTest(unittest.TestCase):
     """A .docx whose structure drifted from the Markdown must be reported, not passed."""
 

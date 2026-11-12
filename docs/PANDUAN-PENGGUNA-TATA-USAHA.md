@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo tata usaha pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
 | 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Nama kontrol Pengumuman dicocokkan ke layar: tombol **Buat Pengumuman** (bukan "Buat Baru"), judul formulir **Buat Pengumuman**, dan kolom **Judul**/**Isi** (bukan "Konten"); pesan validasi **"Judul dan isi wajib diisi"** disalin dari `announcements/page.tsx` #779) |
-| 0.3 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: tombol simpan dialog pengumuman baru bernama **Terbitkan** (bukan **Simpan**) dan pesan hasilnya menyebut jumlah penerima ("Pengumuman terbit — masuk ke lonceng … orang"); ditandai pada kartu |
+| 0.3 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: tombol simpan dialog pengumuman baru bernama **Terbitkan** (bukan **Simpan**) dan pesan hasilnya menyebut jumlah penerima ("Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang"); ditandai pada kartu |
 
 > **Tingkat verifikasi.** Kartu tugas di bawah **dijalankan pada aplikasi
 > berjalan** dengan akun demo tata usaha, dan tiap kartu memuat tangkapan layar asli
@@ -283,7 +283,7 @@ tahap daftar ulang dan pendataan santri baru.
    *Formulir **Buat Pengumuman** terbuka.*
 2. Isi **Judul** dan **Isi**.
 3. Klik **Terbitkan**.
-   *Muncul pesan "Pengumuman terbit — masuk ke lonceng … orang".*
+   *Muncul pesan "Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang".*
    *(langkah ini dibaca dari kode, belum dicoba ulang di aplikasi berjalan)*
 
 ![Gambar 8. Halaman Pengumuman unit dan formulir Buat Pengumuman.](screens/layanan-tata-usaha/10-pengumuman.png){width=14cm}
