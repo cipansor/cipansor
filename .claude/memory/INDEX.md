@@ -81,6 +81,7 @@ OpenHands) refuse the mechanical cases.
 - [pnpm-12-second-permission-surface](lessons/pnpm-12-second-permission-surface.md) — `allowBuilds` covers build scripts only; dependency agent skills are a second surface, decided in `permissions`, guarded statically + by `pnpm permissions list`
 - [github-actions-minutes-exhausted](lessons/github-actions-minutes-exhausted.md) — a 2-second job with no steps is a billing wall; read the annotation
 - [gh-cli-and-shell-traps](lessons/gh-cli-and-shell-traps.md) — `gh pr edit` does nothing; unquoted heredocs run backticks; all green yet BLOCKED = a CodeQL category missing
+- [required-check-wedged-by-label-race](lessons/required-check-wedged-by-label-race.md) — a required check that reads live state (the linked issue's labels) is only correct at run time; if the state moves on a different event than the check's trigger, nothing re-runs it and the PR stays red with no recovery; re-publish on the state's own event (#866)
 - [docker-image-size-traps](lessons/docker-image-size-traps.md) — Prisma's optional peer, `chown -R`, recursive `*.sql` in `.dockerignore`
 - [next-image-optimizer-dead](lessons/next-image-optimizer-dead.md) — `/_next/image` never resizes; ship images at display size
 - [nextjs-loading-boundary-commits-200](lessons/nextjs-loading-boundary-commits-200.md) — a root `loading.tsx` turns every 404 into a 200
