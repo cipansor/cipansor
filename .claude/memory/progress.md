@@ -423,6 +423,28 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   after 2026-10-01 (the VM is the rollback target until then, and a guard test
   reads it).
 
+- **Issue triage, 2026-11-11 (continued, oldest open `ready` first):** #811
+  (`refactor`, the date-only sweep for `Invoice.dueDate` — K15) implemented in
+  **PR #1048** on `refactor/811-date-only-dueDate`: the non-formal course
+  invoice writer now stores `dayDate(wibDayOf(now + 7d))`, `getSppMatrix`
+  bounds the year and reads the month on the UTC calendar (dropping the dead
+  `monthDate`), the SPP seed uses `Date.UTC`, and `dayDate`'s comment again
+  claims the single canonical form. New coverage: `tests/spp-matrix.test.ts`
+  (runs under a non-UTC `TZ`) plus two non-formal dueDate cases; four of them
+  fail on `main`, all pass after. Gate green locally (api 5177, web 961,
+  build:strict, lint). E2E red on the **runner DNS flake** (apt cannot resolve
+  `security.ubuntu.com` in *Install Playwright*), not the diff. The review's
+  first round then found the regression this PR's own canonical form caused —
+  a date-only `dueDate` compared to `new Date()` marks a bill overdue at 07:00
+  WIB on its due day — so a follow-up commit adds `wibOverdueCutoff()` and
+  replaces that bound in `getInvoices`, `getStudentFinanceSummary`,
+  `getFinancialSummary`, `getStudentOutstandingBalances`, `getSppMatrix`, the
+  dashboard alert, `checkOverdueInvoices` and parent-engagement. The review
+  asked for tests pinning the three changed services (golden rule #7); added
+  in `dashboard/tests/wib-day-bounds.test.ts`, `analytics/tests/wib-day-bounds.test.ts`
+  and a new `analytics/tests/alerts-overdue-bound.test.ts` — all three fail on
+  the pre-fix code. Gate green locally (api 5188, build:strict, lint).
+
 ## Recently done (2026-10-09 → 10)
 
 - **Merged:** #655 (SPMB banner and delayed dialog on the public site), #657
