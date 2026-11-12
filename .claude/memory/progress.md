@@ -527,6 +527,20 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   3). Cacat WIB di `getTodayMenu` sudah beres di `main`. Tidak ada PR terbuka
   lain yang menyentuh berkas `meals` → aturan emas 9 tidak berlaku. Pelajaran
   ditambahkan ke `lessons/api-integration-traps.md`.
+- **Issue triage, 2026-11-11 (lanjutan 6):** #866 (`bug`, `priority:medium`,
+  check wajib `PR template reminder` bisa merah permanen karena balapan label
+  issue tertaut) dikerjakan sesuai **K27 opsi A** di **PR #1063** pada
+  `fix/866-template-check-republish`. Bug blok kode (`Cara menguji` hanya fence)
+  sudah lebih dulu diperbaiki di `main` (#965), jadi yang dikerjakan tinggal
+  celah balapannya: `issue-label-sync.sh --issue` kini menjalankan ulang gate
+  terhadap kepala tiap PR terbuka yang menutup issue itu dan menerbitkan check
+  `PR template reminder` di sana (pola `publish_pr_check`, digeneralisasi jadi
+  `publish_check <name>`); guard dijalankan dengan `BASE_REF` PR agar hasilnya
+  setia. `issue-label-sync.yml` meneruskan `DEFAULT_BRANCH`. Uji guard baru di
+  `github-label-guards.guard.test.ts` (`PR template reminder re-publish (#866)`):
+  **gagal 4** terhadap skrip pra-perbaikan, **lulus 25** sesudahnya. Suite API
+  penuh 5161 lulus. Pelajaran baru:
+  `lessons/required-check-wedged-by-label-race.md`.
 
 - **Issue triage, 2026-11-11 (lanjutan 6):** #867 (`chore`, lima job Actions
   tanpa `timeout-minutes`) dikerjakan di **PR #1064** pada

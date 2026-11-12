@@ -148,24 +148,65 @@ sync_pr() { # sync_pr <pr-number>
 # that run lands on the PR's commit and replaces the stale green one. The job
 # still exits non-zero so a human sees the failure in the workflow, but the
 # merge gate reads the per-PR check run.
-publish_pr_check() { # publish_pr_check <head-sha> <conclusion> <title> <summary>
-  _sha="$1"; _concl="$2"; _title="$3"; _summary="$4"
+publish_check() { # publish_check <name> <head-sha> <conclusion> <title> <summary>
+  _name="$1"; _sha="$2"; _concl="$3"; _title="$4"; _summary="$5"
   [ -n "$_sha" ] || return 0
   # This POST is the only thing that lands the issue-event outcome on the PR
   # head. If it fails (rate limit, missing permission) the PR keeps its previous
   # check — a stale green reads as "still in sync" to the merge gate. Report the
   # API error and fail, so the workflow cannot be mistaken for a clean run.
   if ! _err=$(gh api "repos/$REPO/check-runs" -X POST \
-      -f name="Issue label sync" \
+      -f name="$_name" \
       -f head_sha="$_sha" \
       -f status="completed" \
       -f conclusion="$_concl" \
       -f "output[title]=$_title" \
       -f "output[summary]=$_summary" 2>&1 >/dev/null); then
-    echo "::error::could not publish a check run for $_sha; the PR keeps its previous result: $_err"
+    echo "::error::could not publish the \`$_name\` check for $_sha; the PR keeps its previous result: $_err"
     return 1
   fi
   return 0
+}
+
+publish_pr_check() { # publish_pr_check <head-sha> <conclusion> <title> <summary>
+  publish_check "Issue label sync" "$@"
+}
+
+# The `PR template reminder` gate (`pr-template-guard.sh`) reads the linked
+# issue's labels *at run time*: an issue that has lost `ready` (label-guard
+# strips a label a non-bot applied) fails the check. That gate is a required
+# status check and the `pr-description-checks` workflow fires only on *pull
+# request* events, so an issue relabel never re-runs it — a PR that was opened
+# in the window between the strip and the re-label keeps a permanent red check
+# (#866, seen on #863). When a linked issue changes, re-run the gate against
+# each affected PR's head and publish its result there, so the check reflects
+# the issue's current labels instead of a snapshot. A missing script is not a
+# reason to wedge the PR: skip it (the pull-request event still runs it).
+publish_template_check() { # publish_template_check <pr-number> <head-sha> <base-ref>
+  _pr="$1"; _sha="$2"; _base="${3:-}"
+  [ -n "$_sha" ] || return 0
+  # Resolve the guard next to this script, so the call works whatever the
+  # working directory is (the workflow checks out `.github/scripts` only).
+  _dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+  _guard="$_dir/pr-template-guard.sh"
+  if [ ! -f "$_guard" ]; then
+    echo "::warning::$_guard is not present; the \`PR template reminder\` check is left as it is."
+    return 0
+  fi
+  # BASE_REF matters: the guard warns when the PR does not target the default
+  # branch (its `Fixes #n` would close nothing). Passing it keeps the
+  # re-evaluated result faithful to the pull-request run.
+  if REPO="$REPO" GH_TOKEN="$GH_TOKEN" \
+      BASE_REF="$_base" DEFAULT_BRANCH="${DEFAULT_BRANCH:-}" \
+      sh "$_guard" "$_pr" >/dev/null 2>&1; then
+    publish_check "PR template reminder" "$_sha" success \
+      "Deskripsi PR lengkap" \
+      "Issue tertaut #$ISSUE berubah label; deskripsi PR #$_pr masih lengkap dan issue-nya siap." || return 1
+  else
+    publish_check "PR template reminder" "$_sha" failure \
+      "Deskripsi PR belum lengkap" \
+      "Issue tertaut #$ISSUE berubah label dan deskripsi PR #$_pr tidak lagi lengkap. Perbaiki deskripsi PR." || return 1
+  fi
 }
 
 if [ "${1:-}" = "--issue" ]; then
@@ -185,6 +226,30 @@ if [ "${1:-}" = "--issue" ]; then
       publish_pr_check "$SHA" failure "Labels are out of sync" \
         "Issue #$ISSUE changed and PR #$p no longer agrees with it. See the workflow log and fix the labels before merging." || RC=1
     fi
+    # The `PR template reminder` gate reads the issue's labels at run time; a
+    # relabel here invalidated its last result, so re-evaluate it on the PR head.
+    # Dependabot is skipped by the workflow itself (`pr-description-checks.yml`
+    # keys the skip on the PR author, since Dependabot writes its own body and
+    # cannot link an issue); a job skipped by `if` reports success. Re-evaluating
+    # it here would publish a red the workflow deliberately never runs.
+    AUTHOR=$(gh pr view "$p" --repo "$REPO" --json author --jq .author.login 2>/dev/null || true)
+    if [ "$AUTHOR" = "dependabot[bot]" ]; then
+      echo "PR #$p is Dependabot; leaving the \`PR template reminder\` check as it is."
+      continue
+    fi
+    # The guard applies its "targets a non-default branch" rule only when
+    # BASE_REF is present. A failed read leaves it empty, the rule is skipped,
+    # and a PR that targets a non-default branch would be republished green —
+    # a result it never earned. Fail and keep the previous check instead of
+    # minting one. (DEFAULT_BRANCH comes from the workflow, which always sets
+    # it on this path.)
+    BASE=$(gh pr view "$p" --repo "$REPO" --json baseRefName --jq .baseRefName 2>/dev/null || true)
+    if [ -z "$BASE" ]; then
+      echo "::error::could not read the base branch of PR #$p; the \`PR template reminder\` check is left as it is."
+      RC=1
+      continue
+    fi
+    publish_template_check "$p" "$SHA" "$BASE" || RC=1
   done
   exit "$RC"
 fi
