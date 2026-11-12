@@ -179,16 +179,6 @@ workers refused on a closed day. Still open:
   `/students/:studentId`. Underneath is a model difference that is a decision,
   not a typo: the web has enrolment as PENDING → APPROVED/REJECTED, the API as
   ACTIVE/GRADUATED/WITHDRAWN/DISMISSED with no approval step.
-- **The wali's home page shows figures nobody produced.** Seen with the TK
-  Qur'an wali (parent portal home, `apps/web/src/app/parent/page.tsx`).
-  - Attendance falls back to `0%` in red when the summary carries none
-    (`?? 0`), so "no records" reads as "never came".
-  - A child who lives in no asrama gets a "Harmony Asrama" tile (an English
-    label), with "—%".
-  - "Skor Holistik" shows for a TK child too.
-
-  Show a figure only when a query produced it, and an asrama tile only for a
-  santri with a placement (`lessons/teacher-dashboard-fake-stats.md`).
 
 - **The profile names a kepala sekolah "Guru/Ustadz".** The badge under the
   name on _avatar → Profile_ labels the legacy bucket (`getEffectiveRole`),
@@ -351,6 +341,17 @@ the teacher-export fix, and no separate issue has been filed for them yet.
   alone in the teacher PR.
 
 ## Access that is too narrow, or needs review
+
+- **Per-account React Query caches keyed by a constant can leak across
+  accounts on a shared device** (CWE-524). Found 2026-11-12 in the wali portal
+  (#869 review): `useParentChildren` / `useParentDashboard` used
+  `["parent","children"]` / `["parent","dashboard"]` and `logout()` drops only
+  the push-status cache, so a second wali signing in on the same device read the
+  first's data from cache. Fixed there by putting `user.id` in the key (and
+  `enabled: !!user?.id`). The same shape — a fixed key for a per-account answer
+  plus a logout that does not clear it — is the thing to look for module by
+  module; `forgetPushStatus` in `query-client-registry.ts` is the only cleanup
+  `logout()` runs today.
 
 - **The yayasan's organs have no SPMB item in their menu.** They read SPMB
   (decided 2026-09-23: the panitia prepares, the kepala unit decides, the

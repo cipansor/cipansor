@@ -3,12 +3,17 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 // Mock Prisma before importing the service.
 vi.mock('../../../lib/prisma', () => {
   const mockPrisma = {
-    studentParent: { findUnique: vi.fn() },
+    studentParent: { findUnique: vi.fn(), findMany: vi.fn() },
     attendance: { groupBy: vi.fn(), findMany: vi.fn() },
-    tahfidzRecord: { findMany: vi.fn() },
-    grade: { findMany: vi.fn() },
+    invoice: { groupBy: vi.fn() },
+    permit: { groupBy: vi.fn() },
+    tahfidzRecord: { findMany: vi.fn(), groupBy: vi.fn() },
+    academicYear: { findMany: vi.fn() },
+    roomAssignment: { findMany: vi.fn() },
+    grade: { findMany: vi.fn(), groupBy: vi.fn() },
     reward: { findMany: vi.fn() },
-    violation: { findMany: vi.fn() },
+    violation: { findMany: vi.fn(), groupBy: vi.fn() },
+    notification: { count: vi.fn() },
     counselingSession: { findMany: vi.fn() },
   };
   return { prisma: mockPrisma };
@@ -16,20 +21,45 @@ vi.mock('../../../lib/prisma', () => {
 
 // External module-load imports the service pulls in — stub so import succeeds.
 vi.mock('../../ibadah/ibadah.service', () => ({ getStudentIbadahStats: vi.fn() }));
-vi.mock('../../dormitories/dormitories.service', () => ({}));
+vi.mock('../../dormitories/dormitories.service', () => ({
+  getRoomSocialAnalytics: vi.fn(),
+}));
+vi.mock('@/modules/announcements', () => ({ recentAnnouncements: vi.fn() }));
 
 import { prisma } from '../../../lib/prisma';
+import * as DormitoryService from '../../dormitories/dormitories.service';
+import { recentAnnouncements } from '@/modules/announcements';
 import { parentService } from '../parent.service';
 
 const mockPrisma = prisma as unknown as {
-  studentParent: { findUnique: ReturnType<typeof vi.fn> };
-  attendance: { groupBy: ReturnType<typeof vi.fn> };
-  tahfidzRecord: { findMany: ReturnType<typeof vi.fn> };
-  grade: { findMany: ReturnType<typeof vi.fn> };
+  studentParent: {
+    findUnique: ReturnType<typeof vi.fn>;
+    findMany: ReturnType<typeof vi.fn>;
+  };
+  attendance: {
+    groupBy: ReturnType<typeof vi.fn>;
+    findMany: ReturnType<typeof vi.fn>;
+  };
+  invoice: { groupBy: ReturnType<typeof vi.fn> };
+  permit: { groupBy: ReturnType<typeof vi.fn> };
+  tahfidzRecord: { findMany: ReturnType<typeof vi.fn>; groupBy: ReturnType<typeof vi.fn> };
+  academicYear: { findMany: ReturnType<typeof vi.fn> };
+  roomAssignment: { findMany: ReturnType<typeof vi.fn> };
+  grade: {
+    findMany: ReturnType<typeof vi.fn>;
+    groupBy: ReturnType<typeof vi.fn>;
+  };
   reward: { findMany: ReturnType<typeof vi.fn> };
-  violation: { findMany: ReturnType<typeof vi.fn> };
+  violation: {
+    findMany: ReturnType<typeof vi.fn>;
+    groupBy: ReturnType<typeof vi.fn>;
+  };
+  notification: { count: ReturnType<typeof vi.fn> };
   counselingSession: { findMany: ReturnType<typeof vi.fn> };
 };
+
+const mockRoomAnalytics = DormitoryService.getRoomSocialAnalytics as ReturnType<typeof vi.fn>;
+const mockAnnouncements = recentAnnouncements as ReturnType<typeof vi.fn>;
 
 describe('ParentService.getChildWeeklyProgress', () => {
   beforeEach(() => {
@@ -246,5 +276,194 @@ describe('ParentService.getChildCounseling', () => {
   it('denies parents without access to the child', async () => {
     mockPrisma.studentParent.findUnique.mockResolvedValue(null);
     await expect(parentService.getChildCounseling('p1', 's1')).rejects.toThrow();
+  });
+});
+
+describe('ParentService.getDashboardSummary (#869)', () => {
+  /** A `getChildren` row: the student id is on `id`. */
+  const childRow = {
+    id: 's1',
+    name: 'Ahmad',
+    nis: '20240001',
+    gender: 'MALE',
+    status: 'active',
+    relation: 'father',
+    isPrimary: true,
+    unitId: 'u1',
+    unit: { id: 'u1', name: 'SD IT', type: 'SD_IT' },
+    currentClass: { id: 'c1', name: '6A', level: '6' },
+  };
+
+  function primeEmpty() {
+    mockPrisma.studentParent.findMany.mockResolvedValue([
+      { student: { id: 's1', enrollments: [], unit: childRow.unit, user: {} } },
+    ]);
+    mockPrisma.attendance.findMany.mockResolvedValue([]);
+    mockPrisma.invoice.groupBy.mockResolvedValue([]);
+    mockPrisma.permit.groupBy.mockResolvedValue([]);
+    mockPrisma.tahfidzRecord.findMany.mockResolvedValue([]);
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([]);
+    mockPrisma.academicYear.findMany.mockResolvedValue([]);
+    mockPrisma.roomAssignment.findMany.mockResolvedValue([]);
+    mockPrisma.grade.groupBy.mockResolvedValue([]);
+    mockPrisma.violation.groupBy.mockResolvedValue([]);
+    mockPrisma.notification.count.mockResolvedValue(0);
+    mockAnnouncements.mockResolvedValue([]);
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('returns each child keyed by `child.id` with the canonical summary shape', async () => {
+    // `getChildren` maps `sp.student` into the `child` object; feed the join row.
+    mockPrisma.studentParent.findMany.mockResolvedValue([
+      {
+        student: {
+          id: 's1',
+          nis: '20240001',
+          nisn: null,
+          gender: 'MALE',
+          birthPlace: null,
+          birthDate: null,
+          address: null,
+          parentPhone: null,
+          photoUrl: null,
+          status: 'active',
+          unitId: 'u1',
+          unit: { id: 'u1', name: 'SD IT', type: 'SD_IT' },
+          user: { id: 'usr1', name: 'Ahmad', email: null, isActive: true },
+          enrollments: [{ class: childRow.currentClass }],
+        },
+        relation: 'father',
+        isPrimary: true,
+      },
+    ]);
+    mockPrisma.attendance.findMany.mockResolvedValue([
+      { id: 'a1', studentId: 's1', status: 'PRESENT' },
+      { id: 'a2', studentId: 's1', status: 'PRESENT' },
+      { id: 'a3', studentId: 's1', status: 'SICK' },
+    ]);
+    mockPrisma.invoice.groupBy.mockResolvedValue([{ studentId: 's1', _count: { id: 2 } }]);
+    mockPrisma.permit.groupBy.mockResolvedValue([]);
+    mockPrisma.tahfidzRecord.findMany.mockResolvedValue([{ id: 't1', studentId: 's1', juz: 5 }]);
+    // A full juz 1 (148 ayat) is 1 juz; the last setoran's `juz: 5` must not be
+    // read as "5 juz memorized" (#869 review).
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 1, _sum: { totalAyah: 148 } },
+    ]);
+    mockPrisma.academicYear.findMany.mockResolvedValue([{ id: 'ay1' }]);
+    mockPrisma.grade.groupBy.mockResolvedValue([{ studentId: 's1', _avg: { percentage: 88 } }]);
+    mockPrisma.violation.groupBy.mockResolvedValue([]);
+    mockPrisma.roomAssignment.findMany.mockResolvedValue([{ studentId: 's1', roomId: 'r1' }]);
+    mockRoomAnalytics.mockResolvedValue({ harmonyScore: 91 });
+    mockPrisma.notification.count.mockResolvedValue(0);
+    mockAnnouncements.mockResolvedValue([]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    expect(result.children).toHaveLength(1);
+    const entry = result.children[0];
+    // The wali page looks the summary up by `child.id`; nothing may carry
+    // `studentId` on the entry itself.
+    expect(entry.child.id).toBe('s1');
+    expect(entry).not.toHaveProperty('studentId');
+    expect(entry.recentAttendance).toHaveLength(3);
+    expect(entry.pendingInvoices).toBe(2);
+    expect(entry.lastTahfidz).toEqual({ id: 't1', studentId: 's1', juz: 5 });
+    expect(entry.memorizedJuz).toBe(1);
+    expect(entry.holisticScore).not.toBeNull();
+    expect(entry.boardingHarmonyScore).toBe(91);
+  });
+
+  it('returns holisticScore null — never 0 — when no dimension produced data', async () => {
+    primeEmpty();
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    expect(result.children[0].holisticScore).toBeNull();
+    expect(result.children[0].boardingHarmonyScore).toBeNull();
+    expect(result.children[0].lastTahfidz).toBeNull();
+    // No ZIYADAH record → no memorization figure, not "0 juz" (#869 review).
+    expect(result.children[0].memorizedJuz).toBeNull();
+  });
+
+  it('reads hafalan from the ZIYADAH aggregate, not the last setoran juz number (#869 review)', async () => {
+    // The santri recited a single ayah of juz 30; the last setoran's `juz` is
+    // 30 but the memorized amount is a fraction of one juz, and the tahfidz
+    // dimension must not read as a full 100.
+    primeEmpty();
+    mockPrisma.tahfidzRecord.findMany.mockResolvedValue([{ id: 't1', studentId: 's1', juz: 30 }]);
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 30, _sum: { totalAyah: 6 } },
+    ]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    const entry = result.children[0];
+    // 6 of juz 30's 564 ayat = 0.0106… → 0.011, never 30.
+    expect(entry.memorizedJuz).toBe(0.011);
+    expect(entry.memorizedJuz).not.toBe(30);
+    // The only dimension with data is a sliver of a juz, so the score is tiny.
+    expect(entry.holisticScore).not.toBeNull();
+    expect(entry.holisticScore).toBeLessThan(1);
+  });
+
+  it('keeps a single-ayah hafalan above zero, not rounded to "0 Juz" (#869 review)', async () => {
+    // One ayah of juz 30 is 1/564 ≈ 0.0018 juz. Two-decimal rounding dropped it
+    // to 0, so the wali's card read "0 Juz" for a santri who recited today.
+    primeEmpty();
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 30, _sum: { totalAyah: 1 } },
+    ]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    const entry = result.children[0];
+    expect(entry.memorizedJuz).toBe(0.002);
+    expect(entry.memorizedJuz).toBeGreaterThan(0);
+    // The tahfidz dimension stays assessed (a tiny positive), so it is not
+    // dropped from the average as if there were no hafalan at all.
+    expect(entry.holisticScore).not.toBeNull();
+  });
+
+  it('does not let a murojaah of another juz change the hafalan figure (#869 review)', async () => {
+    // Only ZIYADAH records count; the murojaah rows are not in the aggregate
+    // the service reads (the mock's `groupBy` returns ZIYADAH sums only).
+    primeEmpty();
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 28, _sum: { totalAyah: 137 } },
+    ]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    // A full juz 28 (137 ayat) is 1 juz, and a murojaah of juz 1 adds nothing.
+    expect(result.children[0].memorizedJuz).toBe(1);
+  });
+
+  it('sums a partially-memorized juz as a fraction (#869 review)', async () => {
+    primeEmpty();
+    // Half of juz 1 (74 of its 148 ayat) plus all of juz 30 (564 ayat) = 1.5
+    // juz. Both counts are whole ayat, as `TahfidzRecord.totalAyah` (`Int`)
+    // stores them — a fractional mock could not occur in the database.
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 1, _sum: { totalAyah: 74 } },
+      { studentId: 's1', juz: 30, _sum: { totalAyah: 564 } },
+    ]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    expect(result.children[0].memorizedJuz).toBe(1.5);
+  });
+
+  it('keeps boardingHarmonyScore null for a santri with no asrama placement', async () => {
+    primeEmpty();
+    // Data exists for the other dimensions, but there is no room assignment.
+    mockPrisma.grade.groupBy.mockResolvedValue([{ studentId: 's1', _avg: { percentage: 80 } }]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    expect(result.children[0].holisticScore).not.toBeNull();
+    expect(result.children[0].boardingHarmonyScore).toBeNull();
   });
 });
