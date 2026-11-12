@@ -108,10 +108,10 @@ dengan `apps/web/scripts/role-menus.ts`.
   K13 dan Kurikulum Merdeka, ujian daring, konseling.
 - **Keuangan.** SPP dan tagihan massal, verifikasi pembayaran, tabungan santri,
   payroll, ZIS/wakaf, laporan yayasan.
-- **Kepegawaian.** Data pegawai, pengajuan cuti yang diputuskan admin unit atau
-  Super Admin (setuju, tolak) dan pembatalannya oleh pengaju atau admin, dengan
-  penjagaan keputusan bersamaan, dan perjanjian kinerja yang terikat pada RKA unit
-  yang sudah disahkan.
+- **Kepegawaian.** Data pegawai, pengajuan cuti (disetujui atau ditolak admin
+  unit atau Super Admin; dibatalkan oleh pemohon, admin unit, atau Super Admin)
+  dengan penjagaan keputusan bersamaan, dan perjanjian kinerja yang terikat pada
+  RKA unit yang sudah disahkan.
 - **E-Office.** Agenda surat masuk dan keluar, paraf berjenjang, disposisi,
   tanda tangan elektronik Ed25519, PDF yang diarsipkan saat ditandatangani,
   verifikasi publik dengan mengunggah PDF, dan pencabutan naskah yang ditandatangani.
