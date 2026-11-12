@@ -5,6 +5,7 @@ import { getStudentIbadahStats } from '../ibadah/ibadah.service';
 import * as DormitoryService from '../dormitories/dormitories.service';
 import { recentAnnouncements as announcementsAddressedTo } from '@/modules/announcements';
 import { todayWib, wibWeekRange } from '../../utils/wib';
+import type { Attendance, ParentDashboardData } from '@cipansor/shared';
 
 type StudentParentWithStudent = Awaited<ReturnType<typeof prisma.studentParent.findMany>>[0];
 type GradeWithRelations = Awaited<ReturnType<typeof prisma.grade.findMany>>[0];
@@ -852,7 +853,7 @@ export class ParentService {
   /**
    * Get parent dashboard summary
    */
-  async getDashboardSummary(parentId: string) {
+  async getDashboardSummary(parentId: string): Promise<ParentDashboardData> {
     const children = await this.getChildren(parentId);
     const childrenIds = children.map((c) => c.id);
 
@@ -951,8 +952,12 @@ export class ParentService {
 
     // Map data back to children (synchronous now – no per-child DB calls)
     const summary = children.map((child) => {
-      // Filter recent attendance for this child, take 7
-      const recentAttendance = allAttendances.filter((a) => a.studentId === child.id).slice(0, 7);
+      // Filter recent attendance for this child, take 7. The rows are Prisma
+      // records; the shared `Attendance` differs only by its own status enum,
+      // so the cast mirrors `attendance.service.ts#mapToShared`.
+      const recentAttendance = allAttendances
+        .filter((a) => a.studentId === child.id)
+        .slice(0, 7) as unknown as Attendance[];
 
       const pendingInvoiceCount =
         pendingInvoices.find((p) => p.studentId === child.id)?._count.id || 0;
@@ -961,13 +966,18 @@ export class ParentService {
 
       const lastTahfidz = lastTahfidzRecords.find((t) => t.studentId === child.id);
 
-      // Compute holistic score from bulk-fetched data (academic + behavior + tahfidz)
+      // Holistic score from the dimensions that actually have data; a dimension
+      // with no records is `null` and never counts (decision K13.2, #869). The
+      // wali's page shows "—", not a fabricated figure, when all are empty.
       const gradeAvg = studentGradeScores.find((g) => g.studentId === child.id)?._avg.percentage;
-      const violationPts = Number(
-        studentViolationPoints.find((v) => v.studentId === child.id)?._sum.points || 0
-      );
+      const violationRow = studentViolationPoints.find((v) => v.studentId === child.id);
       const academicScore = gradeAvg != null ? Number(gradeAvg) : null;
-      const behaviorScore = Math.max(0, 100 - violationPts);
+      // Behavior is data only when a violation record exists; a clean record is
+      // "not assessed" on this dashboard, not a headline 100.
+      const behaviorScore =
+        violationRow !== undefined
+          ? Math.max(0, 100 - Number(violationRow._sum.points || 0))
+          : null;
       const maxJuz = lastTahfidz?.juz || 0;
       const tahfidzScore = maxJuz > 0 ? Math.min(100, (maxJuz / 30) * 100) : null;
       const holisticDims = [academicScore, tahfidzScore, behaviorScore].filter(

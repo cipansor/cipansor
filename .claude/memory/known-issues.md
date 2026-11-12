@@ -142,16 +142,6 @@ workers refused on a closed day. Still open:
   `/students/:studentId`. Underneath is a model difference that is a decision,
   not a typo: the web has enrolment as PENDING → APPROVED/REJECTED, the API as
   ACTIVE/GRADUATED/WITHDRAWN/DISMISSED with no approval step.
-- **The wali's home page shows figures nobody produced.** Seen with the TK
-  Qur'an wali (parent portal home, `apps/web/src/app/parent/page.tsx`).
-  - Attendance falls back to `0%` in red when the summary carries none
-    (`?? 0`), so "no records" reads as "never came".
-  - A child who lives in no asrama gets a "Harmony Asrama" tile (an English
-    label), with "—%".
-  - "Skor Holistik" shows for a TK child too.
-
-  Show a figure only when a query produced it, and an asrama tile only for a
-  santri with a placement (`lessons/teacher-dashboard-fake-stats.md`).
 
 - **The profile names a kepala sekolah "Guru/Ustadz".** The badge under the
   name on _avatar → Profile_ labels the legacy bucket (`getEffectiveRole`),

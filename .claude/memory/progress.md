@@ -134,6 +134,18 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   finding 1 was already fixed via #762, and the remaining scope (K18) rode on
   PR #1035. Still open and untouched: the broken `/parent/messages` route (a
   product gap, not documentation — worth its own issue).
+- **Beranda wali (#869, 2026-11-11).** The wali home read a `ChildSummary`
+  shape the API never sends (`c.studentId`, a `recentAttendance.percentage`,
+  `latestTahfidz.totalJuz`, `pendingPayments`, `pendingViolations`,
+  `unreadRewards`), so every tile fell to `0` / `—`. Fixed by decision **K13**:
+  the `GET /parent/dashboard` shape is canonical, now a DTO in
+  `@cipansor/shared` (`ParentChild`, `ParentDashboardChildSummary`,
+  `ParentDashboardData`) used by both sides; `holisticScore` /
+  `boardingHarmonyScore` are `null` when no query produced them and the tile
+  then shows "–" (never a fabricated `100`); attendance is computed from the
+  last seven `recentAttendance` rows (`PRESENT`); the asrama tile renders only
+  when a placement exists. Pelanggaran/Penghargaan/Dompet tiles are deferred to
+  #764 (K13.3). Tests: API service, web unit and e2e `/parent`.
 
 - **Open PRs, 2026-10-13:** #777 (the gate watch; ready, all checks green,
   waiting on the review gate), #668 and #775, #804 (draft). Merged since

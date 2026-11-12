@@ -51,3 +51,4 @@ export * from "./types/office-holders";
 export * from "./types/admissions";
 export * from "./types/unit";
 export * from "./types/environment";
+export * from "./types/parent";

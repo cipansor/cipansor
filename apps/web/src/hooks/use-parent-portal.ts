@@ -1,136 +1,16 @@
 import { useQuery } from "@tanstack/react-query";
 import api, { ApiResponse } from "@/lib/api";
+import type { ParentChild, ParentDashboardData } from "@cipansor/shared";
 
 // ==================== TYPES ====================
 
 /**
- * A child as `GET /parent/children` actually returns it.
- *
- * This used to declare a nested `student` object with a `class` and a
- * `birthDate`. The API returns none of that: it flattens the StudentParent
- * join and — importantly — sets `id` to the *student's* id, because every
- * downstream route is `/parent/children/{studentId}/…`. Nesting it would break
- * all of them.
- *
- * The mismatch was invisible for as long as the demo parents had no children:
- * an empty array meant `children.find(c => c.student.id === …)` never ran. The
- * moment a parent had one, the portal died with "Cannot read properties of
- * undefined (reading 'id')" and rendered the error boundary instead of a
- * sidebar. Keep this type honest against `parent.service.ts#getChildren`.
+ * `GET /parent/children` and `GET /parent/dashboard` shapes live in
+ * `@cipansor/shared` (decided K13, issue #869) so the API and the wali's
+ * screens read the same contract. Re-exported here so the many parent pages
+ * that import `ParentChild` from this hook keep working.
  */
-export interface ParentChild {
-  /** The student's id — not the parent-child link id. */
-  id: string;
-  nis: string;
-  nisn?: string | null;
-  name: string;
-  gender: "MALE" | "FEMALE";
-  birthPlace?: string | null;
-  birthDate?: string | null;
-  address?: string | null;
-  phone?: string | null;
-  email?: string | null;
-  photoUrl?: string | null;
-  status: string;
-  relation: string;
-  isPrimary: boolean;
-  unitId: string;
-  unit?: {
-    id: string;
-    name: string;
-    type: string;
-  } | null;
-  currentClass?: {
-    id: string;
-    name: string;
-    level: string;
-    academicYear?: { id: string; name: string; isActive: boolean };
-    /** `user.id` is the messaging recipient — the Teacher id is not a User id. */
-    homeroomTeacher?: { id: string; user: { id: string; name: string } } | null;
-  } | null;
-}
-
-export interface ChildSummary {
-  studentId: string;
-  studentName: string;
-  className?: string;
-  photoUrl?: string;
-
-  // Attendance
-  attendance: {
-    present: number;
-    absent: number;
-    sick: number;
-    permitted: number;
-    percentage: number;
-  };
-
-  // Academic
-  academic: {
-    averageScore?: number;
-    pendingAssignments?: number;
-    recentGrades?: Array<{
-      subject: string;
-      score: number;
-      date: string;
-    }>;
-  };
-
-  // Violations & Rewards
-  behavior: {
-    violationCount: number;
-    rewardCount: number;
-    recentViolations?: Array<{
-      type: string;
-      date: string;
-      status: string;
-    }>;
-  };
-
-  // Finance
-  finance: {
-    pendingPayments: number;
-    upcomingDue?: Array<{
-      name: string;
-      amount: number;
-      dueDate: string;
-    }>;
-    walletBalance?: number;
-  };
-
-  // Health (PAUD/SD)
-  health?: {
-    lastCheckup?: string;
-    height?: number;
-    weight?: number;
-  };
-
-  // Tahfidz (if applicable)
-  tahfidz?: {
-    currentJuz?: number;
-    memorizedPages?: number;
-    lastMurojaah?: string;
-  };
-}
-
-export interface ParentDashboardData {
-  children: ChildSummary[];
-  recentAnnouncements: Array<{
-    id: string;
-    title: string;
-    content: string;
-    createdAt: string;
-    priority: "LOW" | "NORMAL" | "HIGH" | "URGENT";
-  }>;
-  unreadNotifications: number;
-  unreadMessages: number;
-  upcomingEvents: Array<{
-    id: string;
-    title: string;
-    date: string;
-    type: string;
-  }>;
-}
+export type { ParentChild, ParentDashboardData };
 
 // ==================== HOOKS: CHILDREN ====================
 
