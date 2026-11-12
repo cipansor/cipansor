@@ -14,6 +14,7 @@
 | 1.0 | 5 Oktober 2026 | commit `3ba5cb974` (`main` digabung ke cabang README/galeri; 33 commit sejak `aefc719`) | Seluruh angka diukur ulang terhadap pohon hasil gabung: **95 modul API**, **292 model**, **162 enum**, ~**1.407 hulu rute API**, **432 halaman web**, **16 entri jadwal** atas **14 berkas pekerjaan**, **81 kunci** `.env.example`; Lampiran A diganti baris demi baris; modul `environment` masuk tabel ranah 5.3; alamat SPMB publik di bab 6 diperbaiki menjadi `GET /api/admissions/public/intakes`; lima keputusan baru (`fasilitas-dan-kegiatan-situs-publik`, `notifikasi-push`, `siaran-pengumuman`, `spmb-2027-2028`, `surat-keterangan-lewat-eoffice`) ditambahkan ke bab 9. `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
 | 1.1 | 10 Oktober 2026 | `main` digabung ke cabang README/galeri (`66609623d`) dan perbaikan tinjauan | Angka diukur ulang: **294 model**, **163 enum**, ~**1.411 hulu rute API**, **434 halaman web**, **82 kunci** `.env.example`; Lampiran A `correspondence` 15→18 dan `esign` 18→19 handler; empat keputusan ditambahkan ke bab 9; **Lampiran F — Peta Tampilan** baru (galeri gambar dikeluarkan dari git, lihat `decisions/dokumentasi-bergambar.md`). `check_docs.py --final` 0 ERROR | Claude Code |
 | 1.2 | 11 Oktober 2026 | commit `c56078f04` | Angka tata letak modul dan jadwal diukur ulang dan kini diperiksa mesin (#771): 68 dari 95 modul empat berkas, 26 lima bagian, 17 entri jadwal atas 15 berkas pekerjaan. Pemeriksa `check_docs.py` tidak lagi hanya mengenali "dari 93". | Agen Claude Code |
+| 1.3 | 11 November 2026 | commit `76511a89` | Angka diukur ulang setelah fitur absensi pegawai (#630) dan pekerjaan lain: **307 model**, ~**1.459 hulu rute API**, **436 halaman web**, **19 entri jadwal** atas **17 berkas pekerjaan**. §6.6 memuat empat pekerjaan yang sebelumnya terlewat (`holiday-sync`, `attendance-retention`, `letter-retention`, `admission-wave-status`) dan dua berkas tak terjadwal; Lampiran A diukur ulang baris demi baris; bab 9 menambah keputusan `absensi-pegawai.md` dan `persetujuan-pengguna.md`; Lampiran F peta halaman `/hr` 17→20. `check_docs.py` 0 ERROR | Agen OpenHands |
 | 1.4 | 11 November 2026 | kode `af09e9a6` | Konvensi tanggal/waktu ditambahkan ke §8 (tanggal-saja `YYYY-MM-DD` pada tengah malam UTC, pembacaan sebagai timestamp ISO, perbandingan lewat jatuh tempo memakai instan itu — bukan akhir hari WIB — dan bulan penagihan WIB lewat `utils/wib-day.ts`), dan §6.6 menyebut bulan penagihan/pengingat mengikuti kalender WIB (#825). | Agen OpenHands |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
@@ -35,9 +36,10 @@ wali santri dan santri. Sistem mencatat **53 kode peran** yang dikelompokkan ke
 dalam **13 keluarga menu** (diukur pada commit `40780b26`, 30 September 2026);
 setiap peran melihat menu, dasbor, dan data yang berbeda.
 
-Pada commit ini, basis kode berisi **95 modul API**, **294 model data** dan
-**163 enum**, sekitar **1.411 hulu rute API**, **434 halaman web**, serta
-**17 entri jadwal** atas 15 berkas pekerjaan. Data disimpan di satu basis data PostgreSQL dan
+Pada commit ini, basis kode berisi **95 modul API**, **307 model data** dan
+**163 enum**, sekitar **1.459 hulu rute API**, **436 halaman web**, serta
+**19 entri jadwal** atas **17 berkas pekerjaan** (diukur pada commit `76511a89`,
+11 November 2026). Data disimpan di satu basis data PostgreSQL dan
 diakses lewat Prisma 7. Aplikasi berjalan sebagai dua layanan: API (Express 5)
 dan web (Next.js 16), dengan paket tipe bersama `@cipansor/shared`.
 
@@ -224,7 +226,7 @@ flowchart TB
   subgraph API["API (Express 5)"]
     MW["Rantai middleware<br/>helmet, cors, csrf, rate limit,<br/>normalisasi paginasi"]
     Auth["Autentikasi dan otorisasi<br/>authenticate, authorize,<br/>Turnstile untuk rute publik"]
-    Mod["Modul ranah, 94 buah<br/>routes, controller, service, schema"]
+    Mod["Modul ranah, 95 buah<br/>routes, controller, service, schema"]
     Bus["Event bus bertipe<br/>lib/event-bus.ts"]
     Jobs["Penjadwal<br/>jobs/scheduler.ts"]
     Err["Penanganan galat<br/>middleware/error.ts"]
@@ -434,8 +436,8 @@ tentang siapa yang berhak memutuskan).
 
 ## 6.6 Pekerjaan terjadwal
 
-`jobs/scheduler.ts` memuat **17 entri jadwal** atas **15 berkas pekerjaan**
-(diukur pada commit `c56078f04`, 11 Oktober 2026), berzona waktu `Asia/Jakarta` dan berjalan di
+`jobs/scheduler.ts` memuat **19 entri jadwal** atas **17 berkas pekerjaan**
+(diukur pada commit `76511a89`, 11 November 2026), berzona waktu `Asia/Jakarta` dan berjalan di
 dalam proses API. Satu berkas bisa dijadwalkan lebih dari sekali
 (`dashboard-snapshot` tiga kali).
 
@@ -451,12 +453,17 @@ dalam proses API. Satu berkas bisa dijadwalkan lebih dari sekali
 | `accreditation-reminder.job` | harian 07:00 | Pengingat akreditasi unit 12 bulan sebelum berakhir |
 | `identity-purge.job` | harian 02:30 | Menghapus dokumen identitas yang habis masa simpannya |
 | `permit-note-erasure.job` | harian 01:15 | Menghapus surat dokter izin setelah tahun ajaran berakhir |
+| `letter-retention.job` | Senin 05:00 | Menghitung usul retensi naskah dinas (tidak memusnahkan) |
+| `holiday-sync.job` | tanggal 1, 05:00 | Menarik hari libur nasional ke kalender |
+| `admission-wave-status.job` | harian 00:01 | Membuka atau menutup gelombang SPMB menurut tanggalnya |
+| `attendance-retention.job` | harian 03:15 | Menghapus swafoto dan koordinat absensi pegawai setelah masa retensi |
 | `chatbot-spend.job` | harian 07:00 | Memeriksa belanja chatbot terhadap anggaran |
 | `chatbot-transcript-purge.job` | harian 03:15 | Memangkas transkrip chatbot |
 | `chatbot-escalation-retry.job` | tiap 30 menit | Mengulang eskalasi chatbot yang gagal |
 
-Berkas keempat belas — penyusutan aset bulanan — **tidak dijadwalkan**; modul
-`inventory` memanggilnya.
+Dua berkas tidak dijadwalkan lewat cron: penyusutan aset bulanan dipanggil modul
+`inventory`, dan pengirim Web Push dijalankan sebagai dispatcher panjang di
+`main.ts`, bukan penjadwal.
 
 > **Batasan.** Pekerjaan berjalan tanpa kunci, sehingga desainnya mengandaikan
 > **satu instans API**; menambah instans akan menjalankan tiap pekerjaan dua
@@ -597,6 +604,8 @@ satu kalimat; buka berkasnya untuk alasannya.
 | Akses data pegawai | Data pribadi lengkap pegawai hanya untuk dirinya, admin unit, TU unit, organ, dan Super Admin; rekan melihat kolom direktori. | `akses-data-pegawai.md` |
 | Armada otomasi dan rilis | Pemantauan dipicu event, bukan cron; uji beban k6 manual sebelum tiap rilis; persetujuan rilis lewat label pada issue rilis mingguan; tanpa berkas CHANGELOG; temuan keamanan ke advisory privat; catatan `## HUMAN` hanya pada PR berisiko. | `otomasi-armada.md` |
 | Showcase portofolio santri | Tetap terbatas cakupan santri (`studentScope`); rancangan bertingkat baru dibangun saat ada kebutuhan nyata. | `showcase-portofolio.md` |
+| Absensi pegawai | Absen Saya memakai swafoto dan geotag; shift dan jam kerja diatur Super Admin dan Admin Unit; bila unit menetapkan aturan potong, potongannya dari tunjangan, tidak pernah dari gaji pokok. | `absensi-pegawai.md` |
+| Persetujuan pengguna | S&K, Kebijakan Privasi, dan batasan regulasi disetujui sekali sesudah login; pegawai membaca pemberitahuan (perjanjian kerja dan kepentingan sah), tanpa logout. | `persetujuan-pengguna.md` |
 
 # 10. Persyaratan Kualitas
 
@@ -666,7 +675,7 @@ ditinjau ulang setiap kuartal.
 
 # Lampiran A — Katalog Modul API
 
-Diukur pada commit `3ba5cb974` (5 Oktober 2026). "Handler" adalah perkiraan
+Diukur pada commit `76511a89` (11 November 2026). "Handler" adalah perkiraan
 jumlah `router.get/post/put/patch/delete`. "Layering" menandai modul yang
 memanggil Prisma dari rute/controller.
 
@@ -682,7 +691,7 @@ memanggil Prisma dari rute/controller.
 | attendance | /api/attendance | 12 | ya | ok |
 | auth | /api/auth | 14 | ya | ok |
 | business-unit | /api/business-units | 7 | - | ok |
-| calendar | /api/calendar | 12 | - | ok |
+| calendar | /api/calendar | 19 | - | ok |
 | canteen | /api/canteen | 19 | - | ok |
 | cbt | /api/cbt | 20 | - | Prisma di route/controller |
 | certificates | /api/certificates | 10 | - | ok |
@@ -707,9 +716,9 @@ memanggil Prisma dari rute/controller.
 | finance | /api/finance | 47 | ya | ok |
 | finance-enhancement | /api/finance-enhancement | 34 | - | Prisma di route/controller |
 | foundation | /api/foundation | 26 | ya | ok |
-| health | /api/health | 25 | ya | ok |
+| health | /api/health | 26 | ya | ok |
 | homeroom | /api/homeroom | 14 | - | ok |
-| hr | /api/hr | 42 | ya | Prisma di route/controller |
+| hr | /api/hr | 79 | ya | Prisma di route/controller |
 | ibadah | /api/ibadah | 25 | - | ok |
 | inventory | /api/inventory | 34 | - | ok |
 | kitab-progress | /api/kitab-progress | 16 | - | ok |
@@ -730,7 +739,7 @@ memanggil Prisma dari rute/controller.
 | parent | /api/parent | 16 | ya | ok |
 | paud-assessment | /api/paud-assessment | 22 | ya | ok |
 | paud-report | /api/paud-report | 13 | - | ok |
-| payroll | /api/payroll | 24 | - | ok |
+| payroll | /api/payroll | 25 | - | ok |
 | pengawasan | /api/pengawasan | 12 | - | ok |
 | perencanaan | /api/perencanaan | 22 | - | ok |
 | performance-management | /api/performance-agreements | 24 | - | ok |
@@ -744,7 +753,7 @@ memanggil Prisma dari rute/controller.
 | reception | /api/reception | 10 | - | ok |
 | reporting | /api/reports | 7 | ya | ok |
 | research | /api/research | 8 | - | Prisma di route/controller |
-| rewards | /api/rewards | 10 | ya | ok |
+| rewards | /api/rewards | 11 | ya | ok |
 | risk | /api/risk | 8 | - | ok |
 | roles | /api/roles | 10 | - | Prisma di route/controller |
 | sanad-certificate | /api/sanad | 11 | - | ok |
@@ -764,7 +773,7 @@ memanggil Prisma dari rute/controller.
 | units | /api/units | 14 | ya | ok |
 | upload | /api/upload | 1 | - | ok |
 | users | /api/users | 6 | ya | ok |
-| violations | /api/violations | 8 | ya | ok |
+| violations | /api/violations | 9 | ya | ok |
 | wallet | /api/wallet | 10 | - | ok |
 | wilayah | /api/wilayah | 12 | - | ok |
 
@@ -772,7 +781,7 @@ Modul tanpa routes (pustaka internal, bukan endpoint): `scholarship`.
 
 # Lampiran B — Model Data Tingkat Ranah
 
-Skema Prisma adalah rujukan tunggal (**294 model, 163 enum** pada commit ini).
+Skema Prisma adalah rujukan tunggal (**307 model, 163 enum** pada commit ini).
 Berikut kelompok entitas utama dan hubungannya, bukan ratusan model satu per satu.
 
 ```mermaid
@@ -880,20 +889,19 @@ Galeri seluruh halaman dibangun ulang secara lokal dengan
 `scripts/build-page-gallery.py` dan `scripts/build-role-gallery.py`, lalu
 di-ignore (`decisions/dokumentasi-bergambar.md`).
 
-Diukur pada commit penggabungan 2026-10-10 (`66609623d`).
+Diukur pada commit `76511a89` (11 November 2026).
 
 | Segmen URL | Halaman | Host | Bucket yang boleh membuka |
 |---|---:|---|---|
 | `/finance` | 24 | portal | Super Admin, Admin/organ, Staf |
 | `/tahfidz` | 20 | portal | Super Admin, Admin/organ, Guru/kepala, Santri |
-| `/hr` | 17 | portal | Super Admin, Admin/organ, Guru/kepala |
+| `/hr` | 20 | portal | Super Admin, Admin/organ, Guru/kepala (seluruh `/hr`); Staf hanya `/hr/attendance/me` |
 | `/assessment` | 16 | portal | Super Admin, Admin/organ, Guru/kepala, Santri |
 | `/parent` | 15 | portal | Super Admin, Wali |
 | `/tk` | 12 | portal | Super Admin, Admin/organ |
 | `/students` | 11 | portal | Super Admin, Admin/organ, Guru/kepala, Staf |
 | `/takhosus` | 11 | portal | Super Admin, Admin/organ, Guru/kepala |
 | `/curriculum` | 10 | portal | Super Admin, Admin/organ, Guru/kepala |
-| `/analytics` | 8 | portal | Super Admin, Admin/organ, Guru/kepala, Staf |
 | `/cbt` | 8 | portal | Super Admin, Admin/organ |
 | `/foundation` | 8 | portal | Super Admin, Admin/organ |
 | `/inventory` | 8 | portal | Super Admin, Admin/organ |
@@ -902,6 +910,7 @@ Diukur pada commit penggabungan 2026-10-10 (`66609623d`).
 | `/quality` | 7 | portal | Super Admin, Admin/organ, Guru/kepala, Staf, Santri, Wali |
 | `/settings` | 7 | portal | Super Admin, Admin/organ, Guru/kepala, Staf, Santri, Wali |
 | `/spmb` | 7 | portal | Super Admin, Admin/organ, Guru/kepala, Staf |
+| `/analytics` | 7 | portal | Super Admin, Admin/organ, Guru/kepala, Staf |
 | `/alumni` | 6 | portal | Super Admin, Admin/organ, Guru/kepala, Santri |
 | `/attendance` | 6 | portal | Super Admin, Admin/organ, Guru/kepala, Santri |
 | `/daily-report` | 6 | portal | Super Admin, Admin/organ, Guru/kepala |
@@ -982,4 +991,4 @@ Diukur pada commit penggabungan 2026-10-10 (`66609623d`).
 | `/wakaf-infaq` | 1 | publik | semua (tanpa login) |
 | `/wilayah` | 1 | portal | Super Admin, Admin/organ |
 
-Total: 434 halaman.
+Total: 436 halaman.

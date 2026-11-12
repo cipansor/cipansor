@@ -114,7 +114,10 @@ dengan `apps/web/scripts/role-menus.ts`.
 - **Keuangan.** SPP dan tagihan massal, verifikasi pembayaran, tabungan santri,
   payroll, ZIS/wakaf, laporan yayasan.
 - **Kepegawaian.** Data pegawai, cuti, dan perjanjian kinerja yang terikat pada
-  RKA unit yang sudah disahkan.
+  RKA unit yang sudah disahkan. Absen Saya mencatat kehadiran pegawai dengan
+  swafoto dan lokasi (geotag), mengikuti shift dan jam kerja yang diatur Super
+  Admin dan Admin Unit; bila unit menetapkan aturan potong, keterlambatan
+  memotong tunjangan — tidak pernah gaji pokok.
 - **E-Office.** Agenda surat masuk dan keluar, paraf berjenjang, disposisi,
   tanda tangan elektronik Ed25519, PDF yang diarsipkan saat ditandatangani,
   verifikasi publik dengan mengunggah PDF, dan pencabutan naskah yang ditandatangani.
