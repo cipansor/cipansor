@@ -32,9 +32,16 @@ Buat issue memakai formulir yang cocok (`.github/ISSUE_TEMPLATE/`):
 `refactor.yml`, `chore.yml`, `security.yml`. Formulir itu yang memasang label
 **tipe**; automation `Triase issue` yang memasang prioritas dan `ready`.
 
-- Buka issue lewat `POST /repos/cipansor/cipansor/issues` dengan `GITHUB_TOKEN`
-  (akun `adminypc`, supaya teratribusi ke penulis) dan **tanpa field `labels`** —
-  label yang dipasang akun selain `cipansor-bot` dicabut `label-guard` (#838).
+- Buka issue lewat formulirnya, bukan `POST /issues` polos: kirim ke
+  `POST /repos/cipansor/cipansor/issues` dengan `GITHUB_TOKEN` (akun `adminypc`,
+  supaya teratribusi ke penulis) **dan** field `labels` berisi label tipe
+  formulir yang cocok (`bug`, `enhancement`, `documentation`, `refactor`,
+  `chore`, `security`). `POST /issues` tidak menjalankan formulir, jadi label
+  tipe formulir tidak terpasang sendiri; menyebut labelnya membuat issue sama
+  dengan hasil formulir. Label itulah satu-satunya yang boleh dipasang akun ini —
+  `bug`/`enhancement`/… termasuk `ALLOWED_LABELS` `label-guard`, sedangkan
+  `ready` dan `priority:*` tetap milik `cipansor-bot` dan dicabut bila dipasang
+  akun lain (#838, #842).
 - Tulis body selengkap formulir: masalah/motivasi, apa yang diharapkan, dan
   **kriteria penerimaan yang konkret dan bisa diamati**. Buka dengan basmalah
   (aturan label 13).

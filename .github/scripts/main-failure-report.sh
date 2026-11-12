@@ -27,19 +27,26 @@ REPO="${REPO:?REPO is required}"
 # and deserve two issues; a second red `CI` is the same problem continuing.
 MARK="<!-- main-failure:${WORKFLOW} -->"
 SHORT_SHA=$(printf '%s' "$SHA" | cut -c1-7)
-TITLE="Deploy watchdog: $WORKFLOW run $RUN_ID failed"
+TITLE="Kegagalan $WORKFLOW pada \`$BRANCH\` (run \`$RUN_ID\`)"
 
 ENTRY="- **$WORKFLOW** — run [\`$RUN_ID\`]($RUN_URL) at \`$SHORT_SHA\` on \`$BRANCH\` ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
 
 # An open issue from this script for this workflow, if any. The marker is
 # matched in the body locally rather than through `--search`: the marker is an
 # HTML comment, and GitHub's search syntax treats its punctuation specially.
-EXISTING=$(gh issue list --repo "$REPO" --state open --label bug --limit 200 \
+#
+# A failed listing is NOT an empty listing: treating it as one opened a second
+# issue for a workflow that already had one, every time `gh` hiccuped.
+if ! EXISTING_LIST=$(gh issue list --repo "$REPO" --state open --label bug --limit 200 \
   --json number,body \
-  --jq ".[] | select(.body | contains(\"$MARK\")) | .number" 2>/dev/null | head -n1 || true)
+  --jq ".[] | select(.body | contains(\"$MARK\")) | .number"); then
+  echo "::error::could not list the open issues; not treating that as none, so no duplicate is opened."
+  exit 1
+fi
+EXISTING=$(printf '%s\n' "$EXISTING_LIST" | head -n1)
 
 if [ -n "$EXISTING" ]; then
-  BODY="Another \`$WORKFLOW\` run failed on \`$BRANCH\`:
+  BODY="Run \`$WORKFLOW\` gagal lagi pada \`$BRANCH\`:
 
 $ENTRY
 
@@ -55,7 +62,7 @@ fi
 BODY="$(printf '%s\n' \
   "بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ" \
   "" \
-  "\`$WORKFLOW\` failed on \`$BRANCH\`." \
+  "\`$WORKFLOW\` gagal pada \`$BRANCH\`." \
   "" \
   "## Kegagalan" \
   "" \

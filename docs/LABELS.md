@@ -317,15 +317,16 @@ to produce the labels above, not prose to read and forget:
 tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko` and
   `Catatan` (no `HUMAN`/`AGENT` split and no `Type` checklist since 2026-11-09,
   #965: the type comes from the issue's label). It requires `Fixes #<n>` for
-  every issue the PR resolves (each an open `ready` issue,
-  never a PR; `Refs #<n>` for a partial step), copies the issue's acceptance
-  criteria as checkboxes, and asks for a **before and after** visual on any
-  change under `apps/web`. `Issue label sync` mirrors the linked issue's
-  type and priority onto the PR.
+  every issue the PR resolves (each an open issue carrying `ready` or
+  `in-progress` — `issue-claim.yml` swaps the first for the second the moment
+  the PR opens — never a PR; `Refs #<n>` for a partial step), copies the
+  issue's acceptance criteria as checkboxes, and asks for a **before and
+  after** visual on any change under `apps/web`. `Issue label sync` mirrors the
+  linked issue's type and priority onto the PR.
 
 These are kept honest by the `pr-description-checks` workflow: the `template`
 job **fails the check** while the description is incomplete, no issue is
-linked, a linked number is not an open `ready` issue, the PR
+linked, a linked number is not an open `ready`/`in-progress` issue, the PR
 does not target the default branch (where alone `Fixes` closes anything), or the
 prose reads as English, and passes once it is complete (the `visual` job stays
 advisory). There is no "no linked issue" way out (#772). Dependabot alone

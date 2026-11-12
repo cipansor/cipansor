@@ -924,8 +924,10 @@ describe('buat-pr — a pull request starts from a ready issue', () => {
   it('routes a missing issue through the repository forms', () => {
     expect(SKILL).toContain('.github/ISSUE_TEMPLATE/');
     expect(SKILL).toContain('Triase issue');
-    // A new issue carries no labels from a non-bot account.
-    expect(SKILL).toMatch(/tanpa field `labels`/);
+    // The form's own type label is the one a non-bot account may name
+    // (`ALLOWED_LABELS`); `ready` and `priority:*` stay the bot's.
+    expect(SKILL).toMatch(/`bug`, `enhancement`, `documentation`, `refactor`/);
+    expect(SKILL).toMatch(/tetap milik `cipansor-bot`/);
   });
 
   it('carries every PR-template section the guard enforces', () => {

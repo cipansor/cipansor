@@ -48,7 +48,23 @@ claim_issue() { # claim_issue <issue-number>
   N="$1"
   LABELS=$(labels_of "$N")
   if has "$LABELS" in-progress; then
-    echo "issue #$N is already in-progress; nothing to do."
+    # Idempotent for the claim itself, but `ready` must not stay beside it: the
+    # implementation queue reads `ready`, so an issue that already has a PR
+    # would be handed out again. `label-guard` only strips `ready` when it
+    # contradicts `question`/`blocked`, so the pair can survive a re-run here.
+    if has "$LABELS" ready; then
+      if [ "${READ_ONLY:-0}" = "1" ]; then
+        echo "::error::issue #$N carries both 'ready' and 'in-progress'; a maintainer must remove 'ready' (fork pull request)."
+        return 1
+      fi
+      if ! gh issue edit "$N" --repo "$REPO" --remove-label ready >/dev/null; then
+        echo "::error::could not remove the stale 'ready' from issue #$N."
+        return 1
+      fi
+      echo "issue #$N is in-progress; removed the stale 'ready' so the queue does not pick it up again."
+    else
+      echo "issue #$N is already in-progress; nothing to do."
+    fi
     return 0
   fi
   if ! has "$LABELS" ready; then

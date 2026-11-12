@@ -60,8 +60,9 @@ monorepo**:
    comment there saying what remains — and copies the issue's acceptance
    criteria as checkboxes. The `buat-pr` skill is the checklist; the `PR
    description` check is the enforcement (it fails a PR whose linked number is
-   not an open `ready` issue, is a PR, or is missing any section —
-   `pr-template-guard.sh`, #772; only Dependabot is exempt). Before opening a
+   not an open issue carrying `ready` or `in-progress` — `issue-claim.yml` moves
+   the issue to `in-progress` the moment the PR opens — is a PR, or is missing
+   any section — `pr-template-guard.sh`, #772; only Dependabot is exempt). Before opening a
    PR, search the open issues for the files and terms it touches; an issue a
    merged PR fixed without naming it stays open and breeds duplicates
    (2026-10-11: eight such issues).

@@ -1,6 +1,8 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'fs';
-import { resolve } from 'path';
+import { readFileSync, mkdtempSync, writeFileSync, rmSync } from 'fs';
+import { spawnSync } from 'child_process';
+import { tmpdir } from 'os';
+import { join, resolve } from 'path';
 
 /**
  * `.github/workflows/main-failure-bridge.yml` reports a failed CI/E2E run on
@@ -23,6 +25,49 @@ const BRIDGE = readFileSync(
   'utf8'
 );
 const SCRIPT = readFileSync(resolve(REPO, '.github', 'scripts', 'main-failure-report.sh'), 'utf8');
+const SCRIPT_PATH = join(REPO, '.github', 'scripts', 'main-failure-report.sh');
+
+// A stub `gh` that answers the two reads the report makes — the open-issue list
+// and the issue create/comment writes — so the failure path can be driven.
+const STUB = `#!/bin/sh
+log() { [ -n "\${GH_STUB_LOG:-}" ] && echo "$*" >> "$GH_STUB_LOG"; }
+case "$1" in
+  issue)
+    case "$*" in
+      *"list"*) [ "\${GH_STUB_LIST_FAIL:-}" = "1" ] && exit 1
+                printf '%s\\n' "\${GH_STUB_LIST:-}" ;;
+      *"comment"*) log "COMMENT $*" ;;
+      *"create"*) log "CREATE $*" ;;
+    esac ;;
+esac
+exit 0
+`;
+
+function runReport(env: Record<string, string> = {}) {
+  const dir = mkdtempSync(join(tmpdir(), 'main-failure-'));
+  const bin = join(dir, 'gh');
+  writeFileSync(bin, STUB, { mode: 0o755 });
+  const logPath = join(dir, 'log');
+  writeFileSync(logPath, '');
+  const res = spawnSync(
+    'sh',
+    [SCRIPT_PATH, 'CI', '123', 'abcdef1234567890', 'https://run', 'main'],
+    {
+      encoding: 'utf8',
+      env: {
+        ...process.env,
+        PATH: `${dir}:${process.env.PATH}`,
+        REPO: 'cipansor/cipansor',
+        GH_TOKEN: 'x',
+        GH_STUB_LOG: logPath,
+        ...env,
+      },
+    }
+  );
+  const log = readFileSync(logPath, 'utf8');
+  rmSync(dir, { recursive: true, force: true });
+  return { status: res.status, stdout: res.stdout ?? '', stderr: res.stderr ?? '', log };
+}
 
 describe('main-failure-bridge.yml', () => {
   it('triggers on a finished workflow_run only', () => {
@@ -95,5 +140,37 @@ describe('main-failure-bridge.yml', () => {
     expect(SCRIPT).toMatch(/--label bug --label priority:high/);
     // A failure to open the issue must not pass silently.
     expect(SCRIPT).toMatch(/exit 1/);
+  });
+
+  it('opens an issue when no open issue matches', () => {
+    const r = runReport({ GH_STUB_LIST: '' });
+    expect(r.status).toBe(0);
+    expect(r.log).toContain('CREATE');
+    expect(r.log).not.toContain('COMMENT');
+  });
+
+  it('comments on the open issue instead of opening a second one', () => {
+    const r = runReport({ GH_STUB_LIST: '431' });
+    expect(r.status).toBe(0);
+    expect(r.log).toContain('COMMENT');
+    expect(r.log).not.toContain('CREATE');
+  });
+
+  it('does not open a second issue when the list read fails', () => {
+    // A failed listing is not an empty listing: treating it as one filed a
+    // duplicate for a workflow that already had an issue (#1061 review).
+    const r = runReport({ GH_STUB_LIST_FAIL: '1' });
+    expect(r.status).not.toBe(0);
+    expect(r.log).not.toContain('CREATE');
+    expect(r.stdout + r.stderr).toContain('not treating that as none');
+  });
+
+  it('writes the issue in Indonesian prose', () => {
+    // GitHub prose is Indonesian (AGENTS.md); only the workflow name and the
+    // run link stay as they are. The title and opening line used to be English.
+    expect(SCRIPT).toMatch(/TITLE="[^"]*Kegagalan/);
+    expect(SCRIPT).toContain('gagal pada');
+    expect(SCRIPT).not.toContain('Deploy watchdog');
+    expect(SCRIPT).not.toMatch(/failed on \\`\$BRANCH\\`/);
   });
 });

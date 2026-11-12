@@ -94,6 +94,19 @@ describe('issue-claim.sh', () => {
     expect(r.stdout).toContain('already in-progress');
   });
 
+  it('removes a stale ready that sits beside in-progress', () => {
+    // `ready` is what the implementation queue reads. If triage re-applies it to
+    // an issue that already has a PR, leaving both would hand the work out
+    // again; the claim path removes `ready` and keeps `in-progress`.
+    const r = run(['42'], {
+      GH_STUB_CLOSING: '7',
+      GH_STUB_LABELS: 'bug\nready\nin-progress',
+    });
+    expect(r.status).toBe(0);
+    expect(r.log).toContain('EDIT issue edit 7 --repo cipansor/cipansor --remove-label ready');
+    expect(r.stdout).toContain('removed the stale');
+  });
+
   it('refuses to claim an issue that is neither ready nor in-progress', () => {
     // A `question` issue a PR links must not be silently declared started; the
     // PR-template guard keeps failing until it is genuinely `ready`.
