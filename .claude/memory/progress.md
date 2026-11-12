@@ -103,6 +103,28 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
+- **Dua penjadwal di dokumen teknis (#875, 2026-11-12).** Merge #804 membuat
+  penjadwal notifikasi (`modules/notifications/scheduler.service.ts`) benar-benar
+  berjalan dari `main.ts`, tetapi `docs/` tidak ikut diperbarui. §6.6 hanya
+  mengenal `jobs/scheduler.ts`, tabel §6.6 tidak memuat enam tugas penjadwal
+  notifikasi, `POST /notifications/scheduler/trigger` + `Notification.dedupeKey`
+  + model `NotificationDelivery` + dua migrasinya tidak tercatat, dan catatan
+  "satu instans" membuat pembaca menyimpulkan penjadwal notifikasi pun tidak
+  aman multi-instans — padahal ia mengklaim slot lewat `notification_deliveries`.
+  Angka 19/17 §6.6 sudah benar (dibetulkan #771/#630 di v1.3), jadi sisa
+  pekerjaannya: §6.6 kini menunjuk perintah ukur + tabel tugas penjadwal kedua,
+  batasan "satu instans" dipisah, `ARCHITECTURE.md` menyebut penjadwal kedua,
+  `MOBILE_API.md` menyelaraskan klaim pengingat SPP (bulanan `spp-reminder.job`
+  vs `payment-reminder` sekali-per-tagihan; `PENDING` bukan `SENT`). Kartu
+  panduan pengguna untuk tab **Penjadwalan** ditunda dengan alasan:
+  `/notifications/whatsapp` tidak punya menu (`NO_MENU_BY_DESIGN`,
+  known-issues.md), jadi tak ada menu path (golden rule #11) — dicatat di
+  `known-issues.md`. Putaran tinjau menemukan klaim "aman multi-instans" terlalu
+  luas: hanya tiga tugas ber-`dedupeKey` yang aman, tiga tugas massal
+  (`attendance-summary`, `tahfidz-progress`, `monthly-report`) memakai
+  `createManyNotifications` tanpa kunci sehingga tetap menggandakan; keduanya
+  (plus klaim H-7/H-3/H-1 vs sekali-per-tagihan) dicatat di `known-issues.md` dan
+  dikoreksi di dokumen.
 - **Versi patch Prisma di dokumen teknis (#874, 2026-11-12).** Tabel 2
   (Batasan) memaku `Prisma 7.10.0` sementara `apps/api/package.json` sudah
   `7.10.1` — sisa bump Dependabot (#870). Tidak ada pemeriksa yang menangkapnya
