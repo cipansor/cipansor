@@ -4,6 +4,7 @@ import { Prisma, AttendanceStatus, Invoice, StudentParent } from '@prisma/client
 import { getStudentIbadahStats } from '../ibadah/ibadah.service';
 import * as DormitoryService from '../dormitories/dormitories.service';
 import { recentAnnouncements as announcementsAddressedTo } from '@/modules/announcements';
+import { memorizedJuz } from '@/modules/tahfidz/quran-surahs';
 import { todayWib, wibWeekRange } from '../../utils/wib';
 import type { Attendance, ParentDashboardData } from '@cipansor/shared';
 
@@ -913,6 +914,30 @@ export class ParentService {
       orderBy: [{ studentId: 'asc' }, { recordedAt: 'desc' }],
     });
 
+    // 4b. Bulk hafalan per santri, in juz. A record's `juz` is where the setoran
+    // sits, not how much was memorized, so the count sums the ZIYADAH ayah per
+    // juz and weighs each juz by its own size (`memorizedJuz`); murojaah of an
+    // old juz must not inflate it (decision K13.4, #869 review).
+    const ziyadahByStudentJuz = await prisma.tahfidzRecord.groupBy({
+      by: ['studentId', 'juz'],
+      where: {
+        studentId: { in: childrenIds },
+        activityType: 'ZIYADAH',
+      },
+      _sum: { totalAyah: true },
+    });
+    const ziyadahJuzByStudent = new Map<string, Array<[number, number]>>();
+    for (const row of ziyadahByStudentJuz) {
+      const list = ziyadahJuzByStudent.get(row.studentId) ?? [];
+      list.push([row.juz, row._sum.totalAyah || 0]);
+      ziyadahJuzByStudent.set(row.studentId, list);
+    }
+    const hasZiyadah = (studentId: string) => ziyadahJuzByStudent.has(studentId);
+    // Two decimals: a santri who has recited a few surah of juz 30 holds a
+    // *fraction* of a juz, and one decimal would round that progress to 0.
+    const memorizedJuzOf = (studentId: string) =>
+      Math.round(memorizedJuz(ziyadahJuzByStudent.get(studentId) ?? []) * 100) / 100;
+
     // 5. Bulk fetch active academic years for all units involved
     // AcademicYear is global (not scoped by unit), so just fetch active years.
     const activeYears = await prisma.academicYear.findMany({
@@ -978,8 +1003,12 @@ export class ParentService {
         violationRow !== undefined
           ? Math.max(0, 100 - Number(violationRow._sum.points || 0))
           : null;
-      const maxJuz = lastTahfidz?.juz || 0;
-      const tahfidzScore = maxJuz > 0 ? Math.min(100, (maxJuz / 30) * 100) : null;
+      // The tahfidz dimension is hafalan in juz, not the last setoran's juz
+      // number: a single ayah in juz 30 is a fraction of a juz, not 30/30
+      // (decision K13.4, #869 review). `null` when the santri has no ZIYADAH
+      // record, so the dimension drops out of the average rather than counting 0.
+      const memorized = hasZiyadah(child.id) ? memorizedJuzOf(child.id) : null;
+      const tahfidzScore = memorized != null ? Math.min(100, (memorized / 30) * 100) : null;
       const holisticDims = [academicScore, tahfidzScore, behaviorScore].filter(
         (d): d is number => d !== null
       );
@@ -998,6 +1027,7 @@ export class ParentService {
         pendingInvoices: pendingInvoiceCount,
         activePermits: activePermitCount,
         lastTahfidz: lastTahfidz || null,
+        memorizedJuz: memorized,
         holisticScore: holisticScore !== null ? Math.round(holisticScore * 10) / 10 : null,
         holisticInterpretation: null,
         boardingHarmonyScore: boardingHarmony?.harmonyScore ?? null,

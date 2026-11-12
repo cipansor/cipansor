@@ -55,7 +55,19 @@ export interface ParentDashboardChildSummary {
   recentAttendance: Attendance[];
   pendingInvoices: number;
   activePermits: number;
+  /**
+   * The last setoran record — where the santri last recited. Its `juz` marks
+   * *where* that setoran sits, not how much the santri has memorized; the count
+   * is `memorizedJuz`.
+   */
   lastTahfidz: TahfidzRecord | null;
+  /**
+   * Hafalan in juz, summed from the santri's ZIYADAH records with each juz
+   * weighed by its own size (`memorizedJuz`); `null` when there is no ZIYADAH
+   * record at all, so "no records" never reads as "0 juz memorized". A whole
+   * juz is not "a record whose `juz` field is 30" (#869 review).
+   */
+  memorizedJuz: number | null;
   holisticScore: number | null;
   holisticInterpretation: string | null;
   boardingHarmonyScore: number | null;

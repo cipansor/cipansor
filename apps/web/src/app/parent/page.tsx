@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useAuthStore } from "@/stores/auth";
 import {
   Card,
@@ -12,8 +11,12 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/lib/api";
-import type { ParentChild, ParentDashboardData } from "@cipansor/shared";
+import {
+  useParentChildren,
+  useParentDashboard,
+} from "@/hooks/use-parent-portal";
+import { getErrorMessage } from "@/lib/api-error";
+import type { ParentDashboardData } from "@cipansor/shared";
 import Link from "next/link";
 import {
   Users,
@@ -43,32 +46,19 @@ function attendancePercentage(
 
 export default function ParentDashboardPage() {
   const { user } = useAuthStore();
-  const [loading, setLoading] = useState(true);
-  const [children, setChildren] = useState<ParentChild[]>([]);
-  const [dashboard, setDashboard] = useState<ParentDashboardData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: children = [],
+    isLoading: childrenLoading,
+    error: childrenError,
+  } = useParentChildren();
+  const {
+    data: dashboard,
+    isLoading: dashboardLoading,
+    error: dashboardError,
+  } = useParentDashboard();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        // Fetch children list and dashboard summary
-        const [childrenRes, dashboardRes] = await Promise.all([
-          api.get("/parent/children"),
-          api.get("/parent/dashboard"),
-        ]);
-        setChildren(childrenRes.data.data || []);
-        setDashboard(dashboardRes.data.data || null);
-      } catch (err: any) {
-        console.error("Failed to fetch parent data:", err);
-        setError(err.response?.data?.error?.message || "Gagal memuat data");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
+  const loading = childrenLoading || dashboardLoading;
+  const error = childrenError ?? dashboardError;
 
   if (loading) {
     return (
@@ -91,7 +81,7 @@ export default function ParentDashboardPage() {
       <Card>
         <CardContent className="p-6 text-center">
           <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <p className="text-destructive">{error}</p>
+          <p className="text-destructive">{getErrorMessage(error)}</p>
           <Button onClick={() => window.location.reload()} className="mt-4">
             Coba Lagi
           </Button>
@@ -175,12 +165,18 @@ export default function ParentDashboardPage() {
                     </span>
                   </div>
 
-                  {/* Tahfidz */}
+                  {/* Tahfidz — hafalan in juz, summed from the ZIYADAH records
+                      (the API's `memorizedJuz`), not the last setoran's juz
+                      number; "—" when no ZIYADAH record exists (K13.4). */}
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-4 w-4 text-muted-foreground" />
                     <span>
                       Tahfidz:{" "}
-                      <strong>{summary?.lastTahfidz?.juz ?? 0} Juz</strong>
+                      {summary?.memorizedJuz == null ? (
+                        <strong className="text-muted-foreground">—</strong>
+                      ) : (
+                        <strong>{summary.memorizedJuz} Juz</strong>
+                      )}
                     </span>
                   </div>
                 </div>

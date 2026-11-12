@@ -34,6 +34,7 @@ test.describe("Beranda wali — angka dari API, bukan karangan (#869)", () => {
           child: { id: string };
           recentAttendance: Array<{ status: string }>;
           lastTahfidz: { juz: number } | null;
+          memorizedJuz: number | null;
         }>;
       };
     }>(parent, "GET", "/parent/dashboard");
@@ -50,12 +51,16 @@ test.describe("Beranda wali — angka dari API, bukan karangan (#869)", () => {
       .locator("xpath=ancestor::div[contains(@class,'rounded')][1]");
     await expect(card).toBeVisible();
 
-    // Tahfidz juz must equal what the API sent — the pre-fix lookup key
-    // (`studentId`) left this at 0.
-    const juz = summary!.lastTahfidz?.juz ?? 0;
-    await expect(
-      card.getByText(new RegExp(`Tahfidz:\\s*${juz} Juz`)),
-    ).toBeVisible();
+    // Tahfidz must show the memorized total (`memorizedJuz`), not the last
+    // setoran's juz number: the pre-fix page printed `lastTahfidz.juz`, so a
+    // single ayah of juz 30 read as "30 Juz" (issue #869 review).
+    if (summary!.memorizedJuz == null) {
+      await expect(card.getByText(/Tahfidz:\s*—/)).toBeVisible();
+    } else {
+      await expect(
+        card.getByText(new RegExp(`Tahfidz:\\s*${summary!.memorizedJuz} Juz`)),
+      ).toBeVisible();
+    }
 
     // The English label is gone; the tile is Indonesian and conditional.
     await expect(page.getByText("Harmony Asrama")).toHaveCount(0);

@@ -146,6 +146,14 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   last seven `recentAttendance` rows (`PRESENT`); the asrama tile renders only
   when a placement exists. Pelanggaran/Penghargaan/Dompet tiles are deferred to
   #764 (K13.3). Tests: API service, web unit and e2e `/parent`.
+  - **Review fix (K13.4, 2026-11-12).** The card and the tahfidz dimension of
+    the holistic score had read `lastTahfidz.juz` — the juz a setoran *sits in*,
+    not hafalan — so one ayah of juz 30 showed "30 Juz" and scored 100. Both now
+    use `memorizedJuz`: the ZIYADAH ayah per juz (murojaah excluded), each juz
+    weighed by its own size, in the DTO as `memorizedJuz` (`null` when no
+    ZIYADAH record, never `0`). The page also moved off a bare `api.get` in a
+    `useEffect` onto `useParentChildren`/`useParentDashboard` (the data-layer
+    rule).
 
 - **Open PRs, 2026-10-13:** #777 (the gate watch; ready, all checks green,
   waiting on the review gate), #668 and #775, #804 (draft). Merged since

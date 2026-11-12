@@ -7,7 +7,7 @@ vi.mock('../../../lib/prisma', () => {
     attendance: { groupBy: vi.fn(), findMany: vi.fn() },
     invoice: { groupBy: vi.fn() },
     permit: { groupBy: vi.fn() },
-    tahfidzRecord: { findMany: vi.fn() },
+    tahfidzRecord: { findMany: vi.fn(), groupBy: vi.fn() },
     academicYear: { findMany: vi.fn() },
     roomAssignment: { findMany: vi.fn() },
     grade: { findMany: vi.fn(), groupBy: vi.fn() },
@@ -42,7 +42,7 @@ const mockPrisma = prisma as unknown as {
   };
   invoice: { groupBy: ReturnType<typeof vi.fn> };
   permit: { groupBy: ReturnType<typeof vi.fn> };
-  tahfidzRecord: { findMany: ReturnType<typeof vi.fn> };
+  tahfidzRecord: { findMany: ReturnType<typeof vi.fn>; groupBy: ReturnType<typeof vi.fn> };
   academicYear: { findMany: ReturnType<typeof vi.fn> };
   roomAssignment: { findMany: ReturnType<typeof vi.fn> };
   grade: {
@@ -302,6 +302,7 @@ describe('ParentService.getDashboardSummary (#869)', () => {
     mockPrisma.invoice.groupBy.mockResolvedValue([]);
     mockPrisma.permit.groupBy.mockResolvedValue([]);
     mockPrisma.tahfidzRecord.findMany.mockResolvedValue([]);
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([]);
     mockPrisma.academicYear.findMany.mockResolvedValue([]);
     mockPrisma.roomAssignment.findMany.mockResolvedValue([]);
     mockPrisma.grade.groupBy.mockResolvedValue([]);
@@ -346,6 +347,11 @@ describe('ParentService.getDashboardSummary (#869)', () => {
     mockPrisma.invoice.groupBy.mockResolvedValue([{ studentId: 's1', _count: { id: 2 } }]);
     mockPrisma.permit.groupBy.mockResolvedValue([]);
     mockPrisma.tahfidzRecord.findMany.mockResolvedValue([{ id: 't1', studentId: 's1', juz: 5 }]);
+    // A full juz 1 (148 ayat) is 1 juz; the last setoran's `juz: 5` must not be
+    // read as "5 juz memorized" (#869 review).
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 1, _sum: { totalAyah: 148 } },
+    ]);
     mockPrisma.academicYear.findMany.mockResolvedValue([{ id: 'ay1' }]);
     mockPrisma.grade.groupBy.mockResolvedValue([{ studentId: 's1', _avg: { percentage: 88 } }]);
     mockPrisma.violation.groupBy.mockResolvedValue([]);
@@ -365,6 +371,7 @@ describe('ParentService.getDashboardSummary (#869)', () => {
     expect(entry.recentAttendance).toHaveLength(3);
     expect(entry.pendingInvoices).toBe(2);
     expect(entry.lastTahfidz).toEqual({ id: 't1', studentId: 's1', juz: 5 });
+    expect(entry.memorizedJuz).toBe(1);
     expect(entry.holisticScore).not.toBeNull();
     expect(entry.boardingHarmonyScore).toBe(91);
   });
@@ -377,6 +384,56 @@ describe('ParentService.getDashboardSummary (#869)', () => {
     expect(result.children[0].holisticScore).toBeNull();
     expect(result.children[0].boardingHarmonyScore).toBeNull();
     expect(result.children[0].lastTahfidz).toBeNull();
+    // No ZIYADAH record → no memorization figure, not "0 juz" (#869 review).
+    expect(result.children[0].memorizedJuz).toBeNull();
+  });
+
+  it('reads hafalan from the ZIYADAH aggregate, not the last setoran juz number (#869 review)', async () => {
+    // The santri recited a single ayah of juz 30; the last setoran's `juz` is
+    // 30 but the memorized amount is a fraction of one juz, and the tahfidz
+    // dimension must not read as a full 100.
+    primeEmpty();
+    mockPrisma.tahfidzRecord.findMany.mockResolvedValue([{ id: 't1', studentId: 's1', juz: 30 }]);
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 30, _sum: { totalAyah: 6 } },
+    ]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    const entry = result.children[0];
+    // 6 of juz 30's 564 ayat = 0.0106… → 0.01, never 30.
+    expect(entry.memorizedJuz).toBe(0.01);
+    expect(entry.memorizedJuz).not.toBe(30);
+    // The only dimension with data is a sliver of a juz, so the score is tiny.
+    expect(entry.holisticScore).not.toBeNull();
+    expect(entry.holisticScore).toBeLessThan(1);
+  });
+
+  it('does not let a murojaah of another juz change the hafalan figure (#869 review)', async () => {
+    // Only ZIYADAH records count; the murojaah rows are not in the aggregate
+    // the service reads (the mock's `groupBy` returns ZIYADAH sums only).
+    primeEmpty();
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 28, _sum: { totalAyah: 137 } },
+    ]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    // A full juz 28 (137 ayat) is 1 juz, and a murojaah of juz 1 adds nothing.
+    expect(result.children[0].memorizedJuz).toBe(1);
+  });
+
+  it('sums a partially-memorized juz as a fraction (#869 review)', async () => {
+    primeEmpty();
+    // Half of juz 29 (431 ayat) plus all of juz 30 (564 ayat) = 1.5 juz.
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 29, _sum: { totalAyah: 215.5 } },
+      { studentId: 's1', juz: 30, _sum: { totalAyah: 564 } },
+    ]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    expect(result.children[0].memorizedJuz).toBe(1.5);
   });
 
   it('keeps boardingHarmonyScore null for a santri with no asrama placement', async () => {
