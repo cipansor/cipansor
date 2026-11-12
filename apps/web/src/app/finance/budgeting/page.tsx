@@ -22,7 +22,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { Budget } from "@cipansor/shared";
+import { Budget, AccountType } from "@cipansor/shared";
 import { Loader2, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
 import {
   AlertDialog,
@@ -47,20 +47,9 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { MainLayout } from "@/components/layout";
+import { useBudgets, useAccountCodes } from "@/hooks/use-finance-enhancement";
 
-// Helper Hooks
-const useBudgets = (unitId: string, academicYearId: string) => {
-  return useQuery({
-    queryKey: ["budgets", unitId, academicYearId],
-    queryFn: async () => {
-      const res = await api.get(`/finance-enhancement/budgets`, {
-        params: { unitId, academicYearId },
-      });
-      return res.data.data;
-    },
-    enabled: !!unitId && !!academicYearId,
-  });
-};
+const PAGE_SIZE = 20;
 
 const useUnits = () => {
   return useQuery({
@@ -82,16 +71,16 @@ const useAcademicYears = () => {
   });
 };
 
-const useExpenseAccounts = () => {
-  return useQuery({
-    queryKey: ["accounts", "EXPENSE"],
-    queryFn: async () => {
-      const res = await api.get("/finance-enhancement/account-codes", {
-        params: { type: "EXPENSE", limit: 100 },
-      });
-      return res.data.data;
-    },
+const useExpenseAccounts = (unitId?: string) => {
+  // The shared hook scopes server-side to the unit's own accounts plus the
+  // shared (`unitId: null`) ones; the list is used as returned.
+  const { data } = useAccountCodes({
+    type: AccountType.EXPENSE,
+    limit: 100,
+    unitId,
+    enabled: !!unitId,
   });
+  return { data: data?.data };
 };
 
 const useCreateBudget = () => {
@@ -144,15 +133,25 @@ const useRecalculateBudget = () => {
 function BudgetingPageContent() {
   const { data: units } = useUnits();
   const { data: years } = useAcademicYears();
-  const { data: accounts } = useExpenseAccounts();
 
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedYearId, setSelectedYearId] = useState<string>("");
+  // The shared hook scopes to the chosen unit plus the shared accounts
+  // server-side, so the list is used as returned.
+  const { data: accounts } = useExpenseAccounts(selectedUnitId || undefined);
+  const availableAccounts = accounts ?? [];
+  const [page, setPage] = useState(1);
 
-  const { data: budgets, isLoading } = useBudgets(
-    selectedUnitId,
-    selectedYearId,
-  );
+  const { data: budgetResult, isLoading } = useBudgets({
+    unitId: selectedUnitId,
+    academicYearId: selectedYearId,
+    page,
+    limit: PAGE_SIZE,
+    enabled: !!selectedUnitId && !!selectedYearId,
+  });
+  const budgets = budgetResult?.data ?? [];
+  const meta = budgetResult?.meta;
+  const totalPages = meta?.pagination?.totalPages ?? 1;
   const createBudget = useCreateBudget();
   const deleteBudget = useDeleteBudget();
   const updateBudget = useUpdateBudget();
@@ -274,7 +273,7 @@ function BudgetingPageContent() {
                       <SelectValue placeholder="Pilih Akun" />
                     </SelectTrigger>
                     <SelectContent>
-                      {accounts?.map((acc: any) => (
+                      {availableAccounts.map((acc) => (
                         <SelectItem key={acc.id} value={acc.id}>
                           {acc.code} - {acc.name}
                         </SelectItem>
@@ -319,7 +318,13 @@ function BudgetingPageContent() {
       </div>
 
       <div className="flex gap-4">
-        <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
+        <Select
+          value={selectedUnitId}
+          onValueChange={(val) => {
+            setSelectedUnitId(val);
+            setPage(1);
+          }}
+        >
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Pilih Unit" />
           </SelectTrigger>
@@ -332,7 +337,13 @@ function BudgetingPageContent() {
           </SelectContent>
         </Select>
 
-        <Select value={selectedYearId} onValueChange={setSelectedYearId}>
+        <Select
+          value={selectedYearId}
+          onValueChange={(val) => {
+            setSelectedYearId(val);
+            setPage(1);
+          }}
+        >
           <SelectTrigger className="w-[200px]">
             <SelectValue placeholder="Pilih Tahun Ajaran" />
           </SelectTrigger>
@@ -467,6 +478,32 @@ function BudgetingPageContent() {
                 )}
               </TableBody>
             </Table>
+          )}
+
+          {totalPages > 1 && (
+            <div className="flex items-center justify-between pt-4">
+              <span className="text-sm text-muted-foreground">
+                Halaman {page} dari {totalPages}
+              </span>
+              <div className="flex gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Sebelumnya
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= totalPages}
+                  onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                >
+                  Berikutnya
+                </Button>
+              </div>
+            </div>
           )}
         </CardContent>
       </Card>

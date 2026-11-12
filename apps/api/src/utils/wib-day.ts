@@ -13,6 +13,17 @@ export function wibDayEnd(day: string): Date {
 }
 
 /**
+ * The exclusive `lt` bound that makes a date-only `Invoice.dueDate` overdue:
+ * the first instant of today's WIB day. A bill due WIB day D is stored at
+ * D 00:00Z and stays due through the whole of D, so it is overdue only once D
+ * has ended. Comparing the column to `new Date()` instead made a bill overdue
+ * at 07:00 WIB on its own due date, because D 00:00Z is exactly that instant.
+ */
+export function wibOverdueCutoff(now: Date = new Date()): Date {
+  return wibDayStart(wibDayOf(now));
+}
+
+/**
  * A report bound a request carries as a date — the date-only `YYYY-MM-DD` the
  * report pages send — as the instant a `DateTime` column filter needs.
  *
@@ -47,6 +58,12 @@ export function wibYearBounds(moment: Date): { start: Date; end: Date } {
  * holds the same value, so every reader that stringifies it without a timezone
  * (`toLocaleDateString('id-ID')`) and every filter that bounds it with a UTC
  * first-of-month agree on the day.
+ *
+ * `Invoice.dueDate` now has this one canonical form: every writer stores it
+ * through here or through another midnight-UTC helper — the manual
+ * `createInvoice`/`updateInvoice` path, the recurring and bulk SPP runs, the
+ * course enrollment invoice, and the seed — so the column holds midnight UTC
+ * everywhere (#811).
  */
 export function dayDate(day: string): Date {
   return new Date(`${day}T00:00:00.000Z`);

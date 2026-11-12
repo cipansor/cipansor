@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Prisma } from '@prisma/client';
 import * as prismaClient from '@prisma/client';
 
@@ -48,6 +48,7 @@ import * as financeService from '../finance.service';
 import * as notificationService from '../../notifications/notifications.service';
 
 import { eventBus } from '@/lib/event-bus';
+import { dayDate, wibDayOf } from '@/utils/wib-day';
 
 vi.mock('../../notifications/notifications.service', () => ({
   createNotification: vi.fn(),
@@ -543,5 +544,55 @@ describe('bill and payment reads: scope and fields', () => {
     ]);
     const paymentWhere = (vi.mocked(prisma.payment.findMany).mock.calls[0][0] as any).where;
     expect(paymentWhere).toEqual({ invoice: invoiceWhere });
+  });
+});
+
+// A course invoice is due on a WIB calendar day stored as midnight UTC (07:00
+// WIB). `overdue` must mean the WIB day has ended, not that the clock passed
+// 07:00 on the due date itself. The due date below is the one the enrollment
+// path writes for the report's example: registering 19 Nov 10:00 WIB bills
+// seven WIB days later, on 26 November.
+describe('a course bill is overdue only after its WIB due day ends', () => {
+  const smpTu = { sub: 'u-tu', role: 'STAFF', roleCode: 'SMPIT_TATA_USAHA', unitId: 'unit-smp' };
+  const page = { page: 1, limit: 20 };
+  const REGISTERED = new Date('2026-11-19T03:00:00.000Z'); // 19 Nov 2026 10:00 WIB
+  const DUE = dayDate(wibDayOf(new Date(REGISTERED.getTime() + 7 * 24 * 60 * 60 * 1000)));
+
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(prisma.invoice.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.invoice.count).mockResolvedValue(0 as any);
+    vi.mocked(prisma.payment.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.payment.count).mockResolvedValue(0 as any);
+    vi.useFakeTimers({ toFake: ['Date'] });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  const isOverdueAt = async (instant: string) => {
+    vi.setSystemTime(new Date(instant));
+    await financeService.getInvoices({ ...page, overdue: true } as any, smpTu);
+    const { dueDate } = (vi.mocked(prisma.invoice.findMany).mock.calls[0][0] as any).where.AND[1];
+    return DUE < (dueDate.lt as Date);
+  };
+
+  it('stores the bill due on 26 November', () => {
+    expect(DUE.toISOString()).toBe('2026-11-26T00:00:00.000Z');
+  });
+
+  it('does not list the bill as overdue on the morning of its due date', async () => {
+    // 26 Nov 2026 08:00 WIB — before the fix `lt: now` had already passed the
+    // stored 26 Nov 00:00Z, so the bill showed as overdue at breakfast.
+    expect(await isOverdueAt('2026-11-26T01:00:00.000Z')).toBe(false);
+  });
+
+  it('does not list the bill as overdue in the last hour of its due date', async () => {
+    expect(await isOverdueAt('2026-11-26T16:30:00.000Z')).toBe(false); // 23:30 WIB
+  });
+
+  it('lists the bill as overdue on the following WIB day', async () => {
+    expect(await isOverdueAt('2026-11-27T01:00:00.000Z')).toBe(true); // 27 Nov 08:00 WIB
   });
 });

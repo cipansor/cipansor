@@ -811,3 +811,186 @@ sensitif; peninjau menandainya. Angka-angka itu dihapus dari repo (pelajarannya
 tetap, angkanya tidak) dan hanya hidup di memory mesin. Pola yang sama sudah
 pernah terjadi sebelumnya dengan kuota sandbox: **menulis hasil observasi live
 terasa seperti pengetahuan, tetapi jam dan nomor run adalah detail insiden.**
+
+**PR draf tidak terlihat oleh gerbang — dan tidak ada yang menua-kannya.**
+Insiden yang memicu konsolidasi 2026-11-12: sebuah PR dibuka sebagai **draf**,
+CI-nya hijau, tetapi tidak ada satu pun yang memindahkannya ke siap-ditinjau.
+`pr-lifecycle.sh` sengaja **tidak** mengubah draf/siap (itu keputusan maintainer),
+dan `Tiket jadi PR` yang membukanya berhenti setelah draf. Akibatnya PR itu
+diam sampai manusia menandainya siap, dan issue-nya tetap `ready` (antrean
+menganggapnya belum dikerjakan). Dua pelajaran tetap:
+
+1. **"Siap ditinjau" adalah langkah yang harus dimiliki seseorang.** Membuka draf
+   lalu berhenti berarti pekerjaan yang mati diam bila uji sudah hijau. `Tiket
+   jadi PR` kini menaikkan PR-nya sendiri ke siap-ditinjau saat uji lokal hijau
+   dan kriteria terpenuhi; draf tetap menjadi jalan keluar bila belum.
+2. **Klaim issue tidak boleh bergantung pada prompt LLM.** Memindahkan `ready`
+   → `in-progress` kini deterministik (`.github/workflows/issue-claim.yml`), bukan
+   instruksi di prompt: satu langkah, satu pemilik, sehingga keadaan label tidak
+   bisa berselisih antara dua penulis.
+
+**Balasan maintainer sudah ditangani jembatan triase.** `Diskusi` (SDLC 22)
+mengawasi balasan maintainer pada issue `question` lewat `issue_comment.created`,
+padahal `issue-triage-bridge.sh` **sudah** mendispatch `Triase issue` pada setiap
+aktivitas non-armada — termasuk balasan maintainer. Dua pemilik untuk satu
+komentar berarti dua run sandbox dan dua balasan untuk satu pertanyaan; `Diskusi`
+dipensiunkan dan perannya masuk ke tail `Triase issue`.
+
+**QA bukan pemilik terpisah.** `Peninjau kode` (SDLC 08) dan `Otomasi QA`
+(SDLC 10) sama-sama menulis putusan per head, sehingga satu head bisa menerima
+dua review yang berselisih. Keduanya dilebur ke `Gerbang tinjau PR` (SDLC 18):
+satu gerbang meninjau kode **dan** menilai alur yang berubah (membaca berkas tes
+dan check-run E2E, bukan `pnpm install`, karena anggaran waktu melarangnya).
+Hasil QA hidup di bagian `<!-- sdlc:gerbang -->` yang sama, bukan `sdlc:qa`.
+
+**Diagnosis kegagalan `main` tidak butuh LLM.** `Pemantau deployment` (SDLC 12)
+dipensiunkan: `main-failure-bridge.yml` kini membuka **satu issue per workflow**
+lewat `.github/scripts/main-failure-report.sh` (deterministik, tanpa
+`OPENHANDS_API_KEY`), dan maintainer membaca penyebabnya dari tab Actions. Pola
+"peringatan deterministik, penilaian manual" yang sama dengan `stale-sweep` dan
+`docs-drift`.
+
+**Gerbang tidak menulis "putusan akhir".** Pemilik menandai satu judul bagian di
+deskripsi PR ("Gerbang tinjau — putusan akhir", PR #1033, 2026-11-12): putusan
+gerbang adalah **rekomendasi**, bukan kata terakhir — merge tetap milik
+maintainer, dan bahasa yang menyebut dirinya final membuat bot tampak memutuskan
+sendiri. Aturan itu tidak hanya untuk gerbang: ia hidup di `BODY_BLOCK`
+bersama (deploy script), sehingga SETIAP automation terikat — satu automation
+lain pun pernah memberi judul komentarnya "putusan akhir". Prompt SDLC 18
+menambahkan penegasannya (pakai "putusan tinjauan"/"putusan gerbang", judul
+`## Gerbang tinjau — putusan (head <sha>)`), dan satu guard test menolak frasa
+itu kembali ke prompt mana pun. Aturan tetap: **kata-kata yang memberi bot
+wewenang yang bukan miliknya adalah cacat, bukan gaya bahasa.**
+
+**Pintu masuk PR: issue `ready` dulu, dan itu ditolak bila tidak ada.** Pemilik
+meminta (2026-11-12) agar AI yang diminta membuat PR memeriksa lebih dulu: bila
+belum ada issue, arahkan membuat issue dulu, dan **tolak keras** membuka PR tanpa
+issue berlabel `ready`; issue maupun PR wajib mengikuti templat dan ketentuan
+SDLC. Sebelumnya aturan ini hanya hidup sebagai **penegakan** — `PR description`
+merah, dan gerbang repo menolak merge — tanpa satu pun tempat yang memberi tahu
+agen apa yang harus dilakukan **sebelum** mencoba. Penegakan yang benar tetapi
+tak terbaca sebelum percobaan hanya menghasilkan PR merah, bukan penolakan.
+
+Rumahnya dipilih sesuai `AGENTS.md` → "Where things live":
+
+- **Aturan** — aturan emas 6 `AGENTS.md` ditulis ulang: "PR selalu lahir dari
+  issue terbuka dan `ready`", dengan penolakan eksplisit sebagai jawaban yang
+  benar, bukan celah yang dilewati.
+- **Prosedur** — skill baru `.claude/skills/buat-pr/SKILL.md` (langkah: cari
+  issue → belum ada, buat lewat formulir dan tunggu `Triase issue` memasang
+  `ready` → tolak bila belum layak → isi templat → buka draf → naikkan saat
+  hijau). Ia juga memuat isian templat PR dan aturan `Fixes #<n>`.
+- **Penegakan** — tetap `pr-template-guard.sh` (tidak berubah); guard test
+  `pr-description.guard.test.ts` memaku skill-nya (ada, ada frontmatter, memuat
+  penolakan, memuat setiap bagian templat).
+- **Klasifikasi CI** — `.claude/skills/*/SKILL.md` kini "code" di
+  `change-scope.sh`, karena satu guard test membacanya; tanpa itu perubahan pada
+  skill dilewati CI dan `change-scope.guard.test.ts` merah.
+
+Dua hal yang **sengaja tidak** dilakukan: memasang `ready` sendiri (itu wewenang
+`Triase issue` — memasangnya sendiri persis cacat yang aturan ini cegah), dan
+memakai `Refs`/PR tanpa tautan sebagai jalan keluar.
+
+### Deploy 2026-11-12 dijalankan — repo sudah memutuskan, cloud belum tahu
+
+Pemilik menemukan SDLC 08/10/12/22 **masih ada** di OpenHands Cloud padahal
+keputusan 2026-11-12 sudah menetapkan pensiun. Sebabnya bukan keputusan yang
+belum dibuat: entri `RETIRED`-nya sudah ada di repo (PR #1057), tetapi **skrip
+deploy belum pernah dijalankan** — `RETIRED` hanya berlaku sesudah
+`DEPLOY=true`. Selama itu, repo dan cloud berbeda dan cloud-lah yang menjalankan
+perilaku lama.
+
+Setelah `DEPLOY=true` dijalankan 2026-11-12: armada live **11 ON / 13 OFF**, dan
+tidak ada satu pun kunci `RETIRED` yang masih ON. Empat automation yang diminta
+pemilik (SDLC 08/10/12/22) kini `off`. Empat prompt juga naik ke versi PR
+(SDLC 06/15/16/18), masing-masing diverifikasi masih memuat `BODY_BLOCK` dan
+tail-nya (dibaca balik dari API, bukan dari tarball lokal).
+
+**Pelajaran.** Keputusan di repo tidak mengubah cloud. `enabled` dan `prompt`
+hanya berubah lewat `PATCH`, jadi pertanyaan "apakah automation X masih ada?"
+hanya dijawab `GET /api/automation/v1` — bukan dengan membaca repo. Sama seperti
+catatan audit 2026-11-11, **audit armada harus membandingkan state live dengan
+repo setiap kali.**
+
+### SDLC 16 · Penjernih issue dipensiunkan 2026-11-12 (opsi (a))
+
+Keputusan 2026-11-12 semula mencakup SDLC 08/10/12/22 saja; **SDLC 16 sempat
+dipertahankan** karena desainnya memang membagi klarifikasi kepada dua pemilik
+(docs/SDLC-FLOW.md, tabel alur baris 3): `Penjernih issue` untuk balasan
+**pelapor**, `Triase issue` untuk balasan **maintainer**. Filter trigger-nya
+sengaja berlawanan sejak 2026-11-11 — SDLC 16 menyaring
+`comment.author_association != OWNER/MEMBER/COLLABORATOR` (hanya pelapor),
+sedangkan filter SDLC 22 yang pensiun justru sebaliknya (hanya maintainer).
+
+**Namun pembagian itu ternyata tidak berlaku di lapangan.** Sweep jembatan
+triase memilih `repo:$REPO is:issue is:open -label:ready`
+(`.github/scripts/issue-triage-bridge.sh`). Issue `question` tidak `ready`, jadi
+**ikut tersapu**, dan sinyal aktivitasnya memuat setiap komentar non-armada —
+termasuk balasan pelapor. Akibatnya satu balasan pelapor pada issue `question`
+membangunkan **dua** agen: SDLC 16 (pemicu `issue_comment.created`) dan SDLC 15
+(dispatch jembatan). Itu cacat "satu komentar, dua pemilik" yang sama persis
+dengan yang memensiunkan SDLC 22, hanya di sisi pelapor.
+
+**Keputusan pemilik 2026-11-12: opsi (a)** — pensiunkan SDLC 16 dan serahkan
+balasan pelapor ke SDLC 15 lewat jembatan (konsisten dengan SDLC 22). Opsi (b)
+(kecualikan issue `question` dari sweep) ditolak: jembatan sudah menangani kedua
+sisi, dan "satu pemilik per langkah" adalah invarian armada.
+
+Yang berubah: entri `RETIRED["SDLC 16"]`, tail `SDLC 16` dihapus dari `TAILS`,
+entri `TRIGGERS["SDLC 16"]` dihapus, dan tail SDLC 15 mendapat bagian `BALASAN
+PELAPOR`. Karena `RETIRED` hanya berlaku saat deploy, **SDLC 16 tetap hidup di
+cloud sampai `DEPLOY=true` dijalankan** — pola yang sama dengan temuan deploy
+sebelumnya.
+
+### SDLC 04 · Peninjau arsitektur dipensiunkan 2026-11-12 (keputusan pemilik)
+
+Diminta pemilik 2026-11-12: "cek automate `Bot sebutan` (SDLC 07) dan `Peninjau
+arsitektur` (SDLC 04), apa masih diperlukan, karena sudah lama tidak digunakan."
+Temuan atas SDLC 04 jauh lebih keras daripada "jarang dipakai": **pemicunya tidak
+pernah bisa menyala**.
+
+- Pemicunya `pull_request.opened` + filter `pull_request.draft == `false`` +
+  judul memuat design/rfc/arsitektur/adr. Tapi `Tiket jadi PR` (SDLC 06) **selalu**
+  membuka PR sebagai **DRAF**, dan promosi draf memancarkan `ready_for_review` —
+  bukan `pull_request.opened`. Jadi filter `draft == false` tak pernah cocok
+  untuk satu pun PR armada.
+- Bukti run: seumur hidupnya **satu** run (2026-10-07), dan run itu sendiri
+  menyebut PR #669 sebagai "placeholder architecture note … safe to delete" —
+  smoke test. Judul PR seumur repo: 2 untuk `design` (keduanya sekitar smoke
+  test), 0 untuk `rfc`/`arsitektur`/`adr`.
+- Pemicunya **tidak pernah dikelola `TRIGGERS`** di deploy script (hanya 07/06/18
+  yang ada) — hidup hanya di cloud, melanggar prinsip "satu sumber kebenaran".
+
+**Keputusan pemilik 2026-11-12: opsi (a) — pensiunkan.** Peran tinjauan desain
+**tidak** dipindahkan: `Gerbang tinjau PR` (SDLC 18) sudah meninjau setiap PR
+non-draf termasuk dokumen desain, dan maintainer membaca dokumen desain langsung.
+Opsi (b) — perbaiki pemicu jadi `pull_request.ready_for_review` + tambah peran
+tinjau desain ke SDLC 18 — ditolak karena menambah cakupan ke gerbang yang sudah
+punya anggaran waktu ketat tanpa kebutuhan nyata.
+
+Yang berubah: hanya entri `RETIRED["SDLC 04"]`. Tidak ada tail untuk dihapus
+(SDLC 04 tak pernah punya entri `TAILS`) dan tidak ada trigger untuk dihapus (tak
+pernah ada di `TRIGGERS`). Karena `RETIRED` hanya berlaku saat deploy,
+**SDLC 04 tetap hidup di cloud sampai `DEPLOY=true`** — pola yang sama dengan
+SDLC 16. Deploy 2026-11-12 menjalankannya: `disabled (retired)`, live 9 ON/24.
+
+**Pelajaran verifikasi:** `search/issues?q=@cipansor-bot` (1053 hasil) dan
+`q=cipansor-bot` (378) mencocokkan **body** & dokumen, bukan komentar — angka
+besar itu menyesatkan. Pemakaian sebutan harus dihitung dari
+`GET /issues/<n>/comments` dan disaring `user.login`. Dengan cara itu: 5 komentar
+sebutan manusia seumur repo (semua `adminypc`), terakhir 2026-11-03.
+
+### SDLC 07 · Bot sebutan — DIPERTAHANKAN 2026-11-12
+
+Diperiksa bersama SDLC 04; keputusan pemilik: pertahankan (belum diputuskan
+eksplisit soal tumpang tindih jembatan triase). Ia kanal **on-demand**, bukan
+yang diharapkan jalan tiap hari, jadi "jarang dipakai" bukan alasan pensiun.
+Angka "40 run, 15 gagal" menyesatkan: ~25 run terjadi 10-07..10-14, **sebelum
+guard penulis** (ditetapkan 2026-10-14) — masa bot saling membalas. Pasca-guard
+ia menyala ~1× per sebutan nyata (5 sebutan manusia seumur repo). Kegagalannya
+mayoritas infrastruktur (`Sandbox not available`, timeout).
+
+Tumpang tindih yang dicatat, belum diputuskan: sinyal aktivitas jembatan triase
+memuat setiap komentar non-armada, jadi sebutan `@cipansor-bot` pada issue
+terbuka non-`ready` membangunkan SDLC 07 **dan** SDLC 15 — kelas "satu komentar,
+dua pemilik" yang sama dengan SDLC 16/22.

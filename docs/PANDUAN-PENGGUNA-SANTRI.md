@@ -5,6 +5,7 @@
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo santri pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
 | 0.2 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Gambar Papan Peringkat diambil ulang dari halaman `/ibadah/leaderboard` (tangkapan pertama keliru memakai layar Jurnal Ibadah); kartu "Menetapkan target ibadah" memakai tangkapan halaman **Kelola Target Ibadah** yang sebenarnya, bukan Jurnal Ibadah |
 | 0.3 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Daftar tugas tidak lagi mencantumkan **Menetapkan target ibadah** (tindakan pengelola unit, bukan santri) dan diganti dengan **Melihat target ibadah**; baris pemecahan masalah target tidak lagi membahas penghapusan target (hak pengelola) melainkan kegagalan memuat daftar target |
+| 0.4 | 11 November 2026 | aplikasi berjalan dari `main` `edd4800` | **T1 — terverifikasi di aplikasi berjalan** | Langkah dan keterangan Papan Peringkat dikoreksi: istilah **ketekunan** (tidak ada di layar) diganti nama kontrol nyata — kolom **Capaian target** dan judul kartu **Peringkat di unitmu, berdasarkan total poin ibadah**. Gambar `16-papan-peringkat.png` diambil ulang karena kolom *streak* dibuang pada #714 dan kini menampilkan persentase capaian target |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo santri, dan tiap kartu memuat tangkapan
@@ -104,16 +105,18 @@ Giliran guru tahfidz atau musyrif mencatat setoran berikutnya.
    *Catatan ibadah hari ini dan target Anda tampil.*
 2. Catat ibadah yang sudah Anda jalankan.
    *Catatan tersimpan pada jurnal harian Anda.*
-3. Buka **Papan Peringkat** untuk melihat posisi ketekunan Anda.
-   *Peringkat beserta **Posisi Kamu** tampil.*
+3. Buka **Papan Peringkat** untuk melihat posisi ibadah Anda di unit Anda.
+   *Kartu **Posisi Kamu** menampilkan peringkat dan poin Anda. Baris
+   **Peringkatmu** menampilkan persentase **Capaian target** (ikon *Target*)
+   beserta poin Anda.*
 
 ![Gambar 2. Jurnal Ibadah: catatan sholat, tilawah, dan target ibadah.](screens/keseharian-santri/03-jurnal-ibadah.png){width=14cm}
 
 *Gambar 2. Jurnal Ibadah: catatan sholat, tilawah, dan target ibadah.*
 
-![Gambar 3. Papan Peringkat: peringkat ketekunan ibadah antar santri.](screens/keseharian-santri/16-papan-peringkat.png){width=14cm}
+![Gambar 3. Papan Peringkat: posisi ibadah Anda dan capaian target di unit Anda.](screens/keseharian-santri/16-papan-peringkat.png){width=14cm}
 
-*Gambar 3. Papan Peringkat: peringkat ketekunan ibadah antar santri.*
+*Gambar 3. Papan Peringkat: posisi ibadah Anda dan capaian target di unit Anda.*
 
 **Hasilnya, dan giliran siapa berikutnya.** Jurnal dan poin ibadah Anda
 diperbarui. Giliran wali kelas atau musyrif memverifikasinya.

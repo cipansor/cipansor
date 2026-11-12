@@ -63,6 +63,7 @@ jobs:
   gate:
     name: Check release prerequisites
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       # Full history: the gate asks whether the tag's commit is on `main`, which
       # a shallow checkout cannot answer.
@@ -89,6 +90,7 @@ jobs:
     name: Release to production
     needs: gate
     runs-on: ubuntu-latest
+    timeout-minutes: 45
     environment: production
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7

@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { UserRole } from '@prisma/client';
 import { shiftWibDay, todayWib, wibWeekday } from '@/utils/wib';
-import { wibDayOf, wibDayStart } from '@/utils/wib-day';
+import { wibDayOf, wibDayStart, wibOverdueCutoff } from '@/utils/wib-day';
 import type {
   ParentEngagementStats,
   ParentEngagementClassBreakdown,
@@ -133,7 +133,7 @@ export async function getParentEngagement(unitId?: string): Promise<ParentEngage
       prisma.invoice.count({
         where: {
           student: studentFilter,
-          dueDate: { gte: daysAgo(INVOICE_WINDOW_DAYS), lt: new Date() },
+          dueDate: { gte: daysAgo(INVOICE_WINDOW_DAYS), lt: wibOverdueCutoff() },
           status: { not: 'PAID' },
         },
       }),

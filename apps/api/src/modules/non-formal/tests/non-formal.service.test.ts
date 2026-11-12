@@ -61,6 +61,7 @@ const enroll = () =>
   } as never);
 
 const invoiceNumber = () => tx.invoice.create.mock.calls[0][0].data.invoiceNumber as string;
+const invoiceDueDate = () => tx.invoice.create.mock.calls[0][0].data.dueDate as Date;
 const lookedUpPrefix = () =>
   tx.invoice.findFirst.mock.calls[0][0].where.invoiceNumber.startsWith as string;
 
@@ -97,5 +98,30 @@ describe('course invoice number follows the WIB month', () => {
 
     expect(lookedUpPrefix()).toBe('INV-CRS-202701');
     expect(invoiceNumber()).toBe('INV-CRS-202701-00001');
+  });
+});
+
+describe('course invoice dueDate is a date-only WIB day (#811)', () => {
+  it('is midnight UTC of the WIB day 7 days out', async () => {
+    // 20 Nov 2026 02:00 WIB (19 Nov 21:00 UTC). +7 days of wall clock is
+    // 27 Nov 02:00 WIB — the WIB day is 27 November, and the column keeps that
+    // day at midnight UTC, not the wall-clock instant.
+    vi.setSystemTime(new Date('2026-11-19T21:00:00.000Z'));
+    tx.invoice.findFirst.mockResolvedValue(null);
+
+    await enroll();
+
+    expect(invoiceDueDate().toISOString()).toBe('2026-11-27T00:00:00.000Z');
+  });
+
+  it('resolves the WIB day, not the UTC day, near midnight', async () => {
+    // 1 Jan 2027 00:30 WIB (31 Dec 2026 17:30 UTC). +7 days is 8 Jan 00:30 WIB;
+    // the UTC day of that instant is 7 Jan, so a UTC-day read would be wrong.
+    vi.setSystemTime(new Date('2026-12-31T17:30:00.000Z'));
+    tx.invoice.findFirst.mockResolvedValue(null);
+
+    await enroll();
+
+    expect(invoiceDueDate().toISOString()).toBe('2027-01-08T00:00:00.000Z');
   });
 });

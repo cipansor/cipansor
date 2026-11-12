@@ -24,7 +24,7 @@ import {
 import { seesAllUnits } from '@/utils/resolve-unit-id';
 import { CLASS_ENROLLMENT_STATUS, STUDENT_STATUS } from '@cipansor/shared';
 import { nisMapForUnit } from '@/utils/student-nis';
-import { wibMonthYear, wibDate, dayDate, utcMonthRange } from '@/utils/wib-day';
+import { wibMonthYear, wibDate, dayDate, utcMonthRange, wibOverdueCutoff } from '@/utils/wib-day';
 
 // =====================================
 // PAYMENT TYPE SERVICE
@@ -321,8 +321,8 @@ export async function getInvoices(query: QueryInvoiceDto, currentUser: VerifierC
     ...(endDate && { lte: new Date(endDate) }),
   };
   if (overdue === true) {
-    const now = new Date();
-    dueDate.lt = dueDate.lt && dueDate.lt < now ? dueDate.lt : now;
+    const cutoff = wibOverdueCutoff();
+    dueDate.lt = dueDate.lt && dueDate.lt < cutoff ? dueDate.lt : cutoff;
   }
 
   const term = search?.trim();
@@ -1057,7 +1057,7 @@ export async function getStudentFinanceSummary(studentId: string) {
   const overdue = invoices.filter(
     (inv) =>
       (inv.status === PaymentStatus.PENDING || inv.status === PaymentStatus.PARTIAL) &&
-      new Date(inv.dueDate) < new Date()
+      inv.dueDate < wibOverdueCutoff()
   );
 
   return {
@@ -1123,7 +1123,7 @@ export async function getUnitFinanceStats(unitId: string, month?: string) {
  * whole yayasan's all-time totals under a card labelled "tahun ajaran aktif".
  */
 export async function getFinancialSummary(currentUser: VerifierContext, academicYearId?: string) {
-  const now = new Date();
+  const overdueCutoff = wibOverdueCutoff();
   const window = await billingWindowFor(academicYearId);
   const where: Prisma.InvoiceWhereInput = {
     AND: [invoiceScope(currentUser), window ? { dueDate: window } : {}],
@@ -1168,7 +1168,7 @@ export async function getFinancialSummary(currentUser: VerifierContext, academic
 
     const unpaid = inv.amount.sub(inv.paidAmount);
     const isSettled = inv.status === PaymentStatus.PAID;
-    if (!isSettled && inv.dueDate < now && unpaid.gt(0)) {
+    if (!isSettled && inv.dueDate < overdueCutoff && unpaid.gt(0)) {
       totalOverdue = totalOverdue.add(unpaid);
     }
 
@@ -1202,7 +1202,7 @@ export async function getStudentOutstandingBalances(unitId: string) {
     where: {
       paymentType: { unitId },
       status: { in: [PaymentStatus.PENDING, PaymentStatus.PARTIAL] },
-      dueDate: { lt: new Date() },
+      dueDate: { lt: wibOverdueCutoff() },
     },
     include: {
       student: {
@@ -1336,8 +1336,12 @@ export async function getSppMatrix(query: SppMatrixQuery) {
     'Dec',
   ];
 
-  const startDate = new Date(year, 0, 1);
-  const endDate = new Date(year, 11, 31, 23, 59, 59);
+  // `Invoice.dueDate` is date-only (midnight UTC), so bound the year and read
+  // the month on the UTC calendar — the same calendar `dayDate`/`wibDate` write
+  // to. A server-local `new Date(year, …)` would read the column in the
+  // server's zone and lose the last day for a negative-offset server (#811).
+  const startDate = new Date(Date.UTC(year, 0, 1));
+  const endDate = new Date(Date.UTC(year + 1, 0, 1));
 
   // Get all invoices for these students for the year
   const studentIds = students.map((s) => s.id);
@@ -1347,7 +1351,7 @@ export async function getSppMatrix(query: SppMatrixQuery) {
       paymentTypeId: sppPaymentType.id,
       dueDate: {
         gte: startDate,
-        lte: endDate,
+        lt: endDate,
       },
     },
     include: {
@@ -1356,7 +1360,7 @@ export async function getSppMatrix(query: SppMatrixQuery) {
   });
 
   // Build matrix data
-  const now = new Date();
+  const overdueCutoff = wibOverdueCutoff();
   const matrixData: StudentSppRow[] = students.map((student) => {
     const studentInvoices = invoices.filter((inv) => inv.studentId === student.id);
     const monthsData: StudentSppRow['months'] = {};
@@ -1365,14 +1369,13 @@ export async function getSppMatrix(query: SppMatrixQuery) {
     let totalPaid = 0;
 
     months.forEach((monthName, index) => {
-      const monthDate = new Date(year, index, 10); // Due date is 10th of each month
       const invoice = studentInvoices.find((inv) => {
-        const invMonth = new Date(inv.dueDate).getMonth();
+        const invMonth = new Date(inv.dueDate).getUTCMonth();
         return invMonth === index;
       });
 
       if (invoice) {
-        const isPastDue = new Date(invoice.dueDate) < now;
+        const isPastDue = new Date(invoice.dueDate) < overdueCutoff;
         let status: 'PAID' | 'PARTIAL' | 'PENDING' | 'OVERDUE' = invoice.status as any;
 
         if ((status === 'PENDING' || status === 'PARTIAL') && isPastDue) {
