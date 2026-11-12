@@ -59,9 +59,26 @@ workers refused on a closed day. Still open:
   `hr/leaves/new` binds each employee `<SelectItem value={emp.id}>`, and
   `emp.id` is the **user** id (`normalizeEmployee`), then posts it as `staffId`.
   `createLeave` resolves `staffId` against the `staff` profile (or a teacher's
-  `staffId`), so a user id matches neither and the API answers 404 "Staff not
-  found" (a non-admin is refused earlier by the route). Reproduced on the
-  running stack 2026-11-12; tracked in **#1061**.
+  `staffId`), so a user id matches neither. Observed on the running stack
+  2026-11-12: unit admin → 404 "Staff not found"; Super Admin → 500 (foreign
+  key `leaves_staff_id_fkey`); a guru filing for self → 403 ("Anda hanya dapat
+  mengelola cuti milik sendiri"); a non-teaching staff member → 404 "Data
+  kepegawaian Anda belum dibuat…". A guru who leaves the field blank gets 201 —
+  the API auto-fills their own staff row. Tracked in **#1061**.
+- **The employee *Status* filter on `/hr` does not filter, and offers statuses
+  the API rejects.** `HRPage` sends `status` to `GET /hr/employees`, but
+  `getEmployees` never reads it, so `status=ACTIVE`, `INACTIVE` and `ON_LEAVE`
+  all return the whole unit (8 rows on the demo unit). The dropdown
+  (`EMPLOYEE_STATUS` in `lib/constants.ts`) also offers **Resign** and
+  **Pensiun**, which `queryTeachersSchema` rejects with 400 (`status` is
+  `enum(['ACTIVE','INACTIVE','ON_LEAVE'])`). Found 2026-11-12 while verifying the
+  kepala-unit guide; the guide no longer tells anyone to filter by status.
+- **`/hr` greets the kepala unit with three error toasts.** `HRPage` calls
+  `useLeaves` and `useRetentionRisk` for every role, but `GET /hr/leaves` answers
+  404 "Employee profile not found" for a kepala sekolah with no staff row, and
+  `GET /hr/analytics/retention-risk` (plus `GET /hr/contracts/expiring`) is
+  admin-only → 403. `lib/api.ts` toasts each one. Found 2026-11-12 on the running
+  stack as the kepala; ask for those queries only when the role may read them.
 - **The bulk register loads the first 100 employees only** (`useStaffList`
   forces `limit: 100`).
 - **Dead code.** `teacherId` is still in three `hr.schema.ts` schemas and in

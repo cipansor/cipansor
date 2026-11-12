@@ -4,6 +4,7 @@
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo kepala unit pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
 | 0.2 | 11 November 2026 | aplikasi berjalan dari kode `25693e32` | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Mengelola pegawai dan cuti* diselaraskan dengan kewenangan yang sebenarnya: kepala unit **memantau** data pegawai dan cuti unit, sedangkan menambah/mengubah pegawai dan memutuskan cuti (setuju, tolak, batal) adalah kewenangan admin unit atau Super Admin. Kartu berganti judul menjadi *Memantau pegawai dan cuti*; langkahnya dijalankan ulang dengan akun demo kepala unit. |
+| 0.3 | 12 November 2026 | aplikasi berjalan dari kode `6b3c6127` (kode modul `hr` dan halaman `/hr` identik dengan `main` `e6e7e25e`) | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Memantau pegawai dan cuti* diperbaiki setelah tinjauan: langkahnya dijalankan ulang dengan akun demo kepala unit pada tumpukan lokal — tab **Karyawan** menampilkan 8 pegawai unit, tab **Cuti** kosong ("Belum ada pengajuan cuti"), tab **Risiko Retensi** kosong ("Tidak ada data risiko yang ditemukan"). Klaim saring **Semua Unit**/**Semua Status** dilepas: saringan status tidak menyaring, dan analisis risiko retensi hanya terisi bagi admin unit atau Super Admin (`GET /hr/analytics/retention-risk` → 403 untuk kepala unit). |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo kepala unit, dan tiap kartu memuat
@@ -33,7 +34,7 @@ Semua data terbatas pada unit yang Anda pimpin.
 
 - Anda **memantau** santri, kehadiran, nilai, tahfidz, dan keuangan unit.
 - Anda **menyusun jadwal**, membuat penilaian, dan mengunduh rapor unit.
-- Anda **memantau** kepegawaian unit dan menilai kinerja pegawai.
+- Anda **memantau** data pegawai dan cuti unit, serta menilai kinerja pegawai.
 - Anda **tidak** menetapkan tagihan atau memeriksa bukti bayar — itu tugas
   bendahara unit.
 - Anda **tidak** menyusun naskah dinas — itu tugas tata usaha.
@@ -235,7 +236,7 @@ masing-masing.
 
 ## Memantau pegawai dan cuti
 
-**Tujuan.** Memantau data pegawai dan pengajuan cuti unit.
+**Tujuan.** Memantau data pegawai unit yang Anda pimpin.
 
 **Siapa.** Kepala unit.
 
@@ -246,25 +247,28 @@ masing-masing.
 **Langkah.**
 
 1. Buka **SDM & Kepegawaian**.
-2. Tab **Karyawan** menampilkan daftar pegawai unit: nama, NIP, jabatan, dan
-   status kepegawaian. Saring dengan **Semua Unit** atau **Semua Status** bila
-   perlu.
-3. Tab **Cuti** menampilkan pengajuan cuti, dan tab **Risiko Retensi**
-   menampilkan kontrak pegawai yang akan berakhir.
+2. Halaman membuka tab **Karyawan**: daftar pegawai unit yang Anda pimpin —
+   nama, NIP, jabatan, dan status kepegawaian. Bila daftarnya panjang, cari
+   dengan kotak **Cari nama atau NIP...**.
+3. Tab **Cuti** dan **Risiko Retensi** dapat dibuka, tetapi bagi kepala unit
+   keduanya biasanya kosong: keputusan cuti dan analisis risiko turnover adalah
+   urusan admin unit atau Super Admin.
 
-![Gambar 6. SDM & Kepegawaian: data pegawai, cuti, dan kontrak staf unit.](screens/kepemimpinan-kepala-unit/12-sdm.png){width=14cm}
+![Gambar 6. SDM & Kepegawaian: ringkasan unit dan daftar pegawai.](screens/kepemimpinan-kepala-unit/12-sdm.png){width=14cm}
 
-*Gambar 6. SDM & Kepegawaian: data pegawai, cuti, dan kontrak staf unit.*
+*Gambar 6. SDM & Kepegawaian: ringkasan unit dan daftar pegawai.*
 
-**Hasilnya, dan giliran siapa berikutnya.** Anda memantau data pegawai dan cuti
-unit. Menambah atau mengubah pegawai serta memutuskan cuti (setuju, tolak,
-batal) adalah kewenangan admin unit atau Super Admin, bukan kepala unit.
+**Hasilnya, dan giliran siapa berikutnya.** Anda memantau data pegawai unit.
+Menambah atau mengubah pegawai serta memutuskan cuti (setuju, tolak, batal)
+adalah kewenangan admin unit atau Super Admin, bukan kepala unit.
 
 **Bila tidak berhasil.**
 
 | Yang terlihat | Penyebab umum | Yang perlu dilakukan |
 |---|---|---|
-| Pegawai tidak muncul | Unit belum dipilih dengan benar | Saring dengan **Semua Unit** |
+| Pegawai tidak muncul | Pencarian terlalu sempit | Kosongkan kotak **Cari nama atau NIP...** |
+| Notifikasi galat muncul saat halaman dibuka | Tab **Cuti** dan **Risiko Retensi** menanyakan data yang bukan kewenangan kepala unit | Abaikan; tidak perlu tindakan |
+| Tab **Cuti** atau **Risiko Retensi** kosong | Tab itu urusan admin unit atau Super Admin | Tidak perlu tindakan; pakai tab **Karyawan** untuk data pegawai |
 | Menambah atau mengubah pegawai, atau memutuskan cuti, gagal | Bukan kewenangan kepala unit | Minta admin unit menambahkannya atau memutuskan cutinya |
 
 **Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).

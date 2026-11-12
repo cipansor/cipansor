@@ -481,6 +481,26 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   *Ajukan Cuti*** mengirim **id pengguna** sebagai `staffId` (API menuntut id
   profil pegawai) → 404 "Staff not found"; dilacak di **#1061**.
 
+- **Koreksi tinjauan #1052, putaran kedua, 2026-11-12.** Setelah balasan putaran
+  pertama, kartu *Memantau pegawai dan cuti* masih menyatakan hal yang tidak
+  benar dan diverifikasi ulang pada tumpukan berjalan (kepala `sdit.kepala`):
+  langkah "saring dengan **Semua Status**" **tidak menyaring** (`GET
+  /hr/employees?status=ACTIVE|INACTIVE|ON_LEAVE` → total 8, sama; `RESIGNED`/
+  `RETIRED` → 400 karena `queryTeachersSchema` hanya menerima tiga nilai), dan
+  klaim tab **Cuti**/**Risiko Retensi** berisi data keliru — `GET /hr/leaves`
+  kepala → **404 "Employee profile not found"**, `GET /hr/analytics/retention-risk`
+  → **403** (rute admin-only), jadi kedua tab kosong bagi kepala. Kartu
+  dirapikan: hanya tab **Karyawan** (8 pegawai) yang dijanjikan, kotak **Cari
+  nama atau NIP...** menggantikan saringan status, dan tab Cuti/Retensi
+  dinyatakan kosong bagi kepala. Gambar 6 ditangkap ulang dari `/hr` (kepala,
+  tab Karyawan) dan manifes diperbarui. Riwayat Revisi menambah baris **0.3**
+  (kode `6b3c6127`). `.claude/memory/known-issues.md`: entri formulir cuti
+  diperkaya (unit admin 404, Super Admin **500** FK `leaves_staff_id_fkey`,
+  guru-untuk-diri 403, staf non-guru 404) dan ditambah entri baru "saringan
+  Status `/hr` tidak menyaring + menawarkan status yang ditolak API 400".
+  `check_docs.py` KEPALA-UNIT tetap **2 ERROR** (keduanya pra-ada di `main`:
+  kartu Pengumuman `Buat Baru` & pesan "Judul dan konten wajib diisi").
+
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
   permissions, separation-of-duty rules locked in code, and the account
