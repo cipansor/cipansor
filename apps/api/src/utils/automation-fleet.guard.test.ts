@@ -499,10 +499,7 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
       // The deploy PATCHes the live trigger from this dict, so a re-added
       // `ready_for_review` here would silently restore the defect.
       const r = py(
-        [
-          'import json',
-          'print(json.dumps({"sdlc18": m.TRIGGERS.get("SDLC 18")}))',
-        ].join('\n')
+        ['import json', 'print(json.dumps({"sdlc18": m.TRIGGERS.get("SDLC 18")}))'].join('\n')
       );
       expect(r.status, r.stderr).toBe(0);
       const parsed = JSON.parse(r.stdout) as { sdlc18: { on?: string[] } | null };
