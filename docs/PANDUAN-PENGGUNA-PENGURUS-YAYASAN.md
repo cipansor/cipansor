@@ -5,10 +5,12 @@
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo pengurus yayasan pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
 | 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Langkah dan pemecahan masalah Yayasan dicocokkan ke layar: tombol tambah organ bernama **Tambah** pada tab **Organ Yayasan** (bukan "Tambah Pengurus"), dan baris kegagalan memakai pesan API nyata **"Validation failed"** beserta kolom wajibnya, menggantikan pesan **"Gagal memperbarui data yayasan"** yang tidak ada di kode (#779) |
 
-> **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
-> aplikasi berjalan** dengan akun demo pengurus yayasan, dan tiap kartu memuat
-> tangkapan layar asli. Bila Anda menemukan layar yang berbeda dari gambar di
-> sini, laporkan kepada admin unit.
+> **Tingkat verifikasi.** Kartu tugas di bawah **dijalankan pada aplikasi
+> berjalan** dengan akun demo pengurus yayasan, dan tiap kartu memuat tangkapan layar asli
+> (T1). Langkah yang ditandai *(dibaca dari kode, belum dicoba ulang di aplikasi
+> berjalan)* adalah pengecualian: disusun dari kode pada revisi 0.2–0.3 dan
+> belum diuji ulang di layar. Bila Anda menemukan layar yang berbeda dari gambar
+> di sini, laporkan kepada admin unit.
 
 # 1. Tentang Buklet Ini
 
@@ -116,7 +118,8 @@ kelas, santri, dan pegawai oleh admin unit masing-masing.
    *Muncul pesan "Data yayasan berhasil diperbarui".*
 3. Klik **Tambah Dokumen** untuk menyimpan akta atau dokumen resmi lainnya.
 4. Pada tab **Organ Yayasan**, klik **Tambah** untuk mencatat pembina,
-   pengurus, atau pengawas yayasan.
+   pengurus, atau pengawas yayasan. *(langkah ini dibaca dari kode, belum
+   dicoba ulang di aplikasi berjalan)*
 
 ![Gambar 2. Yayasan: profil, dokumen, dan organ yayasan.](screens/tata-kelola-yayasan/04-yayasan.png){width=14cm}
 
@@ -129,7 +132,7 @@ diperbarui; menjadi rujukan unit dalam menyusun dokumen resminya.
 
 | Yang terlihat | Penyebab umum | Yang perlu dilakukan |
 |---|---|---|
-| "Validation failed" | Ada isian wajib yang kosong atau formatnya salah | Periksa **Nama Yayasan**, **Nama Badan Hukum**, dan **Alamat**, lalu simpan lagi |
+| "Validation failed" | Ada isian wajib yang kosong atau formatnya salah | Isi **Nama Yayasan**, **Nama Badan Hukum**, dan **Alamat**; bila **Email** atau **Website** diisi, pastikan formatnya benar (mis. `nama@contoh.id`, `https://contoh.id`) |
 | "Dokumen berhasil dihapus" muncul tanpa sengaja | Tombol hapus terklik | Unggah ulang dokumennya |
 
 **Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).
