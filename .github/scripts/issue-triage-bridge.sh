@@ -9,6 +9,14 @@
 #
 #   --stdin   a bot applies a type or priority label — the labeler responded, so
 #             the triage owner studies the issue and the bot's comment
+#   --relabel <n>
+#             `label-guard` removed a protected label a person applied and
+#             applied nothing in its place, leaving the issue with no type or no
+#             priority (#838); the triage owner relabels it. `label-guard.yml`
+#             calls this in the same run, because the guard's removal is made
+#             with the automatic `GITHUB_TOKEN` and GitHub starts no workflow for
+#             an event that token creates — a trigger on `unlabeled` would never
+#             fire.
 #   --sweep   an open, not-`ready` issue has new activity by someone other than
 #             the fleet — this catches an edited description or a new comment
 #             without a trigger on `issues.edited`
@@ -118,13 +126,19 @@ ATTEMPT_MAX="${ATTEMPT_MAX:-3}"
 # `pending` writes alone posted ~35 empty comments in a single run (2026-11-11).
 # The KV store has optimistic
 # locking, a `nx` create, a list, and a delete, and it notifies no one.
-#   `<SWEEP_KEY><n>` -> {"signal": "<hash>", "run": "<run-id>" | "pending" | ""}
+#   `<SWEEP_KEY><n>` -> {"signal": "<hash>", "run": "<run-id>" | "pending" | "",
+#                        "extra": {"<kind>": "<run-id>" | "pending"}}
 #                       `at` (epoch seconds) is set only while `run` is
 #                       `pending`: the FIRST deferral time, which the sweep
 #                       orders deferred issues by (K25, #872).
 #   `<STATE_KEY><n>` -> {"state": "<type+priority>", "at": <epoch seconds>}
 # `run` empty is the finished checkpoint; `pending` is a dispatch deferred while
 # the pool was full; anything else is the run that is answering the signal.
+# `extra` holds a side response's run under its own kind (`relabel` for a
+# `--relabel` dispatch, `conflict` for `--type-conflict`): a label change does not
+# move `activity_signal`, so two responses on one issue would otherwise overwrite
+# each other's run id in the single `run` field and the sweep would finalise the
+# issue while one run is still unread (#838 follow-up).
 SWEEP_KEY="triage-sweep-"
 # A deferral the label path could not fold into the sweep checkpoint because the
 # store could not be read: `{signal, at}` under its own key, so the old
@@ -132,6 +146,17 @@ SWEEP_KEY="triage-sweep-"
 # itself is not lost. Both passes drain it — see `drain_retry_markers`.
 RETRY_KEY="triage-retry-"
 STATE_KEY="triage-state-"
+# The collapse key of the relabel path (`label-guard` revocation, #838). A
+# separate key from STATE_KEY: the labeled path keys on the type+priority the
+# labeler set, this one on a burst of revocations for one issue, and the two must
+# not collapse each other.
+UNLABELED_KEY="triage-unlabeled-"
+# The collapse key of the type-conflict path (`label-guard` declined a type
+# restore, #838 follow-up). A separate key from UNLABELED_KEY: a revocation can
+# dispatch `--relabel` (a missing priority) and a type change can follow within
+# the burst window — different responses — so sharing the key would let the
+# relabel's burst collapse the conflict and the wrong type would survive.
+CONFLICT_KEY="triage-conflict-"
 # The attempt counter for an issue whose triage runs keep dying in
 # infrastructure: `{"signal": "<hash>", "count": <n>}`. Scoped to the activity
 # signal, so a new comment or an edited description (a fresh signal) starts a
@@ -202,8 +227,11 @@ dispatch() { # dispatch <number> <reason> <key>
 # exists, 1 when it does not, 2 when the store could not be read — so a hiccup is
 # never mistaken for "no checkpoint".
 KV_JSON=""
+# The version the last `kv_get` read, for a conditional write (`kv_put_if`): 0
+# when the key is absent — a create. The store returns it under `meta=true`.
+KV_VERSION=0
 kv_get() { # kv_get <key>
-  KV_JSON=""
+  KV_JSON=""; KV_VERSION=0
   tmp=$(mktemp)
   code=$("$CURL" -sS -o "$tmp" -w '%{http_code}' \
     "$API/kv/$1?meta=true&automation_id=$TRIAGE_ID" \
@@ -215,6 +243,8 @@ kv_get() { # kv_get <key>
     *) rm -f "$tmp"; return 2 ;;
   esac
   KV_JSON=$(jq -c '.value // {}' "$tmp" 2>/dev/null) || { rm -f "$tmp"; return 2; }
+  KV_VERSION=$(jq -r '.version // 0' "$tmp" 2>/dev/null) || KV_VERSION=0
+  case "$KV_VERSION" in '' | *[!0-9]*) KV_VERSION=0 ;; esac
   rm -f "$tmp"
   return 0
 }
@@ -225,6 +255,32 @@ kv_put() { # kv_put <key> <json-object>
   "$CURL" -fsS -o /dev/null -X PUT "$API/kv/$1?automation_id=$TRIAGE_ID" \
     -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" \
     -H "Content-Type: application/json" -d "$2" 2>/dev/null
+}
+
+# Conditional upsert: write only if the store still holds version <expected> (a
+# create, `nx`, when <expected> is 0). Returns 0 on success, 1 when the version
+# moved — the store answers 409, so the caller re-reads and re-merges rather than
+# clobbering a concurrent writer's field — and 2 on any other failure (give up).
+# This is what makes the shared checkpoint safe when two workflows write one
+# issue at once (#838 follow-up; the reviewer's "pelestarian slot belum atomik").
+kv_put_if() { # kv_put_if <key> <json-object> <expected-version>
+  if [ "$3" -gt 0 ]; then
+    url="$API/kv/$1?if_version=$3&automation_id=$TRIAGE_ID"
+  else
+    url="$API/kv/$1?nx=true&automation_id=$TRIAGE_ID"
+  fi
+  # Capture the HTTP code; the exit status is neutralised (`|| rc=$?`) so a
+  # non-2xx answer is read from the code, not mistaken for a transport failure —
+  # and `set -e` does not abort on it.
+  rc=0
+  code=$("$CURL" -sS -o /dev/null -w '%{http_code}' -X PUT "$url" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" \
+    -H "Content-Type: application/json" -d "$2" 2>/dev/null) || rc=$?
+  case "$code" in
+    409) return 1 ;;
+    2??) return 0 ;;
+    *) return 2 ;;
+  esac
 }
 
 kv_del() { # kv_del <key>
@@ -239,6 +295,19 @@ issue_state() { # issue_state <number>
   gh api "repos/$REPO/issues/$1" \
     --jq '[.labels[].name | select(test("^(bug|enhancement|documentation|refactor|chore|security)$") or startswith("priority:"))] | sort | join("+")' \
     2>/dev/null || echo ""
+}
+
+# The type+priority the issue is left holding, as a `+`-joined sorted set (or
+# `none`). `label-guard` removes one label per event and applies nothing in its
+# place, so this is the set the revocation left behind (#838): the bridge acts
+# only when it has no type or no priority left. Returns non-zero when the read
+# fails, so the caller skips rather than mistaking a hiccup for "no labels".
+remaining_labels() { # remaining_labels <number>; prints the set, or 'none'
+  out=$(gh api "repos/$REPO/issues/$1/labels" \
+    --jq '[.[].name | select(test("^(bug|enhancement|documentation|refactor|chore|security)$") or startswith("priority:"))] | sort | join("+")' \
+    2>/dev/null) || return 1
+  [ -n "$out" ] || out="none"
+  printf '%s' "$out"
 }
 
 # A legacy marker comment's id and body, or "" when there is none. Only used to
@@ -293,15 +362,20 @@ adopt_legacy_state_marker() { # adopt_legacy_state_marker <number>
 }
 
 # The sweep checkpoint. Sets SIGNAL, MARK_RUN (the run answering the signal, or
-# "" for a finished checkpoint, or `pending` for a deferred dispatch),
-# MARK_AT (the epoch second of a `pending` checkpoint's first deferral, or "" )
-# and MARK_FORM (`none`/`some`/`unknown`).
+# "" for a finished checkpoint, or `pending` for a deferred dispatch), MARK_EXTRA
+# (the per-kind side runs, a compact JSON object), MARK_AT (the epoch second of a
+# `pending` checkpoint's first deferral, or ""), MARK_FORM
+# (`none`/`some`/`unknown`), MARK_ACTIVE (1 when any slot is unfinished) and
+# MARK_PENDING (1 when any slot is `pending`).
 SIGNAL=""
 MARK_RUN=""
+MARK_EXTRA="{}"
 MARK_AT=""
 MARK_FORM="none"
+MARK_ACTIVE=0
+MARK_PENDING=0
 read_sweep_marker() { # read_sweep_marker <number>
-  SIGNAL=""; MARK_RUN=""; MARK_AT=""; MARK_FORM="none"
+  SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_AT=""; MARK_FORM="none"; MARK_ACTIVE=0; MARK_PENDING=0
   # `|| rc=$?` (not `; rc=$?`): a 404 is a normal answer, and under `set -e` a
   # bare failing command aborts the script — the direct callers in
   # `recover_ready`/`purge_markers` are not inside an `if`, so the absent-key
@@ -314,10 +388,27 @@ read_sweep_marker() { # read_sweep_marker <number>
   esac
   SIGNAL=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || SIGNAL=""
   MARK_RUN=$(printf '%s' "$KV_JSON" | jq -r '.run // ""' 2>/dev/null) || MARK_RUN=""
+  MARK_EXTRA=$(printf '%s' "$KV_JSON" | jq -c '.extra // {}' 2>/dev/null) || MARK_EXTRA="{}"
   MARK_AT=$(printf '%s' "$KV_JSON" | jq -r '.at // ""' 2>/dev/null) || MARK_AT=""
   case "$MARK_AT" in '' | *[!0-9]*) MARK_AT="" ;; esac
-  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_AT=""; MARK_FORM="none"; return 0; }
+  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_AT=""; MARK_FORM="none"; return 0; }
   MARK_FORM="some"
+  # The checkpoint is unfinished while any slot (the main `run` or a side
+  # response) is a `pending` or a run id; it is finished only when every slot is
+  # empty. A `ready` issue is recovered only when `MARK_ACTIVE` is 1.
+  if [ -n "$MARK_RUN" ]; then MARK_ACTIVE=1; fi
+  if [ "$MARK_RUN" = "$PENDING_RUN" ]; then MARK_PENDING=1; fi
+  for v in $(checkpoint_slot_values "$MARK_EXTRA"); do
+    [ -n "$v" ] || continue
+    MARK_ACTIVE=1
+    if [ "$v" = "$PENDING_RUN" ]; then MARK_PENDING=1; fi
+  done
+}
+
+# Every value in a checkpoint's `extra` object, one per line (its kind keys are
+# dropped: the sweep only needs the run ids and the `pending` markers).
+checkpoint_slot_values() { # checkpoint_slot_values <extra-json>
+  printf '%s' "${1:-}" | jq -r '(. // {}) | to_entries[]? | .value' 2>/dev/null || true
 }
 
 # Adopt a legacy marker comment into the KV store, once, then delete it. Reached
@@ -346,6 +437,9 @@ adopt_legacy_sweep_marker() { # adopt_legacy_sweep_marker <number>
   if kv_put "$SWEEP_KEY$1" \
        "$(jq -nc --arg s "$SIGNAL" --arg r "$MARK_RUN" '{signal: $s, run: $r}')"; then
     MARK_FORM="some"
+    # The adopted run is the main slot; expose it to the recovery gate.
+    if [ -n "$MARK_RUN" ]; then MARK_ACTIVE=1; fi
+    if [ "$MARK_RUN" = "$PENDING_RUN" ]; then MARK_PENDING=1; fi
     gh api "repos/$REPO/issues/comments/$LEGACY_ID" -X DELETE >/dev/null 2>&1 \
       || echo "::warning::could not remove the legacy triage marker on #$1."
   else
@@ -426,28 +520,130 @@ activity_signal() { # activity_signal <number>; non-zero when a read fails
 # Write the sweep checkpoint. `run` is the run answering the signal: it is
 # written while the run is in flight (so the next sweep can read its outcome) and
 # cleared once the run COMPLETED (a finished checkpoint). An empty `run` is the
-# finished form. A plain KV upsert, so re-writing the same value is free — no
-# dedup guard is needed now that nothing is posted.
+# finished form.
 #
-# A `pending` checkpoint also records `at`, the epoch second of its FIRST
-# deferral: the sweep orders deferred issues by it (FIFO by first deferral, K25
-# #872), so a candidate that is deferred while the pool is full cannot sink
-# behind newer activity forever. `MARK_AT` carries that first time; it is read
-# from the existing checkpoint by the caller before this write, and defaults to
-# `now` when the candidate is deferred for the first time.
+# The checkpoint is shared with the side responses (`--relabel`,
+# `--type-conflict`) and with `at` (the first-deferral time). This writer owns
+# `signal`, `run` and `at`, so on a same-signal write it carries the fields it
+# does not own forward when `SWEEP_MARKER_PRESERVE_SLOTS` is 1: a main write —
+# the label path, or a deferral — must not erase a side slot the sweep still has
+# to read, or a failed conflict is never retried (#838 follow-up; the reviewer's
+# "checkpoint konflik tertimpa run pelabelan"). A different signal is a new
+# episode, and a finished checkpoint (`run` empty) drops the slots with it.
+#
+# `SWEEP_MARKER_PRESERVE_SLOTS` is 1 by default. `process_one` sets it to 0 for
+# the one write that *supersedes* the other slots: its re-dispatch of the triage
+# owner, which answers the failed/pending responses itself. Carrying those slots
+# into that write would make every later sweep re-read the same failed run and
+# re-dispatch forever.
+#
+# `at` is the epoch second of the FIRST deferral, recorded only while `run` is
+# `pending`: the sweep orders deferred issues by it (FIFO by first deferral, K25
+# #872), so a candidate deferred while the pool is full cannot sink behind newer
+# activity forever. The caller passes the existing `at` to keep it across
+# re-deferrals; it defaults to `now` on the first.
+#
+# Both writers build the value from a read, so the read and the write must be one
+# atomic step: the label path and a side response write the same issue from
+# different workflows, and a plain PUT — read, merge, write — lets the slower
+# writer clobber the field the faster one just stored. That is the very slot loss
+# the merge above prevents, only moved to the interleaving between the two
+# workflows (#838 follow-up; the reviewer's "pelestarian slot belum atomik"). The
+# write is therefore conditional: `sweep_cas_write` reads the key's version,
+# merges, and PUTs only if the version still matches; a 409 re-reads and
+# re-merges, so neither writer's field is lost.
+SWEEP_MARKER_PRESERVE_SLOTS=1
+# How many times a conditional write re-reads and re-merges before it gives up
+# (with a warning; the next sweep retries). A 409 means another workflow wrote
+# the key between this writer's read and its write; the bound stops a hot key
+# from spinning forever.
+SWEEP_MARKER_CAS_MAX="${SWEEP_MARKER_CAS_MAX:-5}"
 MARK_WRITE_OK=0
+
+# The value a main write stores: the fields this writer owns (`signal`, `run`,
+# `at`) plus the fields it carries forward from <stored> when <preserve> is 1 and
+# the signal matches. Echoed for `sweep_cas_write` to PUT.
+sweep_marker_value() { # sweep_marker_value <stored> <sig> <run> <at> <preserve>
+  stored="$1"; v_sig="$2"; v_run="$3"; v_at="$4"; v_preserve="$5"
+  carry="{}"
+  if [ "$v_preserve" = 1 ] && [ -n "$v_run" ]; then
+    prev_sig=$(printf '%s' "$stored" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
+    if [ "$prev_sig" = "$v_sig" ]; then
+      carry=$(printf '%s' "$stored" | jq -c 'del(.signal, .run, .at)' 2>/dev/null) || carry="{}"
+    fi
+  fi
+  jq -nc --arg s "$v_sig" --arg r "$v_run" --arg a "$v_at" --argjson c "$carry" \
+    '$c + {signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)'
+}
+
+# The value a side write stores: <stored> minus `signal`, with this response's
+# run added under its own `extra.<kind>` slot, preserving the main `run`, `at` and
+# every other field. A different signal is a new episode, so the base starts empty
+# and the slots are dropped. Echoed for `sweep_cas_write` to PUT.
+side_marker_value() { # side_marker_value <stored> <sig> <kind> <run>
+  stored="$1"; v_sig="$2"; v_kind="$3"; v_run="$4"
+  base="{}"
+  prev_sig=$(printf '%s' "$stored" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
+  if [ "$prev_sig" = "$v_sig" ]; then
+    base=$(printf '%s' "$stored" | jq -c 'del(.signal)' 2>/dev/null) || base="{}"
+  fi
+  jq -nc --argjson b "$base" --arg s "$v_sig" --arg k "$v_kind" --arg r "$v_run" \
+    '$b + {signal: $s, run: ($b.run // ""), extra: (($b.extra // {}) + {($k): $r})}'
+}
+
+# Conditional checkpoint write: read the key (its version), build the value with
+# <value-fn> from the stored object, and PUT only if the version still matches. A
+# 409 — the version moved — re-reads and rebuilds, so a concurrent writer's field
+# survives instead of being clobbered by a stale merge. Sets MARK_WRITE_OK on
+# success; returns non-zero when it could not write. Bounded by
+# SWEEP_MARKER_CAS_MAX.
+sweep_cas_write() { # sweep_cas_write <key> <value-fn> <value-fn-args...>
+  cas_key="$1"; cas_fn="$2"; shift 2
+  cas_attempt=0
+  while [ "$cas_attempt" -lt "$SWEEP_MARKER_CAS_MAX" ]; do
+    cas_rc=0; kv_get "$cas_key" || cas_rc=$?
+    if [ "$cas_rc" = 2 ]; then
+      # The store could not be read, so no version can be matched. Write
+      # unconditionally (best effort) so an accepted dispatch is still recorded,
+      # and let the next sweep re-read. This is the only path that can clobber,
+      # and only under a read hiccup.
+      if kv_put "$cas_key" "$("$cas_fn" '{}' "$@")"; then MARK_WRITE_OK=1; return 0; fi
+      MARK_WRITE_OK=0; return 1
+    fi
+    if [ "$cas_rc" = 1 ]; then cas_stored="{}"; cas_ver=0; else cas_stored="$KV_JSON"; cas_ver="$KV_VERSION"; fi
+    cas_put_rc=0
+    kv_put_if "$cas_key" "$("$cas_fn" "$cas_stored" "$@")" "$cas_ver" || cas_put_rc=$?
+    case "$cas_put_rc" in
+      0) MARK_WRITE_OK=1; return 0 ;;
+      1) cas_attempt=$((cas_attempt + 1)) ;;  # version moved: re-read and re-merge
+      *) MARK_WRITE_OK=0; return 1 ;;         # a hard failure: give up
+    esac
+  done
+  MARK_WRITE_OK=0
+  return 1
+}
+
 write_sweep_marker() { # write_sweep_marker <number> <signal> <run> [first-deferred-at]
-  at="${4:-}"
-  if [ "$3" = "$PENDING_RUN" ] && [ -z "$at" ]; then
+  n="$1"; sig="$2"; run="${3:-}"; at="${4:-}"
+  if [ "$run" = "$PENDING_RUN" ] && [ -z "$at" ]; then
     at=$(date -u +%s)
   fi
-  MARK_WRITE_OK=0
-  if kv_put "$SWEEP_KEY$1" \
-    "$(jq -nc --arg s "$2" --arg r "${3:-}" --arg a "$at" \
-      '{signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)')"; then
-    MARK_WRITE_OK=1
-  else
-    echo "::warning::could not record the triage checkpoint on #$1."
+  if ! sweep_cas_write "$SWEEP_KEY$n" sweep_marker_value "$sig" "$run" "$at" "$SWEEP_MARKER_PRESERVE_SLOTS"; then
+    echo "::warning::could not record the triage checkpoint on #$n."
+  fi
+}
+
+# Record a side response's run (`--relabel`, `--type-conflict`) under its own
+# `extra.<kind>` slot, preserving the main `run` slot, `at` and every other
+# field. A label change does not move `activity_signal`, so the side responses of
+# one issue share the checkpoint; without per-kind slots the later write would
+# overwrite the earlier run id, and `process_one` — reading only the surviving
+# one — would finalise the issue while a failed run is never retried (#838
+# follow-up).
+write_sweep_side_marker() { # write_sweep_side_marker <number> <signal> <kind> <run>
+  n="$1"; sig="$2"; kind="$3"; run="${4:-}"
+  if ! sweep_cas_write "$SWEEP_KEY$n" side_marker_value "$sig" "$kind" "$run"; then
+    echo "::warning::could not record the triage checkpoint on #$n."
   fi
 }
 
@@ -608,6 +804,9 @@ retry_keys() {
 # --stdin: a bot applied a type or priority label.
 on_label() { # on_label <event-json>
   event="$1"
+  # The workflow triggers on `labeled` only; this keeps a future trigger edit
+  # from feeding an `unlabeled` event here, where `.label.name` would be read as
+  # a freshly applied label.
   action=$(printf '%s' "$event" | jq -r '.action // empty')
   [ "$action" = labeled ] || { echo "action='$action'; nothing to do."; exit 0; }
   label=$(printf '%s' "$event" | jq -r '.label.name // empty')
@@ -708,6 +907,175 @@ on_label() { # on_label <event-json>
   fi
 }
 
+# --relabel <number>: `label-guard` removed a protected label a person applied
+# and applied nothing in its place, leaving the issue with no type or no priority
+# (#838) — a worse state than a wrong label, because triage, priority and the PR
+# labelling all read the labels.
+#
+# The guard cannot trigger the bridge through GitHub: it removes the label with
+# the automatic `GITHUB_TOKEN`, and GitHub does not start a workflow run for an
+# event that token creates (verified on this repository: no run in the last 100
+# carries a `github-actions[bot]` actor, though `label-guard`, `basmalah` and
+# `issue-label-sync` all write through that token). So `label-guard.yml` calls
+# this mode in the *same* run, right after the guard, and the guard stays purely
+# deterministic. The collapse key is separate from the labeled path's: the two
+# must not collapse each other.
+relabel_after_revocation() { # relabel_after_revocation <number>
+  number="$1"
+  [ -n "$number" ] || { echo "no issue number; nothing to do."; exit 0; }
+
+  # A closed issue needs no relabel: nothing reads its labels any more, and a
+  # dispatch would only wake the triage owner on finished work. A read failure is
+  # "skip" too (the state is unknown).
+  state_now=$(gh api "repos/$REPO/issues/$number" --jq '.state // empty' 2>/dev/null) \
+    || { echo "::warning::could not read the state of #$number; skipped the relabel."; exit 1; }
+  [ "$state_now" = "open" ] || { echo "#$number is '${state_now:-unknown}'; nothing to do."; exit 0; }
+
+  # What the issue is left holding. A read failure is "skip", not "empty": an
+  # empty set would look like a gap and dispatch on a hiccup.
+  left=$(remaining_labels "$number") \
+    || { echo "::warning::could not read the labels of #$number; skipped the relabel."; exit 1; }
+  # Derive the two flags from the `+`-joined set (no subshell: a `while` pipe
+  # would set them in a child and lose them). Membership is tested per element:
+  # a prefix test (`priority:*`) reads `priority:high+refactor` as "no type" the
+  # moment a type sorts *after* the priority label, which is exactly the case the
+  # relabel exists to fix — so `priority:high+refactor` and `priority:high+security`
+  # were dispatched as if the issue had no type.
+  has_type=0; has_priority=0
+  case "+$left+" in
+    *"+priority:"*) has_priority=1 ;;
+  esac
+  case "+$left+" in
+    *"+bug+"*|*"+enhancement+"*|*"+documentation+"*|*"+refactor+"*|*"+chore+"*|*"+security+"*) has_type=1 ;;
+    *) has_type=0 ;;
+  esac
+  if [ "$has_type" = 1 ] && [ "$has_priority" = 1 ]; then
+    echo "#$number still holds a type and a priority after the removal; nothing to do."
+    exit 0
+  fi
+
+  # Collapse the removal burst: the guard removes one label per event, so a
+  # revocation is a burst of events, and `label-guard.yml`'s concurrency group is
+  # per label — the runs race and each may observe a different intermediate label
+  # set. So the collapse is keyed on the *issue* and the burst window, not on the
+  # resulting set: any relabel dispatch for this issue within BURST_WINDOW means
+  # the burst is already being answered. A genuine later revocation (a fresh
+  # hand-applied label removed after the window) is a new response and dispatches.
+  state=$(jq -nc '{at: (now|floor)}')
+  if kv_get "$UNLABELED_KEY$number"; then
+    prev_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
+    case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
+    since=$(( $(date -u +%s) - prev_at ))
+    if [ "$prev_at" -gt 0 ] && [ "$since" -lt "$BURST_WINDOW" ]; then
+      echo "#$number already dispatched a relabel ${since}s ago; burst collapsed."
+      exit 0
+    fi
+  fi
+
+  # Snapshot the activity before the dispatch and record it after it is accepted,
+  # exactly as the labeled path does: an edit landing in that window changes the
+  # signal and the next sweep still catches it.
+  sig=$(activity_signal "$number") || sig=""
+  inflight=$(inflight_count)
+  if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    echo "#$number: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the sweep retries it."
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" relabel "$PENDING_RUN"; fi
+    exit 0
+  fi
+  if dispatch "$number" relabel-after-revocation "$left"; then
+    kv_put "$UNLABELED_KEY$number" "$state" || true
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" relabel "$RUN_ID"; fi
+  else
+    # A failed dispatch must be retried by the sweep, not lost. Record the
+    # checkpoint as `pending` (the same form the MAX_INFLIGHT deferral writes)
+    # *before* failing: without it the sweep compares the signal with a stale or
+    # absent checkpoint and may skip the issue — the signal it holds equals the
+    # one it would compute, so it reads as "already answered" and never retries.
+    # `pending` names no run, so the next sweep dispatches it. It goes in the
+    # relabel slot so it cannot clobber a type-conflict run on the same issue.
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" relabel "$PENDING_RUN"; fi
+    echo "::warning::#${number}'s relabel dispatch failed; a later removal or the sweep retries."
+    exit 1
+  fi
+}
+
+# --type-conflict <number> <declined-type>: `label-guard` declined to restore a
+# type label the bot applied because the issue now carries a *different* type —
+# the person is changing the type, not overruling the bot with nothing in place
+# (#838 follow-up). Restoring the old type would leave two, which
+# `issue-label-sync` refuses; the guard keeps the single surviving type and
+# signals `type_conflict=1`, and `label-guard.yml` calls this mode so the triage
+# owner — the taxonomy's owner (docs/LABELS.md) — reconciles the conflict and
+# revokes the wrong type. Deterministic guards, one LLM decision.
+type_conflict_dispatch() { # type_conflict_dispatch <number> <declined-type>
+  number="$1"; declined="$2"
+  [ -n "$number" ] || { echo "no issue number; nothing to do."; exit 0; }
+  [ -n "$declined" ] || { echo "no declined type; nothing to do."; exit 0; }
+
+  # A closed issue needs no reconciliation (nothing reads its labels).
+  state_now=$(gh api "repos/$REPO/issues/$number" --jq '.state // empty' 2>/dev/null) \
+    || { echo "::warning::could not read the state of #$number; skipped the type-conflict dispatch."; exit 1; }
+  [ "$state_now" = "open" ] || { echo "#$number is '${state_now:-unknown}'; nothing to do."; exit 0; }
+
+  # The issue's current type set. A read failure is "skip", never "dispatch".
+  left=$(remaining_labels "$number") \
+    || { echo "::warning::could not read the labels of #$number; skipped the type-conflict dispatch."; exit 1; }
+
+  # Count the types the issue holds now. The declined label is *not* back (the
+  # guard declined), so it is not among them.
+  types=""
+  for t in $TYPE_LABELS; do
+    case "+$left+" in *"+$t+"*) types="$types $t" ;; esac
+  done
+  n_types=$(printf '%s\n' $types | grep -c . || true)
+  case "$n_types" in '' | *[!0-9]*) n_types=0 ;; esac
+
+  if [ "$n_types" -eq 0 ]; then
+    # No type at all: that is the `--relabel` path's job (a bare removal), not a
+    # type change. Nothing for the triage owner here.
+    echo "#$number holds no type; the relabel path owns that gap, not the type conflict."
+    exit 0
+  fi
+  if printf '%s\n' $types | grep -qxF "$declined"; then
+    # The declined type is back (a race, or a person re-added it). The conflict is
+    # gone; nothing to reconcile.
+    echo "#$number holds '$declined' again; the type conflict is gone."
+    exit 0
+  fi
+
+  # A real conflict: the issue holds one or more types and the declined one is not
+  # among them. The triage owner decides which type is right. Collapse the burst
+  # the same way the relabel path does — a type change is a burst of events — but
+  # on this path's *own* key: a revocation can dispatch `--relabel` within the
+  # window and that must not collapse the conflict (different responses).
+  state=$(jq -nc '{at: (now|floor)}')
+  if kv_get "$CONFLICT_KEY$number"; then
+    prev_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
+    case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
+    since=$(( $(date -u +%s) - prev_at ))
+    if [ "$prev_at" -gt 0 ] && [ "$since" -lt "$BURST_WINDOW" ]; then
+      echo "#$number already dispatched a type-conflict reconciliation ${since}s ago; burst collapsed."
+      exit 0
+    fi
+  fi
+
+  sig=$(activity_signal "$number") || sig=""
+  inflight=$(inflight_count)
+  if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    echo "#$number: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the sweep retries it."
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" conflict "$PENDING_RUN"; fi
+    exit 0
+  fi
+  if dispatch "$number" type-conflict "$types"; then
+    kv_put "$CONFLICT_KEY$number" "$state" || true
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" conflict "$RUN_ID"; fi
+  else
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" conflict "$PENDING_RUN"; fi
+    echo "::warning::#${number}'s type-conflict dispatch failed; the sweep retries."
+    exit 1
+  fi
+}
+
 # One candidate issue: decide whether it needs a dispatch. Returns 0 when a
 # dispatch was accepted, 2 when a dispatch was attempted and failed, 3 when the
 # issue is deferred because the in-flight cap is reached, 1 otherwise.
@@ -715,6 +1083,9 @@ on_label() { # on_label <event-json>
 # label dispatch deferred while the pool was full (see `recover_ready`).
 process_one() { # process_one <number> <inflight> [ready_ok]
   n="$1"; inflight="${2:-0}"; ready_ok="${3:-0}"
+  # Reset the marker's slot policy per issue: only the re-dispatch below turns it
+  # off, and a prior issue must not carry that into this one's writes.
+  SWEEP_MARKER_PRESERVE_SLOTS=1
 
   # A closed issue — or a `ready` one on the ordinary pass — is out of scope;
   # drop any stale checkpoint and stop.
@@ -749,7 +1120,7 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   [ -n "$sig" ] || return 1
 
   read_sweep_marker "$n"
-  prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_form="$MARK_FORM"; prev_at="$MARK_AT"
+  prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_extra="$MARK_EXTRA"; prev_form="$MARK_FORM"; prev_at="$MARK_AT"
   # The attempt count to record once this pass dispatches. 0 for a fresh signal (no
   # retries yet); the failure branch below raises it by one per retry, and the cap
   # stops the episode before it can burn a sandbox slot on every sweep forever.
@@ -769,50 +1140,92 @@ process_one() { # process_one <number> <inflight> [ready_ok]
     echo "#$n: the checkpoint store could not be read; leaving it for the next sweep."
     return 1
   fi
-  if [ "$prev_sig" = "$sig" ] && [ -n "$prev_run" ] && [ "$prev_run" != "$PENDING_RUN" ]; then
-    st=$(run_status "$prev_run")
-    case "$st" in
-      UNKNOWN)
-        echo "#$n: the run listing could not be read; leaving the checkpoint for the next sweep."
-        return 1
-        ;;
-      RUNNING | PENDING)
-        echo "#$n: run ${prev_run} is ${st}; leaving it in flight."
-        return 1
-        ;;
-      COMPLETED)
-        echo "#$n: run ${prev_run} completed; the checkpoint is final."
+  # The issue carries one checkpoint shared by the activity dispatch and the side
+  # responses (`--relabel`, `--type-conflict`). Check *every* slot before the
+  # issue is treated as answered: a label change does not move the activity, so a
+  # side run recorded after the main one would otherwise be dropped, and a failed
+  # side run would never retry (#838 follow-up). The checkpoint is finished only
+  # when every recorded run COMPLETED; any slot still running leaves the issue in
+  # flight, and any slot that failed re-dispatches.
+  if [ "$prev_sig" = "$sig" ]; then
+    slot_failed=0
+    slot_pending=0
+    slot_completed=0
+    for srun in $(checkpoint_slot_values "$prev_extra"); do
+      [ -n "$srun" ] || continue
+      if [ "$srun" = "$PENDING_RUN" ]; then
+        slot_pending=1
+        continue
+      fi
+      sst=$(run_status "$srun")
+      case "$sst" in
+        UNKNOWN)
+          echo "#$n: the run listing could not be read; leaving the checkpoint for the next sweep."
+          return 1
+          ;;
+        RUNNING | PENDING)
+          echo "#$n: run ${srun} is ${sst}; leaving it in flight."
+          return 1
+          ;;
+        COMPLETED) slot_completed=1 ;;
+        *)
+          echo "#$n: side run ${srun} did not complete (${sst:-unreadable}); retrying."
+          slot_failed=1
+          ;;
+      esac
+    done
+    if [ "$prev_run" = "$PENDING_RUN" ]; then
+      slot_pending=1
+    elif [ -n "$prev_run" ]; then
+      st=$(run_status "$prev_run")
+      case "$st" in
+        UNKNOWN)
+          echo "#$n: the run listing could not be read; leaving the checkpoint for the next sweep."
+          return 1
+          ;;
+        RUNNING | PENDING)
+          echo "#$n: run ${prev_run} is ${st}; leaving it in flight."
+          return 1
+          ;;
+        COMPLETED)
+          echo "#$n: run ${prev_run} completed."
+          slot_completed=1
+          ;;
+        *)
+          # The main run died in infrastructure. Retry the SAME issue
+          # deterministically — the checkpoint key is the issue number — but bound
+          # the attempts (#877): an issue whose every run dies (or a persistent
+          # platform fault) would otherwise re-dispatch on every sweep and hold a
+          # sandbox slot forever. Past the cap the checkpoint is finalised with a
+          # warning, so the issue is reported once and left to a human.
+          if ! read_attempt "$n" "$sig"; then
+            echo "#$n: the attempt counter could not be read; leaving the checkpoint for the next sweep."
+            return 1
+          fi
+          if [ "$ATTEMPT_COUNT" -ge "$ATTEMPT_MAX" ]; then
+            echo "::warning::#$n: run ${prev_run} did not complete (${st:-unreadable}) and the attempt cap (ATTEMPT_MAX=$ATTEMPT_MAX) is reached; leaving the checkpoint final. A human must look at this issue."
+            write_sweep_marker "$n" "$sig" ""
+            clear_attempt "$n"
+            return 1
+          fi
+          attempt_next=$((ATTEMPT_COUNT + 1))
+          echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying (attempt ${attempt_next}/${ATTEMPT_MAX})."
+          slot_failed=1
+          ;;
+      esac
+    fi
+    # A failed slot (main or side) re-dispatches: fall through. A pending slot is
+    # a deferred dispatch: fall through to the capacity check. Otherwise, if any
+    # run completed, the whole checkpoint is finished — clear it (and its attempt
+    # counter, so a later episode starts fresh). If no run was recorded at all,
+    # the activity is already answered.
+    if [ "$slot_failed" = 0 ] && [ "$slot_pending" = 0 ]; then
+      if [ "$slot_completed" = 1 ]; then
         write_sweep_marker "$n" "$sig" ""
         clear_attempt "$n"
-        return 1
-        ;;
-      *)
-        # The run died in infrastructure. Retry the SAME issue deterministically —
-        # the checkpoint key is the issue number — but bound the attempts: an
-        # issue whose every run dies (or a persistent platform fault) would
-        # otherwise re-dispatch on every sweep and hold a sandbox slot forever
-        # (#877). Past the cap the checkpoint is finalised with a warning, so the
-        # issue is reported once and then left to a human, not re-run silently.
-        if ! read_attempt "$n" "$sig"; then
-          echo "#$n: the attempt counter could not be read; leaving the checkpoint for the next sweep."
-          return 1
-        fi
-        if [ "$ATTEMPT_COUNT" -ge "$ATTEMPT_MAX" ]; then
-          echo "::warning::#$n: run ${prev_run} did not complete (${st:-unreadable}) and the attempt cap (ATTEMPT_MAX=$ATTEMPT_MAX) is reached; leaving the checkpoint final. A human must look at this issue."
-          write_sweep_marker "$n" "$sig" ""
-          clear_attempt "$n"
-          return 1
-        fi
-        attempt_next=$((ATTEMPT_COUNT + 1))
-        echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying (attempt ${attempt_next}/${ATTEMPT_MAX})."
-        ;;
-    esac
-  elif [ "$prev_sig" = "$sig" ] && [ "$prev_run" = "$PENDING_RUN" ]; then
-    : # A deferred dispatch; the capacity check below dispatches or keeps it.
-  elif [ "$prev_sig" = "$sig" ]; then
-    # Same activity, a finished checkpoint (run completed): already answered. Not
-    # a reason to triage.
-    return 1
+      fi
+      return 1
+    fi
   fi
 
   # The activity needs a dispatch. Defer while the pool is full so a burst is not
@@ -830,7 +1243,10 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   fi
 
   # Dispatch; record the run so the next sweep reads its result, not the 201.
+  # This run supersedes the failed/pending slots read above, so it replaces them
+  # rather than carrying them forward (else the sweep would re-dispatch forever).
   if dispatch "$n" sweep-activity "$sig"; then
+    SWEEP_MARKER_PRESERVE_SLOTS=0
     write_sweep_marker "$n" "$sig" "$RUN_ID"
     # Record the attempt count for this episode, so a run that keeps dying is
     # bounded. A fresh signal resets it to 0; a retry stores the raised count.
@@ -887,13 +1303,13 @@ recover_ready() {
     case "$MARK_FORM" in
       none) continue ;;
     esac
-    # A finished checkpoint (`run` empty) is answered; only a `pending` or a run
-    # in flight is a recovery candidate.
-    [ -n "$MARK_RUN" ] || continue
+    # A finished checkpoint (every slot empty) is answered; only a `pending` or a
+    # run in flight (main or a side response) is a recovery candidate.
+    [ "$MARK_ACTIVE" = 1 ] || continue
     # A checkpoint naming a run needs no capacity (it checks an outcome); a
     # pending one is a dispatch, so it waits while the pool is full — but other
     # checkpoints later in the list may still be checked.
-    if [ "$MARK_RUN" = "$PENDING_RUN" ] && [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    if [ "$MARK_PENDING" = 1 ] && [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
       continue
     fi
     rc=0
@@ -1135,8 +1551,10 @@ sweep() {
 
 case "${1:-}" in
   --stdin) on_label "$(cat)" ;;
+  --relabel) relabel_after_revocation "${2:?usage: issue-triage-bridge.sh --relabel <number>}" ;;
+  --type-conflict) type_conflict_dispatch "${2:?usage: issue-triage-bridge.sh --type-conflict <number> <declined-type>}" "${3:-}" ;;
   --sweep) sweep ;;
   --recover-ready) recover_ready ;;
   --purge-markers) purge_markers ;;
-  *) echo "usage: issue-triage-bridge.sh --stdin | --sweep | --recover-ready | --purge-markers" >&2; exit 2 ;;
+  *) echo "usage: issue-triage-bridge.sh --stdin | --relabel <n> | --type-conflict <n> <type> | --sweep | --recover-ready | --purge-markers" >&2; exit 2 ;;
 esac
