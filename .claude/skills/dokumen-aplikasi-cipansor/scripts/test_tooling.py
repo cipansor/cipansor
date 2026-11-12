@@ -295,8 +295,21 @@ class VerifyPdfTest(unittest.TestCase):
     """The PDF gate must notice a near-empty page and a table whose header did not render."""
 
     @staticmethod
-    def _pdf(tmp: Path, pages: list[str]):
-        import pymupdf
+    def _pymupdf():
+        # Mirror build_docs.verify_pdf: the module is `pymupdf` or its legacy
+        # alias `fitz`, so a machine with only one of them still builds the PDF.
+        try:
+            import pymupdf  # type: ignore
+
+            return pymupdf
+        except ImportError:
+            import fitz  # type: ignore
+
+            return fitz
+
+    @classmethod
+    def _pdf(cls, tmp: Path, pages: list[str]):
+        pymupdf = cls._pymupdf()
 
         doc = pymupdf.open()
         for text in pages:
@@ -323,6 +336,38 @@ class VerifyPdfTest(unittest.TestCase):
             p = self._pdf(Path(td), ["Modul Jumlah api 3 — teks yang cukup panjang untuk diperiksa mesin."])
             md = "| Modul | Jumlah |\n|---|---|\n| api | 3 |\n"
             self.assertEqual(build_docs.verify_pdf(p, md), [])
+
+    def test_the_pdf_module_falls_back_to_the_fitz_alias(self):
+        # Only `fitz` present (older PyMuPDF): the suite must still run, not
+        # crash on `import pymupdf` — verify_pdf accepts the alias too. The
+        # modern `fitz` shim imports `pymupdf`, so simulate the old layout with
+        # a stand-in module rather than the installed package.
+        import builtins
+        import types
+
+        real = builtins.__import__
+
+        def only_fitz(name, *args, **kwargs):
+            if name == "pymupdf":
+                raise ImportError("simulated: only the fitz alias is installed")
+            return real(name, *args, **kwargs)
+
+        fake = types.ModuleType("fitz")
+        fake.open = lambda *a, **k: "sentinel"
+        saved = {k: sys.modules.get(k) for k in ("pymupdf", "fitz")}
+        sys.modules.pop("pymupdf", None)
+        sys.modules["fitz"] = fake
+        builtins.__import__ = only_fitz
+        try:
+            module = self._pymupdf()
+        finally:
+            builtins.__import__ = real
+            for key, value in saved.items():
+                if value is None:
+                    sys.modules.pop(key, None)
+                else:
+                    sys.modules[key] = value
+        self.assertEqual(module.open(), "sentinel")
 
 
 if __name__ == "__main__":
