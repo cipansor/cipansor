@@ -18,15 +18,74 @@ atau langsung:
 """
 from __future__ import annotations
 
+import contextlib
 import importlib
 import importlib.util
 import sys
+import types
 import unittest
 from pathlib import Path
 
 
 def _has(module: str) -> bool:
     return importlib.util.find_spec(module) is not None
+
+
+@contextlib.contextmanager
+def _only_modules(**modules):
+    """Make only the named modules importable, as if the others were absent.
+
+    `verify_pdf` imports `pymupdf` with a `fitz` fallback; simulating the two
+    layouts needs the import to fail for the blocked name, which a
+    `sys.modules` entry alone does not do.
+    """
+    import builtins
+
+    real = builtins.__import__
+    saved = {name: sys.modules.get(name) for name in modules}
+    for name, module in modules.items():
+        if module is None:
+            sys.modules.pop(name, None)
+        else:
+            sys.modules[name] = module
+
+    def fake_import(name, *args, **kwargs):
+        if name in modules and modules[name] is None:
+            raise ImportError(f"simulated: {name} is not installed")
+        return real(name, *args, **kwargs)
+
+    builtins.__import__ = fake_import
+    try:
+        yield
+    finally:
+        builtins.__import__ = real
+        for name, value in saved.items():
+            if value is None:
+                sys.modules.pop(name, None)
+            else:
+                sys.modules[name] = value
+
+
+def _fake_pdf_module(pages: list[str]):
+    """A stand-in PyMuPDF exposing only what `verify_pdf` reads."""
+    module = types.ModuleType("fitz")
+
+    class _Page:
+        def __init__(self, text: str):
+            self._text = text
+
+        def get_text(self) -> str:
+            return self._text
+
+    class _Doc:
+        def __init__(self, texts: list[str]):
+            self._pages = [_Page(t) for t in texts]
+
+        def __iter__(self):
+            return iter(self._pages)
+
+    module.open = lambda _path: _Doc(pages)
+    return module
 
 
 HERE = Path(__file__).resolve().parent
@@ -295,21 +354,13 @@ class VerifyPdfTest(unittest.TestCase):
     """The PDF gate must notice a near-empty page and a table whose header did not render."""
 
     @staticmethod
-    def _pymupdf():
-        # Mirror build_docs.verify_pdf: the module is `pymupdf` or its legacy
-        # alias `fitz`, so a machine with only one of them still builds the PDF.
+    def _pdf(tmp: Path, pages: list[str]):
+        # The module is `pymupdf` or its legacy alias `fitz`; build with
+        # whichever is installed, as build_docs.verify_pdf does.
         try:
             import pymupdf  # type: ignore
-
-            return pymupdf
         except ImportError:
-            import fitz  # type: ignore
-
-            return fitz
-
-    @classmethod
-    def _pdf(cls, tmp: Path, pages: list[str]):
-        pymupdf = cls._pymupdf()
+            import fitz as pymupdf  # type: ignore
 
         doc = pymupdf.open()
         for text in pages:
@@ -337,37 +388,39 @@ class VerifyPdfTest(unittest.TestCase):
             md = "| Modul | Jumlah |\n|---|---|\n| api | 3 |\n"
             self.assertEqual(build_docs.verify_pdf(p, md), [])
 
-    def test_the_pdf_module_falls_back_to_the_fitz_alias(self):
-        # Only `fitz` present (older PyMuPDF): the suite must still run, not
-        # crash on `import pymupdf` — verify_pdf accepts the alias too. The
-        # modern `fitz` shim imports `pymupdf`, so simulate the old layout with
-        # a stand-in module rather than the installed package.
-        import builtins
-        import types
 
-        real = builtins.__import__
+class VerifyPdfFallbackTest(unittest.TestCase):
+    """`verify_pdf` must accept the `fitz` alias, not only `pymupdf`.
 
-        def only_fitz(name, *args, **kwargs):
-            if name == "pymupdf":
-                raise ImportError("simulated: only the fitz alias is installed")
-            return real(name, *args, **kwargs)
+    Runs without any PDF library: it injects a stand-in module and exercises the
+    real `build_docs.verify_pdf`, so the fallback is covered even on the CI
+    runner, where the PDF cases above are skipped.
+    """
 
-        fake = types.ModuleType("fitz")
-        fake.open = lambda *a, **k: "sentinel"
-        saved = {k: sys.modules.get(k) for k in ("pymupdf", "fitz")}
-        sys.modules.pop("pymupdf", None)
-        sys.modules["fitz"] = fake
-        builtins.__import__ = only_fitz
-        try:
-            module = self._pymupdf()
-        finally:
-            builtins.__import__ = real
-            for key, value in saved.items():
-                if value is None:
-                    sys.modules.pop(key, None)
-                else:
-                    sys.modules[key] = value
-        self.assertEqual(module.open(), "sentinel")
+    _MD = "| Modul | Jumlah |\n|---|---|\n| api | 3 |\n"
+
+    def test_uses_the_pymupdf_name_when_present(self):
+        fake = _fake_pdf_module(["Modul Jumlah api 3 — teks yang cukup panjang untuk diperiksa mesin."])
+        with _only_modules(pymupdf=fake, fitz=None):
+            self.assertEqual(build_docs.verify_pdf("x.pdf", self._MD), [])
+
+    def test_falls_back_to_the_fitz_alias(self):
+        # Only `fitz` present (older PyMuPDF): `import pymupdf` must fail and the
+        # fallback must take over — the regression the review flagged.
+        fake = _fake_pdf_module(["Modul Jumlah api 3 — teks yang cukup panjang untuk diperiksa mesin."])
+        with _only_modules(pymupdf=None, fitz=fake):
+            self.assertEqual(build_docs.verify_pdf("x.pdf", self._MD), [])
+
+    def test_reports_when_no_pdf_library_is_installed(self):
+        with _only_modules(pymupdf=None, fitz=None):
+            problems = build_docs.verify_pdf("x.pdf", self._MD)
+        self.assertTrue(any("PyMuPDF" in p for p in problems), problems)
+
+    def test_a_missing_table_header_is_reported_through_the_alias(self):
+        fake = _fake_pdf_module(["Halaman dengan teks yang cukup panjang untuk diperiksa mesin dokumen ini."])
+        with _only_modules(pymupdf=None, fitz=fake):
+            problems = build_docs.verify_pdf("x.pdf", self._MD)
+        self.assertTrue(any("Modul" in p for p in problems), problems)
 
 
 if __name__ == "__main__":
