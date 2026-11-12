@@ -7,6 +7,7 @@
 | 0.3 | 29 September 2026 | commit `1a0e6b1e` (kode identik dengan `aefc719`) | dari kode, belum dicoba di aplikasi berjalan | Nama butir menu **Mengajar** ditulis persis seperti layar ("Siswa") supaya tidak terbaca sebagai prosa. Isi kartu tidak berubah |
 | 0.4 | 30 September 2026 | aplikasi berjalan dari kode PR #512 (setelah `main` `2377f5fb`) | **T1 — terverifikasi di aplikasi berjalan** | Keempat kartu dijalankan dengan akun demo `sdit.walikelas@` pada tumpukan lokal (PostgreSQL + API :3001 + web :3000); langkah, nama tombol, dan pesan dicocokkan ulang dengan layar sungguhan dan tangkapan layar disematkan. Pita ⚠ dibuka; Riwayat Revisi mencatat tingkat T1 |
 | 0.5 | 11 November 2026 | aplikasi berjalan dari kode `main` `76511a89` | **T1 — terverifikasi di aplikasi berjalan** | Kartu baru **Mencatat kehadiran Anda sendiri** (Absen Saya, `/hr/attendance/me`): langkah, nama tombol (**Buka Kamera**, **Ambil Foto**, **Absen Masuk**, **Absen Pulang**), dan pesan (**"Absen masuk tercatat"**) dicocokkan dengan layar sungguhan dan tangkapan layar disematkan. Butir menu **Absen Saya** ditambahkan ke ringkasan menu §1.1 dan tabel tugas §1.3 |
+| 0.6 | 12 November 2026 | kode `main` | **T1** untuk kartu lain; langkah swafoto kedua dibaca dari kode | Kartu *Mencatat kehadiran Anda sendiri* diperbaiki dari tinjauan: bila unit mewajibkan swafoto, layar mengosongkan foto setelah **Absen Masuk**, sehingga **Absen Pulang** perlu swafoto baru dulu (tombolnya nonaktif sampai ada). Langkah **Buka Kamera** dan **Ambil Foto** dipisah, dan langkah swafoto kedua ditandai belum dicoba ulang di aplikasi berjalan |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo wali kelas SD IT (absensi harian, tindak
@@ -260,14 +261,20 @@ tombol absen tidak muncul; minta admin unit menambahkannya lebih dulu.
 
 1. Buka **Absen Saya**.
    *Halaman menampilkan kartu **Status Hari Ini** dan **Bukti Kehadiran**.*
-2. Pada **Bukti Kehadiran**, klik **Buka Kamera**, lalu klik **Ambil Foto**.
+2. Bila unit Anda mewajibkan swafoto, pada **Bukti Kehadiran** klik **Buka Kamera**.
+   *Kamera terbuka. Bila swafoto opsional, lewati langkah 2–3.*
+3. Klik **Ambil Foto**.
    *Pratinjau swafoto tampil. Klik **Foto Ulang** bila perlu mengulang.*
-3. Klik **Baca Lokasi Saya** bila unit Anda mewajibkan lokasi.
+4. Klik **Baca Lokasi Saya** bila unit Anda mewajibkan lokasi.
    *Muncul keterangan "Lokasi terbaca" beserta ketelitiannya.*
-4. Klik **Absen Masuk**.
+5. Klik **Absen Masuk**.
    *Muncul pesan "Absen masuk tercatat"; bila Anda terlambat, pesannya
-   menyebut jumlah menitnya.*
-5. Pada akhir jam kerja, klik **Absen Pulang**.
+   menyebut jumlah menitnya. Swafoto yang dipakai kini dihapus dari layar.*
+6. Pada akhir jam kerja, bila unit Anda mewajibkan swafoto, klik **Buka Kamera**,
+   lalu klik **Ambil Foto** untuk mengambil swafoto baru.
+   *Tombol **Absen Pulang** tetap nonaktif sampai swafoto baru ada, karena foto
+   absen masuk sudah terpakai. Bila swafoto opsional, langsung ke langkah 7.*
+7. Klik **Absen Pulang**.
    *Muncul pesan "Absen pulang tercatat".*
 
 ![Gambar 8. Halaman Absen Saya: Status Hari Ini dan Bukti Kehadiran dengan tombol Absen Masuk.](screens/absen-pegawai/01-buka-absen-saya.png){width=14cm}
@@ -275,9 +282,10 @@ tombol absen tidak muncul; minta admin unit menambahkannya lebih dulu.
 *Gambar 8. Halaman Absen Saya: Status Hari Ini dan Bukti Kehadiran dengan tombol Absen Masuk.*
 
 **Hasilnya, dan giliran siapa berikutnya.** Jam masuk dan pulang Anda tercatat.
-Keterlambatan dipotong dari tunjangan kehadiran, bukan dari gaji pokok. Swafoto
-dan lokasi hanya dipakai untuk membuktikan kehadiran; yang dapat melihatnya
-adalah Anda dan admin unit Anda, dan setiap pembukaan swafoto dicatat.
+Bila unit Anda menetapkan aturan potong, keterlambatan dipotong dari tunjangan,
+bukan dari gaji pokok. Swafoto dan lokasi hanya dipakai untuk membuktikan
+kehadiran; yang dapat melihatnya adalah Anda dan admin unit Anda, dan setiap
+pembukaan swafoto dicatat.
 
 **Bila tidak berhasil.**
 

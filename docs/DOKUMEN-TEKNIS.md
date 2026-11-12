@@ -579,7 +579,7 @@ satu kalimat; buka berkasnya untuk alasannya.
 | Akses data pegawai | Data pribadi lengkap pegawai hanya untuk dirinya, admin unit, TU unit, organ, dan Super Admin; rekan melihat kolom direktori. | `akses-data-pegawai.md` |
 | Armada otomasi dan rilis | Pemantauan dipicu event, bukan cron; uji beban k6 manual sebelum tiap rilis; persetujuan rilis lewat label pada issue rilis mingguan; tanpa berkas CHANGELOG; temuan keamanan ke advisory privat; catatan `## HUMAN` hanya pada PR berisiko. | `otomasi-armada.md` |
 | Showcase portofolio santri | Tetap terbatas cakupan santri (`studentScope`); rancangan bertingkat baru dibangun saat ada kebutuhan nyata. | `showcase-portofolio.md` |
-| Absensi pegawai | Absen Saya memakai swafoto dan geotag; shift dan jam kerja diatur Super Admin dan Admin Unit; potongan dari tunjangan, tidak pernah dari gaji pokok. | `absensi-pegawai.md` |
+| Absensi pegawai | Absen Saya memakai swafoto dan geotag; shift dan jam kerja diatur Super Admin dan Admin Unit; bila unit menetapkan aturan potong, potongannya dari tunjangan, tidak pernah dari gaji pokok. | `absensi-pegawai.md` |
 | Persetujuan pengguna | S&K, Kebijakan Privasi, dan batasan regulasi disetujui sekali sesudah login; pegawai membaca pemberitahuan (perjanjian kerja dan kepentingan sah), tanpa logout. | `persetujuan-pengguna.md` |
 
 # 10. Persyaratan Kualitas
@@ -864,7 +864,7 @@ Diukur pada commit `76511a89` (11 November 2026).
 |---|---:|---|---|
 | `/finance` | 24 | portal | Super Admin, Admin/organ, Staf |
 | `/tahfidz` | 20 | portal | Super Admin, Admin/organ, Guru/kepala, Santri |
-| `/hr` | 20 | portal | Super Admin, Admin/organ, Guru/kepala, Staf |
+| `/hr` | 20 | portal | Super Admin, Admin/organ, Guru/kepala (seluruh `/hr`); Staf hanya `/hr/attendance/me` |
 | `/assessment` | 16 | portal | Super Admin, Admin/organ, Guru/kepala, Santri |
 | `/parent` | 15 | portal | Super Admin, Wali |
 | `/tk` | 12 | portal | Super Admin, Admin/organ |
