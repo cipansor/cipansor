@@ -24,7 +24,7 @@ import {
 import { seesAllUnits } from '@/utils/resolve-unit-id';
 import { CLASS_ENROLLMENT_STATUS, STUDENT_STATUS } from '@cipansor/shared';
 import { nisMapForUnit } from '@/utils/student-nis';
-import { wibMonthYear, wibDate, dayDate, utcMonthRange } from '@/utils/wib-day';
+import { wibMonthYear, wibDate, dayDate, utcMonthRange, wibOverdueCutoff } from '@/utils/wib-day';
 
 // =====================================
 // PAYMENT TYPE SERVICE
@@ -321,8 +321,8 @@ export async function getInvoices(query: QueryInvoiceDto, currentUser: VerifierC
     ...(endDate && { lte: new Date(endDate) }),
   };
   if (overdue === true) {
-    const now = new Date();
-    dueDate.lt = dueDate.lt && dueDate.lt < now ? dueDate.lt : now;
+    const cutoff = wibOverdueCutoff();
+    dueDate.lt = dueDate.lt && dueDate.lt < cutoff ? dueDate.lt : cutoff;
   }
 
   const term = search?.trim();
@@ -1057,7 +1057,7 @@ export async function getStudentFinanceSummary(studentId: string) {
   const overdue = invoices.filter(
     (inv) =>
       (inv.status === PaymentStatus.PENDING || inv.status === PaymentStatus.PARTIAL) &&
-      new Date(inv.dueDate) < new Date()
+      inv.dueDate < wibOverdueCutoff()
   );
 
   return {
@@ -1123,7 +1123,7 @@ export async function getUnitFinanceStats(unitId: string, month?: string) {
  * whole yayasan's all-time totals under a card labelled "tahun ajaran aktif".
  */
 export async function getFinancialSummary(currentUser: VerifierContext, academicYearId?: string) {
-  const now = new Date();
+  const overdueCutoff = wibOverdueCutoff();
   const window = await billingWindowFor(academicYearId);
   const where: Prisma.InvoiceWhereInput = {
     AND: [invoiceScope(currentUser), window ? { dueDate: window } : {}],
@@ -1168,7 +1168,7 @@ export async function getFinancialSummary(currentUser: VerifierContext, academic
 
     const unpaid = inv.amount.sub(inv.paidAmount);
     const isSettled = inv.status === PaymentStatus.PAID;
-    if (!isSettled && inv.dueDate < now && unpaid.gt(0)) {
+    if (!isSettled && inv.dueDate < overdueCutoff && unpaid.gt(0)) {
       totalOverdue = totalOverdue.add(unpaid);
     }
 
@@ -1202,7 +1202,7 @@ export async function getStudentOutstandingBalances(unitId: string) {
     where: {
       paymentType: { unitId },
       status: { in: [PaymentStatus.PENDING, PaymentStatus.PARTIAL] },
-      dueDate: { lt: new Date() },
+      dueDate: { lt: wibOverdueCutoff() },
     },
     include: {
       student: {
@@ -1360,7 +1360,7 @@ export async function getSppMatrix(query: SppMatrixQuery) {
   });
 
   // Build matrix data
-  const now = new Date();
+  const overdueCutoff = wibOverdueCutoff();
   const matrixData: StudentSppRow[] = students.map((student) => {
     const studentInvoices = invoices.filter((inv) => inv.studentId === student.id);
     const monthsData: StudentSppRow['months'] = {};
@@ -1375,7 +1375,7 @@ export async function getSppMatrix(query: SppMatrixQuery) {
       });
 
       if (invoice) {
-        const isPastDue = new Date(invoice.dueDate) < now;
+        const isPastDue = new Date(invoice.dueDate) < overdueCutoff;
         let status: 'PAID' | 'PARTIAL' | 'PENDING' | 'OVERDUE' = invoice.status as any;
 
         if ((status === 'PENDING' || status === 'PARTIAL') && isPastDue) {
