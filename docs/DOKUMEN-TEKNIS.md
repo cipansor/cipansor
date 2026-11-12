@@ -78,7 +78,7 @@ setiap orang pada data yang berhak dilihatnya.
 | Guru, guru BK, wali kelas | Per kelas / unit | Mengajar, mengisi absensi, menilai, membina |
 | Pendidik pesantren (ustadz, musyrif, muhafidz) dan Pimpinan Pesantren | Pesantren | Tahfidz, ibadah, perizinan santri mukim, asrama |
 | Tata usaha, bendahara, pustakawan, perawat, keamanan, laboran, pengelola unit usaha | Per unit / layanan | Administrasi, keuangan, layanan, keamanan |
-| Wali santri | Data anaknya sendiri | Memantau perkembangan, tagihan, perizinan, laporan harian |
+| Wali santri | Data anaknya sendiri | Memantau perkembangan, tagihan, perizinan, laporan harian; membaca dan mengomentari portofolio anaknya tanpa boleh menulis |
 | Santri / siswa | Data diri sendiri | Capaian hafalan, ujian, jadwal, portofolio |
 | Alumni dan komite | Terbatas | Direktori, dokumen, kontribusi; komite membaca laporan |
 | Pengunjung situs publik | Umum | Profil yayasan, berita, unit, program, donasi, verifikasi dokumen |
@@ -114,7 +114,7 @@ setiap orang pada data yang berhak dilihatnya.
 
 | Jenis | Batasan | Sumber |
 |---|---|---|
-| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7.10.0, Zod 4, PostgreSQL, Redis (opsional), Node 22, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
+| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7.10.0, Zod 4, PostgreSQL, Redis (opsional), Node 26, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
 | Organisasi | Tim pengembang kecil; yayasan nirlaba memakai perkakas hibah; satu basis data untuk semua unit; repositori bersifat **publik sampai rilis** (lisensi proprietary, menjadi privat saat rilis). | `AGENTS.md`, `LICENSE` |
 | Hukum (yang tercatat di repo) | UU 16/2001 (Yayasan) untuk wewenang organ; UU 27/2022 (PDP) untuk data pribadi; PP 71/2019 untuk tanda tangan elektronik. | `decisions/pengesahan-dokumen-yayasan.md`, `decisions/esign-standards-ceiling.md`, `skills/tata-kelola-yayasan` |
 | Konvensi | Portal berbahasa Indonesia; situs publik tiga bahasa (Indonesia, Inggris, Arab; Arab ditulis kanan ke kiri). Istilah pesantren tidak diterjemahkan; istilah umum berbahasa Inggris di kode/URL, label berbahasa Indonesia. | `decisions/istilah-dan-penamaan.md` |
@@ -193,7 +193,7 @@ flowchart TB
   subgraph Cipansor["Sistem Informasi Cipansor"]
     Nginx["nginx<br/>reverse proxy (staging dan produksi)"]
     Web["Web<br/>Next.js 16, React 19"]
-    API["API<br/>Express 5, Node 22<br/>penjadwal node-cron di dalamnya"]
+    API["API<br/>Express 5, Node 26<br/>penjadwal node-cron di dalamnya"]
     DB[("PostgreSQL<br/>lewat Prisma 7")]
     Redis[("Redis<br/>cache")]
     Files[("Berkas unggahan<br/>disk aplikasi")]
@@ -519,7 +519,24 @@ sampai ke kontainer; pada Azure App Service, ke app settings tiap kontainer.
 - **Otorisasi dua lapis.** Lapis API: `authorize(RoleCode…)` dan
   `hasPermission(perm)`; lapis web: kode peran memilih menu (`navigation.ts`),
   bucket lama memilih halaman yang boleh dibuka (`rbac.ts`). Lingkup baris data
-  ditentukan di service (`resolve-unit-id`, `studentScope`).
+  ditentukan di service (`resolve-unit-id`, `studentScope`). `studentScope`
+  melebarkan baca ke seluruh unit untuk organ yayasan dan peran lintas unit
+  (`seesAllUnits` atas `CROSS_UNIT_SCOPE_ROLES`: pengasuh, ustadz, musyrif,
+  muhafidz, tata usaha pesantren, dan layanan bersama), sedangkan peran lain
+  terkunci pada unitnya. Aturannya per aktor: santri → dirinya sendiri; wali →
+  anaknya; alumni dan komite → tidak ada baris santri; peran lintas unit →
+  semua unit; selain itu → unitnya sendiri. Portofolio mengikuti aturan itu
+  (`portfolio.service.ts`): santri membaca miliknya, wali membaca dan
+  mengomentari portofolio anaknya **tanpa boleh menulis**, staf membaca
+  portofolio unitnya, peran lintas unit membaca semua unit; portofolio di luar
+  jangkauan dijawab **404**, bukan 403, agar keberadaan id tidak terkonfirmasi.
+  Showcase santri (`isShowcase`/`isPublic`) hanya memilih karya yang ditampilkan,
+  bukan siapa yang boleh melihatnya — jangkauannya tetap `studentScope`.
+- **Balasan pesan dua pihak.** Percakapan pesan (`/api/messages`) terikat pada
+  dua orangnya: `createMessage` dan `replyToMessage` menolak pengirim dari luar
+  percakapan dan penerima pihak ketiga dengan **404**, bukan 403, sehingga id
+  percakapan orang lain tidak terkonfirmasi
+  (`apps/api/src/modules/messages/messages.service.ts`).
 - **Validasi.** Zod di tepi (`validate`, `validateQuery`, `validateParams`);
   skema bersama di `@cipansor/shared`; kontrak yang sama dipakai web.
 - **Amplop respons.** `{ success, data, meta? }` lewat `ApiResponse`; galat
@@ -858,7 +875,12 @@ Setiap halaman web (`page.tsx` di `apps/web/src/app`) dikelompokkan menurut
 segmen URL pertamanya. Kolom host mengikuti `PUBLIC_PATH_PREFIXES` di
 `lib/host-split.ts`; kolom bucket mengikuti `roleRouteAccess` di `lib/rbac.ts`,
 yaitu siapa yang boleh **membuka** halaman. Apa yang boleh dilakukan di sana tetap
-diputuskan API (bab 8). Menu tiap kode peran dicetak dengan
+diputuskan API (bab 8). Bucket adalah gerbang **halaman**, bukan cakupan **baris**:
+`/portfolio`, misalnya, boleh dibuka Santri, Guru/kepala, dan admin, tetapi baris
+yang terbaca tetap ditentukan `studentScope` **per aktor** (bab 8) — santri
+melihat miliknya, guru yang terkunci pada unit melihat unitnya, sedangkan peran
+lintas unit (musyrif, ustadz, pengasuh) melihat seluruh unit.
+Menu tiap kode peran dicetak dengan
 `apps/web/scripts/role-menus.ts`.
 
 Gambar tampilan tidak disimpan di sini. Tangkapan per tugas ada di panduan

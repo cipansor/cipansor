@@ -7,7 +7,8 @@
 | 0.3 | 29 September 2026 | commit `1a0e6b1e` (kode identik dengan `aefc719`) | dari kode, belum dicoba di aplikasi berjalan | Nama butir menu **Mengajar** ditulis persis seperti layar ("Siswa") supaya tidak terbaca sebagai prosa. Isi kartu tidak berubah |
 | 0.4 | 30 September 2026 | aplikasi berjalan dari kode PR #512 (setelah `main` `2377f5fb`) | **T1 — terverifikasi di aplikasi berjalan** | Keempat kartu dijalankan dengan akun demo `sdit.walikelas@` pada tumpukan lokal (PostgreSQL + API :3001 + web :3000); langkah, nama tombol, dan pesan dicocokkan ulang dengan layar sungguhan dan tangkapan layar disematkan. Pita ⚠ dibuka; Riwayat Revisi mencatat tingkat T1 |
 | 0.5 | 11 November 2026 | aplikasi berjalan dari kode `main` `76511a89` | **T1 — terverifikasi di aplikasi berjalan** | Kartu baru **Mencatat kehadiran Anda sendiri** (Absen Saya, `/hr/attendance/me`): langkah, nama tombol (**Buka Kamera**, **Ambil Foto**, **Absen Masuk**, **Absen Pulang**), dan pesan (**"Absen masuk tercatat"**) dicocokkan dengan layar sungguhan dan tangkapan layar disematkan. Butir menu **Absen Saya** ditambahkan ke ringkasan menu §1.1 dan tabel tugas §1.3 |
-| 0.6 | 12 November 2026 | kode `main` | **T1** untuk kartu lain; langkah swafoto kedua dibaca dari kode | Kartu *Mencatat kehadiran Anda sendiri* diperbaiki dari tinjauan: bila unit mewajibkan swafoto, layar mengosongkan foto setelah **Absen Masuk**, sehingga **Absen Pulang** perlu swafoto baru dulu (tombolnya nonaktif sampai ada). Langkah **Buka Kamera** dan **Ambil Foto** dipisah, dan langkah swafoto kedua ditandai belum dicoba ulang di aplikasi berjalan |
+| 0.6 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Catatan cakupan ditambahkan pada §1.2: guru dan wali kelas tetap sebatas kelas dan unitnya, sedangkan sebagian petugas pesantren (ustadz, musyrif, muhafidz, pengasuh, tata usaha pesantren) menjangkau santri dari seluruh unit (#714) |
+| 0.7 | 12 November 2026 | aplikasi berjalan dari kode `main` | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Mencatat kehadiran Anda sendiri* diperbaiki dari tinjauan: bila unit mewajibkan swafoto, layar mengosongkan foto setelah **Absen Masuk**, sehingga **Absen Pulang** perlu swafoto baru dulu (tombolnya nonaktif sampai ada). Langkah swafoto kedua dipecah **satu tindakan per langkah** (**Buka Kamera**, lalu **Ambil Foto**) dan dijalankan ulang di aplikasi berjalan sampai **Absen Pulang** tercatat; alur ini juga dijaga uji e2e `apps/web/e2e/staff-attendance.spec.ts` ("the teacher clocks out on screen, with the camera and the location") |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo wali kelas SD IT (absensi harian, tindak
@@ -45,7 +46,9 @@ sehingga kelompok itu bisa muncul dan hilang sesuai penugasan Anda.
   Izin santri mukim diputuskan musyrif santri itu (lihat buklet Pendidik
   Pesantren). Kepala unit hanya turun tangan untuk izin lebih dari 7 hari,
   santri tanpa pembimbing, atau mengambil alih.
-- Data santri hanya tampil sebatas kelas dan unit Anda.
+- Data santri hanya tampil sebatas kelas dan unit Anda. *Sebagian petugas
+  pesantren — ustadz, musyrif, muhafidz, pengasuh, dan tata usaha pesantren —
+  menjangkau santri dari seluruh unit; lihat buklet Pendidik Pesantren.*
 
 ## 1.3 Tugas dalam buklet ini
 
@@ -270,11 +273,12 @@ tombol absen tidak muncul; minta admin unit menambahkannya lebih dulu.
 5. Klik **Absen Masuk**.
    *Muncul pesan "Absen masuk tercatat"; bila Anda terlambat, pesannya
    menyebut jumlah menitnya. Swafoto yang dipakai kini dihapus dari layar.*
-6. Pada akhir jam kerja, bila unit Anda mewajibkan swafoto, klik **Buka Kamera**,
-   lalu klik **Ambil Foto** untuk mengambil swafoto baru.
-   *Tombol **Absen Pulang** tetap nonaktif sampai swafoto baru ada, karena foto
-   absen masuk sudah terpakai. Bila swafoto opsional, langsung ke langkah 7.*
-7. Klik **Absen Pulang**.
+6. Pada akhir jam kerja, bila unit Anda mewajibkan swafoto, klik **Buka Kamera**.
+   *Kamera terbuka kembali. Bila swafoto opsional, langsung ke langkah 8.*
+7. Klik **Ambil Foto** untuk mengambil swafoto baru.
+   *Tombol **Absen Pulang** baru aktif setelah swafoto baru ada, karena foto
+   absen masuk sudah terpakai.*
+8. Klik **Absen Pulang**.
    *Muncul pesan "Absen pulang tercatat".*
 
 ![Gambar 8. Halaman Absen Saya: Status Hari Ini dan Bukti Kehadiran dengan tombol Absen Masuk.](screens/absen-pegawai/01-buka-absen-saya.png){width=14cm}

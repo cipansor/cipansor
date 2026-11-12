@@ -80,8 +80,9 @@ OpenHands) refuse the mechanical cases.
 - [audit-deps-fails-on-time-not-diff](lessons/audit-deps-fails-on-time-not-diff.md) — the Security job reds on the date, and greens without checking
 - [pnpm-12-second-permission-surface](lessons/pnpm-12-second-permission-surface.md) — `allowBuilds` covers build scripts only; dependency agent skills are a second surface, decided in `permissions`, guarded statically + by `pnpm permissions list`
 - [github-actions-minutes-exhausted](lessons/github-actions-minutes-exhausted.md) — a 2-second job with no steps is a billing wall; read the annotation
-- [gh-cli-and-shell-traps](lessons/gh-cli-and-shell-traps.md) — `gh pr edit` does nothing; unquoted heredocs run backticks; all green yet BLOCKED = a CodeQL category missing
+- [gh-cli-and-shell-traps](lessons/gh-cli-and-shell-traps.md) — `gh pr edit` does nothing; unquoted heredocs run backticks; all green yet BLOCKED = a CodeQL category missing; never `--label` a PR by hand (the guard revokes it and a duplicate `labeled` event reds its check)
 - [docker-image-size-traps](lessons/docker-image-size-traps.md) — Prisma's optional peer, `chown -R`, recursive `*.sql` in `.dockerignore`
+- [node-major-drifts-from-types](lessons/node-major-drifts-from-types.md) — runtime Node 22 vs `@types/node` 26; one major in five declarations, bound by a guard test; Node 25 dropped Corepack from the distribution, so `corepack enable` on `node:26-alpine` is a broken build; `engines` is read by pnpm only with `engine-strict`
 - [next-image-optimizer-dead](lessons/next-image-optimizer-dead.md) — `/_next/image` never resizes; ship images at display size
 - [nextjs-loading-boundary-commits-200](lessons/nextjs-loading-boundary-commits-200.md) — a root `loading.tsx` turns every 404 into a 200
 - [mobile-layout-audit](lessons/mobile-layout-audit.md) — `scrollWidth` lies here; the ancestor-walk test that works

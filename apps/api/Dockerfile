@@ -10,15 +10,20 @@
 #   docker build --secret id=proxyca,src=<ca.crt> -f apps/api/Dockerfile -t cipansor-api .
 # In a normal network the secret is unused and the build works without it.
 
-FROM node:22-alpine AS base
+FROM node:26-alpine AS base
 ENV PNPM_HOME=/pnpm
 ENV PATH=$PNPM_HOME:$PATH
 ENV CI=true
 WORKDIR /app
+# Node 25+ no longer bundles Corepack, so install it from npm first. It lands
+# in the image's global npm prefix, which is on PATH, and `corepack enable`
+# writes the pnpm shim next to `node` — so every later stage finds `pnpm`
+# without touching PATH.
 RUN --mount=type=secret,id=proxyca,required=false \
     if [ -f /run/secrets/proxyca ]; then \
       cat /run/secrets/proxyca >> /etc/ssl/certs/ca-certificates.crt; \
     fi && \
+    NODE_EXTRA_CA_CERTS=/run/secrets/proxyca npm install -g corepack@0.36.0 && \
     NODE_EXTRA_CA_CERTS=/run/secrets/proxyca corepack enable && \
     NODE_EXTRA_CA_CERTS=/run/secrets/proxyca corepack prepare pnpm@12.11.2 --activate
 
