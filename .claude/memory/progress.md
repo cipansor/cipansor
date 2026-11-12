@@ -103,6 +103,28 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
+- **Dua penjadwal di dokumen teknis (#875, 2026-11-12).** Merge #804 membuat
+  penjadwal notifikasi (`modules/notifications/scheduler.service.ts`) benar-benar
+  berjalan dari `main.ts`, tetapi `docs/` tidak ikut diperbarui. §6.6 hanya
+  mengenal `jobs/scheduler.ts`, tabel §6.6 tidak memuat enam tugas penjadwal
+  notifikasi, `POST /notifications/scheduler/trigger` + `Notification.dedupeKey`
+  + model `NotificationDelivery` + dua migrasinya tidak tercatat, dan catatan
+  "satu instans" membuat pembaca menyimpulkan penjadwal notifikasi pun tidak
+  aman multi-instans — padahal ia mengklaim slot lewat `notification_deliveries`.
+  Angka 19/17 §6.6 sudah benar (dibetulkan #771/#630 di v1.3), jadi sisa
+  pekerjaannya: §6.6 kini menunjuk perintah ukur + tabel tugas penjadwal kedua,
+  batasan "satu instans" dipisah, `ARCHITECTURE.md` menyebut penjadwal kedua,
+  `MOBILE_API.md` menyelaraskan klaim pengingat SPP (bulanan `spp-reminder.job`
+  vs `payment-reminder` sekali-per-tagihan; `PENDING` bukan `SENT`). Kartu
+  panduan pengguna untuk tab **Penjadwalan** ditunda dengan alasan:
+  `/notifications/whatsapp` tidak punya menu (`NO_MENU_BY_DESIGN`,
+  known-issues.md), jadi tak ada menu path (golden rule #11) — dicatat di
+  `known-issues.md`. Putaran tinjau menemukan klaim "aman multi-instans" terlalu
+  luas: hanya tiga tugas ber-`dedupeKey` yang aman, tiga tugas massal
+  (`attendance-summary`, `tahfidz-progress`, `monthly-report`) memakai
+  `createManyNotifications` tanpa kunci sehingga tetap menggandakan; keduanya
+  (plus klaim H-7/H-3/H-1 vs sekali-per-tagihan) dicatat di `known-issues.md` dan
+  dikoreksi di dokumen.
 - **Versi patch Prisma di dokumen teknis (#874, 2026-11-12).** Tabel 2
   (Batasan) memaku `Prisma 7.10.0` sementara `apps/api/package.json` sudah
   `7.10.1` — sisa bump Dependabot (#870). Tidak ada pemeriksa yang menangkapnya
@@ -470,6 +492,26 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   `continue-on-error`. The Chromium run reports 41 skipped (2026-09-27);
   one of them, `tk-daily-report`, had been hiding a broken flow for months
   (`lessons/guard-tests-that-measure-the-wrong-thing.md`).
+
+- **Issue triage, 2026-11-12 (#872, tinjauan putaran 2 pada PR #1068):** jembatan
+  triase, cabang `fix/872-triage-sweep-fifo`. Reviewer menemukan bahwa
+  `drain_retry_markers` **menghapus** kunci `triage-retry-<n>` begitu checkpoint
+  menyebut sebuah run — padahal `activity_signal` hanya menghitung body issue +
+  komentar non-armada, **tidak** label. Run yang didispatch *sebelum* label masuk
+  (mis. run lama pada issue `ready`, yang sweep biasa lewati) memfinalkan issue
+  tanpa meninjau label itu, dan menghapus retry di situ membuang satu-satunya
+  kesempatan label ditriase. Perbaikan: drain menahan retry selama checkpoint
+  masih menyebut run (in-flight **atau** selesai-belum-difinalkan); run yang
+  memfinalkan checkpoint mengosongkan `run`, jadi pass berikutnya berhenti
+  menahan, melipat retry menjadi `pending`, lalu mendispatch. Tes round-trip tiga
+  pass (RUNNING → COMPLETED → kuras) **merah** pada skrip sebelum perbaikan
+  (`triage-retry-818` hilang), hijau sesudahnya; berkas guard 174 lulus.
+  Commit `8701601f`, dipush; balasan basmalah diposting. **Golden rule 9:** PR
+  draft **#1058** (`fix/838-label-guard-relabel-after-revocation`) menyentuh
+  keempat berkas yang sama — wajib digabung di worktree + gerbang bersama
+  sebelum yang kedua di-merge. (Satu tes `pnpm-supply-chain.guard.test.ts` gagal
+  di lingkungan ini karena `pnpm` adalah shim npm — sudah gagal di `main`, bukan
+  regresi.)
 
 - **Issue triage, 2026-11-11 (lanjutan):** #825 (`documentation`, kontrak
   `dueDate` tanggal-saja + kalender WIB setelah #775) dikerjakan di **PR #1049**

@@ -238,6 +238,10 @@ workers refused on a closed day. Still open:
   header, which the API requires. Its broadcast tab went with Pengumuman
   (`decisions/siaran-pengumuman.md`); what is left — send one message, a
   provider check, a scheduler trigger — is admin tooling nobody reaches.
+  Because it has no menu path, its **Penjadwalan** tab (the per-task
+  **Jalankan** button behind `useTriggerScheduledTask`) gets no user-guide card
+  yet: #875 recorded it as deferred until the menu exists (golden rule #11
+  needs a menu path).
 - **A unit's operator sees every unit's subjects.** _Classes → Mata
   Pelajaran & Jadwal_ for Admin SD IT lists SMP IT's subjects (seen
   2026-09-28), and its _Tanpa Guru Pengampu_ card counts them.
@@ -435,6 +439,27 @@ decision.
 
 ## Design gaps
 
+- **Three notification-scheduler tasks duplicate on a second API instance.**
+  `attendance-summary`, `tahfidz-progress` and `monthly-report`
+  (`modules/notifications/scheduler.service.ts`) build their notifications
+  through `createManyNotifications` with no `dedupeKey`, so
+  `notification_deliveries` never claims a slot: two API processes on the same
+  schedule write one bell row each per recipient (e.g. two weekly Tahfidz
+  reports for the same santri). The three tasks that do pass a `dedupeKey`
+  (`payment-reminder`, `event-reminder`, `budget-overrun-alert`) are the safe
+  ones. Give the bulk tasks a key (or a concurrency-safe slot claim) before
+  claiming the whole notification scheduler is multi-instance safe; the public
+  docs deliberately say only that tasks are idempotent individually, not as a
+  group, and name no task.
+- **`payment-reminder` reminds once per invoice, not on H-7/H-3/H-1.** The
+  scheduler selects every unpaid invoice inside a seven-day window and sends
+  with `dedupeKey: payment-reminder:<id>`, so the first run to see the invoice
+  claims the slot and the H-3/H-1 runs find the key taken and stay silent. The
+  code comment ("one reminder per invoice, ever", #802) is the intent; the
+  H-7/H-3/H-1 wording in the schedule table was not. Either make the day part of
+  the key (`payment-reminder:<id>:<H-7|H-3|H-1>`) or keep the once-per-window
+  behaviour and drop the three-day claim — decided when the task is next
+  touched.
 - **No PDF here prints Arabic script.** The Raport Merdeka prints in the
   built-in Helvetica (WinAnsi) and leaves Arabic out; it used to embed Amiri,
   which drew nothing legible (lessons/guard-tests-that-measure-the-wrong-thing,

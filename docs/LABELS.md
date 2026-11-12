@@ -196,7 +196,9 @@ detect` workflow: when two **open** issues share a title once normalised
     triage, dispatches the triage owner — deterministically, from
     `.github/scripts/issue-triage-bridge.sh`, and idempotently (a checkpoint in
     the automation KV store per type+priority state, and one per activity
-    timestamp). This is why
+    timestamp). A dispatch deferred while the pool was full is queued with its
+    first-deferral time and the sweep takes the oldest wait first, so a deferred
+    issue cannot starve behind fresh activity (#872). This is why
     nothing needs to fire on `issues.edited`: the bridge polls and the label
     event is the hook.
 
