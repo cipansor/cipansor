@@ -445,6 +445,19 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   and a new `analytics/tests/alerts-overdue-bound.test.ts` — all three fail on
   the pre-fix code. Gate green locally (api 5188, build:strict, lint).
 
+- **Issue triage, 2026-11-11 (lanjutan 5):** #848 (`bug`, `priority:medium`,
+  jembatan triase mendispatch `SDLC 01` pada label bot → triase ganda)
+  **ditutup dengan bukti** — bukan karena kurang bermanfaat. **K26** sudah
+  terpenuhi oleh commit `c86b9969` (2026-11-09, masuk `main` lewat PR #972 yang
+  tidak menyebut nomor issue ini, sehingga ia tertinggal terbuka): `SDLC 01 ·
+  Triase bug` dilebur ke `SDLC 15 · Triase issue`, dan
+  `issue-triage-bridge.sh:71` kini mendispatch id SDLC 15 (`42ec7401…`) saja.
+  Penjaga `apps/api/src/utils/automation-fleet.guard.test.ts` (*"folds Triase
+  bug into the single triage owner"*, 163 tes lulus) menegaskan jembatan memuat
+  id SDLC 15 dan **tidak** memuat id SDLC 01; `docs/SDLC-FLOW.md` butir 1 & 3
+  ditandai **SELESAI (2026-11-09)**. Komentar penutup mencatat tiap kriteria
+  penerimaan beserta buktinya.
+
 - **Issue triage, 2026-11-11 (lanjutan 4):** #849 (`bug`, `priority:high`, tab
   **Hari Ini** halaman Menu Makan selalu 404) dikerjakan sesuai **K5** di
   **PR #1059** pada `fix/849-meals-today-routing`. Cacatnya routing **dan**
