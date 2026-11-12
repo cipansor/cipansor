@@ -856,3 +856,57 @@ tidak menunggunya.
 tidak memicu run. Bila butuh rantai, panggil di run yang sama, atau pakai token
 non-otomatis (PAT/GitHub App) yang memang memicu.
 
+## 2026-11-12 — #838 (lanjutan): pemulihan label yang dicabut manusia, dan dua cacat jembatan
+
+**Fitur pemulihan.** Setengah kebijakan yang hilang: pencabutan bukan cara
+membantah bot. Label yang **terakhir dipasang `cipansor-bot`** lalu dicabut
+seorang manusia **dipasang kembali** secara deterministik, tanpa LLM.
+
+- **Pemicu.** `label-guard.yml` kini `types: [labeled, unlabeled]` pada `issues`
+  **dan** `pull_request_target`. Berbeda dari pencabutan (yang ditulis
+  `GITHUB_TOKEN` dan tak bisa memicu apa pun — lihat bagian #838 di atas), di
+  sini yang mencabut adalah **manusia**, jadi event `unlabeled`-nya asli dan
+  memicu run. Langkah `--relabel` yang ada tetap **hanya** untuk `labeled`
+  dengan gate `steps.guard.outputs.revoked == '1'`; jalur pemulihan tidak
+  menulis `revoked=1` (tak ada dispatch jembatan di jalurnya).
+- **Keputusan.** Di `label-guard.sh`, cabang `ACTION=unlabeled` →
+  `restore_after_revocation`. Lewati bila pencabut `$BOT_LOGIN`/`*[bot]`
+  (pencabutan itu sengaja: armada mencabut `ready` yang bertentangan,
+  `stale-sweep`, `issue-label-sync`). Baca aktor event `labeled` **terakhir**
+  untuk label itu dari `gh api --paginate repos/$REPO/issues/$NUMBER/events`;
+  pulihkan hanya bila aktornya bot. **Gagal baca = lewati dengan `::warning::`,
+  tidak pernah dianggap "boleh dipulihkan".** Baca label **saat ini** (bukan
+  payload) karena grup concurrency per-label membuat run berlomba; bila label
+  `ready` dan kini ada `question`/`blocked`, jangan pulihkan (aturan eksklusif
+  16). Pulihkan lewat `gh api -X POST .../labels -f "labels[]=$LABEL"`; event
+  `labeled` yang dihasilkannya tak memicu workflow (loop tertutup). Satu
+  komentar penanda `<!-- label-guard:restored -->` per issue.
+- **Kenapa bukan jalur jembatan.** Pencabutan yang meninggalkan issue tanpa
+  tipe/prioritas sudah ditangani `--relabel` (dispatch pemilik triase). Pemulihan
+  ini kebijakan label yang berbeda dan murni deterministik — tak perlu LLM, jadi
+  ia hidup di guard, bukan di jembatan.
+
+**Bug 1 (severe) — dispatch gagal membuat issue tetap tanpa label.**
+`relabel_after_revocation` tidak menulis checkpoint sweep saat dispatch gagal.
+Sweep berikutnya lalu membandingkan sinyal aktivitas issue dengan checkpoint
+yang **basi atau tidak ada**: bila sinyalnya kebetulan sama dengan yang akan
+dihitung, issue terbaca "sudah dijawab" dan **tak pernah dicoba ulang**. Perbaikan:
+tulis checkpoint `pending` (bentuk yang sama dengan deferral `MAX_INFLIGHT`)
+sebelum gagal; `pending` tidak menamai run, jadi sweep berikutnya men-dispatch.
+`process_one` sudah memperlakukan `PENDING_RUN` sebagai "perlu dicoba ulang", jadi
+tak perlu diubah.
+
+**Bug 2 — `refactor`/`security` terbaca sebagai tipe yang hilang.**
+Penentuan `has_type` memakai uji awalan `case "$left" in none|priority:*)`. Karena
+himpunan digabung `+` dan **terurut**, `priority:high+refactor` dan
+`priority:high+security` cocok `priority:*` → dibaca tanpa tipe → dispatch palsu.
+Ganti dengan pemeriksaan keanggotaan per elemen
+(`case "+$left+" in *"+refactor+"*|… )`).
+
+**Bukti.** `automation-fleet.guard.test.ts`: **183 passed**. Golden rule 7
+dibuktikan dengan memulihkan `.github/scripts/label-guard.sh`,
+`.github/scripts/issue-triage-bridge.sh`, dan `.github/workflows/label-guard.yml`
+ke `HEAD` sementara tes baru tetap ada: **10 tes gagal** (pemulihan label,
+gate `unlabeled`, `refactor`/`security`, checkpoint `pending`), lalu hijau setelah
+perubahan dipulihkan.
+

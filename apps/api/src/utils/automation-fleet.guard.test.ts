@@ -61,6 +61,13 @@ case "$1" in
       *"/comments?per_page"*) [ -n "\${GH_STUB_COMMENTS:-}" ] && printf '%s\\n' "\${GH_STUB_COMMENTS}" ;;
       *"/reactions?per_page"*) [ -n "\${GH_STUB_REACTIONS:-}" ] && printf '%s\\n' "\${GH_STUB_REACTIONS}" ;;
       *"/issues/"*"/labels"*"--jq"*) [ -n "\${GH_STUB_CURRENT:-}" ] && printf '%s\\n' "\${GH_STUB_CURRENT}" ;;
+      # The issue's event timeline (#838 restore): the restore path reads the
+      # actor of the last labeled event. GH_STUB_EVENTS_FAIL makes the read
+      # fail, so a test can prove a failed read never restores.
+      *"/events"*"--jq"*)
+        [ "\${GH_STUB_EVENTS_FAIL:-}" = 1 ] && exit 1
+        [ -n "\${GH_STUB_EVENTS:-}" ] && printf '%s\\n' "\${GH_STUB_EVENTS}" ;;
+      *"-X POST"*"/labels"*) log "RESTORE_LABEL $*" ;;
       *"/issues/comments/"*"/reactions"*"-f content"*) log "REACT_COMMENT $*" ;;
       *"/issues/"*"/reactions"*"-f content"*) log "REACT_ISSUE $*" ;;
       *"/issues/"*"/comments"*"-f body"*) log "COMMENT $*" ;;
@@ -365,6 +372,16 @@ const LABELS =
 const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
   JSON.stringify({
     action: 'labeled',
+    sender: { login },
+    label: { name: label },
+    ...(opts.pr ? { pull_request: { number: 7 } } : { issue: { number: 7, pull_request: null } }),
+  });
+
+// A `unlabeled` event: the guard's restore half. The number is the issue's, so
+// the restore path reads that issue's own timeline.
+const unlabeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
+  JSON.stringify({
+    action: 'unlabeled',
     sender: { login },
     label: { name: label },
     ...(opts.pr ? { pull_request: { number: 7 } } : { issue: { number: 7, pull_request: null } }),
@@ -737,15 +754,117 @@ describe('label-guard.sh', () => {
     expect(calls).not.toContain('COMMENT');
   });
 
-  it('does nothing when the label is removed, not added', () => {
-    const ev = JSON.stringify({
-      action: 'unlabeled',
-      sender: { login: 'someone' },
-      label: { name: 'ready' },
-      issue: { number: 7 },
-    });
-    const { calls } = run(LABEL_GUARD, { GH_STUB_LABELS: LABELS }, ['--stdin'], ev);
-    expect(calls).not.toContain('UNLABEL');
+  it('restores a bot-applied label a person removed, and says so once', () => {
+    // The other half of the policy (#838 follow-up): a removal is not a way to
+    // overrule the bot. The issue's own timeline says the bot applied the label
+    // last, so the guard puts it back and posts one restore notice.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
+    expect(calls).toContain('labels[]=ready');
+    expect(calls).toContain('COMMENT');
+    expect(calls).toContain('label-guard:restored');
+    expect(out).toContain('Restored label');
+  });
+
+  it('does not restore a label a person last applied', () => {
+    // Only the bot's own label comes back; a person's label stays gone (the
+    // standard path would have revoked it anyway).
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'adminypc' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).not.toContain('RESTORE_LABEL');
+    expect(out).toContain('last applied by');
+  });
+
+  it('does not restore a label the bot or a GitHub App removed', () => {
+    // A bot removal is deliberate: the fleet withdrawing a contradictory `ready`,
+    // `stale-sweep` closing, `issue-label-sync` correcting. Restoring it would
+    // undo the guard's own work.
+    for (const remover of ['cipansor-bot', 'github-actions[bot]']) {
+      const { calls, out } = run(
+        LABEL_GUARD,
+        { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot' },
+        ['--stdin'],
+        unlabeledEvent(remover, 'ready')
+      );
+      expect(calls, `remover ${remover}`).not.toContain('RESTORE_LABEL');
+      expect(out).toContain('left off');
+    }
+  });
+
+  it('does not restore a bot `ready` when the issue now carries question or blocked', () => {
+    // Restoring `ready` beside an exclusion would recreate the conflict rule 8
+    // forbids. The current label set — not the payload — is what is checked.
+    for (const excl of ['question', 'blocked']) {
+      const { calls, out } = run(
+        LABEL_GUARD,
+        { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot', GH_STUB_CURRENT: excl },
+        ['--stdin'],
+        unlabeledEvent('someone', 'ready')
+      );
+      expect(calls, `${excl}`).not.toContain('RESTORE_LABEL');
+      expect(out).toContain(`contradicts '${excl}'`);
+    }
+  });
+
+  it('does not restore when the events read fails, and warns', () => {
+    // A read failure must never be read as "safe to restore" — the rule the whole
+    // restore path is built on.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS_FAIL: '1' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).not.toContain('RESTORE_LABEL');
+    expect(out).toContain('::warning::');
+  });
+
+  it('does not restore a label that is not in the repository', () => {
+    const { calls } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'not-a-label')
+    );
+    expect(calls).not.toContain('RESTORE_LABEL');
+  });
+
+  it('does not post a second restore notice when the marker is already there', () => {
+    const { calls } = run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_EVENTS: 'cipansor-bot',
+        GH_STUB_COMMENTS: '<!-- label-guard:restored -->',
+      },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('reads the newest actor across a paginated timeline', () => {
+    // `--paginate` concatenates each page's output oldest-first, so the last
+    // non-empty line is the newest `labeled` event. A page with no match emits an
+    // empty line, which must not be read as the actor (that would skip a restore
+    // the bot does own).
+    const { calls } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'someone\n\ncipansor-bot' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
   });
 
   it('removes a `ready` that contradicts an open question, even from the bot', () => {
@@ -1334,6 +1453,19 @@ describe('fleet contracts', () => {
     expect(wf).toContain('issue-triage-bridge.sh --relabel');
     expect(wf).toMatch(/steps\.guard\.outputs\.revoked == '1'/);
     expect(wf).toContain('OPENHANDS_API_KEY');
+  });
+
+  it('triggers the label guard on `unlabeled` too, so a human removal is restored', () => {
+    // The restore half of the policy: a label the bot applied and a person
+    // removed is put back. The workflow must fire on `unlabeled` for both event
+    // kinds, and the `--relabel` step stays gated on the guard having actually
+    // revoked something (a restore writes no `revoked=1`).
+    const wf = read(join(WORKFLOWS, 'label-guard.yml'));
+    const onBlock = wf.slice(wf.indexOf('\non:'), wf.indexOf('\npermissions:'));
+    expect(onBlock).toMatch(/issues:[\s\S]*types:\s*\[labeled, unlabeled\]/);
+    expect(onBlock).toMatch(/pull_request_target:[\s\S]*types:\s*\[labeled, unlabeled\]/);
+    // The gate is unchanged: `--relabel` runs only for a revocation, not a restore.
+    expect(wf).toMatch(/steps\.guard\.outputs\.revoked == '1'/);
   });
 
   it('keeps the triage bridge from writing any comment, checkpointing in the KV store', () => {
@@ -2438,6 +2570,52 @@ describe('issue-triage-bridge.sh', () => {
     ]);
     expect(calls).not.toContain('DISPATCH');
     expect(out).toContain('still holds a type and a priority');
+  });
+
+  it('treats refactor and security as types, so a priority+type set is not a gap', () => {
+    // The old `case "$left"` used a prefix test: `priority:high+refactor` matched
+    // `priority:*` and was read as having no type, because `refactor` and
+    // `security` sort *after* `priority:` in the `+`-joined set. Membership is now
+    // tested per element, so these sets keep their type and do not dispatch.
+    for (const set of ['priority:high+refactor', 'priority:high+security']) {
+      const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: set }, ['--relabel', '818']);
+      expect(calls, `set ${set}`).not.toContain('DISPATCH');
+      expect(out).toContain('still holds a type and a priority');
+    }
+  });
+
+  it('still dispatches when only the priority survives beside a type', () => {
+    // The fix must not overcorrect: `refactor` alone (no priority) is still a gap.
+    const { calls } = runBridge({ GH_STUB_LABELS_LIST: 'refactor' }, ['--relabel', '818']);
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('records a pending checkpoint when a relabel dispatch fails, so the sweep retries', () => {
+    // A failed dispatch must not be lost. Without a checkpoint the sweep compares
+    // the signal with a stale or absent one and can read the issue as already
+    // answered, so the failed dispatch never retries. The `pending` form (the same
+    // the MAX_INFLIGHT deferral writes) names no run, so the next sweep dispatches
+    // it.
+    const { out, kv } = runBridge({ GH_STUB_LABELS_LIST: '', CURL_STUB_CODE: '503' }, [
+      '--relabel',
+      '818',
+    ]);
+    expect(out).toContain('relabel dispatch failed');
+    expect(kv['triage-sweep-818']).toMatchObject({ run: 'pending' });
+  });
+
+  it('retries a pending relabel checkpoint on the next sweep', () => {
+    // The checkpoint the failed relabel wrote: `pending` is not a finished form,
+    // so the sweep dispatches it instead of reading it as already answered.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: '',
+        KV_SEED: { 'triage-sweep-818': { signal: signal(''), run: 'pending' } },
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
   });
 
   it('does not dispatch a relabel for a closed issue', () => {

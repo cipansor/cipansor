@@ -218,7 +218,7 @@ detect` workflow: when two **open** issues share a title once normalised
     one. On a **pull request** there is no such form, so a type label stays
     protected there: a manually applied `bug` on a PR that closes an
     `enhancement` issue would otherwise fail the type sync (`issue-label-sync`)
-    and redden the PR. A person states what they want and the bot records it;
+    and redden the PR.     A person states what they want and the bot records it;
     this is what keeps the automations and the guards reading the same state.
     Because the guard only *removes*, a revocation that leaves the issue with no
     type or no priority is not the end of the story: the guard's workflow calls
@@ -226,6 +226,18 @@ detect` workflow: when two **open** issues share a title once normalised
     owner to relabel the issue (#838). It cannot do so through a GitHub event —
     the removal is made with the automatic `GITHUB_TOKEN`, and GitHub starts no
     workflow run for an event that token creates.
+    **A removal is not a way to overrule the bot.** A label that `cipansor-bot`
+    applied last, then removed by a person, is put back by the same workflow: the
+    `unlabeled` trigger sends the event to the guard's restore half, which reads
+    the issue's own event timeline and restores the label only when the last
+    `labeled` event's actor is the bot. It never restores a label the bot or a
+    GitHub App removed (that removal is deliberate — the fleet withdrawing a
+    contradictory `ready`, `stale-sweep`, `issue-label-sync` correcting), never
+    when the timeline cannot be read (a failed read is never "safe to restore"),
+    and never when the label is `ready` and the issue now carries `question` or
+    `blocked` (that would recreate the exclusivity conflict rule 8 forbids). One
+    notice per issue says the label is back and to ask `@cipansor-bot` for a
+    change.
 
 13. **Every main description opens with the basmalah.** Each issue and pull
     request body starts with «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»

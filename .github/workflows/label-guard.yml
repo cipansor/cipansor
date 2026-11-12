@@ -4,9 +4,18 @@
 # (docs/LABELS.md), so a hand-applied `ready`, `priority:*` or type label makes
 # the two disagree about an issue's real state.
 #
+# The other half of the policy: a label `cipansor-bot` last applied, then removed
+# by a person, is put back. A removal is not a way to overrule the bot, and a bare
+# removal can leave an issue with no type or no priority — the worse state #838
+# reports. That is why the triggers include `unlabeled`: `label-guard.sh`'s
+# `unlabeled` branch reads the issue's event timeline and restores only what the
+# bot applied. (The removal it makes itself is deliberate — the fleet withdrawing
+# a contradictory `ready`, `stale-sweep`, `issue-label-sync` correcting — so a
+# `$BOT_LOGIN`/`*[bot]` remover is never restored.)
+#
 # Because the guard only *removes*, a revocation that leaves an issue with no type
-# or no priority is a worse state than a wrong label. So this workflow calls the
-# triage bridge's `--relabel` mode in the same run, right after the guard, to
+# or no priority is a worse state than a wrong label. So this workflow also calls
+# the triage bridge's `--relabel` mode in the same run, right after the guard, to
 # dispatch the labeler (#838) — it cannot do so through a GitHub event, because
 # the removal is made with the automatic `GITHUB_TOKEN` and GitHub starts no
 # workflow run for an event that token creates.
@@ -22,9 +31,9 @@ name: Label guard
 
 on:
   issues:
-    types: [labeled]
+    types: [labeled, unlabeled]
   pull_request_target:
-    types: [labeled]
+    types: [labeled, unlabeled]
 
 permissions:
   contents: read

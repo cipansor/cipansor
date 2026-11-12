@@ -555,14 +555,18 @@ relabel_after_revocation() { # relabel_after_revocation <number>
   left=$(remaining_labels "$number") \
     || { echo "::warning::could not read the labels of #$number; skipped the relabel."; exit 1; }
   # Derive the two flags from the `+`-joined set (no subshell: a `while` pipe
-  # would set them in a child and lose them).
+  # would set them in a child and lose them). Membership is tested per element:
+  # a prefix test (`priority:*`) reads `priority:high+refactor` as "no type" the
+  # moment a type sorts *after* the priority label, which is exactly the case the
+  # relabel exists to fix — so `priority:high+refactor` and `priority:high+security`
+  # were dispatched as if the issue had no type.
   has_type=0; has_priority=0
   case "+$left+" in
     *"+priority:"*) has_priority=1 ;;
   esac
-  case "$left" in
-    none|priority:*) has_type=0 ;;
-    *) has_type=1 ;;
+  case "+$left+" in
+    *"+bug+"*|*"+enhancement+"*|*"+documentation+"*|*"+refactor+"*|*"+chore+"*|*"+security+"*) has_type=1 ;;
+    *) has_type=0 ;;
   esac
   if [ "$has_type" = 1 ] && [ "$has_priority" = 1 ]; then
     echo "#$number still holds a type and a priority after the removal; nothing to do."
@@ -601,6 +605,13 @@ relabel_after_revocation() { # relabel_after_revocation <number>
     kv_put "$UNLABELED_KEY$number" "$state" || true
     if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
   else
+    # A failed dispatch must be retried by the sweep, not lost. Record the
+    # checkpoint as `pending` (the same form the MAX_INFLIGHT deferral writes)
+    # *before* failing: without it the sweep compares the signal with a stale or
+    # absent checkpoint and may skip the issue — the signal it holds equals the
+    # one it would compute, so it reads as "already answered" and never retries.
+    # `pending` names no run, so the next sweep dispatches it.
+    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
     echo "::warning::#${number}'s relabel dispatch failed; a later removal or the sweep retries."
     exit 1
   fi

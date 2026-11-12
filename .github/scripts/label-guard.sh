@@ -6,6 +6,16 @@
 # the two disagree about an issue's real state. The bot owns the taxonomy; a
 # person states what they want and the bot records it.
 #
+# The other half of the same policy: a label the bot itself last applied, then
+# removed by a person, is put back. A removal is not a way to overrule the bot —
+# the fix is to say what you want and let the bot record it — and a bare removal
+# can leave an issue with no type or no priority, the worse state #838 reports.
+# The restore is deterministic: it reads the issue's own event timeline, restores
+# only what `cipansor-bot` applied, and never when the remover is the bot or a
+# GitHub App (a bot removal is deliberate — the fleet withdrawing `ready`,
+# `stale-sweep` closing, `issue-label-sync` correcting). See
+# `restore_after_revocation` below.
+#
 # The protected set is every label that exists in the repository minus the
 # provenance labels in ALLOWED_LABELS. It is read from the repository, never
 # hardcoded, so a new label is protected the moment it is created and the set
@@ -28,7 +38,7 @@
 # as a claim to match. Everything else (`ready`, `priority:*`, the workflow
 # labels) stays the bot's everywhere.
 #
-# Usage: label-guard.sh --stdin          # a `labeled` webhook event on stdin
+# Usage: label-guard.sh --stdin          # a `labeled` or `unlabeled` event on stdin
 #        label-guard.sh <number> <label> [actor]   # by hand
 # Env:   GH_TOKEN, REPO (owner/name), BOT_LOGIN, EXEMPT_LABELS, ALLOWED_LABELS
 set -eu
@@ -45,6 +55,9 @@ EXEMPT_LABELS="${EXEMPT_LABELS:-}"
 ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement documentation refactor chore security}"
 
 REVOKE_MARK="<!-- label-guard:revoked -->"
+# The restore notice, posted once per issue when the guard puts a label back that
+# a person removed. Same one-notice-per-item rule as REVOKE_MARK.
+RESTORE_MARK="<!-- label-guard:restored -->"
 
 # Whether the standard path revoked a label this run. `label-guard.yml` reads it
 # to decide whether to call the triage bridge's `--relabel` mode (#838): a run
@@ -63,6 +76,96 @@ protected_labels() {
   [ "$IS_PR" = "1" ] || exempt="$exempt $ALLOWED_LABELS"
   { gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null || true; } \
     | grep -vxF "$(printf '%s\n' $exempt)" || true
+}
+
+# Put back a label `cipansor-bot` last applied that a person removed. The other
+# half of the policy in the header: a bare removal is not a way to overrule the
+# bot, and it can leave an issue with no type or no priority. Deterministic — the
+# issue's own event timeline says who applied the label last; only a bot-applied
+# label is restored, and never one a bot removed.
+#
+# Skipped, always leaving the label off:
+#   - the remover is `$BOT_LOGIN` or a GitHub App (`*[bot]`): that removal is
+#     deliberate — the fleet withdrawing a contradictory `ready`, `stale-sweep`,
+#     `issue-label-sync` correcting a type;
+#   - the label no longer exists in the repository, or is in EXEMPT_LABELS: not
+#     the bot's taxonomy to enforce;
+#   - the timeline cannot be read, or names no actor for the last `labeled` event:
+#     a read failure must never be read as "safe to restore";
+#   - the label is `ready` and the issue now carries `question` or `blocked`: the
+#     restore would recreate the exclusivity conflict rule 8 forbids;
+#   - the label is already back (the workflow's concurrency group is per label,
+#     so the runs race and a later one may see the earlier one's restore).
+restore_after_revocation() {
+  case "$ACTOR" in
+    "$BOT_LOGIN" | *'[bot]') echo "Label '$LABEL' was removed by '$ACTOR'; left off."; return 0 ;;
+  esac
+
+  if [ -n "$EXEMPT_LABELS" ] && printf '%s\n' $EXEMPT_LABELS | grep -qxF "$LABEL"; then
+    echo "Label '$LABEL' is an exempt label; not restoring."
+    return 0
+  fi
+  if ! protected_labels | grep -qxF "$LABEL"; then
+    echo "Label '$LABEL' is not a protected label; not restoring."
+    return 0
+  fi
+
+  # The issue's own timeline: the actor of the *last* `labeled` event for this
+  # label. `--paginate` reads oldest-first and concatenates each page's output, so
+  # the newest is the last non-empty line (a page with no match emits nothing).
+  # A read failure is "skip", never "restore" — the `--jq` form (no pipe on the
+  # gh call) is what keeps gh's exit status visible to the `if !`.
+  if ! actor=$(gh api --paginate "repos/$REPO/issues/$NUMBER/events?per_page=100" \
+      --jq "[.[] | select(.event == \"labeled\" and .label.name == \"$LABEL\") | .actor.login] | last // empty" \
+      2>/dev/null); then
+    echo "::warning::could not read the events of #$NUMBER; not restoring '$LABEL'."
+    return 0
+  fi
+  actor=$(printf '%s\n' "$actor" | sed '/^$/d' | tail -n1)
+  if [ -z "$actor" ]; then
+    echo "::warning::#$NUMBER: no 'labeled' event for '$LABEL'; not restoring."
+    return 0
+  fi
+  if [ "$actor" != "$BOT_LOGIN" ]; then
+    echo "Label '$LABEL' on #$NUMBER was last applied by '$actor', not $BOT_LOGIN; not restoring."
+    return 0
+  fi
+
+  # The *current* labels, not the payload: the runs race, so a later one may
+  # already have restored it, and `ready` may now contradict an exclusion.
+  current=$(gh api "repos/$REPO/issues/$NUMBER/labels" --jq '.[].name' 2>/dev/null) \
+    || { echo "::warning::could not read the labels of #$NUMBER; not restoring '$LABEL'."; return 0; }
+  if printf '%s\n' "$current" | grep -qxF "$LABEL"; then
+    echo "Label '$LABEL' is already on #$NUMBER; nothing to restore."
+    return 0
+  fi
+  if [ "$LABEL" = "ready" ]; then
+    for excl in question blocked; do
+      if printf '%s\n' "$current" | grep -qxF "$excl"; then
+        echo "#$NUMBER: not restoring 'ready' — it contradicts '$excl'."
+        return 0
+      fi
+    done
+  fi
+
+  if ! gh api -X POST "repos/$REPO/issues/$NUMBER/labels" \
+      -f "labels[]=$LABEL" >/dev/null 2>&1; then
+    echo "::warning::could not restore '$LABEL' on #$NUMBER."
+    return 0
+  fi
+  echo "Restored label '$LABEL' on #$NUMBER: only $BOT_LOGIN may change labels."
+
+  # One notice per issue: a repeat run must not stack comments.
+  if gh api --paginate "repos/$REPO/issues/$NUMBER/comments?per_page=100" \
+      --jq '.[].body' 2>/dev/null | grep -qF "$RESTORE_MARK"; then
+    echo "A restore notice already exists on #$NUMBER; not repeating."
+    return 0
+  fi
+  BODY="Label \`$LABEL\` dipasang kembali di #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh mengubah label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md). Untuk mengubahnya, sebut \`@$BOT_LOGIN\` dengan apa yang Anda inginkan — bot yang memasangnya.
+
+$RESTORE_MARK"
+  gh api "repos/$REPO/issues/$NUMBER/comments" -f body="$BODY" >/dev/null \
+    || echo "::warning::could not post the restore notice on #$NUMBER."
 }
 
 # The `labeled` event, read from stdin.
@@ -84,8 +187,15 @@ else
   IS_PR="${IS_PR:-0}"
 fi
 
-[ "$ACTION" = "labeled" ] || { echo "action='$ACTION'; nothing to do."; exit 0; }
 [ -n "$NUMBER" ] && [ -n "$LABEL" ] || { echo "No number/label in the event; nothing to do."; exit 0; }
+
+# A removal is the other half of the policy: a label the bot last applied that a
+# person removed is put back. Every other action is out of scope.
+if [ "$ACTION" = "unlabeled" ]; then
+  restore_after_revocation
+  exit 0
+fi
+[ "$ACTION" = "labeled" ] || { echo "action='$ACTION'; nothing to do."; exit 0; }
 
 # `ready` is a strong claim and it is exclusive: it must never sit beside a label
 # that says the issue is still being discussed, decided, or waiting on something

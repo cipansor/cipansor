@@ -127,7 +127,16 @@ pertentangan itu dilaporkan sebagai issue.
 17. **Hanya `cipansor-bot` yang melabeli.** Label yang dipasang akun lain
     dicabut workflow `label-guard.yml`; tidak ada lagi pengecualian keputusan
     manusia (`bot-implement` dihapus 2026-11-11). Automasi membaca label, jadi
-    label manual membuat keduanya berbeda pendapat. `rilis-disetujui`/`rilis-ditolak`
+    label manual membuat keduanya berbeda pendapat. Sebaliknya, **mencabut label
+    bukan cara membantah bot**: label yang terakhir dipasang `cipansor-bot` lalu
+    dicabut seorang manusia **dipasang kembali** — pemicu `unlabeled` pada
+    workflow yang sama menjalankan paruh pemulihan `label-guard.sh`, yang membaca
+    linimasa event issue dan memulihkan hanya bila aktor `labeled` terakhir
+    adalah bot. Tidak dipulihkan bila yang mencabut bot/GitHub App (pencabutan
+    itu sengaja: armada mencabut `ready` yang bertentangan, `stale-sweep`,
+    `issue-label-sync`), bila linimasa tak terbaca (gagal baca bukan berarti
+    "boleh dipulihkan"), atau bila labelnya `ready` dan issue kini ber-`question`
+    atau `blocked` (aturan 16 melarangnya). `rilis-disetujui`/`rilis-ditolak`
     dihapus 2026-11-09: keduanya tidak pernah ada di repo, dan persetujuan rilis
     kini tag `vX.Y.Z`.
 18. **Prioritas berbukti.** Prioritas dinilai dari dampak, urgensi, dan risiko;
