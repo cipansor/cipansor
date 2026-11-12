@@ -375,24 +375,36 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       `gh api --paginate` mencetak **satu array JSON per halaman**, jadi halaman
       harus di-`jq -rs` (slurp) dulu: tanpa itu `attempts` menjadi `"3\n0"`,
       perbandingan angka gagal, dan gerbang bisa di-dispatch ulang tanpa batas.
-    - **`issue-triage-bridge.sh`** (#877, 2026-11-11): sweep men-dispatch
-      `Triase issue` (SDLC 15) pada setiap aktivitas non-armada issue
-      non-`ready`, lalu **membaca hasil run** dari checkpoint (`triage-sweep-<n>`
-      menyimpan run id). Run yang mati infrastruktur di-retry ke **issue yang
-      sama** — kuncinya nomor issue, jadi sasarannya deterministik — tetapi
-      **dibatasi**: hitungan percobaan disimpan di kunci `triage-attempt-<n>`
-      (`{signal, count}`, kunci sendiri — bukan `triage-retry-<n>` milik
-      penundaan), naik satu tiap retry, dan pada `ATTEMPT_MAX` (3)
-      checkpoint difinalkan + `::warning::` supaya maintainer melihatnya,
-      bukan re-dispatch tiap sweep selamanya. Hitungan **scoped ke sinyal**
-      (komentar/suntingan baru = episode baru, mulai 0) dan dibersihkan saat run
+    - **`issue-triage-bridge.sh`** (#877, 2026-11-11; direvisi 2026-11-12 tinjauan
+      `adminypc`): sweep men-dispatch `Triase issue` (SDLC 15) pada setiap
+      aktivitas non-armada issue non-`ready`, lalu **membaca hasil run** dari
+      checkpoint (`triage-sweep-<n>` menyimpan run id). Run yang mati
+      infrastruktur di-retry ke **issue yang sama** — kuncinya nomor issue, jadi
+      sasarannya deterministik — tetapi **dibatasi**: hitungan percobaan
+      disimpan sebagai **field `attempt` di checkpoint itu sendiri**, bukan kunci
+      `triage-attempt-<n>` terpisah. Alasannya (tinjauan #1075): (1) hitungan
+      ikut dalam **penulisan kondisional yang sama** dengan run id, jadi
+      kegagalan tulis KV tak menghilangkan run *maupun* hitungan; (2) penundaan
+      (`pending` saat kolam penuh) dan tulis sisi (`extra`) yang membawa
+      checkpoint **tak bisa diam-diam me-reset** anggaran; (3) tak ada kunci
+      kedua yang bisa menghilang terpisah dari checkpoint. Pada `ATTEMPT_MAX` (3)
+      **hanya slot `run` utama** yang difinalkan (`finalise_main_value`) —
+      slot sisi `extra` dan hitungan **dipertahankan**, lalu sweep masih
+      memproses slot sisi yang tertunda/gagal di baris berikutnya; kalau tidak,
+      label bisa tetap salah. Hitungan **scoped ke sinyal** (komentar/suntingan
+      baru = episode baru, mulai 0) dan hilang bersama checkpoint saat semua slot
       `COMPLETED`. **Sasaran dispatch payload-less** juga ditutup: dispatch
-      membawa **tanpa body**, jadi prompt SDLC 15 kini memuat aturan
+      membawa **tanpa body**, jadi prompt SDLC 15 memuat aturan
       `SASARAN (WAJIB saat payload kosong)` yang menetapkan sasaran dari
       **keadaan GitHub** — `## Event Payload` bila ada, jika tidak SATU issue
-      terbuka non-`ready` dengan aktivitas non-armada terbaru yang belum
-      dijawab (`search/issues` diurut `updated desc`) — sehingga run yang
-      dipicu jembatan (atau dispatch manual) tak menebak issue. **Jangan baca
+      (tanpa `-label:ready`, karena pass `--recover-ready` menyasar issue `ready`
+      juga) dengan aktivitas non-armada terbaru yang belum dijawab
+      (`search/issues` diurut `updated desc`). Uji "belum dijawab" **tidak**
+      boleh hanya melihat penulis komentar terakhir: pelapor yang menyunting
+      deskripsi meninggalkan komentar terakhir milik bot, jadi `issue.updated_at`
+      dan body harus dibandingkan juga. Sisa batas (dispatch tak menamai issue,
+      jadi dua kandidat serentak hanya di-tie-break "paling baru") dinyatakan
+      di prompt, bukan disembunyikan. **Jangan baca
       `$AUTOMATION_*` dari terminal agen**: proses automation memegang
       `$AUTOMATION_EVENT_PAYLOAD`/`$AUTOMATION_KV_TOKEN`/`$AUTOMATION_RUN_ID`,
       tetapi terminal agen **tidak mewarisinya** (dinyatakan preset OpenHands
@@ -403,7 +415,7 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       (payload-nya tak diekspos API runs).
     - **`set -eu` + pipa ke `while` = subshell**: variabel yang di-set di dalam
       `| while` tidak bertahan setelah loop. Karena itu hitungan percobaan
-      disimpan di **penanda komentar**, bukan variabel shell.
+      disimpan di **checkpoint KV** (field `attempt`), bukan variabel shell.
     - Pelajaran shell yang sudah menggigit dua kali: `${v:-{...}}` dengan `}`
       literal **menutup ekspansi lebih awal** dan menyisipkan `}` liar ke JSON
       (default harus lewat variabel); dan `jq` `expr as $x | if …` mengikat `as`

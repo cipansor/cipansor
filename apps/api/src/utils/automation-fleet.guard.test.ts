@@ -1501,7 +1501,12 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     );
     expect(calls).toContain('RUNS');
     expect(calls).toContain('DISPATCH');
-    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+    // The re-dispatch records attempt 1, in the same write as the new run id.
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-1',
+      attempt: 1,
+    });
   });
 
   it('finalises a completed recovery run on a ready issue without re-dispatching', () => {
@@ -2820,15 +2825,28 @@ describe('deploy-sdlc-agents.py', () => {
       `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
     );
     expect(out).toContain('SASARAN (WAJIB saat payload kosong)');
-    // It finds the target from GitHub state — the freshest non-`ready` issue
-    // whose last non-fleet activity is unanswered — never from an env var: the
-    // automation process holds `$AUTOMATION_*`, but the agent's terminal does
-    // not inherit them (OpenHands preset), so a KV read would never resolve.
-    expect(out).toContain('-label:ready');
+    // It finds the target from GitHub state — the freshest issue whose
+    // non-fleet activity is unanswered — never from an env var: the automation
+    // process holds `$AUTOMATION_*`, but the agent's terminal does not inherit
+    // them (OpenHands preset), so a KV read would never resolve.
     expect(out).toContain('TIDAK mewarisi `$AUTOMATION_*`');
     expect(out).not.toContain('triage-run-');
-    // One target only, and the choice is written before any investigation.
+    // #877 review, "pemulihan issue ready tidak menemukan sasaran": the
+    // `--recover-ready` pass re-dispatches a `ready` issue, so the candidate
+    // search must NOT carry `-label:ready` — that exclusion hid the very issue
+    // being recovered. And the "unanswered" test must not rely on the last
+    // comment's author alone: a reporter who edits the description leaves the
+    // last comment as the bot's, so the body/updated_at must be compared too
+    // ("suntingan issue terlewat setelah komentar bot").
+    expect(out).not.toContain('is:issue is:open -label:ready');
+    expect(out).toContain('`--recover-ready`');
+    expect(out).toMatch(/deskripsi \*\*disunting\*\*/);
+    expect(out).toMatch(/issue\.updated_at/);
+    // One target only, and the choice is written before any investigation. The
+    // residual limit (the dispatch names no issue, so two simultaneous candidates
+    // are only tie-broken by "newest") is stated rather than hidden.
     expect(out).toMatch(/jangan men-triase lebih dari satu issue/);
+    expect(out).toContain('BATAS SASARAN');
     expect(out).toContain('tak ada sasaran');
   });
 
@@ -4603,8 +4621,8 @@ describe('issue-triage-bridge.sh', () => {
   // ---- #877: bounded deterministic retry for a payload-less dispatch -------
 
   it('raises the attempt counter on each infra-failed run, scoped to the signal', () => {
-    // A FAILED run re-dispatches the same issue, and the attempt is counted so
-    // the episode can be bounded. A fresh signal (a new activity) resets it.
+    // A FAILED run re-dispatches the same issue, and the attempt is counted in
+    // the checkpoint itself (not a key of its own), written with the new run id.
     const { calls, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
@@ -4615,20 +4633,24 @@ describe('issue-triage-bridge.sh', () => {
       ['--sweep']
     );
     expect(calls).toContain('DISPATCH');
-    expect(kv['triage-attempt-818']).toEqual({ signal: signal('edited'), count: 1 });
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-1',
+      attempt: 1,
+    });
   });
 
-  it('stops retrying an issue once RETRY_MAX is reached, finalising the checkpoint', () => {
+  it('stops retrying an issue once ATTEMPT_MAX is reached, finalising the checkpoint', () => {
     // #877: an issue whose every run dies must not re-dispatch on every sweep
-    // forever. At the cap the checkpoint is finalised (so the sweep stops) and a
-    // warning is emitted for a human.
+    // forever. At the cap the main slot is finalised (so the sweep stops) and a
+    // warning is emitted for a human. With no side slot the checkpoint is a plain
+    // finished one and the attempt count goes with it.
     const { calls, out, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
         KV_SEED: {
-          'triage-sweep-818': { signal: signal('edited'), run: 'run-x' },
-          'triage-attempt-818': { signal: signal('edited'), count: 3 },
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 3 },
         },
         CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
       },
@@ -4639,21 +4661,50 @@ describe('issue-triage-bridge.sh', () => {
     expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
   });
 
+  it('keeps a pending side slot when the attempt cap finalises the main slot', () => {
+    // #877 review, "batas retry menghilangkan pemulihan label": one issue can
+    // carry a main run and a deferred (`pending`) side response in the same
+    // checkpoint. Finalising the whole checkpoint at the main cap — dropping
+    // `extra` — would lose that deferred relabel/conflict, so the label could
+    // stay wrong. The cap must finalise only the main slot and still queue the
+    // side response.
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUN_ID: 'sweep-run',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('edited'),
+            run: 'run-x',
+            attempt: 3,
+            extra: { conflict: 'pending' },
+          },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    // The main cap is reported, but the pending side slot still dispatches.
+    expect(out).toContain('attempt cap');
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({ run: 'sweep-run' });
+  });
+
   it('clears the attempt counter when the run completes, so a later episode starts fresh', () => {
     const { calls, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
         KV_SEED: {
-          'triage-sweep-818': { signal: signal('edited'), run: 'run-x' },
-          'triage-attempt-818': { signal: signal('edited'), count: 2 },
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 2 },
         },
         CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
       },
       ['--sweep']
     );
     expect(calls).not.toContain('DISPATCH');
-    expect(kv['triage-attempt-818']).toBeUndefined();
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
   });
 
   it('counts a fresh signal from zero, not from the previous episode', () => {
@@ -4664,12 +4715,62 @@ describe('issue-triage-bridge.sh', () => {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited-again',
         KV_SEED: {
-          'triage-sweep-818': { signal: signal('edited'), run: 'run-x' },
-          'triage-attempt-818': { signal: signal('edited'), count: 3 },
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 3 },
         },
       },
       ['--sweep']
     );
-    expect(kv['triage-attempt-818']).toEqual({ signal: signal('edited-again'), count: 0 });
+    // A fresh signal re-dispatches with the count reset (no attempt field).
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited-again'),
+      run: 'run-1',
+    });
+  });
+
+  it('carries the attempt count across a deferral, so a full pool cannot reset the budget', () => {
+    // #877 review, "antrean penuh mengulang anggaran retry": a run that failed
+    // while the pool was full is deferred (`pending`) with its attempt count, and
+    // the next dispatch continues from that count rather than restarting at 0.
+    const deferred = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        MAX_INFLIGHT: '1',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 1 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"},{"status":"RUNNING"}]}',
+      },
+      ['--sweep']
+    );
+    expect(deferred.kv['triage-sweep-818']).toMatchObject({
+      run: 'pending',
+      attempt: 2,
+    });
+  });
+
+  it('loses neither the attempt count nor the run when the checkpoint write fails', () => {
+    // #877 review, "kegagalan tulis KV memulihkan retry": the count rides in the
+    // same conditional write as the run id, so a write that fails leaves the old
+    // checkpoint untouched — the next sweep reads the same count and run, and the
+    // budget is not reset by a partial write.
+    const { kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_KV_PUT_FAIL: '1',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 1 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    // The store kept the prior value: the run and the count survive together.
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-x',
+      attempt: 1,
+    });
   });
 });
