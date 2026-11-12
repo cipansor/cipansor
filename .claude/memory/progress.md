@@ -396,6 +396,26 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   one of them, `tk-daily-report`, had been hiding a broken flow for months
   (`lessons/guard-tests-that-measure-the-wrong-thing.md`).
 
+- **Issue triage, 2026-11-12 (#872, tinjauan putaran 2 pada PR #1068):** jembatan
+  triase, cabang `fix/872-triage-sweep-fifo`. Reviewer menemukan bahwa
+  `drain_retry_markers` **menghapus** kunci `triage-retry-<n>` begitu checkpoint
+  menyebut sebuah run — padahal `activity_signal` hanya menghitung body issue +
+  komentar non-armada, **tidak** label. Run yang didispatch *sebelum* label masuk
+  (mis. run lama pada issue `ready`, yang sweep biasa lewati) memfinalkan issue
+  tanpa meninjau label itu, dan menghapus retry di situ membuang satu-satunya
+  kesempatan label ditriase. Perbaikan: drain menahan retry selama checkpoint
+  masih menyebut run (in-flight **atau** selesai-belum-difinalkan); run yang
+  memfinalkan checkpoint mengosongkan `run`, jadi pass berikutnya berhenti
+  menahan, melipat retry menjadi `pending`, lalu mendispatch. Tes round-trip tiga
+  pass (RUNNING → COMPLETED → kuras) **merah** pada skrip sebelum perbaikan
+  (`triage-retry-818` hilang), hijau sesudahnya; berkas guard 174 lulus.
+  Commit `8701601f`, dipush; balasan basmalah diposting. **Golden rule 9:** PR
+  draft **#1058** (`fix/838-label-guard-relabel-after-revocation`) menyentuh
+  keempat berkas yang sama — wajib digabung di worktree + gerbang bersama
+  sebelum yang kedua di-merge. (Satu tes `pnpm-supply-chain.guard.test.ts` gagal
+  di lingkungan ini karena `pnpm` adalah shim npm — sudah gagal di `main`, bukan
+  regresi.)
+
 - **Issue triage, 2026-11-11 (lanjutan):** #825 (`documentation`, kontrak
   `dueDate` tanggal-saja + kalender WIB setelah #775) dikerjakan di **PR #1049**
   pada `docs/825-dueDate-wib-contract`: `MOBILE_API.md` §3 menyebut `dueDate` =
