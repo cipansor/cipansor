@@ -514,6 +514,25 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   `check_docs.py` KEPALA-UNIT tetap **2 ERROR** (keduanya pra-ada di `main`:
   kartu Pengumuman `Buat Baru` & pesan "Judul dan konten wajib diisi").
 
+- **Koreksi tinjauan #1052, putaran ketiga, 2026-11-12.** Dua temuan lanjutan
+  `adminypc`: (E) kartu menyembunyikan akses cuti pribadi kepala unit; (F)
+  anjuran "abaikan notifikasi galat" terlalu luas. Diverifikasi pada tumpukan
+  berjalan dengan **dua** akun kepala: `smpit.kepala` (punya baris `staff`
+  **dan** `teacher`) vs `sdit.kepala` (tak punya profil). Temuan E benar dan
+  lebih halus dari dugaan: `getLeaves` (controller) membatasi non-admin ke
+  profil sendiri tetapi **mendahulukan `teacherId` atas `staffId`**, jadi cuti
+  yang dibuat pada baris `staff` tak pernah muncul bagi kepala yang punya
+  keduanya — `POST /hr/leaves` (staffId) → **201**, `GET /hr/leaves` → **0
+  baris**. Kartu diperbaiki: tab **Cuti** = pengajuan atas nama profil kepala
+  sendiri (bukan seluruh unit), tab **Risiko Retensi** tak dapat diakses kepala
+  (403); baris bantuan dipisah untuk kedua tab. Temuan F: notifikasi galat
+  berasal dari `retention-risk`/`contracts-expiring` (403, selalu) dan `leaves`
+  (404, hanya bila profil kepala tak ada) — `useEmployees` justru **berhasil**
+  (kepala dijawab 200, 8 baris), jadi kartu kini menyuruh mengabaikan galat
+  **hanya bila** daftar **Karyawan** tetap tampil. `known-issues.md`: entri
+  notifikasi diperjelas (2 vs 3 toast per akun) + entri baru "tab Cuti non-admin
+  menyaring profil yang salah". Riwayat Revisi 0.3 diperbarui.
+
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
   permissions, separation-of-duty rules locked in code, and the account

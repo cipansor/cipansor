@@ -73,12 +73,23 @@ workers refused on a closed day. Still open:
   **Pensiun**, which `queryTeachersSchema` rejects with 400 (`status` is
   `enum(['ACTIVE','INACTIVE','ON_LEAVE'])`). Found 2026-11-12 while verifying the
   kepala-unit guide; the guide no longer tells anyone to filter by status.
-- **`/hr` greets the kepala unit with three error toasts.** `HRPage` calls
-  `useLeaves` and `useRetentionRisk` for every role, but `GET /hr/leaves` answers
-  404 "Employee profile not found" for a kepala sekolah with no staff row, and
-  `GET /hr/analytics/retention-risk` (plus `GET /hr/contracts/expiring`) is
-  admin-only → 403. `lib/api.ts` toasts each one. Found 2026-11-12 on the running
-  stack as the kepala; ask for those queries only when the role may read them.
+- **`/hr` greets the kepala unit with error toasts.** `HRPage` fires
+  `useLeaves`, `useRetentionRisk` and `useExpiringContracts` for every role.
+  `GET /hr/analytics/retention-risk` and `GET /hr/contracts/expiring` are
+  admin-only → 403 for a kepala (always two "Insufficient permissions" toasts),
+  and `GET /hr/leaves` answers 404 "Employee profile not found" **only** for a
+  kepala with no staff/teacher row (a third toast; a kepala who has one gets
+  200). `lib/api.ts` toasts each. Observed 2026-11-12 on the running stack as
+  `sdit.kepala` (3 toasts) and `smpit.kepala` (2). Ask for those queries only
+  when the role may read them.
+- **A non-admin's `/hr` Cuti tab lists the wrong profile.** `getLeaves`
+  (controller) filters non-admins to their own profile, but prefers
+  `teacherId` over `staffId` (the first of the two `findUnique` results that
+  hits). For a kepala who has both rows — `smpit.kepala` has a `staff` and a
+  `teacher` row — a leave created on the `staff` row never appears, because the
+  list is filtered by `teacherId`. Reproduced 2026-11-12: `POST /hr/leaves`
+  with the `staffId` → 201, then `GET /hr/leaves` → 0 rows. Found while
+  verifying the kepala-unit guide.
 - **The bulk register loads the first 100 employees only** (`useStaffList`
   forces `limit: 100`).
 - **Dead code.** `teacherId` is still in three `hr.schema.ts` schemas and in

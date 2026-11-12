@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo kepala unit pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
 | 0.2 | 11 November 2026 | aplikasi berjalan dari kode `25693e32` | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Mengelola pegawai dan cuti* diselaraskan dengan kewenangan yang sebenarnya: kepala unit **memantau** data pegawai dan cuti unit, sedangkan menambah/mengubah pegawai dan memutuskan cuti (setuju, tolak, batal) adalah kewenangan admin unit atau Super Admin. Kartu berganti judul menjadi *Memantau pegawai dan cuti*; langkahnya dijalankan ulang dengan akun demo kepala unit. |
-| 0.3 | 12 November 2026 | aplikasi berjalan dari kode `6b3c6127` (kode modul `hr` dan halaman `/hr` identik dengan `main` `e6e7e25e`) | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Memantau pegawai dan cuti* diperbaiki setelah tinjauan: langkahnya dijalankan ulang dengan akun demo kepala unit pada tumpukan lokal — tab **Karyawan** menampilkan 8 pegawai unit, tab **Cuti** kosong ("Belum ada pengajuan cuti"), tab **Risiko Retensi** kosong ("Tidak ada data risiko yang ditemukan"). Klaim saring **Semua Unit**/**Semua Status** dilepas: saringan status tidak menyaring, dan analisis risiko retensi hanya terisi bagi admin unit atau Super Admin (`GET /hr/analytics/retention-risk` → 403 untuk kepala unit). |
+| 0.3 | 12 November 2026 | aplikasi berjalan dari kode `6b3c6127` (kode modul `hr` dan halaman `/hr` identik dengan `main` `e6e7e25e`) | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Memantau pegawai dan cuti* diperbaiki setelah tinjauan: langkahnya dijalankan ulang dengan akun demo kepala unit pada tumpukan lokal. Tab **Karyawan** menampilkan 8 pegawai unit; tab **Cuti** menampilkan pengajuan atas nama profil pegawai kepala sendiri (`GET /hr/leaves` memaksa filter profil non-admin) dan **bukan** seluruh pengajuan unit; tab **Risiko Retensi** tidak dapat diakses kepala unit (`GET /hr/analytics/retention-risk` → 403). Klaim saring **Semua Status** dilepas: saringan status tidak menyaring (server mengabaikannya; `RESIGNED`/`RETIRED` → 400). Dicatat pula notifikasi galat yang tampil saat halaman dibuka. |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo kepala unit, dan tiap kartu memuat
@@ -250,26 +250,29 @@ masing-masing.
 2. Halaman membuka tab **Karyawan**: daftar pegawai unit yang Anda pimpin —
    nama, NIP, jabatan, dan status kepegawaian. Bila daftarnya panjang, cari
    dengan kotak **Cari nama atau NIP...**.
-3. Tab **Cuti** dan **Risiko Retensi** dapat dibuka, tetapi bagi kepala unit
-   keduanya biasanya kosong: keputusan cuti dan analisis risiko turnover adalah
-   urusan admin unit atau Super Admin.
+3. Tab **Cuti** terbatas pada pengajuan cuti atas nama profil pegawai Anda
+   sendiri, bukan seluruh pengajuan unit; bila profil pegawai Anda belum ada,
+   tab ini tidak menampilkan apa pun. Tab **Risiko Retensi** tidak dapat Anda
+   akses — analisis risiko turnover hanya untuk admin unit atau Super Admin.
 
 ![Gambar 6. SDM & Kepegawaian: ringkasan unit dan daftar pegawai.](screens/kepemimpinan-kepala-unit/12-sdm.png){width=14cm}
 
 *Gambar 6. SDM & Kepegawaian: ringkasan unit dan daftar pegawai.*
 
-**Hasilnya, dan giliran siapa berikutnya.** Anda memantau data pegawai unit.
-Menambah atau mengubah pegawai serta memutuskan cuti (setuju, tolak, batal)
-adalah kewenangan admin unit atau Super Admin, bukan kepala unit.
+**Hasilnya, dan giliran siapa berikutnya.** Anda memantau data pegawai unit dan
+melihat pengajuan cuti Anda sendiri. Menambah atau mengubah pegawai serta
+memutuskan cuti pegawai lain (setuju, tolak, batal) adalah kewenangan admin unit
+atau Super Admin, bukan kepala unit.
 
 **Bila tidak berhasil.**
 
 | Yang terlihat | Penyebab umum | Yang perlu dilakukan |
 |---|---|---|
 | Pegawai tidak muncul | Pencarian terlalu sempit | Kosongkan kotak **Cari nama atau NIP...** |
-| Notifikasi galat muncul saat halaman dibuka | Tab **Cuti** dan **Risiko Retensi** menanyakan data yang bukan kewenangan kepala unit | Abaikan; tidak perlu tindakan |
-| Tab **Cuti** atau **Risiko Retensi** kosong | Tab itu urusan admin unit atau Super Admin | Tidak perlu tindakan; pakai tab **Karyawan** untuk data pegawai |
-| Menambah atau mengubah pegawai, atau memutuskan cuti, gagal | Bukan kewenangan kepala unit | Minta admin unit menambahkannya atau memutuskan cutinya |
+| Notifikasi galat saat halaman dibuka | Tab **Cuti** dan **Risiko Retensi** menanyakan data di luar kewenangan kepala unit | Abaikan bila daftar **Karyawan** tetap tampil; bila daftar pegawai ikut kosong, itu kegagalan yang perlu dilaporkan |
+| Tab **Risiko Retensi** kosong | Bukan kewenangan kepala unit | Tidak perlu tindakan; minta admin unit bila datanya dibutuhkan |
+| Tab **Cuti** kosong padahal Anda pernah mengajukan | Profil pegawai Anda belum dibuat, atau pengajuan tercatat pada profil yang berbeda | Minta admin unit memeriksa profil dan pengajuan Anda |
+| Menambah atau mengubah pegawai, atau memutuskan cuti pegawai lain, gagal | Bukan kewenangan kepala unit | Minta admin unit menambahkannya atau memutuskan cutinya |
 
 **Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).
 
