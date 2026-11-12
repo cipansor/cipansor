@@ -890,3 +890,46 @@ Rumahnya dipilih sesuai `AGENTS.md` → "Where things live":
 Dua hal yang **sengaja tidak** dilakukan: memasang `ready` sendiri (itu wewenang
 `Triase issue` — memasangnya sendiri persis cacat yang aturan ini cegah), dan
 memakai `Refs`/PR tanpa tautan sebagai jalan keluar.
+
+### Deploy 2026-11-12 dijalankan — repo sudah memutuskan, cloud belum tahu
+
+Pemilik menemukan SDLC 08/10/12/22 **masih ada** di OpenHands Cloud padahal
+keputusan 2026-11-12 sudah menetapkan pensiun. Sebabnya bukan keputusan yang
+belum dibuat: entri `RETIRED`-nya sudah ada di repo (PR #1057), tetapi **skrip
+deploy belum pernah dijalankan** — `RETIRED` hanya berlaku sesudah
+`DEPLOY=true`. Selama itu, repo dan cloud berbeda dan cloud-lah yang menjalankan
+perilaku lama.
+
+Setelah `DEPLOY=true` dijalankan 2026-11-12: armada live **11 ON / 13 OFF**, dan
+tidak ada satu pun kunci `RETIRED` yang masih ON. Empat automation yang diminta
+pemilik (SDLC 08/10/12/22) kini `off`. Empat prompt juga naik ke versi PR
+(SDLC 06/15/16/18), masing-masing diverifikasi masih memuat `BODY_BLOCK` dan
+tail-nya (dibaca balik dari API, bukan dari tarball lokal).
+
+**Pelajaran.** Keputusan di repo tidak mengubah cloud. `enabled` dan `prompt`
+hanya berubah lewat `PATCH`, jadi pertanyaan "apakah automation X masih ada?"
+hanya dijawab `GET /api/automation/v1` — bukan dengan membaca repo. Sama seperti
+catatan audit 2026-11-11, **audit armada harus membandingkan state live dengan
+repo setiap kali.**
+
+### SDLC 16 · Penjernih issue tetap hidup — dan itu memang keputusan
+
+Keputusan 2026-11-12 mencakup SDLC 08/10/12/22 saja; **SDLC 16 tidak pernah masuk
+daftar pensiun**. Desainnya memang membagi klarifikasi kepada dua pemilik
+(docs/SDLC-FLOW.md, tabel alur baris 3): `Penjernih issue` untuk balasan
+**pelapor**, `Triase issue` untuk balasan **maintainer**. Filter trigger-nya
+sengaja berlawanan sejak 2026-11-11 — SDLC 16 menyaring
+`comment.author_association != OWNER/MEMBER/COLLABORATOR` (hanya pelapor),
+sedangkan filter SDLC 22 yang pensiun justru sebaliknya (hanya maintainer).
+
+**Cacat yang tersisa: SDLC 16 kini tumpang tindih dengan jembatan triase.**
+Sweep jembatan memilih `repo:$REPO is:issue is:open -label:ready`
+(`.github/scripts/issue-triage-bridge.sh`). Issue `question` tidak `ready`, jadi
+**ikut tersapu**, dan sinyal aktivitasnya memuat setiap komentar non-armada —
+termasuk balasan pelapor. Akibatnya satu balasan pelapor pada issue `question`
+membangunkan **dua** agen: SDLC 16 (pemicu `issue_comment.created`) dan SDLC 15
+(dispatch jembatan). Itu cacat "satu komentar, dua pemilik" yang sama persis
+dengan yang memensiunkan SDLC 22, hanya di sisi pelapor. Dua pilihan ada di
+pemilik: **(a)** pensiunkan SDLC 16 dan serahkan balasan pelapor ke SDLC 15 lewat
+jembatan (konsisten dengan SDLC 22), atau **(b)** kecualikan issue `question`
+dari sweep jembatan supaya SDLC 16 tetap satu-satunya pemilik balasan pelapor.
