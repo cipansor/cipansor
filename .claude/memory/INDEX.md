@@ -67,7 +67,7 @@ OpenHands) refuse the mechanical cases.
 - [student-status-case-mismatch](lessons/student-status-case-mismatch.md) — `'active'` vs `'ACTIVE'`: 43 queries returned zero; one vocabulary + CHECK + scanner
 - [prisma-include-leaks-pii](lessons/prisma-include-leaks-pii.md) — `include: { student }` sends 69 columns of a child's data; always `select`
 - [rbac-nav-contract](lessons/rbac-nav-contract.md) — `navigation.ts` and `rbac.ts` are one contract; the three directions tested, and how they go blind
-- [api-integration-traps](lessons/api-integration-traps.md) — empty permission matrix, Express 5 `req.query`, `/:id` shadowing, unmounted paths; a file over multer's limit answering 500
+- [api-integration-traps](lessons/api-integration-traps.md) — empty permission matrix, Express 5 `req.query`, `/:id` shadowing, unmounted paths, a path key sent as a query string plus a response shape the reader cannot use (#849); a file over multer's limit answering 500
 - [auth-session-traps](lessons/auth-session-traps.md) — refresh-token stampede, pre-rehydration redirects, the 4 KB cookie; an HttpOnly routing cookie every refusal must clear, no refresh without a session, the bucket minted in one place, e2e tests that rotate a shared session
 - [stale-temporal-data](lessons/stale-temporal-data.md) — derive dates from now; `isActive` is not a schedule
 - [date-only-midnight-utc-vs-now](lessons/date-only-midnight-utc-vs-now.md) — a date-only column at midnight UTC (07.00 WIB) compared to `new Date()` goes "overdue" at 07.00, not end of day; and reading it back serializes as an ISO timestamp, not `YYYY-MM-DD`

@@ -327,7 +327,16 @@ export default function MealsPage() {
               </Badge>
             </div>
 
-            {todayLoading ? (
+            {!unitId ? (
+              <Card>
+                <CardContent className="flex flex-col items-center gap-2 py-10 text-center text-muted-foreground">
+                  <Building2 className="h-8 w-8 opacity-30" />
+                  <p className="text-sm">
+                    Pilih satu unit untuk melihat menu hari ini.
+                  </p>
+                </CardContent>
+              </Card>
+            ) : todayLoading ? (
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 {[1, 2, 3, 4].map((i) => (
                   <Skeleton key={i} className="h-[200px]" />
