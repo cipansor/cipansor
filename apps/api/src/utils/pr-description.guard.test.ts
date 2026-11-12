@@ -884,3 +884,68 @@ describe('visual-evidence.sh', () => {
     expect(out).toContain('could not post');
   });
 });
+
+/**
+ * The entry rule a person or an agent follows *before* the guard can pass: a
+ * pull request starts from an open, `ready` issue, and the body follows the
+ * repository template. `pr-template-guard.sh` is the enforcement; the
+ * `buat-pr` skill is the instruction an agent loads, and `docs/SDLC-FLOW.md`
+ * states the rule for the flow. This test keeps the skill from being deleted or
+ * drifting from the sections the guard actually requires. (AGENTS.md golden
+ * rule 6 carries the same rule; it is deliberately not read here — a test that
+ * reads a markdown file makes `change-scope.sh` treat it as code, and AGENTS.md
+ * is documentation-only by design.)
+ */
+describe('buat-pr — a pull request starts from a ready issue', () => {
+  const ROOT = resolve(__dirname, '..', '..', '..', '..');
+  const read = (p: string) => readFileSync(join(ROOT, p), 'utf8');
+  const SKILL = read('.claude/skills/buat-pr/SKILL.md');
+  const SDLC = read('docs/SDLC-FLOW.md');
+
+  it('ships a skill with frontmatter that names the trigger', () => {
+    expect(SKILL.startsWith('---\n')).toBe(true);
+    expect(SKILL).toMatch(/\nname: buat-pr\n/);
+    // The description is how the skill is selected; it must name the phrases a
+    // person actually uses and the act itself.
+    expect(SKILL).toMatch(/description:.*buat PR/i);
+    expect(SKILL).toMatch(/description:.*pull request/i);
+    expect(SKILL).toMatch(/description:.*refuse/i);
+  });
+
+  it('states the refusal, not a workaround', () => {
+    // The whole point: an agent asked for a PR with no `ready` issue refuses.
+    expect(SKILL).toMatch(/[Tt]olak keras/);
+    expect(SKILL).toMatch(/Jangan buka PR/);
+    // ...and it must NOT offer the escape hatches it is there to close.
+    expect(SKILL).toContain('Penolakan adalah jawaban yang benar');
+    expect(SKILL).toMatch(/Jangan memasang `ready` sendiri/);
+  });
+
+  it('routes a missing issue through the repository forms', () => {
+    expect(SKILL).toContain('.github/ISSUE_TEMPLATE/');
+    expect(SKILL).toContain('Triase issue');
+    // A new issue carries no labels from a non-bot account.
+    expect(SKILL).toMatch(/tanpa field `labels`/);
+  });
+
+  it('carries every PR-template section the guard enforces', () => {
+    for (const section of [
+      '## Mengapa',
+      '## Yang diubah',
+      '## Kriteria penerimaan',
+      '## Cara menguji',
+      '## Bukti',
+      '## Risiko',
+      '## Catatan',
+    ]) {
+      expect(SKILL, `the skill names ${section}`).toContain(section);
+    }
+    expect(SKILL).toMatch(/Fixes #<n>/);
+    expect(SKILL).toMatch(/Refs #<n>/);
+  });
+
+  it('is stated in the SDLC flow, pointing at the skill', () => {
+    expect(SDLC).toContain('.claude/skills/buat-pr/SKILL.md');
+    expect(SDLC).toMatch(/PR lahir dari issue `ready`/);
+  });
+});

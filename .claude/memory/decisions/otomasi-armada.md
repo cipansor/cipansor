@@ -861,3 +861,32 @@ menambahkan penegasannya (pakai "putusan tinjauan"/"putusan gerbang", judul
 `## Gerbang tinjau — putusan (head <sha>)`), dan satu guard test menolak frasa
 itu kembali ke prompt mana pun. Aturan tetap: **kata-kata yang memberi bot
 wewenang yang bukan miliknya adalah cacat, bukan gaya bahasa.**
+
+**Pintu masuk PR: issue `ready` dulu, dan itu ditolak bila tidak ada.** Pemilik
+meminta (2026-11-12) agar AI yang diminta membuat PR memeriksa lebih dulu: bila
+belum ada issue, arahkan membuat issue dulu, dan **tolak keras** membuka PR tanpa
+issue berlabel `ready`; issue maupun PR wajib mengikuti templat dan ketentuan
+SDLC. Sebelumnya aturan ini hanya hidup sebagai **penegakan** — `PR description`
+merah, dan gerbang repo menolak merge — tanpa satu pun tempat yang memberi tahu
+agen apa yang harus dilakukan **sebelum** mencoba. Penegakan yang benar tetapi
+tak terbaca sebelum percobaan hanya menghasilkan PR merah, bukan penolakan.
+
+Rumahnya dipilih sesuai `AGENTS.md` → "Where things live":
+
+- **Aturan** — aturan emas 6 `AGENTS.md` ditulis ulang: "PR selalu lahir dari
+  issue terbuka dan `ready`", dengan penolakan eksplisit sebagai jawaban yang
+  benar, bukan celah yang dilewati.
+- **Prosedur** — skill baru `.claude/skills/buat-pr/SKILL.md` (langkah: cari
+  issue → belum ada, buat lewat formulir dan tunggu `Triase issue` memasang
+  `ready` → tolak bila belum layak → isi templat → buka draf → naikkan saat
+  hijau). Ia juga memuat isian templat PR dan aturan `Fixes #<n>`.
+- **Penegakan** — tetap `pr-template-guard.sh` (tidak berubah); guard test
+  `pr-description.guard.test.ts` memaku skill-nya (ada, ada frontmatter, memuat
+  penolakan, memuat setiap bagian templat).
+- **Klasifikasi CI** — `.claude/skills/*/SKILL.md` kini "code" di
+  `change-scope.sh`, karena satu guard test membacanya; tanpa itu perubahan pada
+  skill dilewati CI dan `change-scope.guard.test.ts` merah.
+
+Dua hal yang **sengaja tidak** dilakukan: memasang `ready` sendiri (itu wewenang
+`Triase issue` — memasangnya sendiri persis cacat yang aturan ini cegah), dan
+memakai `Refs`/PR tanpa tautan sebagai jalan keluar.

@@ -594,6 +594,15 @@ flowchart TD
   RC --> LC
 ```
 
+**Pintu masuk — PR lahir dari issue `ready`.** Sebelum membuka PR, cari issue
+terbuka yang diselesaikannya; bila belum ada, buka lewat formulir
+`.github/ISSUE_TEMPLATE/` dan tunggu `Triase issue` memasang `ready`. **Menolak
+membuka PR tanpa issue `ready` adalah jawaban yang benar**, bukan celah untuk
+dilewati: `pr-template-guard.sh` merah sampai ada issue terbuka berlabel
+`ready`, dan menautkan nomor yang ternyata PR atau issue tertutup tetap gagal.
+Prosedur lengkapnya ada di skill `buat-pr` (`.claude/skills/buat-pr/SKILL.md`),
+yang juga memuat isian templat PR dan aturan `Fixes #<n>`.
+
 ## Rilis & operasi
 
 ```mermaid

@@ -95,6 +95,13 @@ label `ready-for-dev`; di repo ini `ready`): **sebuah issue
 hanya mendapat `ready` saat kriteria penerimaannya nyata**, dan PR harus menunjuk ke salah
 satunya. `Triase issue` adalah gerbang itu.
 
+Prosedur **sebelum** gerbang itu bekerja ada di skill
+[`buat-pr`](../.claude/skills/buat-pr/SKILL.md) (aturan emas 6 `AGENTS.md`):
+cari issue terbuka yang diselesaikan; bila belum ada, buka lewat formulir dan
+tunggu `Triase issue` memasang `ready`; **tolak keras membuka PR tanpa issue
+`ready`** — penolakan adalah jawaban yang benar, bukan celah untuk dilewati.
+Skill itu juga memuat isian templat PR dan aturan `Fixes #<n>`.
+
 ### Penegakan keras (di-deploy)
 
 Dipilih **gate keras pada job `template`**:

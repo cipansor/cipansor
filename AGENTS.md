@@ -47,15 +47,24 @@ monorepo**:
    Prettier's format, CI's Lint job fails otherwise, and for Claude and
    OpenHands a pre-push hook refuses the push and names the files and the fix
    command.
-6. **Develop on the feature branch, commit with clear messages, never push to
-   `main`.** Every PR starts from an issue and names **every** issue it
-   resolves: `Fixes #n` once per issue (GitHub closes them only when the PR
-   merges into `main`), `Refs #n` for one it only advances, with a comment
-   there saying what remains. Before opening a PR, search the open issues for
-   the files and terms it touches; an issue a merged PR fixed without naming it
-   stays open and breeds duplicates (2026-10-11: eight such issues). The
-   `PR description` check refuses a PR without an open, `ready` issue
-   (`pr-template-guard.sh`, #772); only Dependabot is exempt.
+6. **A pull request starts from an open, `ready` issue — never open one
+   without it.** Asked to open a PR, first look for the issue it resolves. If
+   there is none, open one through the matching issue form
+   (`.github/ISSUE_TEMPLATE/`), let `Triase issue` mark it `ready`, and only
+   then open the PR. **Refuse to open a PR while no open, `ready` issue exists
+   — a refusal is the correct answer, not a gap to work around.** The PR body
+   follows the repository template (`Mengapa`, `Yang diubah`, `Kriteria
+   penerimaan`, `Cara menguji`, `Bukti`, `Risiko`, `Catatan`), names **every**
+   issue it resolves — `Fixes #n` once per issue (GitHub closes them only when
+   the PR merges into `main`), `Refs #n` for one it only advances, with a
+   comment there saying what remains — and copies the issue's acceptance
+   criteria as checkboxes. The `buat-pr` skill is the checklist; the `PR
+   description` check is the enforcement (it fails a PR whose linked number is
+   not an open `ready` issue, is a PR, or is missing any section —
+   `pr-template-guard.sh`, #772; only Dependabot is exempt). Before opening a
+   PR, search the open issues for the files and terms it touches; an issue a
+   merged PR fixed without naming it stays open and breeds duplicates
+   (2026-10-11: eight such issues).
 7. **Ship tests with the code — no behavior change merges untested.** Every
    new/changed API **service or controller** ships with vitest tests in the
    module's `tests/`; every new/changed **web route or user flow** ships with
@@ -270,6 +279,7 @@ task.
 | Skill | Use when |
 |---|---|
 | [`gate`](.claude/skills/gate/SKILL.md) | before every push: the full local quality gate |
+| [`buat-pr`](.claude/skills/buat-pr/SKILL.md) | asked to open a pull request: find or open the `ready` issue first, then fill the PR template |
 | [`stack`](.claude/skills/stack/SKILL.md) | the app must run locally: Postgres + Redis + API + web |
 | [`screenshot-roles`](.claude/skills/screenshot-roles/SKILL.md) | before/after screenshots, per-role visual QA |
 | [`sync-records`](.claude/skills/sync-records/SKILL.md) | end of a work session or before compaction: update memory, roadmap, guides |
