@@ -464,35 +464,56 @@ activity_signal() { # activity_signal <number>; non-zero when a read fails
 # cleared once the run COMPLETED (a finished checkpoint). An empty `run` is the
 # finished form. A plain KV upsert, so re-writing the same value is free — no
 # dedup guard is needed now that nothing is posted.
+#
+# The checkpoint is shared with the side responses (`--relabel`,
+# `--type-conflict`) and, once #1068 lands, with its `at` (the first-deferral
+# time). This writer owns only `signal` and `run`, so on a same-signal write it
+# carries every other field forward: a main write — the label path, or a
+# deferral — must not erase a side slot the sweep still has to read, or a failed
+# conflict is never retried (#838 follow-up; the reviewer's "checkpoint konflik
+# tertimpa run pelabelan"). A different signal is a new episode, and a finished
+# checkpoint (`run` empty) drops the slots with it.
+#
+# `SWEEP_MARKER_PRESERVE_SLOTS` is 1 by default. `process_one` sets it to 0 for
+# the one write that *supersedes* the other slots: its re-dispatch of the triage
+# owner, which answers the failed/pending responses itself. Carrying those slots
+# into that write would make every later sweep re-read the same failed run and
+# re-dispatch forever.
+SWEEP_MARKER_PRESERVE_SLOTS=1
 write_sweep_marker() { # write_sweep_marker <number> <signal> <run>
-  kv_put "$SWEEP_KEY$1" \
-    "$(jq -nc --arg s "$2" --arg r "${3:-}" '{signal: $s, run: $r}')" \
-    || echo "::warning::could not record the triage checkpoint on #$1."
+  n="$1"; sig="$2"; run="${3:-}"
+  carry="{}"
+  if [ "$SWEEP_MARKER_PRESERVE_SLOTS" = 1 ] && [ -n "$run" ] && kv_get "$SWEEP_KEY$n"; then
+    prev_sig=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
+    if [ "$prev_sig" = "$sig" ]; then
+      carry=$(printf '%s' "$KV_JSON" | jq -c 'del(.signal, .run)' 2>/dev/null) || carry="{}"
+    fi
+  fi
+  kv_put "$SWEEP_KEY$n" \
+    "$(jq -nc --arg s "$sig" --arg r "$run" --argjson c "$carry" '$c + {signal: $s, run: $r}')" \
+    || echo "::warning::could not record the triage checkpoint on #$n."
 }
 
 # Record a side response's run (`--relabel`, `--type-conflict`) under its own
-# `extra.<kind>` slot, preserving the main `run` slot and every other side slot.
-# A label change does not move `activity_signal`, so the side responses of one
-# issue share the checkpoint; without per-kind slots the later write would
-# overwrite the earlier run id, and `process_one` — reading only the surviving
-# one — would finalise the issue while a failed run is never retried (#838
-# follow-up). A different signal is a new episode: the slots are dropped.
+# `extra.<kind>` slot, preserving the main `run` slot and every other field
+# (`at` included, so the #1068 FIFO time survives). A label change does not move
+# `activity_signal`, so the side responses of one issue share the checkpoint;
+# without per-kind slots the later write would overwrite the earlier run id, and
+# `process_one` — reading only the surviving one — would finalise the issue while
+# a failed run is never retried (#838 follow-up). A different signal is a new
+# episode: the slots are dropped.
 write_sweep_side_marker() { # write_sweep_side_marker <number> <signal> <kind> <run>
-  n="$1"; sig="$2"; kind="$3"; run="$4"
-  main=""; extra="{}"
-  rc=0
-  kv_get "$SWEEP_KEY$n" || rc=$?
-  if [ "$rc" = 0 ]; then
+  n="$1"; sig="$2"; kind="$3"; run="${4:-}"
+  base="{}"
+  if kv_get "$SWEEP_KEY$n"; then
     prev_sig=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
     if [ "$prev_sig" = "$sig" ]; then
-      main=$(printf '%s' "$KV_JSON" | jq -r '.run // ""' 2>/dev/null) || main=""
-      extra=$(printf '%s' "$KV_JSON" | jq -c '.extra // {}' 2>/dev/null) || extra="{}"
+      base=$(printf '%s' "$KV_JSON" | jq -c 'del(.signal)' 2>/dev/null) || base="{}"
     fi
   fi
-  extra=$(printf '%s' "$extra" | jq -c --arg k "$kind" --arg r "${run:-}" '.[$k] = $r' 2>/dev/null) \
-    || extra="{}"
   kv_put "$SWEEP_KEY$n" \
-    "$(jq -nc --arg s "$sig" --arg r "$main" --argjson e "$extra" '{signal: $s, run: $r, extra: $e}')" \
+    "$(jq -nc --argjson b "$base" --arg s "$sig" --arg k "$kind" --arg r "$run" \
+      '$b + {signal: $s, run: ($b.run // ""), extra: (($b.extra // {}) + {($k): $r})}')" \
     || echo "::warning::could not record the triage checkpoint on #$n."
 }
 
@@ -765,6 +786,9 @@ type_conflict_dispatch() { # type_conflict_dispatch <number> <declined-type>
 # label dispatch deferred while the pool was full (see `recover_ready`).
 process_one() { # process_one <number> <inflight> [ready_ok]
   n="$1"; inflight="${2:-0}"; ready_ok="${3:-0}"
+  # Reset the marker's slot policy per issue: only the re-dispatch below turns it
+  # off, and a prior issue must not carry that into this one's writes.
+  SWEEP_MARKER_PRESERVE_SLOTS=1
 
   # A closed issue — or a `ready` one on the ordinary pass — is out of scope;
   # drop any stale checkpoint and stop.
@@ -885,7 +909,10 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   fi
 
   # Dispatch; record the run so the next sweep reads its result, not the 201.
+  # This run supersedes the failed/pending slots read above, so it replaces them
+  # rather than carrying them forward (else the sweep would re-dispatch forever).
   if dispatch "$n" sweep-activity "$sig"; then
+    SWEEP_MARKER_PRESERVE_SLOTS=0
     write_sweep_marker "$n" "$sig" "$RUN_ID"
     return 0
   fi

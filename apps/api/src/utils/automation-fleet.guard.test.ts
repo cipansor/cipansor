@@ -3007,6 +3007,137 @@ describe('issue-triage-bridge.sh', () => {
     expect(kv['triage-sweep-818']).toEqual({ signal: signal('triaged'), run: '' });
   });
 
+  it('keeps a conflict slot when the label path writes the main slot', () => {
+    // #838 follow-up: the label path (`--stdin`) and the side responses share one
+    // checkpoint, because a label change does not move `activity_signal`. A main
+    // write must not drop a side slot the sweep still has to read — else a bot
+    // label applied after a type conflict erases the conflict run and the wrong
+    // type is never reconciled. The reviewer's "checkpoint konflik tertimpa run
+    // pelabelan": whichever response writes last must preserve the other's slot.
+    const { kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_RUN_ID: 'labeler-run',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('triaged'), run: '', extra: { conflict: 'c1' } },
+        },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'labeler-run',
+      extra: { conflict: 'c1' },
+    });
+  });
+
+  it('recovers a conflict a labeling run did not overwrite', () => {
+    // The reviewer's sequence on one issue: a type conflict dispatches, then a
+    // bot label dispatches (the labeling run), then the sweep runs. The labeling
+    // run must keep the conflict slot, so the sweep still sees the failed
+    // conflict and re-dispatches — the recovery the point asked to prove.
+    const conflict = runBridge({ GH_STUB_LABELS_LIST: 'enhancement' }, [
+      '--type-conflict',
+      '818',
+      'bug',
+    ]);
+    expect(conflict.kv['triage-sweep-818']).toMatchObject({ extra: { conflict: 'run-1' } });
+
+    const labeled = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: '',
+        CURL_STUB_RUN_ID: 'labeler-run',
+        KV_SEED: { 'triage-sweep-818': conflict.kv['triage-sweep-818'] },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(labeled.kv['triage-sweep-818']).toMatchObject({
+      run: 'labeler-run',
+      extra: { conflict: 'run-1' },
+    });
+
+    const swept = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: '',
+        KV_SEED: { 'triage-sweep-818': labeled.kv['triage-sweep-818'] },
+        CURL_STUB_RUNS:
+          '{"runs":[{"id":"run-1","status":"FAILED"},{"id":"labeler-run","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(swept.calls).toContain('DISPATCH');
+    expect(swept.out).toContain('side run run-1 did not complete');
+  });
+
+  it('does not carry a retried side slot into the sweep’s own re-dispatch', () => {
+    // The sweep re-dispatches the triage owner to retry a failed slot; that run
+    // supersedes the slot, so the sweep clears it. Keeping it would make every
+    // later sweep re-read the same failed run and re-dispatch forever.
+    const { kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_RUN_ID: 'sweep-run',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('triaged'),
+            run: '',
+            extra: { conflict: 'c1' },
+          },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"c1","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({ run: 'sweep-run' });
+    expect(kv['triage-sweep-818']).not.toHaveProperty('extra');
+  });
+
+  it('keeps a side slot when the main writer records a deferred `pending`', () => {
+    // The reviewer's "penulisan ulang pending menghapus slot sisi": when the main
+    // writer rewrites the checkpoint as a deferral (`pending`), it must keep a
+    // side slot the sweep still has to read. Here the label path defers because
+    // the pool is full, and a conflict slot is already on the issue.
+    const { kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: 'triaged',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('triaged'), run: '', extra: { conflict: 'c1' } },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'pending',
+      extra: { conflict: 'c1' },
+    });
+  });
+
+  it('keeps a foreign `at` field when the side writer records a run', () => {
+    const { kv } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: '',
+        CURL_STUB_RUN_ID: 'relabel-run',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal(''), run: 'pending', at: 1794493156 },
+        },
+      },
+      ['--relabel', '818']
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({
+      extra: { relabel: 'relabel-run' },
+      at: 1794493156,
+    });
+  });
+
   it('collapses the guard’s removal burst to one relabel dispatch per issue', () => {
     // The guard removes one label per event, and its concurrency group is per
     // label, so the runs race. The collapse is keyed on the issue and the burst
