@@ -172,7 +172,10 @@ pertentangan itu dilaporkan sebagai issue.
     menghapus checkpoint `pending` milik issue `ready` (ia di luar lingkup sweep
     dan justru milik `--recover-ready`, yang berjalan sesudahnya), dan kegagalan
     baca KV di jalur label tidak menulis ulang `at` (checkpoint dibiarkan, agar
-    posisi antrean tak tergeser oleh gangguan sesaat).
+    posisi antrean tak tergeser oleh gangguan sesaat). Bila baca itu gagal
+    **dan** belum ada checkpoint `pending` — mis. issue sudah `ready` — penundaan
+    disimpan di kunci terpisah `triage-retry-<n>` yang dikuras kedua jalur
+    pemulihan, jadi label tetap ditriase dan tidak hilang.
 20. **Dinding jam setiap automation adalah 1800 detik — platform tidak
     menerima lebih.** Sebuah run yang melewati `timeout`-nya mati sebagai
     `execution/timeout`, bukan karena tugasnya salah. Batas itu bukan pilihan

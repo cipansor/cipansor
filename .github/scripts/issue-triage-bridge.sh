@@ -117,6 +117,11 @@ BURST_WINDOW="${BURST_WINDOW:-300}"
 # `run` empty is the finished checkpoint; `pending` is a dispatch deferred while
 # the pool was full; anything else is the run that is answering the signal.
 SWEEP_KEY="triage-sweep-"
+# A deferral the label path could not fold into the sweep checkpoint because the
+# store could not be read: `{signal, at}` under its own key, so the old
+# checkpoint (and its first-deferral time) is left untouched and the deferral
+# itself is not lost. Both passes drain it — see `drain_retry_markers`.
+RETRY_KEY="triage-retry-"
 STATE_KEY="triage-state-"
 # The marker prefix the bridge used before it moved to the KV store. It is read
 # once, to adopt an existing checkpoint, and then deleted; nothing writes it any
@@ -415,21 +420,127 @@ activity_signal() { # activity_signal <number>; non-zero when a read fails
 # behind newer activity forever. `MARK_AT` carries that first time; it is read
 # from the existing checkpoint by the caller before this write, and defaults to
 # `now` when the candidate is deferred for the first time.
+MARK_WRITE_OK=0
 write_sweep_marker() { # write_sweep_marker <number> <signal> <run> [first-deferred-at]
   at="${4:-}"
   if [ "$3" = "$PENDING_RUN" ] && [ -z "$at" ]; then
     at=$(date -u +%s)
   fi
-  kv_put "$SWEEP_KEY$1" \
+  MARK_WRITE_OK=0
+  if kv_put "$SWEEP_KEY$1" \
     "$(jq -nc --arg s "$2" --arg r "${3:-}" --arg a "$at" \
-      '{signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)')" \
-    || echo "::warning::could not record the triage checkpoint on #$1."
+      '{signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)')"; then
+    MARK_WRITE_OK=1
+  else
+    echo "::warning::could not record the triage checkpoint on #$1."
+  fi
 }
 
 # Drop the checkpoint: the issue is closed or `ready`, so it is out of scope and
 # a stale checkpoint must not linger to mislead a later sweep.
 remove_sweep_marker() { # remove_sweep_marker <number>
   kv_del "$SWEEP_KEY$1"
+}
+
+# --- Retry markers, for a deferral that could not reach the sweep checkpoint --
+
+# Record a deferral the label path could not fold into the sweep checkpoint,
+# because `read_sweep_marker` failed (`MARK_FORM=unknown`). Writing the sweep
+# checkpoint then would either stamp a fresh `at` over a long wait (the FIFO
+# reset the review caught) or, when there was no pending checkpoint at all, put
+# a `pending` marker on an issue the ordinary sweep excludes (`ready`) — where
+# `pending_keys` feeds it to `process_one`, which drops a `ready` issue's
+# checkpoint, and `recover_ready` (reading the store *after* the sweep) never
+# sees it. The deferral is the label's only chance to be triaged, so it is kept
+# under its own key, with the `at` the read failed to give us: the current time
+# on the first deferral, or the `at` already recorded by an earlier retry.
+write_retry_marker() { # write_retry_marker <number> <signal>
+  at=""
+  if kv_get "$RETRY_KEY$1"; then
+    at=$(printf '%s' "$KV_JSON" | jq -r '.at // ""' 2>/dev/null) || at=""
+    case "$at" in '' | *[!0-9]*) at="" ;; esac
+  fi
+  [ -n "$at" ] || at=$(date -u +%s)
+  kv_put "$RETRY_KEY$1" \
+    "$(jq -nc --arg s "$2" --argjson a "$at" '{signal: $s, at: $a}')" \
+    || echo "::warning::could not record the deferred retry for #$1."
+}
+
+# Hand every retry marker back to the sweep checkpoint, so the ordinary pass and
+# the recovery pass agree on one marker per issue again. Run at the top of both
+# passes, before either reads the store: the deferral is turned into the
+# `pending` checkpoint the pass then dispatches. A `pending` checkpoint already
+# present keeps its `at` (the old wait) unless it is older than the retry's, so
+# the FIFO order is preserved either way. The retry key is deleted once folded,
+# and also when the issue is closed, so a stale one cannot linger.
+drain_retry_markers() {
+  for n in $(retry_keys); do
+    if [ -z "${n:-}" ]; then continue; fi
+    read_sweep_marker "$n"
+    read_retry_marker "$n"
+    if [ "$RETRY_FORM" != "some" ]; then continue; fi
+    # An unreadable store cannot tell us whether a `pending` checkpoint is
+    # already there, and folding blind would reset its `at`. Keep the retry
+    # marker for the next run instead.
+    if [ "$MARK_FORM" = "unknown" ]; then continue; fi
+    if [ "$MARK_FORM" = "some" ] && [ -n "$MARK_RUN" ] && [ "$MARK_RUN" != "$PENDING_RUN" ]; then
+      # A run is in flight or finished; the deferral is already answered.
+      remove_retry_marker "$n"
+      continue
+    fi
+    if [ "$MARK_FORM" = "some" ] && [ "$MARK_RUN" = "$PENDING_RUN" ]; then
+      at="${MARK_AT:-0}"
+      # The earlier of the two waits wins: a retry that began before the
+      # checkpoint must not lose its place in the FIFO.
+      case "$RETRY_AT" in
+        '' | *[!0-9]*) : ;;
+        *) if [ "$RETRY_AT" -lt "${at:-0}" ]; then at="$RETRY_AT"; fi ;;
+      esac
+    else
+      at="${RETRY_AT:-0}"
+    fi
+    # A closed or `ready`-and-final issue is dropped by the pass itself
+    # (`process_one`), so the fold is safe whatever the issue's state.
+    write_sweep_marker "$n" "$RETRY_SIGNAL" "$PENDING_RUN" "$at"
+    if [ "$MARK_WRITE_OK" = 1 ]; then remove_retry_marker "$n"; fi
+  done
+  return 0
+}
+
+read_retry_marker() { # read_retry_marker <number>; sets RETRY_SIGNAL, RETRY_AT, RETRY_FORM
+  RETRY_SIGNAL=""; RETRY_AT=""; RETRY_FORM="none"
+  rc=0
+  kv_get "$RETRY_KEY$1" || rc=$?
+  case "$rc" in
+    1) return 0 ;;
+    2) RETRY_FORM="unknown"; return 0 ;;
+  esac
+  RETRY_SIGNAL=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || RETRY_SIGNAL=""
+  RETRY_AT=$(printf '%s' "$KV_JSON" | jq -r '.at // ""' 2>/dev/null) || RETRY_AT=""
+  case "$RETRY_AT" in '' | *[!0-9]*) RETRY_AT="" ;; esac
+  [ -n "$RETRY_SIGNAL" ] || { RETRY_SIGNAL=""; RETRY_AT=""; RETRY_FORM="none"; return 0; }
+  RETRY_FORM="some"
+}
+
+remove_retry_marker() { # remove_retry_marker <number>
+  kv_del "$RETRY_KEY$1"
+}
+
+# The issue number of every retry marker in the KV store, one per line.
+retry_keys() {
+  offset=0; limit=100; total=1
+  while [ "$offset" -lt "$total" ]; do
+    page=$("$CURL" -sS "$API/kv?prefix=$RETRY_KEY&limit=$limit&offset=$offset&automation_id=$TRIAGE_ID" \
+      -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null) || return 0
+    total=$(printf '%s' "$page" | jq -r '.total // 0' 2>/dev/null) || total=0
+    case "$total" in '' | *[!0-9]*) total=0 ;; esac
+    printf '%s' "$page" | jq -r --arg p "$RETRY_KEY" \
+      '.keys[]? | select(startswith($p)) | ltrimstr($p) | select(test("^[0-9]+$"))' 2>/dev/null || true
+    n=$(printf '%s' "$page" | jq -r '.count // 0' 2>/dev/null) || n=0
+    case "$n" in '' | *[!0-9]*) n=0 ;; esac
+    [ "$n" -gt 0 ] || break
+    offset=$((offset + limit))
+  done
 }
 
 # --stdin: a bot applied a type or priority label.
@@ -509,7 +620,15 @@ on_label() { # on_label <event-json>
     # and let the sweep read its old time on a later run (#872 review).
     if [ -n "$sig" ]; then
       read_sweep_marker "$number"
-      if [ "$MARK_FORM" != "unknown" ]; then
+      if [ "$MARK_FORM" = "unknown" ]; then
+        # The store could not be read, so whether the issue is `ready` and how
+        # long it has waited are both unknown. Writing the sweep checkpoint
+        # blind would reset a long wait's `at`, and skipping the write — the
+        # previous behaviour — dropped the deferral entirely on a `ready` issue
+        # with no pending checkpoint. The retry key keeps the deferral; both
+        # passes drain it (see `drain_retry_markers`).
+        write_retry_marker "$number" "$sig"
+      else
         if [ "$MARK_RUN" = "$PENDING_RUN" ]; then at="${MARK_AT:-0}"; else at=""; fi
         write_sweep_marker "$number" "$sig" "$PENDING_RUN" "$at"
       fi
@@ -654,6 +773,9 @@ recover_ready() {
   fails=0
   inflight=$(inflight_count)
   cand=$(mktemp)
+  # A retry marker left by the label path is folded back into the sweep
+  # checkpoint first, so this pass (which runs after the sweep) sees it too.
+  drain_retry_markers
   # Discovery has two sources, unioned by `sort -u`:
   #   1. `sweep_keys` — the store's own sweep keys (exact, one paginated listing).
   #   2. `legacy_ready_issues` — the legacy sweep markers still on `ready` issues.
@@ -864,6 +986,10 @@ sweep() {
   #      is touched, and a deferred one is found by source 1 regardless.
   cand=$(mktemp)
   search=$(mktemp)
+  # Fold any retry marker the label path left (a deferral whose store read
+  # failed) into a `pending` sweep checkpoint before the candidate list is
+  # built, so it is queued here instead of being lost.
+  drain_retry_markers
   pending_keys | sort -n -k1,1 >> "$cand"
   page=1
   while [ "$page" -le "$SWEEP_PAGES" ]; do

@@ -298,6 +298,16 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
     - Workflow menjalankan langkah ini `if: always()` agar kegagalan sweep tidak
       menelantarkannya. Skrip `#!/bin/sh` (dash) — tanpa proses-substitusi;
       hasilnya lewat berkas sementara.
+    - **Penundaan yang tak bisa ditulis ke checkpoint sweep** (tinjauan #872):
+      bila `read_sweep_marker` gagal (`MARK_FORM=unknown`) saat kolam penuh dan
+      tidak ada checkpoint `pending`, jalur label dulu tidak menulis apa pun —
+      pada issue `ready` itu menghilangkan satu-satunya kesempatan triase (sweep
+      mengecualikan `ready`; `recover_ready` hanya membaca checkpoint yang ada).
+      Kini penundaan disimpan di `triage-retry-<n>` (`{signal, at}`), dan
+      `drain_retry_markers` — dijalankan di awal `sweep` **dan** `recover_ready`
+      — melipatnya kembali ke checkpoint `pending` sebelum kandidat dibaca. `at`
+      yang lebih tua menang, jadi slot FIFO tak tergeser; kunci retry dihapus
+      setelah lipatan berhasil.
 
 25. **Run yang mati infrastruktur mendapat kesempatan kedua yang terukur**
     (2026-10-15, pengguna; #837). `POST /{id}/dispatch` fire-and-forget: run
