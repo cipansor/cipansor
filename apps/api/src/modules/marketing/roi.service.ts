@@ -23,7 +23,6 @@ async function readAllPages<T>(
 
 /** The registration fields the REG_FEE dedup reads. */
 type RegistrantFeeRow = {
-  createdAt: Date;
   registrationFeePaidAt: Date | null;
   admissionPeriod: { unitId: string } | null;
 };
@@ -32,22 +31,25 @@ type RegistrantFeeRow = {
  * Whether a `REG_FEE` invoice/payment billed by `billingUnitId` is a second
  * record of a fee the Registrant already holds — the canonical source.
  *
- * The Invoice carries no link to a registration (the schema has none), so the
- * unit plus the student's **latest** registration in that unit is the closest
- * available identity: a unit whose newest registration is still unpaid is a
- * fresh daftar ulang (a same-unit re-registration, or a first bill settled only
- * by invoice) and its invoice must count. Only when that newest registration
- * already records the fee is the invoice the duplicate.
+ * The `Invoice` carries no link to a registration (the schema has none), so a
+ * billed fee cannot be matched to the registration it belongs to. The rule is
+ * deliberately one-sided: whenever *any* registration in the billing unit
+ * records the fee (`registrationFeePaidAt`), the invoice is treated as its
+ * duplicate and dropped. That can only ever under-count, never double-count,
+ * which is the guarantee the ROI must keep. The cost is a same-unit
+ * re-registration whose *new* fee was settled only by invoice: it is
+ * indistinguishable from the old registration's invoice, so it is dropped too.
+ * Telling the two apart needs the registration identity on the Invoice (a
+ * schema change) — see #755.
  */
 function regFeeAlreadyRecorded(
   registrants: RegistrantFeeRow[],
   billingUnitId: string | null | undefined
 ): boolean {
   if (!billingUnitId) return false;
-  const inUnit = registrants.filter((r) => r.admissionPeriod?.unitId === billingUnitId);
-  if (inUnit.length === 0) return false;
-  const latest = inUnit.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
-  return latest.registrationFeePaidAt != null;
+  return registrants.some(
+    (r) => r.admissionPeriod?.unitId === billingUnitId && r.registrationFeePaidAt != null
+  );
 }
 
 /**
@@ -123,7 +125,7 @@ export async function calculateCampaignROI(unitId?: string) {
   // raise one via `createInvoice` and settle it — fully or partially — through
   // `createPayment`, which never writes the Registrant. The Registrant is the
   // canonical home for the fee, so the invoice is counted only for a unit whose
-  // registration has no fee record. The dedup is per unit, not per student: a
+  // registrations hold no fee record. The dedup is per unit, not per student: a
   // student who settled the SD fee and is separately billed for SMP keeps both
   // (progresi antarunit — one `Registrant` per registration).
   const regFeeInvoiceData = await prisma.invoice.findMany({
@@ -327,7 +329,6 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
               select: {
                 registrants: {
                   select: {
-                    createdAt: true,
                     registrationFeePaidAt: true,
                     admissionPeriod: { select: { unitId: true } },
                   },
@@ -373,9 +374,9 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
 
   for (const payment of payments) {
     // A REG_FEE payment is a second record of the same fee the Registrant holds
-    // (read below); drop it only when the billing unit's latest registration
-    // already records the fee, so a fee settled by invoice — in part or in full,
-    // or for a fresh same-unit re-registration — is not lost.
+    // (read below); drop it whenever the billing unit records the fee, so the
+    // fee is never double-counted. See `regFeeAlreadyRecorded` for why the rule
+    // is one-sided.
     if (payment.invoice?.paymentType?.code === 'REG_FEE') {
       const recorded = regFeeAlreadyRecorded(
         payment.invoice.student?.registrants ?? [],

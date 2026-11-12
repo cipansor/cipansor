@@ -175,10 +175,12 @@ describe('getMonthlyAttributedRevenue', () => {
     expect(current).toEqual({ month: thisMonthKey, revenue: 500000, transactionCount: 1 });
   });
 
-  it('menghitung pembayaran REG_FEE saat pendaftaran terbaru di unit itu belum mencatat biaya', async () => {
-    // Daftar ulang ulang di unit yang sama: pendaftaran SMP lama sudah lunas,
-    // pendaftaran SMP baru belum. Tagihan REG_FEE untuk pendaftaran baru harus
-    // dihitung, bukan dianggap duplikat catatan lama.
+  it('mengabaikan tagihan REG_FEE milik pendaftaran lama yang sudah lunas di unit yang sama', async () => {
+    // Santri mendaftar lagi di unit yang sama: pendaftaran SMP lama sudah lunas,
+    // pendaftaran SMP baru belum. Karena Invoice tidak menyimpan tautan ke
+    // pendaftaran, tagihan ini tak bisa dibedakan dari milik pendaftaran lama —
+    // jadi ia diabaikan (under-count), dan yang penting tidak pernah dihitung
+    // ganda. Lihat komentar `regFeeAlreadyRecorded`.
     const now = new Date();
     const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     mocked.payment.findMany.mockResolvedValue([
@@ -209,7 +211,7 @@ describe('getMonthlyAttributedRevenue', () => {
     const trend = await getMonthlyAttributedRevenue(undefined, 3);
 
     const current = trend.find((t) => t.month === thisMonthKey);
-    expect(current).toEqual({ month: thisMonthKey, revenue: 500000, transactionCount: 1 });
+    expect(current?.revenue ?? 0).toBe(0);
   });
 
   it('tetap menghitung pembayaran tagihan biasa walau pendaftar sudah mencatat biaya', async () => {

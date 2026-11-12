@@ -229,9 +229,10 @@ describe('Marketing ROI Service', () => {
     expect(result[0].metrics.revenue).toBe(1000000);
   });
 
-  it('menghitung tagihan REG_FEE untuk daftar ulang ulang di unit yang sama', async () => {
-    // Pendaftaran SMP lama sudah lunas, pendaftaran SMP baru belum. Tagihan
-    // REG_FEE untuk pendaftaran baru harus dihitung, bukan dianggap duplikat.
+  it('mengabaikan tagihan REG_FEE bila ada pendaftaran lunas di unit yang sama', async () => {
+    // Invoice tidak menyimpan tautan ke pendaftaran, jadi tagihan daftar ulang
+    // ulang di unit yang sama tak bisa dibedakan dari milik pendaftaran lama yang
+    // sudah lunas; demi jaminan tanpa hitung ganda, tagihan itu diabaikan.
     vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([
       { id: 'c1', name: 'X', code: 'X', budget: 0, _count: { registrants: 2 } },
     ] as any);
@@ -264,7 +265,7 @@ describe('Marketing ROI Service', () => {
 
     const result = await calculateCampaignROI();
 
-    expect(result[0].metrics.revenue).toBe(500000);
+    expect(result[0].metrics.revenue).toBe(0);
   });
 
   it('tidak menghitung ganda tagihan REG_FEE yang unitnya sudah mencatat biaya', async () => {
