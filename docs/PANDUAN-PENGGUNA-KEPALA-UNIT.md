@@ -6,6 +6,8 @@
 | 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Nama kontrol Pengumuman dicocokkan ke layar: tombol **Buat Pengumuman** (bukan "Buat Baru"), judul formulir **Buat Pengumuman**, dan kolom **Judul**/**Isi** (bukan "Konten"); pesan validasi **"Judul dan isi wajib diisi"** disalin dari `announcements/page.tsx` #779) |
 | 0.3 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: tombol simpan dialog pengumuman baru bernama **Terbitkan** (bukan **Simpan**) dan pesan hasilnya menyebut jumlah penerima ("Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang"); ditandai pada kartu |
 | 0.4 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: langkah yang diubah pada revisi 0.2–0.3 kini bertanda **⚠ Belum dicoba di aplikasi berjalan** pada langkahnya, agar klaim T1 tidak mencakup langkah baru (#779) |
+| 0.5 | 11 November 2026 | aplikasi berjalan dari kode `25693e32` | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Mengelola pegawai dan cuti* diselaraskan dengan kewenangan yang sebenarnya: kepala unit **memantau** data pegawai dan cuti unit, sedangkan menambah/mengubah pegawai dan memutuskan cuti (setuju, tolak, batal) adalah kewenangan admin unit atau Super Admin. Kartu berganti judul menjadi *Memantau pegawai dan cuti*; langkahnya dijalankan ulang dengan akun demo kepala unit. |
+| 0.6 | 12 November 2026 | aplikasi berjalan dari kode `6b3c6127` (kode modul `hr` dan halaman `/hr` identik dengan `main` `e6e7e25e`) | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Memantau pegawai dan cuti* diperbaiki setelah tinjauan: langkahnya dijalankan ulang dengan akun demo kepala unit pada tumpukan lokal. Tab **Karyawan** menampilkan 8 pegawai unit; tab **Cuti** menampilkan pengajuan milik kepala sendiri (`GET /hr/leaves` memaksa filter profil non-admin) dan **bukan** seluruh pengajuan unit, dengan batasan bila akun punya dua profil (guru + staf) hanya satu profil yang dibaca; tab **Risiko Retensi** tetap dapat dibuka, hanya permintaan datanya ditolak kepala unit (`GET /hr/analytics/retention-risk` → 403) sehingga tab tampil kosong. Klaim saring **Semua Status** dilepas: saringan status tidak menyaring (server mengabaikannya; `RESIGNED`/`RETIRED` → 400). Dicatat pula notifikasi galat yang tampil saat halaman dibuka. |
 
 > **Tingkat verifikasi.** Kartu tugas di bawah **dijalankan pada aplikasi
 > berjalan** dengan akun demo kepala unit, dan tiap kartu memuat tangkapan
@@ -37,7 +39,7 @@ Semua data terbatas pada unit yang Anda pimpin.
 
 - Anda **memantau** santri, kehadiran, nilai, tahfidz, dan keuangan unit.
 - Anda **menyusun jadwal**, membuat penilaian, dan mengunduh rapor unit.
-- Anda **mengelola kepegawaian** unit dan menilai kinerja pegawai.
+- Anda **memantau** data pegawai dan cuti unit, serta menilai kinerja pegawai.
 - Anda **tidak** menetapkan tagihan atau memeriksa bukti bayar — itu tugas
   bendahara unit.
 - Anda **tidak** menyusun naskah dinas — itu tugas tata usaha.
@@ -51,7 +53,7 @@ Semua data terbatas pada unit yang Anda pimpin.
 | Mengisi absensi harian | Harian | Layanan Siswa → Kehadiran |
 | Membuat penilaian dan rapor | Akhir semester | Akademik → Penilaian |
 | Mencatat setoran tahfidz | Harian | Akademik → Tahfidz |
-| Mengelola pegawai dan cuti | Sesuai kebutuhan | SDM & Kepegawaian |
+| Memantau pegawai dan cuti | Sesuai kebutuhan | SDM & Kepegawaian |
 | Membuat sesi bimbingan konseling | Sesuai kebutuhan | Layanan Siswa → Bimbingan Konseling |
 | Menulis laporan harian | Harian | Akademik → Laporan Harian |
 | Menyetujui Perjanjian Kinerja pegawai | Tahunan | Kinerja → Manajemen Kinerja |
@@ -237,37 +239,48 @@ masing-masing.
 
 **Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).
 
-## Mengelola pegawai dan cuti
+## Memantau pegawai dan cuti
 
-**Tujuan.** Menambah pegawai unit dan mencatat pengajuan cutinya.
+**Tujuan.** Memantau data pegawai unit yang Anda pimpin.
 
 **Siapa.** Kepala unit.
 
 **Jalur menu.** SDM & Kepegawaian (`/hr`).
 
-**Sebelum mulai.** Data pegawai atau pengajuan cutinya sudah diterima.
+**Sebelum mulai.** Data pegawai unit sudah ada di aplikasi.
 
 **Langkah.**
 
 1. Buka **SDM & Kepegawaian**.
-2. Klik **Tambah Karyawan** untuk mendaftarkan pegawai baru, lalu isi datanya.
-3. Untuk cuti, klik **Ajukan Cuti**, isi **Jenis Cuti** dan **Alasan**, lalu
-   simpan.
-   *Pengajuan cuti tampil dengan status **Menunggu**.*
+2. Halaman membuka tab **Karyawan**: daftar pegawai unit yang Anda pimpin —
+   nama, NIP, jabatan, dan status kepegawaian. Bila daftarnya panjang, cari
+   dengan kotak **Cari nama atau NIP...**.
+3. Tab **Cuti** menampilkan pengajuan cuti milik Anda sendiri, bukan seluruh
+   pengajuan unit. Bila akun Anda punya lebih dari satu profil pegawai (guru
+   dan staf), daftar ini hanya membaca satu profil, sehingga pengajuan yang
+   tercatat pada profil yang lain bisa tidak muncul. Tab **Risiko Retensi**
+   dapat dibuka, tetapi datanya bukan untuk kepala unit: permintaan datanya
+   ditolak dan tab tampil kosong.
 
-![Gambar 6. SDM & Kepegawaian: data pegawai, kontrak, dan absensi staf unit.](screens/kepemimpinan-kepala-unit/12-sdm.png){width=14cm}
+![Gambar 6. SDM & Kepegawaian: ringkasan unit dan daftar pegawai.](screens/kepemimpinan-kepala-unit/12-sdm.png){width=14cm}
 
-*Gambar 6. SDM & Kepegawaian: data pegawai, kontrak, dan absensi staf unit.*
+*Gambar 6. SDM & Kepegawaian: ringkasan unit dan daftar pegawai.*
 
-**Hasilnya, dan giliran siapa berikutnya.** Pegawai tercatat dan cuti menunggu
-keputusan. Giliran pimpinan unit menyetujui atau menolaknya.
+**Hasilnya, dan giliran siapa berikutnya.** Anda memantau data pegawai unit dan
+melihat pengajuan cuti Anda sendiri — selama pengajuan itu tercatat pada profil
+yang dibaca daftar. Menambah atau mengubah pegawai serta memutuskan cuti pegawai
+lain (setuju, tolak, batal) adalah kewenangan admin unit atau Super Admin, bukan
+kepala unit.
 
 **Bila tidak berhasil.**
 
 | Yang terlihat | Penyebab umum | Yang perlu dilakukan |
 |---|---|---|
-| Pegawai tidak muncul | Unit belum dipilih dengan benar | Saring dengan **Semua Unit** |
-| Cuti tetap **Menunggu** | Belum diputuskan | Buka pengajuannya, lalu setujui |
+| Pegawai tidak muncul | Pencarian terlalu sempit | Kosongkan kotak **Cari nama atau NIP...** |
+| Notifikasi galat saat halaman dibuka | Tab **Cuti** dan **Risiko Retensi** menanyakan data di luar kewenangan kepala unit | Abaikan galat **Risiko Retensi** (tab itu memang kosong bagi kepala unit); galat lain — termasuk tab **Cuti** — periksa dulu sebelum dilaporkan |
+| Tab **Risiko Retensi** kosong | Datanya hanya untuk admin unit atau Super Admin | Tidak perlu tindakan; minta admin unit bila datanya dibutuhkan |
+| Tab **Cuti** kosong padahal Anda pernah mengajukan | Profil pegawai Anda belum dibuat, atau pengajuan tercatat pada profil Anda yang lain (guru/staf) | Minta admin unit memeriksa profil dan pengajuan Anda |
+| Menambah atau mengubah pegawai, atau memutuskan cuti pegawai lain, gagal | Bukan kewenangan kepala unit | Minta admin unit menambahkannya atau memutuskan cutinya |
 
 **Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).
 

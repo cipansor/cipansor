@@ -17,7 +17,8 @@
 | 1.3 | 11 November 2026 | commit `76511a89` | Angka diukur ulang setelah fitur absensi pegawai (#630) dan pekerjaan lain: **307 model**, ~**1.459 hulu rute API**, **436 halaman web**, **19 entri jadwal** atas **17 berkas pekerjaan**. §6.6 memuat empat pekerjaan yang sebelumnya terlewat (`holiday-sync`, `attendance-retention`, `letter-retention`, `admission-wave-status`) dan dua berkas tak terjadwal; Lampiran A diukur ulang baris demi baris; bab 9 menambah keputusan `absensi-pegawai.md` dan `persetujuan-pengguna.md`; Lampiran F peta halaman `/hr` 17→20. `check_docs.py` 0 ERROR | Agen OpenHands |
 | 1.4 | 11 November 2026 | kode `af09e9a6` | Konvensi tanggal/waktu ditambahkan ke §8 (tanggal-saja `YYYY-MM-DD` pada tengah malam UTC, pembacaan sebagai timestamp ISO, perbandingan lewat jatuh tempo memakai instan itu — bukan akhir hari WIB — dan bulan penagihan WIB lewat `utils/wib-day.ts`), dan §6.6 menyebut bulan penagihan/pengingat mengikuti kalender WIB (#825). | Agen OpenHands |
 | 1.5 | 12 November 2026 | commit `3cc543b5` | Tabel 2 (Batasan) tidak lagi memaku versi **patch** Prisma: `Prisma 7.10.0` → `Prisma 7` (tingkat mayor), seperti baris yang sama sudah menulis `Next.js 16`, `React 19`, `React Query 5`, dan `Tailwind 4`; baris itu tetap mencantumkan `package.json` sebagai sumbernya (#874). Angka diukur ulang terhadap `facts.json`, tidak berubah. `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
-| 1.6 | 12 November 2026 | commit `3cc543b5` | §6.6 kini menyebut **dua** penjadwal: `jobs/scheduler.ts` (angkanya ditunjuk lewat perintah ukur, bukan dipaku) dan penjadwal notifikasi modul `notifications` (#802) beserta tabel enam tugasnya, dan catatan "satu instans" dipisahkan — batasan itu berlaku untuk `jobs/scheduler.ts`, **sebagian** bagi penjadwal notifikasi (hanya tugas ber-`dedupeKey` yang aman multi-instans; tiga tugas massal tetap menggandakan) dan tidak bagi dispatcher Web Push (`FOR UPDATE SKIP LOCKED`). Tabel tugas mencatat `payment-reminder` mengingatkan **sekali per tagihan** dalam jendela tujuh hari (bukan H-7/H-3/H-1). Rute `POST /notifications/scheduler/trigger`, kolom `Notification.dedupeKey`, model `NotificationDelivery`, dan dua migrasinya dicatat; §5.3 dan Lampiran B diberi satu kalimat penopang (#875). `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
+| 1.6 | 12 November 2026 | kode `25693e32` | §8 "Penanganan galat" menyebut `Errors.conflict` → **HTTP 409** (permintaan sah, keadaan baris tidak cocok) dan pemakaiannya di modul `hr` untuk keputusan cuti bersamaan — pesan 409 apa adanya dan aturan idempoten (setujui dua kali = baris apa adanya; tolak yang sudah disetujui = 400). | Agen OpenHands |
+| 1.7 | 12 November 2026 | commit `3cc543b5` | §6.6 kini menyebut **dua** penjadwal: `jobs/scheduler.ts` (angkanya ditunjuk lewat perintah ukur, bukan dipaku) dan penjadwal notifikasi modul `notifications` (#802) beserta tabel enam tugasnya, dan catatan "satu instans" dipisahkan — batasan itu berlaku untuk `jobs/scheduler.ts`, **sebagian** bagi penjadwal notifikasi (hanya tugas ber-`dedupeKey` yang aman multi-instans; tiga tugas massal tetap menggandakan) dan tidak bagi dispatcher Web Push (`FOR UPDATE SKIP LOCKED`). Tabel tugas mencatat `payment-reminder` mengingatkan **sekali per tagihan** dalam jendela tujuh hari (bukan H-7/H-3/H-1). Rute `POST /notifications/scheduler/trigger`, kolom `Notification.dedupeKey`, model `NotificationDelivery`, dan dua migrasinya dicatat; §5.3 dan Lampiran B diberi satu kalimat penopang (#875). `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
 > seiring pengembangan. Dokumen diperbarui dengan menjalankan ulang pengukuran, bukan dengan menyunting angka.
@@ -584,7 +585,14 @@ sampai ke kontainer; pada Azure App Service, ke app settings tiap kontainer.
 - **Amplop respons.** `{ success, data, meta? }` lewat `ApiResponse`; galat
   memakai `{ success:false, error:{ code, message } }`.
 - **Penanganan galat.** `src/middleware/error.ts` memetakan galat Prisma, Zod,
-  dan JWT; `Errors.notFound/badRequest/…` di service.
+  dan JWT; `Errors.notFound/badRequest/conflict/…` di service. `Errors.conflict`
+  memetakan ke **HTTP 409**: permintaannya sendiri sah, keadaan barisnya yang
+  tidak cocok. Modul `hr` memakainya pada keputusan cuti bersamaan — menyetujui
+  atau menolak pengajuan yang sudah diputuskan oleh permintaan lain dijawab 409
+  ("Cuti ini sudah diputuskan oleh permintaan lain. Muat ulang halaman untuk
+  melihat status terbarunya."), dan mengubah pengajuan yang bukan lagi menunggu
+  keputusan dijawab 409 juga. Menyetujui cuti yang sudah disetujui mengembalikan
+  barisnya apa adanya (idempoten), sedangkan menolaknya dijawab 400.
 - **Data pribadi.** Pilih kolom eksplisit (`select`) alih-alih `include` relasi
   penuh; `include: { student }` pernah mengirim 69 kolom data anak
   (`lessons/prisma-include-leaks-pii.md`).

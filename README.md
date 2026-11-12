@@ -113,7 +113,9 @@ dengan `apps/web/scripts/role-menus.ts`.
   K13 dan Kurikulum Merdeka, ujian daring, konseling.
 - **Keuangan.** SPP dan tagihan massal, verifikasi pembayaran, tabungan santri,
   payroll, ZIS/wakaf, laporan yayasan.
-- **Kepegawaian.** Data pegawai, cuti, dan perjanjian kinerja yang terikat pada
+- **Kepegawaian.** Data pegawai, pengajuan cuti (disetujui atau ditolak admin
+  unit atau Super Admin; dibatalkan oleh pemohon, admin unit, atau Super Admin)
+  dengan penjagaan keputusan bersamaan, dan perjanjian kinerja yang terikat pada
   RKA unit yang sudah disahkan. Absen Saya mencatat kehadiran pegawai dengan
   swafoto dan lokasi (geotag), mengikuti shift dan jam kerja yang diatur Super
   Admin dan Admin Unit; bila unit menetapkan aturan potong, keterlambatan
