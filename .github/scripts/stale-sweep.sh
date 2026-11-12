@@ -10,8 +10,7 @@
 # One open issue at a time, skipping pull requests and anything labelled
 # `duplicate` (the duplicate sweep owns those):
 #
-#   needs-info   warned at 13 days, closed not-planned at 20
-#   question     `stale` at 8 days, closed not-planned at 15
+#   question      `stale` at 8 days, closed not-planned at 15
 #   anything else `stale` at 90 days, closed not-planned at 104
 #
 # The warn day is the close day minus the grace window, so the close still
@@ -19,7 +18,7 @@
 # first. A maintainer who replies, or who removes the label, keeps the issue
 # open: every run re-reads the labels, the comments and the description.
 #
-# Never closed, whatever the timer says: `pending-maintainer`, `ready`,
+# Never closed, whatever the timer says: `ready`,
 # `blocked`, `in-progress`, any issue a maintainer commented on since the
 # warning, and an issue whose description changed since the warning — an edit
 # with no comment is still an answer.
@@ -74,8 +73,6 @@ SEEN_MARK="stale-sweep:seen"
 
 # Days of quiet before the warning, and before the close. The close day is what
 # the retired prompt named; the warn day is that minus the grace window.
-NEEDS_INFO_WARN=13
-NEEDS_INFO_CLOSE=20
 QUESTION_WARN=8
 QUESTION_CLOSE=15
 IDLE_WARN=90
@@ -83,7 +80,7 @@ IDLE_CLOSE=104
 
 # Labels that exempt an issue from the sweep entirely. `duplicate` is handled by
 # duplicate-sweep.sh and must not be touched by a second closer.
-EXEMPT='pending-maintainer ready blocked in-progress duplicate'
+EXEMPT='ready blocked in-progress duplicate'
 
 NOW=$(date -u +%s)
 
@@ -129,9 +126,7 @@ rule_for() { # rule_for <labels-newline-separated>
   for l in $EXEMPT; do
     printf '%s\n' "$1" | grep -qxF "$l" && return 0
   done
-  if printf '%s\n' "$1" | grep -qxF 'needs-info'; then
-    echo "$NEEDS_INFO_WARN $NEEDS_INFO_CLOSE"
-  elif printf '%s\n' "$1" | grep -qxF 'question'; then
+  if printf '%s\n' "$1" | grep -qxF 'question'; then
     echo "$QUESTION_WARN $QUESTION_CLOSE"
   else
     echo "$IDLE_WARN $IDLE_CLOSE"

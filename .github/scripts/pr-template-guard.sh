@@ -11,7 +11,7 @@
 # `## Cara menguji`, a `## Risiko` statement on a risky PR (see
 # RISKY_PATHS), and at least one linked issue —
 # `Fixes #<n>`, once per issue the PR resolves. Every number it closes must be
-# an open issue (not a pull request) labelled `ready` or `bot-implement`. There
+# an open issue (not a pull request) labelled `ready`. There
 # is no "no linked issue" way out: a PR without an issue starts with an issue
 # (#772). Dependabot writes its own body and is skipped by the workflow, keyed
 # on the PR's author. The PR-language rule is enforced in the same place: the
@@ -139,13 +139,21 @@ for N in $LINKED; do
 - issue #$N sudah tertutup; tautkan issue yang masih terbuka, atau buka kembali bila belum selesai"
     continue
   fi
-  # A link is only a green light when the issue is ready for development:
-  # `ready` (ready for anyone) or `bot-implement` (handed to the bot). A link to
-  # an issue still in `needs-info` or `pending-maintainer` is not.
+  # A link is only a green light when the issue is ready for development, or
+  # already being worked on: `Tiket jadi PR` (SDLC 06) claims the issue by
+  # moving `ready` -> `in-progress` the moment it opens the PR, so requiring
+  # `ready` here would fail the check on every PR the bot opens, and the PR
+  # could never merge. `question` and `blocked` are checked FIRST and win: an
+  # issue that says it is still being discussed or is waiting on a dependency is
+  # not a green light even when it also carries `in-progress`, and `label-guard`
+  # only strips `ready`, so the pair can coexist.
   case ",$LABELS," in
-    *,ready,* | *,bot-implement,*) ;;
+    *,question,*|*,blocked,*)
+      missing="$missing
+- issue tertaut #$N harus berlabel \`ready\` atau \`in-progress\` sebelum ditinjau, bukan \`question\`/\`blocked\` (sekarang: ${LABELS:-tidak ada})" ;;
+    *,ready,*|*,in-progress,*) ;;
     *) missing="$missing
-- issue tertaut #$N harus berlabel \`ready\` atau \`bot-implement\` sebelum ditinjau (sekarang: ${LABELS:-tidak ada})" ;;
+- issue tertaut #$N harus berlabel \`ready\` atau \`in-progress\` sebelum ditinjau (sekarang: ${LABELS:-tidak ada})" ;;
   esac
 done
 if [ -n "$LINKED" ] && [ -n "${BASE_REF:-}" ] && [ -n "${DEFAULT_BRANCH:-}" ] && [ "$BASE_REF" != "$DEFAULT_BRANCH" ]; then

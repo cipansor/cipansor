@@ -6,8 +6,7 @@
 #
 # The comment-driven automations and their triggers (docs/SDLC-FLOW.md):
 #   - `Bot sebutan`      — an `@cipansor-bot` mention, maintainer only;
-#   - `Penjernih issue`  — any reply to a `needs-info` issue, the reporter included;
-#   - `Diskusi`          — a maintainer's reply to a `pending-maintainer`/`needs-info` issue.
+#   - `Diskusi`          — a maintainer's reply to a `question` issue.
 # Reacting only for these keeps an ordinary comment thread unspammed.
 #
 # Usage: acknowledge.sh --stdin          # a `issue_comment.created` webhook event
@@ -61,10 +60,7 @@ case "$BODY" in
     case "$AUTHOR" in OWNER | MEMBER | COLLABORATOR) react=1 ;; esac ;;
 esac
 case ",$LABELS," in
-  *,needs-info,*)
-    # Penjernih issue fires on any reply, the reporter included.
-    react=1 ;;
-  *,pending-maintainer,*)
+  *,question,*)
     # Diskusi is about a maintainer's decision.
     case "$AUTHOR" in OWNER | MEMBER | COLLABORATOR) react=1 ;; esac ;;
 esac

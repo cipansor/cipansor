@@ -5,16 +5,16 @@ Claude loads this file in every session (through `CLAUDE.md`); any other agent
 should read it before starting, and open a file below when its line matches the
 task. The rules for what goes here and what does not are in `AGENTS.md` →
 "Where things live". **Nothing sensitive in this folder** — the repository is
-public until release, and the Security CI job and Claude's `guard.sh` refuse
-the mechanical cases.
+public until release, and the Security CI job and `guard.sh` (Claude and
+OpenHands) refuse the mechanical cases.
 
 ## State — update as the work moves
 
-| File | Holds | Update when |
-|---|---|---|
-| [`progress.md`](progress.md) | what is merged, on staging, in production; what waits on the user; what is in flight | a PR merges, a deploy runs, the user decides something |
-| [`roadmap.md`](roadmap.md) | the ordered backlog — what to do next, and why in that order | priorities change, or an item is done |
-| [`known-issues.md`](known-issues.md) | open defects, in detail | a defect is found, or fixed (delete a fixed entry; git keeps it) |
+| File                                 | Holds                                                                                | Update when                                                      |
+| ------------------------------------ | ------------------------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| [`progress.md`](progress.md)         | what is merged, on staging, in production; what waits on the user; what is in flight | a PR merges, a deploy runs, the user decides something           |
+| [`roadmap.md`](roadmap.md)           | the ordered backlog — what to do next, and why in that order                         | priorities change, or an item is done                            |
+| [`known-issues.md`](known-issues.md) | open defects, in detail                                                              | a defect is found, or fixed (delete a fixed entry; git keeps it) |
 
 ## Decisions — settled; do not re-open without a new reason
 
@@ -53,13 +53,14 @@ the mechanical cases.
 - [siaran-pengumuman](decisions/siaran-pengumuman.md) — Pengumuman satu-satunya jalan siaran (Quick Send/Buat Notifikasi dihapus); siapa→siapa menurut relasi (guru→kelasnya, musyrif→kamarnya, kepala/TU/admin→unit, organ & Pimpinan Pesantren→yayasan; Super Admin tidak menulis isi); lonceng + push saja; tanpa persetujuan, tercatat, bisa ditarik (2026-10-03); daftar Notifikasi admin dipensiunkan → terkirim/dibaca per pengumuman, templat dihapus (2026-10-04)
 - [fasilitas-dan-kegiatan-situs-publik](decisions/fasilitas-dan-kegiatan-situs-publik.md) — Fasilitas (`/campus`) and Kegiatan (`/activities`) as two menu items; facilities in the site config, extracurriculars from the portal module with admin-kept EN/AR names (brochure loaded by `db:seed:ekskul-2027-2028`, unmarked ones → SD IT/SMP IT/SMA Qur'an); agenda without dates; photos only where one shows the place (2026-10-04)
 - [showcase-portofolio](decisions/showcase-portofolio.md) — showcase portofolio santri tetap terbatas `studentScope` (PP TUNAS Ps.10, UU PDP Ps.25); perluasan butuh kurasi guru + izin wali; rancangan bertingkat di roadmap (2026-10-10)
-- [otomasi-armada](decisions/otomasi-armada.md) — 2026-11-10: `ready` dan `blocked` saling eksklusif (yang dicabut selalu `ready`), label `bug-hunter` dipensiunkan (hapus label + strip dari prompt, karena API label membuat label yang belum ada); pemantauan dipicu event, k6 manual sebelum rilis, rilis lewat tag `vX.Y.Z` (dulu label `rilis-disetujui`, dihapus 2026-11-09), tanpa CHANGELOG, temuan keamanan ke advisory privat, duplikat = paling benar, tanpa job drift #680, catatan HUMAN hanya PR berisiko (2026-10-09 → 10); 2026-10-11: PR wajib menautkan semua issue-nya (check wajib), gerbang diam ditandai `gate-watch`, panduan tanpa angka tetap + satu issue induk drift, penulis dan penyetuju tetap dua akun, penyetuju `cipansor-bot` (bukan satu akun; rencana App penulis dibatalkan 2026-10-15)
+- [otomasi-armada](decisions/otomasi-armada.md) — 2026-11-10: `ready` dan `blocked` saling eksklusif (yang dicabut selalu `ready`), label `bug-hunter` dipensiunkan (hapus label + strip dari prompt, karena API label membuat label yang belum ada); pemantauan dipicu event, k6 manual sebelum rilis, rilis lewat tag `vX.Y.Z` (dulu label `rilis-disetujui`, dihapus 2026-11-09), tanpa CHANGELOG, temuan keamanan ke advisory privat, duplikat = paling benar, tanpa job drift #680, catatan HUMAN hanya PR berisiko (2026-10-09 → 10); 2026-10-11: PR wajib menautkan semua issue-nya (check wajib), gerbang diam ditandai `gate-watch`, panduan tanpa angka tetap + satu issue induk drift, penulis dan penyetuju tetap dua akun, penyetuju `cipansor-bot` (bukan satu akun; rencana App penulis dibatalkan 2026-10-15); pesan yang menyatakan sebuah aturan hidup lebih lama daripada aturannya (grep bunyinya, bukan logikanya)
 - [akses-data-pegawai](decisions/akses-data-pegawai.md) — NIK/KK/alamat/TTL/rekening pegawai hanya untuk diri sendiri, admin unit, TU unit, organ, Super Admin; rekan (termasuk kepala sekolah) melihat kolom direktori (2026-10-10)
 
 ## Lessons — traps that already cost time
 
+- [handoff-stops-one-step-short](lessons/handoff-stops-one-step-short.md) — an automation that opens a draft PR and stops: nothing un-drafts it, the review gate waits on non-draft PRs, and the issue keeps the label that put it in the queue; a stateful queue needs an acknowledgement step, and the guard must name the absent step (issue #857 / PR #878)
 - [guard-tests-that-measure-the-wrong-thing](lessons/guard-tests-that-measure-the-wrong-thing.md) — "what would have to change for this test to go red?"; chains with no root; fuzz against invariants; a test that skips itself; a scanner blind to the defect's shape; a suite that signs in as someone who cannot be refused; an absence assertion that retries until the thing goes away
-- [deploy-script-idempotence-traps](lessons/deploy-script-idempotence-traps.md) — a slice with a stale length dropped 23 of 24 automation prompt tails; idempotent is not repairable; recover originals from the tarball; a pattern written from memory misses the live text, a global replace rewrites the script's own guidance, and insert-once never upgrades a live block — deploy, then read the prompt back
+- [deploy-script-idempotence-traps](lessons/deploy-script-idempotence-traps.md) — a slice with a stale length dropped 23 of 24 automation prompt tails; idempotent is not repairable; recover originals from the tarball; a pattern written from memory misses the live text, a global replace rewrites the script's own guidance, and insert-once never upgrades a live block; a partial key silently matches nothing and stale instructions are live behaviour (they re-create a deleted label); which prompt part holds a deleted step decides whether an edit lands (managed tail yes, insert-once body block and `orig_tail` no) — deploy, then read the prompt back; prettier rewrites Markdown the repo never formats
 - [teacher-dashboard-fake-stats](lessons/teacher-dashboard-fake-stats.md) — four kinds of figures that lie, and how to find each
 - [generated-docs-need-machine-checks](lessons/generated-docs-need-machine-checks.md) — a green build and a self-review said "compliant" over a document with every table destroyed, invented routes and a wrong job count; check claims against the code and open the artefact
 - [breadth-over-depth](lessons/breadth-over-depth.md) — built wider than used; walk a real journey end to end
@@ -69,6 +70,7 @@ the mechanical cases.
 - [api-integration-traps](lessons/api-integration-traps.md) — empty permission matrix, Express 5 `req.query`, `/:id` shadowing, unmounted paths; a file over multer's limit answering 500
 - [auth-session-traps](lessons/auth-session-traps.md) — refresh-token stampede, pre-rehydration redirects, the 4 KB cookie; an HttpOnly routing cookie every refusal must clear, no refresh without a session, the bucket minted in one place, e2e tests that rotate a shared session
 - [stale-temporal-data](lessons/stale-temporal-data.md) — derive dates from now; `isActive` is not a schedule
+- [date-only-midnight-utc-vs-now](lessons/date-only-midnight-utc-vs-now.md) — a date-only column at midnight UTC (07.00 WIB) compared to `new Date()` goes "overdue" at 07.00, not end of day; and reading it back serializes as an ISO timestamp, not `YYYY-MM-DD`
 - [migration-history-baselined](lessons/migration-history-baselined.md) — `0_init`; `migrate diff` blind to triggers; CI's `db push`; wrap data migrations in BEGIN/COMMIT; renumber a branch's migrations from the diff, never a date glob
 - [seed-verify-throwaway-db](lessons/seed-verify-throwaway-db.md) — prove a seed change on a disposable, isolated Postgres
 - [git-three-dot-diff-hides-stale-base](lessons/git-three-dot-diff-hides-stale-base.md) — measure from the merge base; paired PRs; a bot's stale-tree commit

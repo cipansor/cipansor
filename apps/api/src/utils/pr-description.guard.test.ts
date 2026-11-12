@@ -356,7 +356,7 @@ describe('pr-template-guard.sh', () => {
   it('fails when the linked issue is not ready for development', () => {
     const { status, calls } = run(TEMPLATE, {
       GH_STUB_BODY: COMPLETE,
-      GH_STUB_LABELS: 'needs-info',
+      GH_STUB_LABELS: 'question',
     });
     expect(status).toBe(1);
     expect(calls).toContain('COMMENT');
@@ -450,18 +450,56 @@ describe('pr-template-guard.sh', () => {
       const two = COMPLETE.replace('Fixes #12', 'Fixes #12\nFixes #13');
       const { status, calls } = run(TEMPLATE, {
         GH_STUB_BODY: two,
-        GH_STUB_ISSUE_13: 'open issue needs-info',
+        GH_STUB_ISSUE_13: 'open issue question',
       });
       expect(status).toBe(1);
       expect(calls).toContain('issue tertaut #13 harus berlabel');
       expect(calls).not.toContain('#12 harus');
     });
 
+    it('accepts an in-progress issue, so a PR the bot claimed can still merge', () => {
+      // `Tiket jadi PR` (SDLC 06) moves the issue `ready` -> `in-progress` as it
+      // opens the PR, so the gate must treat that as claimed, not unready.
+      const { status } = run(TEMPLATE, {
+        GH_STUB_BODY: COMPLETE,
+        GH_STUB_ISSUE_12: 'open issue bug,in-progress',
+      });
+      expect(status).toBe(0);
+    });
+
+    it('rejects an issue that is in-progress and also blocked or in question', () => {
+      // `label-guard` strips only `ready`, so `in-progress` can sit beside
+      // `blocked`/`question`. A claimed-but-unstartable issue is not a green
+      // light: `blocked`/`question` are checked before `ready`/`in-progress`.
+      for (const labels of [
+        'open issue bug,in-progress,blocked',
+        'open issue bug,in-progress,question',
+      ]) {
+        const { status, calls } = run(TEMPLATE, {
+          GH_STUB_BODY: COMPLETE,
+          GH_STUB_ISSUE_12: labels,
+        });
+        expect(status, labels).toBe(1);
+        expect(calls, labels).toContain('bukan `question`/`blocked`');
+      }
+    });
+
+    it('still rejects an issue that is only in question or blocked', () => {
+      for (const labels of ['open issue bug,question', 'open issue bug,blocked']) {
+        const { status, calls } = run(TEMPLATE, {
+          GH_STUB_BODY: COMPLETE,
+          GH_STUB_ISSUE_12: labels,
+        });
+        expect(status).toBe(1);
+        expect(calls).toContain('harus berlabel');
+      }
+    });
+
     it('passes when every issue the PR closes is open and ready, looking each up once', () => {
       const several = COMPLETE.replace('Fixes #12', 'Fixes #12, closes #13\nResolves #12');
       const { status, calls } = run(TEMPLATE, {
         GH_STUB_BODY: several,
-        GH_STUB_ISSUE_13: 'open issue bug,bot-implement',
+        GH_STUB_ISSUE_13: 'open issue bug,ready',
       });
       expect(status).toBe(0);
       expect(calls.match(/^ISSUE 12$/gm)).toHaveLength(1);
@@ -751,6 +789,83 @@ describe('visual-evidence.sh', () => {
     expect(calls).toContain('PATCHBODY <!-- visual-evidence -->');
     expect(calls).toContain('tangkapan visual sebelum dan sesudah');
     expect(calls).not.toMatch(/PATCHBODY @/);
+  });
+
+  it('is silent when prose bullets precede a before/after table (#1033)', () => {
+    // The reproduction steps are written as bullets (`- **Sesudah** — POST …
+    // 201`) *above* the `| Sebelum | Sesudah |` screenshot table. The old marker
+    // accepted the trailing em dash as punctuation, split the body at that
+    // bullet, and read the Before region as empty — a complete pair still got
+    // the reminder. The check now counts media and looks for labels, so prose
+    // cannot move a boundary.
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body =
+      '- **Sebelum** — `PUT /api/portfolio/<id>` dijawab 400.\n' +
+      '- **Sesudah** — `POST /portfolio` dijawab 201.\n\n' +
+      '| Sebelum | Sesudah |\n|---|---|\n' +
+      `| ![a](${U}/1.png) | ![b](${U}/2.png) |`;
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('asks when both images sit on the after side and before is only text', () => {
+    // Two media plus two labels used to be enough, so `- **Sebelum** — no image`
+    // beside two after shots cleared the reminder with no before evidence.
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body =
+      '- **Sebelum** — tidak ada gambar, alurnya sama.\n' +
+      `- **Sesudah** — ![a](${U}/1.png) ![b](${U}/2.png)`;
+    const { status, calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(status).toBe(0);
+    expect(calls).toContain('COMMENT');
+  });
+
+  it('asks when only the before side carries an image', () => {
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body = `- **Sebelum** — ![a](${U}/1.png)\n` + '- **Sesudah** — belum ada tangkapan.';
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).toContain('COMMENT');
+  });
+
+  it('counts a bold table header as a before/after side', () => {
+    // `| **Sebelum** | **Sesudah** |` leaves a `**` prefix on the cell, so
+    // `side_of` must strip markdown emphasis or the columns map to no side and
+    // the images fall back to the prose label above.
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body =
+      '| **Sebelum** | **Sesudah** |\n|---|---|\n' + `| ![a](${U}/1.png) | ![b](${U}/2.png) |`;
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('counts an uppercase image extension like a lowercase one', () => {
+    // The awk match replaced a case-insensitive `grep -iE`, so `.PNG` must not
+    // silently count as zero media.
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body = `- **Sebelum** — ![a](${U}/1.PNG)\n` + `- **Sesudah** — ![b](${U}/2.JPG)`;
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('asks when the body has two images but no before/after labels', () => {
+    // Two screenshots with no labelled sides cannot be told apart as a pair;
+    // counting media alone would clear the reminder here.
+    const U = 'https://user-images.githubusercontent.com/1';
+    const body = `![a](${U}/1.png)\n\n![b](${U}/2.png)`;
+    const { calls } = run(VISUAL, {
+      GH_STUB_PRJSON: pr(['apps/web/src/app/page.tsx'], body),
+    });
+    expect(calls).toContain('COMMENT');
   });
 
   it('never asks when no apps/web file changed', () => {

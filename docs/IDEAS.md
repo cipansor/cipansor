@@ -13,13 +13,13 @@ membuktikannya, dan membuka **satu issue berbukti**. Sebuah issue spekulatif
 lebih buruk daripada tidak ada, jadi ia tidak membuka apa pun yang tidak bisa
 direproduksi, dan mencari duplikat lebih dulu. Ia tidak menulis perbaikan —
 perbaikan berjalan lewat jalur normal (`Triase issue` memberi `ready`, lalu
-`Tiket jadi PR` mengerjakannya bila maintainer memasang `bot-implement`).
+`Tiket jadi PR` mengerjakannya dari antrean `ready` harian).
 
 ## 2. Pemindai standar
 
 Membaca standar resmi terkini untuk stack ini dan regulasi perlindungan data
 yang berlaku untuk sistem manajemen sekolah, lalu membuka issue
-`pending-maintainer` dengan sitasi untuk tiap penyimpangan konkret. Maintainer
+`question` dengan sitasi untuk tiap penyimpangan konkret. Maintainer
 menambahkan `ready` untuk memulai implementasi.
 
 ## 3. Penjaga issue — **diimplementasikan 2026-11-09**
@@ -33,29 +33,34 @@ Mengusangkan issue yang macet. Timer, dari yang dipakai proyek sebanding:
 
 | Label         | Warn after        | Close after | Precedent                  |
 | ------------- | ----------------- | ----------- | -------------------------- |
-| `needs-info`  | —                 | 20 days     | Kubernetes triage guide    |
 | `question`    | 8 days (`stale`)  | 7 more      | Traefik contributors guide |
 | anything else | 90 days (`stale`) | 14 more     | `actions/stale` default    |
 
-Exempt: `pending-maintainer`, `ready`, `blocked`, `in-progress`, dan apa pun yang
-dikomentari maintainer. `duplicate` dimiliki oleh sweep workflow.
+Exempt: `ready`, `blocked`, `in-progress`, dan apa pun yang dikomentari
+maintainer. `duplicate` dimiliki oleh sweep workflow. (`question` mengambil alih
+timer 20 hari milik `needs-info` saat label itu dihapus 2026-11-11; timer
+peringatan kini 8 hari, penutupan 15.)
 
 ## 4. Diskusi
 
-Menjawab maintainer pada issue `pending-maintainer` atau `needs-info`.
+Menjawab maintainer pada issue `question`.
 Menyuplai detail yang kurang atau lampu hijau memberi `ready`, yang menyerahkan
 ke `Tiket jadi PR`; penolakan memberi `wontfix` dan menutup. Ia tidak pernah
 bertindak atas komentarnya sendiri.
 
-## 5. Pengawas armada
+## 5. Pengawas armada — **dipensiunkan 2026-11-11**
+
+> Automation `SDLC 23` dimatikan dan laporannya tidak lagi diproduksi. Pemilik
+> memeriksa OpenHands Cloud dan tab Actions langsung; label `automation-health`
+> ikut dihapus. Butir di bawah dipertahankan sebagai catatan apa yang dulu
+> dijaganya, kalau-kalau pengawas dibangun ulang.
 
 Mengawasi setiap automation dan melaporkan ke maintainer.
 
-- **Membuka satu issue berlabel `automation-health` per penyebab, paling banyak
-  satu per penyebab per minggu.** Ini mencakup cacat konfigurasi (guard
-  self-comment yang hilang, automation yang mati padahal seharusnya hidup, dua
-  automation pada satu slot cron, pin kedaluwarsa yang dilaporkan check
-  `Security`).
+- **Membuka satu issue per penyebab, paling banyak satu per penyebab per
+  minggu.** Ini mencakup cacat konfigurasi (guard self-comment yang hilang,
+  automation yang mati padahal seharusnya hidup, dua automation pada satu slot
+  cron, pin kedaluwarsa yang dilaporkan check `Security`).
 - **Tidak pernah menulis perbaikan.** Pengawas hanya melaporkan; perbaikan
   berjalan lewat jalur PR normal (`Tiket jadi PR`), bukan lewat perbaikan
   otomatis. Ini menghapus kebutuhan akan automation verifikasi terpisah.
@@ -73,20 +78,20 @@ Mengawasi setiap automation dan melaporkan ke maintainer.
 Repo ini dulu **tidak punya templat sama sekali**. Ditambahkan form issue dan
 templat PR yang terikat ke sistem label, bukan prosa bebas:
 
-- `.github/ISSUE_TEMPLATE/{bug_report,feature_request}.yml` — form issue, wajib
-  berisi reproduksi + kriteria penerimaan, otomatis memasang label tipe
-  `bug`/`enhancement`; `config.yml` mengarahkan pembaca ke `docs/LABELS.md` dan
-  berkas ini.
+- `.github/ISSUE_TEMPLATE/*.yml` — satu form per tipe (`bug_report`,
+  `enhancement`, `documentation`, `refactor`, `chore`, `security`), masing-masing
+  memasang label tipe yang cocok; wajib berisi kriteria penerimaan.
+  `config.yml` mengarahkan pembaca ke `docs/LABELS.md` dan berkas ini.
 - `.github/pull_request_template.md` — bagian `Mengapa`, `Yang diubah`,
   `Issue tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko`,
-  `Catatan`; wajib `Fixes #<n>` ke issue `ready`/`bot-implement` dan kriteria
+  `Catatan`; wajib `Fixes #<n>` ke issue `ready` dan kriteria
   penerimaan yang disalin sebagai kotak centang. Bagian `HUMAN`/`AGENT` dan
   `Type` dihapus pada 2026-11-09 (#965): tipe sudah datang dari label issue.
   Judul bagian diganti ke Bahasa Indonesia pada 2026-11-10 (#982); guard
   menerima nama Indonesia maupun nama Inggris lama.
 
 Tautan yang menjaganya jujur (polanya dari OpenHands upstream, yang memakai
-label `ready-for-dev`; di repo ini `ready`/`bot-implement`): **sebuah issue
+label `ready-for-dev`; di repo ini `ready`): **sebuah issue
 hanya mendapat `ready` saat kriteria penerimaannya nyata**, dan PR harus menunjuk ke salah
 satunya. `Triase issue` adalah gerbang itu.
 
@@ -100,7 +105,7 @@ Dipilih **gate keras pada job `template`**:
   - job **template** **gagal** selama deskripsi belum lengkap:
     `Mengapa`/`Yang diubah`/`Cara menguji`/`Kriteria penerimaan`, `Risiko`
     pada PR berisiko, minimal satu `Fixes #<n>` dengan **setiap**
-    nomor berupa issue terbuka berlabel `ready`/`bot-implement` (PR tanpa issue
+    nomor berupa issue terbuka berlabel `ready` (PR tanpa issue
     gagal, #772), PR menuju cabang default, dan prosa Bahasa Indonesia.
     Dependabot saja yang dilewati, berdasarkan penulis PR;
   - job **visual** memasang pengingat **sebelum/sesudah** bila PR mengubah
@@ -113,7 +118,7 @@ Dipilih **gate keras pada job `template`**:
   pola yang sama dengan guard lain.
 
 Gate ini mengikuti pola OpenHands upstream (bagian Why/Summary/How to test dan
-issue `ready-for-dev`); di repo ini issue-nya berlabel `ready`/`bot-implement`
+issue `ready-for-dev`); di repo ini issue-nya berlabel `ready`
 dan judul bagiannya Bahasa Indonesia (`Mengapa`/`Yang diubah`/`Cara menguji`).
 
 ### Issue bug yang datang tidak lengkap (`Reproduksi bug`)
@@ -130,7 +135,7 @@ tipis sebagai pekerjaan, bukan alasan memantulkannya:
 - Bila tidak ada yang salah (perilaku memang disengaja, salah baca) ia
   mengatakannya dengan bukti dan memasang `invalid`/`duplicate`/`question`,
   mencabut `bug`.
-- `Triase issue` tidak lagi mengirim _cacat_ yang tipis ke `needs-info` — jalur
+- `Triase issue` tidak lagi mengirim _cacat_ yang tipis ke `question` — jalur
   itu untuk permintaan yang kabur, bukan bug yang penyebabnya belum diketahui.
   `ready` tetap keputusan manusia: `Reproduksi bug` melaporkan bahwa reproduksi
   kini ada dan menyerahkan gerbangnya ke maintainer.
@@ -139,7 +144,7 @@ tipis sebagai pekerjaan, bukan alasan memantulkannya:
 
 Pemicunya menyala pada `issues.opened` atau saat label `bug` dipasang, tetapi
 hanya bila issue _masih_ membawa `bug` dan hanya bila label itulah yang berubah —
-jadi memasang `ready` atau `needs-info` saat meninjau tidak memicunya ulang.
+jadi memasang `ready` atau `question` saat meninjau tidak memicunya ulang.
 
 ## Aturan yang dibagi semua
 
@@ -159,7 +164,7 @@ setiap prompt dan dijaga workflow deterministik):
   `…/issues/comments/<id>/reactions`), supaya orang tahu automation bekerja.
   Pemicu komentar dijaga `acknowledge.yml`.
 - **Komentar dulu, body saat `ready` (issue).** Selama issue belum `ready`,
-  triase/estimasi/kriteria/pertanyaan ditulis sebagai **komentar**; **body** issue
+  triase/kriteria/pertanyaan ditulis sebagai **komentar**; **body** issue
   diperbarui hanya saat bot memasang `ready` (ringkasan final di bawah penanda
   `<!-- sdlc:triase -->`). PR berbeda: putusan tinjauan/QA tetap ke body PR di
   bawah penanda (`<!-- sdlc:gerbang -->`).
@@ -170,21 +175,22 @@ setiap prompt dan dijaga workflow deterministik):
 - **Triase ulang lewat jembatan, bukan `issues.edited`.** `issue-triage-bridge.yml`
   - `.github/scripts/issue-triage-bridge.sh` mendispatch pemilik triase saat bot
     memasang label tipe/prioritas dan saat issue belum `ready` punya aktivitas baru
-    (komentar atau suntingan deskripsi). Idempoten (penanda per keadaan dan per
-    stempel aktivitas). **Deskripsi PR tidak ditanggapi otomatis** — tidak ada
+    (komentar atau suntingan deskripsi). Idempoten (checkpoint di KV store
+    otomasi, per keadaan dan per stempel aktivitas). **Deskripsi PR tidak ditanggapi otomatis** — tidak ada
     pemicu `pull_request.edited`; gerbang tinjau sudah membaca deskripsi, issue,
     diff, dan semua komentar.
 - **Basmalah.** Setiap body dibuka dengan «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»;
   templat PR membawanya, form issue menampilkannya sebagai petunjuk (blok
   `markdown` form tidak ikut ke body), dan `basmalah.yml` menambahkannya bila lupa.
 - **`ready` eksklusif dan kuat.** `ready` hanya bila sangat yakin, tanpa
-  pertanyaan terbuka, dan tidak pernah bersama `question`/`needs-info`/
-  `pending-maintainer`/`blocked` (#814; `blocked` ditambahkan 2026-11-10).
-  Kritik habis-habisan dulu, baru `ready`.
-- **Hanya `cipansor-bot` melabeli.** Label akun lain dicabut `label-guard.yml`,
-  kecuali `bot-implement`. (`rilis-disetujui`/`rilis-ditolak` dihapus
-  2026-11-09: keduanya tidak pernah ada di repo; persetujuan rilis kini tag
-  `vX.Y.Z`.)
+  pertanyaan terbuka, dan tidak pernah bersama `question` atau `blocked` (#814;
+  `blocked` ditambahkan 2026-11-10; `needs-info`/`pending-maintainer` dihapus
+  2026-11-11). Kritik habis-habisan dulu, baru `ready`. `ready` juga berarti
+  "siap dibuatkan PR": `Tiket jadi PR` memilih dari sini setiap hari.
+- **Hanya `cipansor-bot` melabeli.** Label akun lain dicabut `label-guard.yml`;
+  tidak ada lagi pengecualian keputusan manusia (`bot-implement` dihapus
+  2026-11-11). (`rilis-disetujui`/`rilis-ditolak` dihapus 2026-11-09: keduanya
+  tidak pernah ada di repo; persetujuan rilis kini tag `vX.Y.Z`.)
 
 ## Keputusan armada 2026-11-09 — yang mekanis turun ke Actions, yang menilai tetap LLM
 
@@ -258,6 +264,6 @@ ia tetap LLM.
 - **`Triase bug` (SDLC 01) dilebur ke `Triase issue` (SDLC 15).** Keduanya
   menyala pada `issues.opened` dan keduanya menulis komentar triase — itulah
   "Triase ganda" (#848). SDLC 01 punya penelusuran kritis lebih dalam; SDLC 15
-  punya taksonomi label, rubrik prioritas berbukti, dan estimasi. Yang kedua
+  punya taksonomi label dan rubrik prioritas berbukti. Yang kedua
   menyerap yang pertama, dan jembatan triase kini mengarah ke SDLC 15. Hemat
   ~50 run/7 hari dan satu komentar per issue baru.
