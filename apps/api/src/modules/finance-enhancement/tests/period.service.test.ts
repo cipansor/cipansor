@@ -83,6 +83,20 @@ describe('PeriodService — unit scope', () => {
     );
   });
 
+  it('getFinancialPeriods answers meta.pagination, the shared contract shape', async () => {
+    vi.mocked(prisma.financialPeriod.findMany).mockResolvedValue([{ id: 'fp-1' }] as never);
+    vi.mocked(prisma.financialPeriod.count).mockResolvedValue(1 as never);
+
+    const result = await getFinancialPeriods({ page: 1, limit: 20 }, FOUNDATION);
+
+    // SharedPaginatedResponse: page info lives at meta.pagination, not flat on
+    // meta — a client reading the shared contract got `undefined` before.
+    expect(result.meta).toEqual({
+      pagination: { page: 1, limit: 20, total: 1, totalPages: 1 },
+    });
+    expect(result.meta).not.toHaveProperty('page');
+  });
+
   it('a foundation role may name any unit', async () => {
     vi.mocked(prisma.financialPeriod.findUnique).mockResolvedValue({ unitId: 'unit-9' } as never);
     vi.mocked(prisma.financialPeriod.update).mockResolvedValue({ id: 'fp-1' } as never);
