@@ -412,7 +412,26 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   (b) `getStudentOutstandingBalances` (`dueDate < new Date()`) membuat tagihan
   menunggak **07.00 WIB** pada tanggal jatuh tempo, bukan akhir hari — jadi
   "sehari penuh" itu tidak benar. Dokumen dikoreksi; cacat kode dilacak di
-  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`).
+  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`). **PR #1049 sudah
+  MERGED ke `main`** (merge commit `25693e32`, 2026-11-11), jadi #825 selesai.
+
+- **Issue triage, 2026-11-11 (lanjutan 2):** #830 (`docs`: aturan pin GitHub
+  Actions ke commit SHA) + #943 (`docs`: batas bawah `overrides` + penjaga
+  pnpm-supply-chain) dikerjakan bersama sesuai keputusan maintainer **K16** di
+  **PR #1051** pada `docs/830-943-ci-supply-chain`. Subbagian baru **"Rantai
+  pasok CI"** di `docs/SDLC-FLOW.md` (kedua aturan), satu baris di blok gerbang
+  mutu `AGENTS.md`, satu baris DT §10 "Keamanan: rantai pasok", satu kalimat
+  kebijakan `overrides` di `docs/DEPLOYMENT.md`, dan tiga berkas `.claude/`
+  (gate/SKILL.md, lessons/audit-deps…, roadmap.md) diubah dari "pin" menjadi
+  "batas bawah ≥ rilis perbaikan pertama". `docs/SDLC-FLOW.md` tergolong
+  **kode** (`is_code()`, dibaca `automation-fleet.guard.test.ts`), jadi job CI
+  berjalan. `check_docs.py` 16 ERROR = baseline; guard (automation-fleet,
+  github-actions-pinning, decommissioned-modules) lulus 189; sensitive bersih.
+  Satu uji `pnpm-supply-chain.guard.test.ts` gagal **lingkungan** (pnpm tak
+  terpasang di sini) — lulus di CI. **#801** (docs #747: cakupan baca portofolio
+  + balasan pesan) sudah ditangani di PR #1035 (branch #778), jadi tidak
+  diduplikasi. **#749** sudah ditangani PR #1033. **#778/#779/#792/#811**
+  masing-masing sudah punya PR terbuka (#1035/#1036/#1046/#1048).
 
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
