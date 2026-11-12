@@ -580,6 +580,58 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
     expect(tail).toContain('GITHUB_TOKEN');
   });
 
+  it('routes a triage-discovered vulnerability to a private advisory, not a public comment', () => {
+    // `Triase issue` now reproduces bug reports, so it can be the one that first
+    // proves an exploitable defect. The repository is public: pasting the
+    // exploit steps into the triage comment (or the issue body) discloses it
+    // before a fix exists. The triage tail must carry the same private-advisory
+    // rule the hunter has.
+    const tail = block('TAILS');
+    expect(tail).toContain('KERENTANAN — JANGAN DIPUBLIKASIKAN');
+    expect(tail).toContain('security/advisories');
+    expect(tail).toContain('JANGAN memasang `ready` untuk kerentanan');
+  });
+
+  it('puts reproduction evidence where the triage result goes, not in a second comment', () => {
+    // Final triage forbids a comment and writes only the body; the reproduction
+    // instruction must not demand a comment, or a reproducible bug that becomes
+    // `ready` in one run either loses its evidence or breaks the rule.
+    const tail = block('TAILS');
+    expect(tail).toContain('DI TEMPAT YANG SAMA dengan putusan triase');
+    expect(tail).toContain('jangan menulis komentar tambahan hanya untuk bukti');
+    // The summary template must have a slot for the evidence.
+    expect(tail).toContain('Bukti reproduksi (perintah + keluaran)');
+  });
+
+  it('never reintroduces the retired AI-disclosure footer mandate', () => {
+    // The fleet dropped the footer on 2026-10-14: the anti-loop guard is the
+    // comment's author, not a footer line, and `strip_footer_mandate` removes
+    // the mandate from every prompt. A managed tail that demands it again ships
+    // a prompt that contradicts the fleet convention.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const tails = script.slice(
+      script.indexOf('TAILS = {'),
+      script.indexOf('\n}', script.indexOf('TAILS = {'))
+    );
+    expect(tails).not.toContain('Akhiri setiap komentar dengan footer');
+    expect(tails).not.toContain('baris footer AI-disclosure');
+  });
+
+  it('marks the retired agents as retired in the role catalog', () => {
+    // `docs/SDLC-FLOW.md` is the operational reference. A catalog row that still
+    // assigns work to `Reproduksi bug` or `Pengelola dokumentasi` without the
+    // retirement note contradicts the sections that do mark them inactive.
+    const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
+    const catalog = flow.slice(flow.indexOf('## Peran — siapa berbuat sebagai siapa'));
+    for (const name of ['Reproduksi bug', 'Pengelola dokumentasi']) {
+      const row = catalog.split('\n').find((l) => l.startsWith(`| ${name} `));
+      expect(row, `${name} row must exist`).toBeTruthy();
+      expect(row, `${name} must be marked retired`).toContain('dipensiunkan 2026-11-12');
+    }
+    const tiket = catalog.split('\n').find((l) => l.startsWith('| Tiket jadi PR '));
+    expect(tiket).toContain('Dimatikan sementara 2026-11-12');
+  });
+
   it('leaves `Pemindai celah uji` running: it finds untested behaviour, not vulnerabilities', () => {
     // The owner asked to fold it into `Pemburu bug` only if it scanned for
     // vulnerabilities, and to leave it alone otherwise. Its job is test gaps, so
