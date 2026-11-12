@@ -147,7 +147,12 @@ pertentangan itu dilaporkan sebagai issue.
     pergantian tipe dalam jendela yang sama adalah dua respons berbeda, dan yang
     pertama tak boleh menciutkan yang kedua. Konflik yang ditunda menulis
     checkpoint `pending`, jadi sweep (atau `--recover-ready` pada issue `ready`)
-    memulihkannya.
+    memulihkannya. Karena kedua jalur sisi itu dapat men-dispatch untuk issue yang
+    sama, tiap respons menyimpan run-nya di slot sendiri
+    (`triage-sweep-<n>.extra.<jenis>`), dan sweep memeriksa **semua** slot sebelum
+    menandai issue selesai: ada yang masih berjalan → tunggu; ada yang gagal →
+    dispatch ulang; semua selesai → bersihkan. Tanpa itu, run yang ditulis
+    belakangan menimpa ID run yang lebih dulu dan kegagalan sisi tak pernah diulang.
     `rilis-disetujui`/`rilis-ditolak`
     dihapus 2026-11-09: keduanya tidak pernah ada di repo, dan persetujuan rilis
     kini tag `vX.Y.Z`.

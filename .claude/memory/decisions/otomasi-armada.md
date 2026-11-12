@@ -1099,6 +1099,17 @@ seorang manusia **dipasang kembali** secara deterministik, tanpa LLM.
   (`CONFLICT_KEY="triage-conflict-"`), dan konflik yang ditunda menulis checkpoint
   `pending` yang sama sehingga sweep (atau `--recover-ready` pada issue `ready`)
   memulihkannya.
+- **Koreksi ketiga (2026-11-12, review #1058 putaran 3).** Karena kunci burst
+  kini terpisah, `--relabel` dan `--type-conflict` dapat men-dispatch untuk issue
+  yang sama; keduanya menulis satu checkpoint `triage-sweep-<n>`, sehingga run
+  yang ditulis belakangan menimpa ID run yang lebih dulu. `process_one` hanya
+  membaca satu ID yang tersisa, jadi bila run konflik gagal lalu run relabel
+  selesai, sweep menandai issue selesai dan konflik tak pernah diulang.
+  Perbaikan: tiap respons sisi disimpan di slotnya sendiri
+  (`extra.relabel`, `extra.conflict`), dan `process_one` memeriksa **semua** slot
+  sebelum menandai issue selesai (ada yang RUNNING → tunggu; ada yang gagal →
+  dispatch ulang; semua COMPLETED → bersihkan). `--recover-ready` memakai
+  `MARK_ACTIVE`/`MARK_PENDING` yang dihitung dari semua slot.
 
 **Bug 1 (severe) — dispatch gagal membuat issue tetap tanpa label.**
 `relabel_after_revocation` tidak menulis checkpoint sweep saat dispatch gagal.
@@ -1117,7 +1128,7 @@ himpunan digabung `+` dan **terurut**, `priority:high+refactor` dan
 Ganti dengan pemeriksaan keanggotaan per elemen
 (`case "+$left+" in *"+refactor+"*|… )`).
 
-**Bukti.** `automation-fleet.guard.test.ts`: **199 passed**. Golden rule 7
+**Bukti.** `automation-fleet.guard.test.ts`: **203 passed**. Golden rule 7
 dibuktikan dengan memulihkan `.github/scripts/label-guard.sh`,
 `.github/scripts/issue-triage-bridge.sh`, dan `.github/workflows/label-guard.yml`
 ke `HEAD` sementara tes baru tetap ada: **10 tes gagal** (pemulihan label,
@@ -1126,5 +1137,7 @@ perubahan dipulihkan. Tes pemulihan tipe label (`bug`) juga dibuktikan gagal
 dengan `protected_labels()` dan hijau dengan `repo_labels()`; tes konflik tipe
 (manusia mencabut `bug`, issue memuat `enhancement`) dibuktikan gagal tanpa
 penjaga konflik dan hijau dengannya; tes kunci konflik terpisah dibuktikan gagal
-saat memakai `UNLABELED_KEY` dan hijau dengan `CONFLICT_KEY`. Seluruh 68 berkas
-guard `src/utils/`: **1151 passed**.
+saat memakai `UNLABELED_KEY` dan hijau dengan `CONFLICT_KEY`; tes slot run sisi
+(`extra`) dibuktikan gagal (7 tes) saat `issue-triage-bridge.sh` dipulihkan ke
+`HEAD` dan hijau dengannya. Seluruh 68 berkas guard `src/utils/`: **1155
+passed**.

@@ -117,10 +117,16 @@ BURST_WINDOW="${BURST_WINDOW:-300}"
 # `pending` writes alone posted ~35 empty comments in a single run (2026-11-11).
 # The KV store has optimistic
 # locking, a `nx` create, a list, and a delete, and it notifies no one.
-#   `<SWEEP_KEY><n>` -> {"signal": "<hash>", "run": "<run-id>" | "pending" | ""}
+#   `<SWEEP_KEY><n>` -> {"signal": "<hash>", "run": "<run-id>" | "pending" | "",
+#                        "extra": {"<kind>": "<run-id>" | "pending"}}
 #   `<STATE_KEY><n>` -> {"state": "<type+priority>", "at": <epoch seconds>}
 # `run` empty is the finished checkpoint; `pending` is a dispatch deferred while
 # the pool was full; anything else is the run that is answering the signal.
+# `extra` holds a side response's run under its own kind (`relabel` for a
+# `--relabel` dispatch, `conflict` for `--type-conflict`): a label change does not
+# move `activity_signal`, so two responses on one issue would otherwise overwrite
+# each other's run id in the single `run` field and the sweep would finalise the
+# issue while one run is still unread (#838 follow-up).
 SWEEP_KEY="triage-sweep-"
 STATE_KEY="triage-state-"
 # The collapse key of the relabel path (`label-guard` revocation, #838). A
@@ -302,13 +308,18 @@ adopt_legacy_state_marker() { # adopt_legacy_state_marker <number>
 }
 
 # The sweep checkpoint. Sets SIGNAL, MARK_RUN (the run answering the signal, or
-# "" for a finished checkpoint, or `pending` for a deferred dispatch) and
-# MARK_FORM (`none`/`some`/`unknown`).
+# "" for a finished checkpoint, or `pending` for a deferred dispatch), MARK_EXTRA
+# (the per-kind side runs, a compact JSON object), MARK_FORM
+# (`none`/`some`/`unknown`), MARK_ACTIVE (1 when any slot is unfinished) and
+# MARK_PENDING (1 when any slot is `pending`).
 SIGNAL=""
 MARK_RUN=""
+MARK_EXTRA="{}"
 MARK_FORM="none"
+MARK_ACTIVE=0
+MARK_PENDING=0
 read_sweep_marker() { # read_sweep_marker <number>
-  SIGNAL=""; MARK_RUN=""; MARK_FORM="none"
+  SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_FORM="none"; MARK_ACTIVE=0; MARK_PENDING=0
   # `|| rc=$?` (not `; rc=$?`): a 404 is a normal answer, and under `set -e` a
   # bare failing command aborts the script — the direct callers in
   # `recover_ready`/`purge_markers` are not inside an `if`, so the absent-key
@@ -321,8 +332,25 @@ read_sweep_marker() { # read_sweep_marker <number>
   esac
   SIGNAL=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || SIGNAL=""
   MARK_RUN=$(printf '%s' "$KV_JSON" | jq -r '.run // ""' 2>/dev/null) || MARK_RUN=""
-  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_FORM="none"; return 0; }
+  MARK_EXTRA=$(printf '%s' "$KV_JSON" | jq -c '.extra // {}' 2>/dev/null) || MARK_EXTRA="{}"
+  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_FORM="none"; return 0; }
   MARK_FORM="some"
+  # The checkpoint is unfinished while any slot (the main `run` or a side
+  # response) is a `pending` or a run id; it is finished only when every slot is
+  # empty. A `ready` issue is recovered only when `MARK_ACTIVE` is 1.
+  if [ -n "$MARK_RUN" ]; then MARK_ACTIVE=1; fi
+  if [ "$MARK_RUN" = "$PENDING_RUN" ]; then MARK_PENDING=1; fi
+  for v in $(checkpoint_slot_values "$MARK_EXTRA"); do
+    [ -n "$v" ] || continue
+    MARK_ACTIVE=1
+    if [ "$v" = "$PENDING_RUN" ]; then MARK_PENDING=1; fi
+  done
+}
+
+# Every value in a checkpoint's `extra` object, one per line (its kind keys are
+# dropped: the sweep only needs the run ids and the `pending` markers).
+checkpoint_slot_values() { # checkpoint_slot_values <extra-json>
+  printf '%s' "${1:-}" | jq -r '(. // {}) | to_entries[]? | .value' 2>/dev/null || true
 }
 
 # Adopt a legacy marker comment into the KV store, once, then delete it. Reached
@@ -351,6 +379,9 @@ adopt_legacy_sweep_marker() { # adopt_legacy_sweep_marker <number>
   if kv_put "$SWEEP_KEY$1" \
        "$(jq -nc --arg s "$SIGNAL" --arg r "$MARK_RUN" '{signal: $s, run: $r}')"; then
     MARK_FORM="some"
+    # The adopted run is the main slot; expose it to the recovery gate.
+    if [ -n "$MARK_RUN" ]; then MARK_ACTIVE=1; fi
+    if [ "$MARK_RUN" = "$PENDING_RUN" ]; then MARK_PENDING=1; fi
     gh api "repos/$REPO/issues/comments/$LEGACY_ID" -X DELETE >/dev/null 2>&1 \
       || echo "::warning::could not remove the legacy triage marker on #$1."
   else
@@ -437,6 +468,32 @@ write_sweep_marker() { # write_sweep_marker <number> <signal> <run>
   kv_put "$SWEEP_KEY$1" \
     "$(jq -nc --arg s "$2" --arg r "${3:-}" '{signal: $s, run: $r}')" \
     || echo "::warning::could not record the triage checkpoint on #$1."
+}
+
+# Record a side response's run (`--relabel`, `--type-conflict`) under its own
+# `extra.<kind>` slot, preserving the main `run` slot and every other side slot.
+# A label change does not move `activity_signal`, so the side responses of one
+# issue share the checkpoint; without per-kind slots the later write would
+# overwrite the earlier run id, and `process_one` — reading only the surviving
+# one — would finalise the issue while a failed run is never retried (#838
+# follow-up). A different signal is a new episode: the slots are dropped.
+write_sweep_side_marker() { # write_sweep_side_marker <number> <signal> <kind> <run>
+  n="$1"; sig="$2"; kind="$3"; run="$4"
+  main=""; extra="{}"
+  rc=0
+  kv_get "$SWEEP_KEY$n" || rc=$?
+  if [ "$rc" = 0 ]; then
+    prev_sig=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
+    if [ "$prev_sig" = "$sig" ]; then
+      main=$(printf '%s' "$KV_JSON" | jq -r '.run // ""' 2>/dev/null) || main=""
+      extra=$(printf '%s' "$KV_JSON" | jq -c '.extra // {}' 2>/dev/null) || extra="{}"
+    fi
+  fi
+  extra=$(printf '%s' "$extra" | jq -c --arg k "$kind" --arg r "${run:-}" '.[$k] = $r' 2>/dev/null) \
+    || extra="{}"
+  kv_put "$SWEEP_KEY$n" \
+    "$(jq -nc --arg s "$sig" --arg r "$main" --argjson e "$extra" '{signal: $s, run: $r, extra: $e}')" \
+    || echo "::warning::could not record the triage checkpoint on #$n."
 }
 
 # Drop the checkpoint: the issue is closed or `ready`, so it is out of scope and
@@ -604,20 +661,21 @@ relabel_after_revocation() { # relabel_after_revocation <number>
   inflight=$(inflight_count)
   if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
     echo "#$number: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the sweep retries it."
-    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" relabel "$PENDING_RUN"; fi
     exit 0
   fi
   if dispatch "$number" relabel-after-revocation "$left"; then
     kv_put "$UNLABELED_KEY$number" "$state" || true
-    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" relabel "$RUN_ID"; fi
   else
     # A failed dispatch must be retried by the sweep, not lost. Record the
     # checkpoint as `pending` (the same form the MAX_INFLIGHT deferral writes)
     # *before* failing: without it the sweep compares the signal with a stale or
     # absent checkpoint and may skip the issue — the signal it holds equals the
     # one it would compute, so it reads as "already answered" and never retries.
-    # `pending` names no run, so the next sweep dispatches it.
-    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
+    # `pending` names no run, so the next sweep dispatches it. It goes in the
+    # relabel slot so it cannot clobber a type-conflict run on the same issue.
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" relabel "$PENDING_RUN"; fi
     echo "::warning::#${number}'s relabel dispatch failed; a later removal or the sweep retries."
     exit 1
   fi
@@ -687,14 +745,14 @@ type_conflict_dispatch() { # type_conflict_dispatch <number> <declined-type>
   inflight=$(inflight_count)
   if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
     echo "#$number: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the sweep retries it."
-    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" conflict "$PENDING_RUN"; fi
     exit 0
   fi
   if dispatch "$number" type-conflict "$types"; then
     kv_put "$CONFLICT_KEY$number" "$state" || true
-    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" conflict "$RUN_ID"; fi
   else
-    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
+    if [ -n "$sig" ]; then write_sweep_side_marker "$number" "$sig" conflict "$PENDING_RUN"; fi
     echo "::warning::#${number}'s type-conflict dispatch failed; the sweep retries."
     exit 1
   fi
@@ -731,7 +789,7 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   [ -n "$sig" ] || return 1
 
   read_sweep_marker "$n"
-  prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_form="$MARK_FORM"
+  prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_extra="$MARK_EXTRA"; prev_form="$MARK_FORM"
 
   # The checkpoint names a run that answered this same activity. Read its outcome
   # instead of trusting the 201: only a COMPLETED run is a finished checkpoint; a
@@ -747,32 +805,73 @@ process_one() { # process_one <number> <inflight> [ready_ok]
     echo "#$n: the checkpoint store could not be read; leaving it for the next sweep."
     return 1
   fi
-  if [ "$prev_sig" = "$sig" ] && [ -n "$prev_run" ] && [ "$prev_run" != "$PENDING_RUN" ]; then
-    st=$(run_status "$prev_run")
-    case "$st" in
-      UNKNOWN)
-        echo "#$n: the run listing could not be read; leaving the checkpoint for the next sweep."
-        return 1
-        ;;
-      RUNNING | PENDING)
-        echo "#$n: run ${prev_run} is ${st}; leaving it in flight."
-        return 1
-        ;;
-      COMPLETED)
-        echo "#$n: run ${prev_run} completed; the checkpoint is final."
+  # The issue carries one checkpoint shared by the activity dispatch and the side
+  # responses (`--relabel`, `--type-conflict`). Check *every* slot before the
+  # issue is treated as answered: a label change does not move the activity, so a
+  # side run recorded after the main one would otherwise be dropped, and a failed
+  # side run would never retry (#838 follow-up). The checkpoint is finished only
+  # when every recorded run COMPLETED; any slot still running leaves the issue in
+  # flight, and any slot that failed re-dispatches.
+  if [ "$prev_sig" = "$sig" ]; then
+    slot_failed=0
+    slot_pending=0
+    slot_completed=0
+    for srun in $(checkpoint_slot_values "$prev_extra"); do
+      [ -n "$srun" ] || continue
+      if [ "$srun" = "$PENDING_RUN" ]; then
+        slot_pending=1
+        continue
+      fi
+      sst=$(run_status "$srun")
+      case "$sst" in
+        UNKNOWN)
+          echo "#$n: the run listing could not be read; leaving the checkpoint for the next sweep."
+          return 1
+          ;;
+        RUNNING | PENDING)
+          echo "#$n: run ${srun} is ${sst}; leaving it in flight."
+          return 1
+          ;;
+        COMPLETED) slot_completed=1 ;;
+        *)
+          echo "#$n: side run ${srun} did not complete (${sst:-unreadable}); retrying."
+          slot_failed=1
+          ;;
+      esac
+    done
+    if [ "$prev_run" = "$PENDING_RUN" ]; then
+      slot_pending=1
+    elif [ -n "$prev_run" ]; then
+      st=$(run_status "$prev_run")
+      case "$st" in
+        UNKNOWN)
+          echo "#$n: the run listing could not be read; leaving the checkpoint for the next sweep."
+          return 1
+          ;;
+        RUNNING | PENDING)
+          echo "#$n: run ${prev_run} is ${st}; leaving it in flight."
+          return 1
+          ;;
+        COMPLETED)
+          echo "#$n: run ${prev_run} completed."
+          slot_completed=1
+          ;;
+        *)
+          echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying."
+          slot_failed=1
+          ;;
+      esac
+    fi
+    # A failed slot (main or side) re-dispatches: fall through. A pending slot is
+    # a deferred dispatch: fall through to the capacity check. Otherwise, if any
+    # run completed, the whole checkpoint is finished — clear it. If no run was
+    # recorded at all, the activity is already answered.
+    if [ "$slot_failed" = 0 ] && [ "$slot_pending" = 0 ]; then
+      if [ "$slot_completed" = 1 ]; then
         write_sweep_marker "$n" "$sig" ""
-        return 1
-        ;;
-      *)
-        echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying."
-        ;;
-    esac
-  elif [ "$prev_sig" = "$sig" ] && [ "$prev_run" = "$PENDING_RUN" ]; then
-    : # A deferred dispatch; the capacity check below dispatches or keeps it.
-  elif [ "$prev_sig" = "$sig" ]; then
-    # Same activity, a finished checkpoint (run completed): already answered. Not
-    # a reason to triage.
-    return 1
+      fi
+      return 1
+    fi
   fi
 
   # The activity needs a dispatch. Defer while the pool is full so a burst is not
@@ -837,13 +936,13 @@ recover_ready() {
     case "$MARK_FORM" in
       none) continue ;;
     esac
-    # A finished checkpoint (`run` empty) is answered; only a `pending` or a run
-    # in flight is a recovery candidate.
-    [ -n "$MARK_RUN" ] || continue
+    # A finished checkpoint (every slot empty) is answered; only a `pending` or a
+    # run in flight (main or a side response) is a recovery candidate.
+    [ "$MARK_ACTIVE" = 1 ] || continue
     # A checkpoint naming a run needs no capacity (it checks an outcome); a
     # pending one is a dispatch, so it waits while the pool is full — but other
     # checkpoints later in the list may still be checked.
-    if [ "$MARK_RUN" = "$PENDING_RUN" ] && [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    if [ "$MARK_PENDING" = 1 ] && [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
       continue
     fi
     rc=0

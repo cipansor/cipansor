@@ -1398,7 +1398,7 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
       },
       ['--type-conflict', '818', 'bug']
     );
-    expect(deferred.kv['triage-sweep-818']).toMatchObject({ run: 'pending' });
+    expect(deferred.kv['triage-sweep-818']).toMatchObject({ extra: { conflict: 'pending' } });
 
     const recovered = runBridge(
       {
@@ -2794,13 +2794,14 @@ describe('issue-triage-bridge.sh', () => {
     // the signal with a stale or absent one and can read the issue as already
     // answered, so the failed dispatch never retries. The `pending` form (the same
     // the MAX_INFLIGHT deferral writes) names no run, so the next sweep dispatches
-    // it.
+    // it. The relabel response is tracked in its own slot, so a relabel dispatch
+    // cannot overwrite a type-conflict one (#838 follow-up).
     const { out, kv } = runBridge({ GH_STUB_LABELS_LIST: '', CURL_STUB_CODE: '503' }, [
       '--relabel',
       '818',
     ]);
     expect(out).toContain('relabel dispatch failed');
-    expect(kv['triage-sweep-818']).toMatchObject({ run: 'pending' });
+    expect(kv['triage-sweep-818']).toMatchObject({ extra: { relabel: 'pending' } });
   });
 
   it('retries a pending relabel checkpoint on the next sweep', () => {
@@ -2810,7 +2811,9 @@ describe('issue-triage-bridge.sh', () => {
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: '',
-        KV_SEED: { 'triage-sweep-818': { signal: signal(''), run: 'pending' } },
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal(''), run: '', extra: { relabel: 'pending' } },
+        },
       },
       ['--sweep']
     );
@@ -2901,9 +2904,9 @@ describe('issue-triage-bridge.sh', () => {
   });
 
   it('records a pending checkpoint when it defers a type conflict, so the sweep recovers it', () => {
-    // A deferred conflict must not be lost. The `pending` form (the same the
-    // MAX_INFLIGHT deferral writes) names no run, so the next sweep — or
-    // `--recover-ready` on a `ready` issue — dispatches it.
+    // A deferred conflict must not be lost. It goes in its own `extra.conflict`
+    // slot — a `pending` marker the sweep and `--recover-ready` both read — so it
+    // neither clobbers nor is clobbered by a relabel run on the same issue.
     const { calls, kv } = runBridge(
       {
         GH_STUB_LABELS_LIST: 'enhancement',
@@ -2913,7 +2916,95 @@ describe('issue-triage-bridge.sh', () => {
       ['--type-conflict', '818', 'bug']
     );
     expect(calls).not.toContain('DISPATCH');
-    expect(kv['triage-sweep-818']).toMatchObject({ run: 'pending' });
+    expect(kv['triage-sweep-818']).toMatchObject({ extra: { conflict: 'pending' } });
+  });
+
+  it('keeps a relabel run and a conflict run in separate slots on one issue', () => {
+    // #838 follow-up: a revocation can dispatch `--relabel` and a type change can
+    // dispatch `--type-conflict` for the same issue. They share one checkpoint, so
+    // each response is recorded in its own slot — the later write must not drop
+    // the earlier run, or the sweep would finalise the issue while a run is still
+    // unread.
+    const first = runBridge({ GH_STUB_LABELS_LIST: '', CURL_STUB_RUN_ID: 'relabel-run' }, [
+      '--relabel',
+      '818',
+    ]);
+    expect(first.kv['triage-sweep-818']).toMatchObject({ extra: { relabel: 'relabel-run' } });
+
+    const second = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        CURL_STUB_RUN_ID: 'conflict-run',
+        KV_SEED: { 'triage-sweep-818': first.kv['triage-sweep-818'] },
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(second.kv['triage-sweep-818']).toMatchObject({
+      extra: { relabel: 'relabel-run', conflict: 'conflict-run' },
+    });
+  });
+
+  it('retries a failed side run even after another run on the issue completed', () => {
+    // The checkpoint names two runs: a conflict run that FAILED and a relabel run
+    // that COMPLETED. The sweep must re-dispatch the failed one, not read the
+    // completed run and mark the issue done.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'triaged',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('triaged'),
+            run: '',
+            extra: { conflict: 'conflict-run', relabel: 'relabel-run' },
+          },
+        },
+        CURL_STUB_RUNS:
+          '{"runs":[{"id":"conflict-run","status":"FAILED"},{"id":"relabel-run","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(out).toContain('side run conflict-run did not complete');
+  });
+
+  it('leaves the issue in flight while a side run is still running', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'triaged',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('triaged'),
+            run: '',
+            extra: { conflict: 'conflict-run' },
+          },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"conflict-run","status":"RUNNING"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('finalises the checkpoint once every side run has completed', () => {
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'triaged',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('triaged'),
+            run: '',
+            extra: { conflict: 'conflict-run' },
+          },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"conflict-run","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('triaged'), run: '' });
   });
 
   it('collapses the guard’s removal burst to one relabel dispatch per issue', () => {

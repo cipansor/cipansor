@@ -252,7 +252,11 @@ detect` workflow: when two **open** issues share a title once normalised
     That dispatch has its own burst key (`triage-conflict-`), separate from the
     relabel path's (`triage-unlabeled-`): a revocation that dispatches `--relabel`
     and a type change in the same window are two different responses, and the
-    first must not collapse the second.
+    first must not collapse the second. Because both side responses can dispatch
+    for one issue, each records its run in its own checkpoint slot
+    (`triage-sweep-<n>.extra.<kind>`); the sweep checks every slot before it marks
+    the issue finished, so a later write cannot drop an earlier run and a failed
+    side run is still retried.
 
 13. **Every main description opens with the basmalah.** Each issue and pull
     request body starts with «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»
