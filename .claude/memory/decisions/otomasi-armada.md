@@ -1044,3 +1044,193 @@ Tumpang tindih yang dicatat, belum diputuskan: sinyal aktivitas jembatan triase
 memuat setiap komentar non-armada, jadi sebutan `@cipansor-bot` pada issue
 terbuka non-`ready` membangunkan SDLC 07 **dan** SDLC 15 — kelas "satu komentar,
 dua pemilik" yang sama dengan SDLC 16/22.
+
+### 2026-11-12 · PR menua + klaim yang tak bergantung event + identitas `cipansor-bot`
+
+Tiga celah yang ditutup bersama (issue #927, lanjutan #857).
+
+**1. Klaim issue bergantung 100% pada event.** `issue-claim.yml` memindahkan
+`ready` → `in-progress` hanya saat event `pull_request`/`issues` datang. Bukti
+empiris: `Issue claim` punya **49 run** dan nol run `pull_request` setelah
+15:16Z, padahal `Issue label sync`/`E2E Tests`/`PR lifecycle` menyala di
+commit & branch yang sama (PR #1075, head `eb5cb2f0`) — jadi bukan YAML rusak
+(byte-identik dengan `main`, GitHub menyajikan YAML yang sama, workflow
+`active`). Dua PR yang tidak pernah dapat run tetap bocor (`ready` bertahan):
+#1075→#877, #1062→#845, #1060→#818. Perbaikan: **sapuan rekonsiliasi harian**
+`issue-claim.sh --sweep` (`gh pr list --json isCrossRepository,closingIssuesReferences`)
+yang menurunkan klaim dari **keadaan**, bukan dari event. Pelajaran: pemicu
+event saja bukan jaminan; setiap gerbang wajib punya jalur sapuan idempoten.
+
+**2. `stale-sweep` hanya menyasar issue.** Kini PR ikut menua, **tanpa label
+apa pun** (taksonomi tak punya `stale` untuk PR; `duplicate-pr` milik otomasi
+lain): PR tanpa issue → peringatan lalu tutup 5 hari; PR ber-issue → timer diam
+(peringatan 90 hari, tutup 104). Draf & PR bot (Dependabot) dilewati. Aktivitas
+yang mengakhiri siklus: komentar manusia, dan — khusus PR ber-issue — commit
+head baru; push **tidak** mengulur siklus "tanpa issue" karena cacatnya tetap.
+Butuh `pull-requests: write` (ditambahkan).
+
+**3. Identitas `github-actions[bot]`.** Semua workflow komunikator (12 berkas)
+kini `GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}`. **Nama
+secret tidak boleh berawalan `GITHUB_`** (422) → dipakai `CIPANSOR_BOT_TOKEN`.
+Yang **tetap** `github.token`: `issue-label-sync` (menerbitkan check-run),
+`ci`/`e2e`/`deploy` (hanya membaca; jalur `pull_request` dari fork tak bisa
+melihat secret). Guard baru di `automation-fleet.guard.test.ts` mengunci
+pembagian ini.
+
+**Konsekuensi aman yang diperiksa:** `label-guard` mengecualikan `*[bot]`, jadi
+tak ada pencabutan; `issue-triage-bridge` mencocokkan `*bot`/`*[bot]` (bukan
+login spesifik); `stale-sweep`/`duplicate-sweep` menganggap `cipansor-bot`
+bukan manusia (perilaku benar). **Koreksi 2026-11-12 (review PR #1077):** klaim awal saya salah. Secret yang
+**tidak ada** dan secret yang **kosong** sama-sama menghasilkan string kosong di
+ekspresi Actions, jadi `|| github.token` tetap memilih token bawaan — workflow
+**tidak** gagal, identitasnya saja yang mundur ke `github-actions[bot]`. Jadi
+fallback ini memang membuat identitas bot "best effort", bukan jaminan: bila
+secret hilang, armada tetap jalan tapi menulis sebagai bot platform. Yang benar
+untuk diwaspadai: kegagalan senyap, bukan crash.
+
+## 2026-11-11 — #838: `label-guard` yang mencabut memicu pelabelan ulang (mode `--relabel`)
+
+**Masalah.** `label-guard.sh` hanya *mencabut* label yang dipasang akun non-bot
+dan tidak memasang penggantinya. Bila yang dicabut adalah label tipe/prioritas,
+issue berakhir tanpa keduanya — keadaan yang lebih buruk daripada label yang
+salah, karena triase, prioritas, dan pelabelan PR semuanya membaca label.
+`Pelabel issue` dan `Triase issue` hanya dipicu `issues.opened`; jembatan triase
+hanya `labeled`; dan komentar pencabutan ditulis bot sehingga dikecualikan dari
+sinyal aktivitas. Tidak ada yang menutup celahnya.
+
+**Opsi B tidak bisa dipakai apa adanya — `unlabeled` dari `label-guard` tidak
+akan pernah memicu workflow apa pun.** `label-guard.yml` mencabut dengan
+`GITHUB_TOKEN` otomatis (`${{ github.token }}`), dan GitHub **tidak memulai run
+workflow untuk event yang dibuat token itu** (aturan anti-rekursi). Terverifikasi
+di repositori ini: dari ~100 run terakhir, **nol** ber-aktor
+`github-actions[bot]`, padahal `label-guard`, `basmalah`, dan `issue-label-sync`
+semuanya menulis lewat token itu. Jadi trigger `on: issues: [unlabeled]` adalah
+kode mati — persis jebakan "presence is not function" di
+`lessons/guard-tests-that-measure-the-wrong-thing.md`.
+
+**Yang dipilih.** `label-guard.yml` memanggil mode baru `--relabel <n>` di
+**run yang sama**, tepat setelah guard, hanya bila guard benar-benar mencabut
+sesuatu (`steps.guard.outputs.revoked == '1'`, ditulis `label-guard.sh` ke
+`$GITHUB_OUTPUT`), dan hanya untuk issue (PR tidak punya celah ini — labelnya
+disinkronkan dari issue yang ditutup). `label-guard.sh` tetap murni
+deterministik; jembatan tetap satu-satunya dispatcher. Mode `--relabel`:
+membaca label sisa (`remaining_labels`, gagal-baca = lewati, bukan "kosong"),
+men-dispatch hanya bila tipe **atau** prioritas hilang, dan menciutkan burst
+pencabutan dengan kunci per-issue + jendela `BURST_WINDOW` (kunci terpisah dari
+jalur `labeled`: keduanya tidak boleh saling menciutkan). Kunci per-jendela,
+bukan per-himpunan-sisa, karena grup concurrency `label-guard.yml` per-label —
+run-nya berlomba dan masing-masing bisa melihat himpunan sisa yang berbeda.
+
+**Alternatif yang ditolak.** Opsi A (guard men-dispatch langsung lewat API
+OpenHands) menaruh logika dispatch di dalam guard dan menggandakan jalan dispatch
+yang sudah dimiliki jembatan; opsi C (maintainer boleh melabeli) adalah
+keputusan kebijakan terpisah yang tetap menunggu pemilik — perbaikan celah ini
+tidak menunggunya.
+
+**Pelajaran operasional.** Sebelum merancang pemicu antar-workflow, periksa
+**token apa** yang dipakai penulis event: event dari `GITHUB_TOKEN` otomatis
+tidak memicu run. Bila butuh rantai, panggil di run yang sama, atau pakai token
+non-otomatis (PAT/GitHub App) yang memang memicu.
+
+## 2026-11-12 — #838 (lanjutan): pemulihan label yang dicabut manusia, dan dua cacat jembatan
+
+**Fitur pemulihan.** Setengah kebijakan yang hilang: pencabutan bukan cara
+membantah bot. Label yang **terakhir dipasang `cipansor-bot`** lalu dicabut
+seorang manusia **dipasang kembali** secara deterministik, tanpa LLM.
+
+- **Pemicu.** `label-guard.yml` kini `types: [labeled, unlabeled]` pada `issues`
+  **dan** `pull_request_target`. Berbeda dari pencabutan (yang ditulis
+  `GITHUB_TOKEN` dan tak bisa memicu apa pun — lihat bagian #838 di atas), di
+  sini yang mencabut adalah **manusia**, jadi event `unlabeled`-nya asli dan
+  memicu run. Langkah `--relabel` yang ada tetap **hanya** untuk `labeled`
+  dengan gate `steps.guard.outputs.revoked == '1'`; jalur pemulihan tidak
+  menulis `revoked=1` (tak ada dispatch jembatan di jalurnya).
+- **Keputusan.** Di `label-guard.sh`, cabang `ACTION=unlabeled` →
+  `restore_after_revocation`. Lewati bila pencabut `$BOT_LOGIN`/`*[bot]`
+  (pencabutan itu sengaja: armada mencabut `ready` yang bertentangan,
+  `stale-sweep`, `issue-label-sync`). Baca aktor event `labeled` **terakhir**
+  untuk label itu dari `gh api --paginate repos/$REPO/issues/$NUMBER/events`;
+  pulihkan hanya bila aktornya bot. **Gagal baca = lewati dengan `::warning::`,
+  tidak pernah dianggap "boleh dipulihkan".** Baca label **saat ini** (bukan
+  payload) karena grup concurrency per-label membuat run berlomba; bila label
+  `ready` dan kini ada `question`/`blocked`, jangan pulihkan (aturan eksklusif
+  16). Pulihkan lewat `gh api -X POST .../labels -f "labels[]=$LABEL"`; event
+  `labeled` yang dihasilkannya tak memicu workflow (loop tertutup). Satu
+  komentar penanda `<!-- label-guard:restored -->` per issue.
+- **Kenapa bukan jalur jembatan.** Pencabutan yang meninggalkan issue tanpa
+  tipe/prioritas sudah ditangani `--relabel` (dispatch pemilik triase). Pemulihan
+  ini kebijakan label yang berbeda dan murni deterministik — tak perlu LLM, jadi
+  ia hidup di guard, bukan di jembatan.
+- **Penyempurnaan (2026-11-12).** Jalur pemulihan **tidak** memakai
+  `protected_labels()` (yang membuang `ALLOWED_LABELS` pada issue), melainkan
+  cek "label ada di repo" lewat `gh label list` (`repo_labels()`), tetap melewati
+  `EXEMPT_LABELS`. Dengan `protected_labels()`, tipe label yang dipasang bot lalu
+  dicabut manusia tak akan pernah dipulihkan — padahal itu justru kasus #838.
+  Guard standar tetap memakai `protected_labels()` (tipe label pada issue form
+  dibiarkan), jadi kedua paruh kini memakai daftar yang berbeda dan beralasan.
+- **Koreksi (2026-11-12, review #1058).** Memakai `repo_labels()` saja
+  menciptakan **dua tipe**: bila manusia memasang `enhancement` lalu mencabut
+  `bug` milik bot, pemulihan menaruh kembali `bug` → issue punya `bug` +
+  `enhancement`, dan `issue-label-sync.sh` menolaknya ("more than one type"),
+  sehingga PR yang menutup issue itu gagal sinkron. Karena itu jalur pemulihan
+  kini: (a) bila label adalah **tipe** (`TYPE_LABELS`, default = `ALLOWED_LABELS`)
+  dan issue memuat tipe **lain**, **jangan** pulihkan — tulis
+  `type_conflict=1` ke `$GITHUB_OUTPUT`; (b) `label-guard.yml` memanggil mode baru
+  `issue-triage-bridge.sh --type-conflict <n> <tipe-ditolak>`, yang men-dispatch
+  pemilik triase (pemilik taksonomi) untuk mencabut tipe yang salah. Ini menjaga
+  singleton tipe (docs/LABELS.md aturan 1). Bila label bukan tipe (mis.
+  `priority:*`) atau tipe yang sama sudah kembali, jalur pemulihan biasa tetap
+  berjalan.
+- **Koreksi kedua (2026-11-12, review #1058 putaran 2).** Awalnya mode konflik
+  memakai kunci collapse `UNLABELED_KEY` yang sama dengan `--relabel`. Akibatnya
+  bila pencabutan memicu `--relabel` (mis. prioritas kosong) lalu pergantian tipe
+  menyusul dalam `BURST_WINDOW` (300 dtk), `--type-conflict` membaca waktu
+  `--relabel` dan **menganggap konflik sudah ditangani** — padahal `--relabel`
+  hanya mengisi celah, bukan merekonsiliasi tipe. `activity_signal` tak mencatat
+  label, jadi sweep pun melihat checkpoint lama "selesai". Tipe salah bertahan →
+  sinkronisasi PR gagal. Perbaikan: kunci collapse **terpisah**
+  (`CONFLICT_KEY="triage-conflict-"`), dan konflik yang ditunda menulis checkpoint
+  `pending` yang sama sehingga sweep (atau `--recover-ready` pada issue `ready`)
+  memulihkannya.
+- **Koreksi ketiga (2026-11-12, review #1058 putaran 3).** Karena kunci burst
+  kini terpisah, `--relabel` dan `--type-conflict` dapat men-dispatch untuk issue
+  yang sama; keduanya menulis satu checkpoint `triage-sweep-<n>`, sehingga run
+  yang ditulis belakangan menimpa ID run yang lebih dulu. `process_one` hanya
+  membaca satu ID yang tersisa, jadi bila run konflik gagal lalu run relabel
+  selesai, sweep menandai issue selesai dan konflik tak pernah diulang.
+  Perbaikan: tiap respons sisi disimpan di slotnya sendiri
+  (`extra.relabel`, `extra.conflict`), dan `process_one` memeriksa **semua** slot
+  sebelum menandai issue selesai (ada yang RUNNING → tunggu; ada yang gagal →
+  dispatch ulang; semua COMPLETED → bersihkan). `--recover-ready` memakai
+  `MARK_ACTIVE`/`MARK_PENDING` yang dihitung dari semua slot.
+
+**Bug 1 (severe) — dispatch gagal membuat issue tetap tanpa label.**
+`relabel_after_revocation` tidak menulis checkpoint sweep saat dispatch gagal.
+Sweep berikutnya lalu membandingkan sinyal aktivitas issue dengan checkpoint
+yang **basi atau tidak ada**: bila sinyalnya kebetulan sama dengan yang akan
+dihitung, issue terbaca "sudah dijawab" dan **tak pernah dicoba ulang**. Perbaikan:
+tulis checkpoint `pending` (bentuk yang sama dengan deferral `MAX_INFLIGHT`)
+sebelum gagal; `pending` tidak menamai run, jadi sweep berikutnya men-dispatch.
+`process_one` sudah memperlakukan `PENDING_RUN` sebagai "perlu dicoba ulang", jadi
+tak perlu diubah.
+
+**Bug 2 — `refactor`/`security` terbaca sebagai tipe yang hilang.**
+Penentuan `has_type` memakai uji awalan `case "$left" in none|priority:*)`. Karena
+himpunan digabung `+` dan **terurut**, `priority:high+refactor` dan
+`priority:high+security` cocok `priority:*` → dibaca tanpa tipe → dispatch palsu.
+Ganti dengan pemeriksaan keanggotaan per elemen
+(`case "+$left+" in *"+refactor+"*|… )`).
+
+**Bukti.** `automation-fleet.guard.test.ts`: **203 passed**. Golden rule 7
+dibuktikan dengan memulihkan `.github/scripts/label-guard.sh`,
+`.github/scripts/issue-triage-bridge.sh`, dan `.github/workflows/label-guard.yml`
+ke `HEAD` sementara tes baru tetap ada: **10 tes gagal** (pemulihan label,
+gate `unlabeled`, `refactor`/`security`, checkpoint `pending`), lalu hijau setelah
+perubahan dipulihkan. Tes pemulihan tipe label (`bug`) juga dibuktikan gagal
+dengan `protected_labels()` dan hijau dengan `repo_labels()`; tes konflik tipe
+(manusia mencabut `bug`, issue memuat `enhancement`) dibuktikan gagal tanpa
+penjaga konflik dan hijau dengannya; tes kunci konflik terpisah dibuktikan gagal
+saat memakai `UNLABELED_KEY` dan hijau dengan `CONFLICT_KEY`; tes slot run sisi
+(`extra`) dibuktikan gagal (7 tes) saat `issue-triage-bridge.sh` dipulihkan ke
+`HEAD` dan hijau dengannya. Seluruh 68 berkas guard `src/utils/`: **1155
+passed**.

@@ -49,7 +49,10 @@ jobs:
       - name: Confirm the failure is still the tip of main
         id: gate
         env:
-          GH_TOKEN: ${{ github.token }}
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           FAILED_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
@@ -68,7 +71,7 @@ jobs:
       - name: Open or update the failure issue
         if: steps.gate.outputs.skip != '1'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           WORKFLOW: ${{ github.event.workflow_run.name }}
           RUN_ID: ${{ github.event.workflow_run.id }}

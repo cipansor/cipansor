@@ -1,4 +1,5 @@
 # Age out issues that have gone quiet, and close them when nobody answers.
+# Then the same for pull requests, which get no label at all.
 #
 # This is the deterministic replacement for the `Penjaga issue` OpenHands
 # automation (SDLC 21). That automation was disabled by the maintainer (#677)
@@ -14,7 +15,12 @@
 # re-reads both. An edit to the description is an answer too, and it restarts the
 # idle clock, so an issue updated today is not closed on its pre-edit age. Never
 # closed: `ready`, `blocked`, `in-progress`, and anything
-# labelled `duplicate` (duplicate-sweep.yml owns those). Never a pull request.
+# labelled `duplicate` (duplicate-sweep.yml owns those).
+#
+# A pull request is aged out too, with no label (there is no `stale` label for a
+# PR): one that links no issue is warned at once and closed after 5 days, and one
+# that links an issue follows the idle timer. A draft or bot-authored PR is left
+# alone.
 # See .github/scripts/stale-sweep.sh.
 name: Stale sweep
 
@@ -26,6 +32,7 @@ on:
 permissions:
   contents: read
   issues: write
+  pull-requests: write
 
 concurrency:
   group: stale-sweep
@@ -43,6 +50,9 @@ jobs:
           persist-credentials: false
       - name: Warn and close quiet issues
         env:
-          GH_TOKEN: ${{ github.token }}
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
         run: sh .github/scripts/stale-sweep.sh

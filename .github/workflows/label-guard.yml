@@ -4,6 +4,22 @@
 # (docs/LABELS.md), so a hand-applied `ready`, `priority:*` or type label makes
 # the two disagree about an issue's real state.
 #
+# The other half of the policy: a label `cipansor-bot` last applied, then removed
+# by a person, is put back. A removal is not a way to overrule the bot, and a bare
+# removal can leave an issue with no type or no priority — the worse state #838
+# reports. That is why the triggers include `unlabeled`: `label-guard.sh`'s
+# `unlabeled` branch reads the issue's event timeline and restores only what the
+# bot applied. (The removal it makes itself is deliberate — the fleet withdrawing
+# a contradictory `ready`, `stale-sweep`, `issue-label-sync` correcting — so a
+# `$BOT_LOGIN`/`*[bot]` remover is never restored.)
+#
+# Because the guard only *removes*, a revocation that leaves an issue with no type
+# or no priority is a worse state than a wrong label. So this workflow also calls
+# the triage bridge's `--relabel` mode in the same run, right after the guard, to
+# dispatch the labeler (#838) — it cannot do so through a GitHub event, because
+# the removal is made with the automatic `GITHUB_TOKEN` and GitHub starts no
+# workflow run for an event that token creates.
+#
 # The protected set is every label that exists in the repository, read at run
 # time — never hardcoded, so a new label is protected the moment it is created.
 # There is no human-decision exception left: `bot-implement` was removed on
@@ -15,9 +31,9 @@ name: Label guard
 
 on:
   issues:
-    types: [labeled]
+    types: [labeled, unlabeled]
   pull_request_target:
-    types: [labeled]
+    types: [labeled, unlabeled]
 
 permissions:
   contents: read
@@ -39,8 +55,46 @@ jobs:
           sparse-checkout: .github/scripts
           persist-credentials: false
       - name: Revoke a label applied by anyone but the bot
+        id: guard
         env:
-          GH_TOKEN: ${{ github.token }}
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           BOT_LOGIN: cipansor-bot
         run: sh .github/scripts/label-guard.sh --stdin < "$GITHUB_EVENT_PATH"
+      # #838: the guard only removes, so a revocation that leaves an issue with no
+      # type or no priority is a worse state than a wrong label. It cannot trigger
+      # the bridge through GitHub — the removal is made with the automatic
+      # `GITHUB_TOKEN`, and GitHub starts no workflow run for an event that token
+      # creates — so the bridge is called here, in the same run, right after the
+      # guard. The bridge is idempotent and collapses the guard's removal burst.
+      # Only when the guard actually removed a label (`steps.guard.outputs.revoked`),
+      # and issues only: a PR has no label-gap of this kind (its labels are synced
+      # from the issues it closes, `issue-label-sync`).
+      - name: Relabel the issue if the revocation left it without a type or priority
+        if: github.event_name == 'issues' && steps.guard.outputs.revoked == '1'
+        env:
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: |
+          N=$(jq -r '.issue.number // empty' "$GITHUB_EVENT_PATH")
+          [ -n "$N" ] || exit 0
+          sh .github/scripts/issue-triage-bridge.sh --relabel "$N"
+      # #838 follow-up: a person who removes the bot's type while the issue holds
+      # another type is changing the type. The guard declines the restore (two
+      # types break `issue-label-sync`) and signals `type_conflict=1`; the triage
+      # owner — the taxonomy's owner — reconciles it and revokes the wrong type.
+      - name: Dispatch the triage owner to reconcile a type conflict
+        if: github.event_name == 'issues' && steps.guard.outputs.type_conflict == '1'
+        env:
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: |
+          N=$(jq -r '.issue.number // empty' "$GITHUB_EVENT_PATH")
+          L=$(jq -r '.label.name // empty' "$GITHUB_EVENT_PATH")
+          [ -n "$N" ] || exit 0
+          sh .github/scripts/issue-triage-bridge.sh --type-conflict "$N" "$L"
