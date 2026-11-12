@@ -77,3 +77,35 @@ export const createPaymentComponentSchema = z.object({
   unitId: z.string().uuid(),
   isActive: z.boolean().optional(),
 });
+
+// ==================== BUDGETS & FINANCIAL PERIODS ====================
+
+// Flat schemas: `validate()` parses `req.body` directly, so a top-level
+// `z.object({ body: … })` would make Zod look for `req.body.body` and answer
+// every write with 400. These were defined inline in the routes file.
+export const createBudgetSchema = z.object({
+  unitId: z.string().uuid(),
+  academicYearId: z.string().uuid(),
+  accountId: z.string().uuid(),
+  amount: z.number().positive(),
+  periodType: z.enum(['YEARLY', 'MONTHLY']).optional(),
+  notes: z.string().optional(),
+});
+
+export const updateBudgetSchema = z.object({
+  amount: z.number().positive().optional(),
+  periodType: z.enum(['YEARLY', 'MONTHLY']).optional(),
+  notes: z.string().optional(),
+});
+
+export const createFinancialPeriodSchema = z.object({
+  unitId: z.string().uuid(),
+  name: z.string().min(1),
+  startDate: z.string().datetime().or(z.date()),
+  endDate: z.string().datetime().or(z.date()),
+  notes: z.string().optional(),
+});
+
+export type CreateBudgetSchemaInput = z.infer<typeof createBudgetSchema>;
+export type UpdateBudgetSchemaInput = z.infer<typeof updateBudgetSchema>;
+export type CreateFinancialPeriodSchemaInput = z.infer<typeof createFinancialPeriodSchema>;

@@ -41,11 +41,13 @@ const { MockDecimal } = vi.hoisted(() => {
   return { MockDecimal: Decimal };
 });
 
-vi.mock('@prisma/client', () => ({
-  Prisma: {
-    Decimal: MockDecimal,
-  },
-}));
+vi.mock('@prisma/client', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@prisma/client')>();
+  return {
+    ...actual,
+    Prisma: { ...actual.Prisma, Decimal: MockDecimal },
+  };
+});
 
 import { transactionService } from '../canteen.service';
 import { prisma } from '@/lib/prisma';
