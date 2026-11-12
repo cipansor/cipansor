@@ -66,3 +66,24 @@ guard-exempt. Recovery: `gh run rerun <id> --failed` turns the check green, but
 replaying the stale event strips the labels again — re-trigger the sync with a
 no-op `gh api -X PATCH …/pulls/<n> -F body=@<file>` and the bot restores them.
 Create the PR with no labels and let the sync fill them.
+
+**A PR that closes two issues of different *types* fails `Issue label sync`, by
+design.** `issue-label-sync.sh` refuses when the issues a PR closes disagree on
+their type label ("PR #N closes issues that disagree on type (chore vs bug)"),
+because it reads a PR's type as a claim to reconcile against — `docs/LABELS.md`
+rule 1: *"a different type is a real conflict, not something to guess at."* A
+maintainer decision that bundles a `chore` and a `bug` issue into one PR (K12:
+#868 `chore` + #873 `bug`) therefore makes this check red through no fault of
+the change. It is **not** in the `main` ruleset's required set (Build, Lint,
+Tests, Security, E2E Chromium, PR template reminder), so it does not block the
+merge — but do not hand-fix it: `label-guard` revokes a non-bot label, and two
+`gh pr edit --label` calls fire duplicate `labeled` events that red the guard's
+own check. Leave a PR comment naming the conflict and let the bot/maintainer
+choose the one type.
+
+**A chained `git worktree add … && cd <dir> && git merge` can run the merge in
+the *main* tree.** When `/tmp/comb` was a stale, prunable worktree, the `cd`
+failed, the `&&` chain kept the shell in the repo root, and the `git merge`
+started on the checked-out branch — leaving `UU` conflicts in the working tree
+of the feature branch. Run worktree commands with `git -C <dir>` instead of
+`cd`, or check the `cd` succeeded (`pwd`); recover with `git merge --abort`.
