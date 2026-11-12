@@ -54,6 +54,8 @@ describe('change-scope.sh', () => {
       'deploy/azure/nginx/nginx.conf',
       'docs/DEPLOYMENT.md', // a test reads it
       '.claude/hooks/guard.sh', // agent-guard.guard.test.ts runs it
+      '.claude/skills/dokumen-aplikasi-cipansor/scripts/check_docs.py', // test_tooling.py reads it
+      '.claude/skills/dokumen-aplikasi-cipansor/scripts/test_tooling.py', // the Tests job runs it
     ];
     expect(codeAmong(notCode)).toEqual([]);
     expect(codeAmong(code)).toEqual(code);

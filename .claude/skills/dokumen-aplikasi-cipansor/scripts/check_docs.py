@@ -134,6 +134,13 @@ def section_ranges(lines: list[str]) -> list[tuple[str, int, int]]:
     return out
 
 
+def card_level_warning(lines: list[str], a: int, b: int) -> bool:
+    """True bila kartu membawa penanda ⚠ tingkat kartu (baris `> ⚠` atau `⚠` di awal baris),
+    bukan hanya pada satu langkah. Kartu T2 penuh tidak boleh mempertahankan tangkapan layar;
+    kartu yang hanya sebagian langkahnya disusun dari kode menandai langkahnya sendiri."""
+    return any(re.match(r"^(>\s*)?⚠", l) for l in lines[a - 1:b])
+
+
 def norm_route(p: str) -> str:
     p = p.split("?")[0].rstrip(".,;:)")
     p = re.sub(r":\w+|\{\w+\}|\[\w+\]", ":p", p)
@@ -211,6 +218,33 @@ def api_source_text(repo: Path) -> str:
 
 
 # --------------------------------------------------------------------------- pemeriksaan umum
+
+def quoted_message_errors(lines: list[str], web: str, api: str) -> list[tuple[int, str]]:
+    """(line, quoted text) pairs that claim to be a screen message but appear in
+    neither the web nor the API source.
+
+    The rule is case-insensitive on purpose: "Muncul pesan ..." starts a
+    sentence and so is capitalised, while the old pattern matched only the
+    lowercase form — a real, unverified quote ("Pengumuman terbit — masuk ke
+    lonceng … orang", where the code interpolates the count) slipped through
+    that gap and was caught by a human reviewer instead (#779).
+    """
+    out: list[tuple[int, str]] = []
+    for t in find_tables(lines):
+        if t["header"] and t["header"][0].lower().startswith("yang terlihat"):
+            for ln, cells in t["rows"]:
+                for q in re.findall(r"[\"“]([^\"”]{6,})[\"”]", cells[0] if cells else ""):
+                    q = q.strip(" .…")
+                    if q not in web and q not in api:
+                        out.append((ln, q))
+    rx = re.compile(r'muncul pesan\s+"([^"]+)"|pesan\s+"([^"]+)"', re.I)
+    for n, l in enumerate(lines, 1):
+        for m in rx.finditer(l):
+            q = (m.group(1) or m.group(2)).strip(" .")
+            if q and q not in web and q not in api:
+                out.append((n, q))
+    return out
+
 
 def check_common(text: str, lines: list[str], r: Report, final: bool) -> None:
     for n, l in enumerate(lines, 1):
@@ -579,19 +613,9 @@ def check_pengguna(text: str, lines: list[str], repo: Path, facts: dict, r: Repo
             rows.append(f"| {n} | {lab} | {', '.join(f'`{h}`' for h in hits) or '**TIDAK ADA**'} |")
         Path(TRACE_OUT).write_text("\n".join(rows) + "\n", encoding="utf-8")
     # pesan yang dikutip
-    for t in find_tables(lines):
-        if t["header"] and t["header"][0].lower().startswith("yang terlihat"):
-            for ln, cells in t["rows"]:
-                for q in re.findall(r"[\"“]([^\"”]{6,})[\"”]", cells[0] if cells else ""):
-                    q = q.strip(" .…")
-                    if q not in web and q not in api:
-                        r.add("ERROR", ln, "pesan-karangan",
-                              f"pesan \"{q}\" tidak ada di kode web maupun API — salin dari toast/Alert/ApiError, jangan mengarang")
-    for n, l in enumerate(lines, 1):
-        for q in re.findall(r"muncul pesan\s+\"([^\"]+)\"|Pesan\s+\"([^\"]+)\"", l):
-            q = (q[0] or q[1]).strip(" .")
-            if q and q not in web and q not in api:
-                r.add("ERROR", n, "pesan-karangan", f"pesan \"{q}\" tidak ada di kode")
+    for ln, q in quoted_message_errors(lines, web, api):
+        r.add("ERROR", ln, "pesan-karangan",
+              f"pesan \"{q}\" tidak ada di kode web maupun API — salin dari toast/Alert/ApiError, jangan mengarang")
 
     # kelengkapan kartu tugas
     for k, (title, a, b) in enumerate(secs):
@@ -694,11 +718,14 @@ def check_images(text: str, lines: list[str], md_dir: Path, kind: str, r: Report
         body = "\n".join(lines[a - 1:b])
         if "**Langkah.**" in body:
             has_warn = "⚠" in body
+            card_warn = card_level_warning(lines, a, b)
             n_imgs = sum(1 for i in body_lines if i in imgs_by_line)
             if not has_warn and n_imgs == 0:
                 r.add("ERROR", a, "kartu-t1-tanpa-gambar",
                       f"kartu '{title}' tanpa ⚠ (T1) harus memuat tangkapan layar hasil aplikasi berjalan")
-            if has_warn and n_imgs:
+            # Hanya penanda tingkat kartu (T2 penuh) yang bertentangan dengan gambar; penanda
+            # tingkat langkah (sebagian kartu disusun dari kode) tetap boleh bergambar.
+            if card_warn and n_imgs:
                 r.add("WARN", a, "kartu-bergambar-masih-t2",
                       f"kartu '{title}' bergambar hasil tangkapan tetapi masih ⚠ — cabut ⚠ bila langkahnya sudah dijalankan (T1)")
             if n_imgs > 4:
