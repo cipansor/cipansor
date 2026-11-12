@@ -90,4 +90,26 @@ test.describe("Menu Makan — tab Menu Hari Ini", () => {
     // "Belum ada menu".
     await expect(page.getByText("Bubur Ayam Spesial")).toBeVisible();
   });
+
+  test("peran yayasan membaca menu unit yang dipilih, bukan 403 (#849)", async ({
+    page,
+  }) => {
+    // A yayasan account carries no `unitId`; the service used to compare it to
+    // the requested unit and answer 403, so the tab stayed empty for the one
+    // role that can pick any unit. `actorReachesUnit` lets a foundation role
+    // read the unit it names.
+    await loginAs(page, "ketuaPengurus");
+
+    const todayRequest = page.waitForResponse((r) =>
+      /\/meals\/menus\/today\/[^/?]+/.test(r.url()),
+    );
+    await page.goto("/meals");
+
+    await page.getByRole("combobox").first().click();
+    await page.getByRole("option", { name: sd.name, exact: true }).click();
+
+    const response = await todayRequest;
+    expect(response.status()).toBe(200);
+    await expect(page.getByText("Bubur Ayam Spesial")).toBeVisible();
+  });
 });
