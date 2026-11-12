@@ -168,7 +168,11 @@ pertentangan itu dilaporkan sebagai issue.
     pencarian selagi aktivitas baru terus mengambil slot (kelaparan head-of-line,
     #872). Store menyimpan **waktu penundaan pertama**, dan sapuan memproses
     kandidat tertunda paling lama lebih dulu (FIFO), jadi penantian panjang
-    selalu menang slot.
+    selalu menang slot. Dua penjagaan menyertainya: sweep biasa **tidak**
+    menghapus checkpoint `pending` milik issue `ready` (ia di luar lingkup sweep
+    dan justru milik `--recover-ready`, yang berjalan sesudahnya), dan kegagalan
+    baca KV di jalur label tidak menulis ulang `at` (checkpoint dibiarkan, agar
+    posisi antrean tak tergeser oleh gangguan sesaat).
 20. **Dinding jam setiap automation adalah 1800 detik — platform tidak
     menerima lebih.** Sebuah run yang melewati `timeout`-nya mati sebagai
     `execution/timeout`, bukan karena tugasnya salah. Batas itu bukan pilihan

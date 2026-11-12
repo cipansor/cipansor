@@ -601,6 +601,17 @@ permission`) plus tes positif untuk maintainer. `ACTOR` sudah diisi
     Dijaga `automation-fleet.guard.test.ts` (tiga sweep berturut-turut dengan
     ekor yang sama lalu ekor itu maju; urutan tertua-dulu; penundaan berulang
     mempertahankan `at`).
+    **Koreksi tinjauan (2026-11-12).** Dua cacat yang ditemukan reviewer gerbang
+    pada FIFO ini: (i) `pending_keys` menyerahkan checkpoint `pending` milik
+    issue `ready` ke sweep biasa, yang lalu **menghapusnya** (jalur `ready` di
+    luar lingkupnya) — padahal `--recover-ready` berjalan *sesudah* sweep dan
+    membaca store, jadi dispatch tertunda itu hilang. Perbaikan: jalur `ready`
+    hanya menghapus checkpoint yang **selesai** (`run` kosong, `MARK_FORM=some`);
+    yang `pending`/in-flight dibiarkan untuk `recover_ready`. (ii) kegagalan baca
+    KV di jalur label (`read_sweep_marker` → `unknown`) membuat `at` diisi ulang
+    `now`, menggeser issue yang lama menunggu ke belakang antrean. Perbaikan:
+    saat `MARK_FORM=unknown`, checkpoint dibiarkan apa adanya. Dijaga dua tes
+    round-trip baru (sweep → `--recover-ready`; hiccup baca KV).
 
 ## Sumber
 

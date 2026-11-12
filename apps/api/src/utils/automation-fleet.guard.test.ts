@@ -135,7 +135,11 @@ case "$url" in
             fi ;;
           *)
             log "KV_GET $k"
-            if [ -f "$kvdir/$k" ]; then
+            if [ -n "\${CURL_STUB_KV_GET_FAIL_KEY:-}" ] && [ "$k" = "$CURL_STUB_KV_GET_FAIL_KEY" ]; then
+              # A targeted read hiccup: the key exists but the store cannot be
+              # read, so the bridge must treat it as unknown, not as absent.
+              body='{"detail":"store unavailable"}'; code=503; exitcode=22
+            elif [ -f "$kvdir/$k" ]; then
               v=$(cat "$kvdir/$k")
               body=$(jq -nc --arg k "$k" --argjson v "$v" '{key:$k,value:$v,version:1}')
               code=200
@@ -3145,6 +3149,76 @@ describe('issue-triage-bridge.sh', () => {
     const i818 = calls.indexOf('/issues/818');
     expect(i700).toBeGreaterThanOrEqual(0);
     expect(i818).toBeGreaterThan(i700);
+  });
+
+  it('keeps a deferred checkpoint on a ready issue for the recovery pass', () => {
+    // #872 review: `pending_keys` hands every deferred checkpoint to the ordinary
+    // sweep, including a `ready` issue's. That sweep is out of scope for `ready`
+    // issues and used to drop the checkpoint — but `--recover-ready` runs *after*
+    // the sweep and reads the store, so the deferred dispatch was lost forever.
+    // Round-trip: the sweep must leave the checkpoint, then the recovery pass
+    // dispatches it.
+    const swept = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--sweep']
+    );
+    // The ordinary sweep skips the `ready` issue and must not dispatch it...
+    expect(swept.calls).not.toContain('DISPATCH');
+    // ...but its deferred checkpoint must remain for `--recover-ready`.
+    expect(swept.kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'pending',
+      at: 1700000000,
+    });
+
+    const recovered = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: swept.kv,
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--recover-ready']
+    );
+    expect(recovered.calls).toContain('DISPATCH');
+    expect(recovered.kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('keeps the first-deferral time when a KV read hiccups in the label path', () => {
+    // #872 review: a failed `read_sweep_marker` leaves MARK_RUN empty, so the
+    // label path read `at=""` and `write_sweep_marker` stamped a fresh `at` —
+    // pushing a long-waiting issue to the back of the FIFO, the very starvation
+    // #872 fixes, only via a transient hiccup. A failed read must leave the
+    // checkpoint alone.
+    const { kv, out } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
+        CURL_STUB_KV_GET_FAIL_KEY: 'triage-sweep-818',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(out).toContain('deferred');
+    // The old `at` survives; a hiccup must not reset the FIFO position.
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'pending',
+      at: 1700000000,
+    });
   });
 
   // ---- #1031 review: legacy-marker migration edge cases --------------------

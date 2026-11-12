@@ -505,10 +505,14 @@ on_label() { # on_label <event-json>
     # Keep an existing first-deferral time so a label that lands while the issue
     # is already queued does not send it to the back of the FIFO (K25, #872). A
     # pending checkpoint with no `at` predates the field and counts as oldest.
+    # A failed read (`unknown`) must not stamp a fresh `at`: keep the checkpoint
+    # and let the sweep read its old time on a later run (#872 review).
     if [ -n "$sig" ]; then
       read_sweep_marker "$number"
-      if [ "$MARK_RUN" = "$PENDING_RUN" ]; then at="${MARK_AT:-0}"; else at=""; fi
-      write_sweep_marker "$number" "$sig" "$PENDING_RUN" "$at"
+      if [ "$MARK_FORM" != "unknown" ]; then
+        if [ "$MARK_RUN" = "$PENDING_RUN" ]; then at="${MARK_AT:-0}"; else at=""; fi
+        write_sweep_marker "$number" "$sig" "$PENDING_RUN" "$at"
+      fi
     fi
     exit 0
   fi
@@ -542,7 +546,17 @@ process_one() { # process_one <number> <inflight> [ready_ok]
       return 1
       ;;
     *" ready "*)
-      [ "$ready_ok" = "1" ] || { remove_sweep_marker "$n"; return 1; }
+      [ "$ready_ok" = "1" ] || {
+        # A `ready` issue is out of the ordinary sweep's scope, but a *deferred*
+        # (`pending`) or in-flight checkpoint must survive: `pending_keys` feeds it
+        # here, and `recover_ready` — which runs *after* this sweep and reads the
+        # store — is the pass that finishes it. Dropping such a checkpoint here
+        # would lose the deferred dispatch for good (#872 review). Only a finished
+        # checkpoint is stale; a read hiccup (`unknown`) keeps it too.
+        read_sweep_marker "$n"
+        if [ "$MARK_FORM" = "some" ] && [ -z "$MARK_RUN" ]; then remove_sweep_marker "$n"; fi
+        return 1
+      }
       ;;
   esac
 
