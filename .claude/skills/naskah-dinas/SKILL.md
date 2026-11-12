@@ -35,11 +35,19 @@ kalimat, dan memakai template yang sudah ada. Bentuk naskahnya sendiri
 (kop, blok tanda tangan, penomoran) diurus sistem — yang disusun di sini hanya
 kalimatnya.
 
-**Nomor hanya terbit di E-Office.** Surat selalu dibuat lewat E-Office, karena
-nomor keluar hanya lahir di sana, saat naskah meninggalkan `DRAFT`. Surat yang
-disusun di luar lalu ditempel tidak punya nomor agenda, dan tidak bisa
-diverifikasi lewat unggah PDF. Jadi: buat konsep di E-Office lebih dulu, baru
-sunting isinya.
+**Nomor terbit di E-Office — termasuk untuk naskah yang diunggah.** Nomor
+keluar lahir saat naskah meninggalkan `DRAFT` (atau langsung, bila diajukan
+dengan status `PENDING_REVIEW`). Naskah yang **disusun di luar lalu diunggah
+tetap mendapat nomor**: `createLetter` menerima `fileUrl` untuk surat keluar dan
+menandai jalur penyusunannya `UPLOADED`; berkas unggahan itulah yang
+ditandatangani, di-hash, dan dicocokkan saat verifikasi publik lewat unggah PDF
+(`resolveLetterPdf`, `signLetter`), bukan hasil render sistem. Yang tidak dapat
+diverifikasi hanyalah naskah yang tidak pernah melewati jalur tanda tangan
+elektronik ini.
+
+Menyusun langsung di E-Office tetap dianjurkan: template jenis, pemeriksaan
+placeholder, dan kerangka naskah tersedia di sana, sedangkan naskah unggahan
+tidak mendapat pemeriksaan itu.
 
 ### 1. Pilih jenis
 
@@ -100,8 +108,14 @@ Segera** (24 jam), **Segera** (2 × 24 jam), **Biasa** (menurut urutan).
   sebagai revisi. Lengkapi semuanya sebelum diajukan.
 - **Kalimat mengikuti EYD** (ejaan yang disempurnakan): huruf kapital pada
   nama jabatan dan lembaga, tanda baca baku, bahasa baku (bukan bahasa lisan).
-  Tanggal pada naskah dicetak otomatis dengan format "5 April 2012" pada zona
-  **WIB** (`generate-letter-pdf.ts`), jadi tidak perlu ditulis ulang di isi.
+- **Tanggal surat dicetak otomatis; tanggal kegiatan tidak.** Tanggal surat
+  muncul sendiri di kepala naskah — atau di kaki "Pada tanggal" untuk Surat
+  Keputusan — dengan format "5 April 2012", zona **WIB**
+  (`generate-letter-pdf.ts`), jadi tanggal itu tidak perlu ditulis ulang di isi.
+  Sebaliknya, **tanggal kegiatan** yang diminta template (`[HARI, TANGGAL]` pada
+  Surat Tugas, `[HARI], tanggal [TANGGAL]` pada Berita Acara) adalah tanggal
+  pelaksanaan, bukan tanggal surat: itu **wajib** diisi di isi naskah, dan
+  tidak digantikan tanggal otomatis.
 - **Kop dan blok tanda tangan tidak disunting di sini.** Kop datang dari
   `LETTERHEAD` (nama yayasan, akta notaris, alamat, telepon) dan blok tanda
   tangan dari jabatan + garis kewenangan; keduanya sama untuk semua jenis.
