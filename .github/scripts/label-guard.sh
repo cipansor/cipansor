@@ -6,6 +6,20 @@
 # the two disagree about an issue's real state. The bot owns the taxonomy; a
 # person states what they want and the bot records it.
 #
+# The other half of the same policy: a label the bot itself last applied, then
+# removed by a person, is put back. A removal is not a way to overrule the bot —
+# the fix is to say what you want and let the bot record it — and a bare removal
+# can leave an issue with no type or no priority, the worse state #838 reports.
+# The restore is deterministic: it reads the issue's own event timeline, restores
+# only what `cipansor-bot` applied, and never when the remover is the bot or a
+# GitHub App (a bot removal is deliberate — the fleet withdrawing `ready`,
+# `stale-sweep` closing, `issue-label-sync` correcting). One removal it declines
+# for a different reason: a type label the bot applied when the issue now carries
+# a *different* type — that is a type change, not a bare removal, and restoring
+# the old type would leave two, which `issue-label-sync` refuses. It signals
+# `type_conflict=1` instead and the workflow dispatches the triage owner. See
+# `restore_after_revocation` below.
+#
 # The protected set is every label that exists in the repository minus the
 # provenance labels in ALLOWED_LABELS. It is read from the repository, never
 # hardcoded, so a new label is protected the moment it is created and the set
@@ -28,7 +42,7 @@
 # as a claim to match. Everything else (`ready`, `priority:*`, the workflow
 # labels) stays the bot's everywhere.
 #
-# Usage: label-guard.sh --stdin          # a `labeled` webhook event on stdin
+# Usage: label-guard.sh --stdin          # a `labeled` or `unlabeled` event on stdin
 #        label-guard.sh <number> <label> [actor]   # by hand
 # Env:   GH_TOKEN, REPO (owner/name), BOT_LOGIN, EXEMPT_LABELS, ALLOWED_LABELS
 set -eu
@@ -41,10 +55,43 @@ BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
 # only so the variable can still be set for a one-off exception.
 EXEMPT_LABELS="${EXEMPT_LABELS:-}"
 # Labels the issue forms apply by themselves. Left in place so a fresh issue is
-# not met with a revocation notice (#842).
+# not met with a revocation notice (#842). These are exactly the type labels
+# (docs/LABELS.md): type is a singleton category, which is what the restore
+# path's conflict check below enforces.
 ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement documentation refactor chore security}"
+# The type labels, as a set the restore path can test membership against. Kept
+# equal to ALLOWED_LABELS by default: the issue forms apply a type label, and a
+# type label is the singleton the restore must not double.
+TYPE_LABELS="${TYPE_LABELS:-$ALLOWED_LABELS}"
 
 REVOKE_MARK="<!-- label-guard:revoked -->"
+# The restore notice, posted once per issue when the guard puts a label back that
+# a person removed. Same one-notice-per-item rule as REVOKE_MARK.
+RESTORE_MARK="<!-- label-guard:restored -->"
+
+# Whether the standard path revoked a label this run. `label-guard.yml` reads it
+# to decide whether to call the triage bridge's `--relabel` mode (#838): a run
+# that revoked nothing must not dispatch a relabel, or an ordinary human label on
+# an untriaged issue would wake the triage owner. Written to $GITHUB_OUTPUT only
+# when a label is actually removed; a no-op when run by hand. The workflow treats
+# a missing value as "nothing revoked".
+set_revoked() { echo "revoked=$1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
+
+# Whether the restore path declined a type label because the issue now carries a
+# *different* type. `label-guard.yml` reads it to call the triage bridge's
+# `--type-conflict` mode: the guard cannot dispatch, and the triage owner owns
+# the taxonomy — it revokes the wrong type (docs/LABELS.md). A no-op by hand.
+set_type_conflict() { echo "type_conflict=1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
+
+# Every label that exists in the repository, read fresh from `gh label list`.
+# The restore path reads this, not `protected_labels`: a type label is in
+# ALLOWED_LABELS, which `protected_labels` drops on an issue (the standard path
+# must leave a form-applied type alone), but the restore half must still put back
+# a type label the bot applied and a person removed — the case #838 reports.
+# EXEMPT_LABELS is applied by the caller, so it is not folded in here.
+repo_labels() {
+  { gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null || true; }
+}
 
 # Every existing label except, on an issue, the repository's own template
 # labels. Read once per run. On a pull request the template labels are *not*
@@ -53,8 +100,118 @@ REVOKE_MARK="<!-- label-guard:revoked -->"
 protected_labels() {
   exempt="$EXEMPT_LABELS"
   [ "$IS_PR" = "1" ] || exempt="$exempt $ALLOWED_LABELS"
-  { gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null || true; } \
-    | grep -vxF "$(printf '%s\n' $exempt)" || true
+  repo_labels | grep -vxF "$(printf '%s\n' $exempt)" || true
+}
+
+# Put back a label `cipansor-bot` last applied that a person removed. The other
+# half of the policy in the header: a bare removal is not a way to overrule the
+# bot, and it can leave an issue with no type or no priority. Deterministic — the
+# issue's own event timeline says who applied the label last; only a bot-applied
+# label is restored, and never one a bot removed.
+#
+# Skipped, always leaving the label off:
+#   - the remover is `$BOT_LOGIN` or a GitHub App (`*[bot]`): that removal is
+#     deliberate — the fleet withdrawing a contradictory `ready`, `stale-sweep`,
+#     `issue-label-sync` correcting a type;
+#   - the label no longer exists in the repository, or is in EXEMPT_LABELS: not
+#     the bot's taxonomy to enforce;
+#   - the timeline cannot be read, or names no actor for the last `labeled` event:
+#     a read failure must never be read as "safe to restore";
+#   - the label is `ready` and the issue now carries `question` or `blocked`: the
+#     restore would recreate the exclusivity conflict rule 8 forbids;
+#   - the label is a type and the issue now carries a *different* type: the
+#     restore would leave two types, which `issue-label-sync` refuses; the guard
+#     signals `type_conflict=1` and the workflow dispatches the triage owner;
+#   - the label is already back (the workflow's concurrency group is per label,
+#     so the runs race and a later one may see the earlier one's restore).
+restore_after_revocation() {
+  case "$ACTOR" in
+    "$BOT_LOGIN" | *'[bot]') echo "Label '$LABEL' was removed by '$ACTOR'; left off."; return 0 ;;
+  esac
+
+  if [ -n "$EXEMPT_LABELS" ] && printf '%s\n' $EXEMPT_LABELS | grep -qxF "$LABEL"; then
+    echo "Label '$LABEL' is an exempt label; not restoring."
+    return 0
+  fi
+  if ! repo_labels | grep -qxF "$LABEL"; then
+    echo "Label '$LABEL' is not a label in the repository; not restoring."
+    return 0
+  fi
+
+  # The issue's own timeline: the actor of the *last* `labeled` event for this
+  # label. `--paginate` reads oldest-first and concatenates each page's output, so
+  # the newest is the last non-empty line (a page with no match emits nothing).
+  # A read failure is "skip", never "restore" — the `--jq` form (no pipe on the
+  # gh call) is what keeps gh's exit status visible to the `if !`.
+  if ! actor=$(gh api --paginate "repos/$REPO/issues/$NUMBER/events?per_page=100" \
+      --jq "[.[] | select(.event == \"labeled\" and .label.name == \"$LABEL\") | .actor.login] | last // empty" \
+      2>/dev/null); then
+    echo "::warning::could not read the events of #$NUMBER; not restoring '$LABEL'."
+    return 0
+  fi
+  actor=$(printf '%s\n' "$actor" | sed '/^$/d' | tail -n1)
+  if [ -z "$actor" ]; then
+    echo "::warning::#$NUMBER: no 'labeled' event for '$LABEL'; not restoring."
+    return 0
+  fi
+  if [ "$actor" != "$BOT_LOGIN" ]; then
+    echo "Label '$LABEL' on #$NUMBER was last applied by '$actor', not $BOT_LOGIN; not restoring."
+    return 0
+  fi
+
+  # The *current* labels, not the payload: the runs race, so a later one may
+  # already have restored it, and `ready` may now contradict an exclusion.
+  current=$(gh api "repos/$REPO/issues/$NUMBER/labels" --jq '.[].name' 2>/dev/null) \
+    || { echo "::warning::could not read the labels of #$NUMBER; not restoring '$LABEL'."; return 0; }
+  if printf '%s\n' "$current" | grep -qxF "$LABEL"; then
+    echo "Label '$LABEL' is already on #$NUMBER; nothing to restore."
+    return 0
+  fi
+  if [ "$LABEL" = "ready" ]; then
+    for excl in question blocked; do
+      if printf '%s\n' "$current" | grep -qxF "$excl"; then
+        echo "#$NUMBER: not restoring 'ready' — it contradicts '$excl'."
+        return 0
+      fi
+    done
+  fi
+
+  # Type is a singleton (docs/LABELS.md). If the label is a type and the issue
+  # already carries a *different* type, the person is changing the type, not
+  # overruling the bot with nothing in place: restoring the old type would leave
+  # two types, which `issue-label-sync` refuses and which no automation can
+  # guess past. Decline, keep the single surviving type, and signal the workflow
+  # to dispatch the triage owner — it owns the taxonomy and revokes the wrong
+  # type. The conflict is read from the *current* labels, so a race that already
+  # restored the label reads as "already back" above, not as a conflict.
+  if printf '%s\n' $TYPE_LABELS | grep -qxF "$LABEL"; then
+    for other in $TYPE_LABELS; do
+      if [ "$other" != "$LABEL" ] && printf '%s\n' "$current" | grep -qxF "$other"; then
+        echo "#$NUMBER: not restoring '$LABEL' — the issue now carries the type '$other'; the triage owner reconciles it."
+        set_type_conflict
+        return 0
+      fi
+    done
+  fi
+
+  if ! gh api -X POST "repos/$REPO/issues/$NUMBER/labels" \
+      -f "labels[]=$LABEL" >/dev/null 2>&1; then
+    echo "::warning::could not restore '$LABEL' on #$NUMBER."
+    return 0
+  fi
+  echo "Restored label '$LABEL' on #$NUMBER: only $BOT_LOGIN may change labels."
+
+  # One notice per issue: a repeat run must not stack comments.
+  if gh api --paginate "repos/$REPO/issues/$NUMBER/comments?per_page=100" \
+      --jq '.[].body' 2>/dev/null | grep -qF "$RESTORE_MARK"; then
+    echo "A restore notice already exists on #$NUMBER; not repeating."
+    return 0
+  fi
+  BODY="Label \`$LABEL\` dipasang kembali di #$NUMBER: hanya \`$BOT_LOGIN\` yang boleh mengubah label di repositori ini. Label adalah antarmuka mesin antara automasi dan workflow (docs/LABELS.md). Untuk mengubahnya, sebut \`@$BOT_LOGIN\` dengan apa yang Anda inginkan — bot yang memasangnya.
+
+$RESTORE_MARK"
+  gh api "repos/$REPO/issues/$NUMBER/comments" -f body="$BODY" >/dev/null \
+    || echo "::warning::could not post the restore notice on #$NUMBER."
 }
 
 # The `labeled` event, read from stdin.
@@ -76,8 +233,15 @@ else
   IS_PR="${IS_PR:-0}"
 fi
 
-[ "$ACTION" = "labeled" ] || { echo "action='$ACTION'; nothing to do."; exit 0; }
 [ -n "$NUMBER" ] && [ -n "$LABEL" ] || { echo "No number/label in the event; nothing to do."; exit 0; }
+
+# A removal is the other half of the policy: a label the bot last applied that a
+# person removed is put back. Every other action is out of scope.
+if [ "$ACTION" = "unlabeled" ]; then
+  restore_after_revocation
+  exit 0
+fi
+[ "$ACTION" = "labeled" ] || { echo "action='$ACTION'; nothing to do."; exit 0; }
 
 # `ready` is a strong claim and it is exclusive: it must never sit beside a label
 # that says the issue is still being discussed, decided, or waiting on something
@@ -136,6 +300,7 @@ if [ -n "$conflict" ]; then
     exit 1
   fi
   echo "Removed 'ready' from #$NUMBER: it contradicts '$conflict'."
+  set_revoked 1
   if ! gh api --paginate "repos/$REPO/issues/$NUMBER/comments?per_page=100" \
       --jq '.[].body' 2>/dev/null | grep -qF "$READY_MARK"; then
     if [ "$conflict" = "blocked" ]; then
@@ -185,6 +350,7 @@ if ! gh api -X DELETE "repos/$REPO/issues/$NUMBER/labels/$LABEL" >/dev/null 2>&1
   exit 1
 fi
 echo "Removed label '$LABEL' from $KIND #$NUMBER (applied by '$ACTOR')."
+set_revoked 1
 
 # Say so once. The permission decides both the escalation pointer and what the
 # actor is told to do next. `Bot sebutan` (SDLC 07) admits a mention by the

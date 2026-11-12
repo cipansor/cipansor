@@ -127,7 +127,33 @@ pertentangan itu dilaporkan sebagai issue.
 17. **Hanya `cipansor-bot` yang melabeli.** Label yang dipasang akun lain
     dicabut workflow `label-guard.yml`; tidak ada lagi pengecualian keputusan
     manusia (`bot-implement` dihapus 2026-11-11). Automasi membaca label, jadi
-    label manual membuat keduanya berbeda pendapat. `rilis-disetujui`/`rilis-ditolak`
+    label manual membuat keduanya berbeda pendapat. Sebaliknya, **mencabut label
+    bukan cara membantah bot**: label yang terakhir dipasang `cipansor-bot` lalu
+    dicabut seorang manusia **dipasang kembali** — pemicu `unlabeled` pada
+    workflow yang sama menjalankan paruh pemulihan `label-guard.sh`, yang membaca
+    linimasa event issue dan memulihkan hanya bila aktor `labeled` terakhir
+    adalah bot. Tidak dipulihkan bila yang mencabut bot/GitHub App (pencabutan
+    itu sengaja: armada mencabut `ready` yang bertentangan, `stale-sweep`,
+    `issue-label-sync`), bila linimasa tak terbaca (gagal baca bukan berarti
+    "boleh dipulihkan"), atau bila labelnya `ready` dan issue kini ber-`question`
+    atau `blocked` (aturan 16 melarangnya). Satu pencabutan yang **ditolak**
+    dipulihkan: label **tipe** milik bot saat issue kini memuat tipe **lain** —
+    itu pergantian tipe, bukan pencabutan kosong; memulihkannya akan meninggalkan
+    dua tipe, yang ditolak `issue-label-sync`. Guard menyimpan tipe yang tersisa,
+    menandai `type_conflict=1`, dan workflow memanggil mode `--type-conflict` untuk
+    mendispatch pemilik triase — pemilik taksonomi — mencabut tipe yang salah.
+    Konflik punya kunci burst sendiri (`triage-conflict-`), terpisah dari kunci
+    relabel (`triage-unlabeled-`): pencabutan yang memicu `--relabel` lalu
+    pergantian tipe dalam jendela yang sama adalah dua respons berbeda, dan yang
+    pertama tak boleh menciutkan yang kedua. Konflik yang ditunda menulis
+    checkpoint `pending`, jadi sweep (atau `--recover-ready` pada issue `ready`)
+    memulihkannya. Karena kedua jalur sisi itu dapat men-dispatch untuk issue yang
+    sama, tiap respons menyimpan run-nya di slot sendiri
+    (`triage-sweep-<n>.extra.<jenis>`), dan sweep memeriksa **semua** slot sebelum
+    menandai issue selesai: ada yang masih berjalan → tunggu; ada yang gagal →
+    dispatch ulang; semua selesai → bersihkan. Tanpa itu, run yang ditulis
+    belakangan menimpa ID run yang lebih dulu dan kegagalan sisi tak pernah diulang.
+    `rilis-disetujui`/`rilis-ditolak`
     dihapus 2026-11-09: keduanya tidak pernah ada di repo, dan persetujuan rilis
     kini tag `vX.Y.Z`.
 18. **Prioritas berbukti.** Prioritas dinilai dari dampak, urgensi, dan risiko;
@@ -138,9 +164,13 @@ pertentangan itu dilaporkan sebagai issue.
 19. **Triase ulang dipicu setelah automation lain menanggapi.** Tak satu pun
     automation memicu `issues.edited`. Sebuah jembatan deterministik
     (`issue-triage-bridge.yml` + `.github/scripts/issue-triage-bridge.sh`)
-    mendispatch pemilik triase saat bot memasang label tipe/prioritas, dan saat
-    **sinyal aktivitas** sebuah issue belum `ready` berubah sejak checkpoint
-    terakhir jembatan. Sinyalnya adalah hash dari body issue plus setiap
+    mendispatch pemilik triase saat bot memasang label tipe/prioritas, saat
+    **`label-guard` mencabut** label yang dipasang orang dan tak memasang
+    penggantinya sehingga issue kehilangan tipe/prioritas (#838) — pemilik triase
+    dipanggil lewat mode `--relabel` di run yang sama, sebab pencabutannya
+    memakai `GITHUB_TOKEN` otomatis dan GitHub tak memulai run untuk event yang
+    dibuat token itu — dan saat **sinyal aktivitas** sebuah issue belum `ready`
+    berubah sejak checkpoint terakhir jembatan. Sinyalnya adalah hash dari body issue plus setiap
     komentar **bukan-armada** (penulis + `updated_at` + body) — jadi suntingan
     deskripsi, komentar baru, atau komentar yang disunting semuanya mengubah
     sinyal. Karena sinyalnya isi, bukan timestamp beresolusi detik, suntingan

@@ -61,6 +61,13 @@ case "$1" in
       *"/comments?per_page"*) [ -n "\${GH_STUB_COMMENTS:-}" ] && printf '%s\\n' "\${GH_STUB_COMMENTS}" ;;
       *"/reactions?per_page"*) [ -n "\${GH_STUB_REACTIONS:-}" ] && printf '%s\\n' "\${GH_STUB_REACTIONS}" ;;
       *"/issues/"*"/labels"*"--jq"*) [ -n "\${GH_STUB_CURRENT:-}" ] && printf '%s\\n' "\${GH_STUB_CURRENT}" ;;
+      # The issue's event timeline (#838 restore): the restore path reads the
+      # actor of the last labeled event. GH_STUB_EVENTS_FAIL makes the read
+      # fail, so a test can prove a failed read never restores.
+      *"/events"*"--jq"*)
+        [ "\${GH_STUB_EVENTS_FAIL:-}" = 1 ] && exit 1
+        [ -n "\${GH_STUB_EVENTS:-}" ] && printf '%s\\n' "\${GH_STUB_EVENTS}" ;;
+      *"-X POST"*"/labels"*) log "RESTORE_LABEL $*" ;;
       *"/issues/comments/"*"/reactions"*"-f content"*) log "REACT_COMMENT $*" ;;
       *"/issues/"*"/reactions"*"-f content"*) log "REACT_ISSUE $*" ;;
       *"/issues/"*"/comments"*"-f body"*) log "COMMENT $*" ;;
@@ -121,7 +128,7 @@ case "$url" in
         case "$method" in
           DELETE)
             log "KV_DELETE $k"
-            if [ -f "$kvdir/$k" ]; then rm -f "$kvdir/$k"; body=$(jq -nc --arg k "$k" '{key:$k,deleted:true}')
+            if [ -f "$kvdir/$k" ]; then rm -f "$kvdir/$k" "$kvdir/$k.ver" "$kvdir/$k.raced"; body=$(jq -nc --arg k "$k" '{key:$k,deleted:true}')
             else body=$(jq -nc --arg k "$k" '{key:$k,deleted:false}'); fi
             code=200 ;;
           PUT)
@@ -129,9 +136,46 @@ case "$url" in
             if [ -n "\${CURL_STUB_KV_PUT_FAIL:-}" ]; then
               body='{"detail":"store unavailable"}'; code=503; exitcode=22
             else
-              if [ -f "$kvdir/$k" ]; then code=200; else code=201; fi
-              printf '%s' "$bodyarg" > "$kvdir/$k"
-              body=$(jq -nc --arg k "$k" '{key:$k,created:false}')
+              # A concurrent writer can commit between this writer's read and its
+              # write. CURL_STUB_KV_RACE_KEY names the key, CURL_STUB_KV_RACE_TO
+              # the JSON the interloper stores, CURL_STUB_KV_RACE_ONCE=1 to fire
+              # only on the first write so a re-merge can then succeed. The
+              # interloper bumps the version, so a conditional write sees the
+              # mismatch (409) and re-merges, while a plain PUT clobbers it.
+              if [ -n "\${CURL_STUB_KV_RACE_KEY:-}" ] && [ "$k" = "$CURL_STUB_KV_RACE_KEY" ]; then
+                if [ "\${CURL_STUB_KV_RACE_ONCE:-}" != 1 ] || [ ! -f "$kvdir/$k.raced" ]; then
+                  printf '%s' "\${CURL_STUB_KV_RACE_TO:-}" > "$kvdir/$k"
+                  rv=$(cat "$kvdir/$k.ver" 2>/dev/null || echo 1)
+                  case "$rv" in '' | *[!0-9]*) rv=1 ;; esac
+                  echo $((rv + 1)) > "$kvdir/$k.ver"
+                  : > "$kvdir/$k.raced"
+                fi
+              fi
+              # The store's current version: 0 for an absent key, else the value
+              # in the key's .ver file (default 1, so a seed file written by a
+              # test is version 1 — the version the store assigns on create).
+              cur=0
+              if [ -f "$kvdir/$k" ]; then
+                cur=$(cat "$kvdir/$k.ver" 2>/dev/null || echo 1)
+                case "$cur" in '' | *[!0-9]*) cur=1 ;; esac
+              fi
+              # A conditional write: nx=true creates only if absent, if_version=N
+              # writes only if the store still holds version N. A mismatch is 409,
+              # the conflict the caller re-reads and re-merges on.
+              cond=""; exp=""
+              case "$url" in *"nx=true"*) cond="nx" ;; esac
+              case "$url" in *if_version=*) exp="\${url#*if_version=}"; exp="\${exp%%&*}" ;; esac
+              conflict=0
+              if [ "$cond" = "nx" ] && [ "$cur" != 0 ]; then conflict=1; fi
+              if [ -n "$exp" ] && [ "$exp" != "$cur" ]; then conflict=1; fi
+              if [ "$conflict" = 1 ]; then
+                body='{"detail":"version_conflict"}'; code=409; exitcode=22
+              else
+                if [ "$cur" = 0 ]; then code=201; else code=200; fi
+                printf '%s' "$bodyarg" > "$kvdir/$k"
+                echo $((cur + 1)) > "$kvdir/$k.ver"
+                body=$(jq -nc --arg k "$k" '{key:$k,created:false}')
+              fi
             fi ;;
           *)
             log "KV_GET $k"
@@ -141,7 +185,9 @@ case "$url" in
               body='{"detail":"store unavailable"}'; code=503; exitcode=22
             elif [ -f "$kvdir/$k" ]; then
               v=$(cat "$kvdir/$k")
-              body=$(jq -nc --arg k "$k" --argjson v "$v" '{key:$k,value:$v,version:1}')
+              ver=$(cat "$kvdir/$k.ver" 2>/dev/null || echo 1)
+              case "$ver" in '' | *[!0-9]*) ver=1 ;; esac
+              body=$(jq -nc --arg k "$k" --argjson v "$v" --argjson ver "$ver" '{key:$k,value:$v,version:$ver}')
               code=200
             else
               body='{"detail":"key_not_found"}'; code=404
@@ -245,6 +291,15 @@ case "$*" in
     fi ;;
   # issue_state (the type+priority read) matches here; GH_STUB_ISSUE_LABELS_FAIL
   # makes it fail, so a test can drive the "label read failed" path.
+  *"/issues/"*"--jq .state"*)
+    # The relabel mode's open/closed read (#838). Defaults to open.
+    [ "\${GH_STUB_STATE_FAIL:-}" = 1 ] && exit 1
+    printf '%s\\n' "\${GH_STUB_ISSUE_STATE:-open}" ;;
+  *"/issues/"*"/labels"*"--jq"*)
+    # remaining_labels reads the issue's label array (#838). The value is read
+    # with a bare default (not a colon default) so an explicitly empty string
+    # means "no labels left" — the case the fix acts on.
+    printf '%s\\n' "\${GH_STUB_LABELS_LIST-bug+priority:medium}" ;;
   *"join(\\"+\\")"*)
     [ "\${GH_STUB_ISSUE_LABELS_FAIL:-}" = 1 ] && exit 1
     printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
@@ -328,9 +383,11 @@ function run(
     },
   });
   // What the store holds after the run, so a test can assert on the checkpoint
-  // itself (key -> parsed value) instead of on a comment body.
+  // itself (key -> parsed value) instead of on a comment body. `.ver` and
+  // `.raced` are the stub's version bookkeeping, not keys.
   const kv: Record<string, unknown> = {};
   for (const f of readdirSync(kvDir)) {
+    if (f.endsWith('.ver') || f.endsWith('.raced')) continue;
     try {
       kv[f] = JSON.parse(readFileSync(join(kvDir, f), 'utf8'));
     } catch {
@@ -360,6 +417,16 @@ const LABELS =
 const labeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
   JSON.stringify({
     action: 'labeled',
+    sender: { login },
+    label: { name: label },
+    ...(opts.pr ? { pull_request: { number: 7 } } : { issue: { number: 7, pull_request: null } }),
+  });
+
+// A `unlabeled` event: the guard's restore half. The number is the issue's, so
+// the restore path reads that issue's own timeline.
+const unlabeledEvent = (login: string, label: string, opts: { pr?: boolean } = {}) =>
+  JSON.stringify({
+    action: 'unlabeled',
     sender: { login },
     label: { name: label },
     ...(opts.pr ? { pull_request: { number: 7 } } : { issue: { number: 7, pull_request: null } }),
@@ -736,6 +803,26 @@ describe('label-guard.sh', () => {
     expect(out).toContain('Removed label');
   });
 
+  it('reports `revoked=1` only when it removed a label, so the relabel runs once (#838)', () => {
+    // `label-guard.yml` gates the bridge's `--relabel` call on this output: a run
+    // that removed nothing must not wake the triage owner, or an ordinary human
+    // label on an untriaged issue would dispatch a relabel every time.
+    const outFile = join(dir, 'guard-output');
+    const revoked = (label: string, actor: string) => {
+      writeFileSync(outFile, '');
+      run(
+        LABEL_GUARD,
+        { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'triage', GITHUB_OUTPUT: outFile },
+        ['--stdin'],
+        labeledEvent(actor, label)
+      );
+      return readFileSync(outFile, 'utf8');
+    };
+    expect(revoked('ready', 'someone')).toContain('revoked=1');
+    // The bot's own label is left in place — nothing revoked.
+    expect(revoked('ready', 'cipansor-bot')).not.toContain('revoked=1');
+  });
+
   it('points a collaborator at @cipansor-bot and claims no human-decision label', () => {
     // "Sebutkan apa yang Anda inginkan" named no channel, and `bot-implement`
     // was removed on 2026-11-11, so the old tail was both vague and false.
@@ -891,15 +978,192 @@ describe('label-guard.sh', () => {
     expect(calls).not.toContain('COMMENT');
   });
 
-  it('does nothing when the label is removed, not added', () => {
-    const ev = JSON.stringify({
-      action: 'unlabeled',
-      sender: { login: 'someone' },
-      label: { name: 'ready' },
-      issue: { number: 7 },
-    });
-    const { calls } = run(LABEL_GUARD, { GH_STUB_LABELS: LABELS }, ['--stdin'], ev);
-    expect(calls).not.toContain('UNLABEL');
+  it('restores a bot-applied label a person removed, and says so once', () => {
+    // The other half of the policy (#838 follow-up): a removal is not a way to
+    // overrule the bot. The issue's own timeline says the bot applied the label
+    // last, so the guard puts it back and posts one restore notice.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
+    expect(calls).toContain('labels[]=ready');
+    expect(calls).toContain('COMMENT');
+    expect(calls).toContain('label-guard:restored');
+    expect(out).toContain('Restored label');
+  });
+
+  it('restores a bot-applied type label a person removed on an issue', () => {
+    // `bug` is in ALLOWED_LABELS: the issue forms apply a type label themselves,
+    // so the *standard* path leaves it. But the *restore* half must still put
+    // back a type label the bot applied and a person removed — the case #838
+    // reports. `protected_labels()` drops ALLOWED_LABELS on an issue, so using it
+    // here would never restore a type label and the issue would stay without one.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'bug')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
+    expect(calls).toContain('labels[]=bug');
+    expect(out).toContain('Restored label');
+  });
+
+  it('does not restore a type label when the issue now carries a different type', () => {
+    // A person who removes the bot's type while holding another type is changing
+    // the type. Restoring the old one would leave two types, which
+    // `issue-label-sync` refuses (`more than one type`), so the guard leaves the
+    // single remaining type and hands the reconciliation to the triage owner.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_EVENTS: 'cipansor-bot',
+        GH_STUB_CURRENT: 'enhancement',
+      },
+      ['--stdin'],
+      unlabeledEvent('someone', 'bug')
+    );
+    expect(calls).not.toContain('RESTORE_LABEL');
+    expect(calls).not.toContain('COMMENT');
+    expect(out).toContain('enhancement');
+  });
+
+  it('restores a type label when the surviving labels are not a type', () => {
+    // The conflict check must not overcorrect: a surviving priority (or status)
+    // label is not a competing type, so the bot's type still comes back.
+    const { calls } = run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_EVENTS: 'cipansor-bot',
+        GH_STUB_CURRENT: 'priority:high',
+      },
+      ['--stdin'],
+      unlabeledEvent('someone', 'bug')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
+    expect(calls).toContain('labels[]=bug');
+  });
+
+  it('reports the type conflict so the workflow dispatches the triage owner', () => {
+    // The guard cannot dispatch (the bridge does), so it signals the conflict
+    // through an output and `label-guard.yml` calls the bridge's
+    // `--type-conflict` mode — the triage owner owns the taxonomy and revokes
+    // the wrong type (docs/LABELS.md).
+    const outFile = join(dir, 'guard-output');
+    writeFileSync(outFile, '');
+    run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_EVENTS: 'cipansor-bot',
+        GH_STUB_CURRENT: 'enhancement',
+        GITHUB_OUTPUT: outFile,
+      },
+      ['--stdin'],
+      unlabeledEvent('someone', 'bug')
+    );
+    expect(readFileSync(outFile, 'utf8')).toContain('type_conflict=1');
+  });
+
+  it('does not restore a label a person last applied', () => {
+    // Only the bot's own label comes back; a person's label stays gone (the
+    // standard path would have revoked it anyway).
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'adminypc' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).not.toContain('RESTORE_LABEL');
+    expect(out).toContain('last applied by');
+  });
+
+  it('does not restore a label the bot or a GitHub App removed', () => {
+    // A bot removal is deliberate: the fleet withdrawing a contradictory `ready`,
+    // `stale-sweep` closing, `issue-label-sync` correcting. Restoring it would
+    // undo the guard's own work.
+    for (const remover of ['cipansor-bot', 'github-actions[bot]']) {
+      const { calls, out } = run(
+        LABEL_GUARD,
+        { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot' },
+        ['--stdin'],
+        unlabeledEvent(remover, 'ready')
+      );
+      expect(calls, `remover ${remover}`).not.toContain('RESTORE_LABEL');
+      expect(out).toContain('left off');
+    }
+  });
+
+  it('does not restore a bot `ready` when the issue now carries question or blocked', () => {
+    // Restoring `ready` beside an exclusion would recreate the conflict rule 8
+    // forbids. The current label set — not the payload — is what is checked.
+    for (const excl of ['question', 'blocked']) {
+      const { calls, out } = run(
+        LABEL_GUARD,
+        { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot', GH_STUB_CURRENT: excl },
+        ['--stdin'],
+        unlabeledEvent('someone', 'ready')
+      );
+      expect(calls, `${excl}`).not.toContain('RESTORE_LABEL');
+      expect(out).toContain(`contradicts '${excl}'`);
+    }
+  });
+
+  it('does not restore when the events read fails, and warns', () => {
+    // A read failure must never be read as "safe to restore" — the rule the whole
+    // restore path is built on.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS_FAIL: '1' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).not.toContain('RESTORE_LABEL');
+    expect(out).toContain('::warning::');
+  });
+
+  it('does not restore a label that is not in the repository', () => {
+    const { calls } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'not-a-label')
+    );
+    expect(calls).not.toContain('RESTORE_LABEL');
+  });
+
+  it('does not post a second restore notice when the marker is already there', () => {
+    const { calls } = run(
+      LABEL_GUARD,
+      {
+        GH_STUB_LABELS: LABELS,
+        GH_STUB_EVENTS: 'cipansor-bot',
+        GH_STUB_COMMENTS: '<!-- label-guard:restored -->',
+      },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
+    expect(calls).not.toContain('COMMENT');
+  });
+
+  it('reads the newest actor across a paginated timeline', () => {
+    // `--paginate` concatenates each page's output oldest-first, so the last
+    // non-empty line is the newest `labeled` event. A page with no match emits an
+    // empty line, which must not be read as the actor (that would skip a restore
+    // the bot does own).
+    const { calls } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'someone\n\ncipansor-bot' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'ready')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
   });
 
   it('removes a `ready` that contradicts an open question, even from the bot', () => {
@@ -1304,6 +1568,33 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     const { calls } = runBridge({ GH_STUB_STATE_LABELS: 'open bug ready' }, ['--recover-ready']);
     expect(calls).not.toContain('DISPATCH');
   });
+
+  it('recovers a deferred type conflict on a ready issue, which the sweep skips', () => {
+    // #838 follow-up: `--type-conflict` defers while the pool is full and writes
+    // the same `pending` sweep checkpoint; if the issue is `ready` the ordinary
+    // sweep skips it, so the recovery pass must pick it up or the conflict is lost
+    // and the wrong type survives. Round-trip: defer, then recover.
+    const deferred = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        GH_STUB_STATE_LABELS: 'open enhancement ready',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(deferred.kv['triage-sweep-818']).toMatchObject({ extra: { conflict: 'pending' } });
+
+    const recovered = runBridge(
+      {
+        KV_SEED: { 'triage-sweep-818': deferred.kv['triage-sweep-818'] },
+        GH_STUB_STATE_LABELS: 'open enhancement ready',
+        GH_STUB_BODY: 'triaged',
+      },
+      ['--recover-ready']
+    );
+    expect(recovered.calls).toContain('DISPATCH');
+  });
 });
 
 describe('basmalah.sh', () => {
@@ -1475,6 +1766,42 @@ describe('fleet contracts', () => {
     expect(wf).toMatch(/issues:[\s\S]*types:[\s\S]*labeled/);
     expect(wf).toMatch(/schedule:/);
     expect(wf).toContain('--sweep');
+  });
+
+  it('calls the triage bridge from `label-guard.yml` so a revocation is relabelled (#838)', () => {
+    // The guard removes a protected label and applies nothing in its place, so
+    // the issue can be left with no type or no priority. It cannot trigger the
+    // bridge through GitHub — the removal is made with the automatic
+    // `GITHUB_TOKEN`, and GitHub starts no workflow run for an event that token
+    // creates — so `label-guard.yml` invokes the bridge's `--relabel` mode in the
+    // same run, gated on the guard having actually removed a label.
+    const wf = read(join(WORKFLOWS, 'label-guard.yml'));
+    expect(wf).toContain('issue-triage-bridge.sh --relabel');
+    expect(wf).toMatch(/steps\.guard\.outputs\.revoked == '1'/);
+    expect(wf).toContain('OPENHANDS_API_KEY');
+  });
+
+  it('calls the triage bridge on a type conflict so the triage owner reconciles it (#838)', () => {
+    // A person who removes the bot's type while holding another type is changing
+    // the type; the guard declines the restore (two types break the sync) and
+    // signals `type_conflict=1`, and the workflow dispatches the triage owner —
+    // the taxonomy's owner — to revoke the wrong type.
+    const wf = read(join(WORKFLOWS, 'label-guard.yml'));
+    expect(wf).toContain('issue-triage-bridge.sh --type-conflict');
+    expect(wf).toMatch(/steps\.guard\.outputs\.type_conflict == '1'/);
+  });
+
+  it('triggers the label guard on `unlabeled` too, so a human removal is restored', () => {
+    // The restore half of the policy: a label the bot applied and a person
+    // removed is put back. The workflow must fire on `unlabeled` for both event
+    // kinds, and the `--relabel` step stays gated on the guard having actually
+    // revoked something (a restore writes no `revoked=1`).
+    const wf = read(join(WORKFLOWS, 'label-guard.yml'));
+    const onBlock = wf.slice(wf.indexOf('\non:'), wf.indexOf('\npermissions:'));
+    expect(onBlock).toMatch(/issues:[\s\S]*types:\s*\[labeled, unlabeled\]/);
+    expect(onBlock).toMatch(/pull_request_target:[\s\S]*types:\s*\[labeled, unlabeled\]/);
+    // The gate is unchanged: `--relabel` runs only for a revocation, not a restore.
+    expect(wf).toMatch(/steps\.guard\.outputs\.revoked == '1'/);
   });
 
   it('keeps the triage bridge from writing any comment, checkpointing in the KV store', () => {
@@ -2603,6 +2930,519 @@ describe('issue-triage-bridge.sh', () => {
       labeledEvent('cipansor-bot', 'ready')
     );
     expect(calls).not.toContain('DISPATCH');
+  });
+
+  // #838: `label-guard` removes a protected label a person applied and applies
+  // nothing in its place, leaving the issue with no type or no priority. The
+  // guard cannot trigger the bridge through GitHub (its removal is made with the
+  // automatic `GITHUB_TOKEN`, and GitHub starts no run for an event that token
+  // creates), so `label-guard.yml` calls `--relabel` in the same run.
+  it('dispatches the labeler when a guard revocation leaves no type or priority', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: '' }, ['--relabel', '818']);
+    expect(calls).toContain('DISPATCH');
+    expect(calls).toContain('/dispatch');
+    expect(out).toContain('Dispatched the triage owner for #818');
+  });
+
+  it('dispatches when only the priority was revoked and the type survives', () => {
+    const { calls } = runBridge({ GH_STUB_LABELS_LIST: 'bug' }, ['--relabel', '818']);
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('does not dispatch when a type and a priority survive the revocation', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: 'bug+priority:high' }, [
+      '--relabel',
+      '818',
+    ]);
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('still holds a type and a priority');
+  });
+
+  it('treats refactor and security as types, so a priority+type set is not a gap', () => {
+    // The old `case "$left"` used a prefix test: `priority:high+refactor` matched
+    // `priority:*` and was read as having no type, because `refactor` and
+    // `security` sort *after* `priority:` in the `+`-joined set. Membership is now
+    // tested per element, so these sets keep their type and do not dispatch.
+    for (const set of ['priority:high+refactor', 'priority:high+security']) {
+      const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: set }, ['--relabel', '818']);
+      expect(calls, `set ${set}`).not.toContain('DISPATCH');
+      expect(out).toContain('still holds a type and a priority');
+    }
+  });
+
+  it('still dispatches when only the priority survives beside a type', () => {
+    // The fix must not overcorrect: `refactor` alone (no priority) is still a gap.
+    const { calls } = runBridge({ GH_STUB_LABELS_LIST: 'refactor' }, ['--relabel', '818']);
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('records a pending checkpoint when a relabel dispatch fails, so the sweep retries', () => {
+    // A failed dispatch must not be lost. Without a checkpoint the sweep compares
+    // the signal with a stale or absent one and can read the issue as already
+    // answered, so the failed dispatch never retries. The `pending` form (the same
+    // the MAX_INFLIGHT deferral writes) names no run, so the next sweep dispatches
+    // it. The relabel response is tracked in its own slot, so a relabel dispatch
+    // cannot overwrite a type-conflict one (#838 follow-up).
+    const { out, kv } = runBridge({ GH_STUB_LABELS_LIST: '', CURL_STUB_CODE: '503' }, [
+      '--relabel',
+      '818',
+    ]);
+    expect(out).toContain('relabel dispatch failed');
+    expect(kv['triage-sweep-818']).toMatchObject({ extra: { relabel: 'pending' } });
+  });
+
+  it('retries a pending relabel checkpoint on the next sweep', () => {
+    // The checkpoint the failed relabel wrote: `pending` is not a finished form,
+    // so the sweep dispatches it instead of reading it as already answered.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: '',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal(''), run: '', extra: { relabel: 'pending' } },
+        },
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('does not dispatch a relabel for a closed issue', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: '', GH_STUB_ISSUE_STATE: 'closed' }, [
+      '--relabel',
+      '818',
+    ]);
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('closed');
+  });
+
+  // #838 follow-up: a person who removes the bot's type while holding another
+  // type is changing the type. Restoring the old one would leave two types, which
+  // `issue-label-sync` refuses, so the guard declines and signals the workflow,
+  // which calls this mode to dispatch the triage owner — the taxonomy's owner.
+  it('dispatches the triage owner when a type change leaves a conflicting type', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: 'enhancement' }, [
+      '--type-conflict',
+      '818',
+      'bug',
+    ]);
+    expect(calls).toContain('DISPATCH');
+    expect(out).toContain('Dispatched the triage owner for #818');
+  });
+
+  it('does not dispatch a type conflict when the declined type is back', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: 'bug' }, [
+      '--type-conflict',
+      '818',
+      'bug',
+    ]);
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('again');
+  });
+
+  it('does not dispatch a type conflict when the issue has no type left', () => {
+    // No type at all is the `--relabel` path's job, not this one's.
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: '' }, [
+      '--type-conflict',
+      '818',
+      'bug',
+    ]);
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('no type');
+  });
+
+  it('does not dispatch a type conflict for a closed issue', () => {
+    const { calls } = runBridge(
+      { GH_STUB_LABELS_LIST: 'enhancement', GH_STUB_ISSUE_STATE: 'closed' },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('does not collapse a type conflict behind a recent relabel dispatch', () => {
+    // #838 follow-up: a revocation can dispatch `--relabel` (a missing priority)
+    // and a type change can follow within the burst window. They are different
+    // responses — the relabel fills a gap, the conflict reconciles a type — so the
+    // relabel's burst key must not collapse the conflict, or the wrong type
+    // survives and `issue-label-sync` fails the closing PR's sync.
+    const { calls } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        KV_SEED: { 'triage-unlabeled-818': { at: Math.floor(Date.now() / 1000) } },
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('collapses a type-conflict burst to one dispatch per issue', () => {
+    // The conflict's own burst: a person who removes several bot labels signals a
+    // conflict for each, and the guard's concurrency group is per label, so the
+    // runs race. The collapse is keyed on the issue and the burst window.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        KV_SEED: { 'triage-conflict-818': { at: Math.floor(Date.now() / 1000) } },
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+  });
+
+  it('records a pending checkpoint when it defers a type conflict, so the sweep recovers it', () => {
+    // A deferred conflict must not be lost. It goes in its own `extra.conflict`
+    // slot — a `pending` marker the sweep and `--recover-ready` both read — so it
+    // neither clobbers nor is clobbered by a relabel run on the same issue.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({ extra: { conflict: 'pending' } });
+  });
+
+  it('keeps a relabel run and a conflict run in separate slots on one issue', () => {
+    // #838 follow-up: a revocation can dispatch `--relabel` and a type change can
+    // dispatch `--type-conflict` for the same issue. They share one checkpoint, so
+    // each response is recorded in its own slot — the later write must not drop
+    // the earlier run, or the sweep would finalise the issue while a run is still
+    // unread.
+    const first = runBridge({ GH_STUB_LABELS_LIST: '', CURL_STUB_RUN_ID: 'relabel-run' }, [
+      '--relabel',
+      '818',
+    ]);
+    expect(first.kv['triage-sweep-818']).toMatchObject({ extra: { relabel: 'relabel-run' } });
+
+    const second = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'enhancement',
+        CURL_STUB_RUN_ID: 'conflict-run',
+        KV_SEED: { 'triage-sweep-818': first.kv['triage-sweep-818'] },
+      },
+      ['--type-conflict', '818', 'bug']
+    );
+    expect(second.kv['triage-sweep-818']).toMatchObject({
+      extra: { relabel: 'relabel-run', conflict: 'conflict-run' },
+    });
+  });
+
+  it('retries a failed side run even after another run on the issue completed', () => {
+    // The checkpoint names two runs: a conflict run that FAILED and a relabel run
+    // that COMPLETED. The sweep must re-dispatch the failed one, not read the
+    // completed run and mark the issue done.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'triaged',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('triaged'),
+            run: '',
+            extra: { conflict: 'conflict-run', relabel: 'relabel-run' },
+          },
+        },
+        CURL_STUB_RUNS:
+          '{"runs":[{"id":"conflict-run","status":"FAILED"},{"id":"relabel-run","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(out).toContain('side run conflict-run did not complete');
+  });
+
+  it('leaves the issue in flight while a side run is still running', () => {
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'triaged',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('triaged'),
+            run: '',
+            extra: { conflict: 'conflict-run' },
+          },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"conflict-run","status":"RUNNING"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('finalises the checkpoint once every side run has completed', () => {
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'triaged',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('triaged'),
+            run: '',
+            extra: { conflict: 'conflict-run' },
+          },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"conflict-run","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('triaged'), run: '' });
+  });
+
+  it('keeps a conflict slot when the label path writes the main slot', () => {
+    // #838 follow-up: the label path (`--stdin`) and the side responses share one
+    // checkpoint, because a label change does not move `activity_signal`. A main
+    // write must not drop a side slot the sweep still has to read — else a bot
+    // label applied after a type conflict erases the conflict run and the wrong
+    // type is never reconciled. The reviewer's "checkpoint konflik tertimpa run
+    // pelabelan": whichever response writes last must preserve the other's slot.
+    const { kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_RUN_ID: 'labeler-run',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('triaged'), run: '', extra: { conflict: 'c1' } },
+        },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'labeler-run',
+      extra: { conflict: 'c1' },
+    });
+  });
+
+  it('recovers a conflict a labeling run did not overwrite', () => {
+    // The reviewer's sequence on one issue: a type conflict dispatches, then a
+    // bot label dispatches (the labeling run), then the sweep runs. The labeling
+    // run must keep the conflict slot, so the sweep still sees the failed
+    // conflict and re-dispatches — the recovery the point asked to prove.
+    const conflict = runBridge({ GH_STUB_LABELS_LIST: 'enhancement' }, [
+      '--type-conflict',
+      '818',
+      'bug',
+    ]);
+    expect(conflict.kv['triage-sweep-818']).toMatchObject({ extra: { conflict: 'run-1' } });
+
+    const labeled = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: '',
+        CURL_STUB_RUN_ID: 'labeler-run',
+        KV_SEED: { 'triage-sweep-818': conflict.kv['triage-sweep-818'] },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(labeled.kv['triage-sweep-818']).toMatchObject({
+      run: 'labeler-run',
+      extra: { conflict: 'run-1' },
+    });
+
+    const swept = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: '',
+        KV_SEED: { 'triage-sweep-818': labeled.kv['triage-sweep-818'] },
+        CURL_STUB_RUNS:
+          '{"runs":[{"id":"run-1","status":"FAILED"},{"id":"labeler-run","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(swept.calls).toContain('DISPATCH');
+    expect(swept.out).toContain('side run run-1 did not complete');
+  });
+
+  it('does not carry a retried side slot into the sweep’s own re-dispatch', () => {
+    // The sweep re-dispatches the triage owner to retry a failed slot; that run
+    // supersedes the slot, so the sweep clears it. Keeping it would make every
+    // later sweep re-read the same failed run and re-dispatch forever.
+    const { kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_RUN_ID: 'sweep-run',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('triaged'),
+            run: '',
+            extra: { conflict: 'c1' },
+          },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"c1","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({ run: 'sweep-run' });
+    expect(kv['triage-sweep-818']).not.toHaveProperty('extra');
+  });
+
+  it('keeps a side slot when the main writer records a deferred `pending`', () => {
+    // The reviewer's "penulisan ulang pending menghapus slot sisi": when the main
+    // writer rewrites the checkpoint as a deferral (`pending`), it must keep a
+    // side slot the sweep still has to read. Here the label path defers because
+    // the pool is full, and a conflict slot is already on the issue.
+    const { kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: 'triaged',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('triaged'), run: '', extra: { conflict: 'c1' } },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'pending',
+      extra: { conflict: 'c1' },
+    });
+  });
+
+  it('keeps a foreign `at` field when the side writer records a run', () => {
+    const { kv } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: '',
+        CURL_STUB_RUN_ID: 'relabel-run',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal(''), run: 'pending', at: 1794493156 },
+        },
+      },
+      ['--relabel', '818']
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({
+      extra: { relabel: 'relabel-run' },
+      at: 1794493156,
+    });
+  });
+
+  it('keeps a side slot a concurrent writer stored while the label path writes', () => {
+    // #838 follow-up, the reviewer's "pelestarian slot belum atomik": the label
+    // path (`--stdin`) and a side response run in *different* workflows and can
+    // write the same checkpoint at once. A plain read-merge-write lets the slower
+    // writer clobber the field the faster one just stored — the slot loss the
+    // merge prevents, only moved to the interleaving. The write is conditional:
+    // the label path's stale version gets a 409, it re-reads and re-merges, and
+    // the conflict slot the concurrent writer stored survives.
+    const sig = signal('triaged');
+    const { kv, calls } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_RUN_ID: 'labeler-run',
+        // The store the label path reads: the checkpoint, with no side slot yet.
+        KV_SEED: { 'triage-sweep-818': { signal: sig, run: '' } },
+        // A concurrent writer stores a conflict slot between that read and the
+        // write. It bumps the version, so only a conditional write notices.
+        CURL_STUB_KV_RACE_KEY: 'triage-sweep-818',
+        CURL_STUB_KV_RACE_TO: JSON.stringify({ signal: sig, run: '', extra: { conflict: 'c1' } }),
+        CURL_STUB_KV_RACE_ONCE: '1',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'labeler-run',
+      extra: { conflict: 'c1' },
+    });
+  });
+
+  it('keeps a main slot a concurrent writer stored while the side writer records', () => {
+    // The mirror race: a `--relabel` side write races the label path's main
+    // write. The side writer's stale version gets a 409, it re-reads and
+    // re-merges, and the main `run` slot the concurrent writer stored survives
+    // instead of being reset to the empty string the side writer had read.
+    const sig = signal('');
+    const { kv } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: '',
+        CURL_STUB_RUN_ID: 'relabel-run',
+        KV_SEED: { 'triage-sweep-818': { signal: sig, run: '' } },
+        CURL_STUB_KV_RACE_KEY: 'triage-sweep-818',
+        CURL_STUB_KV_RACE_TO: JSON.stringify({ signal: sig, run: 'labeler-run' }),
+        CURL_STUB_KV_RACE_ONCE: '1',
+      },
+      ['--relabel', '818']
+    );
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'labeler-run',
+      extra: { relabel: 'relabel-run' },
+    });
+  });
+
+  it('gives up on a checkpoint that keeps moving, with a warning', () => {
+    // A hot key — another workflow writing between every read and write — must
+    // not spin forever. The conditional write is bounded; when the bound is
+    // reached it leaves the store as the last writer left it and warns, so the
+    // next sweep re-reads rather than the run hanging.
+    const sig = signal('triaged');
+    const { kv, out } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'enhancement+priority:high',
+        GH_STUB_BODY: 'triaged',
+        CURL_STUB_RUN_ID: 'labeler-run',
+        KV_SEED: { 'triage-sweep-818': { signal: sig, run: '' } },
+        SWEEP_MARKER_CAS_MAX: '1',
+        CURL_STUB_KV_RACE_KEY: 'triage-sweep-818',
+        CURL_STUB_KV_RACE_TO: JSON.stringify({ signal: sig, run: 'other-run' }),
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(out).toContain('could not record the triage checkpoint on #818');
+    expect(kv['triage-sweep-818']).toEqual({ signal: sig, run: 'other-run' });
+  });
+
+  it('collapses the guard’s removal burst to one relabel dispatch per issue', () => {
+    // The guard removes one label per event, and its concurrency group is per
+    // label, so the runs race. The collapse is keyed on the issue and the burst
+    // window: a second relabel within the window is the same burst.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'bug',
+        KV_SEED: { 'triage-unlabeled-818': { at: Math.floor(Date.now() / 1000) } },
+      },
+      ['--relabel', '818']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+  });
+
+  it('collapses a full-revocation burst even when no labels remain', () => {
+    // The reported case (#836) is *every* label revoked: the resulting set is
+    // empty, and the collapse must still hold or each event dispatches again.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: '',
+        KV_SEED: { 'triage-unlabeled-818': { at: Math.floor(Date.now() / 1000) } },
+      },
+      ['--relabel', '818']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+  });
+
+  it('re-dispatches a relabel when the previous burst is older than the window', () => {
+    // A genuine later revocation (a fresh hand-applied label removed after the
+    // window) is a new response, not the same burst.
+    const { calls } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: '',
+        KV_SEED: { 'triage-unlabeled-818': { at: 0 } },
+      },
+      ['--relabel', '818']
+    );
+    expect(calls).toContain('DISPATCH');
   });
 
   it('posts no comment at all, so no empty marker lands on the issue', () => {
