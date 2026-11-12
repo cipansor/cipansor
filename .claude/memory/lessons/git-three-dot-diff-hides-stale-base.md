@@ -86,3 +86,16 @@ And the reverse: a **stale local `origin/main`** makes `git diff
 origin/main...pr` show other PRs' changes as this one's. Fetch first
 (`git fetch origin --prune`), and fetch PR heads into local branches
 (`refs/pull/N/head:refs/heads/…`), not under `origin/`, which `--prune` deletes.
+
+## Two documentation PRs collide in the same two places
+
+Measured 2026-11-11: three docs PRs open at once (#1035, #1036 and a new one)
+merged cleanly in a worktree except for **one** conflict — both #1035 and the
+new PR appended a `0.5` row to `docs/PANDUAN-PENGGUNA-GURU.md`'s Riwayat Revisi
+table (same line, so a textual conflict) — while `docs/screens/manifest.json`
+auto-merged (JSON arrays of distinct entries). The booklets' revision tables and
+`docs/screens/manifest.json` are the two spots every picture/text docs PR
+touches. Resolve the table by keeping both rows and renumbering the later one
+(the version column is not unique-constrained, so a silent duplicate is the
+failure mode when the merge is automatic); re-run `check_docs.py` on the merged
+tree, since a row that quotes a menu label must still match the code.

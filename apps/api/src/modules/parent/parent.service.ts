@@ -4,7 +4,9 @@ import { Prisma, AttendanceStatus, Invoice, StudentParent } from '@prisma/client
 import { getStudentIbadahStats } from '../ibadah/ibadah.service';
 import * as DormitoryService from '../dormitories/dormitories.service';
 import { recentAnnouncements as announcementsAddressedTo } from '@/modules/announcements';
+import { memorizedJuz } from '@/modules/tahfidz/quran-surahs';
 import { todayWib, wibWeekRange } from '../../utils/wib';
+import type { Attendance, ParentDashboardData } from '@cipansor/shared';
 
 type StudentParentWithStudent = Awaited<ReturnType<typeof prisma.studentParent.findMany>>[0];
 type GradeWithRelations = Awaited<ReturnType<typeof prisma.grade.findMany>>[0];
@@ -852,7 +854,7 @@ export class ParentService {
   /**
    * Get parent dashboard summary
    */
-  async getDashboardSummary(parentId: string) {
+  async getDashboardSummary(parentId: string): Promise<ParentDashboardData> {
     const children = await this.getChildren(parentId);
     const childrenIds = children.map((c) => c.id);
 
@@ -912,6 +914,36 @@ export class ParentService {
       orderBy: [{ studentId: 'asc' }, { recordedAt: 'desc' }],
     });
 
+    // 4b. Bulk hafalan per santri, in juz. A record's `juz` is where the setoran
+    // sits, not how much was memorized, so the count sums the ZIYADAH ayah per
+    // juz and weighs each juz by its own size (`memorizedJuz`); murojaah of an
+    // old juz must not inflate it (decision K13.4, #869 review).
+    const ziyadahByStudentJuz = await prisma.tahfidzRecord.groupBy({
+      by: ['studentId', 'juz'],
+      where: {
+        studentId: { in: childrenIds },
+        activityType: 'ZIYADAH',
+      },
+      _sum: { totalAyah: true },
+    });
+    const ziyadahJuzByStudent = new Map<string, Array<[number, number]>>();
+    for (const row of ziyadahByStudentJuz) {
+      const list = ziyadahJuzByStudent.get(row.studentId) ?? [];
+      list.push([row.juz, row._sum.totalAyah || 0]);
+      ziyadahJuzByStudent.set(row.studentId, list);
+    }
+    const hasZiyadah = (studentId: string) => ziyadahJuzByStudent.has(studentId);
+    // Raw hafalan in juz, unrounded: the tahfidz dimension reads this so a few
+    // ayat of juz 30 still score above zero. The DTO rounds for display only.
+    const memorizedJuzOf = (studentId: string) =>
+      memorizedJuz(ziyadahJuzByStudent.get(studentId) ?? []);
+    // Three decimals, not two: a santri who has recited a single ayah of juz 30
+    // holds 1/564 ≈ 0.0018 juz, and two decimals would round that to 0 — "no
+    // hafalan" shown for a santri who recited today. The smallest real record
+    // is one ayah of the largest juz (0.0018), so three decimals always keeps a
+    // positive hafalan positive; a whole juz and a half still read as 1, 1.5.
+    const roundJuzForDisplay = (juz: number) => Math.round(juz * 1000) / 1000;
+
     // 5. Bulk fetch active academic years for all units involved
     // AcademicYear is global (not scoped by unit), so just fetch active years.
     const activeYears = await prisma.academicYear.findMany({
@@ -951,8 +983,12 @@ export class ParentService {
 
     // Map data back to children (synchronous now – no per-child DB calls)
     const summary = children.map((child) => {
-      // Filter recent attendance for this child, take 7
-      const recentAttendance = allAttendances.filter((a) => a.studentId === child.id).slice(0, 7);
+      // Filter recent attendance for this child, take 7. The rows are Prisma
+      // records; the shared `Attendance` differs only by its own status enum,
+      // so the cast mirrors `attendance.service.ts#mapToShared`.
+      const recentAttendance = allAttendances
+        .filter((a) => a.studentId === child.id)
+        .slice(0, 7) as unknown as Attendance[];
 
       const pendingInvoiceCount =
         pendingInvoices.find((p) => p.studentId === child.id)?._count.id || 0;
@@ -961,15 +997,26 @@ export class ParentService {
 
       const lastTahfidz = lastTahfidzRecords.find((t) => t.studentId === child.id);
 
-      // Compute holistic score from bulk-fetched data (academic + behavior + tahfidz)
+      // Holistic score from the dimensions that actually have data; a dimension
+      // with no records is `null` and never counts (decision K13.2, #869). The
+      // wali's page shows "—", not a fabricated figure, when all are empty.
       const gradeAvg = studentGradeScores.find((g) => g.studentId === child.id)?._avg.percentage;
-      const violationPts = Number(
-        studentViolationPoints.find((v) => v.studentId === child.id)?._sum.points || 0
-      );
+      const violationRow = studentViolationPoints.find((v) => v.studentId === child.id);
       const academicScore = gradeAvg != null ? Number(gradeAvg) : null;
-      const behaviorScore = Math.max(0, 100 - violationPts);
-      const maxJuz = lastTahfidz?.juz || 0;
-      const tahfidzScore = maxJuz > 0 ? Math.min(100, (maxJuz / 30) * 100) : null;
+      // Behavior is data only when a violation record exists; a clean record is
+      // "not assessed" on this dashboard, not a headline 100.
+      const behaviorScore =
+        violationRow !== undefined
+          ? Math.max(0, 100 - Number(violationRow._sum.points || 0))
+          : null;
+      // The tahfidz dimension is hafalan in juz, not the last setoran's juz
+      // number: a single ayah in juz 30 is a fraction of a juz, not 30/30
+      // (decision K13.4, #869 review). `null` when the santri has no ZIYADAH
+      // record, so the dimension drops out of the average rather than counting 0.
+      // The score reads the *unrounded* hafalan: one ayah of juz 30 must score
+      // above zero, not round away (#869 review).
+      const memorizedRaw = hasZiyadah(child.id) ? memorizedJuzOf(child.id) : null;
+      const tahfidzScore = memorizedRaw !== null ? Math.min(100, (memorizedRaw / 30) * 100) : null;
       const holisticDims = [academicScore, tahfidzScore, behaviorScore].filter(
         (d): d is number => d !== null
       );
@@ -988,6 +1035,7 @@ export class ParentService {
         pendingInvoices: pendingInvoiceCount,
         activePermits: activePermitCount,
         lastTahfidz: lastTahfidz || null,
+        memorizedJuz: memorizedRaw !== null ? roundJuzForDisplay(memorizedRaw) : null,
         holisticScore: holisticScore !== null ? Math.round(holisticScore * 10) / 10 : null,
         holisticInterpretation: null,
         boardingHarmonyScore: boardingHarmony?.harmonyScore ?? null,

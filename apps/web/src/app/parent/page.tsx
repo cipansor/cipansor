@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useState } from "react";
 import { useAuthStore } from "@/stores/auth";
 import {
   Card,
@@ -12,107 +11,54 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
-import { api } from "@/lib/api";
-import type { ParentChild } from "@/hooks/use-parent-portal";
+import {
+  useParentChildren,
+  useParentDashboard,
+} from "@/hooks/use-parent-portal";
+import { getErrorMessage } from "@/lib/api-error";
+import type { ParentDashboardData } from "@cipansor/shared";
 import Link from "next/link";
 import {
   Users,
   GraduationCap,
   Calendar,
   AlertTriangle,
-  Award,
   Receipt,
   BookOpen,
-  TrendingUp,
   Bell,
-  Wallet,
   MessageSquare,
   Star,
   HeartHandshake,
 } from "lucide-react";
 
-interface ChildSummary {
-  studentId: string;
-  studentName: string;
-  recentAttendance: {
-    present: number;
-    absent: number;
-    sick: number;
-    permitted: number;
-    percentage: number;
-  };
-  latestTahfidz?: {
-    totalJuz: number;
-    lastMemoization?: {
-      surahName: string;
-      ayahStart: number;
-      ayahEnd: number;
-    };
-  };
-  latestGrade?: {
-    subject: string;
-    score: number;
-    maxScore: number;
-  };
-  holisticScore?: number;
-  holisticInterpretation?: string;
-  boardingHarmonyScore?: number;
-  pendingViolations: number;
-  pendingPayments: {
-    count: number;
-    total: number;
-  };
-  unreadRewards: number;
-  wallet?: {
-    balance: number;
-    lastTransaction?: {
-      type: string;
-      amount: number;
-      date: string;
-    };
-  };
-}
-
-interface DashboardData {
-  children: ChildSummary[];
-  recentAnnouncements: Array<{
-    id: string;
-    title: string;
-    content: string;
-    createdAt: string;
-    priority: number;
-  }>;
-  unreadNotifications: number;
+/**
+ * The share of the last seven attendance rows the child was `PRESENT` for, as a
+ * whole percent (decision K13, issue #869); `null` when there are no rows, so
+ * "no records" never reads as "never came" (0%).
+ */
+function attendancePercentage(
+  recentAttendance: ParentDashboardData["children"][number]["recentAttendance"],
+): number | null {
+  if (recentAttendance.length === 0) return null;
+  const present = recentAttendance.filter((a) => a.status === "PRESENT").length;
+  return Math.round((present / recentAttendance.length) * 100);
 }
 
 export default function ParentDashboardPage() {
   const { user } = useAuthStore();
-  const [loading, setLoading] = useState(true);
-  const [children, setChildren] = useState<ParentChild[]>([]);
-  const [dashboard, setDashboard] = useState<DashboardData | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const {
+    data: children = [],
+    isLoading: childrenLoading,
+    error: childrenError,
+  } = useParentChildren();
+  const {
+    data: dashboard,
+    isLoading: dashboardLoading,
+    error: dashboardError,
+  } = useParentDashboard();
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        setLoading(true);
-        // Fetch children list and dashboard summary
-        const [childrenRes, dashboardRes] = await Promise.all([
-          api.get("/parent/children"),
-          api.get("/parent/dashboard"),
-        ]);
-        setChildren(childrenRes.data.data || []);
-        setDashboard(dashboardRes.data.data || null);
-      } catch (err: any) {
-        console.error("Failed to fetch parent data:", err);
-        setError(err.response?.data?.error?.message || "Gagal memuat data");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
-  }, []);
+  const loading = childrenLoading || dashboardLoading;
+  const error = childrenError ?? dashboardError;
 
   if (loading) {
     return (
@@ -135,7 +81,7 @@ export default function ParentDashboardPage() {
       <Card>
         <CardContent className="p-6 text-center">
           <AlertTriangle className="h-12 w-12 text-destructive mx-auto mb-4" />
-          <p className="text-destructive">{error}</p>
+          <p className="text-destructive">{getErrorMessage(error)}</p>
           <Button onClick={() => window.location.reload()} className="mt-4">
             Coba Lagi
           </Button>
@@ -143,14 +89,6 @@ export default function ParentDashboardPage() {
       </Card>
     );
   }
-
-  const formatCurrency = (amount: number) => {
-    return new Intl.NumberFormat("id-ID", {
-      style: "currency",
-      currency: "IDR",
-      minimumFractionDigits: 0,
-    }).format(amount);
-  };
 
   return (
     <div className="space-y-6">
@@ -178,8 +116,11 @@ export default function ParentDashboardPage() {
       <div className="grid gap-6 md:grid-cols-2 xl:grid-cols-3">
         {children.map((child) => {
           const summary = dashboard?.children.find(
-            (c) => c.studentId === child.id,
+            (c) => c.child.id === child.id,
           );
+          const attendance = summary
+            ? attendancePercentage(summary.recentAttendance)
+            : null;
 
           return (
             <Card key={child.id} className="overflow-hidden">
@@ -205,120 +146,77 @@ export default function ParentDashboardPage() {
               </CardHeader>
               <CardContent className="pt-4">
                 <div className="grid grid-cols-2 gap-4 text-sm">
-                  {/* Attendance */}
+                  {/* Attendance — computed from the last seven rows, not a field. */}
                   <div className="flex items-center gap-2">
                     <Calendar className="h-4 w-4 text-muted-foreground" />
                     <span>
                       Kehadiran:{" "}
-                      <strong
-                        className={
-                          (summary?.recentAttendance?.percentage ?? 0) >= 80
-                            ? "text-green-600"
-                            : "text-red-600"
-                        }
-                      >
-                        {summary?.recentAttendance?.percentage ?? 0}%
-                      </strong>
+                      {attendance === null ? (
+                        <strong className="text-muted-foreground">—</strong>
+                      ) : (
+                        <strong
+                          className={
+                            attendance >= 80 ? "text-green-600" : "text-red-600"
+                          }
+                        >
+                          {attendance}%
+                        </strong>
+                      )}
                     </span>
                   </div>
 
-                  {/* Tahfidz */}
+                  {/* Tahfidz — hafalan in juz, summed from the ZIYADAH records
+                      (the API's `memorizedJuz`), not the last setoran's juz
+                      number; "—" when no ZIYADAH record exists (K13.4). */}
                   <div className="flex items-center gap-2">
                     <BookOpen className="h-4 w-4 text-muted-foreground" />
                     <span>
                       Tahfidz:{" "}
-                      <strong>
-                        {summary?.latestTahfidz?.totalJuz || 0} Juz
-                      </strong>
-                    </span>
-                  </div>
-
-                  {/* Violations */}
-                  <div className="flex items-center gap-2">
-                    <AlertTriangle className="h-4 w-4 text-muted-foreground" />
-                    <span>
-                      Pelanggaran:{" "}
-                      <strong
-                        className={
-                          summary?.pendingViolations
-                            ? "text-red-600"
-                            : "text-green-600"
-                        }
-                      >
-                        {summary?.pendingViolations || 0}
-                      </strong>
-                    </span>
-                  </div>
-
-                  {/* Rewards */}
-                  <div className="flex items-center gap-2">
-                    <Award className="h-4 w-4 text-muted-foreground" />
-                    <span>
-                      Penghargaan:{" "}
-                      <strong className="text-green-600">
-                        {summary?.unreadRewards || 0}
-                      </strong>
+                      {summary?.memorizedJuz == null ? (
+                        <strong className="text-muted-foreground">—</strong>
+                      ) : (
+                        <strong>{summary.memorizedJuz} Juz</strong>
+                      )}
                     </span>
                   </div>
                 </div>
 
-                {/* Enhanced Analytics Section */}
-                <div className="mt-4 grid grid-cols-2 gap-2">
-                  <div className="p-2 rounded-lg bg-indigo-50 border border-indigo-100 flex flex-col items-center justify-center">
-                    <p className="text-[10px] text-indigo-700 font-bold uppercase">
-                      Skor Holistik
-                    </p>
-                    <p className="text-lg font-black text-indigo-900">
-                      {summary?.holisticScore || "—"}
-                    </p>
+                {/* Analytics. Skor Holistik applies to every santri, so its tile
+                    stays and shows "–" while no query produced a figure (K13.2);
+                    Kerukunan Asrama is only meaningful for a santri who lives in
+                    an asrama, so its tile appears only when a placement exists. */}
+                {summary && (
+                  <div className="mt-4 grid grid-cols-2 gap-2">
+                    <div className="p-2 rounded-lg bg-indigo-50 border border-indigo-100 flex flex-col items-center justify-center">
+                      <p className="text-[10px] text-indigo-700 font-bold uppercase">
+                        Skor Holistik
+                      </p>
+                      <p className="text-lg font-black text-indigo-900">
+                        {summary.holisticScore ?? "—"}
+                      </p>
+                    </div>
+                    {summary.boardingHarmonyScore != null && (
+                      <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-100 flex flex-col items-center justify-center">
+                        <p className="text-[10px] text-emerald-700 font-bold uppercase">
+                          Kerukunan Asrama
+                        </p>
+                        <p className="text-lg font-black text-emerald-900">
+                          {summary.boardingHarmonyScore}%
+                        </p>
+                      </div>
+                    )}
                   </div>
-                  <div className="p-2 rounded-lg bg-emerald-50 border border-emerald-100 flex flex-col items-center justify-center">
-                    <p className="text-[10px] text-emerald-700 font-bold uppercase">
-                      Harmony Asrama
-                    </p>
-                    <p className="text-lg font-black text-emerald-900">
-                      {summary?.boardingHarmonyScore || "—"}%
-                    </p>
-                  </div>
-                </div>
+                )}
 
                 {/* Pending Payments */}
-                {summary?.pendingPayments &&
-                  summary.pendingPayments.count > 0 && (
-                    <div className="mt-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200">
-                      <div className="flex items-center gap-2 text-yellow-700">
-                        <Receipt className="h-4 w-4" />
-                        <span className="font-medium">
-                          {summary.pendingPayments.count} tagihan belum lunas
-                        </span>
-                      </div>
-                      <p className="text-sm text-yellow-600 mt-1">
-                        Total: {formatCurrency(summary.pendingPayments.total)}
-                      </p>
-                    </div>
-                  )}
-
-                {/* Wallet Balance */}
-                {summary?.wallet && (
-                  <div className="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200">
-                    <div className="flex items-center justify-between">
-                      <div className="flex items-center gap-2 text-blue-700">
-                        <Wallet className="h-4 w-4" />
-                        <span className="font-medium">Saldo Dompet</span>
-                      </div>
-                      <span className="font-bold text-blue-800">
-                        {formatCurrency(summary.wallet.balance)}
+                {(summary?.pendingInvoices ?? 0) > 0 && (
+                  <div className="mt-4 p-3 rounded-lg bg-yellow-50 border border-yellow-200">
+                    <div className="flex items-center gap-2 text-yellow-700">
+                      <Receipt className="h-4 w-4" />
+                      <span className="font-medium">
+                        {summary?.pendingInvoices} tagihan belum lunas
                       </span>
                     </div>
-                    {summary.wallet.lastTransaction && (
-                      <p className="text-xs text-blue-600 mt-1">
-                        Transaksi terakhir:{" "}
-                        {summary.wallet.lastTransaction.type === "TOP_UP"
-                          ? "+"
-                          : "-"}
-                        {formatCurrency(summary.wallet.lastTransaction.amount)}
-                      </p>
-                    )}
                   </div>
                 )}
 

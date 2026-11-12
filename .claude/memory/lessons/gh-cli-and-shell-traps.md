@@ -34,7 +34,7 @@ personal repo. Check with `gh run list --repo <org>/<repo> --branch main`
 before acting on such a warning.
 
 **Every check green, and still "BLOCKED".** The `main` ruleset's code-scanning
-rule waits for a CodeQL analysis of *every* language category on the PR's
+rule waits for a CodeQL analysis of _every_ language category on the PR's
 head commit. On 2026-09-28 a PR's "Analyze (python)" job reported success
 while no python analysis was recorded for that commit, so the PR sat blocked
 with nothing red on the page. Look at what was recorded:
@@ -43,7 +43,7 @@ CodeQL's default-setup runs cannot be re-run (HTTP 403); push a new commit to
 the branch — an empty one will do, and a squash merge folds it away.
 
 **CodeQL reads function names.** Its `js/clear-text-storage-of-sensitive-data`
-rule treats whatever a function whose name contains *password* returns as a
+rule treats whatever a function whose name contains _password_ returns as a
 password. On 2026-10-02 two auth methods named `passwordChangeStep` and
 `completeRequiredPasswordChange` returned JWTs that went into HttpOnly cookies
 — the same cookies sign-in sets, unflagged — and the PR got three "high"
@@ -66,3 +66,32 @@ guard-exempt. Recovery: `gh run rerun <id> --failed` turns the check green, but
 replaying the stale event strips the labels again — re-trigger the sync with a
 no-op `gh api -X PATCH …/pulls/<n> -F body=@<file>` and the bot restores them.
 Create the PR with no labels and let the sync fill them.
+
+**A PR that closes two issues of different _types_ fails `Issue label sync`, by
+design.** `issue-label-sync.sh` refuses when the issues a PR closes disagree on
+their type label ("PR #N closes issues that disagree on type (chore vs bug)"),
+because it reads a PR's type as a claim to reconcile against — `docs/LABELS.md`
+rule 1: _"a different type is a real conflict, not something to guess at."_ A
+maintainer decision that bundles a `chore` and a `bug` issue into one PR (K12:
+#868 `chore` + #873 `bug`) therefore makes this check red through no fault of
+the change. It is **not** in the `main` ruleset's required set (Build, Lint,
+Tests, Security, E2E Chromium, PR template reminder), so it does not block the
+merge — but do not hand-fix it: `label-guard` revokes a non-bot label, and two
+`gh pr edit --label` calls fire duplicate `labeled` events that red the guard's
+own check. Choosing the PR's own type does not resolve it: `sync_pr` compares
+the issues to each other inside its loop and sets `FAIL` before it reads the
+PR's labels at all, so no PR label can break the tie. The conflict clears only
+when the two issues agree on one type (relabel one of them) or the PR stops
+closing both (split its scope). Leave a PR comment naming the conflict for the
+maintainer.
+
+**A chained `git worktree add … && cd <dir> && git merge` does not run the merge
+when the `cd` fails.** `&&` short-circuits, so a failed `cd` leaves `git merge`
+un-run — it cannot have merged in the _main_ tree. The reported incident was a
+stale, prunable worktree: `git worktree add` itself failed ("is a missing but
+already registered worktree; use 'add -f' to override, or 'prune' or 'remove'"),
+so the chain stopped there and the `UU` conflicts in the feature branch came
+from something else. Do not read a silent chain as a merge in the wrong tree:
+run worktree commands with `git -C <dir>` instead of `cd`, confirm `pwd` and
+`git status` before diagnosing, and clear a stale entry with `git worktree
+prune` (or `git worktree add -f`).
