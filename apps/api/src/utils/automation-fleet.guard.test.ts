@@ -2161,6 +2161,17 @@ describe('deploy-sdlc-agents.py', () => {
       // ...the body only once `ready` is applied.
       expect(out).toContain('pasang `ready`');
       expect(out).toMatch(/DESKRIPSI UTAMA issue/);
+      // The two halves are exclusive, and the prompt must say so: while the
+      // triage is NOT final the body is untouched (ordinary Q&A in comments),
+      // and once it IS final (`ready`) the summary lands in the body under
+      // `<!-- sdlc:triase -->` with NO new comment. The owner asked for this
+      // shape twice (2026-11-12, on the #1053 triage comment), so both the
+      // "do not touch the body" and the "no new comment" halves are pinned.
+      expect(out).toContain('JANGAN menyentuh deskripsi utama issue');
+      expect(out).toMatch(/JANGAN menulis komentar baru/);
+      expect(out).toContain('<!-- sdlc:triase -->');
+      expect(out).toContain('## Triase');
+      expect(out).toMatch(/satu triase, satu tempat/);
       // And the priority rubric weighs impact, urgency and risk with evidence.
       expect(out).toContain('Prioritas — beri bukti');
       expect(out).toContain('layanan mati total');
