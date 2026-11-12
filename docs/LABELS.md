@@ -213,7 +213,11 @@ detect` workflow: when two **open** issues share a title once normalised
     new label is protected the moment it is created. There is no human-decision
     exception left: `bot-implement` was removed on 2026-11-11, and release
     approval is a `vX.Y.Z` tag, not a label. A GitHub App (`*[bot]`) is
-    exempt, because the Actions workflows label through `github-actions[bot]`.
+    exempt, because the Actions workflows that verify rather than talk
+    (`issue-label-sync`) label through `github-actions[bot]`. Since 2026-11-12 the
+    talking workflows label as `cipansor-bot` themselves
+    (`secrets.CIPANSOR_BOT_TOKEN`), so an `github-actions[bot]` label now means
+    the verifying suites, not the fleet's own comments.
     **On an issue, the type label its form applies at open is also exempt:**
     each form sets its own type (`bug_report.yml` sets `bug`, `enhancement.yml`
     sets `enhancement`, and so on) the

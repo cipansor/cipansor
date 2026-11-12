@@ -38,12 +38,17 @@ case "$1" in
       *"/issues/"*"/labels"*) printf '%s\\n' "\${GH_STUB_LABELS:-}" ;;
     esac ;;
   issue)
-    case "$*" in
-      *edit*) log "EDIT $*" ;;
+    case "$2" in
+      list)
+        [ -n "\${GH_STUB_ISSUE_LIST_FAIL:-}" ] && exit 1
+        printf '%s\\n' "\${GH_STUB_ISSUE_LIST:-}" ;;
+      edit) log "EDIT $*" ;;
     esac ;;
   pr)
-    case "$*" in
-      *list*) printf '%s\\n' "\${GH_STUB_PRS:-}" ;;
+    case "$2" in
+      list)
+        [ -n "\${GH_STUB_PR_LIST_FAIL:-}" ] && exit 1
+        printf '%s\\n' "\${GH_STUB_PRS:-}" ;;
     esac ;;
 esac
 exit 0
@@ -162,6 +167,16 @@ describe('issue-claim.sh', () => {
     expect(wf).toContain('issue-claim.sh');
   });
 
+  it('repairs a missed event with a daily sweep, not only an event', () => {
+    // The claim is only as reliable as the event that fires it. #857/#927: a
+    // `pull_request` run that never arrives (dropped event, cancelled run, a PR
+    // opened before the workflow existed) left the issue `ready` while a PR
+    // worked it, and nothing retried the claim. The schedule is the repair pass.
+    const wf = readFileSync(WORKFLOW, 'utf8');
+    expect(wf).toMatch(/schedule:\s*\n\s*-\s*cron:/);
+    expect(wf).toContain('--sweep');
+  });
+
   it('removes the hand-rolled claim from Tiket jadi PR, now that Actions owns it', () => {
     const script = readFileSync(DEPLOY, 'utf8');
     const at = script.indexOf('"SDLC 06": f"""');
@@ -171,5 +186,72 @@ describe('issue-claim.sh', () => {
     expect(tail).not.toContain('pasang `in-progress` pada issue');
     expect(tail).not.toMatch(/CABUT `ready`/);
     expect(tail).toContain('issue-claim');
+  });
+});
+
+describe('issue-claim.sh --sweep', () => {
+  it('claims every open issue an open PR closes, from state alone', () => {
+    const r = run(['--sweep'], {
+      GH_STUB_PRS: '7|false|9',
+      GH_STUB_ISSUE_LIST: '9',
+      GH_STUB_LABELS: 'bug\nready\npriority:medium',
+    });
+    expect(r.status).toBe(0);
+    expect(r.log).toContain('EDIT');
+    expect(r.log).toContain('--add-label in-progress');
+  });
+
+  it('leaves an already-claimed issue alone', () => {
+    const r = run(['--sweep'], {
+      GH_STUB_PRS: '7|false|9',
+      GH_STUB_ISSUE_LIST: '9',
+      GH_STUB_LABELS: 'bug\nin-progress',
+    });
+    expect(r.status).toBe(0);
+    expect(r.log).not.toContain('EDIT');
+  });
+
+  it('reports a fork PR instead of failing the whole sweep', () => {
+    const r = run(['--sweep'], {
+      GH_STUB_PRS: '7|true|9',
+      GH_STUB_ISSUE_LIST: '9',
+      GH_STUB_LABELS: 'bug\nready',
+    });
+    expect(r.status).toBe(0);
+    expect(r.stdout + r.stderr).toContain('needs a maintainer');
+    expect(r.log).not.toContain('EDIT');
+  });
+
+  it('does not claim a closed issue an open PR still names', () => {
+    // `closingIssuesReferences` has no `state`, so the sweep rebuilds the filter
+    // from the open-issue listing. A closed issue keeps its `ready` label, and the
+    // event path refuses to touch it; the sweep must refuse too.
+    const r = run(['--sweep'], {
+      GH_STUB_PRS: '50|false|9',
+      GH_STUB_ISSUE_LIST: '1\n2', // #9 is not open
+      GH_STUB_LABELS: 'bug\nready',
+    });
+    expect(r.status).toBe(0);
+    expect(r.log).not.toContain('EDIT');
+  });
+
+  it('fails when the open-issue listing fails, instead of claiming nothing', () => {
+    const r = run(['--sweep'], {
+      GH_STUB_PRS: '50|false|9',
+      GH_STUB_ISSUE_LIST_FAIL: '1',
+      GH_STUB_LABELS: 'bug\nready',
+    });
+    expect(r.status).not.toBe(0);
+    expect(r.stdout + r.stderr).toContain('could not list open issues');
+  });
+
+  it('fails when the PR listing fails, instead of reporting no open PRs', () => {
+    // `|| true` used to turn a failed listing into an empty one, so the sweep
+    // exited 0 with "No open pull requests" while an issue kept `ready`.
+    const r = run(['--sweep'], {
+      GH_STUB_PR_LIST_FAIL: '1',
+    });
+    expect(r.status).not.toBe(0);
+    expect(r.stdout + r.stderr).toContain('could not list open pull requests');
   });
 });

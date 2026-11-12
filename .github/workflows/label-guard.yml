@@ -57,7 +57,10 @@ jobs:
       - name: Revoke a label applied by anyone but the bot
         id: guard
         env:
-          GH_TOKEN: ${{ github.token }}
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           BOT_LOGIN: cipansor-bot
         run: sh .github/scripts/label-guard.sh --stdin < "$GITHUB_EVENT_PATH"
@@ -73,7 +76,7 @@ jobs:
       - name: Relabel the issue if the revocation left it without a type or priority
         if: github.event_name == 'issues' && steps.guard.outputs.revoked == '1'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: |
@@ -87,7 +90,7 @@ jobs:
       - name: Dispatch the triage owner to reconcile a type conflict
         if: github.event_name == 'issues' && steps.guard.outputs.type_conflict == '1'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: |

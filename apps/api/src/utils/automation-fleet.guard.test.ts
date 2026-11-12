@@ -1750,6 +1750,42 @@ describe('fleet contracts', () => {
     expect(read(join(WORKFLOWS, 'basmalah.yml'))).toContain('basmalah.sh');
   });
 
+  it('posts the fleet automations as cipansor-bot, not github-actions[bot]', () => {
+    // Every automation that comments on, labels, closes or edits an issue or PR
+    // must act as `cipansor-bot`. The `github-actions[bot]` identity is anonymous
+    // and its writes are easy to mistake for the platform's; the fleet's account
+    // owns them. The two deterministic suites that *verify* rather than talk
+    // (`issue-label-sync` publishes a check run, `ci`/`e2e`/`deploy` only read
+    // state) keep the Actions token: a PAT in a fork-triggered `pull_request`
+    // event is not injectable, and a check run is not a comment.
+    const COMMUNICATORS = [
+      'acknowledge.yml',
+      'basmalah.yml',
+      'docs-drift.yml',
+      'duplicate-detect.yml',
+      'duplicate-sweep.yml',
+      'issue-claim.yml',
+      'issue-triage-bridge.yml',
+      'label-guard.yml',
+      'main-failure-bridge.yml',
+      'pr-description-checks.yml',
+      'pr-lifecycle.yml',
+      'stale-sweep.yml',
+    ];
+    for (const file of COMMUNICATORS) {
+      const wf = read(join(WORKFLOWS, file));
+      expect(wf, file).toContain('secrets.CIPANSOR_BOT_TOKEN || github.token');
+      expect(wf, file).not.toMatch(/GH_TOKEN:\s*\$\{\{\s*github\.token\s*\}\}/);
+    }
+    // The secrets a `pull_request` event must not need stay on the Actions
+    // token: a fork PR cannot see repository secrets.
+    for (const file of ['ci.yml', 'e2e-tests.yml', 'issue-label-sync.yml']) {
+      const wf = read(join(WORKFLOWS, file));
+      expect(wf, file).toContain('github.token');
+      expect(wf, file).not.toContain('CIPANSOR_BOT_TOKEN');
+    }
+  });
+
   it('has the label guard read the whole event, not a truncated one', () => {
     expect(read(join(WORKFLOWS, 'label-guard.yml'))).toContain('"$GITHUB_EVENT_PATH"');
   });

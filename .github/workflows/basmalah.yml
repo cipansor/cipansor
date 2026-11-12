@@ -40,6 +40,9 @@ jobs:
           persist-credentials: false
       - name: Prepend the basmalah when it is missing
         env:
-          GH_TOKEN: ${{ github.token }}
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
         run: sh .github/scripts/basmalah.sh --stdin < "$GITHUB_EVENT_PATH"

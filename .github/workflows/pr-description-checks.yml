@@ -50,7 +50,10 @@ jobs:
           persist-credentials: false
       - name: Check the description against the template
         env:
-          GH_TOKEN: ${{ github.token }}
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
           # A closing keyword works only on a PR into the default branch.
@@ -69,7 +72,7 @@ jobs:
           persist-credentials: false
       - name: Check for before/after visuals on a UI change
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.pull_request.number }}
         run: sh .github/scripts/visual-evidence.sh "$PR"
