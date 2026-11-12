@@ -21,6 +21,35 @@ async function readAllPages<T>(
   }
 }
 
+/** The registration fields the REG_FEE dedup reads. */
+type RegistrantFeeRow = {
+  createdAt: Date;
+  registrationFeePaidAt: Date | null;
+  admissionPeriod: { unitId: string } | null;
+};
+
+/**
+ * Whether a `REG_FEE` invoice/payment billed by `billingUnitId` is a second
+ * record of a fee the Registrant already holds — the canonical source.
+ *
+ * The Invoice carries no link to a registration (the schema has none), so the
+ * unit plus the student's **latest** registration in that unit is the closest
+ * available identity: a unit whose newest registration is still unpaid is a
+ * fresh daftar ulang (a same-unit re-registration, or a first bill settled only
+ * by invoice) and its invoice must count. Only when that newest registration
+ * already records the fee is the invoice the duplicate.
+ */
+function regFeeAlreadyRecorded(
+  registrants: RegistrantFeeRow[],
+  billingUnitId: string | null | undefined
+): boolean {
+  if (!billingUnitId) return false;
+  const inUnit = registrants.filter((r) => r.admissionPeriod?.unitId === billingUnitId);
+  if (inUnit.length === 0) return false;
+  const latest = inUnit.reduce((a, b) => (b.createdAt > a.createdAt ? b : a));
+  return latest.registrationFeePaidAt != null;
+}
+
 /**
  * Marketing ROI Service
  * Optimized implementation to avoid N+1 queries.
@@ -167,12 +196,8 @@ export async function calculateCampaignROI(unitId?: string) {
   // A REG_FEE invoice is counted only when the unit that billed it has no
   // registration recording the fee — otherwise the Registrant is the source.
   regFeeInvoiceData.forEach((inv) => {
-    const unitId = inv.paymentType?.unitId;
     const registrants = inv.student?.registrants ?? [];
-    const alreadyRecorded = registrants.some(
-      (r) => r.admissionPeriod?.unitId === unitId && r.registrationFeePaidAt != null
-    );
-    if (alreadyRecorded) return;
+    if (regFeeAlreadyRecorded(registrants, inv.paymentType?.unitId)) return;
     addRevenue(firstCampaignId(registrants), inv.paidAmount);
   });
   registrationFeeRows.forEach((row) => addRevenue(row.campaignId, row.registrationFeeAmount));
@@ -302,6 +327,7 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
               select: {
                 registrants: {
                   select: {
+                    createdAt: true,
                     registrationFeePaidAt: true,
                     admissionPeriod: { select: { unitId: true } },
                   },
@@ -347,13 +373,13 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
 
   for (const payment of payments) {
     // A REG_FEE payment is a second record of the same fee the Registrant holds
-    // (read below); drop it only when the billing unit has a registration that
-    // already records the fee, so a fee settled by invoice — in part or in full —
-    // is not double-counted and a separate unit's fee is not dropped.
+    // (read below); drop it only when the billing unit's latest registration
+    // already records the fee, so a fee settled by invoice — in part or in full,
+    // or for a fresh same-unit re-registration — is not lost.
     if (payment.invoice?.paymentType?.code === 'REG_FEE') {
-      const billingUnitId = payment.invoice.paymentType.unitId;
-      const recorded = (payment.invoice.student?.registrants ?? []).some(
-        (r) => r.admissionPeriod?.unitId === billingUnitId && r.registrationFeePaidAt != null
+      const recorded = regFeeAlreadyRecorded(
+        payment.invoice.student?.registrants ?? [],
+        payment.invoice.paymentType.unitId
       );
       if (recorded) continue;
     }

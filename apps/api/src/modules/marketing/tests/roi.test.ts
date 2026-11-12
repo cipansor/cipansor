@@ -229,6 +229,44 @@ describe('Marketing ROI Service', () => {
     expect(result[0].metrics.revenue).toBe(1000000);
   });
 
+  it('menghitung tagihan REG_FEE untuk daftar ulang ulang di unit yang sama', async () => {
+    // Pendaftaran SMP lama sudah lunas, pendaftaran SMP baru belum. Tagihan
+    // REG_FEE untuk pendaftaran baru harus dihitung, bukan dianggap duplikat.
+    vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([
+      { id: 'c1', name: 'X', code: 'X', budget: 0, _count: { registrants: 2 } },
+    ] as any);
+    vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
+    vi.mocked(prisma.registrant.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.invoice.findMany)
+      .mockResolvedValueOnce([] as any)
+      .mockResolvedValueOnce([
+        {
+          paidAmount: 500000,
+          paymentType: { unitId: 'unit-smp' },
+          student: {
+            registrants: [
+              {
+                campaignId: 'c1',
+                createdAt: new Date('2025-01-01'),
+                registrationFeePaidAt: new Date('2025-01-05'),
+                admissionPeriod: { unitId: 'unit-smp' },
+              },
+              {
+                campaignId: 'c1',
+                createdAt: new Date('2026-07-01'),
+                registrationFeePaidAt: null,
+                admissionPeriod: { unitId: 'unit-smp' },
+              },
+            ],
+          },
+        },
+      ] as any);
+
+    const result = await calculateCampaignROI();
+
+    expect(result[0].metrics.revenue).toBe(500000);
+  });
+
   it('tidak menghitung ganda tagihan REG_FEE yang unitnya sudah mencatat biaya', async () => {
     vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([
       { id: 'c1', name: 'X', code: 'X', budget: 0, _count: { registrants: 1 } },

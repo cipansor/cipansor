@@ -138,6 +138,80 @@ describe('getMonthlyAttributedRevenue', () => {
     expect(current?.revenue ?? 0).toBe(0);
   });
 
+  it('menghitung pembayaran REG_FEE unit lain meski pendaftaran unit berbeda sudah mencatat biaya', async () => {
+    // Santri sudah membayar biaya masuk SD; kemudian tagihan REG_FEE SMP sebesar
+    // Rp500.000 dilunasi bulan ini dan pendaftaran SMP belum mencatat biayanya.
+    // Catatan SD tidak boleh menelan biaya SMP — dedup per unit, bukan per santri.
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    mocked.payment.findMany.mockResolvedValue([
+      {
+        paidAt: now,
+        amount: 500000,
+        invoice: {
+          paymentType: { code: 'REG_FEE', unitId: 'unit-smp' },
+          student: {
+            registrants: [
+              {
+                createdAt: new Date('2025-01-01'),
+                registrationFeePaidAt: new Date('2025-01-05'),
+                admissionPeriod: { unitId: 'unit-sd' },
+              },
+              {
+                createdAt: new Date('2026-07-01'),
+                registrationFeePaidAt: null,
+                admissionPeriod: { unitId: 'unit-smp' },
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    mocked.registrant.findMany.mockResolvedValue([]);
+
+    const trend = await getMonthlyAttributedRevenue(undefined, 3);
+
+    const current = trend.find((t) => t.month === thisMonthKey);
+    expect(current).toEqual({ month: thisMonthKey, revenue: 500000, transactionCount: 1 });
+  });
+
+  it('menghitung pembayaran REG_FEE saat pendaftaran terbaru di unit itu belum mencatat biaya', async () => {
+    // Daftar ulang ulang di unit yang sama: pendaftaran SMP lama sudah lunas,
+    // pendaftaran SMP baru belum. Tagihan REG_FEE untuk pendaftaran baru harus
+    // dihitung, bukan dianggap duplikat catatan lama.
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    mocked.payment.findMany.mockResolvedValue([
+      {
+        paidAt: now,
+        amount: 500000,
+        invoice: {
+          paymentType: { code: 'REG_FEE', unitId: 'unit-smp' },
+          student: {
+            registrants: [
+              {
+                createdAt: new Date('2025-01-01'),
+                registrationFeePaidAt: new Date('2025-01-05'),
+                admissionPeriod: { unitId: 'unit-smp' },
+              },
+              {
+                createdAt: new Date('2026-07-01'),
+                registrationFeePaidAt: null,
+                admissionPeriod: { unitId: 'unit-smp' },
+              },
+            ],
+          },
+        },
+      },
+    ]);
+    mocked.registrant.findMany.mockResolvedValue([]);
+
+    const trend = await getMonthlyAttributedRevenue(undefined, 3);
+
+    const current = trend.find((t) => t.month === thisMonthKey);
+    expect(current).toEqual({ month: thisMonthKey, revenue: 500000, transactionCount: 1 });
+  });
+
   it('tetap menghitung pembayaran tagihan biasa walau pendaftar sudah mencatat biaya', async () => {
     const now = new Date();
     const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
