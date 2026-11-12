@@ -2,9 +2,9 @@
 
 Open defects only, each rechecked against the code on **2026-09-25**
 (asrama and schema entries on 2026-09-26; daily report, schedules,
-counselling and growth on 2026-09-27; staff attendance on 2026-10-09). The
-ordered backlog is [`roadmap.md`](./roadmap.md); where the work stands is
-[`progress.md`](./progress.md); the system overview is
+counselling and growth on 2026-09-27; staff attendance on 2026-10-09; EMIS
+exports on 2026-11-12). The ordered backlog is [`roadmap.md`](./roadmap.md);
+where the work stands is [`progress.md`](./progress.md); the system overview is
 [`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
 
 - **Fixed → delete the entry.** Git keeps the history; this file is not a
@@ -309,6 +309,34 @@ handleQueryError`, which toasts again. Pick one place; do not patch per page.
   agree, so an admin can announce one figure and bill another. The public
   page shows the registration fee only for a period with no fee table.
 
+## EMIS exports — deferred, rechecked 2026-11-12
+
+Found while triaging #868/#873; K11 (2026-11-09) deferred all of these out of
+the teacher-export fix, and no separate issue has been filed for them yet.
+
+- **`exportStudentData` invents `agama: 'Islam'`** (`emis.service.ts:194`)
+  although `Student.religion String @default("ISLAM")` exists and holds the
+  value. Same class as the teacher bug #873 fixed.
+- **`sertifikasi` is derived from `nuptk`, and it is wrong twice.**
+  `emis.service.ts:268` writes `teacher.nuptk ? 'Sudah Sertifikasi' : 'Belum
+  Sertifikasi'` — but NUPTK is a registration number, not a certification.
+  The correct enum is `Teacher.certificationStatus TeacherCertification?`
+  (read correctly in `dapodik.service.ts:262`). The same mistake reaches the
+  summary: `getExportSummary` counts `certifiedTeachers` from
+  `nuptk: { not: null }` (`emis.service.ts:377`) and derives `certificationRate`
+  (`:413-414`), so the "X tersertifikasi" card on `/emis` is wrong too.
+  `statusPegawai` from `nip` (`:266`) has the same shape.
+- **`exportInstitutionData` equates `jumlahRuangKelas` with the number of
+  rombel** (`emis.service.ts:347`, `activeClasses.length`, comment "Assuming 1
+  room per class"). A room and a rombel are two different EMIS fields; the
+  source of truth is `FacilityRoom` with `RoomType.code = 'KELAS'`.
+  `jumlahKelas` (`:346`) already carries the rombel count.
+- **`emis.schema.ts` is dead and its shape is wrong.** `emisTeacherDataSchema`
+  (`:84`) demands a different shape from what `exportTeacherData` returns
+  (`statusKepegawaian` vs `statusPegawai`, `sertifikasi: boolean`, …), and
+  nothing imports it. Do not "fix" the service to match it. K11 says leave it
+  alone in the teacher PR.
+
 ## Access that is too narrow, or needs review
 
 - **The yayasan's organs have no SPMB item in their menu.** They read SPMB
@@ -599,6 +627,14 @@ loosely mis-attributes runs. -->
 
 ## Tests
 
+- **The EMIS module had no test at all** until 2026-11-12 (#868/#873): only
+  `student-nis.guard.test.ts` matched its source text, so a wrong NIS, a
+  status spelled in the wrong case, or an invented teacher field reached the
+  Kemenag export with no failing test. `modules/emis/tests/emis.service.test.ts`
+  now runs the real service (only Prisma mocked) over the NIS-per-unit rule,
+  the unit access control, the `active` status filter, and the teacher
+  birth/gender columns. The web `/emis` page only downloads the raw JSON, so
+  no e2e covers the export shape (a deliberate gap, not an oversight).
 - **`spmb-workflow.spec.ts` leaves an active admission period behind on every
   run** ("SPMB E2E Auto …"). On a fresh CI database that is one extra period;
   on a local stack reused across runs they pile up, push the seeded SMP IT

@@ -48,7 +48,7 @@ interface EmisTeacherData {
   nama: string;
   tempatLahir: string;
   tanggalLahir: string;
-  jenisKelamin: 'L' | 'P';
+  jenisKelamin: '' | 'L' | 'P';
   jabatan: string;
   statusPegawai: string;
   bidangKeahlian: string;
@@ -259,9 +259,13 @@ export class EmisService {
         nuptk: teacher.nuptk || '',
         nip: teacher.nip || '',
         nama: teacher.user.name,
-        tempatLahir: '', // Not in current schema - can be added
-        tanggalLahir: '', // Not in current schema - can be added
-        jenisKelamin: 'L' as const, // Default - ideally from user profile
+        tempatLahir: teacher.birthPlace || '',
+        tanggalLahir: teacher.birthDate ? this.formatDate(teacher.birthDate) : '',
+        // `teacher.gender` is nullable, so an unrecorded gender exports empty
+        // rather than being guessed as one (K11, 2026-11-09): the old literal
+        // 'L' sent every teacher as male.
+        jenisKelamin:
+          teacher.gender === Gender.MALE ? 'L' : teacher.gender === Gender.FEMALE ? 'P' : '',
         jabatan: isHomeroom ? 'Guru & Wali Kelas' : 'Guru',
         statusPegawai: teacher.nip ? 'PNS/ASN' : 'Non-PNS',
         bidangKeahlian: teacher.specialization || '-',
