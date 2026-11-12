@@ -20,8 +20,15 @@ pnpm --filter api test                # vitest (API)
 pnpm --filter web build               # next build (also typechecks web)
 pnpm --filter web test                # vitest (web)
 pnpm test:load                        # node --test, the k6 load-test runner (CI Tests job)
+python3 -m unittest discover -s .claude/skills/dokumen-aplikasi-cipansor/scripts -p 'test_*.py'  # doc tooling (CI Tests job)
 pnpm run audit:deps                   # the Security job, run against live advisories
 ```
+
+Note: the documentation-tooling suite (`check_docs.py`, `build_docs.py`) is
+stdlib-only — the `.docx`/PDF cases skip when `python-docx`/`pymupdf` are
+absent — so it runs anywhere, like CI. It matters whenever you touch a guide or
+the scripts: `change-scope.sh` calls those scripts code, so the Tests job runs
+it for you.
 
 Notes:
 - **Run these steps; do not assemble your own.** `pnpm --filter api build`
