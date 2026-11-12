@@ -50,3 +50,19 @@ password. On 2026-10-02 two auth methods named `passwordChangeStep` and
 alerts, which the `main` ruleset blocks. Renaming the methods (with a comment
 saying why) cleared them; read the alert's "source" link before treating it
 as a real leak.
+
+**Never pass `--label` to `gh pr create` (or label an issue/PR by hand).** Only
+`cipansor-bot` may label; `.github/scripts/label-guard.sh` revokes any protected
+label applied by another account. Hand-applying two labels fires two `labeled`
+events, so several `label-guard` runs start at once; the first removes the
+labels, the next finds them already gone, and its `gh api -X DELETE …/labels/<l>`
+404s → non-zero exit → the "Only cipansor-bot may label" check goes **red** on
+the PR head. The check is not in the `main` ruleset's required set (Build, Lint,
+Tests, Security, E2E Chromium, PR template reminder), so it does not block the
+merge, but it is a red mark on a clean PR. The labels are the bot's: the
+`issue-label-sync` workflow copies the type and `priority:*` labels from the
+linked issue (`chore`, `priority:medium` for #867), and a bot-applied label is
+guard-exempt. Recovery: `gh run rerun <id> --failed` turns the check green, but
+replaying the stale event strips the labels again — re-trigger the sync with a
+no-op `gh api -X PATCH …/pulls/<n> -F body=@<file>` and the bot restores them.
+Create the PR with no labels and let the sync fill them.

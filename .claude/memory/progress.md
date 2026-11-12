@@ -496,6 +496,17 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   lain yang menyentuh berkas `meals` → aturan emas 9 tidak berlaku. Pelajaran
   ditambahkan ke `lessons/api-integration-traps.md`.
 
+- **Issue triage, 2026-11-11 (lanjutan 6):** #867 (`chore`, lima job Actions
+  tanpa `timeout-minutes`) dikerjakan di **PR #1064** pada
+  `chore/867-workflow-job-timeouts`. Jumlahnya sudah bergeser: kini **6 job**
+  (bukan 5) — `deploy-production.yml` menambah job `gate` setelah issue ditulis;
+  total 31 job di 19 workflow. Ditambahkan plafon sesuai durasi nyata + margin:
+  15 (release gate), 45 (kedua job deploy; staging 7–9 mnt, produksi 2–3 mnt),
+  30 (kedua job load-test). Guard baru `workflow-job-timeout.guard.test.ts`
+  menuntut **setiap** job di `.github/workflows/*.yml` punya `timeout-minutes`
+  berupa bilangan bulat positif < 360; **gagal** pada workflow pra-perbaikan
+  (keenam job terdaftar), **lulus** sesudahnya. Suite API penuh 5183 lulus.
+
 ## Recently done (2026-10-09 → 10)
 
 - **Merged:** #655 (SPMB banner and delayed dialog on the public site), #657
