@@ -161,6 +161,14 @@ pertentangan itu dilaporkan sebagai issue.
     memproses setiap kandidat tanpa membiarkan satu issue yang tak perlu
     dispatch menghentikannya, dan membaca sampai `SWEEP_PAGES` halaman (urut
     aktivitas terbaru) sementara `SWEEP_MAX` membatasi jumlah dispatch per run.
+    Kandidat yang ditunda karena kolam penuh (`MAX_INFLIGHT`) ditemukan dari
+    store, bukan hanya dari pencarian aktivitas: checkpoint `pending` ditulis
+    ulang di tempat dan tidak menyentuh `updated_at` issue, sehingga bila
+    urutannya hanya mengikuti aktivitas ia akan tenggelam di bawah jendela
+    pencarian selagi aktivitas baru terus mengambil slot (kelaparan head-of-line,
+    #872). Store menyimpan **waktu penundaan pertama**, dan sapuan memproses
+    kandidat tertunda paling lama lebih dulu (FIFO), jadi penantian panjang
+    selalu menang slot.
 20. **Dinding jam setiap automation adalah 1800 detik — platform tidak
     menerima lebih.** Sebuah run yang melewati `timeout`-nya mati sebagai
     `execution/timeout`, bukan karena tugasnya salah. Batas itu bukan pilihan

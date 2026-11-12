@@ -580,6 +580,28 @@ permission`) plus tes positif untuk maintainer. `ACTOR` sudah diisi
     environment `production` (butuh admin, di luar PR). `docs/SDLC-FLOW.md` dan
     `docs/deploy-azure.md` diperbarui agar syarat ini eksplisit.
 
+34. **Sweep triase mengantre FIFO menurut penundaan pertama** (2026-11-11,
+    pengguna; `K25`, #872). Sweep memilih kandidat dari pencarian `sort=updated
+    order=desc` dan hanya meloloskan `MAX_INFLIGHT` (default 3) per run. Setelah
+    penanda pindah ke KV store (#1031), penulisan `pending` **tidak lagi**
+    menyentuh issue, jadi `updated_at`-nya membeku: issue yang ditunda tenggelam
+    ke dasar `updated desc` dan **tidak pernah** naik ke jendela sweep selama
+    aktivitas baru terus mengambil slot — kelaparan head-of-line (bukti: #850,
+    #851, #852, penandanya berbunyi "menunggu" tapi nol triase ~4 hari).
+    Perbaikan (pilihan maintainer): checkpoint `pending` menyimpan **waktu
+    penundaan pertama** (`at`, epoch detik; checkpoint lama tanpa `at` dihitung
+    paling tua, `0`), dan sweep mengambil kandidat dari **dua sumber** — store
+    (semua checkpoint `pending`, urut `at` menaik) **lebih dulu**, lalu
+    pencarian aktivitas. Satu issue = satu baris (kemunculan pertama menang),
+    jadi slot FIFO-nya tak digeser aktivitas yang tak bergerak. Menulis ulang
+    `pending` mempertahankan `at` (penundaan berulang tak mereset antrean).
+    Alternatif yang ditolak: hanya memperbarui `updated_at` saat menunda
+    (menyentuh issue lagi, justru yang dihindari migrasi KV) dan batas umur
+    penundaan yang mendispatch paksa (menabrak `MAX_INFLIGHT`/kolam sandbox).
+    Dijaga `automation-fleet.guard.test.ts` (tiga sweep berturut-turut dengan
+    ekor yang sama lalu ekor itu maju; urutan tertua-dulu; penundaan berulang
+    mempertahankan `at`).
+
 ## Sumber
 
 - Google SRE, "Monitoring Distributed Systems" —

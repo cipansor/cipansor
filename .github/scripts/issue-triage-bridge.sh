@@ -110,6 +110,9 @@ BURST_WINDOW="${BURST_WINDOW:-300}"
 # The KV store has optimistic
 # locking, a `nx` create, a list, and a delete, and it notifies no one.
 #   `<SWEEP_KEY><n>` -> {"signal": "<hash>", "run": "<run-id>" | "pending" | ""}
+#                       `at` (epoch seconds) is set only while `run` is
+#                       `pending`: the FIRST deferral time, which the sweep
+#                       orders deferred issues by (K25, #872).
 #   `<STATE_KEY><n>` -> {"state": "<type+priority>", "at": <epoch seconds>}
 # `run` empty is the finished checkpoint; `pending` is a dispatch deferred while
 # the pool was full; anything else is the run that is answering the signal.
@@ -270,13 +273,15 @@ adopt_legacy_state_marker() { # adopt_legacy_state_marker <number>
 }
 
 # The sweep checkpoint. Sets SIGNAL, MARK_RUN (the run answering the signal, or
-# "" for a finished checkpoint, or `pending` for a deferred dispatch) and
-# MARK_FORM (`none`/`some`/`unknown`).
+# "" for a finished checkpoint, or `pending` for a deferred dispatch),
+# MARK_AT (the epoch second of a `pending` checkpoint's first deferral, or "" )
+# and MARK_FORM (`none`/`some`/`unknown`).
 SIGNAL=""
 MARK_RUN=""
+MARK_AT=""
 MARK_FORM="none"
 read_sweep_marker() { # read_sweep_marker <number>
-  SIGNAL=""; MARK_RUN=""; MARK_FORM="none"
+  SIGNAL=""; MARK_RUN=""; MARK_AT=""; MARK_FORM="none"
   # `|| rc=$?` (not `; rc=$?`): a 404 is a normal answer, and under `set -e` a
   # bare failing command aborts the script — the direct callers in
   # `recover_ready`/`purge_markers` are not inside an `if`, so the absent-key
@@ -289,7 +294,9 @@ read_sweep_marker() { # read_sweep_marker <number>
   esac
   SIGNAL=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || SIGNAL=""
   MARK_RUN=$(printf '%s' "$KV_JSON" | jq -r '.run // ""' 2>/dev/null) || MARK_RUN=""
-  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_FORM="none"; return 0; }
+  MARK_AT=$(printf '%s' "$KV_JSON" | jq -r '.at // ""' 2>/dev/null) || MARK_AT=""
+  case "$MARK_AT" in '' | *[!0-9]*) MARK_AT="" ;; esac
+  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_AT=""; MARK_FORM="none"; return 0; }
   MARK_FORM="some"
 }
 
@@ -401,9 +408,21 @@ activity_signal() { # activity_signal <number>; non-zero when a read fails
 # cleared once the run COMPLETED (a finished checkpoint). An empty `run` is the
 # finished form. A plain KV upsert, so re-writing the same value is free — no
 # dedup guard is needed now that nothing is posted.
-write_sweep_marker() { # write_sweep_marker <number> <signal> <run>
+#
+# A `pending` checkpoint also records `at`, the epoch second of its FIRST
+# deferral: the sweep orders deferred issues by it (FIFO by first deferral, K25
+# #872), so a candidate that is deferred while the pool is full cannot sink
+# behind newer activity forever. `MARK_AT` carries that first time; it is read
+# from the existing checkpoint by the caller before this write, and defaults to
+# `now` when the candidate is deferred for the first time.
+write_sweep_marker() { # write_sweep_marker <number> <signal> <run> [first-deferred-at]
+  at="${4:-}"
+  if [ "$3" = "$PENDING_RUN" ] && [ -z "$at" ]; then
+    at=$(date -u +%s)
+  fi
   kv_put "$SWEEP_KEY$1" \
-    "$(jq -nc --arg s "$2" --arg r "${3:-}" '{signal: $s, run: $r}')" \
+    "$(jq -nc --arg s "$2" --arg r "${3:-}" --arg a "$at" \
+      '{signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)')" \
     || echo "::warning::could not record the triage checkpoint on #$1."
 }
 
@@ -483,7 +502,14 @@ on_label() { # on_label <event-json>
   inflight=$(inflight_count)
   if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
     echo "#$number: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the sweep retries it."
-    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
+    # Keep an existing first-deferral time so a label that lands while the issue
+    # is already queued does not send it to the back of the FIFO (K25, #872). A
+    # pending checkpoint with no `at` predates the field and counts as oldest.
+    if [ -n "$sig" ]; then
+      read_sweep_marker "$number"
+      if [ "$MARK_RUN" = "$PENDING_RUN" ]; then at="${MARK_AT:-0}"; else at=""; fi
+      write_sweep_marker "$number" "$sig" "$PENDING_RUN" "$at"
+    fi
     exit 0
   fi
   if dispatch "$number" labeled "$cur_state"; then
@@ -528,7 +554,7 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   [ -n "$sig" ] || return 1
 
   read_sweep_marker "$n"
-  prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_form="$MARK_FORM"
+  prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_form="$MARK_FORM"; prev_at="$MARK_AT"
 
   # The checkpoint names a run that answered this same activity. Read its outcome
   # instead of trusting the 201: only a COMPLETED run is a finished checkpoint; a
@@ -575,9 +601,13 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   # The activity needs a dispatch. Defer while the pool is full so a burst is not
   # formed (#841): the next sweep picks the issue up, so nothing is lost. The
   # checkpoint is a plain KV upsert, so re-writing the same `pending` value is
-  # harmless (no comment, no issue update time).
+  # harmless (no comment, no issue update time). The FIRST deferral time is kept
+  # across re-deferrals (K25, #872) so the sweep's FIFO order cannot be reset by
+  # a later activity change: an existing pending checkpoint keeps its `at` (a
+  # pre-`at` pending one counts as oldest, 0), while a first deferral stamps now.
   if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
-    write_sweep_marker "$n" "$sig" "$PENDING_RUN"
+    if [ "$prev_run" = "$PENDING_RUN" ]; then at="${prev_at:-0}"; else at=""; fi
+    write_sweep_marker "$n" "$sig" "$PENDING_RUN" "$at"
     echo "#$n: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT)."
     return 3
   fi
@@ -675,6 +705,24 @@ sweep_keys() {
     case "$n" in '' | *[!0-9]*) n=0 ;; esac
     [ "$n" -gt 0 ] || break
     offset=$((offset + limit))
+  done
+}
+
+# The deferred (`pending`) checkpoints in the KV store, one "<at> <number>" line
+# per issue, where `at` is the epoch second of the FIRST deferral (0 when the
+# checkpoint predates the `at` field, so it counts as the oldest). The sweep
+# orders its candidates by this (K25 #872): a deferred issue's checkpoint is
+# rewritten in place and never touches the issue, so the issue's `updated_at`
+# does not move, and a search ordered by activity would let it sink past the
+# window while fresh activity keeps taking the slots — the head-of-line
+# starvation #872 describes. Discovery from the store is unbounded (one paginated
+# listing plus one read per checkpoint, the same cost `recover_ready` already
+# pays), so a long wait is always found however old it is.
+pending_keys() {
+  for n in $(sweep_keys); do
+    read_sweep_marker "$n"
+    [ "$MARK_RUN" = "$PENDING_RUN" ] || continue
+    printf '%s %s\n' "${MARK_AT:-0}" "$n"
   done
 }
 
@@ -786,13 +834,23 @@ purge_markers() {
 sweep() {
   count=0
   fails=0
-  # Read up to SWEEP_PAGES pages, newest activity first. `gh api --paginate` would
-  # fetch every page regardless, so the pages are requested one at a time and the
-  # loop stops at SWEEP_PAGES or the first short page: SWEEP_PAGES caps the API
-  # calls, SWEEP_MAX caps the dispatches, and sorting by activity puts the
-  # freshest issues first. An issue past this window is not lost — the next
-  # sweep's `sort` moves it in front once it is touched.
+  # Candidates come from two sources, unioned so an issue is visited once:
+  #   1. `pending_keys` — issues whose dispatch was deferred while the pool was
+  #      full, oldest first (FIFO by first deferral, K25 #872). A `pending`
+  #      checkpoint is rewritten in place and never touches the issue, so the
+  #      issue's `updated_at` does not move; ordering by activity alone (source
+  #      2) would let such an issue sink below the search window while fresh
+  #      activity keeps taking the slots — the head-of-line starvation #872
+  #      describes. They go first, so a long wait always wins a slot.
+  #   2. The activity-ordered search, newest first. `gh api --paginate` would
+  #      fetch every page regardless, so the pages are requested one at a time
+  #      and the loop stops at SWEEP_PAGES or the first short page: SWEEP_PAGES
+  #      caps the API calls, SWEEP_MAX caps the dispatches. An issue past this
+  #      window is not lost — the next sweep's `sort` moves it in front once it
+  #      is touched, and a deferred one is found by source 1 regardless.
   cand=$(mktemp)
+  search=$(mktemp)
+  pending_keys | sort -n -k1,1 >> "$cand"
   page=1
   while [ "$page" -le "$SWEEP_PAGES" ]; do
     items=$(gh api -X GET search/issues \
@@ -800,12 +858,18 @@ sweep() {
       -f sort=updated -f order=desc -f page="$page" \
       --jq '.items[] | "\(.updated_at) \(.number)"' 2>/dev/null || echo "")
     [ -n "$items" ] || break
-    printf '%s\n' "$items" >> "$cand"
+    printf '%s\n' "$items" >> "$search"
     got=$(printf '%s\n' "$items" | grep -c . || true)
     [ "$got" -ge 100 ] || break
     page=$((page + 1))
   done
-  sort -r -u -o "$cand" "$cand"
+  sort -r -u -o "$search" "$search"
+  cat "$search" >> "$cand"
+  rm -f "$search"
+  # One line per issue, first occurrence wins: a deferred issue keeps its FIFO
+  # slot instead of being re-ordered by its (unmoved) activity below fresh ones.
+  awk '{print $2}' "$cand" | awk '!seen[$0]++' > "$cand.uniq"
+  mv "$cand.uniq" "$cand"
 
   # The pool cap: how many triage runs are already RUNNING/PENDING. Each dispatch
   # in this sweep adds one, so the count is tracked locally as well — the API is
@@ -814,7 +878,7 @@ sweep() {
   inflight=$(inflight_count)
   deferred=0
 
-  while read -r _ts n; do
+  while read -r n; do
     [ -n "${n:-}" ] || continue
     [ "$count" -lt "$SWEEP_MAX" ] || { echo "Reached SWEEP_MAX=$SWEEP_MAX; the rest wait for the next run."; break; }
     # `process_one` returns 1 for "nothing to do" — a normal outcome. It is called

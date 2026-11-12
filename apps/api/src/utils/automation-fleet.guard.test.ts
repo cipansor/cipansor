@@ -2999,10 +2999,12 @@ describe('issue-triage-bridge.sh', () => {
       },
       ['--sweep']
     );
-    expect(deferred.kv['triage-sweep-818']).toEqual({
+    expect(deferred.kv['triage-sweep-818']).toMatchObject({
       signal: signal('edited'),
       run: 'pending',
     });
+    // The first-deferral time is stamped so the sweep can order it (K25, #872).
+    expect(typeof (deferred.kv['triage-sweep-818'] as { at?: unknown }).at).toBe('number');
 
     const resumed = runBridge(
       {
@@ -3024,22 +3026,125 @@ describe('issue-triage-bridge.sh', () => {
   it('keeps a deferred checkpoint pending while the pool stays full, writing no comment', () => {
     // The full-pool sweep re-writes the same `pending` checkpoint. That used to
     // PATCH the marker comment every run and bump the issue's update time
-    // (R402); the store upsert is silent, and no comment is written at all.
+    // (R402); the store upsert is silent, and no comment is written at all. The
+    // first-deferral time is preserved: a re-deferral must not reset the FIFO
+    // slot (K25, #872).
     const { calls, out, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'pending' } },
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
         CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
         MAX_INFLIGHT: '1',
       },
       ['--sweep']
     );
     expect(out).toContain('deferred');
-    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'pending' });
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'pending',
+      at: 1700000000,
+    });
     expect(calls).not.toContain('POST_MARKER');
     expect(calls).not.toContain('PATCH_BODY');
     expect(calls).not.toContain('/issues/comments/');
+  });
+
+  // ---- #872: head-of-line starvation (K25) ---------------------------------
+
+  it('dispatches a deferred issue from the store even when the search no longer holds it', () => {
+    // #872: a `pending` checkpoint is rewritten in place, so the issue's
+    // `updated_at` never moves and a search ordered by activity eventually drops
+    // it below the window while fresh activity keeps taking the slots — the
+    // head-of-line starvation. The sweep now discovers deferred issues from the
+    // store (FIFO by first deferral), so #818 is dispatched even though the
+    // search returns only #900.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('/issues/818');
+    expect(calls).toContain('DISPATCH');
+    // The deferred checkpoint is answered (its run recorded), not left pending.
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('advances a deferred tail across three sweeps instead of deferring it again', () => {
+    // K25's acceptance test for #872: three consecutive sweeps with more
+    // candidates than capacity must not leave the same issue at the tail every
+    // time. Sweep 1 defers #818 (pool full); sweep 2, still full, keeps it
+    // queued with the same first-deferral time; sweep 3, with room and a search
+    // that no longer names #818, dispatches it — the oldest wait wins a slot.
+    const first = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(first.calls).not.toContain('DISPATCH');
+    const at1 = (first.kv['triage-sweep-818'] as { at?: number }).at;
+    expect(typeof at1).toBe('number');
+
+    const second = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: first.kv,
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(second.calls).not.toContain('DISPATCH');
+    // The tail did not move: the same first-deferral time is kept.
+    expect((second.kv['triage-sweep-818'] as { at?: number }).at).toBe(at1);
+
+    const third = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: second.kv,
+        CURL_STUB_RUNS: '{"runs":[]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(third.calls).toContain('/issues/818');
+    expect(third.kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('orders deferred issues oldest-first, so the longest wait wins the slot', () => {
+    // FIFO by first deferral: with room for one run, #700 (deferred earlier) must
+    // be dispatched before #818 (deferred later), regardless of the search order.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-700': { signal: signal('edited'), run: 'pending', at: 1600000000 },
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
+        CURL_STUB_RUNS: '{"runs":[]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    const i700 = calls.indexOf('/issues/700');
+    const i818 = calls.indexOf('/issues/818');
+    expect(i700).toBeGreaterThanOrEqual(0);
+    expect(i818).toBeGreaterThan(i700);
   });
 
   // ---- #1031 review: legacy-marker migration edge cases --------------------
