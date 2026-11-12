@@ -278,6 +278,7 @@ task.
 | [`naskah-dinas`](.claude/skills/naskah-dinas/SKILL.md) | E-Office letters, TTE keys and identity, the signed PDF, verification by upload, revocation |
 | [`dokumen-aplikasi-cipansor`](.claude/skills/dokumen-aplikasi-cipansor/SKILL.md) | technical document (arc42 + C4) or user manual (Diátaxis, per role) for this app — handover, grant/donor/auditor pack, staff training |
 | [`google-ad-grants`](.claude/skills/google-ad-grants/SKILL.md) | the Google Ad Grant: eligibility, monthly compliance (CTR, keywords, sitelinks, geo, conversions), the 2025–2026 program changes, the campaign plan, and the site gaps to close first (GA4/GTM host-aware, conversion tracking) |
+| [`uji-kerentanan-cipansor`](.claude/skills/uji-kerentanan-cipansor/SKILL.md) | internal vulnerability testing for Cipansor: authorisation and scope, the WSTG/NIST/PTES report framework, CVSS-scored findings, cross-language parity, redaction for the public repo, and the `check_report.py` gate — the full report stays outside the repo while it is public (K37) |
 
 The Claude Code hooks, what each one enforces, and why each works the way it
 does are in [`.claude/README.md`](./.claude/README.md); the OpenHands side —

@@ -25,6 +25,7 @@ Inggris. Keduanya sengaja hidup berdampingan di sini.
 | bendahara — tagihan, pembayaran, akuntansi | [`PANDUAN-PENGGUNA-BENDAHARA.md`](./PANDUAN-PENGGUNA-BENDAHARA.md) |
 | kepala unit — akademik dan kepegawaian unit | [`PANDUAN-PENGGUNA-KEPALA-UNIT.md`](./PANDUAN-PENGGUNA-KEPALA-UNIT.md) |
 | pengurus yayasan — mutu, risiko, dan keuangan yayasan | [`PANDUAN-PENGGUNA-PENGURUS-YAYASAN.md`](./PANDUAN-PENGGUNA-PENGURUS-YAYASAN.md) |
+| pengurus, auditor, atau donor — butuh bukti uji keamanan | [`UJI-KERENTANAN.md`](./UJI-KERENTANAN.md) |
 | santri — hafalan, ibadah, ujian, dan kegiatan harian | [`PANDUAN-PENGGUNA-SANTRI.md`](./PANDUAN-PENGGUNA-SANTRI.md) |
 | pengembang baru — butuh peta kode | [`ARCHITECTURE.md`](./ARCHITECTURE.md), lalu `AGENTS.md` akar |
 | mengelola server produksi | [`DEPLOYMENT.md`](./DEPLOYMENT.md), [`deploy-azure.md`](./deploy-azure.md) |
@@ -65,6 +66,7 @@ Ditulis dan dirawat bersama kode; berubah saat kode berubah.
 | [`deploy-azure.md`](./deploy-azure.md) | rencana dan langkah pindah dari VM tunggal ke Azure App Service |
 | [`MOBILE_API.md`](./MOBILE_API.md) | kontrak API untuk aplikasi Android portal orang tua (autentikasi bearer, endpoint, FCM) |
 | [`EMAIL_SETUP.md`](./EMAIL_SETUP.md) | cara sistem mengirim email (Gmail API): langkah persis penyiapan kredensial |
+| [`UJI-KERENTANAN.md`](./UJI-KERENTANAN.md) | prosedur uji kerentanan internal: otorisasi, batas, kerangka laporan, dan ringkasan netral kontrol terverifikasi baik (laporan penuh di luar repo selama repo publik, K37) |
 
 ## 3. Rencana dan desain — belum tentu jadi
 
