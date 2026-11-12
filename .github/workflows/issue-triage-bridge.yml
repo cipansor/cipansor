@@ -14,6 +14,11 @@
 #              comments) changed since the bridge's last checkpoint, so an edited
 #              description or a new comment is caught without a trigger on
 #              `issues.edited`. The description is never touched by this workflow.
+#              A dispatch deferred while the pool was full (`pending`) is queued
+#              with its first-deferral time; the sweep also discovers these from
+#              the store and takes the oldest wait first (FIFO), so a deferred
+#              issue cannot starve below the activity-ordered search window
+#              (#872).
 #   recover -> a `ready` issue whose sweep marker is not final. The sweep
 #              searches `-label:ready`, so without this pass a marker on a
 #              `ready` issue is never examined again: a deferred label dispatch

@@ -298,6 +298,23 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
     - Workflow menjalankan langkah ini `if: always()` agar kegagalan sweep tidak
       menelantarkannya. Skrip `#!/bin/sh` (dash) — tanpa proses-substitusi;
       hasilnya lewat berkas sementara.
+    - **Penundaan yang tak bisa ditulis ke checkpoint sweep** (tinjauan #872):
+      bila `read_sweep_marker` gagal (`MARK_FORM=unknown`) saat kolam penuh dan
+      tidak ada checkpoint `pending`, jalur label dulu tidak menulis apa pun —
+      pada issue `ready` itu menghilangkan satu-satunya kesempatan triase (sweep
+      mengecualikan `ready`; `recover_ready` hanya membaca checkpoint yang ada).
+      Kini penundaan disimpan di `triage-retry-<n>` (`{signal, at}`), dan
+      `drain_retry_markers` — dijalankan di awal `sweep` **dan** `recover_ready`
+      — melipatnya kembali ke checkpoint `pending` sebelum kandidat dibaca. `at`
+      yang lebih tua menang, jadi slot FIFO tak tergeser; kunci retry dihapus
+      setelah lipatan berhasil. **Koreksi tinjauan (2026-11-12, putaran kedua):**
+      drain tidak boleh membuang retry selama checkpoint masih menyebut sebuah
+      run (in-flight atau belum difinalkan). Sinyal checkpoint hanya menghitung
+      body dan komentar, **tidak** label, sehingga run yang didispatch sebelum
+      label masuk — mis. run lama pada issue `ready` — memfinalkan issue tanpa
+      meninjau label itu; retry dibiarkan sampai run keluar (`run` dikosongkan
+      oleh pass yang memfinalkannya), lalu dilipat menjadi `pending` dan
+      didispatch. Dijaga tes round-trip tiga pass (in-flight → selesai → kuras).
 
 25. **Run yang mati infrastruktur mendapat kesempatan kedua yang terukur**
     (2026-10-15, pengguna; #837). `POST /{id}/dispatch` fire-and-forget: run
@@ -605,6 +622,39 @@ permission`) plus tes positif untuk maintainer. `ACTOR` sudah diisi
     workflow. Alternatif yang tidak dipilih: memasang required reviewers pada
     environment `production` (butuh admin, di luar PR). `docs/SDLC-FLOW.md` dan
     `docs/deploy-azure.md` diperbarui agar syarat ini eksplisit.
+
+34. **Sweep triase mengantre FIFO menurut penundaan pertama** (2026-11-11,
+    pengguna; `K25`, #872). Sweep memilih kandidat dari pencarian `sort=updated
+    order=desc` dan hanya meloloskan `MAX_INFLIGHT` (default 3) per run. Setelah
+    penanda pindah ke KV store (#1031), penulisan `pending` **tidak lagi**
+    menyentuh issue, jadi `updated_at`-nya membeku: issue yang ditunda tenggelam
+    ke dasar `updated desc` dan **tidak pernah** naik ke jendela sweep selama
+    aktivitas baru terus mengambil slot — kelaparan head-of-line (bukti: #850,
+    #851, #852, penandanya berbunyi "menunggu" tapi nol triase ~4 hari).
+    Perbaikan (pilihan maintainer): checkpoint `pending` menyimpan **waktu
+    penundaan pertama** (`at`, epoch detik; checkpoint lama tanpa `at` dihitung
+    paling tua, `0`), dan sweep mengambil kandidat dari **dua sumber** — store
+    (semua checkpoint `pending`, urut `at` menaik) **lebih dulu**, lalu
+    pencarian aktivitas. Satu issue = satu baris (kemunculan pertama menang),
+    jadi slot FIFO-nya tak digeser aktivitas yang tak bergerak. Menulis ulang
+    `pending` mempertahankan `at` (penundaan berulang tak mereset antrean).
+    Alternatif yang ditolak: hanya memperbarui `updated_at` saat menunda
+    (menyentuh issue lagi, justru yang dihindari migrasi KV) dan batas umur
+    penundaan yang mendispatch paksa (menabrak `MAX_INFLIGHT`/kolam sandbox).
+    Dijaga `automation-fleet.guard.test.ts` (tiga sweep berturut-turut dengan
+    ekor yang sama lalu ekor itu maju; urutan tertua-dulu; penundaan berulang
+    mempertahankan `at`).
+    **Koreksi tinjauan (2026-11-12).** Dua cacat yang ditemukan reviewer gerbang
+    pada FIFO ini: (i) `pending_keys` menyerahkan checkpoint `pending` milik
+    issue `ready` ke sweep biasa, yang lalu **menghapusnya** (jalur `ready` di
+    luar lingkupnya) — padahal `--recover-ready` berjalan *sesudah* sweep dan
+    membaca store, jadi dispatch tertunda itu hilang. Perbaikan: jalur `ready`
+    hanya menghapus checkpoint yang **selesai** (`run` kosong, `MARK_FORM=some`);
+    yang `pending`/in-flight dibiarkan untuk `recover_ready`. (ii) kegagalan baca
+    KV di jalur label (`read_sweep_marker` → `unknown`) membuat `at` diisi ulang
+    `now`, menggeser issue yang lama menunggu ke belakang antrean. Perbaikan:
+    saat `MARK_FORM=unknown`, checkpoint dibiarkan apa adanya. Dijaga dua tes
+    round-trip baru (sweep → `--recover-ready`; hiccup baca KV).
 
 ## Sumber
 

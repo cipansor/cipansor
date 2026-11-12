@@ -381,9 +381,9 @@
     "source": "kepemimpinan-kepala-unit/12-sdm.png",
     "flow": "kepemimpinan-kepala-unit",
     "step": "12-sdm",
-    "caption": "SDM & Kepegawaian: data pegawai, kontrak, dan absensi staf.",
+    "caption": "SDM & Kepegawaian: ringkasan unit dan daftar pegawai unit.",
     "url": "/hr",
-    "bytes": 44818,
+    "bytes": 79450,
     "width": 1024
   },
   {
@@ -651,7 +651,7 @@
     "source": "layanan-tata-usaha/10-pengumuman.png",
     "flow": "layanan-tata-usaha",
     "step": "10-pengumuman",
-    "caption": "Pengumuman: kabar unit yang dibaca pengguna. Tombol Buat Baru tampil untuk admin unit.",
+    "caption": "Pengumuman: kabar unit yang dibaca pengguna. Tombol Buat Pengumuman tampil untuk admin unit.",
     "url": "/announcements",
     "bytes": 26486,
     "width": 1024
