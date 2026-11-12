@@ -21,6 +21,7 @@ describe('Marketing ROI Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(prisma.registrant.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.invoice.findMany).mockResolvedValue([] as any);
   });
 
   it('should calculate ROI correctly for multiple campaigns', async () => {
@@ -33,8 +34,9 @@ describe('Marketing ROI Service', () => {
       { campaignId: 'c1', _count: { _all: 20 } },
     ] as any);
     // Satu santri kini boleh punya beberapa pendaftaran (progresi internal
-    // antarunit), jadi relasinya jamak.
-    vi.mocked(prisma.invoice.findMany).mockResolvedValue([
+    // antarunit), jadi relasinya jamak. Panggilan pertama membaca tagihan
+    // santri; panggilan kedua (tagihan REG_FEE) tetap kosong (default).
+    vi.mocked(prisma.invoice.findMany).mockResolvedValueOnce([
       { paidAmount: 5000, student: { registrants: [{ campaignId: 'c1' }] } },
     ] as any);
 
@@ -50,7 +52,6 @@ describe('Marketing ROI Service', () => {
       { id: 'c1', name: 'Facebook Ads', code: 'FB01', budget: 1000, _count: { registrants: 100 } },
     ] as any);
     vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
-    vi.mocked(prisma.invoice.findMany).mockResolvedValue([] as any);
     // Biaya daftar ulang ada di Registrant, bukan Invoice.
     vi.mocked(prisma.registrant.findMany).mockResolvedValue([
       { campaignId: 'c1', registrationFeeAmount: 2500 },
@@ -69,16 +70,42 @@ describe('Marketing ROI Service', () => {
     );
   });
 
-  it('mengecualikan tagihan REG_FEE agar tidak menghitung ganda biaya daftar ulang', async () => {
-    // Biaya daftar ulang sudah dicatat di Registrant; tagihan REG_FEE untuk
-    // santri yang sama menuliskannya ulang. Sumber invoice harus mengecualikan
-    // REG_FEE supaya keduanya tidak dijumlahkan.
+  it('menghitung tagihan REG_FEE lunas saat pendaftar belum mencatat biayanya', async () => {
+    // Staf dapat menerbitkan tagihan REG_FEE dan melunasinya lewat createPayment,
+    // yang tidak menulis registrationFeePaidAt. Tagihan itu satu-satunya bukti
+    // biaya sudah diterima, jadi harus dihitung.
     vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([
       { id: 'c1', name: 'X', code: 'X', budget: 1000, _count: { registrants: 1 } },
     ] as any);
     vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
-    vi.mocked(prisma.invoice.findMany).mockResolvedValue([] as any);
     vi.mocked(prisma.registrant.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.invoice.findMany)
+      .mockResolvedValueOnce([] as any)
+      .mockResolvedValueOnce([
+        { paidAmount: 500000, student: { registrants: [{ campaignId: 'c1' }] } },
+      ] as any);
+
+    const result = await calculateCampaignROI();
+
+    expect(result[0].metrics.revenue).toBe(500000);
+
+    const pilihRegFee = vi.mocked(prisma.invoice.findMany).mock.calls[1][0] as any;
+    expect(pilihRegFee.where.paymentType).toEqual({ code: 'REG_FEE' });
+    // Hanya dihitung bila tidak ada pendaftar yang mencatat biaya daftar ulang.
+    expect(pilihRegFee.where.student.registrants).toEqual({
+      some: { campaignId: { in: ['c1'] } },
+      none: { registrationFeePaidAt: { not: null } },
+    });
+  });
+
+  it('mengecualikan tagihan REG_FEE dari sumber tagihan santri biasa', async () => {
+    // Biaya daftar ulang dibaca dari Registrant (dan dari tagihan REG_FEE tanpa
+    // catatan pendaftar), jadi sumber tagihan biasa harus mengecualikan REG_FEE
+    // agar tidak ada sumber yang dihitung dua kali.
+    vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([
+      { id: 'c1', name: 'X', code: 'X', budget: 1000, _count: { registrants: 1 } },
+    ] as any);
+    vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
 
     await calculateCampaignROI();
 
@@ -91,7 +118,6 @@ describe('Marketing ROI Service', () => {
       { id: 'c1', name: 'X', code: 'X', budget: 1, _count: { registrants: 1 } },
     ] as any);
     vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
-    vi.mocked(prisma.invoice.findMany).mockResolvedValue([] as any);
     const halamanPenuh = Array.from({ length: 5000 }, (_, i) => ({
       id: `r${i}`,
       campaignId: 'c1',
@@ -115,17 +141,19 @@ describe('Marketing ROI Service', () => {
     vi.mocked(prisma.registrant.groupBy).mockResolvedValue([
       { campaignId: 'c1', _count: { _all: 20 } },
     ] as any);
-    vi.mocked(prisma.invoice.findMany).mockResolvedValue([] as any);
 
     await calculateCampaignROI();
 
     // Tanpa `take: 1` yang berurutan, santri dengan dua pendaftaran membuat
-    // pendapatan yang sama dihitung di dua kampanye.
+    // pendapatan yang sama dihitung di dua kampanye. Pilihan pendaftaran tertua
+    // TIDAK difilter `campaignIds` (lihat temuan tinjauan #1034): cakupan hanya
+    // diterapkan saat menjumlahkan, bukan saat memilih baris tertua.
     const pilih = vi.mocked(prisma.invoice.findMany).mock.calls[0][0] as any;
     expect(pilih.select.student.select.registrants).toMatchObject({
       take: 1,
       orderBy: { createdAt: 'asc' },
     });
+    expect(pilih.select.student.select.registrants.where).toBeUndefined();
     expect(pilih.where.student.registrants.some).toBeDefined();
   });
 

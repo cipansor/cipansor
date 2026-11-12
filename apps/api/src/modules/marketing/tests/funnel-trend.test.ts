@@ -77,18 +77,39 @@ describe('getMonthlyAttributedRevenue', () => {
 
     // The campaign link hangs off the to-many `registrants` relation on
     // Student; a bare `registrant` is not a relation and Prisma rejects it.
-    // The REG_FEE invoice is excluded so the fee is not counted twice (it is
-    // read from the Registrant instead).
+    // A non-REG_FEE payment always counts; a REG_FEE payment counts only when
+    // the student has no registration-fee record (read from the Registrant),
+    // so the fee is never counted twice.
     expect(mocked.payment.findMany).toHaveBeenCalledWith(
       expect.objectContaining({
         where: expect.objectContaining({
           invoice: expect.objectContaining({
-            NOT: { paymentType: { code: 'REG_FEE' } },
             student: { registrants: { some: { campaignId: { not: null } } } },
+            OR: [
+              { NOT: { paymentType: { code: 'REG_FEE' } } },
+              {
+                paymentType: { code: 'REG_FEE' },
+                student: { registrants: { none: { registrationFeePaidAt: { not: null } } } },
+              },
+            ],
           }),
         }),
       })
     );
+  });
+
+  it('menghitung pembayaran tagihan REG_FEE saat pendaftar belum mencatat biayanya', async () => {
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    // Staf melunasi tagihan REG_FEE lewat createPayment; registrationFeePaidAt
+    // tidak terisi. Pembayaran ini satu-satunya bukti, jadi harus dihitung.
+    mocked.payment.findMany.mockResolvedValue([{ paidAt: now, amount: 500000 }]);
+    mocked.registrant.findMany.mockResolvedValue([]);
+
+    const trend = await getMonthlyAttributedRevenue(undefined, 3);
+
+    const current = trend.find((t) => t.month === thisMonthKey);
+    expect(current).toEqual({ month: thisMonthKey, revenue: 500000, transactionCount: 1 });
   });
 
   it('menambahkan biaya daftar ulang lunas, per bulan registrationFeePaidAt', async () => {
@@ -134,6 +155,29 @@ describe('getMonthlyAttributedRevenue', () => {
 
     // Halaman penuh memicu halaman berikutnya; tidak ada baris yang dibuang.
     expect(mocked.payment.findMany).toHaveBeenCalledTimes(2);
+    const current = trend.find((t) => t.month === thisMonthKey);
+    expect(current).toEqual({ month: thisMonthKey, revenue: 5001, transactionCount: 5001 });
+  });
+
+  it('membaca seluruh halaman biaya daftar ulang pada grafik (cabang paginasi kedua)', async () => {
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    mocked.payment.findMany.mockResolvedValue([]);
+    // Cabang biaya daftar ulang punya paginasi sendiri; uji pembayaran di atas
+    // hanya mengisi halaman pertama sumber pembayaran.
+    const halamanPenuh = Array.from({ length: 5000 }, (_, i) => ({
+      id: `r${i}`,
+      registrationFeePaidAt: now,
+      registrationFeeAmount: 1,
+    }));
+    mocked.registrant.findMany
+      .mockResolvedValueOnce(halamanPenuh)
+      .mockResolvedValueOnce([{ id: 'z', registrationFeePaidAt: now, registrationFeeAmount: 1 }]);
+
+    const trend = await getMonthlyAttributedRevenue(undefined, 3);
+
+    // Halaman penuh memicu halaman berikutnya; biaya tidak terpotong di 5.000.
+    expect(mocked.registrant.findMany).toHaveBeenCalledTimes(2);
     const current = trend.find((t) => t.month === thisMonthKey);
     expect(current).toEqual({ month: thisMonthKey, revenue: 5001, transactionCount: 5001 });
   });

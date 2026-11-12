@@ -66,9 +66,11 @@ afterAll(async () => {
 describe('calculateCampaignROI query shape', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('builds a where Prisma accepts for both revenue sources', async () => {
+  it('builds a where Prisma accepts for every revenue source', async () => {
     await expect(calculateCampaignROI('unit-1')).resolves.toHaveLength(1);
-    expect(mocked.invoice.findMany).toHaveBeenCalledTimes(1);
+    // Two invoice reads: ordinary student invoices, then REG_FEE invoices for a
+    // student with no registration-fee record. Both must pass the validator.
+    expect(mocked.invoice.findMany).toHaveBeenCalledTimes(2);
     expect(mocked.registrant.findMany).toHaveBeenCalledTimes(1);
   });
 });
