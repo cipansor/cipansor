@@ -22,7 +22,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { Budget } from "@cipansor/shared";
+import { Budget, AccountCode } from "@cipansor/shared";
 import { Loader2, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
 import {
   AlertDialog,
@@ -78,7 +78,7 @@ const useExpenseAccounts = () => {
       const res = await api.get("/finance-enhancement/account-codes", {
         params: { type: "EXPENSE", limit: 100 },
       });
-      return res.data.data;
+      return res.data.data as AccountCode[];
     },
   });
 };
@@ -133,10 +133,15 @@ const useRecalculateBudget = () => {
 function BudgetingPageContent() {
   const { data: units } = useUnits();
   const { data: years } = useAcademicYears();
-  const { data: accounts } = useExpenseAccounts();
 
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedYearId, setSelectedYearId] = useState<string>("");
+  const { data: accounts } = useExpenseAccounts();
+  // The write path refuses an account pinned to another unit; offer only the
+  // chosen unit's accounts and the shared ones (`unitId` null).
+  const availableAccounts = (accounts ?? []).filter(
+    (acc) => !acc.unitId || acc.unitId === selectedUnitId,
+  );
   const [page, setPage] = useState(1);
 
   const { data: budgetResult, isLoading } = useBudgets({
@@ -270,7 +275,7 @@ function BudgetingPageContent() {
                       <SelectValue placeholder="Pilih Akun" />
                     </SelectTrigger>
                     <SelectContent>
-                      {accounts?.map((acc: any) => (
+                      {availableAccounts.map((acc) => (
                         <SelectItem key={acc.id} value={acc.id}>
                           {acc.code} - {acc.name}
                         </SelectItem>

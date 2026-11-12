@@ -106,7 +106,7 @@ export async function getFinancialPeriods(
 
   return {
     data,
-    meta: { page, limit, total, totalPages: Math.ceil(total / limit) },
+    meta: { pagination: { page, limit, total, totalPages: Math.ceil(total / limit) } },
   };
 }
 

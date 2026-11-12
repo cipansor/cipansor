@@ -28,7 +28,10 @@ vi.mock('../budget.service', () => ({
 vi.mock('../period.service', () => ({
   createFinancialPeriod: vi.fn(async () => ({ id: 'fp-1' })),
   closePeriod: vi.fn(async () => ({ id: 'fp-1' })),
-  getFinancialPeriods: vi.fn(async () => []),
+  getFinancialPeriods: vi.fn(async () => ({
+    data: [{ id: 'fp-1', name: 'Semester 1' }],
+    meta: { pagination: { page: 1, limit: 20, total: 1, totalPages: 1 } },
+  })),
 }));
 
 import { verifyToken } from '@/lib/jwt';
@@ -117,5 +120,15 @@ describe('Anggaran write routes accept the web form body (#749)', () => {
     expect(res.body.data[0]).toMatchObject({ id: 'b-1' });
     expect(res.body.meta.pagination).toMatchObject({ page: 1, total: 1 });
     expect(res.body.data.data).toBeUndefined();
+  });
+
+  it('GET /financial-periods answers meta.pagination, matching the shared contract', async () => {
+    const res = await authed(request(app).get('/finance-enhancement/financial-periods?unitId=unit-smp'));
+    expect(res.status).toBe(200);
+    expect(res.body.success).toBe(true);
+    expect(Array.isArray(res.body.data)).toBe(true);
+    expect(res.body.data[0]).toMatchObject({ id: 'fp-1' });
+    expect(res.body.meta.pagination).toMatchObject({ page: 1, total: 1 });
+    expect(res.body.meta.page).toBeUndefined();
   });
 });

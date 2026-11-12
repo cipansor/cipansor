@@ -149,10 +149,12 @@ test("Anggaran: the budget form saves a budget", async ({ page }) => {
   expect(created, "the saved budget is readable back").toBeTruthy();
 
   // A budget is unique per (unit, year, account); deleting it here keeps a
-  // rerun from colliding on the row this test just made.
+  // rerun from colliding on the row this test just made. The delete must
+  // succeed — a swallowed failure leaves the row behind and the next run fails
+  // on the unique key instead of here.
   await apiRequest(
     session,
     "DELETE",
     `/finance-enhancement/budgets/${created!.id}`,
-  ).catch(() => {});
+  );
 });

@@ -703,6 +703,7 @@ export class FinanceEnhancementService {
       code: prismaAccount.code,
       name: prismaAccount.name,
       type: prismaAccount.type as AccountType, // Prisma enum should match Shared enum
+      unitId: prismaAccount.unitId,
       parentId: prismaAccount.parentId,
       isActive: prismaAccount.isActive,
       createdAt: prismaAccount.createdAt,
