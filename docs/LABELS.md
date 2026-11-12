@@ -237,9 +237,8 @@ detect` workflow: when two **open** issues share a title once normalised
 
 | Automation            | Trigger                                   | Labels it sets                                                                                               |
 | --------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `Triase issue`        | issue opened; balasan maintainer pada issue `question` (via jembatan triase) | tipe, prioritas, `ready` / `question` / `duplicate`; balasan maintainer → `ready` / `wontfix`                |
+| `Triase issue`        | issue opened; balasan pada issue `question` (via jembatan triase) | tipe, prioritas, `ready` / `question` / `duplicate`; balasan pelapor → `ready` / `duplicate` / `invalid`; balasan maintainer → `ready` / `wontfix` |
 | `Tiket jadi PR`       | daily cron 08:00 WIB, `ready` queue oldest-first | tidak ada — ia membuka PR                                                                                    |
-| `Penjernih issue`     | comment on a `question` issue             | `question` ↔ `ready`, `duplicate`, `invalid`                                                                 |
 | `Issue label sync`    | PR opened / issue relabeled               | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`)                                     |
 | `issue-claim.sh`      | PR opened / issue relabeled               | `ready` ↔ `in-progress` pada issue tertaut (deterministik, `issue-claim.yml`)                                |
 | `duplicate-detect.sh` | issue opened / jadwal harian              | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan |
@@ -265,7 +264,9 @@ An automation posts through the same GitHub account as the person who triggered
 it (`user.type: User`, same `login`), so a trigger on `issue_comment.created`
 cannot tell the automation's own comment from a reporter's. Issue #680 showed
 the consequence: `Penjernih issue` re-armed itself and posted eleven comments in 27
-minutes, each a full LLM run.
+minutes, each a full LLM run. (That automation was retired on 2026-11-12 —
+option (a) of #1056 — but the guard it motivated still governs every comment
+trigger.)
 
 The marker is the comment's **author**. Every automated comment is posted as
 `cipansor-bot` (the fleet's account, `user.type: User`) or as a GitHub App

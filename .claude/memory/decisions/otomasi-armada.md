@@ -912,24 +912,32 @@ hanya dijawab `GET /api/automation/v1` — bukan dengan membaca repo. Sama seper
 catatan audit 2026-11-11, **audit armada harus membandingkan state live dengan
 repo setiap kali.**
 
-### SDLC 16 · Penjernih issue tetap hidup — dan itu memang keputusan
+### SDLC 16 · Penjernih issue dipensiunkan 2026-11-12 (opsi (a))
 
-Keputusan 2026-11-12 mencakup SDLC 08/10/12/22 saja; **SDLC 16 tidak pernah masuk
-daftar pensiun**. Desainnya memang membagi klarifikasi kepada dua pemilik
+Keputusan 2026-11-12 semula mencakup SDLC 08/10/12/22 saja; **SDLC 16 sempat
+dipertahankan** karena desainnya memang membagi klarifikasi kepada dua pemilik
 (docs/SDLC-FLOW.md, tabel alur baris 3): `Penjernih issue` untuk balasan
 **pelapor**, `Triase issue` untuk balasan **maintainer**. Filter trigger-nya
 sengaja berlawanan sejak 2026-11-11 — SDLC 16 menyaring
 `comment.author_association != OWNER/MEMBER/COLLABORATOR` (hanya pelapor),
 sedangkan filter SDLC 22 yang pensiun justru sebaliknya (hanya maintainer).
 
-**Cacat yang tersisa: SDLC 16 kini tumpang tindih dengan jembatan triase.**
-Sweep jembatan memilih `repo:$REPO is:issue is:open -label:ready`
+**Namun pembagian itu ternyata tidak berlaku di lapangan.** Sweep jembatan
+triase memilih `repo:$REPO is:issue is:open -label:ready`
 (`.github/scripts/issue-triage-bridge.sh`). Issue `question` tidak `ready`, jadi
 **ikut tersapu**, dan sinyal aktivitasnya memuat setiap komentar non-armada —
 termasuk balasan pelapor. Akibatnya satu balasan pelapor pada issue `question`
 membangunkan **dua** agen: SDLC 16 (pemicu `issue_comment.created`) dan SDLC 15
 (dispatch jembatan). Itu cacat "satu komentar, dua pemilik" yang sama persis
-dengan yang memensiunkan SDLC 22, hanya di sisi pelapor. Dua pilihan ada di
-pemilik: **(a)** pensiunkan SDLC 16 dan serahkan balasan pelapor ke SDLC 15 lewat
-jembatan (konsisten dengan SDLC 22), atau **(b)** kecualikan issue `question`
-dari sweep jembatan supaya SDLC 16 tetap satu-satunya pemilik balasan pelapor.
+dengan yang memensiunkan SDLC 22, hanya di sisi pelapor.
+
+**Keputusan pemilik 2026-11-12: opsi (a)** — pensiunkan SDLC 16 dan serahkan
+balasan pelapor ke SDLC 15 lewat jembatan (konsisten dengan SDLC 22). Opsi (b)
+(kecualikan issue `question` dari sweep) ditolak: jembatan sudah menangani kedua
+sisi, dan "satu pemilik per langkah" adalah invarian armada.
+
+Yang berubah: entri `RETIRED["SDLC 16"]`, tail `SDLC 16` dihapus dari `TAILS`,
+entri `TRIGGERS["SDLC 16"]` dihapus, dan tail SDLC 15 mendapat bagian `BALASAN
+PELAPOR`. Karena `RETIRED` hanya berlaku saat deploy, **SDLC 16 tetap hidup di
+cloud sampai `DEPLOY=true` dijalankan** — pola yang sama dengan temuan deploy
+sebelumnya.

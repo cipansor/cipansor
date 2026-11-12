@@ -41,12 +41,31 @@ maintainer. `duplicate` dimiliki oleh sweep workflow. (`question` mengambil alih
 timer 20 hari milik `needs-info` saat label itu dihapus 2026-11-11; timer
 peringatan kini 8 hari, penutupan 15.)
 
-## 4. Diskusi
+## 4. Diskusi — **dipensiunkan 2026-11-12**
+
+> Automation `SDLC 22` dimatikan: balasan maintainer pada issue `question` sudah
+> dipicu jembatan triase (setiap aktivitas non-armada), jadi satu komentar tidak
+> perlu membangunkan dua agen. Perannya kini ada di tail `Triase issue` (SDLC 15).
+> Butir di bawah dipertahankan sebagai catatan apa yang dulu dijaganya.
 
 Menjawab maintainer pada issue `question`.
 Menyuplai detail yang kurang atau lampu hijau memberi `ready`, yang menyerahkan
 ke `Tiket jadi PR`; penolakan memberi `wontfix` dan menutup. Ia tidak pernah
 bertindak atas komentarnya sendiri.
+
+## 4b. Penjernih issue — **dipensiunkan 2026-11-12**
+
+> Automation `SDLC 16` dimatikan atas keputusan pemilik (opsi (a) dari #1056),
+> dengan alasan yang sama seperti `Diskusi` di atas, hanya di sisi pelapor:
+> sweep jembatan triase memilih `is:open -label:ready`, sehingga issue `question`
+> ikut tersapu dan sinyalnya memuat setiap komentar non-armada — termasuk
+> balasan pelapor. Satu balasan pelapor karena itu membangunkan dua agen (SDLC 16
+> lewat `issue_comment.created`, SDLC 15 lewat dispatch jembatan). Perannya kini
+> ada di tail `Triase issue` (SDLC 15), bagian `BALASAN PELAPOR`.
+
+Menilai ulang saat pelapor menjawab issue `question`: memberi `ready` bila sudah
+jelas, `duplicate`/`invalid` bila tidak. Ia tidak pernah bertindak atas
+komentarnya sendiri.
 
 ## 5. Pengawas armada — **dipensiunkan 2026-11-11**
 

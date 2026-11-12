@@ -369,6 +369,8 @@ Triase issue ini dengan KRITIS dan habis-habisan. Baca issue, cari duplikat di a
 
 BALASAN MAINTAINER — BUKAN HANYA TRIASE PERTAMA (`Diskusi`/SDLC 22 dipensiunkan 2026-11-12 dan dilebur ke sini). Jembatan triase mendispatch Anda pada SETIAP aktivitas non-armada di issue yang belum `ready`, termasuk balasan maintainer pada issue `question`. Perlakukan itu sebagai diskusi biasa: baca percakapan, suplai detail yang kurang, tanyakan bertubi-tubi sampai yakin. Selama masih ada yang perlu dibahas, tulis tanggapan sebagai KOMENTAR BARU (jangan sentuh body). Bila maintainer memberi lampu hijau, pasang `ready` lalu tulis kesimpulan final ke body (lihat aturan TULIS DI MANA di bawah); bila maintainer menolak, pasang `wontfix` dan tutup. Jangan pernah bertindak atas komentar Anda sendiri.
 
+BALASAN PELAPOR (`Penjernih issue`/SDLC 16 dipensiunkan 2026-11-12 dan dilebur ke sini, opsi (a) #1056). Sweep jembatan triase memilih issue `is:open -label:ready`, jadi issue `question` ikut tersapu dan sinyalnya memuat SETIAP komentar non-armada — termasuk balasan pelapor. Karena itu Anda kini satu-satunya pemilik balasan pelapor juga: jangan berharap agen lain menanganinya. Baca seluruh issue dan komentar baru, lalu putuskan dengan KRITIS apakah yang ditanyakan sudah terjawab. Bila masih kabur, biarkan `question` dan tulis detail spesifik yang masih kurang sebagai KOMENTAR BARU — jangan mengulang pertanyaan yang sudah ditanyakan. Bila kini jelas dan bisa diimplementasikan, cabut `question`, pasang `ready` (hanya bila benar-benar yakin, tanpa pertanyaan terbuka), lalu tulis penilaian ulang ke body (lihat TULIS DI MANA). Bila duplikat, `duplicate` + tautkan aslinya. Bila tidak valid, `invalid` + alasannya. Jangan mencabut `ready` yang bukan Anda pasang tanpa menjelaskan alasannya. Jangan pernah bertindak atas komentar Anda sendiri.
+
 Prioritas — beri bukti, jangan mengira-ngira. Nilai dampak, urgensi, dan risiko:
 - `priority:critical` HANYA bila salah satu terpenuhi: layanan mati total; kehilangan/korupsi data; kerentanan keamanan atau kebocoran data pribadi (UU PDP) yang aktif bisa dieksploitasi; pipeline rilis macet total. Sebut korban konkret (unit/peran) dan buktinya.
 - `priority:high` bila menghambat pekerjaan unit/peran sekarang, ada tenggat regulasi/akreditasi dalam siklus ini, berdampak banyak pengguna tanpa workaround, atau kelemahan keamanan yang belum bisa dieksploitasi. Sebut penghambat atau tenggatnya.
@@ -409,9 +411,6 @@ Deteksi merge ke main yang berdampak dokumentasi: perubahan pada route/kontrak A
 Selain itu, nilai apakah peta modul dan arsitektur di `docs/ARCHITECTURE.md` masih benar terhadap tata letak nyata (`apps/api/src/modules/**`, `apps/web/src/**`, `packages/shared/**`) — modul yang sudah tidak ada, modul baru yang belum tercatat, atau path yang salah. Ini sisa tugas `Peta basis kode` (SDLC 03) yang dipensiunkan 2026-11-09: yang TERUKUR (jumlah modul, model, rute, Lampiran A) sudah dijalankan `.github/workflows/docs-drift.yml` ke issue induk #782, jadi JANGAN mengulang hitungan angka; nilailah hanya apakah peta prosa masih menyampaikan kebenaran. Angka tetap bukan temuan bila dokumennya menunjuk perintah ukur (aturan #782 poin 4).
 
 Jangan membuka issue drift kedua: `#782` adalah satu-satunya issue induk penyimpangan dokumen (keputusan pemilik 2026-10-11). Temuan angka/daftar ke `#782`; temuan prosa yang butuh ditulis ulang ke satu issue `documentation` seperti di atas.
-""",
-    "SDLC 16": """PERILAKU SASARAN (level agentic)
-Issue `question` ini baru menerima komentar dari pelapor. Baca seluruh issue dan komentar baru, lalu putuskan dengan KRITIS apakah yang ditanyakan sudah terjawab. Bila masih kabur, biarkan `question` dan tulis detail spesifik yang masih kurang sebagai KOMENTAR BARU — jangan mengulang pertanyaan yang sudah ditanyakan. Bila kini jelas dan bisa diimplementasikan, hapus `question`, tambah `ready` (hanya bila benar-benar yakin, tanpa pertanyaan terbuka), lalu tulis penilaian ulang ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`) — TANPA komentar baru, satu triase satu tempat. Bila duplikat, `duplicate` + tautkan aslinya. Bila tidak valid, `invalid` + alasannya. Jangan menghapus `ready` yang bukan Anda pasang tanpa menjelaskan alasannya.
 """,
     "SDLC 18": """PERILAKU SASARAN (level agentic)
 Bertindaklah sebagai gerbang tinjau resmi untuk PR ini dan kirim SATU review yang SAH per head. IDENTITAS (WAJIB): kirim review lewat `POST /repos/cipansor/cipansor/pulls/<n>/reviews` memakai `GITHUB_BOT_TOKEN` (akun `cipansor-bot`), supaya approval dari penulis PR (akun `adminypc`) tidak ditolak sebagai tinjauan diri. Jangan pakai `GITHUB_TOKEN` untuk mengirim review.
@@ -792,7 +791,7 @@ def extract(dest):
 
 # Trigger configuration that lives OUTSIDE the tarball and therefore outside this
 # script's prompt/tarball PATCH. It is applied here as a separate `PATCH {trigger}`
-# so the claim "SDLC 07/16/22 filter updated" (and SDLC 18's `on`) can be made,
+# so the claim "SDLC 07/22 filter updated" (and SDLC 18's `on`) can be made,
 # reproduced and rolled forward from ONE place, not by a hand edit in the cloud.
 #
 # Each entry names only the fields this script owns; `target_trigger` completes
@@ -815,15 +814,13 @@ MENTION_FILTER = (
 TRIGGERS = {
     # on an `@cipansor-bot` mention by a maintainer (was `@openhands`).
     "SDLC 07": {"filter": MENTION_FILTER},
-    # on a reporter's reply to a `question` issue.
-    "SDLC 16": {
-        "filter": FLEET_REPO
-        + " && contains(issue.labels[].name, 'question') && "
-        + AUTHOR_GUARD
-        + " && comment.author_association != 'OWNER'"
-        + " && comment.author_association != 'MEMBER'"
-        + " && comment.author_association != 'COLLABORATOR'"
-    },
+    # on a reporter's reply to a `question` issue — RETIRED with `Penjernih
+    # issue` (SDLC 16) on 2026-11-12 (owner decision, option (a) of #1056). The
+    # triage bridge sweeps every open non-`ready` issue and dispatches the triage
+    # owner on any non-fleet activity, so the reporter's reply already reaches
+    # `Triase issue` (SDLC 15); keeping this trigger meant one reporter reply woke
+    # two agents. Its trigger is gone with it.
+    #
     # `Diskusi` (SDLC 22) is RETIRED (2026-11-12, owner decision): a maintainer's
     # reply on a `question` issue is now handled by `Triase issue` (SDLC 15),
     # which the triage bridge already dispatches on any non-fleet activity. Its
@@ -905,6 +902,15 @@ RETIRED = {
     "ke SDLC 15 (`Triase issue`): balasan maintainer pada issue `question` sudah "
     "dipicu jembatan triase (setiap aktivitas non-armada), jadi satu komentar "
     "tidak perlu membangunkan dua agen. Tail SDLC 15 kini memuat perannya.",
+    "SDLC 16": "`Penjernih issue` dipensiunkan 2026-11-12 (keputusan pemilik, "
+    "opsi (a) dari temuan #1056) — dilebur ke SDLC 15 (`Triase issue`) atas alasan "
+    "yang sama dengan SDLC 22, hanya di sisi pelapor: sweep jembatan triase "
+    "memilih `is:open -label:ready`, sehingga issue `question` ikut tersapu dan "
+    "sinyal aktivitasnya memuat SETIAP komentar non-armada, termasuk balasan "
+    "pelapor. Satu balasan pelapor karena itu membangunkan dua agen (SDLC 16 lewat "
+    "`issue_comment.created`, SDLC 15 lewat dispatch jembatan) — cacat 'satu "
+    "komentar, dua pemilik' yang sama persis dengan yang memensiunkan SDLC 22. "
+    "Tail SDLC 15 kini memuat peran balasan pelapor.",
     "SDLC 08": "`Peninjau kode` dipensiunkan 2026-11-12 (keputusan pemilik) — "
     "dilebur ke SDLC 18 (`Gerbang tinjau PR`), satu-satunya gerbang tinjau. Dua "
     "peninjau per head berarti dua run sandbox dan dua putusan yang bisa "

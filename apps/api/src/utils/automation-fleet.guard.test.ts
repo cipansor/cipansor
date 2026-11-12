@@ -388,28 +388,32 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
       { encoding: 'utf8' }
     );
 
-  it('keeps a single `question` reply owner after retiring `Diskusi`', () => {
+  it('keeps a single `question` reply owner by retiring both comment triggers', () => {
     // SDLC 16 (`Penjernih issue`) and SDLC 22 (`Diskusi`) both watched a reply on
-    // a `question` issue; their filters were byte-identical, so every maintainer
-    // reply ran both agents for one answer. `Diskusi` was RETIRED on 2026-11-12
-    // (owner decision) and folded into `Triase issue` (SDLC 15), which the triage
-    // bridge already dispatches on any non-fleet activity. What is left is the
-    // reporter's `Penjernih issue`: it must still exclude maintainers, so a
-    // maintainer reply is not answered twice.
+    // a `question` issue; their filters were byte-identical, so every reply ran
+    // both agents for one answer. `Diskusi` was RETIRED on 2026-11-12 (owner
+    // decision) and folded into `Triase issue` (SDLC 15). The same defect existed
+    // on the reporter's side: the triage bridge sweeps every open non-`ready`
+    // issue, so a `question` issue is swept and the reporter's reply reaches
+    // SDLC 15 through the bridge too — while SDLC 16's own trigger fired as well.
+    // `Penjernih issue` (SDLC 16) was therefore RETIRED the same day (owner
+    // decision, option (a) of #1056) and its role folded into SDLC 15's tail.
+    // What is left is NO comment-triggered automation for a `question` reply:
+    // the bridge is the only dispatcher, so one comment wakes one agent.
     const triggers = block('TRIGGERS');
-    const at = triggers.indexOf('"SDLC 16": {');
-    expect(at, 'SDLC 16 entry').toBeGreaterThan(-1);
-    const sixteen = triggers.slice(at, triggers.indexOf('},', at));
-    expect(sixteen).toContain("comment.author_association != 'OWNER'");
-    expect(sixteen).toContain("comment.author_association != 'MEMBER'");
-    expect(sixteen).toContain("comment.author_association != 'COLLABORATOR'");
-    expect(sixteen).toContain("contains(issue.labels[].name, 'question')");
-    expect(sixteen).toContain('AUTHOR_GUARD');
-    // The retired automation's trigger is gone, so no comment wakes two agents.
+    expect(triggers).not.toContain('"SDLC 16": {');
     expect(triggers).not.toContain('"SDLC 22": {');
+    // The retirement is recorded, not merely disabled: a later deploy must
+    // disable it rather than redeploy a prompt that would re-post its comment.
+    const retired = block('RETIRED');
+    expect(retired).toMatch(/"SDLC 16":/);
+    expect(retired).toContain('Penjernih issue');
+    // Its managed tail is gone; the reporter-reply role lives in SDLC 15's tail.
+    expect(script()).not.toMatch(/"SDLC 16":\s*"""PERILAKU SASARAN/);
+    expect(block('TAILS')).toContain('BALASAN PELAPOR');
     // A third automation also watches comments: `Bot sebutan` (SDLC 07) fires on
     // a mention, so a plain `question` reply must not reach it. If its mention
-    // gate ever dropped, a maintainer reply would start three agents.
+    // gate ever dropped, a reply would start two agents.
     const seven = triggers.slice(
       triggers.indexOf('"SDLC 07": {'),
       triggers.indexOf('},', triggers.indexOf('"SDLC 07": {'))
