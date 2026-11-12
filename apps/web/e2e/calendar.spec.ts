@@ -87,6 +87,42 @@ test.describe("Calendar - Features", () => {
   });
 });
 
+/**
+ * The month window the page asks the API for must name the month exactly in a
+ * WIB browser (Asia/Jakarta, UTC+7) — every user of the pesantren portal. The
+ * window was built from `new Date(year, month, 1)` (local midnight) read back
+ * with `toISOString()` (UTC), so it slid one day at both ends: the month lost
+ * its last day and pulled in the last day of the previous one (ticket #911).
+ *
+ * The clock is pinned inside January 2026, so the page opens on that month and
+ * the request carries its window.
+ */
+test.describe("Kalender Akademik — jendela bulan memakai bulan yang dilihat", () => {
+  test.use({ timezoneId: "Asia/Jakarta" });
+
+  test("Januari 2026 meminta 2026-01-01 sampai 2026-01-31", async ({
+    page,
+  }) => {
+    await loginAs(page, "superAdmin");
+
+    // 2026-01-15 05:00 WIB == 2026-01-14T22:00:00Z: mid-January, inside the
+    // 00:00–06:59 WIB window where the UTC and WIB days disagree.
+    await page.clock.install({ time: new Date("2026-01-14T22:00:00.000Z") });
+
+    const monthRequest = page.waitForRequest(
+      (r) =>
+        r.url().includes("/calendar?") &&
+        r.url().includes("startDate=") &&
+        r.url().includes("endDate="),
+    );
+    await page.goto("/calendar");
+
+    const params = new URL((await monthRequest).url()).searchParams;
+    expect(params.get("startDate")).toBe("2026-01-01");
+    expect(params.get("endDate")).toBe("2026-01-31");
+  });
+});
+
 test.describe("Calendar - Performance", () => {
   test("should load calendar quickly", async ({ page }) => {
     await loginAs(page, "superAdmin");

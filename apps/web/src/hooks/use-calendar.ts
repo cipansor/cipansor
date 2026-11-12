@@ -152,8 +152,16 @@ export function useMonthEvents(year: number, month: number, unitId?: string) {
   return useQuery({
     queryKey: ["calendar-events", "month", year, month, unitId],
     queryFn: async () => {
-      const startDate = new Date(year, month, 1).toISOString().split("T")[0];
-      const endDate = new Date(year, month + 1, 0).toISOString().split("T")[0];
+      // Build the window in UTC so it names the viewed month exactly. A local
+      // `new Date(year, month, 1)` read back with `toISOString()` (always UTC)
+      // is a day earlier in WIB (UTC+7), sliding the window at both ends and
+      // dropping the month's last day.
+      const startDate = new Date(Date.UTC(year, month, 1))
+        .toISOString()
+        .slice(0, 10);
+      const endDate = new Date(Date.UTC(year, month + 1, 0))
+        .toISOString()
+        .slice(0, 10);
       const response = await api.get<ApiResponse<CalendarEvent[]>>(
         "/calendar",
         {
