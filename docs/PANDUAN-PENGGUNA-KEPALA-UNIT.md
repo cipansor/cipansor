@@ -388,10 +388,12 @@ evaluasi kinerja periodik pegawai itu.
 
 1. Buka **Pengumuman**, lalu klik **Buat Pengumuman**.
    *Formulir **Buat Pengumuman** terbuka.*
+   > ⚠ Belum dicoba di aplikasi berjalan — tombol **Buat Pengumuman** dibaca dari kode, belum diuji ulang di layar.
 2. Isi **Judul** dan **Isi**.
+   > ⚠ Belum dicoba di aplikasi berjalan — kolom **Judul**/**Isi** dibaca dari kode, belum diuji ulang di layar.
 3. Klik **Terbitkan**.
    *Muncul pesan "Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang".*
-   > ⚠ Belum dicoba di aplikasi berjalan — langkah ini disusun dari kode, belum diuji ulang di layar.
+   > ⚠ Belum dicoba di aplikasi berjalan — tombol **Terbitkan** dan pesan hasilnya dibaca dari kode, belum diuji ulang di layar.
 
 ![Gambar 10. Halaman Pengumuman unit dan formulir Buat Pengumuman.](screens/kepemimpinan-kepala-unit/15-pengumuman.png){width=14cm}
 

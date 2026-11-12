@@ -19,9 +19,15 @@ atau langsung:
 from __future__ import annotations
 
 import importlib
+import importlib.util
 import sys
 import unittest
 from pathlib import Path
+
+
+def _has(module: str) -> bool:
+    return importlib.util.find_spec(module) is not None
+
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -228,6 +234,7 @@ class PartialCardMarkerTest(unittest.TestCase):
         self.assertEqual(found[0][0], "WARN")
 
 
+@unittest.skipUnless(_has("docx"), "python-docx not installed (optional: pip install python-docx lxml)")
 class VerifyDocxTest(unittest.TestCase):
     """A .docx whose structure drifted from the Markdown must be reported, not passed."""
 
@@ -283,6 +290,7 @@ class VerifyDocxTest(unittest.TestCase):
             self.assertTrue(any("Daftar Isi" in x for x in problems), problems)
 
 
+@unittest.skipUnless(_has("pymupdf") or _has("fitz"), "pymupdf not installed (optional: pip install pymupdf)")
 class VerifyPdfTest(unittest.TestCase):
     """The PDF gate must notice a near-empty page and a table whose header did not render."""
 
