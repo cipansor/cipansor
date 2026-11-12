@@ -7,10 +7,10 @@
 #
 # Only files the pushed commits change are checked (merge-base with origin/main
 # ..HEAD), so it costs a second or two. Prettier comes from the repo's own
-# node_modules when node is on PATH; otherwise from Docker (`node:22-alpine`,
-# the version pinned in package.json, npm cache in a named volume); with
-# neither, the push is allowed — CI still checks. Fails open on anything
-# unexpected: a hook that wedges a session is worse than one CI backs up.
+# node_modules when node is on PATH; otherwise from Docker (`node:26-alpine`,
+# the runtime the project pins, npm cache in a named volume); with neither, the
+# push is allowed — CI still checks. Fails open on anything unexpected: a hook
+# that wedges a session is worse than one CI backs up.
 # CLAUDE_SKIP_FORMAT_CHECK=1 turns it off.
 set -uo pipefail
 

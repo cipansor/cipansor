@@ -53,11 +53,19 @@ function workflowNodeMajors(): { file: string; major: number }[] {
     .flatMap((name) => {
       const doc = parse(readFileSync(resolve(dir, name), 'utf8')) as {
         env?: { NODE_VERSION?: string | number };
+        jobs?: Record<string, { env?: { NODE_VERSION?: string | number } }>;
       };
-      const declared = doc?.env?.NODE_VERSION;
-      return declared === undefined
-        ? []
-        : [{ file: `workflows/${name}`, major: major(String(declared)) }];
+      // NODE_VERSION may sit at the workflow level or on a single job; a
+      // declaration the scan cannot see is one that can drift unseen.
+      const declared: (string | number)[] = [];
+      if (doc?.env?.NODE_VERSION !== undefined) declared.push(doc.env.NODE_VERSION);
+      for (const job of Object.values(doc?.jobs ?? {})) {
+        if (job?.env?.NODE_VERSION !== undefined) declared.push(job.env.NODE_VERSION);
+      }
+      return declared.map((value) => ({
+        file: `workflows/${name}`,
+        major: major(String(value)),
+      }));
     });
 }
 

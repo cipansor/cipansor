@@ -27,7 +27,7 @@ log "toolchain"
 command -v node >/dev/null 2>&1 && echo "node $(node --version)" || warn "node not found (need >= 26)"
 if ! command -v pnpm >/dev/null 2>&1; then
   command -v corepack >/dev/null 2>&1 || \
-    npm install -g corepack@0.36.0 >/dev/null 2>&1 || true
+    { npm install -g corepack@0.36.0 >/dev/null 2>&1 || sudo -n npm install -g corepack@0.36.0 >/dev/null 2>&1; } || true
   command -v corepack >/dev/null 2>&1 && \
     { corepack enable pnpm >/dev/null 2>&1 || sudo -n corepack enable pnpm >/dev/null 2>&1; } || true
   hash -r

@@ -148,9 +148,10 @@ commit (listed in `.git-blame-ignore-revs`) and CI's Lint job now runs
 way a shell would (`NAME=value` assignments, `cd`, `git -C`), checks only the
 `.ts`/`.tsx` files changed between the merge-base with `origin/main` and
 `HEAD`, and exits 2 with the list and the exact `--write` command. Prettier
-comes from `node_modules` when node is on PATH, else from Docker at the version
-pinned in `package.json` (an exact pin is required, or the hook could disagree
-with CI). With neither, or on any error, the push is allowed: CI still checks.
+comes from `node_modules` when node is on PATH, else from Docker on
+`node:26-alpine` (the runtime the project pins; an exact Prettier version is
+required, or the hook could disagree with CI). With neither, or on any error,
+the push is allowed: CI still checks.
 The user considered, and chose against, a CI bot that commits formatting back
 to the branch: commits pushed with `GITHUB_TOKEN` do not trigger CI, and a bot
 pushing into branches that agents are pushing to makes their next push fail.
