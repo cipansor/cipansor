@@ -9,6 +9,14 @@
 #
 #   --stdin   a bot applies a type or priority label — the labeler responded, so
 #             the triage owner studies the issue and the bot's comment
+#   --relabel <n>
+#             `label-guard` removed a protected label a person applied and
+#             applied nothing in its place, leaving the issue with no type or no
+#             priority (#838); the triage owner relabels it. `label-guard.yml`
+#             calls this in the same run, because the guard's removal is made
+#             with the automatic `GITHUB_TOKEN` and GitHub starts no workflow for
+#             an event that token creates — a trigger on `unlabeled` would never
+#             fire.
 #   --sweep   an open, not-`ready` issue has new activity by someone other than
 #             the fleet — this catches an edited description or a new comment
 #             without a trigger on `issues.edited`
@@ -115,6 +123,11 @@ BURST_WINDOW="${BURST_WINDOW:-300}"
 # the pool was full; anything else is the run that is answering the signal.
 SWEEP_KEY="triage-sweep-"
 STATE_KEY="triage-state-"
+# The collapse key of the relabel path (`label-guard` revocation, #838). A
+# separate key from STATE_KEY: the labeled path keys on the type+priority the
+# labeler set, this one on a burst of revocations for one issue, and the two must
+# not collapse each other.
+UNLABELED_KEY="triage-unlabeled-"
 # The marker prefix the bridge used before it moved to the KV store. It is read
 # once, to adopt an existing checkpoint, and then deleted; nothing writes it any
 # more. `--purge-markers` clears the ones on issues the sweep no longer visits
@@ -216,6 +229,19 @@ issue_state() { # issue_state <number>
   gh api "repos/$REPO/issues/$1" \
     --jq '[.labels[].name | select(test("^(bug|enhancement|documentation|refactor|chore|security)$") or startswith("priority:"))] | sort | join("+")' \
     2>/dev/null || echo ""
+}
+
+# The type+priority the issue is left holding, as a `+`-joined sorted set (or
+# `none`). `label-guard` removes one label per event and applies nothing in its
+# place, so this is the set the revocation left behind (#838): the bridge acts
+# only when it has no type or no priority left. Returns non-zero when the read
+# fails, so the caller skips rather than mistaking a hiccup for "no labels".
+remaining_labels() { # remaining_labels <number>; prints the set, or 'none'
+  out=$(gh api "repos/$REPO/issues/$1/labels" \
+    --jq '[.[].name | select(test("^(bug|enhancement|documentation|refactor|chore|security)$") or startswith("priority:"))] | sort | join("+")' \
+    2>/dev/null) || return 1
+  [ -n "$out" ] || out="none"
+  printf '%s' "$out"
 }
 
 # A legacy marker comment's id and body, or "" when there is none. Only used to
@@ -416,6 +442,9 @@ remove_sweep_marker() { # remove_sweep_marker <number>
 # --stdin: a bot applied a type or priority label.
 on_label() { # on_label <event-json>
   event="$1"
+  # The workflow triggers on `labeled` only; this keeps a future trigger edit
+  # from feeding an `unlabeled` event here, where `.label.name` would be read as
+  # a freshly applied label.
   action=$(printf '%s' "$event" | jq -r '.action // empty')
   [ "$action" = labeled ] || { echo "action='$action'; nothing to do."; exit 0; }
   label=$(printf '%s' "$event" | jq -r '.label.name // empty')
@@ -493,6 +522,86 @@ on_label() { # on_label <event-json>
     if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
   else
     echo "::warning::#${number}'s label state stays unrecorded; a later label or the sweep retries."
+    exit 1
+  fi
+}
+
+# --relabel <number>: `label-guard` removed a protected label a person applied
+# and applied nothing in its place, leaving the issue with no type or no priority
+# (#838) — a worse state than a wrong label, because triage, priority and the PR
+# labelling all read the labels.
+#
+# The guard cannot trigger the bridge through GitHub: it removes the label with
+# the automatic `GITHUB_TOKEN`, and GitHub does not start a workflow run for an
+# event that token creates (verified on this repository: no run in the last 100
+# carries a `github-actions[bot]` actor, though `label-guard`, `basmalah` and
+# `issue-label-sync` all write through that token). So `label-guard.yml` calls
+# this mode in the *same* run, right after the guard, and the guard stays purely
+# deterministic. The collapse key is separate from the labeled path's: the two
+# must not collapse each other.
+relabel_after_revocation() { # relabel_after_revocation <number>
+  number="$1"
+  [ -n "$number" ] || { echo "no issue number; nothing to do."; exit 0; }
+
+  # A closed issue needs no relabel: nothing reads its labels any more, and a
+  # dispatch would only wake the triage owner on finished work. A read failure is
+  # "skip" too (the state is unknown).
+  state_now=$(gh api "repos/$REPO/issues/$number" --jq '.state // empty' 2>/dev/null) \
+    || { echo "::warning::could not read the state of #$number; skipped the relabel."; exit 1; }
+  [ "$state_now" = "open" ] || { echo "#$number is '${state_now:-unknown}'; nothing to do."; exit 0; }
+
+  # What the issue is left holding. A read failure is "skip", not "empty": an
+  # empty set would look like a gap and dispatch on a hiccup.
+  left=$(remaining_labels "$number") \
+    || { echo "::warning::could not read the labels of #$number; skipped the relabel."; exit 1; }
+  # Derive the two flags from the `+`-joined set (no subshell: a `while` pipe
+  # would set them in a child and lose them).
+  has_type=0; has_priority=0
+  case "+$left+" in
+    *"+priority:"*) has_priority=1 ;;
+  esac
+  case "$left" in
+    none|priority:*) has_type=0 ;;
+    *) has_type=1 ;;
+  esac
+  if [ "$has_type" = 1 ] && [ "$has_priority" = 1 ]; then
+    echo "#$number still holds a type and a priority after the removal; nothing to do."
+    exit 0
+  fi
+
+  # Collapse the removal burst: the guard removes one label per event, so a
+  # revocation is a burst of events, and `label-guard.yml`'s concurrency group is
+  # per label — the runs race and each may observe a different intermediate label
+  # set. So the collapse is keyed on the *issue* and the burst window, not on the
+  # resulting set: any relabel dispatch for this issue within BURST_WINDOW means
+  # the burst is already being answered. A genuine later revocation (a fresh
+  # hand-applied label removed after the window) is a new response and dispatches.
+  state=$(jq -nc '{at: (now|floor)}')
+  if kv_get "$UNLABELED_KEY$number"; then
+    prev_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
+    case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
+    since=$(( $(date -u +%s) - prev_at ))
+    if [ "$prev_at" -gt 0 ] && [ "$since" -lt "$BURST_WINDOW" ]; then
+      echo "#$number already dispatched a relabel ${since}s ago; burst collapsed."
+      exit 0
+    fi
+  fi
+
+  # Snapshot the activity before the dispatch and record it after it is accepted,
+  # exactly as the labeled path does: an edit landing in that window changes the
+  # signal and the next sweep still catches it.
+  sig=$(activity_signal "$number") || sig=""
+  inflight=$(inflight_count)
+  if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    echo "#$number: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the sweep retries it."
+    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$PENDING_RUN"; fi
+    exit 0
+  fi
+  if dispatch "$number" relabel-after-revocation "$left"; then
+    kv_put "$UNLABELED_KEY$number" "$state" || true
+    if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
+  else
+    echo "::warning::#${number}'s relabel dispatch failed; a later removal or the sweep retries."
     exit 1
   fi
 }
@@ -844,8 +953,9 @@ sweep() {
 
 case "${1:-}" in
   --stdin) on_label "$(cat)" ;;
+  --relabel) relabel_after_revocation "${2:?usage: issue-triage-bridge.sh --relabel <number>}" ;;
   --sweep) sweep ;;
   --recover-ready) recover_ready ;;
   --purge-markers) purge_markers ;;
-  *) echo "usage: issue-triage-bridge.sh --stdin | --sweep | --recover-ready | --purge-markers" >&2; exit 2 ;;
+  *) echo "usage: issue-triage-bridge.sh --stdin | --relabel <n> | --sweep | --recover-ready | --purge-markers" >&2; exit 2 ;;
 esac

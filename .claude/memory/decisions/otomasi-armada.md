@@ -811,3 +811,48 @@ sensitif; peninjau menandainya. Angka-angka itu dihapus dari repo (pelajarannya
 tetap, angkanya tidak) dan hanya hidup di memory mesin. Pola yang sama sudah
 pernah terjadi sebelumnya dengan kuota sandbox: **menulis hasil observasi live
 terasa seperti pengetahuan, tetapi jam dan nomor run adalah detail insiden.**
+
+## 2026-11-11 — #838: `label-guard` yang mencabut memicu pelabelan ulang (mode `--relabel`)
+
+**Masalah.** `label-guard.sh` hanya *mencabut* label yang dipasang akun non-bot
+dan tidak memasang penggantinya. Bila yang dicabut adalah label tipe/prioritas,
+issue berakhir tanpa keduanya — keadaan yang lebih buruk daripada label yang
+salah, karena triase, prioritas, dan pelabelan PR semuanya membaca label.
+`Pelabel issue` dan `Triase issue` hanya dipicu `issues.opened`; jembatan triase
+hanya `labeled`; dan komentar pencabutan ditulis bot sehingga dikecualikan dari
+sinyal aktivitas. Tidak ada yang menutup celahnya.
+
+**Opsi B tidak bisa dipakai apa adanya — `unlabeled` dari `label-guard` tidak
+akan pernah memicu workflow apa pun.** `label-guard.yml` mencabut dengan
+`GITHUB_TOKEN` otomatis (`${{ github.token }}`), dan GitHub **tidak memulai run
+workflow untuk event yang dibuat token itu** (aturan anti-rekursi). Terverifikasi
+di repositori ini: dari ~100 run terakhir, **nol** ber-aktor
+`github-actions[bot]`, padahal `label-guard`, `basmalah`, dan `issue-label-sync`
+semuanya menulis lewat token itu. Jadi trigger `on: issues: [unlabeled]` adalah
+kode mati — persis jebakan "presence is not function" di
+`lessons/guard-tests-that-measure-the-wrong-thing.md`.
+
+**Yang dipilih.** `label-guard.yml` memanggil mode baru `--relabel <n>` di
+**run yang sama**, tepat setelah guard, hanya bila guard benar-benar mencabut
+sesuatu (`steps.guard.outputs.revoked == '1'`, ditulis `label-guard.sh` ke
+`$GITHUB_OUTPUT`), dan hanya untuk issue (PR tidak punya celah ini — labelnya
+disinkronkan dari issue yang ditutup). `label-guard.sh` tetap murni
+deterministik; jembatan tetap satu-satunya dispatcher. Mode `--relabel`:
+membaca label sisa (`remaining_labels`, gagal-baca = lewati, bukan "kosong"),
+men-dispatch hanya bila tipe **atau** prioritas hilang, dan menciutkan burst
+pencabutan dengan kunci per-issue + jendela `BURST_WINDOW` (kunci terpisah dari
+jalur `labeled`: keduanya tidak boleh saling menciutkan). Kunci per-jendela,
+bukan per-himpunan-sisa, karena grup concurrency `label-guard.yml` per-label —
+run-nya berlomba dan masing-masing bisa melihat himpunan sisa yang berbeda.
+
+**Alternatif yang ditolak.** Opsi A (guard men-dispatch langsung lewat API
+OpenHands) menaruh logika dispatch di dalam guard dan menggandakan jalan dispatch
+yang sudah dimiliki jembatan; opsi C (maintainer boleh melabeli) adalah
+keputusan kebijakan terpisah yang tetap menunggu pemilik — perbaikan celah ini
+tidak menunggunya.
+
+**Pelajaran operasional.** Sebelum merancang pemicu antar-workflow, periksa
+**token apa** yang dipakai penulis event: event dari `GITHUB_TOKEN` otomatis
+tidak memicu run. Bila butuh rantai, panggil di run yang sama, atau pakai token
+non-otomatis (PAT/GitHub App) yang memang memicu.
+

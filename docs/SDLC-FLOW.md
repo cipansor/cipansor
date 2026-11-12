@@ -138,9 +138,13 @@ pertentangan itu dilaporkan sebagai issue.
 19. **Triase ulang dipicu setelah automation lain menanggapi.** Tak satu pun
     automation memicu `issues.edited`. Sebuah jembatan deterministik
     (`issue-triage-bridge.yml` + `.github/scripts/issue-triage-bridge.sh`)
-    mendispatch pemilik triase saat bot memasang label tipe/prioritas, dan saat
-    **sinyal aktivitas** sebuah issue belum `ready` berubah sejak checkpoint
-    terakhir jembatan. Sinyalnya adalah hash dari body issue plus setiap
+    mendispatch pemilik triase saat bot memasang label tipe/prioritas, saat
+    **`label-guard` mencabut** label yang dipasang orang dan tak memasang
+    penggantinya sehingga issue kehilangan tipe/prioritas (#838) — pemilik triase
+    dipanggil lewat mode `--relabel` di run yang sama, sebab pencabutannya
+    memakai `GITHUB_TOKEN` otomatis dan GitHub tak memulai run untuk event yang
+    dibuat token itu — dan saat **sinyal aktivitas** sebuah issue belum `ready`
+    berubah sejak checkpoint terakhir jembatan. Sinyalnya adalah hash dari body issue plus setiap
     komentar **bukan-armada** (penulis + `updated_at` + body) — jadi suntingan
     deskripsi, komentar baru, atau komentar yang disunting semuanya mengubah
     sinyal. Karena sinyalnya isi, bukan timestamp beresolusi detik, suntingan

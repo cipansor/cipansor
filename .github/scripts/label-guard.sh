@@ -46,6 +46,14 @@ ALLOWED_LABELS="${ALLOWED_LABELS:-bug enhancement documentation refactor chore s
 
 REVOKE_MARK="<!-- label-guard:revoked -->"
 
+# Whether the standard path revoked a label this run. `label-guard.yml` reads it
+# to decide whether to call the triage bridge's `--relabel` mode (#838): a run
+# that revoked nothing must not dispatch a relabel, or an ordinary human label on
+# an untriaged issue would wake the triage owner. Written to $GITHUB_OUTPUT only
+# when a label is actually removed; a no-op when run by hand. The workflow treats
+# a missing value as "nothing revoked".
+set_revoked() { echo "revoked=$1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
+
 # Every existing label except, on an issue, the repository's own template
 # labels. Read once per run. On a pull request the template labels are *not*
 # exempt, so a type label applied to a PR is protected and revoked like any other
@@ -136,6 +144,7 @@ if [ -n "$conflict" ]; then
     exit 1
   fi
   echo "Removed 'ready' from #$NUMBER: it contradicts '$conflict'."
+  set_revoked 1
   if ! gh api --paginate "repos/$REPO/issues/$NUMBER/comments?per_page=100" \
       --jq '.[].body' 2>/dev/null | grep -qF "$READY_MARK"; then
     if [ "$conflict" = "blocked" ]; then
@@ -185,6 +194,7 @@ if ! gh api -X DELETE "repos/$REPO/issues/$NUMBER/labels/$LABEL" >/dev/null 2>&1
   exit 1
 fi
 echo "Removed label '$LABEL' from $KIND #$NUMBER (applied by '$ACTOR')."
+set_revoked 1
 
 # Say so once. The permission decides both the escalation pointer and what the
 # actor is told to do next. `Bot sebutan` (SDLC 07) admits a mention by the

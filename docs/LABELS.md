@@ -189,7 +189,11 @@ detect` workflow: when two **open** issues share a title once normalised
     **triage bridge** below rather than by a trigger on `issues.edited`.
 
 11. **The triage bridge re-triages after another automation responds.** A bot
-    applying a type or priority label, or a not-yet-`ready` issue gaining
+    applying a type or priority label, `label-guard` revoking a label a person
+    applied and leaving the issue with no type or no priority (#838 — the guard
+    calls the bridge's `--relabel` mode in the same run, because its own removal
+    is made with the automatic `GITHUB_TOKEN` and GitHub starts no workflow for
+    an event that token creates), or a not-yet-`ready` issue gaining
     activity (an edited description or a new comment) newer than its last
     triage, dispatches the triage owner — deterministically, from
     `.github/scripts/issue-triage-bridge.sh`, and idempotently (a checkpoint in
@@ -216,6 +220,12 @@ detect` workflow: when two **open** issues share a title once normalised
     `enhancement` issue would otherwise fail the type sync (`issue-label-sync`)
     and redden the PR. A person states what they want and the bot records it;
     this is what keeps the automations and the guards reading the same state.
+    Because the guard only *removes*, a revocation that leaves the issue with no
+    type or no priority is not the end of the story: the guard's workflow calls
+    the triage bridge's `--relabel` mode in the same run and dispatches the triage
+    owner to relabel the issue (#838). It cannot do so through a GitHub event —
+    the removal is made with the automatic `GITHUB_TOKEN`, and GitHub starts no
+    workflow run for an event that token creates.
 
 13. **Every main description opens with the basmalah.** Each issue and pull
     request body starts with «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»

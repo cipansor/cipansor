@@ -241,6 +241,15 @@ case "$*" in
     fi ;;
   # issue_state (the type+priority read) matches here; GH_STUB_ISSUE_LABELS_FAIL
   # makes it fail, so a test can drive the "label read failed" path.
+  *"/issues/"*"--jq .state"*)
+    # The relabel mode's open/closed read (#838). Defaults to open.
+    [ "\${GH_STUB_STATE_FAIL:-}" = 1 ] && exit 1
+    printf '%s\\n' "\${GH_STUB_ISSUE_STATE:-open}" ;;
+  *"/issues/"*"/labels"*"--jq"*)
+    # remaining_labels reads the issue's label array (#838). The value is read
+    # with a bare default (not a colon default) so an explicitly empty string
+    # means "no labels left" — the case the fix acts on.
+    printf '%s\\n' "\${GH_STUB_LABELS_LIST-bug+priority:medium}" ;;
   *"join(\\"+\\")"*)
     [ "\${GH_STUB_ISSUE_LABELS_FAIL:-}" = 1 ] && exit 1
     printf '%s\\n' "\${GH_STUB_ISSUE_LABELS:-bug+priority:medium}" ;;
@@ -551,6 +560,26 @@ describe('label-guard.sh', () => {
     expect(calls).toContain('/issues/7/labels/ready');
     expect(calls).toContain('COMMENT');
     expect(out).toContain('Removed label');
+  });
+
+  it('reports `revoked=1` only when it removed a label, so the relabel runs once (#838)', () => {
+    // `label-guard.yml` gates the bridge's `--relabel` call on this output: a run
+    // that removed nothing must not wake the triage owner, or an ordinary human
+    // label on an untriaged issue would dispatch a relabel every time.
+    const outFile = join(dir, 'guard-output');
+    const revoked = (label: string, actor: string) => {
+      writeFileSync(outFile, '');
+      run(
+        LABEL_GUARD,
+        { GH_STUB_LABELS: LABELS, GH_STUB_PERM: 'triage', GITHUB_OUTPUT: outFile },
+        ['--stdin'],
+        labeledEvent(actor, label)
+      );
+      return readFileSync(outFile, 'utf8');
+    };
+    expect(revoked('ready', 'someone')).toContain('revoked=1');
+    // The bot's own label is left in place — nothing revoked.
+    expect(revoked('ready', 'cipansor-bot')).not.toContain('revoked=1');
   });
 
   it('points a collaborator at @cipansor-bot and claims no human-decision label', () => {
@@ -1292,6 +1321,19 @@ describe('fleet contracts', () => {
     expect(wf).toMatch(/issues:[\s\S]*types:[\s\S]*labeled/);
     expect(wf).toMatch(/schedule:/);
     expect(wf).toContain('--sweep');
+  });
+
+  it('calls the triage bridge from `label-guard.yml` so a revocation is relabelled (#838)', () => {
+    // The guard removes a protected label and applies nothing in its place, so
+    // the issue can be left with no type or no priority. It cannot trigger the
+    // bridge through GitHub — the removal is made with the automatic
+    // `GITHUB_TOKEN`, and GitHub starts no workflow run for an event that token
+    // creates — so `label-guard.yml` invokes the bridge's `--relabel` mode in the
+    // same run, gated on the guard having actually removed a label.
+    const wf = read(join(WORKFLOWS, 'label-guard.yml'));
+    expect(wf).toContain('issue-triage-bridge.sh --relabel');
+    expect(wf).toMatch(/steps\.guard\.outputs\.revoked == '1'/);
+    expect(wf).toContain('OPENHANDS_API_KEY');
   });
 
   it('keeps the triage bridge from writing any comment, checkpointing in the KV store', () => {
@@ -2370,6 +2412,83 @@ describe('issue-triage-bridge.sh', () => {
       labeledEvent('cipansor-bot', 'ready')
     );
     expect(calls).not.toContain('DISPATCH');
+  });
+
+  // #838: `label-guard` removes a protected label a person applied and applies
+  // nothing in its place, leaving the issue with no type or no priority. The
+  // guard cannot trigger the bridge through GitHub (its removal is made with the
+  // automatic `GITHUB_TOKEN`, and GitHub starts no run for an event that token
+  // creates), so `label-guard.yml` calls `--relabel` in the same run.
+  it('dispatches the labeler when a guard revocation leaves no type or priority', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: '' }, ['--relabel', '818']);
+    expect(calls).toContain('DISPATCH');
+    expect(calls).toContain('/dispatch');
+    expect(out).toContain('Dispatched the triage owner for #818');
+  });
+
+  it('dispatches when only the priority was revoked and the type survives', () => {
+    const { calls } = runBridge({ GH_STUB_LABELS_LIST: 'bug' }, ['--relabel', '818']);
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('does not dispatch when a type and a priority survive the revocation', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: 'bug+priority:high' }, [
+      '--relabel',
+      '818',
+    ]);
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('still holds a type and a priority');
+  });
+
+  it('does not dispatch a relabel for a closed issue', () => {
+    const { calls, out } = runBridge({ GH_STUB_LABELS_LIST: '', GH_STUB_ISSUE_STATE: 'closed' }, [
+      '--relabel',
+      '818',
+    ]);
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('closed');
+  });
+
+  it('collapses the guard’s removal burst to one relabel dispatch per issue', () => {
+    // The guard removes one label per event, and its concurrency group is per
+    // label, so the runs race. The collapse is keyed on the issue and the burst
+    // window: a second relabel within the window is the same burst.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: 'bug',
+        KV_SEED: { 'triage-unlabeled-818': { at: Math.floor(Date.now() / 1000) } },
+      },
+      ['--relabel', '818']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+  });
+
+  it('collapses a full-revocation burst even when no labels remain', () => {
+    // The reported case (#836) is *every* label revoked: the resulting set is
+    // empty, and the collapse must still hold or each event dispatches again.
+    const { calls, out } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: '',
+        KV_SEED: { 'triage-unlabeled-818': { at: Math.floor(Date.now() / 1000) } },
+      },
+      ['--relabel', '818']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+  });
+
+  it('re-dispatches a relabel when the previous burst is older than the window', () => {
+    // A genuine later revocation (a fresh hand-applied label removed after the
+    // window) is a new response, not the same burst.
+    const { calls } = runBridge(
+      {
+        GH_STUB_LABELS_LIST: '',
+        KV_SEED: { 'triage-unlabeled-818': { at: 0 } },
+      },
+      ['--relabel', '818']
+    );
+    expect(calls).toContain('DISPATCH');
   });
 
   it('posts no comment at all, so no empty marker lands on the issue', () => {
