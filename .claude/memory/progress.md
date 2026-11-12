@@ -546,6 +546,20 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   notifikasi diperjelas (2 vs 3 toast per akun) + entri baru "tab Cuti non-admin
   menyaring profil yang salah". Riwayat Revisi 0.3 diperbarui.
 
+- **Koreksi tinjauan #1052, putaran keempat, 2026-11-12.** Tiga temuan
+  presisi lanjutan atas kartu yang sama, semuanya diperbaiki: (G) batasan dua
+  profil — daftar **Cuti** non-admin hanya membaca **satu** profil
+  (`teacherId` didahulukan) sedangkan `createLeave` mengisi `staffId`, jadi
+  pengajuan pribadi pemilik dua profil bisa hilang dari daftar; kini
+  dinyatakan di langkah dan tabel bantuan (perbaikan perilaku perlu PR kode:
+  `getLeaves` menggabungkan kedua profil). (H) tab **Risiko Retensi** tetap
+  **dapat dibuka** kepala unit — yang ditolak hanya permintaan datanya (403),
+  jadi kartu tidak lagi menulis "tidak dapat diakses". (I) petunjuk
+  "abaikan galat" dirapikan: hanya galat **Risiko Retensi** yang boleh
+  diabaikan; galat **Cuti**/lain harus diperiksa lebih dulu sebelum
+  dilaporkan. `known-issues.md` entri tab Cuti dipertegas (kedua profil;
+  solusi = union).
+
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
   permissions, separation-of-duty rules locked in code, and the account

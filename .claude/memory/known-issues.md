@@ -82,14 +82,16 @@ workers refused on a closed day. Still open:
   200). `lib/api.ts` toasts each. Observed 2026-11-12 on the running stack as
   `sdit.kepala` (3 toasts) and `smpit.kepala` (2). Ask for those queries only
   when the role may read them.
-- **A non-admin's `/hr` Cuti tab lists the wrong profile.** `getLeaves`
-  (controller) filters non-admins to their own profile, but prefers
-  `teacherId` over `staffId` (the first of the two `findUnique` results that
-  hits). For a kepala who has both rows — `smpit.kepala` has a `staff` and a
-  `teacher` row — a leave created on the `staff` row never appears, because the
-  list is filtered by `teacherId`. Reproduced 2026-11-12: `POST /hr/leaves`
-  with the `staffId` → 201, then `GET /hr/leaves` → 0 rows. Found while
-  verifying the kepala-unit guide.
+- **A non-admin's `/hr` Cuti tab reads only one of the account's profiles.**
+  `getLeaves` (controller) filters non-admins to their own profile, but it
+  prefers `teacherId` over `staffId` (the first of the two `findUnique` results
+  that hits), while `createLeave` fills `staffId` when the caller sends no
+  profile id. So for an account with **both** rows — `smpit.kepala` has a
+  `staff` and a `teacher` row — a self-filed leave lands on `staff` and the
+  list (filtered by `teacherId`) stays empty. Reproduced 2026-11-12: `POST
+  /hr/leaves` (staffId) → 201, `GET /hr/leaves` → 0 rows. A real fix needs
+  `getLeaves` to union both profiles. Found while verifying the kepala-unit
+  guide.
 - **The bulk register loads the first 100 employees only** (`useStaffList`
   forces `limit: 100`).
 - **Dead code.** `teacherId` is still in three `hr.schema.ts` schemas and in
