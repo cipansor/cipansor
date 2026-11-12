@@ -401,12 +401,30 @@ describe('ParentService.getDashboardSummary (#869)', () => {
     const result = await parentService.getDashboardSummary('p1');
 
     const entry = result.children[0];
-    // 6 of juz 30's 564 ayat = 0.0106… → 0.01, never 30.
-    expect(entry.memorizedJuz).toBe(0.01);
+    // 6 of juz 30's 564 ayat = 0.0106… → 0.011, never 30.
+    expect(entry.memorizedJuz).toBe(0.011);
     expect(entry.memorizedJuz).not.toBe(30);
     // The only dimension with data is a sliver of a juz, so the score is tiny.
     expect(entry.holisticScore).not.toBeNull();
     expect(entry.holisticScore).toBeLessThan(1);
+  });
+
+  it('keeps a single-ayah hafalan above zero, not rounded to "0 Juz" (#869 review)', async () => {
+    // One ayah of juz 30 is 1/564 ≈ 0.0018 juz. Two-decimal rounding dropped it
+    // to 0, so the wali's card read "0 Juz" for a santri who recited today.
+    primeEmpty();
+    mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
+      { studentId: 's1', juz: 30, _sum: { totalAyah: 1 } },
+    ]);
+
+    const result = await parentService.getDashboardSummary('p1');
+
+    const entry = result.children[0];
+    expect(entry.memorizedJuz).toBe(0.002);
+    expect(entry.memorizedJuz).toBeGreaterThan(0);
+    // The tahfidz dimension stays assessed (a tiny positive), so it is not
+    // dropped from the average as if there were no hafalan at all.
+    expect(entry.holisticScore).not.toBeNull();
   });
 
   it('does not let a murojaah of another juz change the hafalan figure (#869 review)', async () => {
@@ -425,9 +443,11 @@ describe('ParentService.getDashboardSummary (#869)', () => {
 
   it('sums a partially-memorized juz as a fraction (#869 review)', async () => {
     primeEmpty();
-    // Half of juz 29 (431 ayat) plus all of juz 30 (564 ayat) = 1.5 juz.
+    // Half of juz 1 (74 of its 148 ayat) plus all of juz 30 (564 ayat) = 1.5
+    // juz. Both counts are whole ayat, as `TahfidzRecord.totalAyah` (`Int`)
+    // stores them — a fractional mock could not occur in the database.
     mockPrisma.tahfidzRecord.groupBy.mockResolvedValue([
-      { studentId: 's1', juz: 29, _sum: { totalAyah: 215.5 } },
+      { studentId: 's1', juz: 1, _sum: { totalAyah: 74 } },
       { studentId: 's1', juz: 30, _sum: { totalAyah: 564 } },
     ]);
 

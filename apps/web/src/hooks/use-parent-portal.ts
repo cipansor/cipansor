@@ -1,5 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import api, { ApiResponse } from "@/lib/api";
+import { useAuthStore } from "@/stores/auth";
 import type { ParentChild, ParentDashboardData } from "@cipansor/shared";
 
 // ==================== TYPES ====================
@@ -18,13 +19,20 @@ export type { ParentChild, ParentDashboardData };
  * Get list of children linked to parent
  */
 export function useParentChildren() {
+  // The signed-in wali's id is part of the key: the answers are per account,
+  // and logout does not drop every query. Without it, a wali who signs in on a
+  // shared device after another sees the previous wali's children from cache
+  // (CWE-524, #869 review).
+  const { user } = useAuthStore();
+
   return useQuery({
-    queryKey: ["parent", "children"],
+    queryKey: ["parent", "children", user?.id],
     queryFn: async () => {
       const response =
         await api.get<ApiResponse<ParentChild[]>>("/parent/children");
       return response.data.data;
     },
+    enabled: !!user?.id,
     staleTime: 5 * 60 * 1000, // 5 minutes
   });
 }
@@ -35,13 +43,18 @@ export function useParentChildren() {
  * Get parent dashboard with all children summaries
  */
 export function useParentDashboard() {
+  // Per-account key, same reason as `useParentChildren` (CWE-524, #869 review):
+  // a shared device must not serve one wali the previous wali's dashboard.
+  const { user } = useAuthStore();
+
   return useQuery({
-    queryKey: ["parent", "dashboard"],
+    queryKey: ["parent", "dashboard", user?.id],
     queryFn: async () => {
       const response =
         await api.get<ApiResponse<ParentDashboardData>>("/parent/dashboard");
       return response.data.data;
     },
+    enabled: !!user?.id,
     staleTime: 2 * 60 * 1000, // 2 minutes
     refetchInterval: 5 * 60 * 1000, // auto-refresh every 5 minutes
   });

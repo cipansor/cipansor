@@ -933,10 +933,16 @@ export class ParentService {
       ziyadahJuzByStudent.set(row.studentId, list);
     }
     const hasZiyadah = (studentId: string) => ziyadahJuzByStudent.has(studentId);
-    // Two decimals: a santri who has recited a few surah of juz 30 holds a
-    // *fraction* of a juz, and one decimal would round that progress to 0.
+    // Raw hafalan in juz, unrounded: the tahfidz dimension reads this so a few
+    // ayat of juz 30 still score above zero. The DTO rounds for display only.
     const memorizedJuzOf = (studentId: string) =>
-      Math.round(memorizedJuz(ziyadahJuzByStudent.get(studentId) ?? []) * 100) / 100;
+      memorizedJuz(ziyadahJuzByStudent.get(studentId) ?? []);
+    // Three decimals, not two: a santri who has recited a single ayah of juz 30
+    // holds 1/564 ≈ 0.0018 juz, and two decimals would round that to 0 — "no
+    // hafalan" shown for a santri who recited today. The smallest real record
+    // is one ayah of the largest juz (0.0018), so three decimals always keeps a
+    // positive hafalan positive; a whole juz and a half still read as 1, 1.5.
+    const roundJuzForDisplay = (juz: number) => Math.round(juz * 1000) / 1000;
 
     // 5. Bulk fetch active academic years for all units involved
     // AcademicYear is global (not scoped by unit), so just fetch active years.
@@ -1007,8 +1013,10 @@ export class ParentService {
       // number: a single ayah in juz 30 is a fraction of a juz, not 30/30
       // (decision K13.4, #869 review). `null` when the santri has no ZIYADAH
       // record, so the dimension drops out of the average rather than counting 0.
-      const memorized = hasZiyadah(child.id) ? memorizedJuzOf(child.id) : null;
-      const tahfidzScore = memorized != null ? Math.min(100, (memorized / 30) * 100) : null;
+      // The score reads the *unrounded* hafalan: one ayah of juz 30 must score
+      // above zero, not round away (#869 review).
+      const memorizedRaw = hasZiyadah(child.id) ? memorizedJuzOf(child.id) : null;
+      const tahfidzScore = memorizedRaw !== null ? Math.min(100, (memorizedRaw / 30) * 100) : null;
       const holisticDims = [academicScore, tahfidzScore, behaviorScore].filter(
         (d): d is number => d !== null
       );
@@ -1027,7 +1035,7 @@ export class ParentService {
         pendingInvoices: pendingInvoiceCount,
         activePermits: activePermitCount,
         lastTahfidz: lastTahfidz || null,
-        memorizedJuz: memorized,
+        memorizedJuz: memorizedRaw !== null ? roundJuzForDisplay(memorizedRaw) : null,
         holisticScore: holisticScore !== null ? Math.round(holisticScore * 10) / 10 : null,
         holisticInterpretation: null,
         boardingHarmonyScore: boardingHarmony?.harmonyScore ?? null,

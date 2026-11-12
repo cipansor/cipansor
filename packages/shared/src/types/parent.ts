@@ -65,7 +65,10 @@ export interface ParentDashboardChildSummary {
    * Hafalan in juz, summed from the santri's ZIYADAH records with each juz
    * weighed by its own size (`memorizedJuz`); `null` when there is no ZIYADAH
    * record at all, so "no records" never reads as "0 juz memorized". A whole
-   * juz is not "a record whose `juz` field is 30" (#869 review).
+   * juz is not "a record whose `juz` field is 30" (#869 review). Rounded to
+   * three decimals, never to 0: a santri who has recited one ayah of juz 30
+   * holds 1/564 ≈ 0.002 juz, and two decimals would show "0 Juz" for someone who
+   * recited today (#869 review).
    */
   memorizedJuz: number | null;
   holisticScore: number | null;
