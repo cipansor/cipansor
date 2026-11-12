@@ -858,8 +858,9 @@ segmen URL pertamanya. Kolom host mengikuti `PUBLIC_PATH_PREFIXES` di
 `lib/host-split.ts`; kolom bucket mengikuti `roleRouteAccess` di `lib/rbac.ts`,
 yaitu siapa yang boleh **membuka** halaman. Apa yang boleh dilakukan di sana tetap
 diputuskan API (bab 8). Bucket adalah gerbang **halaman**, bukan cakupan **baris**:
-`/portfolio`, misalnya, boleh dibuka Santri dan staf, tetapi baris yang terbaca
-tetap dibatasi `studentScope` (bab 8) — santri melihat miliknya, staf unitnya.
+`/portfolio`, misalnya, boleh dibuka Santri dan Guru/kepala, tetapi baris yang
+terbaca tetap dibatasi `studentScope` (bab 8) — santri melihat miliknya, guru
+unitnya.
 Menu tiap kode peran dicetak dengan
 `apps/web/scripts/role-menus.ts`.
 
