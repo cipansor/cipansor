@@ -70,7 +70,7 @@ describe('Marketing ROI Service', () => {
     );
   });
 
-  it('menghitung tagihan REG_FEE lunas saat pendaftar belum mencatat biayanya', async () => {
+  it('menghitung tagihan REG_FEE lunas saat unit penagih belum mencatat biayanya', async () => {
     // Staf dapat menerbitkan tagihan REG_FEE dan melunasinya lewat createPayment,
     // yang tidak menulis registrationFeePaidAt. Tagihan itu satu-satunya bukti
     // biaya sudah diterima, jadi harus dihitung.

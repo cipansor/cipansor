@@ -89,7 +89,7 @@ describe('getMonthlyAttributedRevenue', () => {
     });
   });
 
-  it('menghitung pembayaran tagihan REG_FEE saat pendaftar belum mencatat biayanya', async () => {
+  it('menghitung pembayaran tagihan REG_FEE saat unit penagih belum mencatat biayanya', async () => {
     const now = new Date();
     const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     // Staf melunasi tagihan REG_FEE lewat createPayment; registrationFeePaidAt
