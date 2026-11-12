@@ -86,7 +86,7 @@ sekadar berkas yang menamainya — pembaca dapat memeriksa sendiri hasilnya.
 |---|---|---|
 | Header keamanan HTTP | `helmet()` dipasang sebelum router (`apps/api/src/app.ts:136`) | aplikasi mengaktifkannya tanpa syarat; tidak ada uji khusus |
 | CORS berdaftar | `buildCorsMiddleware(config.cors.origins)` — daftar asal, bukan `*` (`apps/api/src/app.ts:137`, `apps/api/src/config/cors.ts`) | `cors.test.ts` — "splits the comma-separated list", "strips a trailing slash" |
-| Perlindungan CSRF | Cookie sesi `HttpOnly` + header *double-submit*; permintaan tak-aman tanpa header yang cocok ditolak (`apps/api/src/middleware/csrf.ts:31`) | `session-cookies.test.ts` — "sets HttpOnly access, refresh and routing cookies, plus a readable CSRF cookie" |
+| Perlindungan CSRF | Cookie sesi `HttpOnly` + header *double-submit*; permintaan tak-aman tanpa header yang cocok ditolak (`apps/api/src/middleware/csrf.ts:31`) | `session-cookies.test.ts` — "rejects a cookie-authenticated write with no CSRF header", "rejects a mismatched CSRF token", "accepts a matching double-submit pair" |
 | Batas laju permintaan | Limiter global + limiter khusus `/uploads` (`apps/api/src/app.ts:224`, `apps/api/src/middleware/rate-limit.ts`) | `rate-limit.test.ts` — "runs its own limiter first, then auth, in production" |
 | Berkas tersimpan bersifat privat | `/uploads` dijaga token akses di **semua** lingkungan (`uploadsAuth`, `apps/api/src/app.ts:202`) | `rate-limit.test.ts` — "omits the production limiter in development and test, keeping auth" |
 | Validasi masukan di tepi | Skema Zod per modul, `validate`/`validateQuery` (`apps/api/src/middleware/validate.ts:24,38`) | `validated-query.test.ts` — "every module that validates its query also reads the validated result" |

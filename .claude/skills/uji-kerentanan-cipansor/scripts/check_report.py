@@ -189,12 +189,23 @@ HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.M)
 
 
 def _heading_body(text: str, pattern: str, max_level: int = 6) -> str | None:
-    """Isi bagian pertama yang judulnya cocok `pattern`, sampai judul berikutnya."""
+    """Isi bagian pertama yang judulnya cocok `pattern`.
+
+    Isi berjalan sampai judul berikutnya yang **setingkat atau lebih tinggi**
+    dari judul bagian itu; subjudul di dalamnya tetap ikut. Kalau tidak, sebuah
+    bagian yang seluruh isinya diletakkan di subbagian (mis. 2.5.1) akan
+    terbaca kosong.
+    """
     marks = list(HEADING_RE.finditer(text))
     for i, m in enumerate(marks):
-        if len(m.group(1)) <= max_level and re.search(pattern, m.group(2), re.I):
+        level = len(m.group(1))
+        if level <= max_level and re.search(pattern, m.group(2), re.I):
             start = m.end()
-            end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+            end = len(text)
+            for nxt in marks[i + 1 :]:
+                if len(nxt.group(1)) <= level:
+                    end = nxt.start()
+                    break
             return text[start:end]
     return None
 
@@ -203,19 +214,50 @@ def _strip_comments(text: str) -> str:
     return re.sub(r"<!--.*?-->", "", text, flags=re.S)
 
 
-def summary_table(text: str) -> dict[str, list[str]] | None:
+# Kode kategori OWASP Top 10 (`A01`) atau API Top 10 (`API1`).
+OWASP_CODE_RE = re.compile(r"\b(API\d{1,2}|A\d{2})\b", re.I)
+
+
+def _category_code(text: str) -> str | None:
+    m = OWASP_CODE_RE.search(text or "")
+    return m.group(1).upper() if m else None
+
+
+def _categories_match(a: str, b: str) -> bool:
+    """Cocok bila kode OWASP sama, atau (tanpa kode) teks ternormalisasi sama.
+
+    Bila hanya satu sisi memuat kode dan sisi lain prosa, keduanya tak dapat
+    dibandingkan dengan andal — jangan menuduh salah. Kontradiksi yang nyata
+    (kode berbeda, mis. `A01` vs `A02`) tetap tertangkap.
+    """
+    ca, cb = _category_code(a), _category_code(b)
+    if ca or cb:
+        return not ca or not cb or ca == cb
+    na = re.sub(r"[^a-z0-9]+", " ", (a or "").lower()).strip()
+    nb = re.sub(r"[^a-z0-9]+", " ", (b or "").lower()).strip()
+    return na == nb
+
+
+def summary_table(text: str) -> tuple[dict[str, list[str]], list[str]] | None:
     """Baris Bagian 4 (Ringkasan Temuan): ID -> [peringkat, kategori, status].
 
-    `None` bila bagiannya tidak ada, supaya pemanggil dapat membedakan
-    "tidak ada tabel" dari "tabel kosong".
+    Mengembalikan `(rows, duplicate_ids)`; `None` bila bagiannya tidak ada,
+    supaya pemanggil dapat membedakan "tidak ada tabel" dari "tabel kosong".
+    Bila sebuah ID muncul dua kali, baris **terakhir** yang menang — pemeriksaan
+    tak boleh dilewati oleh baris pertama — dan ID-nya dilaporkan ganda.
     """
-    body = _heading_body(text, r"ringkasan\s+temuan|summary\s+of\s+findings", max_level=2)
+    body = _heading_body(text, r"ringkasan\s+temuan|summary\s+of\s+findings", max_level=3)
     if body is None:
         return None
     rows: dict[str, list[str]] = {}
+    dups: list[str] = []
     for m in TABLE_ROW_RE.finditer(body):
-        rows.setdefault(m.group(1), [c.strip() for c in m.group(2).split("|")])
-    return rows
+        fid = m.group(1)
+        cells = [c.strip() for c in m.group(2).split("|")]
+        if fid in rows:
+            dups.append(fid)
+        rows[fid] = cells
+    return rows, dups
 
 
 def read(text: str, final: bool = False) -> dict:
@@ -290,8 +332,12 @@ def read(text: str, final: bool = False) -> dict:
         out["findings"][fid] = f
 
     # Bagian 4 (Ringkasan) harus cocok dengan Bagian 5 (Register)
-    table = summary_table(text)
-    if table is not None and out["findings"]:
+    parsed = summary_table(text)
+    table = parsed[0] if parsed else None
+    if parsed:
+        for fid in sorted(set(parsed[1])):
+            err(f"ringkasan: {fid} muncul lebih dari sekali di tabel Bagian 4 — satu baris per temuan")
+    if table is not None:
         for fid in sorted(set(table) - set(out["findings"])):
             err(f"ringkasan: {fid} ada di tabel Bagian 4 tetapi tidak ada di Register (Bagian 5)")
         for fid in sorted(set(out["findings"]) - set(table)):
@@ -301,6 +347,8 @@ def read(text: str, final: bool = False) -> dict:
             f = out["findings"][fid]
             if len(cells) >= 1 and canonical(cells[0], RANK_LEVELS) != f.get("_rank"):
                 err(f"ringkasan: {fid} peringkat '{cells[0]}' ≠ Register '{f.get('peringkat')}'")
+            if len(cells) >= 2 and not _categories_match(cells[1], f.get("kategori", "")):
+                err(f"ringkasan: {fid} kategori '{cells[1]}' ≠ Register '{f.get('kategori')}'")
             if len(cells) >= 3 and canonical_status(cells[2]) != f.get("_status"):
                 err(f"ringkasan: {fid} status '{cells[2]}' ≠ Register '{f.get('status')}'")
 
@@ -361,16 +409,16 @@ def summary_errors(text: str) -> list[str]:
                 f"'{m.group(1).strip() if m else 'tidak disebut'}' — temuan terbuka "
                 f"hanya boleh ada di laporan penuh di luar repo (K37)"
             )
-    table = summary_table(text)
+    parsed = summary_table(text)
+    table = parsed[0] if parsed else None
     if table:
         for fid, cells in table.items():
-            if len(cells) < 3:
-                continue
-            status = canonical_status(cells[2])
+            status = canonical_status(cells[2]) if len(cells) >= 3 else None
             if status in (None, "open", "mitigated", "accepted"):
+                shown = cells[2] if len(cells) >= 3 else "tidak disebut"
                 errs.append(
                     f"{fid}: tabel Ringkasan publik mencantumkan temuan berstatus "
-                    f"'{cells[2]}' — temuan terbuka hanya boleh ada di laporan penuh "
+                    f"'{shown}' — temuan terbuka hanya boleh ada di laporan penuh "
                     f"di luar repo (K37)"
                 )
     return errs

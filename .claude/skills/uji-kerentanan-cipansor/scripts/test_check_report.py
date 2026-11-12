@@ -224,6 +224,65 @@ class ReadTest(unittest.TestCase):
         res = cr.read(broken)
         self.assertTrue(any("tidak dikenali" in e for e in res["errors"]), res["errors"])
 
+    def test_summary_table_category_mismatch_is_error(self):
+        # Register F-01 kategori A01; tabel menulis A02.
+        broken = REPORT.replace("| F-01 | Tinggi | A01 |", "| F-01 | Tinggi | A02 |")
+        res = cr.read(broken)
+        self.assertTrue(
+            any("kategori" in e and "Register" in e for e in res["errors"]), res["errors"]
+        )
+
+    def test_summary_table_category_same_code_different_prose_passes(self):
+        # Kode OWASP sama walau teks kategorinya beda (Register A01, tabel "A01 Broken Access Control").
+        ok = REPORT.replace("| F-01 | Tinggi | A01 |", "| F-01 | Tinggi | A01 Broken Access Control |")
+        res = cr.read(ok)
+        self.assertEqual([e for e in res["errors"] if "kategori" in e], [], res["errors"])
+
+    def test_orphan_summary_row_without_register_is_error(self):
+        # Register kosong (tak ada blok F-nn) tetapi tabel Bagian 4 punya F-01.
+        broken = REPORT.replace(
+            "## F-01 Judul\n\n"
+            "- Peringkat: Tinggi (CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N = 7.5)\n"
+            "- Kategori: A01\n- Sumber: Diuji langsung\n- Status: Terbuka\n"
+            "- Rekomendasi: perbaiki\n",
+            "",
+        )
+        res = cr.read(broken, final=True)
+        self.assertTrue(
+            any("F-01" in e and "tidak ada di Register" in e for e in res["errors"]),
+            res["errors"],
+        )
+
+    def test_summary_table_heading_level_three_is_compared(self):
+        # Bagian 4 sebagai `###` — pemeriksaan bagian wajib menerimanya, jadi
+        # perbandingan baris vs Register pun harus jalan.
+        lvl3 = REPORT.replace("# 4. Ringkasan Temuan", "### 4. Ringkasan Temuan")
+        lvl3 = lvl3.replace("| F-01 | Tinggi | A01 | Terbuka |\n", "")
+        res = cr.read(lvl3, final=True)
+        self.assertTrue(
+            any("F-01" in e and "tidak ada di tabel Bagian 4" in e for e in res["errors"]),
+            res["errors"],
+        )
+
+    def test_duplicate_summary_row_is_error(self):
+        broken = REPORT.replace(
+            "| F-01 | Tinggi | A01 | Terbuka |",
+            "| F-01 | Tinggi | A01 | Ditutup |\n| F-01 | Tinggi | A01 | Terbuka |",
+        )
+        res = cr.read(broken)
+        self.assertTrue(any("lebih dari sekali" in e for e in res["errors"]), res["errors"])
+
+    def test_subsection_2_5_filled_through_subheading_is_not_empty(self):
+        # Batasnya ditulis di subbagian 2.5.1, bukan paragraf langsung.
+        filled = REPORT.replace(
+            "## 2.5 Batas yang memengaruhi hasil\n\n"
+            "Sampel 30 dari 300 rute; pemindai otomatis ZAP tidak dijalankan; lingkungan uji\n"
+            "lokal + data seed, berbeda dari produksi.\n",
+            "## 2.5 Batas yang memengaruhi hasil\n\n### 2.5.1 Cakupan\n\nSampel 30 dari 300 rute.\n",
+        )
+        res = cr.read(filled, final=True)
+        self.assertEqual([e for e in res["errors"] if "2.5" in e], [], res["errors"])
+
 
 class ParityTest(unittest.TestCase):
     def _doc(self, rank: str, status: str):
@@ -289,6 +348,35 @@ class SummaryTest(unittest.TestCase):
             "| F-01 | Tinggi | A01 | Ditutup |\n"
         )
         self.assertEqual(cr.summary_errors(text), [])
+
+    def test_row_without_status_column_is_rejected(self):
+        # Baris tanpa kolom status tak boleh dilewati: ID/peringkat/kategori-nya
+        # akan terbit tanpa kesalahan meski temuan terbuka.
+        text = (
+            "# Ringkasan\n\n## 4. Ringkasan Temuan\n\n"
+            "| ID | Peringkat | Kategori OWASP |\n|---|---|---|\n"
+            "| F-01 | Tinggi | A01 |\n"
+        )
+        self.assertTrue(any("F-01" in e for e in cr.summary_errors(text)))
+
+    def test_duplicate_row_closed_then_open_is_rejected(self):
+        # Baris pertama "Ditutup", kedua "Terbuka": baris terbuka tak boleh
+        # disembunyikan oleh baris pertama.
+        text = (
+            "# Ringkasan\n\n## 4. Ringkasan Temuan\n\n"
+            "| ID | Peringkat | Kategori OWASP | Status |\n|---|---|---|---|\n"
+            "| F-01 | Tinggi | A01 | Ditutup |\n"
+            "| F-01 | Tinggi | A01 | Terbuka |\n"
+        )
+        self.assertTrue(any("F-01" in e for e in cr.summary_errors(text)))
+
+    def test_heading_level_three_summary_table_is_checked(self):
+        text = (
+            "# Ringkasan\n\n### 4. Ringkasan Temuan\n\n"
+            "| ID | Peringkat | Kategori OWASP | Status |\n|---|---|---|---|\n"
+            "| F-01 | Tinggi | A01 | Terbuka |\n"
+        )
+        self.assertTrue(any("F-01" in e for e in cr.summary_errors(text)))
 
     def test_summary_mode_exit(self):
         with tempfile.TemporaryDirectory() as d:
