@@ -4,7 +4,7 @@
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode PR #512 (setelah `main` `2377f5fb`) | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo musyrif (`pesantren.musyrif@cipansor.or.id`) pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
 | 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Kalimat cakupan §1.2 dikoreksi: data santri tidak lagi "sebatas santri binaan dan unit Anda". Kini dibedakan **daftar yang terbuka lintas unit** (menu Santri Binaan → Daftar Santri, Tahfidz, Takhosus, Kitab Kuning, Jurnal Ibadah, Muhasabah, Sanad, daftar Asrama) dari **daftar kerja pengasuhan yang terbatas pada penugasan** (Tindak Lanjut Absensi, Pola Kehadiran, pengelolaan kamar), sesuai #714 (`seesAllUnits` untuk baca; penugasan mempersempit daftar kerja, bukan menghalangi tindakan) |
-| 0.3 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | §1.2 dipertegas dari tinjauan: klaim "seluruh tindakan dibatasi `actorReachesUnit`" keliru — pencatatan setoran tahfidz hanya memeriksa keberadaan santri, bukan unit atau binaan. Yang dibatasi penugasan adalah **daftar kerja pengasuhan** (Tindak Lanjut Absensi, Pola Kehadiran, kamar), bukan tiap tindakan |
+| 0.3 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | §1.2 dipertegas dari tinjauan: klaim "seluruh tindakan dibatasi `actorReachesUnit`" keliru — pencatatan setoran tahfidz hanya memeriksa keberadaan santri, bukan unit atau binaan. Yang dibatasi penugasan adalah **daftar kerja pengasuhan** (Tindak Lanjut Absensi, Pola Kehadiran, pembinaan kamar/asrama yang ditugaskan), bukan tiap tindakan |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo musyrif, dan tiap kartu memuat tangkapan
@@ -48,11 +48,11 @@ Kehadiran, Asrama, Musyrif, Mutabaah Yaumiyah, Jurnal Ibadah, Muhasabah),
   menemukan santri Anda. Yang dipersempit oleh penugasan Anda adalah **daftar
   kerja pengasuhan**: Tindak Lanjut Absensi dan Pola Kehadiran hanya memuat
   kelas wali kelas Anda dan santri mukim yang Anda bina, keputusan izin mukim
-  hanya untuk binaan Anda, dan Anda hanya mengurus kamar yang ditugaskan kepada
-  Anda. Bukan tiap tindakan dibatasi penugasan — mis. mencatat setoran tahfidz
-  hanya memerlukan santri itu ada. Layanan kepesantrenan lain (Tahfidz,
-  Takhosus, Kitab Kuning, Jurnal Ibadah, Muhasabah, Sanad, dan daftar Asrama)
-  juga terbuka lintas unit.
+  hanya untuk binaan Anda, dan Anda hanya membina penghuni kamar atau asrama
+  yang ditugaskan kepada Anda. Bukan tiap tindakan dibatasi penugasan — mis.
+  mencatat setoran tahfidz hanya memerlukan santri itu ada. Layanan
+  kepesantrenan lain (Tahfidz, Takhosus, Kitab Kuning, Jurnal Ibadah, Muhasabah,
+  Sanad, dan daftar Asrama) juga terbuka lintas unit.
 
 ## 1.3 Tugas dalam buklet ini
 
