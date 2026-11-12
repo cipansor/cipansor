@@ -183,6 +183,51 @@ class QuotedMessageTest(unittest.TestCase):
         self.assertEqual(check_docs.quoted_message_errors([line], "", '"Pesan dari API"'), [])
 
 
+class PartialCardMarkerTest(unittest.TestCase):
+    """A card whose *steps* were revised from code keeps its screenshot but must
+    carry a per-step ⚠ (#779 review): only a whole-card marker clashes with the
+    image, so `kartu-bergambar-masih-t2` must fire on the card-level form alone."""
+
+    def test_card_level_warning_detects_blockquote_and_bare_marker(self):
+        self.assertTrue(check_docs.card_level_warning(["> ⚠ Belum dicoba di aplikasi berjalan"], 1, 1))
+        self.assertTrue(check_docs.card_level_warning(["⚠ Belum dicoba di aplikasi berjalan"], 1, 1))
+
+    def test_card_level_warning_ignores_a_step_marker(self):
+        lines = ["3. Klik **Terbitkan**.",
+                 "   > ⚠ Belum dicoba di aplikasi berjalan — langkah ini dari kode."]
+        self.assertFalse(check_docs.card_level_warning(lines, 1, 2))
+
+    @staticmethod
+    def _png(path: Path) -> None:
+        head = (b"\x89PNG\r\n\x1a\n" + (13).to_bytes(4, "big") + b"IHDR"
+                + (1024).to_bytes(4, "big") + (600).to_bytes(4, "big"))
+        path.write_bytes(head + b"\x00" * 64)
+
+    def _run(self, marker_line: str) -> list[tuple]:
+        import json, tempfile
+        with tempfile.TemporaryDirectory() as d:
+            md = Path(d)
+            (md / "screens").mkdir()
+            self._png(md / "screens" / "x.png")
+            (md / "screens" / "manifest.json").write_text(
+                json.dumps([{"path": "screens/x.png", "url": "/x"}]), encoding="utf-8")
+            text = ("## Mencatat sesuatu\n\n**Langkah.**\n\n"
+                    "1. Buka halaman.\n2. Klik **Simpan**.\n" + marker_line + "\n\n"
+                    "![Gambar 1. Halaman contoh yang cukup panjang.](screens/x.png){width=14cm}\n\n"
+                    "*Gambar 1. Halaman contoh.*\n")
+            r = check_docs.Report()
+            check_docs.check_images(text, text.split("\n"), md, "pengguna", r)
+            return [i for i in r.items if i[2] == "kartu-bergambar-masih-t2"]
+
+    def test_a_step_level_marker_keeps_the_screenshot(self):
+        self.assertEqual(self._run("   > ⚠ Belum dicoba di aplikasi berjalan — langkah ini dari kode."), [])
+
+    def test_a_card_level_marker_on_an_illustrated_card_is_reported(self):
+        found = self._run("> ⚠ Belum dicoba di aplikasi berjalan")
+        self.assertEqual(len(found), 1)
+        self.assertEqual(found[0][0], "WARN")
+
+
 class VerifyDocxTest(unittest.TestCase):
     """A .docx whose structure drifted from the Markdown must be reported, not passed."""
 

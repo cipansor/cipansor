@@ -6,13 +6,14 @@
 | 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Nama kontrol Pengumuman dicocokkan ke layar: tombol **Buat Pengumuman** (bukan "Buat Baru"), judul formulir **Buat Pengumuman**, dan kolom **Judul**/**Isi** (bukan "Konten"); pesan validasi **"Judul dan isi wajib diisi"** disalin dari `announcements/page.tsx` #779) |
 | 0.3 | 11 November 2026 | kode `af09e9a6` | **T1** (kartu tak berubah; catatan tanggal dibaca dari kode) | **Tanggal Jatuh Tempo** dijelaskan sebagai tanggal (bukan jam) dengan ambang menunggak pukul **07.00 WIB** pada tanggal itu, dan penagihan otomatis/pengingat SPP menagih bulan WIB — dibaca dari `finance.service.ts` (#775), kartu *Membuat tagihan santri*, *Membuat tagihan massal*, dan *Memantau tunggakan* (#825) |
 | 0.4 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: tombol simpan dialog pengumuman baru bernama **Terbitkan** (bukan **Simpan**) dan pesan hasilnya menyebut jumlah penerima ("Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang"); ditandai pada kartu |
+| 0.5 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: langkah yang diubah pada revisi 0.2–0.4 kini bertanda **⚠ Belum dicoba di aplikasi berjalan** pada langkahnya, agar klaim T1 tidak mencakup langkah baru (#779) |
 
 > **Tingkat verifikasi.** Kartu tugas di bawah **dijalankan pada aplikasi
-> berjalan** dengan akun demo bendahara unit, dan tiap kartu memuat tangkapan layar asli
-> (T1). Langkah yang ditandai *(dibaca dari kode, belum dicoba ulang di aplikasi
-> berjalan)* adalah pengecualian: disusun dari kode pada revisi 0.2–0.4 dan
-> belum diuji ulang di layar. Bila Anda menemukan layar yang berbeda dari gambar
-> di sini, laporkan kepada admin unit.
+> berjalan** dengan akun demo bendahara unit, dan tiap kartu memuat tangkapan
+> layar asli (T1). Langkah yang bertanda **⚠ Belum dicoba di aplikasi berjalan**
+> adalah pengecualian: disusun dari kode pada revisi 0.2–0.4 dan belum diuji
+> ulang di layar. Bila Anda menemukan layar yang berbeda dari gambar di sini,
+> laporkan kepada admin unit.
 
 # 1. Tentang Buklet Ini
 
@@ -302,7 +303,7 @@ siap diserahkan kepada keluarga.
 2. Isi **Judul** dan **Isi**.
 3. Klik **Terbitkan**.
    *Muncul pesan "Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang".*
-   *(langkah ini dibaca dari kode, belum dicoba ulang di aplikasi berjalan)*
+   > ⚠ Belum dicoba di aplikasi berjalan — langkah ini disusun dari kode, belum diuji ulang di layar.
 
 ![Gambar 7. Halaman Pengumuman unit dan formulir Buat Pengumuman.](screens/keuangan-bendahara/09-pengumuman.png){width=14cm}
 

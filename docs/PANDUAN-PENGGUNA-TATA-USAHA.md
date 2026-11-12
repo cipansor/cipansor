@@ -5,13 +5,14 @@
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo tata usaha pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
 | 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Nama kontrol Pengumuman dicocokkan ke layar: tombol **Buat Pengumuman** (bukan "Buat Baru"), judul formulir **Buat Pengumuman**, dan kolom **Judul**/**Isi** (bukan "Konten"); pesan validasi **"Judul dan isi wajib diisi"** disalin dari `announcements/page.tsx` #779) |
 | 0.3 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: tombol simpan dialog pengumuman baru bernama **Terbitkan** (bukan **Simpan**) dan pesan hasilnya menyebut jumlah penerima ("Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang"); ditandai pada kartu |
+| 0.4 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: langkah yang diubah pada revisi 0.2–0.3 kini bertanda **⚠ Belum dicoba di aplikasi berjalan** pada langkahnya, agar klaim T1 tidak mencakup langkah baru (#779) |
 
 > **Tingkat verifikasi.** Kartu tugas di bawah **dijalankan pada aplikasi
-> berjalan** dengan akun demo tata usaha, dan tiap kartu memuat tangkapan layar asli
-> (T1). Langkah yang ditandai *(dibaca dari kode, belum dicoba ulang di aplikasi
-> berjalan)* adalah pengecualian: disusun dari kode pada revisi 0.2–0.3 dan
-> belum diuji ulang di layar. Bila Anda menemukan layar yang berbeda dari gambar
-> di sini, laporkan kepada admin unit.
+> berjalan** dengan akun demo tata usaha, dan tiap kartu memuat tangkapan
+> layar asli (T1). Langkah yang bertanda **⚠ Belum dicoba di aplikasi berjalan**
+> adalah pengecualian: disusun dari kode pada revisi 0.2–0.3 dan belum diuji
+> ulang di layar. Bila Anda menemukan layar yang berbeda dari gambar di sini,
+> laporkan kepada admin unit.
 
 # 1. Tentang Buklet Ini
 
@@ -284,7 +285,7 @@ tahap daftar ulang dan pendataan santri baru.
 2. Isi **Judul** dan **Isi**.
 3. Klik **Terbitkan**.
    *Muncul pesan "Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang".*
-   *(langkah ini dibaca dari kode, belum dicoba ulang di aplikasi berjalan)*
+   > ⚠ Belum dicoba di aplikasi berjalan — langkah ini disusun dari kode, belum diuji ulang di layar.
 
 ![Gambar 8. Halaman Pengumuman unit dan formulir Buat Pengumuman.](screens/layanan-tata-usaha/10-pengumuman.png){width=14cm}
 

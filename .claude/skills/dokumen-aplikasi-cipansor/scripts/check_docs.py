@@ -134,6 +134,13 @@ def section_ranges(lines: list[str]) -> list[tuple[str, int, int]]:
     return out
 
 
+def card_level_warning(lines: list[str], a: int, b: int) -> bool:
+    """True bila kartu membawa penanda ⚠ tingkat kartu (baris `> ⚠` atau `⚠` di awal baris),
+    bukan hanya pada satu langkah. Kartu T2 penuh tidak boleh mempertahankan tangkapan layar;
+    kartu yang hanya sebagian langkahnya disusun dari kode menandai langkahnya sendiri."""
+    return any(re.match(r"^(>\s*)?⚠", l) for l in lines[a - 1:b])
+
+
 def norm_route(p: str) -> str:
     p = p.split("?")[0].rstrip(".,;:)")
     p = re.sub(r":\w+|\{\w+\}|\[\w+\]", ":p", p)
@@ -711,11 +718,14 @@ def check_images(text: str, lines: list[str], md_dir: Path, kind: str, r: Report
         body = "\n".join(lines[a - 1:b])
         if "**Langkah.**" in body:
             has_warn = "⚠" in body
+            card_warn = card_level_warning(lines, a, b)
             n_imgs = sum(1 for i in body_lines if i in imgs_by_line)
             if not has_warn and n_imgs == 0:
                 r.add("ERROR", a, "kartu-t1-tanpa-gambar",
                       f"kartu '{title}' tanpa ⚠ (T1) harus memuat tangkapan layar hasil aplikasi berjalan")
-            if has_warn and n_imgs:
+            # Hanya penanda tingkat kartu (T2 penuh) yang bertentangan dengan gambar; penanda
+            # tingkat langkah (sebagian kartu disusun dari kode) tetap boleh bergambar.
+            if card_warn and n_imgs:
                 r.add("WARN", a, "kartu-bergambar-masih-t2",
                       f"kartu '{title}' bergambar hasil tangkapan tetapi masih ⚠ — cabut ⚠ bila langkahnya sudah dijalankan (T1)")
             if n_imgs > 4:
