@@ -3303,6 +3303,61 @@ describe('issue-triage-bridge.sh', () => {
     expect(kv['triage-retry-818']).toBeUndefined();
   });
 
+  it('keeps a deferred label while a run that predates it is in flight', () => {
+    // #872 review: the checkpoint's signal is a hash of the body and comments —
+    // it excludes labels. So a run dispatched *before* the label was applied
+    // cannot prove the label was reviewed, and the drain must not discard the
+    // retry while such a run is still in flight. Here the issue is `ready` (out
+    // of the ordinary sweep's scope) and a run for the older activity is
+    // RUNNING; the label's deferral has to survive.
+    const seed = {
+      'triage-sweep-818': { signal: signal('edited'), run: 'run-old' },
+      'triage-retry-818': { signal: signal('edited'), at: 1700000000 },
+    };
+    const base = {
+      GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+      GH_STUB_BODY: 'edited',
+      KV_SEED: seed,
+    };
+
+    // Pass 1: the run is in flight. Nothing is dispatched, and the retry stays.
+    const inFlight = runBridge(
+      { ...base, CURL_STUB_RUNS: '{"runs":[{"id":"run-old","status":"RUNNING"}]}' },
+      ['--recover-ready']
+    );
+    expect(inFlight.calls).not.toContain('DISPATCH');
+    expect(inFlight.kv['triage-retry-818']).toMatchObject({ signal: signal('edited') });
+    expect(inFlight.kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-old',
+    });
+
+    // Pass 2: the run completes. The checkpoint is finalised; the retry is still
+    // kept, because a *finished* checkpoint for the old activity is not the
+    // label's dispatch either.
+    const finished = runBridge(
+      { ...base, CURL_STUB_RUNS: '{"runs":[{"id":"run-old","status":"COMPLETED"}]}' },
+      ['--recover-ready']
+    );
+    expect(finished.kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+    expect(finished.kv['triage-retry-818']).toBeDefined();
+
+    // Pass 3: with the run out of the way, the retry is folded into a `pending`
+    // checkpoint and dispatched — the label is answered, not lost.
+    const drained = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: finished.kv,
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--recover-ready']
+    );
+    expect(drained.calls).toContain('DISPATCH');
+    expect(drained.kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+    expect(drained.kv['triage-retry-818']).toBeUndefined();
+  });
+
   // ---- #1031 review: legacy-marker migration edge cases --------------------
 
   const sweepMarkerComment = (n: number, body: string, id = 900) => ({

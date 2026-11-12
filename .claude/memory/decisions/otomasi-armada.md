@@ -307,7 +307,14 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       `drain_retry_markers` — dijalankan di awal `sweep` **dan** `recover_ready`
       — melipatnya kembali ke checkpoint `pending` sebelum kandidat dibaca. `at`
       yang lebih tua menang, jadi slot FIFO tak tergeser; kunci retry dihapus
-      setelah lipatan berhasil.
+      setelah lipatan berhasil. **Koreksi tinjauan (2026-11-12, putaran kedua):**
+      drain tidak boleh membuang retry selama checkpoint masih menyebut sebuah
+      run (in-flight atau belum difinalkan). Sinyal checkpoint hanya menghitung
+      body dan komentar, **tidak** label, sehingga run yang didispatch sebelum
+      label masuk — mis. run lama pada issue `ready` — memfinalkan issue tanpa
+      meninjau label itu; retry dibiarkan sampai run keluar (`run` dikosongkan
+      oleh pass yang memfinalkannya), lalu dilipat menjadi `pending` dan
+      didispatch. Dijaga tes round-trip tiga pass (in-flight → selesai → kuras).
 
 25. **Run yang mati infrastruktur mendapat kesempatan kedua yang terukur**
     (2026-10-15, pengguna; #837). `POST /{id}/dispatch` fire-and-forget: run

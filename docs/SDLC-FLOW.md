@@ -175,7 +175,12 @@ pertentangan itu dilaporkan sebagai issue.
     posisi antrean tak tergeser oleh gangguan sesaat). Bila baca itu gagal
     **dan** belum ada checkpoint `pending` — mis. issue sudah `ready` — penundaan
     disimpan di kunci terpisah `triage-retry-<n>` yang dikuras kedua jalur
-    pemulihan, jadi label tetap ditriase dan tidak hilang.
+    pemulihan, jadi label tetap ditriase dan tidak hilang. Kuras itu **tidak**
+    membuang retry selama checkpoint masih menyebut sebuah run (in-flight, atau
+    selesai tapi belum difinalkan): sinyal checkpoint hanya menghitung isi body
+    dan komentar, **tidak** label, jadi run yang didispatch sebelum label masuk
+    tidak membuktikan label itu sudah ditinjau — retry dibiarkan sampai run itu
+    keluar, lalu dilipat menjadi `pending` dan didispatch.
 20. **Dinding jam setiap automation adalah 1800 detik — platform tidak
     menerima lebih.** Sebuah run yang melewati `timeout`-nya mati sebagai
     `execution/timeout`, bukan karena tugasnya salah. Batas itu bukan pilihan

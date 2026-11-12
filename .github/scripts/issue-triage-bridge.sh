@@ -471,8 +471,11 @@ write_retry_marker() { # write_retry_marker <number> <signal>
 # passes, before either reads the store: the deferral is turned into the
 # `pending` checkpoint the pass then dispatches. A `pending` checkpoint already
 # present keeps its `at` (the old wait) unless it is older than the retry's, so
-# the FIFO order is preserved either way. The retry key is deleted once folded,
-# and also when the issue is closed, so a stale one cannot linger.
+# the FIFO order is preserved either way. A checkpoint that still names a run
+# (in flight, or finished but not yet finalised) keeps the retry too: the signal
+# it carries excludes labels, so that run cannot prove the label was reviewed. The
+# retry key is deleted once folded, and also when the issue is closed, so a stale
+# one cannot linger.
 drain_retry_markers() {
   for n in $(retry_keys); do
     if [ -z "${n:-}" ]; then continue; fi
@@ -484,8 +487,13 @@ drain_retry_markers() {
     # marker for the next run instead.
     if [ "$MARK_FORM" = "unknown" ]; then continue; fi
     if [ "$MARK_FORM" = "some" ] && [ -n "$MARK_RUN" ] && [ "$MARK_RUN" != "$PENDING_RUN" ]; then
-      # A run is in flight or finished; the deferral is already answered.
-      remove_retry_marker "$n"
+      # A run is recorded — in flight, or finished but not yet finalised. The
+      # checkpoint's signal hashes the body and the comments only, never the
+      # labels, so such a run cannot prove this label was reviewed: a run
+      # dispatched before the label finalises the issue without it (#872
+      # review). Keep the retry; a later pass folds it into a `pending`
+      # checkpoint once the run is out of the way (its `run` cleared), and that
+      # fold is what re-dispatches the label.
       continue
     fi
     if [ "$MARK_FORM" = "some" ] && [ "$MARK_RUN" = "$PENDING_RUN" ]; then
