@@ -39,6 +39,7 @@ is_code() {
     .github/pull_request_template.md) return 0 ;; # automation-fleet.guard.test.ts checks its basmalah
     .github/ISSUE_TEMPLATE/*.yml) return 0 ;; # automation-fleet.guard.test.ts checks their basmalah
     .claude/hooks/guard.sh) return 0 ;; # agent-guard.guard.test.ts runs it
+    .claude/skills/dokumen-aplikasi-cipansor/scripts/*.py) return 0 ;; # test_tooling.py reads them; the Tests job runs it
     *.md | docs/* | .claude/* | .github/ISSUE_TEMPLATE/* | LICENSE | LICENSE.*) return 1 ;;
     *) return 0 ;;
   esac

@@ -3,13 +3,18 @@
 | Versi | Tanggal | Basis aplikasi | Tingkat verifikasi | Perubahan |
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo kepala unit pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
-| 0.2 | 11 November 2026 | aplikasi berjalan dari kode `25693e32` | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Mengelola pegawai dan cuti* diselaraskan dengan kewenangan yang sebenarnya: kepala unit **memantau** data pegawai dan cuti unit, sedangkan menambah/mengubah pegawai dan memutuskan cuti (setuju, tolak, batal) adalah kewenangan admin unit atau Super Admin. Kartu berganti judul menjadi *Memantau pegawai dan cuti*; langkahnya dijalankan ulang dengan akun demo kepala unit. |
-| 0.3 | 12 November 2026 | aplikasi berjalan dari kode `6b3c6127` (kode modul `hr` dan halaman `/hr` identik dengan `main` `e6e7e25e`) | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Memantau pegawai dan cuti* diperbaiki setelah tinjauan: langkahnya dijalankan ulang dengan akun demo kepala unit pada tumpukan lokal. Tab **Karyawan** menampilkan 8 pegawai unit; tab **Cuti** menampilkan pengajuan milik kepala sendiri (`GET /hr/leaves` memaksa filter profil non-admin) dan **bukan** seluruh pengajuan unit, dengan batasan bila akun punya dua profil (guru + staf) hanya satu profil yang dibaca; tab **Risiko Retensi** tetap dapat dibuka, hanya permintaan datanya ditolak kepala unit (`GET /hr/analytics/retention-risk` → 403) sehingga tab tampil kosong. Klaim saring **Semua Status** dilepas: saringan status tidak menyaring (server mengabaikannya; `RESIGNED`/`RETIRED` → 400). Dicatat pula notifikasi galat yang tampil saat halaman dibuka. |
+| 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Nama kontrol Pengumuman dicocokkan ke layar: tombol **Buat Pengumuman** (bukan "Buat Baru"), judul formulir **Buat Pengumuman**, dan kolom **Judul**/**Isi** (bukan "Konten"); pesan validasi **"Judul dan isi wajib diisi"** disalin dari `announcements/page.tsx` #779) |
+| 0.3 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: tombol simpan dialog pengumuman baru bernama **Terbitkan** (bukan **Simpan**) dan pesan hasilnya menyebut jumlah penerima ("Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang"); ditandai pada kartu |
+| 0.4 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: langkah yang diubah pada revisi 0.2–0.3 kini bertanda **⚠ Belum dicoba di aplikasi berjalan** pada langkahnya, agar klaim T1 tidak mencakup langkah baru (#779) |
+| 0.5 | 11 November 2026 | aplikasi berjalan dari kode `25693e32` | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Mengelola pegawai dan cuti* diselaraskan dengan kewenangan yang sebenarnya: kepala unit **memantau** data pegawai dan cuti unit, sedangkan menambah/mengubah pegawai dan memutuskan cuti (setuju, tolak, batal) adalah kewenangan admin unit atau Super Admin. Kartu berganti judul menjadi *Memantau pegawai dan cuti*; langkahnya dijalankan ulang dengan akun demo kepala unit. |
+| 0.6 | 12 November 2026 | aplikasi berjalan dari kode `6b3c6127` (kode modul `hr` dan halaman `/hr` identik dengan `main` `e6e7e25e`) | **T1 — terverifikasi di aplikasi berjalan** | Kartu *Memantau pegawai dan cuti* diperbaiki setelah tinjauan: langkahnya dijalankan ulang dengan akun demo kepala unit pada tumpukan lokal. Tab **Karyawan** menampilkan 8 pegawai unit; tab **Cuti** menampilkan pengajuan milik kepala sendiri (`GET /hr/leaves` memaksa filter profil non-admin) dan **bukan** seluruh pengajuan unit, dengan batasan bila akun punya dua profil (guru + staf) hanya satu profil yang dibaca; tab **Risiko Retensi** tetap dapat dibuka, hanya permintaan datanya ditolak kepala unit (`GET /hr/analytics/retention-risk` → 403) sehingga tab tampil kosong. Klaim saring **Semua Status** dilepas: saringan status tidak menyaring (server mengabaikannya; `RESIGNED`/`RETIRED` → 400). Dicatat pula notifikasi galat yang tampil saat halaman dibuka. |
 
-> **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
-> aplikasi berjalan** dengan akun demo kepala unit, dan tiap kartu memuat
-> tangkapan layar asli. Bila Anda menemukan layar yang berbeda dari gambar di
-> sini, laporkan kepada admin unit.
+> **Tingkat verifikasi.** Kartu tugas di bawah **dijalankan pada aplikasi
+> berjalan** dengan akun demo kepala unit, dan tiap kartu memuat tangkapan
+> layar asli (T1). Langkah yang bertanda **⚠ Belum dicoba di aplikasi berjalan**
+> adalah pengecualian: disusun dari kode pada revisi 0.2–0.3 dan belum diuji
+> ulang di layar. Bila Anda menemukan layar yang berbeda dari gambar di sini,
+> laporkan kepada admin unit.
 
 # 1. Tentang Buklet Ini
 
@@ -394,15 +399,18 @@ evaluasi kinerja periodik pegawai itu.
 
 **Langkah.**
 
-1. Buka **Pengumuman**, lalu klik **Buat Baru**.
-   *Formulir **Buat Pengumuman Baru** terbuka.*
-2. Isi **Judul*** dan **Konten***.
-3. Klik **Simpan**.
-   *Muncul pesan "Pengumuman berhasil dibuat".*
+1. Buka **Pengumuman**, lalu klik **Buat Pengumuman**.
+   *Formulir **Buat Pengumuman** terbuka.*
+   > ⚠ Belum dicoba di aplikasi berjalan — tombol **Buat Pengumuman** dibaca dari kode, belum diuji ulang di layar.
+2. Isi **Judul** dan **Isi**.
+   > ⚠ Belum dicoba di aplikasi berjalan — kolom **Judul**/**Isi** dibaca dari kode, belum diuji ulang di layar.
+3. Klik **Terbitkan**.
+   *Muncul pesan "Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang".*
+   > ⚠ Belum dicoba di aplikasi berjalan — tombol **Terbitkan** dan pesan hasilnya dibaca dari kode, belum diuji ulang di layar.
 
-![Gambar 10. Halaman Pengumuman unit dan formulir Buat Pengumuman Baru.](screens/kepemimpinan-kepala-unit/15-pengumuman.png){width=14cm}
+![Gambar 10. Halaman Pengumuman unit dan formulir Buat Pengumuman.](screens/kepemimpinan-kepala-unit/15-pengumuman.png){width=14cm}
 
-*Gambar 10. Halaman Pengumuman unit dan formulir Buat Pengumuman Baru.*
+*Gambar 10. Halaman Pengumuman unit dan formulir Buat Pengumuman.*
 
 **Hasilnya, dan giliran siapa berikutnya.** Pengumuman tampil di halaman
 Pengumuman pengguna yang berhak membacanya.
@@ -411,7 +419,7 @@ Pengumuman pengguna yang berhak membacanya.
 
 | Yang terlihat | Penyebab umum | Yang perlu dilakukan |
 |---|---|---|
-| "Judul dan konten wajib diisi" | Ada isian wajib yang kosong | Isi **Judul*** dan **Konten*** |
+| "Judul dan isi wajib diisi" | Ada isian wajib yang kosong | Isi **Judul** dan **Isi** |
 
 **Ketersediaan.** Ada pada versi aplikasi yang dijelaskan buklet ini (lihat bagian 1).
 

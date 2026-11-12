@@ -61,6 +61,17 @@ pnpm --filter web exec playwright --version
 - `role-menus.ts` tetap bisa dijalankan tanpa basis data, jadi jalur menu selalu dicetak dari kode:
   `cd apps/web && ../api/node_modules/.bin/tsx scripts/role-menus.ts SMPIT_GURU`.
 
+**Kartu campuran — langkah lama T1, langkah baru dari kode.** Revisi yang
+menyusun ulang *sebagian* langkah sebuah kartu (mis. tombol baru dibaca dari
+kode) tidak menjadikan seluruh kartu T2: gambarnya masih sah untuk langkah yang
+memang dijalankan. Tandai **langkah** yang berubah dengan
+`> ⚠ Belum dicoba di aplikasi berjalan — langkah ini disusun dari kode …`, dan
+persempit pita buklet: sebut klaim T1 hanya untuk langkah lama, lalu sebut revisi
+yang menandai langkah baru. Penanda tingkat langkah ini tidak bertentangan dengan
+tangkapan layar kartu; hanya penanda tingkat kartu (T2 penuh) yang
+bertentangan, dan `check_docs.py` (`kartu-bergambar-masih-t2`) membedakan
+keduanya.
+
 **Tidak ada tingkat "kira-kira".** Bila sebuah langkah tidak bisa dipastikan
 dari kode, tulis "[ISI: konfirmasi langkah ini — …]" dan laporkan.
 
