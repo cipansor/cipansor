@@ -135,7 +135,11 @@ case "$url" in
             fi ;;
           *)
             log "KV_GET $k"
-            if [ -f "$kvdir/$k" ]; then
+            if [ -n "\${CURL_STUB_KV_GET_FAIL_KEY:-}" ] && [ "$k" = "$CURL_STUB_KV_GET_FAIL_KEY" ]; then
+              # A targeted read hiccup: the key exists but the store cannot be
+              # read, so the bridge must treat it as unknown, not as absent.
+              body='{"detail":"store unavailable"}'; code=503; exitcode=22
+            elif [ -f "$kvdir/$k" ]; then
               v=$(cat "$kvdir/$k")
               body=$(jq -nc --arg k "$k" --argjson v "$v" '{key:$k,value:$v,version:1}')
               code=200
@@ -3141,10 +3145,12 @@ describe('issue-triage-bridge.sh', () => {
       },
       ['--sweep']
     );
-    expect(deferred.kv['triage-sweep-818']).toEqual({
+    expect(deferred.kv['triage-sweep-818']).toMatchObject({
       signal: signal('edited'),
       run: 'pending',
     });
+    // The first-deferral time is stamped so the sweep can order it (K25, #872).
+    expect(typeof (deferred.kv['triage-sweep-818'] as { at?: unknown }).at).toBe('number');
 
     const resumed = runBridge(
       {
@@ -3166,22 +3172,332 @@ describe('issue-triage-bridge.sh', () => {
   it('keeps a deferred checkpoint pending while the pool stays full, writing no comment', () => {
     // The full-pool sweep re-writes the same `pending` checkpoint. That used to
     // PATCH the marker comment every run and bump the issue's update time
-    // (R402); the store upsert is silent, and no comment is written at all.
+    // (R402); the store upsert is silent, and no comment is written at all. The
+    // first-deferral time is preserved: a re-deferral must not reset the FIFO
+    // slot (K25, #872).
     const { calls, out, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'pending' } },
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
         CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
         MAX_INFLIGHT: '1',
       },
       ['--sweep']
     );
     expect(out).toContain('deferred');
-    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'pending' });
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'pending',
+      at: 1700000000,
+    });
     expect(calls).not.toContain('POST_MARKER');
     expect(calls).not.toContain('PATCH_BODY');
     expect(calls).not.toContain('/issues/comments/');
+  });
+
+  // ---- #872: head-of-line starvation (K25) ---------------------------------
+
+  it('dispatches a deferred issue from the store even when the search no longer holds it', () => {
+    // #872: a `pending` checkpoint is rewritten in place, so the issue's
+    // `updated_at` never moves and a search ordered by activity eventually drops
+    // it below the window while fresh activity keeps taking the slots — the
+    // head-of-line starvation. The sweep now discovers deferred issues from the
+    // store (FIFO by first deferral), so #818 is dispatched even though the
+    // search returns only #900.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('/issues/818');
+    expect(calls).toContain('DISPATCH');
+    // The deferred checkpoint is answered (its run recorded), not left pending.
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('advances a deferred tail across three sweeps instead of deferring it again', () => {
+    // K25's acceptance test for #872: three consecutive sweeps with more
+    // candidates than capacity must not leave the same issue at the tail every
+    // time. Sweep 1 defers #818 (pool full); sweep 2, still full, keeps it
+    // queued with the same first-deferral time; sweep 3, with room and a search
+    // that no longer names #818, dispatches it — the oldest wait wins a slot.
+    const first = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(first.calls).not.toContain('DISPATCH');
+    const at1 = (first.kv['triage-sweep-818'] as { at?: number }).at;
+    expect(typeof at1).toBe('number');
+
+    const second = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: first.kv,
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(second.calls).not.toContain('DISPATCH');
+    // The tail did not move: the same first-deferral time is kept.
+    expect((second.kv['triage-sweep-818'] as { at?: number }).at).toBe(at1);
+
+    const third = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: second.kv,
+        CURL_STUB_RUNS: '{"runs":[]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect(third.calls).toContain('/issues/818');
+    expect(third.kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('orders deferred issues oldest-first, so the longest wait wins the slot', () => {
+    // FIFO by first deferral: with room for one run, #700 (deferred earlier) must
+    // be dispatched before #818 (deferred later), regardless of the search order.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-700': { signal: signal('edited'), run: 'pending', at: 1600000000 },
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
+        CURL_STUB_RUNS: '{"runs":[]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    const i700 = calls.indexOf('/issues/700');
+    const i818 = calls.indexOf('/issues/818');
+    expect(i700).toBeGreaterThanOrEqual(0);
+    expect(i818).toBeGreaterThan(i700);
+  });
+
+  it('keeps a deferred checkpoint on a ready issue for the recovery pass', () => {
+    // #872 review: `pending_keys` hands every deferred checkpoint to the ordinary
+    // sweep, including a `ready` issue's. That sweep is out of scope for `ready`
+    // issues and used to drop the checkpoint — but `--recover-ready` runs *after*
+    // the sweep and reads the store, so the deferred dispatch was lost forever.
+    // Round-trip: the sweep must leave the checkpoint, then the recovery pass
+    // dispatches it.
+    const swept = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--sweep']
+    );
+    // The ordinary sweep skips the `ready` issue and must not dispatch it...
+    expect(swept.calls).not.toContain('DISPATCH');
+    // ...but its deferred checkpoint must remain for `--recover-ready`.
+    expect(swept.kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'pending',
+      at: 1700000000,
+    });
+
+    const recovered = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: swept.kv,
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--recover-ready']
+    );
+    expect(recovered.calls).toContain('DISPATCH');
+    expect(recovered.kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+  });
+
+  it('keeps the first-deferral time when a KV read hiccups in the label path', () => {
+    // #872 review: a failed `read_sweep_marker` leaves MARK_RUN empty, so the
+    // label path read `at=""` and `write_sweep_marker` stamped a fresh `at` —
+    // pushing a long-waiting issue to the back of the FIFO, the very starvation
+    // #872 fixes, only via a transient hiccup. A failed read must leave the
+    // checkpoint alone.
+    const { kv, out } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+        },
+        CURL_STUB_KV_GET_FAIL_KEY: 'triage-sweep-818',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(out).toContain('deferred');
+    // The old `at` survives; a hiccup must not reset the FIFO position.
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'pending',
+      at: 1700000000,
+    });
+  });
+
+  it('keeps a deferral on a ready issue whose checkpoint read failed, then dispatches it', () => {
+    // #872 review: the label path deferred on a `ready` issue with no pending
+    // checkpoint, and the store read failed. Skipping the write (the previous
+    // guard for the FIFO reset) lost the deferral for good — the sweep excludes
+    // `ready`, and `recover_ready` only reads checkpoints that exist. The
+    // deferral now goes to a retry key the next pass drains.
+    const deferred = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_KV_GET_FAIL_KEY: 'triage-sweep-818',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(deferred.out).toContain('deferred');
+    expect(deferred.calls).not.toContain('DISPATCH');
+    // The deferral survives under its own key; no sweep checkpoint was minted
+    // blind, so the issue's `ready` state cannot get it dropped.
+    expect(deferred.kv['triage-retry-818']).toMatchObject({ signal: signal('edited') });
+    expect(typeof (deferred.kv['triage-retry-818'] as { at?: unknown }).at).toBe('number');
+    expect(deferred.kv['triage-sweep-818']).toBeUndefined();
+
+    // Capacity frees. The recovery pass folds the retry marker into a pending
+    // checkpoint and dispatches it — the label is answered, not lost.
+    const recovered = runBridge(
+      {
+        KV_SEED: deferred.kv,
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--recover-ready']
+    );
+    expect(recovered.calls).toContain('DISPATCH');
+    expect(recovered.kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-1',
+    });
+    expect(recovered.kv['triage-retry-818']).toBeUndefined();
+  });
+
+  it('drains a retry marker from the ordinary sweep too, for a not-ready issue', () => {
+    // The same hiccup on a not-`ready` issue must not need the recovery pass:
+    // the sweep drains the retry key as well, so the deferral is queued either
+    // way. The retry's `at` is what orders it, so the FIFO slot survives.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: { 'triage-retry-818': { signal: signal('edited'), at: 1700000000 } },
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+    expect(kv['triage-retry-818']).toBeUndefined();
+  });
+
+  it('keeps the older of the two deferral times when folding a retry marker', () => {
+    // A retry marker that began before the existing pending checkpoint must not
+    // lose its place in the FIFO queue: the earlier `at` wins.
+    const { kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 900',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'pending', at: 1700000000 },
+          'triage-retry-818': { signal: signal('edited'), at: 1600000000 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--sweep']
+    );
+    expect((kv['triage-sweep-818'] as { at?: number }).at).toBe(1600000000);
+    expect(kv['triage-retry-818']).toBeUndefined();
+  });
+
+  it('keeps a deferred label while a run that predates it is in flight', () => {
+    // #872 review: the checkpoint's signal is a hash of the body and comments —
+    // it excludes labels. So a run dispatched *before* the label was applied
+    // cannot prove the label was reviewed, and the drain must not discard the
+    // retry while such a run is still in flight. Here the issue is `ready` (out
+    // of the ordinary sweep's scope) and a run for the older activity is
+    // RUNNING; the label's deferral has to survive.
+    const seed = {
+      'triage-sweep-818': { signal: signal('edited'), run: 'run-old' },
+      'triage-retry-818': { signal: signal('edited'), at: 1700000000 },
+    };
+    const base = {
+      GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+      GH_STUB_BODY: 'edited',
+      KV_SEED: seed,
+    };
+
+    // Pass 1: the run is in flight. Nothing is dispatched, and the retry stays.
+    const inFlight = runBridge(
+      { ...base, CURL_STUB_RUNS: '{"runs":[{"id":"run-old","status":"RUNNING"}]}' },
+      ['--recover-ready']
+    );
+    expect(inFlight.calls).not.toContain('DISPATCH');
+    expect(inFlight.kv['triage-retry-818']).toMatchObject({ signal: signal('edited') });
+    expect(inFlight.kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-old',
+    });
+
+    // Pass 2: the run completes. The checkpoint is finalised; the retry is still
+    // kept, because a *finished* checkpoint for the old activity is not the
+    // label's dispatch either.
+    const finished = runBridge(
+      { ...base, CURL_STUB_RUNS: '{"runs":[{"id":"run-old","status":"COMPLETED"}]}' },
+      ['--recover-ready']
+    );
+    expect(finished.kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+    expect(finished.kv['triage-retry-818']).toBeDefined();
+
+    // Pass 3: with the run out of the way, the retry is folded into a `pending`
+    // checkpoint and dispatched — the label is answered, not lost.
+    const drained = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready priority:high',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: finished.kv,
+        CURL_STUB_RUNS: '{"runs":[]}',
+      },
+      ['--recover-ready']
+    );
+    expect(drained.calls).toContain('DISPATCH');
+    expect(drained.kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+    expect(drained.kv['triage-retry-818']).toBeUndefined();
   });
 
   // ---- #1031 review: legacy-marker migration edge cases --------------------
