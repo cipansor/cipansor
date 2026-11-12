@@ -89,10 +89,15 @@ PENDING/TU_APPROVED → REJECTED (dengan alasan)
 WhatsApp lewat transport yang belum dikonfigurasi (mis. `SIMULATOR`) tidak
 benar-benar terkirim. Hanya notifikasi ber-`dedupeKey` (mis. jalur
 `payment-reminder`) yang menyimpan status pengiriman per kanal: transport
-log-only dicatat `PENDING`, kesalahan transport dicatat `FAILED`, dan keduanya
-dicoba ulang pada run berikutnya — bukan `SENT`. Jalur SPP bulanan
-(`jobs/spp-reminder.job.ts`) **tidak** menyimpan status itu sama sekali, jadi
-pengingat yang gagal pada tanggal 1 tidak pernah dicoba ulang; jangan
+log-only dicatat `PENDING`, kesalahan transport dicatat `FAILED` — keduanya
+bukan `SENT`. Percobaan ulangnya terikat jendela seleksi tugas itu
+(`dueDate: { gte: now, lte: now + 7 hari }`): selama tagihan masih terpilih, run
+harian berikutnya mencoba kanal yang belum `SENT`; begitu tanggal jatuh tempo
+terlewati, tagihan keluar dari seleksi dan status `PENDING`/`FAILED` itu tidak
+pernah dicoba lagi (pada praktiknya percobaan terakhir jatuh pada run sehari
+sebelum jatuh tempo, karena `dueDate` disimpan pada tengah malam UTC). Jalur SPP
+bulanan (`jobs/spp-reminder.job.ts`) **tidak** menyimpan status itu sama sekali,
+jadi pengingat yang gagal pada tanggal 1 tidak pernah dicoba ulang; jangan
 menganggapnya terkirim sampai provider disetel, dan kirim ulang secara manual
 bila provider baru diaktifkan setelah tanggal 1.
 
