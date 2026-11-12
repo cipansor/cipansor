@@ -932,7 +932,8 @@ RETIRED = {
     "Kedua automation menyala pada peristiwa yang sama (`issues.opened` + label "
     "`bug`), jadi satu laporan bug membangunkan dua agen dan dua sandbox. Tail "
     "SDLC 15 kini memuat perannya: bila issue melaporkan cacat, triase WAJIB "
-    "mereproduksi lebih dulu (perintah + keluaran ditempel ke komentar triase) "
+    "mereproduksi lebih dulu (perintah + keluaran ditempel ke tempat putusan triase: "
+    "komentar bila belum final, body bila sudah final) "
     "sebelum menilai prioritas. Re-enable hanya dengan menghapus entri ini DAN "
     "mengembalikan bagian REPRODUKSI dari tail SDLC 15.",
     "SDLC 14": "`Pengelola dokumentasi` dipensiunkan 2026-11-12 (keputusan "

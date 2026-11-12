@@ -601,6 +601,11 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
     expect(tail).toContain('jangan menulis komentar tambahan hanya untuk bukti');
     // The summary template must have a slot for the evidence.
     expect(tail).toContain('Bukti reproduksi (perintah + keluaran)');
+    // Every description of the rule must agree. The `RETIRED` note for SDLC 05
+    // once said the evidence is pasted "ke komentar triase" — the same drift a
+    // reviewer caught in the PR body. Nothing in the script may pin the evidence
+    // to a comment unconditionally.
+    expect(script()).not.toContain('ditempel ke komentar triase');
   });
 
   it('never reintroduces the retired AI-disclosure footer mandate', () => {
