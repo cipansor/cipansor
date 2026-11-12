@@ -445,6 +445,25 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   and a new `analytics/tests/alerts-overdue-bound.test.ts` — all three fail on
   the pre-fix code. Gate green locally (api 5188, build:strict, lint).
 
+- **Issue triage, 2026-11-11 (lanjutan 4):** #849 (`bug`, `priority:high`, tab
+  **Hari Ini** halaman Menu Makan selalu 404) dikerjakan sesuai **K5** di
+  **PR #1059** pada `fix/849-meals-today-routing`. Cacatnya routing **dan**
+  bentuk respons: web memanggil `GET /meals/menus/today?unitId=`, tidak ada
+  rute yang menjawabnya — `/menus/:id` mengambilnya dengan `id = "today"` →
+  selalu 404; dan handler hari ini mengembalikan array sedangkan halaman
+  membaca `{ breakfast, lunch, dinner, snack }`. Perbaikan: hook memanggil rute
+  kanonik `GET /meals/menus/today/:unitId` (unit di path, seperti
+  `calendar`/`duty-roster`) lalu **melipat** array ke objek yang dibaca
+  halaman; query nonaktif tanpa unit; tab Hari Ini meminta memilih satu unit
+  saat "Semua Unit" (tidak ada agregasi, K5). Tes: `use-meals.test.tsx` (3),
+  `today-menu-route.test.ts` (mengunci rute kanonik + 404 path lama),
+  `e2e/meals.spec.ts` (gagal sebelum, lulus sesudah). Tangkapan sebelum/sesudah
+  di cabang `screenshots/849` (`docs/pr-screens/849/`). Cakupan hanya tab Hari
+  Ini; tab Mingguan & `/meals/stats` menyusul sebagai issue terpisah (K5 poin
+  3). Cacat WIB di `getTodayMenu` sudah beres di `main`. Tidak ada PR terbuka
+  lain yang menyentuh berkas `meals` → aturan emas 9 tidak berlaku. Pelajaran
+  ditambahkan ke `lessons/api-integration-traps.md`.
+
 ## Recently done (2026-10-09 → 10)
 
 - **Merged:** #655 (SPMB banner and delayed dialog on the public site), #657
