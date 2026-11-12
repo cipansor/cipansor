@@ -414,6 +414,21 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   "sehari penuh" itu tidak benar. Dokumen dikoreksi; cacat kode dilacak di
   **#1050** (`lessons/date-only-midnight-utc-vs-now.md`).
 
+- **Issue triage, 2026-11-11 (lanjutan 3):** #833 (`docs`: jalur galat 409 pada
+  keputusan cuti setelah #668) dikerjakan sesuai keputusan **K17** di **PR
+  #1052** pada `docs/833-leave-409`: DT §8.3 menyebut `Errors.conflict` → 409 +
+  pemakaiannya di modul `hr` (keputusan cuti bersamaan; setujui dua kali =
+  idempoten, tolak yang sudah disetujui = 400); panduan Kepala Unit kartu
+  *Mengelola pegawai dan cuti* menambah baris 409 (pesan disalin persis dari
+  `hr.service.ts`, penjaga `pesan-karangan` mencocokkan ke kode web+API);
+  `README.md` baris Kepegawaian. Anotasi Swagger `409` di `hr.routes.ts`
+  dikeluarkan dari lingkup (K17 → PR kode terpisah) dan **dilacak di issue baru
+  #1053** (`documentation`, `priority:low`). `check_docs.py` TEKNIS 16 =
+  baseline, KEPALA-UNIT 2 = pra-ada (L386 `**Buat Baru**`, L403 pesan "Judul dan
+  konten wajib diisi"); sensitive bersih. Catatan: `progress.md` disunting di
+  tiga cabang (#1049 sudah merged; #1051 & #1052 menambah blok di titik yang
+  sama) sehingga resolusi konflik = simpan kedua blok.
+
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
   permissions, separation-of-duty rules locked in code, and the account
