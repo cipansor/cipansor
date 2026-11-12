@@ -1071,6 +1071,49 @@ memuat setiap komentar non-armada, jadi sebutan `@cipansor-bot` pada issue
 terbuka non-`ready` membangunkan SDLC 07 **dan** SDLC 15 — kelas "satu komentar,
 dua pemilik" yang sama dengan SDLC 16/22.
 
+### 2026-11-12 · PR menua + klaim yang tak bergantung event + identitas `cipansor-bot`
+
+Tiga celah yang ditutup bersama (issue #927, lanjutan #857).
+
+**1. Klaim issue bergantung 100% pada event.** `issue-claim.yml` memindahkan
+`ready` → `in-progress` hanya saat event `pull_request`/`issues` datang. Bukti
+empiris: `Issue claim` punya **49 run** dan nol run `pull_request` setelah
+15:16Z, padahal `Issue label sync`/`E2E Tests`/`PR lifecycle` menyala di
+commit & branch yang sama (PR #1075, head `eb5cb2f0`) — jadi bukan YAML rusak
+(byte-identik dengan `main`, GitHub menyajikan YAML yang sama, workflow
+`active`). Dua PR yang tidak pernah dapat run tetap bocor (`ready` bertahan):
+#1075→#877, #1062→#845, #1060→#818. Perbaikan: **sapuan rekonsiliasi harian**
+`issue-claim.sh --sweep` (`gh pr list --json isCrossRepository,closingIssuesReferences`)
+yang menurunkan klaim dari **keadaan**, bukan dari event. Pelajaran: pemicu
+event saja bukan jaminan; setiap gerbang wajib punya jalur sapuan idempoten.
+
+**2. `stale-sweep` hanya menyasar issue.** Kini PR ikut menua, **tanpa label
+apa pun** (taksonomi tak punya `stale` untuk PR; `duplicate-pr` milik otomasi
+lain): PR tanpa issue → peringatan lalu tutup 5 hari; PR ber-issue → timer diam
+(peringatan 90 hari, tutup 104). Draf & PR bot (Dependabot) dilewati. Aktivitas
+yang mengakhiri siklus: komentar manusia, dan — khusus PR ber-issue — commit
+head baru; push **tidak** mengulur siklus "tanpa issue" karena cacatnya tetap.
+Butuh `pull-requests: write` (ditambahkan).
+
+**3. Identitas `github-actions[bot]`.** Semua workflow komunikator (12 berkas)
+kini `GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}`. **Nama
+secret tidak boleh berawalan `GITHUB_`** (422) → dipakai `CIPANSOR_BOT_TOKEN`.
+Yang **tetap** `github.token`: `issue-label-sync` (menerbitkan check-run),
+`ci`/`e2e`/`deploy` (hanya membaca; jalur `pull_request` dari fork tak bisa
+melihat secret). Guard baru di `automation-fleet.guard.test.ts` mengunci
+pembagian ini.
+
+**Konsekuensi aman yang diperiksa:** `label-guard` mengecualikan `*[bot]`, jadi
+tak ada pencabutan; `issue-triage-bridge` mencocokkan `*bot`/`*[bot]` (bukan
+login spesifik); `stale-sweep`/`duplicate-sweep` menganggap `cipansor-bot`
+bukan manusia (perilaku benar). **Koreksi 2026-11-12 (review PR #1077):** klaim awal saya salah. Secret yang
+**tidak ada** dan secret yang **kosong** sama-sama menghasilkan string kosong di
+ekspresi Actions, jadi `|| github.token` tetap memilih token bawaan — workflow
+**tidak** gagal, identitasnya saja yang mundur ke `github-actions[bot]`. Jadi
+fallback ini memang membuat identitas bot "best effort", bukan jaminan: bila
+secret hilang, armada tetap jalan tapi menulis sebagai bot platform. Yang benar
+untuk diwaspadai: kegagalan senyap, bukan crash.
+
 ## 2026-11-11 — #838: `label-guard` yang mencabut memicu pelabelan ulang (mode `--relabel`)
 
 **Masalah.** `label-guard.sh` hanya *mencabut* label yang dipasang akun non-bot

@@ -20,8 +20,18 @@
 # trigger re-runs this, so the fresh `ready` is swapped for `in-progress` at once
 # instead of waiting for the PR to be touched again.
 #
+# `--sweep` is the repair pass for the events that never arrived. The claim
+# depends on GitHub delivering `pull_request`/`issues` events; when a run is
+# missing (the event was dropped, the workflow was added after the PR opened, a
+# run was cancelled) nothing retries it and the issue keeps `ready` while a PR
+# works it. A `ready` issue with an open PR is a state the fleet must never be
+# in, so the sweep re-derives the claim from state alone — it asks every open PR
+# what it closes and claims what it finds. It is idempotent: a claimed issue is
+# left alone, and a fork PR reports the move instead of making it.
+#
 # Usage: issue-claim.sh <pr-number>
 #        issue-claim.sh --issue <issue-number>   # every open PR that closes it
+#        issue-claim.sh --sweep                  # every open PR, from state
 # Env:   GH_TOKEN, REPO (owner/name), READ_ONLY (fork PR: verify only)
 set -eu
 
@@ -87,6 +97,66 @@ claim_issue() { # claim_issue <issue-number>
   fi
   echo "claimed issue #$N: 'ready' -> 'in-progress'."
 }
+
+if [ "${1:-}" = "--sweep" ]; then
+  # Every open PR, and the open issues it closes. One query for the whole repo:
+  # the per-PR GraphQL call the single-PR path uses would be one request per PR,
+  # and the sweep is the pass that must not be expensive enough to skip.
+  #
+  # A fork PR's `pull_request` token is read-only, so a claim it needs cannot be
+  # made here; the sweep names the move instead of passing silently.
+  #
+  # A failed listing must not look like "no open PR": that would report success
+  # while an issue that needs claiming was never looked at. The single-PR path
+  # draws the same line (`closing_open_issues` failing is an error, an empty set
+  # is not).
+  if ! ROWS=$(gh pr list --repo "$REPO" --state open --limit 500 \
+      --json number,isCrossRepository,closingIssuesReferences \
+      --jq '.[] | "\(.number)|\(.isCrossRepository)|\([.closingIssuesReferences[].number] | join(","))"'); then
+    echo "::error::could not list open pull requests; the sweep cannot reconcile and must not report success."
+    exit 1
+  fi
+  if [ -z "$ROWS" ]; then
+    echo "No open pull requests; nothing to claim."
+    exit 0
+  fi
+  # `closingIssuesReferences` carries no `state` — the object is
+  # {id, number, repository, url} (checked 2026-11-12) — so the filter the
+  # single-PR path gets from GraphQL is rebuilt here from one listing of open
+  # issues. Without it the sweep would move a closed issue's `ready` to
+  # `in-progress`, a move the event path explicitly refuses to make.
+  if ! OPEN_ISSUES=$(gh issue list --repo "$REPO" --state open --limit 1000 \
+      --json number --jq '.[].number'); then
+    echo "::error::could not list open issues; the sweep cannot tell an open issue from a closed one."
+    exit 1
+  fi
+  # A pipeline runs the loop in a subshell, so a failure recorded in a variable
+  # would be lost. A temp file survives it, and the sweep must not report success
+  # while a claim it found went unmade.
+  FAILS=$(mktemp)
+  printf '%s\n' "$ROWS" | while IFS='|' read -r PR IS_FORK ISSUES; do
+    [ -n "$PR" ] || continue
+    [ -n "$ISSUES" ] || continue
+    # One fork PR must not stop the claims the other PRs still need: report it
+    # and carry on.
+    if [ "$IS_FORK" = "true" ]; then
+      echo "PR #$PR comes from a fork; its issue claim needs a maintainer."
+      continue
+    fi
+    for N in $(printf '%s' "$ISSUES" | tr ',' ' '); do
+      # Only an OPEN issue is claimable; a closed issue's labels are frozen.
+      has "$OPEN_ISSUES" "$N" || continue
+      claim_issue "$N" || echo "claim failed for issue #$N (PR #$PR)" >> "$FAILS"
+    done
+  done
+  if [ -s "$FAILS" ]; then
+    cat "$FAILS"
+    rm -f "$FAILS"
+    exit 1
+  fi
+  rm -f "$FAILS"
+  exit 0
+fi
 
 if [ "${1:-}" = "--issue" ]; then
   ISSUE="${2:?usage: issue-claim.sh --issue <issue-number>}"

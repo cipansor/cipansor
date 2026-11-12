@@ -67,7 +67,10 @@ jobs:
           persist-credentials: false
       - name: Apply lifecycle rules
         env:
-          GH_TOKEN: ${{ github.token }}
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           PR: ${{ github.event.workflow_run.pull_requests[0].number || github.event.pull_request.number }}
           HEAD_SHA: ${{ github.event.workflow_run.head_sha || github.event.pull_request.head.sha }}

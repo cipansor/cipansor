@@ -74,7 +74,10 @@ jobs:
           persist-credentials: false
       - name: Dispatch the triage owner for the labelled issue
         env:
-          GH_TOKEN: ${{ github.token }}
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: sh .github/scripts/issue-triage-bridge.sh --stdin < "$GITHUB_EVENT_PATH"
@@ -92,7 +95,7 @@ jobs:
       - name: Dispatch the triage owner for issues with activity since triage
         if: github.event.inputs.mode != 'purge-markers'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: sh .github/scripts/issue-triage-bridge.sh --sweep
@@ -103,7 +106,7 @@ jobs:
       - name: Purge the legacy marker comments (manual)
         if: github.event_name == 'workflow_dispatch' && github.event.inputs.mode == 'purge-markers'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: sh .github/scripts/issue-triage-bridge.sh --purge-markers
@@ -115,7 +118,7 @@ jobs:
       - name: Recover deferred label dispatches on ready issues
         if: always() && github.event.inputs.mode != 'purge-markers'
         env:
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
           REPO: ${{ github.repository }}
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: sh .github/scripts/issue-triage-bridge.sh --recover-ready
