@@ -239,13 +239,22 @@ describe('EmisService', () => {
     it('takes birthPlace and birthDate from the columns', async () => {
       vi.mocked(prisma.teacher.findMany).mockResolvedValue([teacher()] as never);
 
-      const [row] = await service.exportTeacherData({ unitId: DOC_UNIT }, SUPER_ADMIN);
+      // `formatDate` renders the instant in the server's zone and
+      // `new Date('1985-03-12')` is UTC midnight, so pin the zone the expected
+      // string is written for (the same pin spp-reminder.job.test.ts uses).
+      const prevTz = process.env.TZ;
+      process.env.TZ = 'UTC';
+      try {
+        const [row] = await service.exportTeacherData({ unitId: DOC_UNIT }, SUPER_ADMIN);
 
-      expect(row.tempatLahir).toBe('Ciamis');
-      // Same formatDate as every other EMIS date; assert the year so a hardcoded
-      // '' (the old behaviour) fails.
-      expect(row.tanggalLahir).toMatch(/^\d{2}\/\d{2}\/\d{4}$/);
-      expect(row.tanggalLahir).toContain('1985');
+        expect(row.tempatLahir).toBe('Ciamis');
+        // The whole string, not a pattern plus the year: "03/12/1985" (day and
+        // month swapped) satisfies both and still changes what Kemenag reads.
+        expect(row.tanggalLahir).toBe('12/03/1985');
+      } finally {
+        if (prevTz === undefined) delete process.env.TZ;
+        else process.env.TZ = prevTz;
+      }
     });
 
     it('exports empty strings when the birth columns are null', async () => {
