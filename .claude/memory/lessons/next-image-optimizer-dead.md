@@ -18,7 +18,7 @@ both in the runner image:
 1. Next's standalone trace does not pick `sharp` up — it is loaded at runtime,
    not imported — so `require.resolve("sharp")` fails from the app directory.
 2. The binary installed at build time is the **glibc** one; the runner is
-   `node:22-alpine` (**musl**): `Could not load the "sharp" module using the
+   `node:26-alpine` (**musl**): `Could not load the "sharp" module using the
    linuxmusl-x64 runtime`.
 
 The Dockerfile comment about "next/image writes optimised variants here" and

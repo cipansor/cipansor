@@ -691,9 +691,9 @@
     "source": "keseharian-santri/16-papan-peringkat.png",
     "flow": "keseharian-santri",
     "step": "16-papan-peringkat",
-    "caption": "Papan Peringkat ibadah: peringkat ketekunan antar santri.",
+    "caption": "Papan Peringkat ibadah: posisi santri dan capaian target di unitnya.",
     "url": "/ibadah/leaderboard",
-    "bytes": 31520,
+    "bytes": 116427,
     "width": 1024
   },
   {
@@ -754,6 +754,16 @@
     "caption": "Aduan & Aspirasi: menyampaikan keluhan atau saran ke unit.",
     "url": "/quality/complaints",
     "bytes": 33916,
+    "width": 1024
+  },
+  {
+    "path": "screens/absen-pegawai/01-buka-absen-saya.png",
+    "source": "absen-pegawai/01-buka-absen-saya.png",
+    "flow": "absen-pegawai",
+    "step": "01-buka-absen-saya",
+    "caption": "Halaman Absen Saya: status kehadiran hari ini dan bukti kehadiran yang diminta unit.",
+    "url": "/hr/attendance/me",
+    "bytes": 79032,
     "width": 1024
   }
 ]

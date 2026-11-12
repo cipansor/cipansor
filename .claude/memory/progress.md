@@ -103,6 +103,38 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
+- **EMIS teacher export + module tests (#868 + #873, one PR, 2026-11-12).**
+  `exportTeacherData` invented `jenisKelamin: 'L'`, `tempatLahir: ''` and
+  `tanggalLahir: ''` although `Teacher.gender`/`birthPlace`/`birthDate` exist
+  and the HR module fills them — every teacher was exported male with an empty
+  birthplace, and it differed from Dapodik's export of the same person. Fixed
+  per K11 (2026-11-09): gender maps from the column, `''` when null (the type
+  is now `'' | 'L' | 'P'`), birth columns read directly. #868's test gap is
+  closed by `modules/emis/tests/emis.service.test.ts` (real service, only
+  Prisma mocked). Three of the deferred defects (student `agama`, teacher
+  `sertifikasi`/`statusPegawai`, institution `jumlahRuangKelas`, dead
+  `emis.schema.ts`) are recorded in `known-issues.md`; K11 deferred them and no
+  separate issue exists yet.
+
+- **Documentation PRs, 2026-11-11:** #1035 (#778, cross-unit scope; **also
+  carries #801** — the portfolio read-scope and two-party message-reply rules in
+  `docs/DOKUMEN-TEKNIS.md` §8, per K18 "one PR together with #778"), #1036
+  (#779, screen labels), #1046 (#792, the absensi-pegawai sync — the first to
+  document the Absen Saya flow). All three were merged together in a worktree:
+  only one conflict, both #1035 and #1046 appending a `0.5` row to the Guru
+  booklet's revision table; `check_docs.py` and the two guard tests pass on the
+  merged tree. Merge them as a set.
+
+- **Issue triage, 2026-11-11 (oldest open `ready` first):** #795 closed
+  **NOT_PLANNED** — it asked for a weekly usage report from `Pengawas armada`
+  (SDLC 23), but the owner retired that automation on 2026-11-11 (label
+  `automation-health` deleted, `RETIRED["SDLC 23"]` in `deploy-sdlc-agents.py`,
+  `IDEAS.md` §5, tracked by #1047 / PR #1045); the report is now read manually.
+  Building the step would resurrect a retired automation. #801 advanced: its
+  finding 1 was already fixed via #762, and the remaining scope (K18) rode on
+  PR #1035. Still open and untouched: the broken `/parent/messages` route (a
+  product gap, not documentation — worth its own issue).
+
 - **Open PRs, 2026-10-13:** #777 (the gate watch; ready, all checks green,
   waiting on the review gate), #668 and #775, #804 (draft). Merged since
   2026-10-10: #512, #714, #708 + #734 (tested together on `main`), #761 and
@@ -509,6 +541,17 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   **gagal 4** terhadap skrip pra-perbaikan, **lulus 25** sesudahnya. Suite API
   penuh 5161 lulus. Pelajaran baru:
   `lessons/required-check-wedged-by-label-race.md`.
+
+- **Issue triage, 2026-11-11 (lanjutan 6):** #867 (`chore`, lima job Actions
+  tanpa `timeout-minutes`) dikerjakan di **PR #1064** pada
+  `chore/867-workflow-job-timeouts`. Jumlahnya sudah bergeser: kini **6 job**
+  (bukan 5) — `deploy-production.yml` menambah job `gate` setelah issue ditulis;
+  total 31 job di 19 workflow. Ditambahkan plafon sesuai durasi nyata + margin:
+  15 (release gate), 45 (kedua job deploy; staging 7–9 mnt, produksi 2–3 mnt),
+  30 (kedua job load-test). Guard baru `workflow-job-timeout.guard.test.ts`
+  menuntut **setiap** job di `.github/workflows/*.yml` punya `timeout-minutes`
+  berupa bilangan bulat positif < 360; **gagal** pada workflow pra-perbaikan
+  (keenam job terdaftar), **lulus** sesudahnya. Suite API penuh 5183 lulus.
 
 ## Recently done (2026-10-09 → 10)
 
