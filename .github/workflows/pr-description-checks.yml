@@ -1,8 +1,8 @@
 # Checks for PR descriptions.
 #
 #   template job -> HARD gate: fails while the PR template is incomplete, no
-#                   issue is linked, a linked number is not an open
-#                   `ready`/`bot-implement` issue, or the prose
+#                   issue is linked, a linked number is not an open `ready`
+#                   issue, or the prose
 #                   reads as English (see docs/LABELS.md); a `## Risk and
 #                   rollback` statement is required only on a risky PR
 #                   (pr-template-guard.sh, #965)

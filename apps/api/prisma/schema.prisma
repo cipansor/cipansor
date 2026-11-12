@@ -7769,6 +7769,7 @@ model StudentPackage {
   expedition   String? // Jasa pengiriman (JNE, J&T, dll.)
   content      String?       @db.Text @map("description") // Isi/keterangan paket
   photoUrl     String?       @map("photo_url")
+  storageLocation String?    @map("storage_location") // Lokasi simpan di resepsionis
   receivedAt   DateTime      @default(now()) @map("received_at")
   receivedById String        @map("received_by_id")
   status       PackageStatus @default(RECEIVED)

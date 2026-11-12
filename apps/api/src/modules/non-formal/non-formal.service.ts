@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { CreateCourseInput, UpdateCourseInput, EnrollCourseInput } from './non-formal.schema';
 import { Prisma } from '@prisma/client';
-import { wibMonthYear } from '../../utils/wib-day';
+import { dayDate, wibDayOf, wibMonthYear } from '../../utils/wib-day';
 
 export const courseService = {
   async findAll(unitId?: string) {
@@ -112,7 +112,11 @@ export const courseService = {
           data: {
             invoiceNumber,
             amount: course.price,
-            dueDate: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+            // A date-only column (`Invoice.dueDate`): the WIB day 7 days from
+            // now, at midnight UTC, so a reader that stringifies it without a
+            // timezone and a filter that bounds it with a UTC first-of-month
+            // agree on the day (#811).
+            dueDate: dayDate(wibDayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000))),
             status: 'PENDING',
             studentId: data.studentId || null,
             paymentTypeId: paymentType.id,

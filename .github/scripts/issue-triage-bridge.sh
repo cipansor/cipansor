@@ -38,7 +38,7 @@
 # HTML-only marker comment renders as an empty comment: every write notified the
 # issue's subscribers and left an unreadable husk (2026-11-11: 153 of them). The
 # KV store holds the same data silently — see the `SWEEP_KEY`/`STATE_KEY` note
-# below. `automation-retry.sh` keeps its ledger there too.
+# below, so no state lives in a comment.
 #
 # The sweep also caps how many triage runs may be RUNNING/PENDING at once
 # (MAX_INFLIGHT). A sweep that finds the cap reached defers the rest to the next
@@ -107,7 +107,7 @@ BURST_WINDOW="${BURST_WINDOW:-300}"
 # comment renders as an empty comment (it is only HTML), so creating one notifies
 # every subscriber of the issue and leaves an unreadable husk behind: the sweep's
 # `pending` writes alone posted ~35 empty comments in a single run (2026-11-11).
-# The KV store is the same one `automation-retry.sh` uses — it has optimistic
+# The KV store has optimistic
 # locking, a `nx` create, a list, and a delete, and it notifies no one.
 #   `<SWEEP_KEY><n>` -> {"signal": "<hash>", "run": "<run-id>" | "pending" | ""}
 #   `<STATE_KEY><n>` -> {"state": "<type+priority>", "at": <epoch seconds>}
@@ -173,7 +173,7 @@ dispatch() { # dispatch <number> <reason> <key>
 # notified the issue's subscribers and left behind a husk that reads as a blank
 # comment (2026-11-11: 153 of them — 81 sweep markers, 72 state markers). The KV
 # store holds the same data with no notification, no issue update time, and no
-# husk. `automation-retry.sh` already keeps its ledger there.
+# husk. The KV store is the right place for a checkpoint.
 
 # Read a KV value into KV_JSON (the stored object). Returns 0 when the key
 # exists, 1 when it does not, 2 when the store could not be read — so a hiccup is

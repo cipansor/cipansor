@@ -7,14 +7,13 @@
 # on it is what pushed the fleet into its daily sandbox quota. The timers are
 # unchanged; only the executor is.
 #
-#   needs-info    warned at 13 days, closed not-planned at 20
 #   question      `stale` at 8 days, closed not-planned at 15
 #   anything else `stale` at 90 days, closed not-planned at 104
 #
 # A maintainer's reply, or removing the label, keeps the issue open — every run
 # re-reads both. An edit to the description is an answer too, and it restarts the
 # idle clock, so an issue updated today is not closed on its pre-edit age. Never
-# closed: `pending-maintainer`, `ready`, `blocked`, `in-progress`, and anything
+# closed: `ready`, `blocked`, `in-progress`, and anything
 # labelled `duplicate` (duplicate-sweep.yml owns those). Never a pull request.
 # See .github/scripts/stale-sweep.sh.
 name: Stale sweep

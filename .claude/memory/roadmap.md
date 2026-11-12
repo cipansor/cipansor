@@ -383,8 +383,10 @@ change that alters it would report every signed letter as altered.
   lockfile drift passes locally and fails several CI jobs within seconds.
 - **The Security job can go red on a PR that changed no code.** `audit:deps`
   asks npm's live advisory endpoint, so a new advisory reds every open PR at
-  once. The fix is almost always a pin in the root `pnpm-workspace.yaml`
-  `overrides`. And green is not "checked": an unreachable endpoint passes
+  once. The fix is almost always a floor in the root `pnpm-workspace.yaml`
+  `overrides`, raised to the advisory's **first fixed release or above** — a
+  floor one patch low still resolves the vulnerable release and keeps the check
+  red (#910). And green is not "checked": an unreachable endpoint passes
   with a `::warning` annotation — read it, and set `AUDIT_FAIL_ON_UNREACHABLE=1`
   when a release must not ship on an unverified tree.
 - **`prisma migrate diff` cannot see triggers, functions or views.**
