@@ -71,6 +71,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import {
   useMealMenus,
   useDeleteMealMenu,
+  useCanManageMeals,
   MealType,
   MEAL_TYPE_LABELS,
   MEAL_TYPES,
@@ -106,6 +107,7 @@ export default function MenusPage() {
   });
   const { data: units = [] } = useUnits();
   const deleteMutation = useDeleteMealMenu();
+  const canManage = useCanManageMeals();
 
   // Filter menus by search
   const filteredMenus = menus.filter(
@@ -148,12 +150,14 @@ export default function MenusPage() {
               Daftar semua menu makanan yang tersedia
             </p>
           </div>
-          <Button asChild>
-            <Link href="/meals/menus/new">
-              <Plus className="h-4 w-4 mr-2" />
-              Tambah Menu
-            </Link>
-          </Button>
+          {canManage && (
+            <Button asChild>
+              <Link href="/meals/menus/new">
+                <Plus className="h-4 w-4 mr-2" />
+                Tambah Menu
+              </Link>
+            </Button>
+          )}
         </div>
 
         {/* Filters */}
@@ -231,12 +235,14 @@ export default function MenusPage() {
                 <p className="text-muted-foreground mb-4">
                   Mulai tambahkan menu makanan untuk santri/siswa
                 </p>
-                <Button asChild>
-                  <Link href="/meals/menus/new">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Tambah Menu Pertama
-                  </Link>
-                </Button>
+                {canManage && (
+                  <Button asChild>
+                    <Link href="/meals/menus/new">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Tambah Menu Pertama
+                    </Link>
+                  </Button>
+                )}
               </div>
             ) : (
               <Table>
@@ -328,20 +334,24 @@ export default function MenusPage() {
                                 Lihat Detail
                               </Link>
                             </DropdownMenuItem>
-                            <DropdownMenuItem asChild>
-                              <Link href={`/meals/menus/${menu.id}/edit`}>
-                                <Edit className="h-4 w-4 mr-2" />
-                                Edit
-                              </Link>
-                            </DropdownMenuItem>
-                            <DropdownMenuSeparator />
-                            <DropdownMenuItem
-                              className="text-destructive"
-                              onClick={() => setDeleteId(menu.id)}
-                            >
-                              <Trash2 className="h-4 w-4 mr-2" />
-                              Hapus
-                            </DropdownMenuItem>
+                            {canManage && (
+                              <>
+                                <DropdownMenuItem asChild>
+                                  <Link href={`/meals/menus/${menu.id}/edit`}>
+                                    <Edit className="h-4 w-4 mr-2" />
+                                    Edit
+                                  </Link>
+                                </DropdownMenuItem>
+                                <DropdownMenuSeparator />
+                                <DropdownMenuItem
+                                  className="text-destructive"
+                                  onClick={() => setDeleteId(menu.id)}
+                                >
+                                  <Trash2 className="h-4 w-4 mr-2" />
+                                  Hapus
+                                </DropdownMenuItem>
+                              </>
+                            )}
                           </DropdownMenuContent>
                         </DropdownMenu>
                       </TableCell>

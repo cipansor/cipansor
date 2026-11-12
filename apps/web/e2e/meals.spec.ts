@@ -113,3 +113,27 @@ test.describe("Menu Makan — tab Menu Hari Ini", () => {
     await expect(page.getByText("Bubur Ayam Spesial")).toBeVisible();
   });
 });
+
+test.describe("Menu Makan — tombol tulis hanya untuk penulis", () => {
+  test("peran hanya-baca (Pengawas) tidak melihat tombol Tambah Menu", async ({
+    page,
+  }) => {
+    // The write routes admit an explicit writer list, not the legacy UNIT_ADMIN
+    // bucket that expanded to the yayasan organs. The page hides the buttons for
+    // a role the API would answer 403 (CWE-863), so nobody presses a door that
+    // does not open.
+    await loginAs(page, "pengawas");
+    await page.goto("/meals/menus");
+
+    await expect(page.getByRole("link", { name: "Tambah Menu" })).toHaveCount(
+      0,
+    );
+  });
+
+  test("admin unit melihat tombol Tambah Menu", async ({ page }) => {
+    await loginAs(page, "adminSdit");
+    await page.goto("/meals/menus");
+
+    await expect(page.getByRole("link", { name: "Tambah Menu" })).toBeVisible();
+  });
+});

@@ -1,7 +1,13 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { Prisma, MealType, MealAttendanceStatus } from '@prisma/client';
-import { actorReachesUnit, seesAllUnits, writeUnitScopeFor } from '@/utils/resolve-unit-id';
+import { MEALS_ATTENDANCE_WRITER_ROLE_CODES, MEALS_MANAGER_ROLE_CODES } from '@cipansor/shared';
+import {
+  actorReachesUnit,
+  actorSeesUnit,
+  seesAllUnits,
+  writeUnitScopeFor,
+} from '@/utils/resolve-unit-id';
 import { dayOf, todayWib } from '@/utils/wib';
 
 // User type from JwtPayload
@@ -143,9 +149,48 @@ export class MealsService {
 
     // A menu of a unit the actor does not reach answers 404, exactly as for an
     // id that does not exist, so the answer never confirms another unit's menu
-    // (K10, decisions/akses-data-pegawai.md). The legacy `role` comparison
-    // classified every YAYASAN_* account as a unit admin, so the board was
-    // refused a menu `listMenus` had just shown it.
+    // (K10, decisions/akses-data-pegawai.md). The reach is the read-side one
+    // (`actorSeesUnit`, widened by `seesAllUnits`): a musyrif who serves santri
+    // across units is shown this menu by `listMenus`, so opening it must not
+    // answer 404 — the same rows, one answer.
+    if (!menu || !actorSeesUnit(currentUser, menu.unitId)) {
+      throw Errors.notFound('Menu');
+    }
+
+    return menu;
+  }
+
+  /**
+   * The menu a write may target, for `writers` only.
+   *
+   * Two questions, two answers. *May this role change a menu?* — the caller
+   * passes the writer list (`MEALS_MANAGER_ROLE_CODES` for menus,
+   * `MEALS_ATTENDANCE_WRITER_ROLE_CODES` for attendance); a governance role
+   * whose permission list is read-only is refused with 403. *May it touch
+   * *this* menu?* — `actorReachesUnit`, which gives a foundation role every
+   * unit's breadth; the role gate is what turns breadth into authority, and it
+   * lives here as well as on the route, so the service is correct on its own.
+   * A menu outside the actor's reach answers 404, as for an id that does not
+   * exist (K10).
+   */
+  private assertMenuWriter(currentUser: AuthenticatedUser, writers: readonly string[]) {
+    if (!currentUser.roleCode || !writers.includes(currentUser.roleCode)) {
+      throw Errors.forbidden('Anda tidak berwenang mengubah data makan');
+    }
+  }
+
+  private async assertMenuWritable(
+    id: string,
+    currentUser: AuthenticatedUser,
+    writers: readonly string[]
+  ) {
+    this.assertMenuWriter(currentUser, writers);
+
+    const menu = await prisma.mealMenu.findUnique({
+      where: { id },
+      select: { id: true, unitId: true },
+    });
+
     if (!menu || !actorReachesUnit(currentUser, menu.unitId)) {
       throw Errors.notFound('Menu');
     }
@@ -157,6 +202,8 @@ export class MealsService {
    * Create menu
    */
   async createMenu(input: CreateMenuInput, currentUser: AuthenticatedUser) {
+    this.assertMenuWriter(currentUser, MEALS_MANAGER_ROLE_CODES);
+
     // The body's `unitId` is a request, not a grant: a unit admin writes to
     // their own unit whatever the body says, a foundation role names the unit.
     const unitId = writeUnitScopeFor(currentUser, input.unitId);
@@ -203,7 +250,7 @@ export class MealsService {
    * Update menu
    */
   async updateMenu(id: string, input: UpdateMenuInput, currentUser: AuthenticatedUser) {
-    await this.getMenuById(id, currentUser);
+    await this.assertMenuWritable(id, currentUser, MEALS_MANAGER_ROLE_CODES);
 
     const updated = await prisma.mealMenu.update({
       where: { id },
@@ -220,7 +267,7 @@ export class MealsService {
    * Delete menu
    */
   async deleteMenu(id: string, currentUser: AuthenticatedUser) {
-    await this.getMenuById(id, currentUser);
+    await this.assertMenuWritable(id, currentUser, MEALS_MANAGER_ROLE_CODES);
 
     await prisma.mealMenu.delete({ where: { id } });
 
@@ -231,7 +278,7 @@ export class MealsService {
    * Get today's menu
    */
   async getTodayMenu(unitId: string, currentUser: AuthenticatedUser) {
-    if (!actorReachesUnit(currentUser, unitId)) {
+    if (!actorSeesUnit(currentUser, unitId)) {
       throw Errors.forbidden('Access denied');
     }
 
@@ -301,7 +348,7 @@ export class MealsService {
    * Record attendance
    */
   async recordAttendance(input: RecordAttendanceInput, currentUser: AuthenticatedUser) {
-    const menu = await this.getMenuById(input.menuId, currentUser);
+    await this.assertMenuWritable(input.menuId, currentUser, MEALS_ATTENDANCE_WRITER_ROLE_CODES);
 
     // Check if student exists
     const student = await prisma.student.findUnique({
@@ -356,7 +403,7 @@ export class MealsService {
     }[],
     currentUser: AuthenticatedUser
   ) {
-    await this.getMenuById(menuId, currentUser);
+    await this.assertMenuWritable(menuId, currentUser, MEALS_ATTENDANCE_WRITER_ROLE_CODES);
 
     const results = {
       success: 0,
@@ -468,7 +515,7 @@ export class MealsService {
       where: { id: studentId, deletedAt: null },
     });
 
-    if (!student || !actorReachesUnit(currentUser, student.unitId)) {
+    if (!student || !actorSeesUnit(currentUser, student.unitId)) {
       throw Errors.notFound('Student');
     }
 

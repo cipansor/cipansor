@@ -13,13 +13,20 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
  */
 
 const prismaMock = vi.hoisted(() => ({
-  mealMenu: { findUnique: vi.fn(), findMany: vi.fn(), count: vi.fn(), create: vi.fn() },
+  mealMenu: {
+    findUnique: vi.fn(),
+    findMany: vi.fn(),
+    count: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn(),
+  },
   mealAttendance: {
     findUnique: vi.fn(),
     findMany: vi.fn(),
     count: vi.fn(),
     groupBy: vi.fn(),
     update: vi.fn(),
+    upsert: vi.fn(),
   },
   student: { findUnique: vi.fn() },
 }));
@@ -41,6 +48,14 @@ const actor = (over: Record<string, unknown> = {}) => ({
 /** The legacy `role` a YAYASAN_* roleCode derives to — the value that hid the board. */
 const yayasan = (over: Record<string, unknown> = {}) =>
   actor({ role: 'UNIT_ADMIN', roleCode: 'YAYASAN_KETUA', unitId: null, ...over });
+
+/**
+ * A musyrif: a cross-unit service role (`seesAllUnits`), seeded into one unit
+ * but serving santri of several. Its remit is the whole campus, so its reads
+ * widen — but its writes stay on its own unit.
+ */
+const musyrif = (over: Record<string, unknown> = {}) =>
+  actor({ role: 'TEACHER', roleCode: 'MUSYRIF', unitId: UNIT_A, ...over });
 
 const menuOf = (unitId: string) => ({
   id: 'm-1',
@@ -124,16 +139,19 @@ describe('mealsService.createMenu — unit ditulis dari aktor, bukan body', () =
     expect(prismaMock.mealMenu.create.mock.calls[0][0].data.unitId).toBe(UNIT_A);
   });
 
-  it('mengizinkan peran yayasan menulis ke unit yang disebut body', async () => {
+  it('menolak peran yayasan (hanya baca) menulis menu, walau body menyebut unit', async () => {
+    // Semua peran YAYASAN_* adalah YAYASAN_OVERSIGHT: "read broadly, change
+    // nothing". `writeUnitScopeFor` masih dipakai modul lain yang mengizinkan
+    // peran yayasan menulis; di sini gerbang penulis menolaknya lebih dulu.
     prismaMock.mealMenu.findUnique.mockResolvedValue(null);
-    prismaMock.mealMenu.create.mockImplementation(async (args: { data: object }) => args.data);
 
-    await mealsService.createMenu(
-      { unitId: UNIT_B, date: '2026-11-01', mealType: 'LUNCH', mainDish: 'Nasi' } as never,
-      yayasan()
-    );
-
-    expect(prismaMock.mealMenu.create.mock.calls[0][0].data.unitId).toBe(UNIT_B);
+    await expect(
+      mealsService.createMenu(
+        { unitId: UNIT_B, date: '2026-11-01', mealType: 'LUNCH', mainDish: 'Nasi' } as never,
+        yayasan()
+      )
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(prismaMock.mealMenu.create).not.toHaveBeenCalled();
   });
 });
 
@@ -189,5 +207,82 @@ describe('mealsService.getStatistics — tidak bocor lewat ?unitId=', () => {
     await mealsService.getStatistics(yayasan(), UNIT_B);
 
     expect(prismaMock.mealMenu.count.mock.calls[0][0].where.unitId).toBe(UNIT_B);
+  });
+});
+
+describe('mealsService — peran lintas unit: baca melebar, tulis tetap', () => {
+  it('musyrif boleh membuka menu unit lain yang ditampilkan listMenus', async () => {
+    // listMenus menampilkan menu unit lain kepada musyrif (`seesAllUnits`);
+    // getMenuById dulu memakai `actorReachesUnit`, yang hanya melebarkan organ
+    // yayasan, sehingga musyrif melihat barisnya di daftar lalu 404 saat
+    // membukanya. Baca kini memakai `actorSeesUnit` — baris yang sama, satu
+    // jawaban.
+    prismaMock.mealMenu.findUnique.mockResolvedValue(menuOf(UNIT_B));
+
+    await expect(mealsService.getMenuById('m-1', musyrif())).resolves.toMatchObject({
+      unitId: UNIT_B,
+    });
+  });
+
+  it('musyrif boleh membaca riwayat makan santri unit lain', async () => {
+    prismaMock.student.findUnique.mockResolvedValue({ id: 's-1', unitId: UNIT_B });
+
+    await expect(mealsService.getStudentHistory('s-1', musyrif())).resolves.toEqual([]);
+  });
+
+  it('admin unit TIDAK boleh mengubah menu unit lain (baca bukan tulis)', async () => {
+    // Lebar untuk melihat bukan kuasa untuk mengubah: tulis tetap pada
+    // `actorReachesUnit`, jadi menu unit lain dijawab 404.
+    prismaMock.mealMenu.findUnique.mockResolvedValue({ id: 'm-1', unitId: UNIT_B });
+
+    await expect(
+      mealsService.updateMenu('m-1', { mainDish: 'Soto' }, actor())
+    ).rejects.toMatchObject({
+      statusCode: 404,
+    });
+    expect(prismaMock.mealMenu.update).not.toHaveBeenCalled();
+  });
+
+  it('admin unit TIDAK boleh menghapus menu unit lain', async () => {
+    prismaMock.mealMenu.findUnique.mockResolvedValue({ id: 'm-1', unitId: UNIT_B });
+
+    await expect(mealsService.deleteMenu('m-1', actor())).rejects.toMatchObject({
+      statusCode: 404,
+    });
+  });
+
+  it('guru bukan penulis menu — 403, bukan diam-diam lolos', async () => {
+    // Menulis menu bukan tugas guru; ia mencatat absensi. Layanan menolak
+    // perannya, jadi ia tidak bisa menyentuh menu apa pun walau unitnya sama.
+    await expect(
+      mealsService.updateMenu('m-1', { mainDish: 'Soto' }, actor({ roleCode: 'SDIT_GURU' }))
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(prismaMock.mealMenu.update).not.toHaveBeenCalled();
+  });
+
+  it('guru boleh mencatat absensi makan (penulis absensi, bukan penulis menu)', async () => {
+    // Jalur absensi punya daftar penulis yang lebih lebar dari menu: guru dan
+    // musyrif mencatat, walau keduanya tidak boleh menyentuh menu.
+    prismaMock.mealMenu.findUnique.mockResolvedValue({ id: 'm-1', unitId: UNIT_A });
+    prismaMock.student.findUnique.mockResolvedValue({ id: 's-1', unitId: UNIT_A });
+    prismaMock.mealAttendance.upsert.mockResolvedValue({ id: 'a-1' });
+
+    await expect(
+      mealsService.recordAttendance(
+        { menuId: 'm-1', studentId: 's-1', status: 'PRESENT' } as never,
+        musyrif()
+      )
+    ).resolves.toMatchObject({ id: 'a-1' });
+  });
+
+  it('admin unit menulis ke unitnya sendiri', async () => {
+    prismaMock.mealMenu.findUnique.mockResolvedValue({ id: 'm-1', unitId: UNIT_A });
+    prismaMock.mealMenu.update.mockResolvedValue({ id: 'm-1' });
+
+    await expect(
+      mealsService.updateMenu('m-1', { mainDish: 'Soto' }, actor())
+    ).resolves.toMatchObject({
+      id: 'm-1',
+    });
   });
 });

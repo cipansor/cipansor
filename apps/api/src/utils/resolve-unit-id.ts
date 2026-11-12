@@ -134,6 +134,27 @@ export function actorReachesUnit(
 }
 
 /**
+ * Whether `actor` may *read* a row of `unitId` — the read-side mirror of
+ * `actorReachesUnit`, widened by `seesAllUnits` so every list and every detail
+ * answer the same set of rows.
+ *
+ * The meals module exposed the gap: `listMenus`/`listAttendance` widen with
+ * `seesAllUnits` (a musyrif serves santri across units), while `getMenuById`
+ * and `getStudentHistory` asked `actorReachesUnit`, which only widens the
+ * foundation board. A musyrif therefore saw a menu in the list and got a 404
+ * opening it — the same rows, two answers. Reads use this; writes stay on
+ * `actorReachesUnit` (or a narrower writer list) so breadth to see is never
+ * taken for authority to change.
+ */
+export function actorSeesUnit(
+  actor: UnitActor | undefined | null,
+  unitId: string | null | undefined
+): boolean {
+  if (seesAllUnits(actor ?? {})) return true;
+  return !!actor?.unitId && unitId === actor.unitId;
+}
+
+/**
  * Refuses a row out of the request's reach — or missing — with 404, as if it
  * did not exist: an id guessed from another unit says nothing about that unit.
  */
