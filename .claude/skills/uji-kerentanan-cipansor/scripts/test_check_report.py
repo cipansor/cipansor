@@ -32,8 +32,19 @@ Sistem diuji.
 
 # 1. Pendahuluan & Otorisasi
 # 2. Lingkup & Metodologi
+
+## 2.5 Batas yang memengaruhi hasil
+
+Sampel 30 dari 300 rute; pemindai otomatis ZAP tidak dijalankan; lingkungan uji
+lokal + data seed, berbeda dari produksi.
+
 # 3. Arsitektur & Permukaan Serangan
 # 4. Ringkasan Temuan
+
+| ID | Peringkat | Kategori OWASP | Status |
+|---|---|---|---|
+| F-01 | Tinggi | A01 | Terbuka |
+
 # 5. Register Temuan
 # 6. Kontrol yang Terverifikasi Baik
 # 7. Pemetaan OWASP Top 10
@@ -97,6 +108,15 @@ class CanonicalTest(unittest.TestCase):
         for text in ("Terbuka", "Open", "مفتوح"):
             self.assertEqual(cr.canonical(text, cr.STATUS_LEVELS), "open")
 
+    def test_negated_closed_status_is_open(self):
+        # "Belum ditutup" = masih terbuka; kata "ditutup" saja menyesatkan.
+        for text in ("Belum ditutup", "Tidak ditutup", "not fixed", "Not Fixed", "belum selesai"):
+            self.assertEqual(cr.canonical_status(text), "open", text)
+
+    def test_plain_closed_status_stays_closed(self):
+        for text in ("Ditutup", "Fixed", "Selesai", "dimitigasi", "diterima"):
+            self.assertEqual(cr.canonical_status(text), cr.canonical(text, cr.STATUS_LEVELS), text)
+
 
 class ReadTest(unittest.TestCase):
     def test_complete_report_has_no_errors(self):
@@ -129,6 +149,80 @@ class ReadTest(unittest.TestCase):
         broken = REPORT.replace("Peringkat: Tinggi", "Peringkat: Rendah")
         res = cr.read(broken)
         self.assertTrue(any("≠ pita skor" in e for e in res["errors"]), res["errors"])
+
+    def test_missing_subsection_2_5_is_error(self):
+        broken = REPORT.replace(
+            "## 2.5 Batas yang memengaruhi hasil\n\n"
+            "Sampel 30 dari 300 rute; pemindai otomatis ZAP tidak dijalankan; lingkungan uji\n"
+            "lokal + data seed, berbeda dari produksi.\n\n",
+            "",
+        )
+        res = cr.read(broken)
+        self.assertTrue(any("2.5" in e for e in res["errors"]), res["errors"])
+
+    def test_empty_subsection_2_5_is_error_when_final(self):
+        broken = REPORT.replace(
+            "Sampel 30 dari 300 rute; pemindai otomatis ZAP tidak dijalankan; lingkungan uji\n"
+            "lokal + data seed, berbeda dari produksi.",
+            "",
+        )
+        self.assertFalse(any("2.5" in e for e in cr.read(broken)["errors"]))
+        self.assertTrue(any("2.5" in e for e in cr.read(broken, final=True)["errors"]))
+
+    def test_duplicate_finding_id_is_error(self):
+        dup = REPORT.replace(
+            "## F-01 Judul\n\n- Peringkat: Tinggi",
+            "## F-01 Judul lain\n\n- Peringkat: Tinggi"
+            " (CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N = 7.5)\n"
+            "- Kategori: A01\n- Sumber: Diuji langsung\n- Status: Terbuka\n"
+            "- Rekomendasi: x\n\n## F-01 Judul\n\n- Peringkat: Tinggi",
+        )
+        res = cr.read(dup)
+        self.assertTrue(any("ganda" in e for e in res["errors"]), res["errors"])
+
+    def test_summary_table_missing_row_is_error(self):
+        broken = REPORT.replace("| F-01 | Tinggi | A01 | Terbuka |\n", "")
+        res = cr.read(broken)
+        self.assertTrue(any("tidak ada di tabel Bagian 4" in e for e in res["errors"]), res["errors"])
+
+    def test_summary_table_extra_row_is_error(self):
+        broken = REPORT.replace(
+            "| F-01 | Tinggi | A01 | Terbuka |",
+            "| F-01 | Tinggi | A01 | Terbuka |\n| F-02 | Rendah | A02 | Terbuka |",
+        )
+        res = cr.read(broken)
+        self.assertTrue(
+            any("tidak ada di Register" in e for e in res["errors"]), res["errors"]
+        )
+
+    def test_summary_table_rank_mismatch_is_error(self):
+        broken = REPORT.replace("| F-01 | Tinggi |", "| F-01 | Rendah |")
+        res = cr.read(broken)
+        self.assertTrue(
+            any("peringkat" in e and "Register" in e for e in res["errors"]), res["errors"]
+        )
+
+    def test_final_requires_written_score(self):
+        no_score = REPORT.replace(
+            " (CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N = 7.5)",
+            " (CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N)",
+        )
+        # belum final: cukup WARN; final: ERROR
+        self.assertFalse(any("tanpa skor" in e for e in cr.read(no_score)["errors"]))
+        self.assertTrue(any("tanpa skor" in e for e in cr.read(no_score, final=True)["errors"]))
+
+    def test_final_requires_vector(self):
+        no_vec = REPORT.replace(
+            " (CVSS:3.1/AV:N/AC:L/PR:N/UI:N/S:U/C:H/I:N/A:N = 7.5)", ""
+        )
+        self.assertFalse(any("Vektor CVSS" in e for e in cr.read(no_vec)["errors"]))
+        self.assertTrue(any("Vektor CVSS" in e for e in cr.read(no_vec, final=True)["errors"]))
+
+    def test_unknown_rank_is_error(self):
+        # "Sedang" cocok medium; pakai kata yang tak ada di daftar peringkat.
+        broken = REPORT.replace("Peringkat: Tinggi", "Peringkat: Urgent")
+        res = cr.read(broken)
+        self.assertTrue(any("tidak dikenali" in e for e in res["errors"]), res["errors"])
 
 
 class ParityTest(unittest.TestCase):
@@ -173,6 +267,27 @@ class SummaryTest(unittest.TestCase):
 
     def test_closed_finding_is_allowed(self):
         text = "# Ringkasan\n\n## F-01 contoh\n- Status: Ditutup\n"
+        self.assertEqual(cr.summary_errors(text), [])
+
+    def test_belum_ditutup_is_rejected(self):
+        # "Belum ditutup" harus diperlakukan sebagai masih terbuka.
+        text = "# Ringkasan\n\n## F-01 contoh\n- Status: Belum ditutup\n"
+        self.assertTrue(any("F-01" in e for e in cr.summary_errors(text)))
+
+    def test_open_row_in_summary_table_is_rejected(self):
+        text = (
+            "# Ringkasan\n\n## 4. Ringkasan Temuan\n\n"
+            "| ID | Peringkat | Kategori OWASP | Status |\n|---|---|---|---|\n"
+            "| F-01 | Tinggi | A01 | Terbuka |\n"
+        )
+        self.assertTrue(any("F-01" in e for e in cr.summary_errors(text)))
+
+    def test_closed_row_in_summary_table_is_allowed(self):
+        text = (
+            "# Ringkasan\n\n## 4. Ringkasan Temuan\n\n"
+            "| ID | Peringkat | Kategori OWASP | Status |\n|---|---|---|---|\n"
+            "| F-01 | Tinggi | A01 | Ditutup |\n"
+        )
         self.assertEqual(cr.summary_errors(text), [])
 
     def test_summary_mode_exit(self):

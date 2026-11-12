@@ -34,7 +34,6 @@ function walk(dir: string, found: string[] = []): string[] {
 describe('change-scope.sh', () => {
   it('skips only what nothing builds, lints, tests or ships', () => {
     const notCode = [
-      'AGENTS.md',
       'apps/web/AGENTS.md',
       'docs/ARCHITECTURE.md',
       'docs/img/galeri.png',
@@ -54,6 +53,9 @@ describe('change-scope.sh', () => {
       'deploy/azure/nginx/nginx.conf',
       'docs/DEPLOYMENT.md', // a test reads it
       '.claude/hooks/guard.sh', // agent-guard.guard.test.ts runs it
+      '.claude/skills/dokumen-aplikasi-cipansor/scripts/check_docs.py', // test_tooling.py reads it
+      '.claude/skills/dokumen-aplikasi-cipansor/scripts/test_tooling.py', // the Tests job runs it
+      'AGENTS.md', // vulnerability-procedure.guard.test.ts reads its skills table
     ];
     expect(codeAmong(notCode)).toEqual([]);
     expect(codeAmong(code)).toEqual(code);

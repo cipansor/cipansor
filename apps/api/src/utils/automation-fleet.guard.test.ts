@@ -388,49 +388,62 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
       { encoding: 'utf8' }
     );
 
-  it('splits the two `question` reply owners so one comment starts one agent', () => {
-    // SDLC 16 (`Penjernih issue`) and SDLC 22 (`Diskusi`) both watch a reply on
-    // a `question` issue. Their filters were byte-identical, so every maintainer
-    // reply ran both agents for one answer — two sandbox slots, two replies.
-    // The split is by author: the reporter's reply re-judges, the maintainer's
-    // reply is answered.
+  it('keeps a single `question` reply owner by retiring both comment triggers', () => {
+    // SDLC 16 (`Penjernih issue`) and SDLC 22 (`Diskusi`) both watched a reply on
+    // a `question` issue; their filters were byte-identical, so every reply ran
+    // both agents for one answer. `Diskusi` was RETIRED on 2026-11-12 (owner
+    // decision) and folded into `Triase issue` (SDLC 15). The same defect existed
+    // on the reporter's side: the triage bridge sweeps every open non-`ready`
+    // issue, so a `question` issue is swept and the reporter's reply reaches
+    // SDLC 15 through the bridge too — while SDLC 16's own trigger fired as well.
+    // `Penjernih issue` (SDLC 16) was therefore RETIRED the same day (owner
+    // decision, option (a) of #1056) and its role folded into SDLC 15's tail.
+    // What is left is NO comment-triggered automation for a `question` reply:
+    // the bridge is the only dispatcher, so one comment wakes one agent.
     const triggers = block('TRIGGERS');
-    const entry = (key: string) => {
-      const at = triggers.indexOf(`"${key}": {`);
-      expect(at, `${key} entry`).toBeGreaterThan(-1);
-      return triggers.slice(at, triggers.indexOf('},', at));
-    };
-    const sixteen = entry('SDLC 16');
-    const twentytwo = entry('SDLC 22');
-    expect(sixteen).not.toBe(twentytwo);
-    // `Penjernih issue` is the reporter's, so it excludes maintainers.
-    expect(sixteen).toContain("comment.author_association != 'OWNER'");
-    expect(sixteen).toContain("comment.author_association != 'MEMBER'");
-    expect(sixteen).toContain("comment.author_association != 'COLLABORATOR'");
-    // `Diskusi` is the maintainer's.
-    expect(twentytwo).toContain("comment.author_association == 'OWNER'");
-    expect(twentytwo).toContain("comment.author_association == 'MEMBER'");
-    expect(twentytwo).toContain("comment.author_association == 'COLLABORATOR'");
-    // Both still require a `question` issue and keep the author guard.
-    for (const f of [sixteen, twentytwo]) {
-      expect(f).toContain("contains(issue.labels[].name, 'question')");
-      expect(f).toContain('AUTHOR_GUARD');
-    }
-    // The split must be total: every maintainer association that SDLC 22
-    // accepts, SDLC 16 rejects, so no reply matches both.
-    for (const role of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
-      expect(sixteen).toContain(`comment.author_association != '${role}'`);
-      expect(twentytwo).toContain(`comment.author_association == '${role}'`);
-    }
+    expect(triggers).not.toContain('"SDLC 16": {');
+    expect(triggers).not.toContain('"SDLC 22": {');
+    // The retirement is recorded, not merely disabled: a later deploy must
+    // disable it rather than redeploy a prompt that would re-post its comment.
+    const retired = block('RETIRED');
+    expect(retired).toMatch(/"SDLC 16":/);
+    expect(retired).toContain('Penjernih issue');
+    // Its managed tail is gone; the reporter-reply role lives in SDLC 15's tail.
+    expect(script()).not.toMatch(/"SDLC 16":\s*"""PERILAKU SASARAN/);
+    expect(block('TAILS')).toContain('BALASAN PELAPOR');
     // A third automation also watches comments: `Bot sebutan` (SDLC 07) fires on
     // a mention, so a plain `question` reply must not reach it. If its mention
-    // gate ever dropped, a maintainer reply would start three agents.
+    // gate ever dropped, a reply would start two agents.
     const seven = triggers.slice(
       triggers.indexOf('"SDLC 07": {'),
       triggers.indexOf('},', triggers.indexOf('"SDLC 07": {'))
     );
     expect(seven).toContain('MENTION_FILTER');
     expect(seven).not.toContain("contains(issue.labels[].name, 'question')");
+  });
+
+  it('retires `Peninjau arsitektur` (SDLC 04), whose trigger could never fire', () => {
+    // 2026-11-12 (owner decision): SDLC 04 watched `pull_request.opened` with a
+    // `pull_request.draft == false` filter, but `Tiket jadi PR` (SDLC 06) always
+    // opens a DRAFT, and promoting a draft emits `ready_for_review` — not
+    // `pull_request.opened`. So the filter never matched a fleet PR: one run in
+    // its whole life (2026-10-07), on a placeholder PR it called "safe to
+    // delete". Its trigger was never managed by `TRIGGERS` either, so it lived
+    // only in the cloud. A dead trigger is retired, not left dark.
+    const retired = block('RETIRED');
+    expect(retired).toMatch(/"SDLC 04":/);
+    expect(retired).toContain('Peninjau arsitektur');
+    // It must not become a trigger the script owns: the point is that the fleet
+    // does not carry a design reviewer until one is designed on purpose.
+    expect(block('TRIGGERS')).not.toContain('"SDLC 04": {');
+    // No managed tail was ever authored for it — retiring one that never existed
+    // would be a no-op that hides the real state.
+    expect(script()).not.toMatch(/"SDLC 04":\s*"""PERILAKU SASARAN/);
+    // The role is not silently reassigned: the review gate's tail does not claim
+    // a design/RFC/ADR pass it never had.
+    const tails = block('TAILS');
+    expect(tails).not.toMatch(/tinjau dokumen desain/i);
+    expect(tails).not.toMatch(/\bADR\b/);
   });
 
   it('runs `Tiket jadi PR` on the daily cron, and sends a complete trigger', () => {
@@ -450,8 +463,12 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
     const entry = triggers.slice(triggers.indexOf('"SDLC 06"'), triggers.indexOf('"SDLC 18"'));
     expect(entry).not.toContain('bot-implement');
     expect(entry).not.toContain('"filter"');
-    // A cron slot must not collide with the other scheduled automations.
-    expect(triggers).not.toMatch(/schedule": "0 9 \* \* \*/);
+    // `Tiket jadi PR` is switched off for now (2026-11-12, sandbox quota), but
+    // the cron entry stays so a re-enable restores the slot. 09:00 now belongs to
+    // `Pemburu bug` (SDLC 19) — a real slot, not a collision.
+    expect(triggers).toContain(
+      '"SDLC 19": {"type": "cron", "schedule": "0 9 * * *", "timezone": "Asia/Jakarta"}'
+    );
   });
 
   it.skipIf(!hasPy)('completes a trigger fragment against the live trigger before PATCHing', () => {
@@ -519,6 +536,142 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
     // deploy treats an unlisted automation as live; the list is the only thing
     // that makes a retirement visible.
     expect(block('RETIRED')).toContain('"Audit Kematangan"');
+  });
+
+  it('retires the three automations the 2026-11-12 quota cut turned off', () => {
+    // The daily sandbox limit is 20 and demand was ~100 runs/day, so the owner
+    // cut `Pengelola dokumentasi` (SDLC 14, `push` to main), folded `Reproduksi
+    // bug` (SDLC 05) into triage, and switched `Tiket jadi PR` (SDLC 06) off for
+    // now. A disabled automation that is not listed here is treated as live and
+    // redeployed, so each one must have an entry — and `SDLC 06` must say it is
+    // temporary, because it is the only PR opener the pipeline has.
+    const retired = block('RETIRED');
+    for (const key of ['"SDLC 05"', '"SDLC 14"', '"SDLC 06"']) {
+      expect(retired, `${key} must be listed in RETIRED`).toContain(key);
+    }
+    expect(retired).toContain('SEMENTARA');
+  });
+
+  it('folds bug reproduction into triage, so one bug report wakes one agent', () => {
+    // SDLC 05 fired on `issues.opened` + label `bug` — the same events triage
+    // owns — so one bug report used two sandbox slots. The role must survive as
+    // text in the SDLC 15 tail, not just as a RETIRED entry.
+    const r = py(
+      [
+        'import json',
+        'live = "Triase issue ini dengan KRITIS\\nPERILAKU SASARAN"',
+        'new = m.new_prompt("SDLC 15 · Triase issue", live)',
+        'tail = new[new.find("PERILAKU SASARAN"):]',
+        'print(json.dumps({"has_repro": "REPRODUKSI UNTUK LAPORAN BUG" in tail}))',
+      ].join('\n')
+    );
+    expect(r.status, r.stderr).toBe(0);
+    expect(JSON.parse(r.stdout)).toEqual({ has_repro: true });
+  });
+
+  it('routes a `Pemburu bug` vulnerability to a private advisory, never a public issue', () => {
+    // The repository is public, so a vulnerability filed as an issue discloses it
+    // before a fix exists. The hunter's tail must name the private advisory path
+    // and the `adminypc` token (a private advisory needs security-advisory write,
+    // which `cipansor-bot` does not have).
+    const tail = block('TAILS');
+    expect(tail).toContain('security/advisories');
+    expect(tail).toContain('JANGAN PERNAH membuka issue publik');
+    expect(tail).toContain('GITHUB_TOKEN');
+  });
+
+  it('routes a triage-discovered vulnerability to a private advisory, not a public comment', () => {
+    // `Triase issue` now reproduces bug reports, so it can be the one that first
+    // proves an exploitable defect. The repository is public: pasting the
+    // exploit steps into the triage comment (or the issue body) discloses it
+    // before a fix exists. The triage tail must carry the same private-advisory
+    // rule the hunter has.
+    const tail = block('TAILS');
+    expect(tail).toContain('KERENTANAN — JANGAN DIPUBLIKASIKAN');
+    expect(tail).toContain('security/advisories');
+    expect(tail).toContain('JANGAN memasang `ready` untuk kerentanan');
+  });
+
+  it('puts reproduction evidence where the triage result goes, not in a second comment', () => {
+    // Final triage forbids a comment and writes only the body; the reproduction
+    // instruction must not demand a comment, or a reproducible bug that becomes
+    // `ready` in one run either loses its evidence or breaks the rule.
+    const tail = block('TAILS');
+    expect(tail).toContain('DI TEMPAT YANG SAMA dengan putusan triase');
+    expect(tail).toContain('jangan menulis komentar tambahan hanya untuk bukti');
+    // The summary template must have a slot for the evidence.
+    expect(tail).toContain('Bukti reproduksi (perintah + keluaran)');
+    // Every description of the rule must agree. The `RETIRED` note for SDLC 05
+    // once said the evidence is pasted "ke komentar triase" — the same drift a
+    // reviewer caught in the PR body. Nothing in the script may pin the evidence
+    // to a comment unconditionally.
+    expect(script()).not.toContain('ditempel ke komentar triase');
+  });
+
+  it('never reintroduces the retired AI-disclosure footer mandate', () => {
+    // The fleet dropped the footer on 2026-10-14: the anti-loop guard is the
+    // comment's author, not a footer line, and `strip_footer_mandate` removes
+    // the mandate from every prompt. A managed tail that demands it again ships
+    // a prompt that contradicts the fleet convention.
+    const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
+    const tails = script.slice(
+      script.indexOf('TAILS = {'),
+      script.indexOf('\n}', script.indexOf('TAILS = {'))
+    );
+    expect(tails).not.toContain('Akhiri setiap komentar dengan footer');
+    expect(tails).not.toContain('baris footer AI-disclosure');
+  });
+
+  it('marks the retired agents as retired in the role catalog', () => {
+    // `docs/SDLC-FLOW.md` is the operational reference. A catalog row that still
+    // assigns work to `Reproduksi bug` or `Pengelola dokumentasi` without the
+    // retirement note contradicts the sections that do mark them inactive.
+    const flow = read(join(REPO_ROOT, 'docs', 'SDLC-FLOW.md'));
+    const catalog = flow.slice(flow.indexOf('## Peran — siapa berbuat sebagai siapa'));
+    for (const name of ['Reproduksi bug', 'Pengelola dokumentasi']) {
+      const row = catalog.split('\n').find((l) => l.startsWith(`| ${name} `));
+      expect(row, `${name} row must exist`).toBeTruthy();
+      expect(row, `${name} must be marked retired`).toContain('dipensiunkan 2026-11-12');
+    }
+    const tiket = catalog.split('\n').find((l) => l.startsWith('| Tiket jadi PR '));
+    expect(tiket).toContain('Dimatikan sementara 2026-11-12');
+  });
+
+  it('leaves `Pemindai celah uji` running: it finds untested behaviour, not vulnerabilities', () => {
+    // The owner asked to fold it into `Pemburu bug` only if it scanned for
+    // vulnerabilities, and to leave it alone otherwise. Its job is test gaps, so
+    // it must stay enabled and out of RETIRED.
+    expect(script()).toContain('"SDLC 09": {"type": "cron", "schedule": "15 8 * * 1"');
+    expect(block('RETIRED')).not.toContain('"SDLC 09"');
+  });
+
+  it('keeps the fleet cron slots distinct', () => {
+    // Two automations must not share a cron slot (invariant 20). The slots the
+    // 2026-11-12 change touched are the ones a re-enable would restore, so pin
+    // them here: 08:00 SDLC 06, 08:15 Mon SDLC 09, 09:00 SDLC 19, 06:00 Mon SDLC 20.
+    const r = py(
+      [
+        'import json',
+        'want = {',
+        '  "SDLC 06": "0 8 * * *",',
+        '  "SDLC 09": "15 8 * * 1",',
+        '  "SDLC 19": "0 9 * * *",',
+        '  "SDLC 20": "0 6 * * 1",',
+        '}',
+        'out = {}',
+        'for key, sched in want.items():',
+        '    got = next(v for k, v in m.TRIGGERS.items() if k == key)',
+        '    out[key] = [got.get("schedule"), got.get("schedule") == sched]',
+        'print(json.dumps(out))',
+      ].join('\n')
+    );
+    expect(r.status, r.stderr).toBe(0);
+    const out = JSON.parse(r.stdout) as Record<string, [string, boolean]>;
+    for (const [key, [sched, ok]] of Object.entries(out)) {
+      expect(ok, `${key} cron is ${sched}`).toBe(true);
+    }
+    const schedules = Object.values(out).map(([s]) => s);
+    expect(new Set(schedules).size).toBe(schedules.length);
   });
 
   it('keeps the deleted `automation-health` label out of the fleet prompts', () => {
@@ -1449,12 +1602,14 @@ describe('fleet contracts', () => {
     // SDLC 03 retired, and its own tail is gone.
     expect(script).toMatch(/"SDLC 03":/);
     expect(script).not.toMatch(/"SDLC 03":\s*"""PERILAKU SASARAN/);
-    // SDLC 14 NOT retired, and it carries the module-map judgement SDLC 03 left.
+    // SDLC 14 is retired too now (2026-11-12, sandbox quota) — the `push` to main
+    // trigger fired on every merge and starved triage. Its tail still exists in
+    // TAILS so a re-enable rebuilds it whole, but RETIRED keeps it dark.
     const retired = script.slice(
       script.indexOf('RETIRED = {'),
       script.indexOf('\n}', script.indexOf('RETIRED = {'))
     );
-    expect(retired).not.toMatch(/"SDLC 14":/);
+    expect(retired).toMatch(/"SDLC 14":/);
     expect(script).toMatch(/"SDLC 14":\s*"""PERILAKU SASARAN/);
     expect(script).toContain('nilai apakah peta modul dan arsitektur');
     // The deterministic layer must not open a second drift issue: #782 is the
@@ -1615,19 +1770,24 @@ describe('fleet contracts', () => {
     expect(flow).not.toContain('label `bot-implement` (`Bot sebutan`');
   });
 
-  it('makes `Tiket jadi PR` claim the issue and un-draft the PR it opens', () => {
+  it('makes `Tiket jadi PR` hand the issue claim to Actions and un-draft its PR', () => {
     // The 2026-11-11 queue rewrite dropped the two steps that move work forward:
     // the prompt opened a draft PR and stopped. Issue #857 shows the result — the
     // PR was merged 19 days later only because a human marked it ready, and the
     // issue kept `ready` (with `bot-implement`) for two more days, so the queue
-    // still held work that was already in review. The prompt must move the issue
-    // out of the queue and the PR out of draft.
+    // still held work that was already in review. The PR must leave draft, and
+    // the issue must leave the queue — but the label move itself is now a
+    // deterministic consequence (`issue-claim.yml`), not something the LLM prompt
+    // performs, so two owners cannot disagree about it.
     const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
     const start = script.indexOf('Anda adalah SATU-SATUNYA pembuka pull request');
     expect(start, 'SDLC 06 prompt body').toBeGreaterThan(-1);
     const prompt = script.slice(start, script.indexOf('"SDLC 07"', start));
     expect(prompt).toContain('`in-progress`');
-    expect(prompt).toMatch(/CABUT `ready`/);
+    // The move is named as Actions' job, and the prompt is told not to do it.
+    expect(prompt).toContain('issue-claim');
+    expect(prompt).toMatch(/JANGAN melabeli sendiri/);
+    expect(prompt).not.toMatch(/CABUT `ready`/);
     expect(prompt).toContain('ready_for_review');
     // The draft stays the escape hatch when the work is not done, so the
     // instruction is conditional, not unconditional.
@@ -1703,7 +1863,7 @@ describe('deploy-sdlc-agents.py', () => {
       // writer's, `adminypc`) for "any read and write on GitHub". The identity
       // block is now the single source of truth for which token does what.
       const original = `Header\n\n${AMBIENT}\n\nPERILAKU SASARAN (level agentic)\nTail`;
-      const out = newPrompt('SDLC 04', original);
+      const out = newPrompt('SDLC 05 · Reproduksi bug', original);
       expect(out).not.toContain('untuk operasi baca dan tulis apa pun pada GitHub');
       expect(out).toContain('JANGAN memakai token yang tertanam di remote git `origin`');
       expect(out).toContain('IDENTITAS — DUA AKUN, JANGAN DITUKAR');
@@ -1730,11 +1890,11 @@ describe('deploy-sdlc-agents.py', () => {
           'res = {}',
           'for legacy in ("OLD_IDENTITY_LINE", "FIRST_SPLIT_IDENTITY_LINE"):',
           '    live = "H\\n" + m.BODY_BLOCK.replace(m.NEW_IDENTITY_LINE, getattr(m, legacy)) + "\\n" + m.AMBIENT_TOKEN_NOTE + "\\n\\nPERILAKU SASARAN (level agentic)\\nT"',
-          '    out = m.new_prompt("SDLC 04 · X", live)',
+          '    out = m.new_prompt("SDLC 05 · X", live)',
           '    res[legacy] = {',
           '        "upgraded": m.NEW_IDENTITY_LINE in out and getattr(m, legacy) not in out,',
           '        "note": m.IDENTITY_TOKEN_NOTE in out and m.AMBIENT_TOKEN_NOTE not in out,',
-          '        "idempotent": m.new_prompt("SDLC 04 · X", out) == out,',
+          '        "idempotent": m.new_prompt("SDLC 05 · X", out) == out,',
           '    }',
           'print(json.dumps(res))',
         ].join('\n')
@@ -1873,11 +2033,13 @@ describe('deploy-sdlc-agents.py', () => {
     // An automation with a managed tail but no tailored budget.
     expect(newPrompt('SDLC 15', original)).toContain('ANGGARAN WAKTU — JAM PASIR');
     // An automation with no managed tail keeps its tail and gains the budget.
-    const plain = newPrompt('SDLC 04', original);
+    const plain = newPrompt('SDLC 05 · Reproduksi bug', original);
     expect(plain).toContain('ANGGARAN WAKTU — JAM PASIR');
     expect(plain).toContain('Original tail');
     // Idempotent: a redeploy must not stack a second copy.
-    expect(newPrompt('SDLC 04', plain).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(
+      newPrompt('SDLC 05 · Reproduksi bug', plain).match(/ANGGARAN WAKTU — JAM PASIR/g)
+    ).toHaveLength(1);
     // A tailored budget is not doubled with the generic one.
     expect(newPrompt('SDLC 18', original)).not.toContain('JAM PASIR');
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
@@ -1923,7 +2085,7 @@ describe('deploy-sdlc-agents.py', () => {
     // (`TAILS`), that marker held the task's own instructions — appending a
     // budget to the surviving head would ship a prompt that cannot do its job.
     // The deploy must refuse and name the repair (`ORIGINALS`), not deploy it.
-    const r = runNewPrompt('SDLC 04', 'Header tanpa ekor');
+    const r = runNewPrompt('SDLC 05 · Reproduksi bug', 'Header tanpa ekor');
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain('no ');
     expect(r.stderr).toContain('ORIGINALS');
@@ -1936,12 +2098,14 @@ describe('deploy-sdlc-agents.py', () => {
     const original =
       'Header\n\nSertakan tes bersama perubahan kode.\n\n' +
       'PERILAKU SASARAN (level agentic)\nInstruksi tugas yang hilang saat terpotong.';
-    const out = newPrompt('SDLC 04', original);
+    const out = newPrompt('SDLC 05 · Reproduksi bug', original);
     expect(out).toContain('Instruksi tugas yang hilang saat terpotong.');
     expect(out).toContain('BODY ISSUE/PR');
     expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
     // Idempotent on that result.
-    expect(newPrompt('SDLC 04', out).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(
+      newPrompt('SDLC 05 · Reproduksi bug', out).match(/ANGGARAN WAKTU — JAM PASIR/g)
+    ).toHaveLength(1);
   });
 
   it.skipIf(!hasPy)('rebuilds a managed-tail automation whole even from a truncated head', () => {
@@ -2034,7 +2198,7 @@ describe('deploy-sdlc-agents.py', () => {
       'def fake_req(method, path, data=None, raw=False):',
       '    calls.append({"method": method, "path": path, "data": data})',
       '    if method == "GET" and path == "/":',
-      '        return {"automations": [{"id": "aid-1", "name": "SDLC 04",',
+      '        return {"automations": [{"id": "aid-1", "name": "SDLC 99 · Contoh",',
       '            "prompt": "Header tanpa ekor", "timeout": 900, "trigger": {}}]}',
       '    return {}',
       'm.req = fake_req',
@@ -2197,6 +2361,17 @@ describe('deploy-sdlc-agents.py', () => {
       // ...the body only once `ready` is applied.
       expect(out).toContain('pasang `ready`');
       expect(out).toMatch(/DESKRIPSI UTAMA issue/);
+      // The two halves are exclusive, and the prompt must say so: while the
+      // triage is NOT final the body is untouched (ordinary Q&A in comments),
+      // and once it IS final (`ready`) the summary lands in the body under
+      // `<!-- sdlc:triase -->` with NO new comment. The owner asked for this
+      // shape twice (2026-11-12, on the #1053 triage comment), so both the
+      // "do not touch the body" and the "no new comment" halves are pinned.
+      expect(out).toContain('JANGAN menyentuh deskripsi utama issue');
+      expect(out).toMatch(/JANGAN menulis komentar baru/);
+      expect(out).toContain('<!-- sdlc:triase -->');
+      expect(out).toContain('## Triase');
+      expect(out).toMatch(/satu triase, satu tempat/);
       // And the priority rubric weighs impact, urgency and risk with evidence.
       expect(out).toContain('Prioritas — beri bukti');
       expect(out).toContain('layanan mati total');
@@ -2208,26 +2383,29 @@ describe('deploy-sdlc-agents.py', () => {
     }
   );
 
-  it.skipIf(!hasPy)(
-    'tells both PR reviewers to check the acceptance criteria as a checklist',
-    () => {
-      // The user asked twice (2026-10-14): a PR review must say whether every
-      // acceptance criterion of the linked issue is met or not, as a simple
-      // markdown checkbox list — the diff, not the PR description, decides.
-      for (const name of ['SDLC 08', 'SDLC 18']) {
-        const out = newPrompt(name, `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`);
-        expect(out, name).toContain('KRITERIA PENERIMAAN (WAJIB)');
-        expect(out, name).toContain('- [x] <kriteria>');
-        expect(out, name).toContain('- [ ] <kriteria>');
-        // Two states only, and a derived criterion is marked as derived — the
-        // prompt, the PR body and the reviewer's output must agree (finding:
-        // the body promised a `sebagian` state the prompt never had).
-        expect(out, name).not.toContain('sebagian');
-        expect(out, name).toContain('(turunan)');
-        expect(out, name).toMatch(/Fixes #n/);
-      }
-    }
-  );
+  it.skipIf(!hasPy)('tells the review gate to check the acceptance criteria as a checklist', () => {
+    // The user asked twice (2026-10-14): a PR review must say whether every
+    // acceptance criterion of the linked issue is met or not, as a simple
+    // markdown checkbox list — the diff, not the PR description, decides.
+    // `Peninjau kode` (SDLC 08) was retired into the gate (2026-11-12), so the
+    // gate is the one owner of this checklist now.
+    const out = newPrompt(
+      'SDLC 18',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(out).toContain('KRITERIA PENERIMAAN (WAJIB)');
+    expect(out).toContain('- [x] <kriteria>');
+    expect(out).toContain('- [ ] <kriteria>');
+    // Two states only, and a derived criterion is marked as derived — the
+    // prompt, the PR body and the reviewer's output must agree (finding:
+    // the body promised a `sebagian` state the prompt never had).
+    expect(out).not.toContain('sebagian');
+    expect(out).toContain('(turunan)');
+    expect(out).toMatch(/Fixes #n/);
+    // The QA half folded in with SDLC 10: the gate runs the changed flow and
+    // reports pass/fail with evidence.
+    expect(out).toContain('QA — JALANKAN ALUR YANG BERUBAH');
+  });
 
   it.skipIf(!hasPy)('gives the review gate a target rule and a no-build budget', () => {
     // The gate's own runs died on the 1800s platform ceiling (PATCH timeout
@@ -2262,6 +2440,31 @@ describe('deploy-sdlc-agents.py', () => {
     // commands / 36 min and never posted before the 1800s ceiling.
     expect(out).toMatch(/Setelah \*\*30 perintah\*\*/);
     expect(out).toMatch(/Jangan pernah melewati 30 perintah/);
+  });
+
+  it.skipIf(!hasPy)('forbids the review gate from calling its verdict the final word', () => {
+    // The owner asked (2026-11-12, on PR #1033): the gate's verdict is a
+    // recommendation, not the last word — merge stays with the maintainer.
+    // A body section titled "Gerbang tinjau — putusan akhir" reads as if the
+    // bot had decided, so the phrase must never be produced. Pin both halves:
+    // the forbidden wording is absent, and the replacement rule is present.
+    const out = newPrompt(
+      'SDLC 18',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(out).not.toMatch(/putusan akhir/i);
+    expect(out).not.toMatch(/keputusan akhir/i);
+    expect(out).toContain('BAHASA — PUTUSANMU REKOMENDASI, BUKAN KATA TERAKHIR');
+    expect(out).toContain('## Gerbang tinjau — putusan (head <sha>)');
+    // The rule is fleet-wide, not gate-only: it rides in the shared BODY_BLOCK
+    // that every automation's prompt gains, so a non-gate automation (e.g. the
+    // verifier that titled a comment "putusan akhir") is bound by it too.
+    const other = newPrompt(
+      'SDLC 05',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(other).toContain('BAHASA — JANGAN MENGAKUI WEWENANG YANG BUKAN MILIKMU');
+    expect(other).not.toMatch(/putusan akhir/i);
   });
 });
 

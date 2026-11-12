@@ -26,9 +26,9 @@ menu guards that flattened one level went blind when submenus appeared
 ## A test that pins copy defends the lie
 
 An e2e asserted the card title "AI-Driven Succession Recommendations" — the
-very claim a PR removed because a weighted sum is not AI. The test failed *for
-being right*, and the easy way past it was to put the lie back. Assert the
-control, the role or the behaviour, not the sentence. When copy *is* the
+very claim a PR removed because a weighted sum is not AI. The test failed _for
+being right_, and the easy way past it was to put the lie back. Assert the
+control, the role or the behaviour, not the sentence. When copy _is_ the
 invariant, invert it into a source guard that forbids the bad string (here:
 "AI" may appear on those screens only within 40 characters after "bukan"),
 and strip comments before matching, or the comment explaining the rule breaks
@@ -55,7 +55,7 @@ page still answered 200 ([nextjs-loading-boundary-commits-200](./nextjs-loading-
   so the root of the chain could never be proposed — **no PK anywhere could be
   created**. 1,671 tests green.
 
-**The reusable rule:** for every guard that demands a *precondition*, ask what
+**The reusable rule:** for every guard that demands a _precondition_, ask what
 satisfies it for the **first** element of the chain. If the answer is "the
 element before it", the chain has no root and the module is dead. A chain
 across two modules needs a test across two modules
@@ -87,13 +87,13 @@ from "assistant down", with tests. The widget caught every error in one
 `catch {}` and printed one sentence. A test of `isBusyError()` would be green
 too — the function is right; nothing calls it. Render the widget and assert the
 sentence the visitor reads, with the opposite case. Ask of every API change:
-*who reads the message I just wrote?*
+_who reads the message I just wrote?_
 
 ## A detector calibrated on invented examples
 
 "If the model cites a source, it answered" looked robust, and its test was
 green. One real call killed it: the persona tells the model to list topics and
-the contact page *when it refuses*, so refusals cite sources too. Tests for such
+the contact page _when it refuses_, so refusals cite sources too. Tests for such
 detectors use **sentences the model actually wrote** (`refusal.test.ts`).
 
 ## E2E assertions that test the shell
@@ -135,7 +135,7 @@ settled on `/login` still fails the caller's URL check.
 - `head -30` cut a findings list and hid the one remaining offender.
 - A JSDoc block containing `{/* … */}` closes itself at the first `*/`; vitest
   then reports **"no tests"**, not a failure — a "red on main, green on the
-  branch" proof over an unparsed file is void. Read how many tests *ran*.
+  branch" proof over an unparsed file is void. Read how many tests _ran_.
 - A rAF sampler invented a 152 px drift, stable across three runs; systematic
   bias is stable too ([radix-scrollarea-thumb-stalls](./radix-scrollarea-thumb-stalls.md)).
 - A `401` does not prove a route exists — `router.use(authenticate)` answers
@@ -210,8 +210,8 @@ each is a candidate for this.
 `dead-links.test.ts` scanned `href=` and `router.push(`, and matched a literal
 segment against any `[param]`. Mutabaah's "Buat Laporan" was an `href:` prop
 (a PageHeader action), and pointed at `/daily-report/new` — which "existed",
-because `/daily-report/[id]` took "new" for an id and rendered *Laporan tidak
-ditemukan*. Teachers had never been able to open the form from their menu.
+because `/daily-report/[id]` took "new" for an id and rendered _Laporan tidak
+ditemukan_. Teachers had never been able to open the form from their menu.
 Widened in #577 (`href:` props; `new`/`create`/`edit` never match a
 `[param]`), which surfaced five more. Ask what a dead link looks like **in this
 codebase**, not in the scanner's model of it.
@@ -220,7 +220,7 @@ codebase**, not in the scanner's model of it.
 
 `attendance.spec.ts` and `attendance-module.spec.ts` signed in as the super
 admin. The write routes admitted admins only, so every teacher, wali kelas
-and kepala sekolah got *Admin access required* when saving a register — the
+and kepala sekolah got _Admin access required_ when saving a register — the
 daily task of every teacher — and the suite stayed green. The swagger text
 even said "(Admin/Teacher)". Found on 2026-09-27 by calling the route as each
 role on a local stack; fixed in #580, whose e2e signs in as the wali kelas, a
@@ -252,8 +252,8 @@ large body as quoted-printable with `=\n` soft breaks, so split escapes must be
 rejoined before counting.
 
 **A guard for "the whole thing arrived" has to measure the whole thing.** Both
-defects here share one shape: the assertion tested that a *representative*
-element was present rather than that the *entire* payload survived.
+defects here share one shape: the assertion tested that a _representative_
+element was present rather than that the _entire_ payload survived.
 
 ## A file that opens is not a page that reads
 
@@ -289,7 +289,7 @@ The basmalah contract test read both issue forms and the PR template and
 asserted each `toContain` the Arabic line. Green — but for the issue forms it
 was green for the wrong reason: a form's `type: markdown` block is preview
 only and never lands in the body, so the forms **show** the basmalah without
-*carrying* it; the `Basmalah` workflow is what puts it in the body. The
+_carrying_ it; the `Basmalah` workflow is what puts it in the body. The
 assertion could not tell "carried" from "displayed", and the doc that said the
 forms carry it was wrong in the same direction. (Found by a reviewer, PR #817,
 2026-10-13.) Measure the mechanism: the PR template carries it (assert its
@@ -301,14 +301,14 @@ be a defect), and the workflow covers `issues.opened`.
 
 `label-guard.sh` removed a `ready` that contradicted an exclusion, but decided
 the conflict from the raw label set and let one early exit stand in for the
-whole decision: when the *event's own* label was an exclusion the standard path
+whole decision: when the _event's own_ label was an exclusion the standard path
 would revoke, it left `ready` untouched — correct only if that was the **only**
 exclusion. With `ready` + `needs-info` present and a human adding `question`,
 revoking `question` left `ready` + `needs-info`, still contradictory. (Reviewer,
 PR #817, 2026-10-13.) The fix computes the conflict from the **effective** set —
 the event's label ignored only when it will actually be revoked — and asserts
 the two-exclusion case, not just the single one. When a decision has an
-exception, the guard must exercise the state *after* the exception is applied.
+exception, the guard must exercise the state _after_ the exception is applied.
 
 ## An idempotence check that looked at the wrong first line
 
@@ -318,9 +318,31 @@ first non-blank line. The pull-request template opens with a multi-line
 concluded the body lacked it and prepended a **second** copy to every templated
 PR (review gate, PR #817, 2026-10-13). The guard test missed it because its
 fixture body was `A plain report`; the "fleet contracts" test only asserted the
-template *contains* the basmalah, never that the script recognizes it. Two
+template _contains_ the basmalah, never that the script recognizes it. Two
 lessons: when a check means "the body starts with X", decide what "starts"
 means against a real body (skip blanks **and** leading HTML comments), and drive
 the guard with the **actual artefact** it protects (here, the template file),
 not a hand-made string. Prove it red by running the old script against the real
 template.
+
+## A pattern plus the year still accepts a day/month swap
+
+`emis.service.test.ts` guarded the teacher's exported birth date with
+`toMatch(/^\d{2}\/\d{2}\/\d{4}$/)` and `toContain('1985')`. Both `12/03/1985`
+and `03/12/1985` satisfy that pair, so swapping the day and the month — a real
+change in what Kemenag reads — stayed green (reviewer, PR #1067, 2026-11-12).
+A shape check proves the _format_; it says nothing about _which field went
+where_. Pin the whole string: `expect(row.tanggalLahir).toBe('12/03/1985')`.
+
+Pin the zone too. `formatDate` renders with `toLocaleDateString('id-ID')`,
+which uses the server's zone, and the fixture is `new Date('1985-03-12')` —
+UTC midnight. On a UTC server that prints `12/03/1985`; west of UTC it prints
+`11/03/1985` and the pinned string fails for a reason unrelated to the code.
+Set `process.env.TZ = 'UTC'` for the assertion and restore it in `finally`,
+the pattern `spp-reminder.job.test.ts` already uses (see
+[date-only-midnight-utc-vs-now](./date-only-midnight-utc-vs-now.md)).
+
+**Prove it bites:** swap the locale (`id-ID` → `en-US`) in the implementation
+and watch the new assertion fail with `expected '03/12/1985' to be
+'12/03/1985'`. A date assertion that cannot go red on a field swap is not a
+guard for the date.

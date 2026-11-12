@@ -2,9 +2,9 @@
 
 Open defects only, each rechecked against the code on **2026-09-25**
 (asrama and schema entries on 2026-09-26; daily report, schedules,
-counselling and growth on 2026-09-27; staff attendance on 2026-10-09). The
-ordered backlog is [`roadmap.md`](./roadmap.md); where the work stands is
-[`progress.md`](./progress.md); the system overview is
+counselling and growth on 2026-09-27; staff attendance on 2026-10-09; EMIS
+exports on 2026-11-12). The ordered backlog is [`roadmap.md`](./roadmap.md);
+where the work stands is [`progress.md`](./progress.md); the system overview is
 [`ARCHITECTURE.md`](../../docs/ARCHITECTURE.md).
 
 - **Fixed → delete the entry.** Git keeps the history; this file is not a
@@ -55,6 +55,43 @@ workers refused on a closed day. Still open:
   evidence) instead of marking it.
 - **Non-teaching staff cannot file leave.** `/hr/leaves/new` is under `/hr`,
   and the `STAFF` bucket in `rbac.ts` opens only `/hr/attendance/me`.
+- **The *Ajukan Cuti* form sends the user id where the API wants a staff id.**
+  `hr/leaves/new` binds each employee `<SelectItem value={emp.id}>`, and
+  `emp.id` is the **user** id (`normalizeEmployee`), then posts it as `staffId`.
+  `createLeave` resolves `staffId` against the `staff` profile (or a teacher's
+  `staffId`), so a user id matches neither. Observed on the running stack
+  2026-11-12: unit admin → 404 "Staff not found"; Super Admin → 500 (foreign
+  key `leaves_staff_id_fkey`); a guru filing for self → 403 ("Anda hanya dapat
+  mengelola cuti milik sendiri"); a non-teaching staff member → 404 "Data
+  kepegawaian Anda belum dibuat…". A guru who leaves the field blank gets 201 —
+  the API auto-fills their own staff row. Tracked in **#1061**.
+- **The employee *Status* filter on `/hr` does not filter, and offers statuses
+  the API rejects.** `HRPage` sends `status` to `GET /hr/employees`, but
+  `getEmployees` never reads it, so `status=ACTIVE`, `INACTIVE` and `ON_LEAVE`
+  all return the whole unit (8 rows on the demo unit). The dropdown
+  (`EMPLOYEE_STATUS` in `lib/constants.ts`) also offers **Resign** and
+  **Pensiun**, which `queryTeachersSchema` rejects with 400 (`status` is
+  `enum(['ACTIVE','INACTIVE','ON_LEAVE'])`). Found 2026-11-12 while verifying the
+  kepala-unit guide; the guide no longer tells anyone to filter by status.
+- **`/hr` greets the kepala unit with error toasts.** `HRPage` fires
+  `useLeaves`, `useRetentionRisk` and `useExpiringContracts` for every role.
+  `GET /hr/analytics/retention-risk` and `GET /hr/contracts/expiring` are
+  admin-only → 403 for a kepala (always two "Insufficient permissions" toasts),
+  and `GET /hr/leaves` answers 404 "Employee profile not found" **only** for a
+  kepala with no staff/teacher row (a third toast; a kepala who has one gets
+  200). `lib/api.ts` toasts each. Observed 2026-11-12 on the running stack as
+  `sdit.kepala` (3 toasts) and `smpit.kepala` (2). Ask for those queries only
+  when the role may read them.
+- **A non-admin's `/hr` Cuti tab reads only one of the account's profiles.**
+  `getLeaves` (controller) filters non-admins to their own profile, but it
+  prefers `teacherId` over `staffId` (the first of the two `findUnique` results
+  that hits), while `createLeave` fills `staffId` when the caller sends no
+  profile id. So for an account with **both** rows — `smpit.kepala` has a
+  `staff` and a `teacher` row — a self-filed leave lands on `staff` and the
+  list (filtered by `teacherId`) stays empty. Reproduced 2026-11-12: `POST
+  /hr/leaves` (staffId) → 201, `GET /hr/leaves` → 0 rows. A real fix needs
+  `getLeaves` to union both profiles. Found while verifying the kepala-unit
+  guide.
 - **The bulk register loads the first 100 employees only** (`useStaffList`
   forces `limit: 100`).
 - **Dead code.** `teacherId` is still in three `hr.schema.ts` schemas and in
@@ -284,6 +321,34 @@ handleQueryError`, which toasts again. Pick one place; do not patch per page.
   table has a "Pendaftaran" line of its own. Nothing checks that the two
   agree, so an admin can announce one figure and bill another. The public
   page shows the registration fee only for a period with no fee table.
+
+## EMIS exports — deferred, rechecked 2026-11-12
+
+Found while triaging #868/#873; K11 (2026-11-09) deferred all of these out of
+the teacher-export fix, and no separate issue has been filed for them yet.
+
+- **`exportStudentData` invents `agama: 'Islam'`** (`emis.service.ts:194`)
+  although `Student.religion String @default("ISLAM")` exists and holds the
+  value. Same class as the teacher bug #873 fixed.
+- **`sertifikasi` is derived from `nuptk`, and it is wrong twice.**
+  `emis.service.ts:268` writes `teacher.nuptk ? 'Sudah Sertifikasi' : 'Belum
+  Sertifikasi'` — but NUPTK is a registration number, not a certification.
+  The correct enum is `Teacher.certificationStatus TeacherCertification?`
+  (read correctly in `dapodik.service.ts:262`). The same mistake reaches the
+  summary: `getExportSummary` counts `certifiedTeachers` from
+  `nuptk: { not: null }` (`emis.service.ts:377`) and derives `certificationRate`
+  (`:413-414`), so the "X tersertifikasi" card on `/emis` is wrong too.
+  `statusPegawai` from `nip` (`:266`) has the same shape.
+- **`exportInstitutionData` equates `jumlahRuangKelas` with the number of
+  rombel** (`emis.service.ts:347`, `activeClasses.length`, comment "Assuming 1
+  room per class"). A room and a rombel are two different EMIS fields; the
+  source of truth is `FacilityRoom` with `RoomType.code = 'KELAS'`.
+  `jumlahKelas` (`:346`) already carries the rombel count.
+- **`emis.schema.ts` is dead and its shape is wrong.** `emisTeacherDataSchema`
+  (`:84`) demands a different shape from what `exportTeacherData` returns
+  (`statusKepegawaian` vs `statusPegawai`, `sertifikasi: boolean`, …), and
+  nothing imports it. Do not "fix" the service to match it. K11 says leave it
+  alone in the teacher PR.
 
 ## Access that is too narrow, or needs review
 
@@ -575,6 +640,14 @@ loosely mis-attributes runs. -->
 
 ## Tests
 
+- **The EMIS module had no test at all** until 2026-11-12 (#868/#873): only
+  `student-nis.guard.test.ts` matched its source text, so a wrong NIS, a
+  status spelled in the wrong case, or an invented teacher field reached the
+  Kemenag export with no failing test. `modules/emis/tests/emis.service.test.ts`
+  now runs the real service (only Prisma mocked) over the NIS-per-unit rule,
+  the unit access control, the `active` status filter, and the teacher
+  birth/gender columns. The web `/emis` page only downloads the raw JSON, so
+  no e2e covers the export shape (a deliberate gap, not an oversight).
 - **`spmb-workflow.spec.ts` leaves an active admission period behind on every
   run** ("SPMB E2E Auto …"). On a fresh CI database that is one extra period;
   on a local stack reused across runs they pile up, push the seeded SMP IT

@@ -6,6 +6,7 @@
 | 0.2 | 29 September 2026 | commit `aefc719` | dari kode, belum dicoba di aplikasi berjalan | Jalur ubah kata sandi dikoreksi (Profile → Keamanan, bukan Settings); nama menu dan tombol dicocokkan ke layar (Logout); nama enum basis data diganti label layar; istilah pengembang dikeluarkan |
 | 0.3 | 29 September 2026 | commit `1a0e6b1e` (kode identik dengan `aefc719`) | dari kode, belum dicoba di aplikasi berjalan | Diperiksa ulang dengan pemeriksa skill terbaru; tidak ada isi yang berubah |
 | 0.4 | 30 September 2026 | aplikasi berjalan dari kode PR #512 (setelah `main` `2377f5fb`) | **T1 — terverifikasi di aplikasi berjalan** | Bab "Mulai Memakai Aplikasi" (2.1–2.6) dijalankan dengan akun demo pada tumpukan lokal (PostgreSQL + API :3001 + web :3000). Dua koreksi dari layar sungguhan: ikon lonceng **membuka halaman Notifikasi Saya** (bukan panel), dan halaman pertama berlabel **Dashboard**. Tangkapan layar disematkan; pita ⚠ dibuka. Bab konsep dan rujukan (3–5) tetap disusun dari kode |
+| 0.5 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | §3.3 dikoreksi: cakupan baris dijelaskan lewat `studentScope` dan daftar peran lintas unit (organ yayasan, ustadz, musyrif, muhafidz, pengasuh, tata usaha pesantren, layanan bersama) yang menjangkau seluruh unit, menggantikan generalisasi "peran yang terkunci pada satu unit" yang mudah salah dibaca |
 
 > **Tingkat verifikasi.** Bab **Mulai Memakai Aplikasi** (2.1–2.6) sudah
 > **dijalankan pada aplikasi berjalan** dengan akun demo dan memuat tangkapan
@@ -164,9 +165,12 @@ meski server menolak — bila itu terjadi, laporkan ke pengelola sistem.
 
 Wali santri hanya melihat data anaknya sendiri. Sebagian data bergantung pada
 **baris**, bukan hanya peran: misalnya izin santri mukim diputuskan oleh
-musyrifnya, sedangkan izin santri harian oleh wali kelasnya. Aplikasi tidak
-pernah menampilkan data santri lintas unit kepada peran yang terkunci pada satu
-unit. Jangan membagikan tangkapan layar berisi data santri.
+musyrifnya, sedangkan izin santri harian oleh wali kelasnya. Cakupan barisnya
+diperiksa di server (`studentScope`): organ yayasan dan petugas pesantren —
+ustadz, musyrif, muhafidz, pengasuh, tata usaha pesantren — serta layanan
+bersama (asrama, klinik, perpustakaan, laboratorium, keamanan) menjangkau
+santri **seluruh unit**, sedangkan peran lain terkunci pada unitnya. Jangan
+membagikan tangkapan layar berisi data santri.
 
 # 4. Rujukan
 

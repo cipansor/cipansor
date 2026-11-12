@@ -72,7 +72,13 @@ FIELD_PATTERNS = {
 }
 
 FINDING_RE = re.compile(r"^#{2,4}\s*(F-\d{2,3})\b", re.M)
+# Vektor CVSS: hanya huruf/angka/`:`/`/`/`.` — jangan menelan tanda kurung penutup.
+VECTOR_RE = re.compile(r"CVSS:3\.1/[A-Za-z0-9:/.]+")
+# Baris tabel Bagian 4 (Ringkasan Temuan): | F-01 | Tinggi | A01 | Terbuka |
+TABLE_ROW_RE = re.compile(r"^\s*\|\s*(F-\d{2,3})\s*\|(.+?)\|\s*$", re.M)
 PLACEHOLDER_RE = re.compile(r"\[ISI\]|\bTODO\b|\bTBD\b|FIXME", re.I)
+# Kata penyangkal sebelum status tertutup membaliknya jadi terbuka ("belum ditutup").
+NEGATION_RE = r"(?:belum|tidak|bukan|not|no|لم|لا|غير)"
 
 # --- tingkat kanonik (id/en/ar) dan status kanonik ---------------------------
 RANK_LEVELS = [
@@ -96,6 +102,25 @@ def canonical(text: str, levels) -> str | None:
         for w in words:
             if w.lower() in t:
                 return name
+    return None
+
+
+def canonical_status(text: str) -> str | None:
+    """Status kanonik; kata penyangkal membalik status tertutup jadi terbuka.
+
+    `Status: Belum ditutup` berarti temuan **masih terbuka**, bukan selesai:
+    kata `ditutup` saja akan salah membacanya sebagai `fixed` dan meloloskan
+    temuan terbuka ke ringkasan publik (K37).
+    """
+    t = (text or "").strip().lower()
+    for name, words in STATUS_LEVELS:
+        for w in words:
+            idx = t.find(w.lower())
+            if idx == -1:
+                continue
+            if name != "open" and re.search(NEGATION_RE, t[max(0, idx - 12) : idx]):
+                return "open"
+            return name
     return None
 
 
@@ -160,7 +185,40 @@ def cvss_base(vector: str) -> float | None:
 
 
 # --- pembacaan naskah --------------------------------------------------------
-def read(text: str) -> dict:
+HEADING_RE = re.compile(r"^(#{1,6})\s+(.*)$", re.M)
+
+
+def _heading_body(text: str, pattern: str, max_level: int = 6) -> str | None:
+    """Isi bagian pertama yang judulnya cocok `pattern`, sampai judul berikutnya."""
+    marks = list(HEADING_RE.finditer(text))
+    for i, m in enumerate(marks):
+        if len(m.group(1)) <= max_level and re.search(pattern, m.group(2), re.I):
+            start = m.end()
+            end = marks[i + 1].start() if i + 1 < len(marks) else len(text)
+            return text[start:end]
+    return None
+
+
+def _strip_comments(text: str) -> str:
+    return re.sub(r"<!--.*?-->", "", text, flags=re.S)
+
+
+def summary_table(text: str) -> dict[str, list[str]] | None:
+    """Baris Bagian 4 (Ringkasan Temuan): ID -> [peringkat, kategori, status].
+
+    `None` bila bagiannya tidak ada, supaya pemanggil dapat membedakan
+    "tidak ada tabel" dari "tabel kosong".
+    """
+    body = _heading_body(text, r"ringkasan\s+temuan|summary\s+of\s+findings", max_level=2)
+    if body is None:
+        return None
+    rows: dict[str, list[str]] = {}
+    for m in TABLE_ROW_RE.finditer(body):
+        rows.setdefault(m.group(1), [c.strip() for c in m.group(2).split("|")])
+    return rows
+
+
+def read(text: str, final: bool = False) -> dict:
     out: dict = {"errors": [], "warnings": [], "findings": {}}
 
     def err(msg):
@@ -175,12 +233,22 @@ def read(text: str) -> dict:
         if not re.search(pat, headings, re.I):
             err(f"bagian wajib hilang: {name}")
 
+    # Bagian 2.5 — batas yang memengaruhi hasil wajib ada dan terisi
+    sub25 = _heading_body(text, r"^\s*2\.5\b", max_level=4)
+    if sub25 is None:
+        err("bagian wajib hilang: 2.5 Batas yang memengaruhi hasil")
+    elif not _strip_comments(sub25).strip():
+        (err if final else warn)("bagian 2.5 ada tetapi kosong — tulis cakupan sampel, alat, dan perbedaan lingkungan")
+
     # temuan: pisah blok per `F-nn`
     blocks = list(FINDING_RE.finditer(text))
     if not blocks:
         warn("tidak ada temuan berlabel `F-nn` (laporan tanpa temuan?)")
     for i, b in enumerate(blocks):
         fid = b.group(1)
+        if fid in out["findings"]:
+            err(f"{fid}: ID temuan ganda — setiap temuan harus punya ID unik")
+            continue
         start = b.end()
         end = blocks[i + 1].start() if i + 1 < len(blocks) else len(text)
         block = text[start:end]
@@ -192,28 +260,49 @@ def read(text: str) -> dict:
             else:
                 f[key] = m.group(1).strip()
         # skor CVSS vs vektor
-        vm = re.search(r"CVSS:3\.1/\S+", block)
+        vm = VECTOR_RE.search(block)
         written = f.get("peringkat", "")
         if vm:
             written = written.replace(vm.group(0), "")  # jangan baca "3.1" dari vektor
         sm = re.search(r"(\d{1,2}\.\d)", written)
         if vm:
             score = cvss_base(vm.group(0))
-            if score is not None:
+            if score is None:
+                err(f"{fid}: vektor CVSS tidak dikenali — periksa metrik AV/AC/PR/UI/S/C/I/A")
+            else:
                 f["_cvss"] = score
                 if sm and abs(float(sm.group(1)) - score) > 0.05:
                     err(f"{fid}: skor CVSS tertulis {sm.group(1)} ≠ vektor {score:.1f}")
-                band = rating_band(score)
-                if f.get("peringkat"):
-                    canon = canonical(f["peringkat"], RANK_LEVELS)
-                    if canon and canon != band:
-                        err(f"{fid}: peringkat '{f['peringkat']}' ≠ pita skor {score:.1f} ({band})")
+                elif not sm:
+                    (err if final else warn)(
+                        f"{fid}: vektor CVSS ada tanpa skor tertulis — skor tidak terverifikasi"
+                    )
+                canon = canonical(f.get("peringkat", ""), RANK_LEVELS)
+                if f.get("peringkat") and canon is None:
+                    err(f"{fid}: peringkat '{f['peringkat']}' tidak dikenali (critical/high/medium/low/none)")
+                elif canon and canon != rating_band(score):
+                    err(f"{fid}: peringkat '{f['peringkat']}' ≠ pita skor {score:.1f} ({rating_band(score)})")
         else:
-            warn(f"{fid}: tidak ada Vektor CVSS — skor tidak dapat diverifikasi mesin")
+            (err if final else warn)(f"{fid}: tidak ada Vektor CVSS — skor tidak dapat diverifikasi mesin")
         # tingkat kanonik
         f["_rank"] = canonical(f.get("peringkat", ""), RANK_LEVELS)
-        f["_status"] = canonical(f.get("status", ""), STATUS_LEVELS)
+        f["_status"] = canonical_status(f.get("status", ""))
         out["findings"][fid] = f
+
+    # Bagian 4 (Ringkasan) harus cocok dengan Bagian 5 (Register)
+    table = summary_table(text)
+    if table is not None and out["findings"]:
+        for fid in sorted(set(table) - set(out["findings"])):
+            err(f"ringkasan: {fid} ada di tabel Bagian 4 tetapi tidak ada di Register (Bagian 5)")
+        for fid in sorted(set(out["findings"]) - set(table)):
+            err(f"ringkasan: {fid} ada di Register (Bagian 5) tetapi tidak ada di tabel Bagian 4")
+        for fid in sorted(set(table) & set(out["findings"])):
+            cells = table[fid]
+            f = out["findings"][fid]
+            if len(cells) >= 1 and canonical(cells[0], RANK_LEVELS) != f.get("_rank"):
+                err(f"ringkasan: {fid} peringkat '{cells[0]}' ≠ Register '{f.get('peringkat')}'")
+            if len(cells) >= 3 and canonical_status(cells[2]) != f.get("_status"):
+                err(f"ringkasan: {fid} status '{cells[2]}' ≠ Register '{f.get('status')}'")
 
     # placeholder pada laporan final
     if PLACEHOLDER_RE.search(text):
@@ -251,7 +340,12 @@ def parity(docs: dict[str, dict]) -> list[str]:
 
 
 def summary_errors(text: str) -> list[str]:
-    """Ringkasan publik: TIDAK boleh memuat temuan yang masih terbuka."""
+    """Ringkasan publik: TIDAK boleh memuat temuan yang masih terbuka.
+
+    Menangkap dua bentuk: blok temuan `## F-nn` dengan status terbuka, dan
+    baris tabel Bagian 4 yang mencantumkan temuan berstatus terbuka — keduanya
+    dilarang selama repo publik (K37).
+    """
     errs = []
     blocks = list(FINDING_RE.finditer(text))
     for i, b in enumerate(blocks):
@@ -260,13 +354,25 @@ def summary_errors(text: str) -> list[str]:
         end = blocks[i + 1].start() if i + 1 < len(blocks) else len(text)
         block = text[start:end]
         m = re.search(r"(?im)^\s*[-*]?\s*\**status\**\s*:\s*(.+)$", block)
-        status = canonical(m.group(1), STATUS_LEVELS) if m else None
+        status = canonical_status(m.group(1)) if m else None
         if status in (None, "open", "mitigated", "accepted"):
             errs.append(
                 f"{fid}: ringkasan publik memuat temuan berstatus "
                 f"'{m.group(1).strip() if m else 'tidak disebut'}' — temuan terbuka "
                 f"hanya boleh ada di laporan penuh di luar repo (K37)"
             )
+    table = summary_table(text)
+    if table:
+        for fid, cells in table.items():
+            if len(cells) < 3:
+                continue
+            status = canonical_status(cells[2])
+            if status in (None, "open", "mitigated", "accepted"):
+                errs.append(
+                    f"{fid}: tabel Ringkasan publik mencantumkan temuan berstatus "
+                    f"'{cells[2]}' — temuan terbuka hanya boleh ada di laporan penuh "
+                    f"di luar repo (K37)"
+                )
     return errs
 
 
@@ -318,7 +424,7 @@ def main() -> int:
             print(f"ERROR: {path} tidak ditemukan", file=sys.stderr)
             return 2
         text = p.read_text(encoding="utf-8", errors="replace")
-        res = read(text)
+        res = read(text, final=args.final)
         docs[path] = res
         for e in res["errors"]:
             print(f"ERROR  {path}  {e}")

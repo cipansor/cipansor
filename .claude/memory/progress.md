@@ -103,6 +103,51 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
+- **Versi patch Prisma di dokumen teknis (#874, 2026-11-12).** Tabel 2
+  (Batasan) memaku `Prisma 7.10.0` sementara `apps/api/package.json` sudah
+  `7.10.1` — sisa bump Dependabot (#870). Tidak ada pemeriksa yang menangkapnya
+  (`check_docs.py` mencocokkan jumlah modul/model/rute/job, bukan versi
+  dependensi), jadi baris itu akan basi lagi tiap bump. Diperbaiki dengan opsi 2
+  issue: `Prisma 7` (tingkat mayor), sejalan keputusan #782/#783 dan baris yang
+  sama (`Next.js 16`, `React 19`, …). Satu baris + entri Riwayat Revisi `1.5`
+  pada cabang ini.
+  Rule 9: #1052 (#833) menyentuh berkas yang sama; digabung di worktree hanya
+  bentrok pada baris Riwayat Revisi (dua-duanya menambah `1.5`) → siapa yang
+  digabung kedua menomori ulang (mis. #1052 tetap `1.5`, #874 jadi `1.6`);
+  `check_docs.py --final` 0 ERROR pada pohon gabungan.
+
+- **EMIS teacher export + module tests (#868 + #873, one PR, 2026-11-12).**
+  `exportTeacherData` invented `jenisKelamin: 'L'`, `tempatLahir: ''` and
+  `tanggalLahir: ''` although `Teacher.gender`/`birthPlace`/`birthDate` exist
+  and the HR module fills them — every teacher was exported male with an empty
+  birthplace, and it differed from Dapodik's export of the same person. Fixed
+  per K11 (2026-11-09): gender maps from the column, `''` when null (the type
+  is now `'' | 'L' | 'P'`), birth columns read directly. #868's test gap is
+  closed by `modules/emis/tests/emis.service.test.ts` (real service, only
+  Prisma mocked). Three of the deferred defects (student `agama`, teacher
+  `sertifikasi`/`statusPegawai`, institution `jumlahRuangKelas`, dead
+  `emis.schema.ts`) are recorded in `known-issues.md`; K11 deferred them and no
+  separate issue exists yet.
+
+- **Documentation PRs, 2026-11-11:** #1035 (#778, cross-unit scope; **also
+  carries #801** — the portfolio read-scope and two-party message-reply rules in
+  `docs/DOKUMEN-TEKNIS.md` §8, per K18 "one PR together with #778"), #1036
+  (#779, screen labels), #1046 (#792, the absensi-pegawai sync — the first to
+  document the Absen Saya flow). All three were merged together in a worktree:
+  only one conflict, both #1035 and #1046 appending a `0.5` row to the Guru
+  booklet's revision table; `check_docs.py` and the two guard tests pass on the
+  merged tree. Merge them as a set.
+
+- **Issue triage, 2026-11-11 (oldest open `ready` first):** #795 closed
+  **NOT_PLANNED** — it asked for a weekly usage report from `Pengawas armada`
+  (SDLC 23), but the owner retired that automation on 2026-11-11 (label
+  `automation-health` deleted, `RETIRED["SDLC 23"]` in `deploy-sdlc-agents.py`,
+  `IDEAS.md` §5, tracked by #1047 / PR #1045); the report is now read manually.
+  Building the step would resurrect a retired automation. #801 advanced: its
+  finding 1 was already fixed via #762, and the remaining scope (K18) rode on
+  PR #1035. Still open and untouched: the broken `/parent/messages` route (a
+  product gap, not documentation — worth its own issue).
+
 - **Open PRs, 2026-10-13:** #777 (the gate watch; ready, all checks green,
   waiting on the review gate), #668 and #775, #804 (draft). Merged since
   2026-10-10: #512, #714, #708 + #734 (tested together on `main`), #761 and
@@ -412,7 +457,108 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   (b) `getStudentOutstandingBalances` (`dueDate < new Date()`) membuat tagihan
   menunggak **07.00 WIB** pada tanggal jatuh tempo, bukan akhir hari — jadi
   "sehari penuh" itu tidak benar. Dokumen dikoreksi; cacat kode dilacak di
-  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`).
+  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`). **PR #1049 sudah
+  MERGED ke `main`** (merge commit `25693e32`, 2026-11-11), jadi #825 selesai.
+
+- **Issue triage, 2026-11-11 (lanjutan 2):** #830 (`docs`: aturan pin GitHub
+  Actions ke commit SHA) + #943 (`docs`: batas bawah `overrides` + penjaga
+  pnpm-supply-chain) dikerjakan bersama sesuai keputusan maintainer **K16** di
+  **PR #1051** pada `docs/830-943-ci-supply-chain`. Subbagian baru **"Rantai
+  pasok CI"** di `docs/SDLC-FLOW.md` (kedua aturan), satu baris di blok gerbang
+  mutu `AGENTS.md`, satu baris DT §10 "Keamanan: rantai pasok", satu kalimat
+  kebijakan `overrides` di `docs/DEPLOYMENT.md`, dan tiga berkas `.claude/`
+  (gate/SKILL.md, lessons/audit-deps…, roadmap.md) diubah dari "pin" menjadi
+  "batas bawah ≥ rilis perbaikan pertama". `docs/SDLC-FLOW.md` tergolong
+  **kode** (`is_code()`, dibaca `automation-fleet.guard.test.ts`), jadi job CI
+  berjalan. `check_docs.py` 16 ERROR = baseline; guard (automation-fleet,
+  github-actions-pinning, decommissioned-modules) lulus 189; sensitive bersih.
+  Satu uji `pnpm-supply-chain.guard.test.ts` gagal **lingkungan** (pnpm tak
+  terpasang di sini) — lulus di CI. **#801** (docs #747: cakupan baca portofolio
+  + balasan pesan) sudah ditangani di PR #1035 (branch #778), jadi tidak
+  diduplikasi. **#749** sudah ditangani PR #1033. **#778/#779/#792/#811**
+  masing-masing sudah punya PR terbuka (#1035/#1036/#1046/#1048).
+
+- **Issue triage, 2026-11-11 (lanjutan 3):** #833 (`docs`: jalur galat 409 pada
+  keputusan cuti setelah #668) dikerjakan sesuai keputusan **K17** di **PR
+  #1052** pada `docs/833-leave-409`: DT §8.3 menyebut `Errors.conflict` → 409 +
+  pemakaiannya di modul `hr` (keputusan cuti bersamaan; setujui dua kali =
+  idempoten, tolak yang sudah disetujui = 400); panduan Kepala Unit kartu
+  *Mengelola pegawai dan cuti* menambah baris 409 (pesan disalin persis dari
+  `hr.service.ts`, penjaga `pesan-karangan` mencocokkan ke kode web+API);
+  `README.md` baris Kepegawaian. Anotasi Swagger `409` di `hr.routes.ts`
+  dikeluarkan dari lingkup (K17 → PR kode terpisah) dan **dilacak di issue baru
+  #1053** (`documentation`, `priority:low`). `check_docs.py` TEKNIS 16 =
+  baseline, KEPALA-UNIT 2 = pra-ada (L386 `**Buat Baru**`, L403 pesan "Judul dan
+  konten wajib diisi"); sensitive bersih. Catatan: `progress.md` disunting di
+  tiga cabang (#1049 sudah merged; #1051 & #1052 menambah blok di titik yang
+  sama) sehingga resolusi konflik = simpan kedua blok.
+
+- **Koreksi tinjauan #1052, 2026-11-12.** Tinjauan `adminypc` meminta lebih dari
+  sekadar kutipan pesan: kartu panduan Kepala Unit menjanjikan kemampuan yang
+  tidak dimiliki perannya. Diverifikasi pada tumpukan berjalan: `POST
+  /hr/employees` dan `PATCH /hr/leaves/:id/approve` sama-sama dijawab **403**
+  untuk `*_KEPALA_SEKOLAH` (kelompok TEACHER; rute `authorize(SUPER_ADMIN,
+  UNIT_ADMIN)`). Maka kartu *Mengelola pegawai dan cuti* diganti menjadi
+  *Memantau pegawai dan cuti* (hanya tab Karyawan/Cuti/Risiko Retensi), baris
+  galat 409 dilepas dari kartu (peran tak dapat mencapainya; tetap di DT §8),
+  dan Riwayat Revisi 0.2 kembali jujur **T1** karena langkah barunya dijalankan
+  ulang. `README.md` menyebut aktor yang benar (admin unit / Super Admin).
+  Sekaligus ditemukan cacat aplikasi di luar lingkup dokumen: **formulir
+  *Ajukan Cuti*** mengirim **id pengguna** sebagai `staffId` (API menuntut id
+  profil pegawai) → 404 "Staff not found"; dilacak di **#1061**.
+
+- **Koreksi tinjauan #1052, putaran kedua, 2026-11-12.** Setelah balasan putaran
+  pertama, kartu *Memantau pegawai dan cuti* masih menyatakan hal yang tidak
+  benar dan diverifikasi ulang pada tumpukan berjalan (kepala `sdit.kepala`):
+  langkah "saring dengan **Semua Status**" **tidak menyaring** (`GET
+  /hr/employees?status=ACTIVE|INACTIVE|ON_LEAVE` → total 8, sama; `RESIGNED`/
+  `RETIRED` → 400 karena `queryTeachersSchema` hanya menerima tiga nilai), dan
+  klaim tab **Cuti**/**Risiko Retensi** berisi data keliru — `GET /hr/leaves`
+  kepala → **404 "Employee profile not found"**, `GET /hr/analytics/retention-risk`
+  → **403** (rute admin-only), jadi kedua tab kosong bagi kepala. Kartu
+  dirapikan: hanya tab **Karyawan** (8 pegawai) yang dijanjikan, kotak **Cari
+  nama atau NIP...** menggantikan saringan status, dan tab Cuti/Retensi
+  dinyatakan kosong bagi kepala. Gambar 6 ditangkap ulang dari `/hr` (kepala,
+  tab Karyawan) dan manifes diperbarui. Riwayat Revisi menambah baris **0.3**
+  (kode `6b3c6127`). `.claude/memory/known-issues.md`: entri formulir cuti
+  diperkaya (unit admin 404, Super Admin **500** FK `leaves_staff_id_fkey`,
+  guru-untuk-diri 403, staf non-guru 404) dan ditambah entri baru "saringan
+  Status `/hr` tidak menyaring + menawarkan status yang ditolak API 400".
+  `check_docs.py` KEPALA-UNIT tetap **2 ERROR** (keduanya pra-ada di `main`:
+  kartu Pengumuman `Buat Baru` & pesan "Judul dan konten wajib diisi").
+
+- **Koreksi tinjauan #1052, putaran ketiga, 2026-11-12.** Dua temuan lanjutan
+  `adminypc`: (E) kartu menyembunyikan akses cuti pribadi kepala unit; (F)
+  anjuran "abaikan notifikasi galat" terlalu luas. Diverifikasi pada tumpukan
+  berjalan dengan **dua** akun kepala: `smpit.kepala` (punya baris `staff`
+  **dan** `teacher`) vs `sdit.kepala` (tak punya profil). Temuan E benar dan
+  lebih halus dari dugaan: `getLeaves` (controller) membatasi non-admin ke
+  profil sendiri tetapi **mendahulukan `teacherId` atas `staffId`**, jadi cuti
+  yang dibuat pada baris `staff` tak pernah muncul bagi kepala yang punya
+  keduanya — `POST /hr/leaves` (staffId) → **201**, `GET /hr/leaves` → **0
+  baris**. Kartu diperbaiki: tab **Cuti** = pengajuan atas nama profil kepala
+  sendiri (bukan seluruh unit), tab **Risiko Retensi** tak dapat diakses kepala
+  (403); baris bantuan dipisah untuk kedua tab. Temuan F: notifikasi galat
+  berasal dari `retention-risk`/`contracts-expiring` (403, selalu) dan `leaves`
+  (404, hanya bila profil kepala tak ada) — `useEmployees` justru **berhasil**
+  (kepala dijawab 200, 8 baris), jadi kartu kini menyuruh mengabaikan galat
+  **hanya bila** daftar **Karyawan** tetap tampil. `known-issues.md`: entri
+  notifikasi diperjelas (2 vs 3 toast per akun) + entri baru "tab Cuti non-admin
+  menyaring profil yang salah". Riwayat Revisi 0.3 diperbarui.
+
+- **Koreksi tinjauan #1052, putaran keempat, 2026-11-12.** Tiga temuan
+  presisi lanjutan atas kartu yang sama, semuanya diperbaiki: (G) batasan dua
+  profil — daftar **Cuti** non-admin hanya membaca **satu** profil
+  (`teacherId` didahulukan) sedangkan `createLeave` mengisi `staffId`, jadi
+  pengajuan pribadi pemilik dua profil bisa hilang dari daftar; kini
+  dinyatakan di langkah dan tabel bantuan (perbaikan perilaku perlu PR kode:
+  `getLeaves` menggabungkan kedua profil). (H) tab **Risiko Retensi** tetap
+  **dapat dibuka** kepala unit — yang ditolak hanya permintaan datanya (403),
+  jadi kartu tidak lagi menulis "tidak dapat diakses". (I) petunjuk
+  "abaikan galat" dirapikan: hanya galat **Risiko Retensi** yang boleh
+  diabaikan; galat **Cuti**/lain harus diperiksa lebih dulu sebelum
+  dilaporkan. `known-issues.md` entri tab Cuti dipertegas (kedua profil;
+  solusi = union).
 
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
@@ -444,6 +590,63 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   in `dashboard/tests/wib-day-bounds.test.ts`, `analytics/tests/wib-day-bounds.test.ts`
   and a new `analytics/tests/alerts-overdue-bound.test.ts` — all three fail on
   the pre-fix code. Gate green locally (api 5188, build:strict, lint).
+
+- **Issue triage, 2026-11-11 (lanjutan 5):** #848 (`bug`, `priority:medium`,
+  jembatan triase mendispatch `SDLC 01` pada label bot → triase ganda)
+  **ditutup dengan bukti** — bukan karena kurang bermanfaat. **K26** sudah
+  terpenuhi oleh commit `c86b9969` (2026-11-09, masuk `main` lewat PR #972 yang
+  tidak menyebut nomor issue ini, sehingga ia tertinggal terbuka): `SDLC 01 ·
+  Triase bug` dilebur ke `SDLC 15 · Triase issue`, dan
+  `issue-triage-bridge.sh:71` kini mendispatch id SDLC 15 (`42ec7401…`) saja.
+  Penjaga `apps/api/src/utils/automation-fleet.guard.test.ts` (*"folds Triase
+  bug into the single triage owner"*, 163 tes lulus) menegaskan jembatan memuat
+  id SDLC 15 dan **tidak** memuat id SDLC 01; `docs/SDLC-FLOW.md` butir 1 & 3
+  ditandai **SELESAI (2026-11-09)**. Komentar penutup mencatat tiap kriteria
+  penerimaan beserta buktinya.
+
+- **Issue triage, 2026-11-11 (lanjutan 4):** #849 (`bug`, `priority:high`, tab
+  **Hari Ini** halaman Menu Makan selalu 404) dikerjakan sesuai **K5** di
+  **PR #1059** pada `fix/849-meals-today-routing`. Cacatnya routing **dan**
+  bentuk respons: web memanggil `GET /meals/menus/today?unitId=`, tidak ada
+  rute yang menjawabnya — `/menus/:id` mengambilnya dengan `id = "today"` →
+  selalu 404; dan handler hari ini mengembalikan array sedangkan halaman
+  membaca `{ breakfast, lunch, dinner, snack }`. Perbaikan: hook memanggil rute
+  kanonik `GET /meals/menus/today/:unitId` (unit di path, seperti
+  `calendar`/`duty-roster`) lalu **melipat** array ke objek yang dibaca
+  halaman; query nonaktif tanpa unit; tab Hari Ini meminta memilih satu unit
+  saat "Semua Unit" (tidak ada agregasi, K5). Tes: `use-meals.test.tsx` (3),
+  `today-menu-route.test.ts` (mengunci rute kanonik + 404 path lama),
+  `e2e/meals.spec.ts` (gagal sebelum, lulus sesudah). Tangkapan sebelum/sesudah
+  di cabang `screenshots/849` (`docs/pr-screens/849/`). Cakupan hanya tab Hari
+  Ini; tab Mingguan & `/meals/stats` menyusul sebagai issue terpisah (K5 poin
+  3). Cacat WIB di `getTodayMenu` sudah beres di `main`. Tidak ada PR terbuka
+  lain yang menyentuh berkas `meals` → aturan emas 9 tidak berlaku. Pelajaran
+  ditambahkan ke `lessons/api-integration-traps.md`.
+- **Issue triage, 2026-11-11 (lanjutan 6):** #866 (`bug`, `priority:medium`,
+  check wajib `PR template reminder` bisa merah permanen karena balapan label
+  issue tertaut) dikerjakan sesuai **K27 opsi A** di **PR #1063** pada
+  `fix/866-template-check-republish`. Bug blok kode (`Cara menguji` hanya fence)
+  sudah lebih dulu diperbaiki di `main` (#965), jadi yang dikerjakan tinggal
+  celah balapannya: `issue-label-sync.sh --issue` kini menjalankan ulang gate
+  terhadap kepala tiap PR terbuka yang menutup issue itu dan menerbitkan check
+  `PR template reminder` di sana (pola `publish_pr_check`, digeneralisasi jadi
+  `publish_check <name>`); guard dijalankan dengan `BASE_REF` PR agar hasilnya
+  setia. `issue-label-sync.yml` meneruskan `DEFAULT_BRANCH`. Uji guard baru di
+  `github-label-guards.guard.test.ts` (`PR template reminder re-publish (#866)`):
+  **gagal 4** terhadap skrip pra-perbaikan, **lulus 25** sesudahnya. Suite API
+  penuh 5161 lulus. Pelajaran baru:
+  `lessons/required-check-wedged-by-label-race.md`.
+
+- **Issue triage, 2026-11-11 (lanjutan 6):** #867 (`chore`, lima job Actions
+  tanpa `timeout-minutes`) dikerjakan di **PR #1064** pada
+  `chore/867-workflow-job-timeouts`. Jumlahnya sudah bergeser: kini **6 job**
+  (bukan 5) — `deploy-production.yml` menambah job `gate` setelah issue ditulis;
+  total 31 job di 19 workflow. Ditambahkan plafon sesuai durasi nyata + margin:
+  15 (release gate), 45 (kedua job deploy; staging 7–9 mnt, produksi 2–3 mnt),
+  30 (kedua job load-test). Guard baru `workflow-job-timeout.guard.test.ts`
+  menuntut **setiap** job di `.github/workflows/*.yml` punya `timeout-minutes`
+  berupa bilangan bulat positif < 360; **gagal** pada workflow pra-perbaikan
+  (keenam job terdaftar), **lulus** sesudahnya. Suite API penuh 5183 lulus.
 
 ## Recently done (2026-10-09 → 10)
 

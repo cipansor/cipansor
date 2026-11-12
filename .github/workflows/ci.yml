@@ -23,7 +23,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '26'
   PNPM_VERSION: '12.11.2'
 
 jobs:
@@ -212,6 +212,13 @@ jobs:
       # runs on demand (load-tests.yml), which needs a real target.
       - name: Run load-test runner unit tests
         run: node --test tests/load/run-load-tests.test.mjs
+      # The documentation tooling is the gate that decides whether a guide may
+      # be handed over (check_docs.py, build_docs.py). Its suite is stdlib-only
+      # — the docx/pdf cases skip when python-docx/pymupdf are absent — so it
+      # runs on the runner's Python with no install, like check-sensitive.py.
+      # change-scope.sh calls these scripts code, so a change to them lands here.
+      - name: Run documentation tooling unit tests
+        run: python3 -m unittest discover -s .claude/skills/dokumen-aplikasi-cipansor/scripts -p 'test_*.py'
 
   # Supply-chain / dependency security, plus the records check.
   #

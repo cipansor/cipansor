@@ -56,9 +56,12 @@ butir:
 python scripts/check_report.py /luar/repo/LAPORAN.md --final            # 0 ERROR
 ```
 
-Pemeriksa memverifikasi: struktur bagian lengkap, lima butir tiap temuan, **skor
-CVSS cocok dengan vektornya**, dan peringkat cocok dengan pita skornya
-(`<4 rendah`, `4–6.9 sedang`, `7–8.9 tinggi`, `≥9 kritis`).
+Pemeriksa memverifikasi: struktur bagian lengkap (termasuk Bagian 2.5 yang
+terisi), lima butir tiap temuan, ID temuan unik, **skor CVSS cocok dengan
+vektornya**, peringkat cocok dengan pita skornya (`<4 rendah`, `4–6.9 sedang`,
+`7–8.9 tinggi`, `≥9 kritis`), dan **baris tabel Bagian 4 cocok dengan Register
+Bagian 5** (himpunan ID, peringkat, status). Pada `--final`, vektor CVSS dan
+skor tertulis menjadi **wajib** untuk tiap temuan.
 
 ### 3. Tiga bahasa (bila diminta) — gerbang: `--parity` 0 ERROR
 
@@ -78,8 +81,10 @@ python ../../../.github/scripts/check-sensitive.py docs/UJI-KERENTANAN.md
 ```
 
 `--summary` melewati bagian wajib (ringkasan bukan laporan penuh) tetapi
-**menolak** temuan `F-nn` berstatus terbuka/mitigasi/diterima — hanya temuan
-yang **sudah ditutup** boleh tampil di teks publik (K37).
+**menolak** temuan `F-nn` berstatus terbuka/mitigasi/diterima — baik sebagai
+blok temuan maupun sebagai **baris tabel Bagian 4**; hanya temuan yang **sudah
+ditutup** boleh tampil di teks publik (K37). `Status: Belum ditutup` dihitung
+sebagai terbuka (kata penyangkalan membalik status tertutup).
 
 `check_report.py` memakai pola `scan_sensitive.py` (kunci, JWT, connection
 string, host cloud, IP, jalur host, NIK/telepon). Pemindai hanya menangkap pola

@@ -78,21 +78,22 @@ boleh dikarang "hijau": bila suatu alat tidak dijalankan, tulis demikian.
 
 Ringkasan netral menyatakan **bahwa** sistem diuji dan **kontrol apa** yang
 terverifikasi baik — tanpa menyebut temuan yang masih terbuka. Berikut
-kontrol yang terverifikasi baik pada kode saat ini (dibaca dari kode, bukan
-dari ingatan):
+kontrol yang terverifikasi baik pada kode saat ini. Tiap baris menyebut
+**bukti di kode** dan **uji yang menjalankannya** (dengan berkas uji), bukan
+sekadar berkas yang menamainya — pembaca dapat memeriksa sendiri hasilnya.
 
-| Kontrol | Bukti di kode |
-|---|---|
-| Header keamanan HTTP | `helmet()` dipasang sebelum router (`apps/api/src/app.ts`) |
-| CORS berdaftar | `buildCorsMiddleware(config.cors.origins)` — daftar asal, bukan `*` |
-| Perlindungan CSRF | Cookie sesi `HttpOnly` + header *double-submit*; permintaan tak-aman tanpa header yang cocok ditolak (`apps/api/src/middleware/csrf.ts`) |
-| Batas laju permintaan | Limiter global + limiter khusus `/uploads` (`apps/api/src/middleware/rate-limit.ts`) |
-| Berkas tersimpan bersifat privat | `/uploads` dijaga token akses di **semua** lingkungan (`uploadsAuth`, `apps/api/src/middleware/upload.ts`) |
-| Validasi masukan di tepi | Skema Zod per modul, `validate`/`validateQuery` (`apps/api/src/middleware/validate.ts`) |
-| Kendali akses berbasis peran | `RoleCode` + izin; keputusan di `decisions/` dan skill `panduan-peran` |
-| Autentikasi dua langkah | 2FA untuk akun organ yayasan (`decisions/autentikasi-2fa-dan-sandi.md`) |
-| Verifikasi anti-bot | Cloudflare Turnstile pada alur publik (`apps/api/src/middleware/turnstile.ts`) |
-| Rahasia tidak di repo | `.github/scripts/check-sensitive.py` menolak kredensial, host sumber daya, IP, dan jalur host di Markdown |
+| Kontrol | Bukti di kode | Uji yang menjalankannya |
+|---|---|---|
+| Header keamanan HTTP | `helmet()` dipasang sebelum router (`apps/api/src/app.ts:136`) | aplikasi mengaktifkannya tanpa syarat; tidak ada uji khusus |
+| CORS berdaftar | `buildCorsMiddleware(config.cors.origins)` — daftar asal, bukan `*` (`apps/api/src/app.ts:137`, `apps/api/src/config/cors.ts`) | `cors.test.ts` — "splits the comma-separated list", "strips a trailing slash" |
+| Perlindungan CSRF | Cookie sesi `HttpOnly` + header *double-submit*; permintaan tak-aman tanpa header yang cocok ditolak (`apps/api/src/middleware/csrf.ts:31`) | `session-cookies.test.ts` — "sets HttpOnly access, refresh and routing cookies, plus a readable CSRF cookie" |
+| Batas laju permintaan | Limiter global + limiter khusus `/uploads` (`apps/api/src/app.ts:224`, `apps/api/src/middleware/rate-limit.ts`) | `rate-limit.test.ts` — "runs its own limiter first, then auth, in production" |
+| Berkas tersimpan bersifat privat | `/uploads` dijaga token akses di **semua** lingkungan (`uploadsAuth`, `apps/api/src/app.ts:202`) | `rate-limit.test.ts` — "omits the production limiter in development and test, keeping auth" |
+| Validasi masukan di tepi | Skema Zod per modul, `validate`/`validateQuery` (`apps/api/src/middleware/validate.ts:24,38`) | `validated-query.test.ts` — "every module that validates its query also reads the validated result" |
+| Kendali akses berbasis peran | `RoleCode` + izin; keputusan di `decisions/` dan skill `panduan-peran` | uji lingkup peran per modul (mis. `account-actions-scope.test.ts`, `subjects-access.test.ts`) |
+| Autentikasi dua langkah | 2FA untuk akun organ yayasan (`decisions/autentikasi-2fa-dan-sandi.md`) | `second-factor-roles.test.ts` — "cannot turn it off" |
+| Verifikasi anti-bot | Cloudflare Turnstile pada alur publik (`apps/api/src/middleware/turnstile.ts`) | `turnstile.middleware.test.ts` — "menghentikan permintaan yang tokennya ditolak" |
+| Rahasia tidak di repo | `.github/scripts/check-sensitive.py` menolak kredensial, host sumber daya, IP, dan jalur host di Markdown | uji skill dokumen `test_tooling.py` |
 
 > Ringkasan ini menyebut **kontrol yang terbukti ada**, bukan klaim bahwa tidak
 > ada temuan. Temuan yang masih terbuka dilacak di advisory privat dan di
