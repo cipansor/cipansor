@@ -103,6 +103,19 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
+- **EMIS teacher export + module tests (#868 + #873, one PR, 2026-11-12).**
+  `exportTeacherData` invented `jenisKelamin: 'L'`, `tempatLahir: ''` and
+  `tanggalLahir: ''` although `Teacher.gender`/`birthPlace`/`birthDate` exist
+  and the HR module fills them — every teacher was exported male with an empty
+  birthplace, and it differed from Dapodik's export of the same person. Fixed
+  per K11 (2026-11-09): gender maps from the column, `''` when null (the type
+  is now `'' | 'L' | 'P'`), birth columns read directly. #868's test gap is
+  closed by `modules/emis/tests/emis.service.test.ts` (real service, only
+  Prisma mocked). Three of the deferred defects (student `agama`, teacher
+  `sertifikasi`/`statusPegawai`, institution `jumlahRuangKelas`, dead
+  `emis.schema.ts`) are recorded in `known-issues.md`; K11 deferred them and no
+  separate issue exists yet.
+
 - **Open PRs, 2026-10-13:** #777 (the gate watch; ready, all checks green,
   waiting on the review gate), #668 and #775, #804 (draft). Merged since
   2026-10-10: #512, #714, #708 + #734 (tested together on `main`), #761 and
