@@ -154,6 +154,16 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
     ZIYADAH record, never `0`). The page also moved off a bare `api.get` in a
     `useEffect` onto `useParentChildren`/`useParentDashboard` (the data-layer
     rule).
+  - **Review fix round 2 (K13.4, 2026-11-12).** Two defects found in review of
+    the round-1 fix. (a) `memorizedJuz` was rounded to *two* decimals, so one or
+    two ayah of juz 30 (0.0018 juz) rounded to `0` — the card read "0 Juz" and
+    the tahfidz dimension scored 0 for a santri who recited that day. The raw
+    value now feeds `tahfidzScore`, and the DTO rounds to *three* decimals
+    (smallest real record = 1/564). (b) `useParentChildren` /
+    `useParentDashboard` keyed by a constant, and logout only drops the
+    push-status cache — a second wali signing in on the same device read the
+    first's children/dashboard from cache (CWE-524). Both keys now carry
+    `user.id` and the query is `enabled: !!user?.id`.
 
 - **Open PRs, 2026-10-13:** #777 (the gate watch; ready, all checks green,
   waiting on the review gate), #668 and #775, #804 (draft). Merged since
