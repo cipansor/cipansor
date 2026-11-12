@@ -22,7 +22,7 @@ import {
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import { formatCurrency } from "@/lib/utils";
-import { Budget, AccountCode } from "@cipansor/shared";
+import { Budget, AccountType } from "@cipansor/shared";
 import { Loader2, Plus, Pencil, Trash2, RefreshCw } from "lucide-react";
 import {
   AlertDialog,
@@ -47,7 +47,7 @@ import { Label } from "@/components/ui/label";
 import { toast } from "sonner";
 import { Progress } from "@/components/ui/progress";
 import { MainLayout } from "@/components/layout";
-import { useBudgets } from "@/hooks/use-finance-enhancement";
+import { useBudgets, useAccountCodes } from "@/hooks/use-finance-enhancement";
 
 const PAGE_SIZE = 20;
 
@@ -72,19 +72,15 @@ const useAcademicYears = () => {
 };
 
 const useExpenseAccounts = (unitId?: string) => {
-  return useQuery({
-    queryKey: ["accounts", "EXPENSE", unitId ?? null],
-    // The API filters server-side: the unit's own accounts plus the shared
-    // (`unitId: null`) ones. Doing it client-side over the first page hid a
-    // unit's own accounts that fell past it.
+  // The shared hook scopes server-side to the unit's own accounts plus the
+  // shared (`unitId: null`) ones; the list is used as returned.
+  const { data } = useAccountCodes({
+    type: AccountType.EXPENSE,
+    limit: 100,
+    unitId,
     enabled: !!unitId,
-    queryFn: async () => {
-      const res = await api.get("/finance-enhancement/account-codes", {
-        params: { type: "EXPENSE", limit: 100, unitId },
-      });
-      return res.data.data as AccountCode[];
-    },
   });
+  return { data: data?.data };
 };
 
 const useCreateBudget = () => {
@@ -140,8 +136,8 @@ function BudgetingPageContent() {
 
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedYearId, setSelectedYearId] = useState<string>("");
-  // The API already scopes to the chosen unit plus the shared accounts, so the
-  // list is used as returned.
+  // The shared hook scopes to the chosen unit plus the shared accounts
+  // server-side, so the list is used as returned.
   const { data: accounts } = useExpenseAccounts(selectedUnitId || undefined);
   const availableAccounts = accounts ?? [];
   const [page, setPage] = useState(1);

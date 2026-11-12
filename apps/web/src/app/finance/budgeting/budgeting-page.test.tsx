@@ -14,10 +14,10 @@ beforeAll(() => {
 /**
  * The account picker used to list every EXPENSE account, so a unit admin could
  * choose one pinned to another unit and the save came back 400
- * (`createBudget` refuses a foreign-unit account). The API now scopes the list
- * to the chosen unit plus the shared (`unitId` null) accounts, and the picker
- * sends that unit — filtering client-side over the first page hid a unit's own
- * accounts that fell past it.
+ * (`createBudget` refuses a foreign-unit account). The shared `useAccountCodes`
+ * hook now carries the `unitId` filter to the API, which scopes the list to the
+ * chosen unit plus the shared (`unitId` null) accounts — filtering client-side
+ * over the first page hid a unit's own accounts that fell past it.
  */
 const { apiGet, useBudgets } = vi.hoisted(() => ({
   apiGet: vi.fn(),
@@ -32,7 +32,12 @@ vi.mock("@/components/layout", () => ({
     <div>{children}</div>
   ),
 }));
-vi.mock("@/hooks/use-finance-enhancement", () => ({ useBudgets }));
+// Keep the real `useAccountCodes` — the point is that the picker goes through
+// it and the hook serializes `unitId`.
+vi.mock("@/hooks/use-finance-enhancement", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/hooks/use-finance-enhancement")>()),
+  useBudgets,
+}));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import BudgetingPage from "./page";
@@ -63,24 +68,26 @@ const ACCOUNTS = [
 
 beforeEach(() => {
   vi.clearAllMocks();
-  apiGet.mockImplementation(
-    async (url: string, config?: { params?: { unitId?: string } }) => {
-      if (url === "/units")
-        return { data: { data: [{ id: "unit-1", name: "SD IT" }] } };
-      if (url === "/academic-years")
-        return { data: { data: [{ id: "ay-1", name: "2026/2027" }] } };
-      if (url === "/finance-enhancement/account-codes") {
-        // Mirror the API: the chosen unit's own accounts plus the shared ones.
-        const unitId = config?.params?.unitId;
-        return {
-          data: {
-            data: ACCOUNTS.filter((a) => !a.unitId || a.unitId === unitId),
+  apiGet.mockImplementation(async (url: string) => {
+    const [path, search = ""] = url.split("?");
+    if (path === "/units")
+      return { data: { data: [{ id: "unit-1", name: "SD IT" }] } };
+    if (path === "/academic-years")
+      return { data: { data: [{ id: "ay-1", name: "2026/2027" }] } };
+    if (path === "/finance-enhancement/account-codes") {
+      // Mirror the API: the chosen unit's own accounts plus the shared ones.
+      const unitId = new URLSearchParams(search).get("unitId");
+      return {
+        data: {
+          data: ACCOUNTS.filter((a) => !a.unitId || a.unitId === unitId),
+          meta: {
+            pagination: { page: 1, limit: 100, total: 0, totalPages: 1 },
           },
-        };
-      }
-      return { data: { data: [] } };
-    },
-  );
+        },
+      };
+    }
+    return { data: { data: [] } };
+  });
   useBudgets.mockReturnValue({
     data: { data: [], meta: { pagination: { totalPages: 1 } } },
     isLoading: false,
@@ -124,11 +131,11 @@ describe("Anggaran — the account picker respects the chosen unit", () => {
     ).toBeTruthy();
     expect(screen.queryByRole("option", { name: /unit dua/ })).toBeNull();
 
-    // The scoping is the API's, keyed by the chosen unit — not a client-side
-    // filter over the first page.
-    const call = apiGet.mock.calls.find(
-      ([url]) => url === "/finance-enhancement/account-codes",
+    // The scoping is the API's, keyed by the chosen unit — the shared hook puts
+    // `unitId` in the query string, not a client-side filter.
+    const call = apiGet.mock.calls.find(([url]) =>
+      url.startsWith("/finance-enhancement/account-codes?"),
     );
-    expect(call?.[1]?.params?.unitId).toBe("unit-1");
+    expect(call?.[0]).toContain("unitId=unit-1");
   });
 });
