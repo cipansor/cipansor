@@ -400,6 +400,8 @@ Isi ringkasan (baik di komentar saat belum final, maupun di body saat final) mem
 - Pertanyaan terbuka (kosong bila `ready`)
 - Duplikat (bila ada)
 Bila issue sudah siap: cabut `question` yang bertentangan, pasang `ready`, lalu tulis ringkasan final itu ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`, perbarui di tempat) — tanpa komentar baru. Bila belum siap atau terhalang ketergantungan (`blocked`): tulis ringkasannya sebagai KOMENTAR BARU dan JANGAN menyentuh body.
+
+REPRODUKSI UNTUK LAPORAN BUG (`Reproduksi bug`/SDLC 05 dipensiunkan 2026-11-12 dan dilebur ke sini). Bila issue ini melaporkan cacat — bertipe `bug`, atau tipe lain yang isinya perilaku rusak — jangan hanya menilai premisnya: BUKTIKAN. Tulis reproduksi minimal atau tes yang gagal terhadap `main` saat ini, jalankan, dan tempelkan perintah serta keluaran persisnya ke komentar triase Anda. Pelapor sering tidak bisa menjelaskan penyebabnya; jangan jadikan detail yang kurang sebagai alasan mendiamkan. Bila masalahnya tampak di antarmuka, reproduksi pada aplikasi yang berjalan dan lampirkan tangkapan layar kegagalan. Bila setelah diselidiki perilakunya memang disengaja atau laporannya salah baca, katakan itu beserta buktinya dan gunakan `invalid`, `duplicate`, atau `question` sambil mencabut `bug`. Sebutkan apakah cacat ini regresi (baru sejak perubahan terakhir) atau cacat lama, dengan bukti dari riwayat. Hasil reproduksi adalah bagian dari bukti prioritas: tanpa reproduksi, maksimum `medium` — kecuali dampaknya sudah terbukti dengan sendirinya (mis. layanan mati total). JANGAN membuka pull request; `Tiket jadi PR` yang menulis tes regresi dan perbaikannya.
 """,
     # `SDLC 14` restored 2026-11-09 (see the `RETIRED` note above): judging which
     # prose went stale is not a path diff. It also inherits SDLC 03's judgement
@@ -411,6 +413,21 @@ Deteksi merge ke main yang berdampak dokumentasi: perubahan pada route/kontrak A
 Selain itu, nilai apakah peta modul dan arsitektur di `docs/ARCHITECTURE.md` masih benar terhadap tata letak nyata (`apps/api/src/modules/**`, `apps/web/src/**`, `packages/shared/**`) — modul yang sudah tidak ada, modul baru yang belum tercatat, atau path yang salah. Ini sisa tugas `Peta basis kode` (SDLC 03) yang dipensiunkan 2026-11-09: yang TERUKUR (jumlah modul, model, rute, Lampiran A) sudah dijalankan `.github/workflows/docs-drift.yml` ke issue induk #782, jadi JANGAN mengulang hitungan angka; nilailah hanya apakah peta prosa masih menyampaikan kebenaran. Angka tetap bukan temuan bila dokumennya menunjuk perintah ukur (aturan #782 poin 4).
 
 Jangan membuka issue drift kedua: `#782` adalah satu-satunya issue induk penyimpangan dokumen (keputusan pemilik 2026-10-11). Temuan angka/daftar ke `#782`; temuan prosa yang butuh ditulis ulang ke satu issue `documentation` seperti di atas.
+""",
+    # `Pemindai celah uji` (SDLC 09) is deliberately NOT folded here: its job is
+    # to find which behaviour is UNTESTED and file a `test: cover …` issue, not
+    # to hunt bugs or vulnerabilities. Two different jobs; folding it would lose
+    # the test-gap signal.
+    "SDLC 19": """PERILAKU SASARAN (level agentic)
+Burulah bug yang nyata dan bisa direproduksi pada `main` saat ini yang belum dicakup issue terbuka atau tertutup mana pun. Pilih area bernilai tertinggi dengan membaca commit terbaru, `docs/`, dan suite tes. Buktikan bug-nya: tulis tes yang gagal atau skrip minimal, jalankan, dan tangkap perintah serta keluaran persisnya. Jika tidak bisa membuktikan bug, jangan lakukan apa pun dan katakan itu di ringkasan Anda — issue spekulatif lebih buruk daripada tidak ada. Jangan pernah membuka issue yang menduplikasi yang sudah ada; cari dulu. Jika run pemburu bug untuk issue lain sedang berjalan, berhenti.
+
+TRIASE TEMUAN — KERENTANAN ATAU BUG (WAJIB, sebelum membuka apa pun). Klasifikasikan temuanmu lebih dulu; jalur publikasinya berbeda dan salah jalur bisa membocorkan kerentanan ke repositori PUBLIK.
+
+- **KERENTANAN** — temuan yang bisa dieksploitasi (injeksi, bypass auth/RBAC, IDOR, kebocoran data pribadi, eskalasi hak, rahasia yang bocor, dependensi rentan yang bisa dipakai). JANGAN PERNAH membuka issue publik untuk ini: repositori ini publik, jadi issue sama dengan mengumumkan celahnya sebelum ada perbaikan. Buka **draf GitHub security advisory privat** lewat `POST /repos/cipansor/cipansor/security/advisories` dengan body `{"summary": …, "description": …, "severity": "low|moderate|high|critical", "vulnerabilities": [{"package": {"ecosystem": "npm", "name": "<paket>"}, "patched_versions": …, "vulnerable_versions": …}]}`. Advisory hanya terlihat maintainer sampai perbaikannya siap. Buat lewat `GITHUB_TOKEN` (akun `adminypc`) — advisory privat butuh izin tulis ke security advisories, dan `cipansor-bot` tidak memilikinya. `description` memakai Bahasa Indonesia dan memuat: apa yang rentan (path/berkas atau paket), langkah reproduksi, dampak, dan proof-of-concept secukupnya. Sertakan baris footer AI-disclosure di dalamnya. Bila `POST` dijawab 403/404, jangan mengalihkannya ke issue publik — laporkan di ringkasanmu bahwa advisory tidak bisa dibuat dan sebutkan temuanmu secara ringkas TANPA langkah eksploitasi.
+- **BUG BIASA** — perilaku salah yang tidak bisa dieksploitasi. Buka tepat SATU issue publik berlabel `bug`, satu prioritas dari priority:critical/high/medium/low, dengan bentuk laporan bug: perilaku yang diamati, perilaku yang diharapkan, langkah reproduksi persis, lingkungan, dan bukti mentah (perintah dan keluaran).
+- **RAGU** antara keduanya: pilih jalur advisory privat. Salah menaruh bug biasa di advisory hanya menunda; salah menaruh kerentanan di issue publik membocorkannya.
+
+Jangan membuka pull request; `Tiket jadi PR` yang akan menulis tes yang gagal itu dan perbaikannya. Akhiri setiap komentar dengan footer AI-disclosure.
 """,
     "SDLC 18": """PERILAKU SASARAN (level agentic)
 Bertindaklah sebagai gerbang tinjau resmi untuk PR ini dan kirim SATU review yang SAH per head. IDENTITAS (WAJIB): kirim review lewat `POST /repos/cipansor/cipansor/pulls/<n>/reviews` memakai `GITHUB_BOT_TOKEN` (akun `cipansor-bot`), supaya approval dari penulis PR (akun `adminypc`) tidak ditolak sebagai tinjauan diri. Jangan pakai `GITHUB_TOKEN` untuk mengirim review.
@@ -840,6 +857,15 @@ TRIGGERS = {
     # anything, on a trigger that no longer fires. Verified 2026-11-11: the PATCH
     # drops every event-only key and keeps `enabled` untouched.
     "SDLC 06": {"type": "cron", "schedule": "0 8 * * *", "timezone": "Asia/Jakarta"},
+    # `Pemburu bug` (SDLC 19) and `Pemindai celah uji` (SDLC 09) ran on triggers
+    # that lived only in the cloud — the same drift class SDLC 04 showed (a live
+    # trigger no deploy managed). Written down here so the fleet has one source of
+    # truth and a re-enable restores the slot. Both are weekly/daily crons that
+    # must not collide with another automation's slot (invariant 20): 09:00 is
+    # SDLC 19, 08:15 Monday is SDLC 09, 08:00 is SDLC 06, 06:00 Monday is SDLC 20.
+    "SDLC 19": {"type": "cron", "schedule": "0 9 * * *", "timezone": "Asia/Jakarta"},
+    "SDLC 09": {"type": "cron", "schedule": "15 8 * * 1", "timezone": "Asia/Jakarta"},
+    "SDLC 20": {"type": "cron", "schedule": "0 6 * * 1", "timezone": "Asia/Jakarta"},
     # the review gate runs only on a manual review request, never on
     # `ready_for_review` — so it is not woken before CI is green (#840).
     "SDLC 18": {"on": ["pull_request.review_requested"]},
@@ -898,6 +924,29 @@ TRIGGERS = {
 # would have silently resurrected the monthly staging load against a baseline
 # nothing refreshes. This entry is the missing safety net.
 RETIRED = {
+    "SDLC 05": "`Reproduksi bug` dipensiunkan 2026-11-12 (keputusan pemilik) — "
+    "dilebur ke SDLC 15 (`Triase issue`) demi kuota sandbox harian (20/hari). "
+    "Kedua automation menyala pada peristiwa yang sama (`issues.opened` + label "
+    "`bug`), jadi satu laporan bug membangunkan dua agen dan dua sandbox. Tail "
+    "SDLC 15 kini memuat perannya: bila issue melaporkan cacat, triase WAJIB "
+    "mereproduksi lebih dulu (perintah + keluaran ditempel ke komentar triase) "
+    "sebelum menilai prioritas. Re-enable hanya dengan menghapus entri ini DAN "
+    "mengembalikan bagian REPRODUKSI dari tail SDLC 15.",
+    "SDLC 14": "`Pengelola dokumentasi` dipensiunkan 2026-11-12 (keputusan "
+    "pemilik) demi kuota sandbox harian (20/hari). Pemicunya `push` ke `main` "
+    "menyala pada SETIAP merge (55 commit pada 2026-11-11), sehingga satu "
+    "automation ini bisa menghabiskan kuota sehari sendirian dan menyalip "
+    "triase serta gerbang tinjau. Sisa nilainya: `docs-drift.yml` sudah "
+    "menjalankan bagian TERUKUR (jumlah modul, model, rute, Lampiran A) ke "
+    "issue induk #782 tanpa sandbox, dan penilaian prosa (peta modul di "
+    "ARCHITECTURE.md) diperiksa maintainer saat membaca dokumen.",
+    "SDLC 06": "`Tiket jadi PR` dimatikan SEMENTARA 2026-11-12 (keputusan "
+    "pemilik) demi kuota sandbox harian (20/hari) — bukan pensiun permanen. "
+    "Kemampuannya tidak dilebur ke mana pun; tidak ada automation lain yang "
+    "membuka pull request (docs/SDLC-FLOW.md). Selama ia mati, antrean `ready` "
+    "menumpuk dan tidak ada PR otomatis: itu memang harganya. Hidupkan kembali "
+    "dengan menghapus entri ini begitu kuota cukup — pemicu cron harian "
+    "08:00 WIB dan tail-nya masih utuh.",
     "SDLC 22": "`Diskusi` dipensiunkan 2026-11-12 (keputusan pemilik) — dilebur "
     "ke SDLC 15 (`Triase issue`): balasan maintainer pada issue `question` sudah "
     "dipicu jembatan triase (setiap aktivitas non-armada), jadi satu komentar "

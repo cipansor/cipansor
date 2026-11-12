@@ -235,18 +235,18 @@ detect` workflow: when two **open** issues share a title once normalised
 
 ## Which automation owns which label
 
-| Automation            | Trigger                                   | Labels it sets                                                                                               |
-| --------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| Automation            | Trigger                                                           | Labels it sets                                                                                                                                     |
+| --------------------- | ----------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `Triase issue`        | issue opened; balasan pada issue `question` (via jembatan triase) | tipe, prioritas, `ready` / `question` / `duplicate`; balasan pelapor → `ready` / `duplicate` / `invalid`; balasan maintainer → `ready` / `wontfix` |
-| `Tiket jadi PR`       | daily cron 08:00 WIB, `ready` queue oldest-first | tidak ada — ia membuka PR                                                                                    |
-| `Issue label sync`    | PR opened / issue relabeled               | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`)                                     |
-| `issue-claim.sh`      | PR opened / issue relabeled               | `ready` ↔ `in-progress` pada issue tertaut (deterministik, `issue-claim.yml`)                                |
-| `duplicate-detect.sh` | issue opened / jadwal harian              | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan |
-| `pr-duplicate.sh`     | jadwal harian                             | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama                         |
-| `stale-sweep.sh`      | jadwal harian                             | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`)              |
-| `Gerbang tinjau PR`   | PR ready for review, or CI-green dispatch | tidak ada — ia meninjau (termasuk QA) atau menyetujui                                                         |
-| `Pemburu bug`         | daily cron                                | membuka issue `bug`, satu prioritas (tanpa label provenans)                                                  |
-| `Pemindai standar`    | weekly cron                               | membuka issue dengan tipe, prioritas, `question`                                                             |
+| `Tiket jadi PR`       | daily cron 08:00 WIB, `ready` queue oldest-first                  | tidak ada — ia membuka PR                                                                                                                          |
+| `Issue label sync`    | PR opened / issue relabeled                                       | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`)                                                                           |
+| `issue-claim.sh`      | PR opened / issue relabeled                                       | `ready` ↔ `in-progress` pada issue tertaut (deterministik, `issue-claim.yml`)                                                                      |
+| `duplicate-detect.sh` | issue opened / jadwal harian                                      | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan                                       |
+| `pr-duplicate.sh`     | jadwal harian                                                     | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama                                                               |
+| `stale-sweep.sh`      | jadwal harian                                                     | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`)                                                    |
+| `Gerbang tinjau PR`   | PR ready for review, or CI-green dispatch                         | tidak ada — ia meninjau (termasuk QA) atau menyetujui                                                                                              |
+| `Pemburu bug`         | daily cron 09:00 WIB                                              | membuka issue `bug` berbukti, satu prioritas; **kerentanan → draf advisory privat** (bukan issue publik)                                           |
+| `Pemindai standar`    | weekly cron                                                       | membuka issue dengan tipe, prioritas, `question`                                                                                                   |
 
 The deterministic consequences are GitHub Actions workflows
 (`issue-label-sync.yml`, `issue-claim.yml`, `pr-lifecycle.yml`,
@@ -310,9 +310,10 @@ to produce the labels above, not prose to read and forget:
   report still gets triaged, and `Triase issue` fills what it can before deciding
   `ready` versus `question`.
 - A `bug` issue may still arrive thin — a reporter often cannot say _why_. That
-  is expected: `Reproduksi bug` investigates, adds the cause and, for a UI defect,
-  reproduces it and attaches a screenshot to the issue by editing its body. It
-  does not send the issue to `question` for being incomplete.
+  is expected: `Triase issue` investigates and reproduces it first (the
+  `Reproduksi bug` role, folded in on 2026-11-12 to save a sandbox slot), adds the
+  cause and, for a UI defect, attaches a screenshot to the issue. It does not send
+  the issue to `question` for being incomplete.
 - The **PR template** has the sections `Mengapa`, `Yang diubah`, `Issue
 tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko` and
   `Catatan` (no `HUMAN`/`AGENT` split and no `Type` checklist since 2026-11-09,
