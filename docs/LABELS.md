@@ -145,8 +145,8 @@ detect` workflow: when two **open** issues share a title once normalised
    recommendation, not the last word — merge stays with the maintainer, so it is
    never written up as a final decision.
 
-7. **A review proposes the fix, it does not only complain.** `Peninjau arsitektur`
-   dan `Gerbang tinjau PR` saat mengembalikan PR, memposting setiap masalah lokal dan mekanis
+7. **A review proposes the fix, it does not only complain.** `Gerbang tinjau PR`
+   saat mengembalikan PR memposting setiap masalah lokal dan mekanis
    problem as a GitHub `suggestion` block so the author can apply it in one
    click, and describe the proposed change in words for a problem too large for
    a block. A suggestion is never placed on a line the automation is not certain

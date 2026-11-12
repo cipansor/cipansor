@@ -422,6 +422,30 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
     expect(seven).not.toContain("contains(issue.labels[].name, 'question')");
   });
 
+  it('retires `Peninjau arsitektur` (SDLC 04), whose trigger could never fire', () => {
+    // 2026-11-12 (owner decision): SDLC 04 watched `pull_request.opened` with a
+    // `pull_request.draft == false` filter, but `Tiket jadi PR` (SDLC 06) always
+    // opens a DRAFT, and promoting a draft emits `ready_for_review` — not
+    // `pull_request.opened`. So the filter never matched a fleet PR: one run in
+    // its whole life (2026-10-07), on a placeholder PR it called "safe to
+    // delete". Its trigger was never managed by `TRIGGERS` either, so it lived
+    // only in the cloud. A dead trigger is retired, not left dark.
+    const retired = block('RETIRED');
+    expect(retired).toMatch(/"SDLC 04":/);
+    expect(retired).toContain('Peninjau arsitektur');
+    // It must not become a trigger the script owns: the point is that the fleet
+    // does not carry a design reviewer until one is designed on purpose.
+    expect(block('TRIGGERS')).not.toContain('"SDLC 04": {');
+    // No managed tail was ever authored for it — retiring one that never existed
+    // would be a no-op that hides the real state.
+    expect(script()).not.toMatch(/"SDLC 04":\s*"""PERILAKU SASARAN/);
+    // The role is not silently reassigned: the review gate's tail does not claim
+    // a design/RFC/ADR pass it never had.
+    const tails = block('TAILS');
+    expect(tails).not.toMatch(/tinjau dokumen desain/i);
+    expect(tails).not.toMatch(/\bADR\b/);
+  });
+
   it('runs `Tiket jadi PR` on the daily cron, and sends a complete trigger', () => {
     // The 2026-11-11 rewrite dropped the `bot-implement` event trigger and left
     // `{"on": ["schedule"]}` behind — not a trigger at all. `schedule` is not a
@@ -1671,7 +1695,7 @@ describe('deploy-sdlc-agents.py', () => {
       // writer's, `adminypc`) for "any read and write on GitHub". The identity
       // block is now the single source of truth for which token does what.
       const original = `Header\n\n${AMBIENT}\n\nPERILAKU SASARAN (level agentic)\nTail`;
-      const out = newPrompt('SDLC 04', original);
+      const out = newPrompt('SDLC 05 · Reproduksi bug', original);
       expect(out).not.toContain('untuk operasi baca dan tulis apa pun pada GitHub');
       expect(out).toContain('JANGAN memakai token yang tertanam di remote git `origin`');
       expect(out).toContain('IDENTITAS — DUA AKUN, JANGAN DITUKAR');
@@ -1698,11 +1722,11 @@ describe('deploy-sdlc-agents.py', () => {
           'res = {}',
           'for legacy in ("OLD_IDENTITY_LINE", "FIRST_SPLIT_IDENTITY_LINE"):',
           '    live = "H\\n" + m.BODY_BLOCK.replace(m.NEW_IDENTITY_LINE, getattr(m, legacy)) + "\\n" + m.AMBIENT_TOKEN_NOTE + "\\n\\nPERILAKU SASARAN (level agentic)\\nT"',
-          '    out = m.new_prompt("SDLC 04 · X", live)',
+          '    out = m.new_prompt("SDLC 05 · X", live)',
           '    res[legacy] = {',
           '        "upgraded": m.NEW_IDENTITY_LINE in out and getattr(m, legacy) not in out,',
           '        "note": m.IDENTITY_TOKEN_NOTE in out and m.AMBIENT_TOKEN_NOTE not in out,',
-          '        "idempotent": m.new_prompt("SDLC 04 · X", out) == out,',
+          '        "idempotent": m.new_prompt("SDLC 05 · X", out) == out,',
           '    }',
           'print(json.dumps(res))',
         ].join('\n')
@@ -1841,11 +1865,13 @@ describe('deploy-sdlc-agents.py', () => {
     // An automation with a managed tail but no tailored budget.
     expect(newPrompt('SDLC 15', original)).toContain('ANGGARAN WAKTU — JAM PASIR');
     // An automation with no managed tail keeps its tail and gains the budget.
-    const plain = newPrompt('SDLC 04', original);
+    const plain = newPrompt('SDLC 05 · Reproduksi bug', original);
     expect(plain).toContain('ANGGARAN WAKTU — JAM PASIR');
     expect(plain).toContain('Original tail');
     // Idempotent: a redeploy must not stack a second copy.
-    expect(newPrompt('SDLC 04', plain).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(
+      newPrompt('SDLC 05 · Reproduksi bug', plain).match(/ANGGARAN WAKTU — JAM PASIR/g)
+    ).toHaveLength(1);
     // A tailored budget is not doubled with the generic one.
     expect(newPrompt('SDLC 18', original)).not.toContain('JAM PASIR');
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
@@ -1891,7 +1917,7 @@ describe('deploy-sdlc-agents.py', () => {
     // (`TAILS`), that marker held the task's own instructions — appending a
     // budget to the surviving head would ship a prompt that cannot do its job.
     // The deploy must refuse and name the repair (`ORIGINALS`), not deploy it.
-    const r = runNewPrompt('SDLC 04', 'Header tanpa ekor');
+    const r = runNewPrompt('SDLC 05 · Reproduksi bug', 'Header tanpa ekor');
     expect(r.status).not.toBe(0);
     expect(r.stderr).toContain('no ');
     expect(r.stderr).toContain('ORIGINALS');
@@ -1904,12 +1930,14 @@ describe('deploy-sdlc-agents.py', () => {
     const original =
       'Header\n\nSertakan tes bersama perubahan kode.\n\n' +
       'PERILAKU SASARAN (level agentic)\nInstruksi tugas yang hilang saat terpotong.';
-    const out = newPrompt('SDLC 04', original);
+    const out = newPrompt('SDLC 05 · Reproduksi bug', original);
     expect(out).toContain('Instruksi tugas yang hilang saat terpotong.');
     expect(out).toContain('BODY ISSUE/PR');
     expect(out).toContain('ANGGARAN WAKTU — JAM PASIR');
     // Idempotent on that result.
-    expect(newPrompt('SDLC 04', out).match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(
+      newPrompt('SDLC 05 · Reproduksi bug', out).match(/ANGGARAN WAKTU — JAM PASIR/g)
+    ).toHaveLength(1);
   });
 
   it.skipIf(!hasPy)('rebuilds a managed-tail automation whole even from a truncated head', () => {
@@ -2002,7 +2030,7 @@ describe('deploy-sdlc-agents.py', () => {
       'def fake_req(method, path, data=None, raw=False):',
       '    calls.append({"method": method, "path": path, "data": data})',
       '    if method == "GET" and path == "/":',
-      '        return {"automations": [{"id": "aid-1", "name": "SDLC 04",',
+      '        return {"automations": [{"id": "aid-1", "name": "SDLC 05 · Reproduksi bug",',
       '            "prompt": "Header tanpa ekor", "timeout": 900, "trigger": {}}]}',
       '    return {}',
       'm.req = fake_req',

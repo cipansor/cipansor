@@ -941,3 +941,56 @@ entri `TRIGGERS["SDLC 16"]` dihapus, dan tail SDLC 15 mendapat bagian `BALASAN
 PELAPOR`. Karena `RETIRED` hanya berlaku saat deploy, **SDLC 16 tetap hidup di
 cloud sampai `DEPLOY=true` dijalankan** — pola yang sama dengan temuan deploy
 sebelumnya.
+
+### SDLC 04 · Peninjau arsitektur dipensiunkan 2026-11-12 (keputusan pemilik)
+
+Diminta pemilik 2026-11-12: "cek automate `Bot sebutan` (SDLC 07) dan `Peninjau
+arsitektur` (SDLC 04), apa masih diperlukan, karena sudah lama tidak digunakan."
+Temuan atas SDLC 04 jauh lebih keras daripada "jarang dipakai": **pemicunya tidak
+pernah bisa menyala**.
+
+- Pemicunya `pull_request.opened` + filter `pull_request.draft == `false`` +
+  judul memuat design/rfc/arsitektur/adr. Tapi `Tiket jadi PR` (SDLC 06) **selalu**
+  membuka PR sebagai **DRAF**, dan promosi draf memancarkan `ready_for_review` —
+  bukan `pull_request.opened`. Jadi filter `draft == false` tak pernah cocok
+  untuk satu pun PR armada.
+- Bukti run: seumur hidupnya **satu** run (2026-10-07), dan run itu sendiri
+  menyebut PR #669 sebagai "placeholder architecture note … safe to delete" —
+  smoke test. Judul PR seumur repo: 2 untuk `design` (keduanya sekitar smoke
+  test), 0 untuk `rfc`/`arsitektur`/`adr`.
+- Pemicunya **tidak pernah dikelola `TRIGGERS`** di deploy script (hanya 07/06/18
+  yang ada) — hidup hanya di cloud, melanggar prinsip "satu sumber kebenaran".
+
+**Keputusan pemilik 2026-11-12: opsi (a) — pensiunkan.** Peran tinjauan desain
+**tidak** dipindahkan: `Gerbang tinjau PR` (SDLC 18) sudah meninjau setiap PR
+non-draf termasuk dokumen desain, dan maintainer membaca dokumen desain langsung.
+Opsi (b) — perbaiki pemicu jadi `pull_request.ready_for_review` + tambah peran
+tinjau desain ke SDLC 18 — ditolak karena menambah cakupan ke gerbang yang sudah
+punya anggaran waktu ketat tanpa kebutuhan nyata.
+
+Yang berubah: hanya entri `RETIRED["SDLC 04"]`. Tidak ada tail untuk dihapus
+(SDLC 04 tak pernah punya entri `TAILS`) dan tidak ada trigger untuk dihapus (tak
+pernah ada di `TRIGGERS`). Karena `RETIRED` hanya berlaku saat deploy,
+**SDLC 04 tetap hidup di cloud sampai `DEPLOY=true`** — pola yang sama dengan
+SDLC 16. Deploy 2026-11-12 menjalankannya: `disabled (retired)`, live 9 ON/24.
+
+**Pelajaran verifikasi:** `search/issues?q=@cipansor-bot` (1053 hasil) dan
+`q=cipansor-bot` (378) mencocokkan **body** & dokumen, bukan komentar — angka
+besar itu menyesatkan. Pemakaian sebutan harus dihitung dari
+`GET /issues/<n>/comments` dan disaring `user.login`. Dengan cara itu: 5 komentar
+sebutan manusia seumur repo (semua `adminypc`), terakhir 2026-11-03.
+
+### SDLC 07 · Bot sebutan — DIPERTAHANKAN 2026-11-12
+
+Diperiksa bersama SDLC 04; keputusan pemilik: pertahankan (belum diputuskan
+eksplisit soal tumpang tindih jembatan triase). Ia kanal **on-demand**, bukan
+yang diharapkan jalan tiap hari, jadi "jarang dipakai" bukan alasan pensiun.
+Angka "40 run, 15 gagal" menyesatkan: ~25 run terjadi 10-07..10-14, **sebelum
+guard penulis** (ditetapkan 2026-10-14) — masa bot saling membalas. Pasca-guard
+ia menyala ~1× per sebutan nyata (5 sebutan manusia seumur repo). Kegagalannya
+mayoritas infrastruktur (`Sandbox not available`, timeout).
+
+Tumpang tindih yang dicatat, belum diputuskan: sinyal aktivitas jembatan triase
+memuat setiap komentar non-armada, jadi sebutan `@cipansor-bot` pada issue
+terbuka non-`ready` membangunkan SDLC 07 **dan** SDLC 15 — kelas "satu komentar,
+dua pemilik" yang sama dengan SDLC 16/22.

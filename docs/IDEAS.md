@@ -67,6 +67,29 @@ Menilai ulang saat pelapor menjawab issue `question`: memberi `ready` bila sudah
 jelas, `duplicate`/`invalid` bila tidak. Ia tidak pernah bertindak atas
 komentarnya sendiri.
 
+## 4c. Peninjau arsitektur — **dipensiunkan 2026-11-12**
+
+> Automation `SDLC 04` dimatikan atas keputusan pemilik. Bukan sekadar jarang
+> dipakai: pemicunya **tidak pernah bisa menyala**. Ia menunggu
+> `pull_request.opened` dengan filter `pull_request.draft == false`, padahal
+> `Tiket jadi PR` (SDLC 06) selalu membuka PR sebagai **draf**, dan promosi ke
+> siap-ditinjau memancarkan `ready_for_review` — bukan `pull_request.opened`.
+> Jadi filter itu tak pernah cocok untuk satu pun PR armada. Bukti: seumur
+> hidupnya ia punya **satu** run (2026-10-07), dan run itu sendiri menyebut PR
+> #669 sebagai "placeholder architecture note … safe to delete" — smoke test.
+> Judul PR yang cocok seumur repo: 2 untuk `design` (keduanya sekitar smoke
+> test), 0 untuk `rfc`/`arsitektur`/`adr`. Pemicunya juga tak pernah dikelola
+> `TRIGGERS` di deploy script — ia hidup hanya di cloud, melanggar prinsip "satu
+> sumber kebenaran". Peran tinjauan desain **tidak** dipindahkan: `Gerbang tinjau
+> PR` (SDLC 18) sudah meninjau setiap PR non-draf, termasuk dokumen desain, dan
+> maintainer membaca dokumen desain langsung. Bila kelak perlu, hidupkan kembali
+> sebagai pemicu `pull_request.ready_for_review` yang dikelola skrip.
+
+Meninjau dokumen desain/RFC/ADR yang dibuka sebagai PR non-draf, dan mengirim
+umpan balik terstruktur: risiko, alternatif yang belum dipertimbangkan,
+pertimbangan yang hilang, dan konsistensi dengan keputusan yang sudah tercatat
+di `.claude/memory/decisions/`.
+
 ## 5. Pengawas armada — **dipensiunkan 2026-11-11**
 
 > Automation `SDLC 23` dimatikan dan laporannya tidak lagi diproduksi. Pemilik

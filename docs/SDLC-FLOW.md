@@ -510,7 +510,6 @@ flowchart TB
     MENT(["komentar @cipansor-bot"]):::human -. "penulis terpercaya" .-> C7["Bot sebutan"]:::cloud
     C7 -. "tugas kode" .-> BOT(["issue + ready"]):::cloud -.-> C6
     DPR --> C17["issue-label-sync.yml (deterministik)"]:::gh
-    DPR --> C4["Peninjau arsitektur"]:::cloud
     DPR --> RDY(["Ditandai siap ditinjau"]):::human
     RDY -. "tunggu hijau" .-> C18["Gerbang tinjau PR (tinjau + QA)"]:::cloud
     RDY --> GAE["Actions · E2E Tests"]:::gh
@@ -577,7 +576,6 @@ flowchart TD
   classDef human fill:#e9f7ef,stroke:#27ae60,color:#111;
 
   DPR([Draft PR]) --> C17["issue-label-sync.yml (deterministik)"]:::gh
-  DPR --> C4["Peninjau arsitektur (bila design/ADR)"]:::cloud
   DPR --> RDY(["Ditandai siap ditinjau"]):::human
 
   RDY -. "tunggu hijau" .-> C18["Gerbang tinjau PR (tinjau + QA)"]:::cloud
@@ -688,7 +686,7 @@ Timer dan pengecualiannya sama seperti `Penjaga issue` dulu.
 | Automation            | Peran                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 | --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | (deterministik)       | `docs-drift.yml` — `collect_facts.py` + `check_docs.py` menyegarkan **badan issue induk #782** (angka, Lampiran A); menggantikan `Peta basis kode`                                                                                                                                                                                                                                                                                                                                |
-| Peninjau arsitektur   | meninjau dokumen desain/RFC/ADR                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Peninjau arsitektur   | **dipensiunkan 2026-11-12** — pemicunya (`pull_request.opened` + `draft == false`) tak pernah bisa menyala karena `Tiket jadi PR` selalu membuka PR sebagai draf; seumur hidup hanya 1 run (smoke test). Peran tinjauan desain tidak dipindahkan ke SDLC 18                                                                                                                                                                                                                          |
 | Reproduksi bug        | menyelidiki issue `bug`, menempel reproduksi + bukti ke issue                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | Tiket jadi PR         | **satu-satunya pembuat PR**; cron harian, memindai antrean `ready` terlama dulu, ≤ 3 PR per run; klaim issue (`ready` → `in-progress`) dikerjakan `issue-claim.yml`                                                                                                                                                                                                                                                                                                                 |
 | Bot sebutan           | menyerahkan permintaan `@cipansor-bot` yang berupa pekerjaan ke issue + `ready`, atau menjawab pertanyaan                                                                                                                                                                                                                                                                                                                                                                         |
@@ -714,7 +712,7 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
 | Akun           | Peran                                          | Automation                                                                                                                                      |
 | -------------- | ---------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
 | `adminypc`     | Penulis — membuat issue dan pull request       | Reproduksi bug, Tiket jadi PR, Bot sebutan, Pemindai celah uji, Pengelola dokumentasi, Pemburu bug, Pemindai standar       |
-| `cipansor-bot` | Komunikator — komentar, label, review, approve | Peninjau arsitektur, Triase issue (tipe + keparahan + label + balasan pelapor & maintainer), Gerbang tinjau PR (termasuk QA) |
+| `cipansor-bot` | Komunikator — komentar, label, review, approve | Triase issue (tipe + keparahan + label + balasan pelapor & maintainer), Gerbang tinjau PR (termasuk QA) |
 
 - Pull request harus teratribusi ke penulis, jadi automation yang membukanya
   memakai `GITHUB_TOKEN` (`adminypc`). Selebihnya memposting lewat
@@ -825,8 +823,8 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   `Pembuat catatan rilis` memotong kandidat `-rc` mingguan, tetapi tag itu tidak
   dikonsumsi apa pun dan nomornya berhenti menandai kode terverifikasi —
   dipensiunkan; tag rilis kini manual dan sekaligus memicu deploy.
-- **Armada adalah kerangka plus saluran pipanya.** `Peninjau arsitektur` …
-  `Gerbang tinjau PR` (item Agentic SDLC) dipetakan satu-ke-satu; `Triase issue`
+- **Armada adalah kerangka plus saluran pipanya.** `Gerbang tinjau PR`
+  (item Agentic SDLC) dipetakan satu-ke-satu; `Triase issue`
   … `Pemindai standar` menambahkan pipeline label/siklus hidup dan pemburu
   proaktif; `Audit kematangan` (nonaktif 2026-11-10, dinilai manual) menilai
   item yang sama dan menyebut yang terlemah.
