@@ -72,11 +72,14 @@ Cross-cutting foundations (reuse, don't reinvent):
   `SCHEDULER_ENABLED`: the notification scheduler
   (`modules/notifications/scheduler.service.ts`, tasks pinned in
   `scheduler.tasks.ts`), which sends due-date, attendance, tahfidz, event,
-  monthly-report and budget-overrun notices. It is safe on more than one
-  instance even though `src/jobs/` is not: each task claims its slot per
-  recipient through `notification_deliveries`
-  (`NotificationDelivery`, unique on userId+dedupeKey), so two instances do not
-  send the same message twice.
+  monthly-report and budget-overrun notices. Only the tasks that pass a
+  `dedupeKey` — `payment-reminder`, `event-reminder`, `budget-overrun-alert` —
+  claim their slot per recipient through `notification_deliveries`
+  (`NotificationDelivery`, unique on userId+dedupeKey), so a second instance
+  does not send those twice. The three bulk tasks (`attendance-summary`,
+  `tahfidz-progress`, `monthly-report`) go through `createManyNotifications`
+  without a key, so they **do** duplicate on a second instance, exactly like
+  `src/jobs/` (`.claude/memory/known-issues.md`).
   The **Web Push dispatcher** is the exception on both counts: it is started on
   its own, not behind `SCHEDULER_ENABLED` (it creates nothing, only relays what
   the environment's own users were notified of), and it is already safe on

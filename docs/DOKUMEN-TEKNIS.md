@@ -16,7 +16,8 @@
 | 1.2 | 11 Oktober 2026 | commit `c56078f04` | Angka tata letak modul dan jadwal diukur ulang dan kini diperiksa mesin (#771): 68 dari 95 modul empat berkas, 26 lima bagian, 17 entri jadwal atas 15 berkas pekerjaan. Pemeriksa `check_docs.py` tidak lagi hanya mengenali "dari 93". | Agen Claude Code |
 | 1.3 | 11 November 2026 | commit `76511a89` | Angka diukur ulang setelah fitur absensi pegawai (#630) dan pekerjaan lain: **307 model**, ~**1.459 hulu rute API**, **436 halaman web**, **19 entri jadwal** atas **17 berkas pekerjaan**. §6.6 memuat empat pekerjaan yang sebelumnya terlewat (`holiday-sync`, `attendance-retention`, `letter-retention`, `admission-wave-status`) dan dua berkas tak terjadwal; Lampiran A diukur ulang baris demi baris; bab 9 menambah keputusan `absensi-pegawai.md` dan `persetujuan-pengguna.md`; Lampiran F peta halaman `/hr` 17→20. `check_docs.py` 0 ERROR | Agen OpenHands |
 | 1.4 | 11 November 2026 | kode `af09e9a6` | Konvensi tanggal/waktu ditambahkan ke §8 (tanggal-saja `YYYY-MM-DD` pada tengah malam UTC, pembacaan sebagai timestamp ISO, perbandingan lewat jatuh tempo memakai instan itu — bukan akhir hari WIB — dan bulan penagihan WIB lewat `utils/wib-day.ts`), dan §6.6 menyebut bulan penagihan/pengingat mengikuti kalender WIB (#825). | Agen OpenHands |
-| 1.5 | 12 November 2026 | commit `3cc543b5` | §6.6 kini menyebut **dua** penjadwal: `jobs/scheduler.ts` (angkanya ditunjuk lewat perintah ukur, bukan dipaku) dan penjadwal notifikasi modul `notifications` (#802) beserta tabel enam tugasnya, dan catatan "satu instans" dipisahkan — batasan itu berlaku untuk `jobs/scheduler.ts`, tidak bagi penjadwal notifikasi (`notification_deliveries`) maupun dispatcher Web Push (`FOR UPDATE SKIP LOCKED`). Rute `POST /notifications/scheduler/trigger`, kolom `Notification.dedupeKey`, model `NotificationDelivery`, dan dua migrasinya dicatat; §5.3 dan Lampiran B diberi satu kalimat penopang (#875). `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
+| 1.5 | 12 November 2026 | commit `3cc543b5` | Tabel 2 (Batasan) tidak lagi memaku versi **patch** Prisma: `Prisma 7.10.0` → `Prisma 7` (tingkat mayor), seperti baris yang sama sudah menulis `Next.js 16`, `React 19`, `React Query 5`, dan `Tailwind 4`; baris itu tetap mencantumkan `package.json` sebagai sumbernya (#874). Angka diukur ulang terhadap `facts.json`, tidak berubah. `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
+| 1.6 | 12 November 2026 | commit `3cc543b5` | §6.6 kini menyebut **dua** penjadwal: `jobs/scheduler.ts` (angkanya ditunjuk lewat perintah ukur, bukan dipaku) dan penjadwal notifikasi modul `notifications` (#802) beserta tabel enam tugasnya, dan catatan "satu instans" dipisahkan — batasan itu berlaku untuk `jobs/scheduler.ts`, **sebagian** bagi penjadwal notifikasi (hanya tugas ber-`dedupeKey` yang aman multi-instans; tiga tugas massal tetap menggandakan) dan tidak bagi dispatcher Web Push (`FOR UPDATE SKIP LOCKED`). Tabel tugas mencatat `payment-reminder` mengingatkan **sekali per tagihan** dalam jendela tujuh hari (bukan H-7/H-3/H-1). Rute `POST /notifications/scheduler/trigger`, kolom `Notification.dedupeKey`, model `NotificationDelivery`, dan dua migrasinya dicatat; §5.3 dan Lampiran B diberi satu kalimat penopang (#875). `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
 > seiring pengembangan. Dokumen diperbarui dengan menjalankan ulang pengukuran, bukan dengan menyunting angka.
@@ -115,11 +116,11 @@ setiap orang pada data yang berhak dilihatnya.
 
 | Jenis | Batasan | Sumber |
 |---|---|---|
-| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7.10.0, Zod 4, PostgreSQL, Redis (opsional), Node 26, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
+| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7, Zod 4, PostgreSQL, Redis (opsional), Node 26, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
 | Organisasi | Tim pengembang kecil; yayasan nirlaba memakai perkakas hibah; satu basis data untuk semua unit; repositori bersifat **publik sampai rilis** (lisensi proprietary, menjadi privat saat rilis). | `AGENTS.md`, `LICENSE` |
 | Hukum (yang tercatat di repo) | UU 16/2001 (Yayasan) untuk wewenang organ; UU 27/2022 (PDP) untuk data pribadi; PP 71/2019 untuk tanda tangan elektronik. | `decisions/pengesahan-dokumen-yayasan.md`, `decisions/esign-standards-ceiling.md`, `skills/tata-kelola-yayasan` |
 | Konvensi | Portal berbahasa Indonesia; situs publik tiga bahasa (Indonesia, Inggris, Arab; Arab ditulis kanan ke kiri). Istilah pesantren tidak diterjemahkan; istilah umum berbahasa Inggris di kode/URL, label berbahasa Indonesia. | `decisions/istilah-dan-penamaan.md` |
-| Operasional | Pekerjaan terjadwal berjalan di dalam proses API. Pekerjaan `jobs/scheduler.ts` berjalan **tanpa kunci**, sehingga aplikasi dijaga **satu instans**; penjadwal notifikasi dan dispatcher Web Push aman pada beberapa instans (lihat 6.6). | `docs/ARCHITECTURE.md`, `docs/deploy-azure.md` |
+| Operasional | Pekerjaan terjadwal berjalan di dalam proses API. Pekerjaan `jobs/scheduler.ts` berjalan **tanpa kunci**, sehingga aplikasi dijaga **satu instans**; hanya tugas penjadwal notifikasi yang ber-`dedupeKey` dan dispatcher Web Push yang aman pada beberapa instans (lihat 6.6). | `docs/ARCHITECTURE.md`, `docs/deploy-azure.md` |
 
 # 3. Konteks dan Lingkup
 
@@ -480,7 +481,7 @@ Sejak #802, modul `notifications` menjalankan penjadwalnya sendiri di luar
 
 | Id tugas | Jadwal (WIB) | Yang dilakukan |
 |---|---|---|
-| `payment-reminder` | harian 08:00 | Pengingat jatuh tempo tagihan **H-7/H-3/H-1** |
+| `payment-reminder` | harian 08:00 | Pengingat jatuh tempo tagihan, **sekali per tagihan** dalam jendela 7 hari (kunci `payment-reminder:<id>`) |
 | `attendance-summary` | harian 18:00 | Ringkasan kehadiran harian |
 | `tahfidz-progress` | Jumat 16:00 | Kemajuan tahfidz mingguan |
 | `event-reminder` | harian 07:00 | Pengingat agenda mendatang |
@@ -499,11 +500,17 @@ id dari `SCHEDULED_TASK_IDS`.
 > harus ada sebelum penskalaan. `SCHEDULER_ENABLED=false` mematikannya (dipakai
 > di staging).
 >
-> Batasan itu **tidak** berlaku bagi penjadwal notifikasi: tugasnya mengklaim
-> slot per penerima lewat `notification_deliveries` (model
-> `NotificationDelivery`, indeks unik `userId`+`dedupeKey`), jadi dua instans
-> tidak mengirim pesan yang sama dua kali. Pengirim Web Push juga aman pada
-> beberapa instans karena mengklaim barisnya dengan `FOR UPDATE SKIP LOCKED`.
+> Batasan itu **sebagian** berlaku bagi penjadwal notifikasi. Tugas yang
+> memberikan `dedupeKey` (`payment-reminder`, `event-reminder`,
+> `budget-overrun-alert`) mengklaim slot per penerima lewat
+> `notification_deliveries` (model `NotificationDelivery`, indeks unik
+> `userId`+`dedupeKey`), jadi dua instans tidak mengirim pesan yang sama dua kali.
+> Tiga tugas massal (`attendance-summary`, `tahfidz-progress`, `monthly-report`)
+> memakai `createManyNotifications` **tanpa** kunci, jadi ia tetap menggandakan
+> laporan pada instans kedua — sama seperti `jobs/scheduler.ts`; kunci
+> (`pg_try_advisory_lock`) atau klaim slot harus ditambahkan sebelum penskalaan
+> (`.claude/memory/known-issues.md`). Pengirim Web Push juga aman pada beberapa
+> instans karena mengklaim barisnya dengan `FOR UPDATE SKIP LOCKED`.
 
 # 7. Tampak Penempatan
 
@@ -846,14 +853,15 @@ Nama entitas adalah nama model di `schema.prisma` (`Class` ditulis dengan tanda 
 `@relation` model-model itu. Pendaftaran siswa ke kelas adalah `ClassEnrollment`;
 pendaftaran ke unit adalah `StudentUnitEnrollment` (tidak digambar).
 
-Dua model penopang notifikasi berulang (#802) tidak digambar agar diagram tetap
-terbaca: `Notification.dedupeKey` (kolom, bukan penjaga) menandai baris lonceng
-yang merupakan salinan in-app dari sebuah slot berulang, sedangkan
-`NotificationDelivery` adalah penopang anti-kirim-ulang — satu baris per
-(`userId`, `dedupeKey`) dengan indeks unik, dibuat sebelum baris in-app dan
-sebelum pengiriman keluar sehingga keadaan tiap kanal (`SENT`/`FAILED`/
-`PENDING`) tidak hilang saat baris lonceng dihapus atau transport gagal. Kedua
-tabel dibawa dua migrasi `20261013100000_notification_dedupe_key` dan
+Dua penopang notifikasi berulang (#802) tidak digambar agar diagram tetap
+terbaca: `Notification.dedupeKey` adalah **kolom** pada model `Notification`
+yang sudah ada (bukan model baru), menandai baris lonceng yang merupakan salinan
+in-app dari sebuah slot berulang, sedangkan `NotificationDelivery` adalah satu-
+satunya **model penopang baru** — satu baris per (`userId`, `dedupeKey`) dengan
+indeks unik, dibuat sebelum baris in-app dan sebelum pengiriman keluar sehingga
+keadaan tiap kanal (`SENT`/`FAILED`/`PENDING`) tidak hilang saat baris lonceng
+dihapus atau transport gagal. Kedua tabel dibawa dua migrasi
+`20261013100000_notification_dedupe_key` dan
 `20261013110000_notification_deliveries`.
 
 # Lampiran C — Variabel Lingkungan

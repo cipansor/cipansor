@@ -82,12 +82,16 @@ PENDING/TU_APPROVED → REJECTED (dengan alasan)
   pengingat tagihan SPP bulan berjalan ke orang tua santri yang tagihannya belum
   lunas (in-app + WhatsApp bila provider dikonfigurasi).
 - **Jelang jatuh tempo (harian, 08:00 WIB).** Tugas `payment-reminder` penjadwal
-  notifikasi mengingatkan **H-7/H-3/H-1** sebelum tanggal jatuh tempo.
+  notifikasi mengingatkan **sekali per tagihan** saat tagihan memasuki jendela
+  tujuh hari sebelum jatuh tempo (kunci `payment-reminder:<id>`), bukan tiga kali
+  pada H-7/H-3/H-1.
 
 WhatsApp lewat transport yang belum dikonfigurasi (mis. `SIMULATOR`) tidak
-benar-benar terkirim; pengiriman yang gagal atau menunggu transport dicatat
-`PENDING` (dapat diulang), bukan `SENT` — jadi jangan menganggapnya terkirim
-sampai provider disetel.
+benar-benar terkirim. Pada jalur `payment-reminder` yang ber-`dedupeKey`,
+kegagalan transport dicatat `PENDING` (dapat diulang), bukan `SENT`. Jalur SPP
+bulanan (`jobs/spp-reminder.job.ts`) **tidak** menyimpan status pengiriman yang
+dapat diulang — kegagalannya dicatat `FAILED`, bukan `PENDING` — jadi jangan
+menganggapnya terkirim sampai provider disetel.
 
 ## 5. Konfigurasi server (env)
 
