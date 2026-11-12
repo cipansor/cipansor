@@ -1068,6 +1068,13 @@ seorang manusia **dipasang kembali** secara deterministik, tanpa LLM.
   tipe/prioritas sudah ditangani `--relabel` (dispatch pemilik triase). Pemulihan
   ini kebijakan label yang berbeda dan murni deterministik — tak perlu LLM, jadi
   ia hidup di guard, bukan di jembatan.
+- **Penyempurnaan (2026-11-12).** Jalur pemulihan **tidak** memakai
+  `protected_labels()` (yang membuang `ALLOWED_LABELS` pada issue), melainkan
+  cek "label ada di repo" lewat `gh label list` (`repo_labels()`), tetap melewati
+  `EXEMPT_LABELS`. Dengan `protected_labels()`, tipe label yang dipasang bot lalu
+  dicabut manusia tak akan pernah dipulihkan — padahal itu justru kasus #838.
+  Guard standar tetap memakai `protected_labels()` (tipe label pada issue form
+  dibiarkan), jadi kedua paruh kini memakai daftar yang berbeda dan beralasan.
 
 **Bug 1 (severe) — dispatch gagal membuat issue tetap tanpa label.**
 `relabel_after_revocation` tidak menulis checkpoint sweep saat dispatch gagal.
@@ -1086,9 +1093,10 @@ himpunan digabung `+` dan **terurut**, `priority:high+refactor` dan
 Ganti dengan pemeriksaan keanggotaan per elemen
 (`case "+$left+" in *"+refactor+"*|… )`).
 
-**Bukti.** `automation-fleet.guard.test.ts`: **183 passed**. Golden rule 7
+**Bukti.** `automation-fleet.guard.test.ts`: **187 passed**. Golden rule 7
 dibuktikan dengan memulihkan `.github/scripts/label-guard.sh`,
 `.github/scripts/issue-triage-bridge.sh`, dan `.github/workflows/label-guard.yml`
 ke `HEAD` sementara tes baru tetap ada: **10 tes gagal** (pemulihan label,
 gate `unlabeled`, `refactor`/`security`, checkpoint `pending`), lalu hijau setelah
-perubahan dipulihkan.
+perubahan dipulihkan. Tes pemulihan tipe label (`bug`) juga dibuktikan gagal
+dengan `protected_labels()` dan hijau dengan `repo_labels()`.

@@ -67,6 +67,16 @@ RESTORE_MARK="<!-- label-guard:restored -->"
 # a missing value as "nothing revoked".
 set_revoked() { echo "revoked=$1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 
+# Every label that exists in the repository, read fresh from `gh label list`.
+# The restore path reads this, not `protected_labels`: a type label is in
+# ALLOWED_LABELS, which `protected_labels` drops on an issue (the standard path
+# must leave a form-applied type alone), but the restore half must still put back
+# a type label the bot applied and a person removed — the case #838 reports.
+# EXEMPT_LABELS is applied by the caller, so it is not folded in here.
+repo_labels() {
+  { gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null || true; }
+}
+
 # Every existing label except, on an issue, the repository's own template
 # labels. Read once per run. On a pull request the template labels are *not*
 # exempt, so a type label applied to a PR is protected and revoked like any other
@@ -74,8 +84,7 @@ set_revoked() { echo "revoked=$1" >> "${GITHUB_OUTPUT:-/dev/null}"; }
 protected_labels() {
   exempt="$EXEMPT_LABELS"
   [ "$IS_PR" = "1" ] || exempt="$exempt $ALLOWED_LABELS"
-  { gh label list --repo "$REPO" --limit 1000 --json name --jq '.[].name' 2>/dev/null || true; } \
-    | grep -vxF "$(printf '%s\n' $exempt)" || true
+  repo_labels | grep -vxF "$(printf '%s\n' $exempt)" || true
 }
 
 # Put back a label `cipansor-bot` last applied that a person removed. The other
@@ -105,8 +114,8 @@ restore_after_revocation() {
     echo "Label '$LABEL' is an exempt label; not restoring."
     return 0
   fi
-  if ! protected_labels | grep -qxF "$LABEL"; then
-    echo "Label '$LABEL' is not a protected label; not restoring."
+  if ! repo_labels | grep -qxF "$LABEL"; then
+    echo "Label '$LABEL' is not a label in the repository; not restoring."
     return 0
   fi
 

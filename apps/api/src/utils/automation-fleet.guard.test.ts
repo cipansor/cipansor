@@ -810,6 +810,23 @@ describe('label-guard.sh', () => {
     expect(out).toContain('Restored label');
   });
 
+  it('restores a bot-applied type label a person removed on an issue', () => {
+    // `bug` is in ALLOWED_LABELS: the issue forms apply a type label themselves,
+    // so the *standard* path leaves it. But the *restore* half must still put
+    // back a type label the bot applied and a person removed — the case #838
+    // reports. `protected_labels()` drops ALLOWED_LABELS on an issue, so using it
+    // here would never restore a type label and the issue would stay without one.
+    const { calls, out } = run(
+      LABEL_GUARD,
+      { GH_STUB_LABELS: LABELS, GH_STUB_EVENTS: 'cipansor-bot' },
+      ['--stdin'],
+      unlabeledEvent('someone', 'bug')
+    );
+    expect(calls).toContain('RESTORE_LABEL');
+    expect(calls).toContain('labels[]=bug');
+    expect(out).toContain('Restored label');
+  });
+
   it('does not restore a label a person last applied', () => {
     // Only the bot's own label comes back; a person's label stays gone (the
     // standard path would have revoked it anyway).
