@@ -720,6 +720,33 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   berupa bilangan bulat positif < 360; **gagal** pada workflow pra-perbaikan
   (keenam job terdaftar), **lulus** sesudahnya. Suite API penuh 5183 lulus.
 
+- **Issue triage, 2026-11-12 (oldest open `ready` first):** #897 (`bug`,
+  `priority:high`, modul `meals` tanpa satu pun tes; cakupan unit dijalankan dua
+  cara yang tak konsisten) dikerjakan di **PR #1078** pada
+  `fix/897-meals-unit-scope-tests`, sesuai keputusan maintainer **K10**. Empat
+  jalur di `meals.service.ts` masih membandingkan `currentUser.role` legacy
+  (`role !== UserRole.SUPER_ADMIN && row.unitId !== currentUser.unitId`),
+  sementara `listMenus`/`getTodayMenu` sudah sadar `roleCode`. Karena
+  `deriveLegacyRole()` memetakan setiap `YAYASAN_*` ke `'UNIT_ADMIN'`, pengurus
+  yayasan ditolak `403` oleh `getMenuById` atas menu yang baru saja ditampilkan
+  `listMenus`; `getStatistics` juga membocorkan unit lain lewat `?unitId=`.
+  Perbaikan: `getMenuById`, `updateAttendance`, `getStudentHistory` memakai
+  `actorReachesUnit` dan menjawab **404** (bukan 403) untuk baris di luar
+  jangkauan (K10, `decisions/akses-data-pegawai.md`); `createMenu` memakai
+  `writeUnitScopeFor`; `getStatistics` menerima aktor dan memaku akun terikat
+  unit ke unitnya sendiri. Tes baru `tests/meals.service.test.ts` (14 tes; **9
+  gagal** pada kode pra-perbaikan, lulus sesudahnya). Suite API penuh 5270
+  lulus, `build:strict` bersih, lint 0 error, E2E Chromium hijau.
+
+- **Triase ulang #893 (2026-11-12, permintaan pemilik):** ditriase ulang; premis
+  issue **benar** tetapi kriteria (K23 butir 2 & 3) menunjuk `automation-retry.sh`
+  dan `gate-watch.sh` yang **sudah dihapus** commit `6a5cacb7` (2026-11-11, di
+  `main`), sehingga `ready` belum bisa dipertahankan. Diposting komentar triase
+  ulang yang menawarkan tiga pilihan (a: cukup kuota + dokumentasi, b: mekanisme
+  baru pengganti, c: sempitkan ke dokumen) dengan rekomendasi **(a)+(c)**;
+  label `question` diserahkan ke `cipansor-bot`/pemilik (akun agen tidak dapat
+  memindahkan label protected). Tidak ada PR dibuka untuk #893.
+
 ## Recently done (2026-10-09 → 10)
 
 - **Merged:** #655 (SPMB banner and delayed dialog on the public site), #657
