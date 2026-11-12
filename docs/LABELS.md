@@ -191,7 +191,11 @@ detect` workflow: when two **open** issues share a title once normalised
     **triage bridge** below rather than by a trigger on `issues.edited`.
 
 11. **The triage bridge re-triages after another automation responds.** A bot
-    applying a type or priority label, or a not-yet-`ready` issue gaining
+    applying a type or priority label, `label-guard` revoking a label a person
+    applied and leaving the issue with no type or no priority (#838 — the guard
+    calls the bridge's `--relabel` mode in the same run, because its own removal
+    is made with the automatic `GITHUB_TOKEN` and GitHub starts no workflow for
+    an event that token creates), or a not-yet-`ready` issue gaining
     activity (an edited description or a new comment) newer than its last
     triage, dispatches the triage owner — deterministically, from
     `.github/scripts/issue-triage-bridge.sh`, and idempotently (a checkpoint in
@@ -224,6 +228,41 @@ detect` workflow: when two **open** issues share a title once normalised
     `enhancement` issue would otherwise fail the type sync (`issue-label-sync`)
     and redden the PR. A person states what they want and the bot records it;
     this is what keeps the automations and the guards reading the same state.
+    Because the guard only *removes*, a revocation that leaves the issue with no
+    type or no priority is not the end of the story: the guard's workflow calls
+    the triage bridge's `--relabel` mode in the same run and dispatches the triage
+    owner to relabel the issue (#838). It cannot do so through a GitHub event —
+    the removal is made with the automatic `GITHUB_TOKEN`, and GitHub starts no
+    workflow run for an event that token creates.
+    **A removal is not a way to overrule the bot.** A label that `cipansor-bot`
+    applied last, then removed by a person, is put back by the same workflow: the
+    `unlabeled` trigger sends the event to the guard's restore half, which reads
+    the issue's own event timeline and restores the label only when the last
+    `labeled` event's actor is the bot. This covers the type labels too — a
+    form-applied `bug` the bot later set is restored like any other, which is the
+    case #838 reports (the guard checks the label exists in the repository, not
+    whether the standard path would protect it). It never restores a label the bot
+    or a GitHub App removed (that removal is deliberate — the fleet withdrawing a
+    contradictory `ready`, `stale-sweep`, `issue-label-sync` correcting), never
+    when the timeline cannot be read (a failed read is never "safe to restore"),
+    and never when the label is `ready` and the issue now carries `question` or
+    `blocked` (that would recreate the exclusivity conflict rule 8 forbids). One
+    notice per issue says the label is back and to ask `@cipansor-bot` for a
+    change.
+    One removal the guard **declines** rather than restores: a type label the bot
+    applied, when the issue now carries a *different* type. That is a type change,
+    not a bare removal — restoring the old type would leave two types, which
+    `issue-label-sync` refuses and which rule 1 above forbids. The guard keeps the
+    single surviving type and signals `type_conflict=1`; the workflow then
+    dispatches the triage owner, who owns the taxonomy and revokes the wrong type.
+    That dispatch has its own burst key (`triage-conflict-`), separate from the
+    relabel path's (`triage-unlabeled-`): a revocation that dispatches `--relabel`
+    and a type change in the same window are two different responses, and the
+    first must not collapse the second. Because both side responses can dispatch
+    for one issue, each records its run in its own checkpoint slot
+    (`triage-sweep-<n>.extra.<kind>`); the sweep checks every slot before it marks
+    the issue finished, so a later write cannot drop an earlier run and a failed
+    side run is still retried.
 
 13. **Every main description opens with the basmalah.** Each issue and pull
     request body starts with «بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ»
