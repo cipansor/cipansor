@@ -141,10 +141,12 @@ detect` workflow: when two **open** issues share a title once normalised
 6. **Approval needs more than green CI.** `Gerbang tinjau PR` approves a
    ready PR only when every check is green, no review thread is open, the labels
    match the linked issue, and it found no correctness problem in the diff. It
-   never merges and never changes the draft state.
+   never merges and never changes the draft state. Its verdict is a
+   recommendation, not the last word — merge stays with the maintainer, so it is
+   never written up as a final decision.
 
-7. **A review proposes the fix, it does not only complain.** `Peninjau arsitektur`,
-   `Peninjau kode`, dan `Gerbang tinjau PR` saat mengembalikan PR, memposting setiap masalah lokal dan mekanis
+7. **A review proposes the fix, it does not only complain.** `Gerbang tinjau PR`
+   saat mengembalikan PR memposting setiap masalah lokal dan mekanis
    problem as a GitHub `suggestion` block so the author can apply it in one
    click, and describe the proposed change in words for a problem too large for
    a block. A suggestion is never placed on a line the automation is not certain
@@ -235,20 +237,20 @@ detect` workflow: when two **open** issues share a title once normalised
 
 | Automation            | Trigger                                   | Labels it sets                                                                                               |
 | --------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `Triase issue`        | issue opened                              | tipe, prioritas, `ready` / `question` / `duplicate`                                                          |
+| `Triase issue`        | issue opened; balasan pada issue `question` (via jembatan triase) | tipe, prioritas, `ready` / `question` / `duplicate`; balasan pelapor → `ready` / `duplicate` / `invalid`; balasan maintainer → `ready` / `wontfix` |
 | `Tiket jadi PR`       | daily cron 08:00 WIB, `ready` queue oldest-first | tidak ada — ia membuka PR                                                                                    |
-| `Penjernih issue`     | comment on a `question` issue             | `question` ↔ `ready`, `duplicate`, `invalid`                                                                 |
 | `Issue label sync`    | PR opened / issue relabeled               | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`)                                     |
+| `issue-claim.sh`      | PR opened / issue relabeled               | `ready` ↔ `in-progress` pada issue tertaut (deterministik, `issue-claim.yml`)                                |
 | `duplicate-detect.sh` | issue opened / jadwal harian              | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan |
 | `pr-duplicate.sh`     | jadwal harian                             | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama                         |
 | `stale-sweep.sh`      | jadwal harian                             | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`)              |
-| `Gerbang tinjau PR`   | PR ready for review, or CI-green dispatch | tidak ada — ia meninjau atau menyetujui                                                                      |
+| `Gerbang tinjau PR`   | PR ready for review, or CI-green dispatch | tidak ada — ia meninjau (termasuk QA) atau menyetujui                                                         |
 | `Pemburu bug`         | daily cron                                | membuka issue `bug`, satu prioritas (tanpa label provenans)                                                  |
 | `Pemindai standar`    | weekly cron                               | membuka issue dengan tipe, prioritas, `question`                                                             |
-| `Diskusi`             | comment on a `question` issue             | `ready`, `wontfix`, `question`                                                                               |
 
 The deterministic consequences are GitHub Actions workflows
-(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-detect.yml`,
+(`issue-label-sync.yml`, `issue-claim.yml`, `pr-lifecycle.yml`,
+`main-failure-bridge.yml`, `duplicate-detect.yml`,
 `duplicate-sweep.yml`,
 `stale-sweep.yml`, `docs-drift.yml`, `label-guard.yml`,
 `basmalah.yml`,
@@ -262,7 +264,9 @@ An automation posts through the same GitHub account as the person who triggered
 it (`user.type: User`, same `login`), so a trigger on `issue_comment.created`
 cannot tell the automation's own comment from a reporter's. Issue #680 showed
 the consequence: `Penjernih issue` re-armed itself and posted eleven comments in 27
-minutes, each a full LLM run.
+minutes, each a full LLM run. (That automation was retired on 2026-11-12 —
+option (a) of #1056 — but the guard it motivated still governs every comment
+trigger.)
 
 The marker is the comment's **author**. Every automated comment is posted as
 `cipansor-bot` (the fleet's account, `user.type: User`) or as a GitHub App
@@ -313,15 +317,16 @@ to produce the labels above, not prose to read and forget:
 tertaut`, `Kriteria penerimaan`, `Cara menguji`, `Bukti`, `Risiko` and
   `Catatan` (no `HUMAN`/`AGENT` split and no `Type` checklist since 2026-11-09,
   #965: the type comes from the issue's label). It requires `Fixes #<n>` for
-  every issue the PR resolves (each an open `ready` issue,
-  never a PR; `Refs #<n>` for a partial step), copies the issue's acceptance
-  criteria as checkboxes, and asks for a **before and after** visual on any
-  change under `apps/web`. `Issue label sync` mirrors the linked issue's
-  type and priority onto the PR.
+  every issue the PR resolves (each an open issue carrying `ready` or
+  `in-progress` — `issue-claim.yml` swaps the first for the second the moment
+  the PR opens — never a PR; `Refs #<n>` for a partial step), copies the
+  issue's acceptance criteria as checkboxes, and asks for a **before and
+  after** visual on any change under `apps/web`. `Issue label sync` mirrors the
+  linked issue's type and priority onto the PR.
 
 These are kept honest by the `pr-description-checks` workflow: the `template`
 job **fails the check** while the description is incomplete, no issue is
-linked, a linked number is not an open `ready` issue, the PR
+linked, a linked number is not an open `ready`/`in-progress` issue, the PR
 does not target the default branch (where alone `Fixes` closes anything), or the
 prose reads as English, and passes once it is complete (the `visual` job stays
 advisory). There is no "no linked issue" way out (#772). Dependabot alone

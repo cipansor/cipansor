@@ -41,12 +41,54 @@ maintainer. `duplicate` dimiliki oleh sweep workflow. (`question` mengambil alih
 timer 20 hari milik `needs-info` saat label itu dihapus 2026-11-11; timer
 peringatan kini 8 hari, penutupan 15.)
 
-## 4. Diskusi
+## 4. Diskusi — **dipensiunkan 2026-11-12**
+
+> Automation `SDLC 22` dimatikan: balasan maintainer pada issue `question` sudah
+> dipicu jembatan triase (setiap aktivitas non-armada), jadi satu komentar tidak
+> perlu membangunkan dua agen. Perannya kini ada di tail `Triase issue` (SDLC 15).
+> Butir di bawah dipertahankan sebagai catatan apa yang dulu dijaganya.
 
 Menjawab maintainer pada issue `question`.
 Menyuplai detail yang kurang atau lampu hijau memberi `ready`, yang menyerahkan
 ke `Tiket jadi PR`; penolakan memberi `wontfix` dan menutup. Ia tidak pernah
 bertindak atas komentarnya sendiri.
+
+## 4b. Penjernih issue — **dipensiunkan 2026-11-12**
+
+> Automation `SDLC 16` dimatikan atas keputusan pemilik (opsi (a) dari #1056),
+> dengan alasan yang sama seperti `Diskusi` di atas, hanya di sisi pelapor:
+> sweep jembatan triase memilih `is:open -label:ready`, sehingga issue `question`
+> ikut tersapu dan sinyalnya memuat setiap komentar non-armada — termasuk
+> balasan pelapor. Satu balasan pelapor karena itu membangunkan dua agen (SDLC 16
+> lewat `issue_comment.created`, SDLC 15 lewat dispatch jembatan). Perannya kini
+> ada di tail `Triase issue` (SDLC 15), bagian `BALASAN PELAPOR`.
+
+Menilai ulang saat pelapor menjawab issue `question`: memberi `ready` bila sudah
+jelas, `duplicate`/`invalid` bila tidak. Ia tidak pernah bertindak atas
+komentarnya sendiri.
+
+## 4c. Peninjau arsitektur — **dipensiunkan 2026-11-12**
+
+> Automation `SDLC 04` dimatikan atas keputusan pemilik. Bukan sekadar jarang
+> dipakai: pemicunya **tidak pernah bisa menyala**. Ia menunggu
+> `pull_request.opened` dengan filter `pull_request.draft == false`, padahal
+> `Tiket jadi PR` (SDLC 06) selalu membuka PR sebagai **draf**, dan promosi ke
+> siap-ditinjau memancarkan `ready_for_review` — bukan `pull_request.opened`.
+> Jadi filter itu tak pernah cocok untuk satu pun PR armada. Bukti: seumur
+> hidupnya ia punya **satu** run (2026-10-07), dan run itu sendiri menyebut PR
+> #669 sebagai "placeholder architecture note … safe to delete" — smoke test.
+> Judul PR yang cocok seumur repo: 2 untuk `design` (keduanya sekitar smoke
+> test), 0 untuk `rfc`/`arsitektur`/`adr`. Pemicunya juga tak pernah dikelola
+> `TRIGGERS` di deploy script — ia hidup hanya di cloud, melanggar prinsip "satu
+> sumber kebenaran". Peran tinjauan desain **tidak** dipindahkan: `Gerbang tinjau
+> PR` (SDLC 18) sudah meninjau setiap PR non-draf, termasuk dokumen desain, dan
+> maintainer membaca dokumen desain langsung. Bila kelak perlu, hidupkan kembali
+> sebagai pemicu `pull_request.ready_for_review` yang dikelola skrip.
+
+Meninjau dokumen desain/RFC/ADR yang dibuka sebagai PR non-draf, dan mengirim
+umpan balik terstruktur: risiko, alternatif yang belum dipertimbangkan,
+pertimbangan yang hilang, dan konsistensi dengan keputusan yang sudah tercatat
+di `.claude/memory/decisions/`.
 
 ## 5. Pengawas armada — **dipensiunkan 2026-11-11**
 
@@ -94,6 +136,13 @@ Tautan yang menjaganya jujur (polanya dari OpenHands upstream, yang memakai
 label `ready-for-dev`; di repo ini `ready`): **sebuah issue
 hanya mendapat `ready` saat kriteria penerimaannya nyata**, dan PR harus menunjuk ke salah
 satunya. `Triase issue` adalah gerbang itu.
+
+Prosedur **sebelum** gerbang itu bekerja ada di skill
+[`buat-pr`](../.claude/skills/buat-pr/SKILL.md) (aturan emas 6 `AGENTS.md`):
+cari issue terbuka yang diselesaikan; bila belum ada, buka lewat formulir dan
+tunggu `Triase issue` memasang `ready`; **tolak keras membuka PR tanpa issue
+`ready`** — penolakan adalah jawaban yang benar, bukan celah untuk dilewati.
+Skill itu juga memuat isian templat PR dan aturan `Fixes #<n>`.
 
 ### Penegakan keras (di-deploy)
 
