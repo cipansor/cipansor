@@ -103,6 +103,34 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
+- **Dua penjadwal di dokumen teknis (#875, 2026-11-12).** Merge #804 membuat
+  penjadwal notifikasi (`modules/notifications/scheduler.service.ts`) benar-benar
+  berjalan dari `main.ts`, tetapi `docs/` tidak ikut diperbarui. §6.6 hanya
+  mengenal `jobs/scheduler.ts`, tabel §6.6 tidak memuat enam tugas penjadwal
+  notifikasi, `POST /notifications/scheduler/trigger` + `Notification.dedupeKey`
+  + model `NotificationDelivery` + dua migrasinya tidak tercatat, dan catatan
+  "satu instans" membuat pembaca menyimpulkan penjadwal notifikasi pun tidak
+  aman multi-instans — padahal ia mengklaim slot lewat `notification_deliveries`.
+  Angka 19/17 §6.6 sudah benar (dibetulkan #771/#630 di v1.3), jadi sisa
+  pekerjaannya: §6.6 kini menunjuk perintah ukur + tabel tugas penjadwal kedua,
+  batasan "satu instans" dipisah, `ARCHITECTURE.md` menyebut penjadwal kedua,
+  `MOBILE_API.md` menyelaraskan klaim pengingat SPP (bulanan `spp-reminder.job`
+  vs `payment-reminder` H-7/H-3/H-1; `PENDING` bukan `SENT`). Kartu panduan
+  pengguna untuk tab **Penjadwalan** ditunda dengan alasan: `/notifications/whatsapp`
+  tidak punya menu (`NO_MENU_BY_DESIGN`, known-issues.md), jadi tak ada menu
+  path (golden rule #11) — dicatat di `known-issues.md`.
+
+- **Versi patch Prisma di dokumen teknis (#874, 2026-11-12).** Tabel 2
+  (Batasan) memaku `Prisma 7.10.0` sementara `apps/api/package.json` sudah
+  `7.10.1` — sisa bump Dependabot (#870). Tidak ada pemeriksa yang menangkapnya
+  (`check_docs.py` mencocokkan jumlah modul/model/rute/job, bukan versi
+  dependensi), jadi baris itu akan basi lagi tiap bump. Diperbaiki dengan opsi 2
+  issue: `Prisma 7` (tingkat mayor), sejalan keputusan #782/#783 dan baris yang
+  sama (`Next.js 16`, `React 19`, …). Satu baris + entri Riwayat Revisi `1.5`.
+  Rule 9: #1052 (#833) menyentuh berkas yang sama; digabung di worktree hanya
+  bentrok pada baris Riwayat Revisi (dua-duanya menambah `1.5`) → yang digabung
+  kedua menomori ulang; `check_docs.py --final` 0 ERROR pada pohon gabungan.
+
 - **EMIS teacher export + module tests (#868 + #873, one PR, 2026-11-12).**
   `exportTeacherData` invented `jenisKelamin: 'L'`, `tempatLahir: ''` and
   `tanggalLahir: ''` although `Teacher.gender`/`birthPlace`/`birthDate` exist

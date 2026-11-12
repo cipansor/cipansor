@@ -211,6 +211,10 @@ workers refused on a closed day. Still open:
   header, which the API requires. Its broadcast tab went with Pengumuman
   (`decisions/siaran-pengumuman.md`); what is left — send one message, a
   provider check, a scheduler trigger — is admin tooling nobody reaches.
+  Because it has no menu path, its **Penjadwalan** tab (the per-task
+  **Jalankan** button behind `useTriggerScheduledTask`) gets no user-guide card
+  yet: #875 recorded it as deferred until the menu exists (golden rule #11
+  needs a menu path).
 - **A unit's operator sees every unit's subjects.** _Classes → Mata
   Pelajaran & Jadwal_ for Admin SD IT lists SMP IT's subjects (seen
   2026-09-28), and its _Tanpa Guru Pengampu_ card counts them.

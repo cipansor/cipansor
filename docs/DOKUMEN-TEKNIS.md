@@ -16,6 +16,7 @@
 | 1.2 | 11 Oktober 2026 | commit `c56078f04` | Angka tata letak modul dan jadwal diukur ulang dan kini diperiksa mesin (#771): 68 dari 95 modul empat berkas, 26 lima bagian, 17 entri jadwal atas 15 berkas pekerjaan. Pemeriksa `check_docs.py` tidak lagi hanya mengenali "dari 93". | Agen Claude Code |
 | 1.3 | 11 November 2026 | commit `76511a89` | Angka diukur ulang setelah fitur absensi pegawai (#630) dan pekerjaan lain: **307 model**, ~**1.459 hulu rute API**, **436 halaman web**, **19 entri jadwal** atas **17 berkas pekerjaan**. §6.6 memuat empat pekerjaan yang sebelumnya terlewat (`holiday-sync`, `attendance-retention`, `letter-retention`, `admission-wave-status`) dan dua berkas tak terjadwal; Lampiran A diukur ulang baris demi baris; bab 9 menambah keputusan `absensi-pegawai.md` dan `persetujuan-pengguna.md`; Lampiran F peta halaman `/hr` 17→20. `check_docs.py` 0 ERROR | Agen OpenHands |
 | 1.4 | 11 November 2026 | kode `af09e9a6` | Konvensi tanggal/waktu ditambahkan ke §8 (tanggal-saja `YYYY-MM-DD` pada tengah malam UTC, pembacaan sebagai timestamp ISO, perbandingan lewat jatuh tempo memakai instan itu — bukan akhir hari WIB — dan bulan penagihan WIB lewat `utils/wib-day.ts`), dan §6.6 menyebut bulan penagihan/pengingat mengikuti kalender WIB (#825). | Agen OpenHands |
+| 1.5 | 12 November 2026 | commit `3cc543b5` | §6.6 kini menyebut **dua** penjadwal: `jobs/scheduler.ts` (angkanya ditunjuk lewat perintah ukur, bukan dipaku) dan penjadwal notifikasi modul `notifications` (#802) beserta tabel enam tugasnya, dan catatan "satu instans" dipisahkan — batasan itu berlaku untuk `jobs/scheduler.ts`, tidak bagi penjadwal notifikasi (`notification_deliveries`) maupun dispatcher Web Push (`FOR UPDATE SKIP LOCKED`). Rute `POST /notifications/scheduler/trigger`, kolom `Notification.dedupeKey`, model `NotificationDelivery`, dan dua migrasinya dicatat; §5.3 dan Lampiran B diberi satu kalimat penopang (#875). `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
 > seiring pengembangan. Dokumen diperbarui dengan menjalankan ulang pengukuran, bukan dengan menyunting angka.
@@ -118,7 +119,7 @@ setiap orang pada data yang berhak dilihatnya.
 | Organisasi | Tim pengembang kecil; yayasan nirlaba memakai perkakas hibah; satu basis data untuk semua unit; repositori bersifat **publik sampai rilis** (lisensi proprietary, menjadi privat saat rilis). | `AGENTS.md`, `LICENSE` |
 | Hukum (yang tercatat di repo) | UU 16/2001 (Yayasan) untuk wewenang organ; UU 27/2022 (PDP) untuk data pribadi; PP 71/2019 untuk tanda tangan elektronik. | `decisions/pengesahan-dokumen-yayasan.md`, `decisions/esign-standards-ceiling.md`, `skills/tata-kelola-yayasan` |
 | Konvensi | Portal berbahasa Indonesia; situs publik tiga bahasa (Indonesia, Inggris, Arab; Arab ditulis kanan ke kiri). Istilah pesantren tidak diterjemahkan; istilah umum berbahasa Inggris di kode/URL, label berbahasa Indonesia. | `decisions/istilah-dan-penamaan.md` |
-| Operasional | Pekerjaan terjadwal berjalan di dalam proses API tanpa kunci, sehingga setiap aplikasi dijaga **satu instans**. | `docs/ARCHITECTURE.md`, `docs/deploy-azure.md` |
+| Operasional | Pekerjaan terjadwal berjalan di dalam proses API. Pekerjaan `jobs/scheduler.ts` berjalan **tanpa kunci**, sehingga aplikasi dijaga **satu instans**; penjadwal notifikasi dan dispatcher Web Push aman pada beberapa instans (lihat 6.6). | `docs/ARCHITECTURE.md`, `docs/deploy-azure.md` |
 
 # 3. Konteks dan Lingkup
 
@@ -283,7 +284,7 @@ amplop `{ success, data, meta? }` lewat `src/utils/response.ts`.
 | Kepegawaian & kinerja | `hr`, `performance-management` | PK dan evaluasi periodik |
 | Sertifikat & piagam | `certificates`, `sanad-certificate` | Penerbitan bernomor dan verifikasi publik lewat kode/QR; nomor memakai CSPRNG |
 | Tata kelola yayasan | `foundation`, `perencanaan`, `pengawasan`, `risk`, `syariah`, `quality`, `organisasi`, `tatalaksana`, `business-unit`, `lingkungan` | Rantai RPJP → Renstra → RKA |
-| Komunikasi | `announcements`, `messages`, `notifications`, `chatbot` | Chatbot memakai penyedia model bahasa |
+| Komunikasi | `announcements`, `messages`, `notifications`, `chatbot` | Chatbot memakai penyedia model bahasa; `notifications` juga menjalankan penjadwalnya sendiri di luar `src/jobs/` (lihat 6.6) |
 | Persuratan & TTE | `correspondence`, `esign`, `reception`, `complaints` | Verifikasi naskah dengan unggah PDF |
 | Publik & lainnya | `marketing`, `alumni`, `portfolio`, `project`, `social-service`, `non-formal`, `practicum`, `research`, `talenta`, `extracurricular`, `student-org`, `student-compliance`, `teacher-compliance`, `assignments`, `duty-roster`, `calendar`, `academic-years` | Beberapa nama menyimpang dari isinya (lihat bab 11) |
 | Platform | `auth`, `users`, `roles`, `units`, `upload`, `analytics`, `dashboard`, `dashboard-enhancement`, `reporting`, `environment` | Fondasi lintas ranah |
@@ -436,10 +437,13 @@ tentang siapa yang berhak memutuskan).
 
 ## 6.6 Pekerjaan terjadwal
 
-`jobs/scheduler.ts` memuat **19 entri jadwal** atas **17 berkas pekerjaan**
-(diukur pada commit `76511a89`, 11 November 2026), berzona waktu `Asia/Jakarta` dan berjalan di
-dalam proses API. Satu berkas bisa dijadwalkan lebih dari sekali
-(`dashboard-snapshot` tiga kali).
+Ada **dua penjadwal** di dalam proses API, keduanya berzona waktu `Asia/Jakarta`
+dan dimulai dari `apps/api/src/main.ts`.
+
+`jobs/scheduler.ts` memuat entri jadwal atas berkas pekerjaan `*.job.ts` — ukur
+ulang dengan `grep -c 'cron.schedule(' apps/api/src/jobs/scheduler.ts` (jumlah
+entri) dan `ls apps/api/src/jobs/*.job.ts | wc -l` (jumlah berkas). Satu berkas
+bisa dijadwalkan lebih dari sekali (`dashboard-snapshot` tiga kali).
 
 | Berkas | Jadwal | Yang dilakukan |
 |---|---|---|
@@ -461,14 +465,45 @@ dalam proses API. Satu berkas bisa dijadwalkan lebih dari sekali
 | `chatbot-transcript-purge.job` | harian 03:15 | Memangkas transkrip chatbot |
 | `chatbot-escalation-retry.job` | tiap 30 menit | Mengulang eskalasi chatbot yang gagal |
 
-Dua berkas tidak dijadwalkan lewat cron: penyusutan aset bulanan dipanggil modul
-`inventory`, dan pengirim Web Push dijalankan sebagai dispatcher panjang di
-`main.ts`, bukan penjadwal.
+Dua berkas `*.job.ts` tidak dijadwalkan lewat cron: penyusutan aset bulanan
+dipanggil modul `inventory`, dan pengirim Web Push dijalankan sebagai dispatcher
+panjang di `main.ts`, bukan penjadwal.
 
-> **Batasan.** Pekerjaan berjalan tanpa kunci, sehingga desainnya mengandaikan
-> **satu instans API**; menambah instans akan menjalankan tiap pekerjaan dua
-> kali. Kunci (`pg_try_advisory_lock`) atau worker terpisah harus ada sebelum
-> penskalaan. `SCHEDULER_ENABLED=false` mematikannya (dipakai di staging).
+### Penjadwal notifikasi (kedua)
+
+Sejak #802, modul `notifications` menjalankan penjadwalnya sendiri di luar
+`src/jobs/`: `modules/notifications/scheduler.service.ts`
+(`registerDefaultTasks()`), dengan id tugas yang dikunci di
+`modules/notifications/scheduler.tasks.ts` (`SCHEDULED_TASK_IDS`). Ia dimulai
+`notificationScheduler.initialize()` dari `main.ts`, di bawah sakelar
+`SCHEDULER_ENABLED` yang sama dengan `jobs/scheduler.ts`.
+
+| Id tugas | Jadwal (WIB) | Yang dilakukan |
+|---|---|---|
+| `payment-reminder` | harian 08:00 | Pengingat jatuh tempo tagihan **H-7/H-3/H-1** |
+| `attendance-summary` | harian 18:00 | Ringkasan kehadiran harian |
+| `tahfidz-progress` | Jumat 16:00 | Kemajuan tahfidz mingguan |
+| `event-reminder` | harian 07:00 | Pengingat agenda mendatang |
+| `monthly-report` | tanggal 1, 09:00 | Laporan kemajuan bulanan |
+| `budget-overrun-alert` | Senin 07:00 | Peringatan anggaran Renstra terlampaui |
+
+Pengingat SPP bulanan **tidak** ada di daftar ini meski namanya mirip: ia tetap
+dikirim `jobs/spp-reminder.job.ts` (`0 6 1 * *`); mendaftarkannya di sini juga
+akan mengirim setiap orang tua dua kali. Daftar tugas bisa dijalankan manual
+lewat `POST /api/notifications/scheduler/trigger` (hanya `SUPER_ADMIN`), dengan
+id dari `SCHEDULED_TASK_IDS`.
+
+> **Batasan.** Pekerjaan `jobs/scheduler.ts` berjalan **tanpa kunci**, sehingga
+> desainnya mengandaikan **satu instans API**; menambah instans akan menjalankan
+> tiap pekerjaan dua kali. Kunci (`pg_try_advisory_lock`) atau worker terpisah
+> harus ada sebelum penskalaan. `SCHEDULER_ENABLED=false` mematikannya (dipakai
+> di staging).
+>
+> Batasan itu **tidak** berlaku bagi penjadwal notifikasi: tugasnya mengklaim
+> slot per penerima lewat `notification_deliveries` (model
+> `NotificationDelivery`, indeks unik `userId`+`dedupeKey`), jadi dua instans
+> tidak mengirim pesan yang sama dua kali. Pengirim Web Push juga aman pada
+> beberapa instans karena mengklaim barisnya dengan `FOR UPDATE SKIP LOCKED`.
 
 # 7. Tampak Penempatan
 
@@ -810,6 +845,16 @@ erDiagram
 Nama entitas adalah nama model di `schema.prisma` (`Class` ditulis dengan tanda kutip karena kata kunci Mermaid); relasi dibaca dari bidang
 `@relation` model-model itu. Pendaftaran siswa ke kelas adalah `ClassEnrollment`;
 pendaftaran ke unit adalah `StudentUnitEnrollment` (tidak digambar).
+
+Dua model penopang notifikasi berulang (#802) tidak digambar agar diagram tetap
+terbaca: `Notification.dedupeKey` (kolom, bukan penjaga) menandai baris lonceng
+yang merupakan salinan in-app dari sebuah slot berulang, sedangkan
+`NotificationDelivery` adalah penopang anti-kirim-ulang — satu baris per
+(`userId`, `dedupeKey`) dengan indeks unik, dibuat sebelum baris in-app dan
+sebelum pengiriman keluar sehingga keadaan tiap kanal (`SENT`/`FAILED`/
+`PENDING`) tidak hilang saat baris lonceng dihapus atau transport gagal. Kedua
+tabel dibawa dua migrasi `20261013100000_notification_dedupe_key` dan
+`20261013110000_notification_deliveries`.
 
 # Lampiran C — Variabel Lingkungan
 

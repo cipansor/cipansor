@@ -76,9 +76,18 @@ PENDING/TU_APPROVED → REJECTED (dengan alasan)
 | `GET /parent/notifications`          | Daftar notifikasi + unread count. |
 | `PUT /parent/notifications/:id/read` | Tandai dibaca.                    |
 
-**Pengingat bulanan otomatis**: setiap tanggal 1 pukul 06:00 scheduler
-mengirim pengingat tagihan SPP bulan berjalan ke SEMUA orang tua
-(in-app + WhatsApp Business API via template `payment_reminder`).
+**Pengingat tagihan otomatis**, dua jalur yang saling melengkapi:
+
+- **Bulanan (tanggal 1, 06:00 WIB).** `jobs/spp-reminder.job.ts` mengirim
+  pengingat tagihan SPP bulan berjalan ke orang tua santri yang tagihannya belum
+  lunas (in-app + WhatsApp bila provider dikonfigurasi).
+- **Jelang jatuh tempo (harian, 08:00 WIB).** Tugas `payment-reminder` penjadwal
+  notifikasi mengingatkan **H-7/H-3/H-1** sebelum tanggal jatuh tempo.
+
+WhatsApp lewat transport yang belum dikonfigurasi (mis. `SIMULATOR`) tidak
+benar-benar terkirim; pengiriman yang gagal atau menunggu transport dicatat
+`PENDING` (dapat diulang), bukan `SENT` — jadi jangan menganggapnya terkirim
+sampai provider disetel.
 
 ## 5. Konfigurasi server (env)
 

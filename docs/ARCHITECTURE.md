@@ -68,6 +68,15 @@ Cross-cutting foundations (reuse, don't reinvent):
   instance**: a second instance would run each job twice (SPP reminders sent
   twice). A lock (`pg_try_advisory_lock`) or a separate worker must come before
   any scale-out. `SCHEDULER_ENABLED=false` switches them off (staging).
+  A **second scheduler** starts from the same `main.ts`, also behind
+  `SCHEDULER_ENABLED`: the notification scheduler
+  (`modules/notifications/scheduler.service.ts`, tasks pinned in
+  `scheduler.tasks.ts`), which sends due-date, attendance, tahfidz, event,
+  monthly-report and budget-overrun notices. It is safe on more than one
+  instance even though `src/jobs/` is not: each task claims its slot per
+  recipient through `notification_deliveries`
+  (`NotificationDelivery`, unique on userId+dedupeKey), so two instances do not
+  send the same message twice.
   The **Web Push dispatcher** is the exception on both counts: it is started on
   its own, not behind `SCHEDULER_ENABLED` (it creates nothing, only relays what
   the environment's own users were notified of), and it is already safe on
