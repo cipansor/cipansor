@@ -6,6 +6,7 @@
 | 0.2 | 29 September 2026 | commit `aefc719` | dari kode, belum dicoba di aplikasi berjalan | Langkah dan nama tombol diperiksa ulang satu per satu ke kode layar; pesan yang dikutip disalin dari kode; istilah pengembang dan nomor PR dikeluarkan; kartu izin dipersempit ke wali kelas |
 | 0.3 | 29 September 2026 | commit `1a0e6b1e` (kode identik dengan `aefc719`) | dari kode, belum dicoba di aplikasi berjalan | Nama butir menu **Mengajar** ditulis persis seperti layar ("Siswa") supaya tidak terbaca sebagai prosa. Isi kartu tidak berubah |
 | 0.4 | 30 September 2026 | aplikasi berjalan dari kode PR #512 (setelah `main` `2377f5fb`) | **T1 — terverifikasi di aplikasi berjalan** | Keempat kartu dijalankan dengan akun demo `sdit.walikelas@` pada tumpukan lokal (PostgreSQL + API :3001 + web :3000); langkah, nama tombol, dan pesan dicocokkan ulang dengan layar sungguhan dan tangkapan layar disematkan. Pita ⚠ dibuka; Riwayat Revisi mencatat tingkat T1 |
+| 0.5 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Catatan cakupan ditambahkan pada §1.2: guru dan wali kelas tetap sebatas kelas dan unitnya, sedangkan sebagian petugas pesantren (ustadz, musyrif, muhafidz, pengasuh, tata usaha pesantren) menjangkau santri dari seluruh unit (#714) |
 
 > **Tingkat verifikasi T1.** Semua kartu tugas di bawah sudah **dijalankan pada
 > aplikasi berjalan** dengan akun demo wali kelas SD IT (absensi harian, tindak
@@ -42,7 +43,9 @@ kelompok itu bisa muncul dan hilang sesuai penugasan Anda.
   Izin santri mukim diputuskan musyrif santri itu (lihat buklet Pendidik
   Pesantren). Kepala unit hanya turun tangan untuk izin lebih dari 7 hari,
   santri tanpa pembimbing, atau mengambil alih.
-- Data santri hanya tampil sebatas kelas dan unit Anda.
+- Data santri hanya tampil sebatas kelas dan unit Anda. *Sebagian petugas
+  pesantren — ustadz, musyrif, muhafidz, pengasuh, dan tata usaha pesantren —
+  menjangkau santri dari seluruh unit; lihat buklet Pendidik Pesantren.*
 
 ## 1.3 Tugas dalam buklet ini
 
