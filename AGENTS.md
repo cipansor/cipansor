@@ -44,17 +44,28 @@ monorepo**:
    it to the first branch of `is_code()` (a guard test enforces this for
    markdown). Staging deploys only after CI **and** E2E pass on `main`.
    **Format before pushing** (`pnpm format`): every `.ts`/`.tsx` is kept in
-   Prettier's format, CI's Lint job fails otherwise, and for Claude a
-   pre-push hook refuses the push and names the files and the fix command.
-6. **Develop on the feature branch, commit with clear messages, never push to
-   `main`.** Every PR starts from an issue and names **every** issue it
-   resolves: `Fixes #n` once per issue (GitHub closes them only when the PR
-   merges into `main`), `Refs #n` for one it only advances, with a comment
-   there saying what remains. Before opening a PR, search the open issues for
-   the files and terms it touches; an issue a merged PR fixed without naming it
-   stays open and breeds duplicates (2026-10-11: eight such issues). The
-   `PR description` check refuses a PR without an open, `ready` issue
-   (`pr-template-guard.sh`, #772); only Dependabot is exempt.
+   Prettier's format, CI's Lint job fails otherwise, and for Claude and
+   OpenHands a pre-push hook refuses the push and names the files and the fix
+   command.
+6. **A pull request starts from an open, `ready` issue — never open one
+   without it.** Asked to open a PR, first look for the issue it resolves. If
+   there is none, open one through the matching issue form
+   (`.github/ISSUE_TEMPLATE/`), let `Triase issue` mark it `ready`, and only
+   then open the PR. **Refuse to open a PR while no open, `ready` issue exists
+   — a refusal is the correct answer, not a gap to work around.** The PR body
+   follows the repository template (`Mengapa`, `Yang diubah`, `Kriteria
+   penerimaan`, `Cara menguji`, `Bukti`, `Risiko`, `Catatan`), names **every**
+   issue it resolves — `Fixes #n` once per issue (GitHub closes them only when
+   the PR merges into `main`), `Refs #n` for one it only advances, with a
+   comment there saying what remains — and copies the issue's acceptance
+   criteria as checkboxes. The `buat-pr` skill is the checklist; the `PR
+   description` check is the enforcement (it fails a PR whose linked number is
+   not an open issue carrying `ready` or `in-progress` — `issue-claim.yml` moves
+   the issue to `in-progress` the moment the PR opens — is a PR, or is missing
+   any section — `pr-template-guard.sh`, #772; only Dependabot is exempt). Before opening a
+   PR, search the open issues for the files and terms it touches; an issue a
+   merged PR fixed without naming it stays open and breeds duplicates
+   (2026-10-11: eight such issues).
 7. **Ship tests with the code — no behavior change merges untested.** Every
    new/changed API **service or controller** ships with vitest tests in the
    module's `tests/`; every new/changed **web route or user flow** ships with
@@ -139,6 +150,13 @@ pnpm test:load                        # unit tests of the k6 load-test runner (C
 pnpm format                           # prettier --write every .ts/.tsx (not .md); CI fails on `pnpm format:check`
 pnpm lint                             # eslint (api + web)
 ```
+
+CI supply chain: pin every third-party `uses:` in `.github/workflows/` to a
+full-length commit SHA with a `# vX` comment (`github-actions-pinning.guard.test.ts`),
+and keep every `overrides` floor in `pnpm-workspace.yaml` at or above the first
+fixed release of its advisory (`pnpm-supply-chain.guard.test.ts`, for the packages
+listed in its `MIN_OVERRIDES`). Both fail the
+Tests job. Details: [`docs/SDLC-FLOW.md`](docs/SDLC-FLOW.md) → "Rantai pasok CI".
 
 ## Architecture standard (API module)
 
@@ -241,11 +259,11 @@ keys, tokens, connection strings, cloud resource names and ids (vault, storage,
 database server), IP addresses, host paths, a weakness still open in
 production, incident details, personal data. The repository is **public until
 release** and git history keeps everything. `.github/scripts/check-sensitive.py`
-rejects the mechanical cases — Claude's `guard.sh` before the write, the
-Security CI job on every PR — and the judgement cases are on whoever writes the
-note. Until the repository is private, moving a machine-local memory into
-`.claude/memory/` needs the user's approval, file by file; once it is private,
-the two are merged.
+rejects the mechanical cases — `guard.sh` before the write (run by both Claude
+and OpenHands) and the Security CI job on every PR — and the judgement cases
+are on whoever writes the note. Until the repository is private, moving a
+machine-local memory into `.claude/memory/` needs the user's approval, file by
+file; once it is private, the two are merged.
 
 **Lifecycle.** Add a skill when the same procedure or domain knowledge is needed
 a second time; a hook when a written rule was broken anyway; a memory when a
@@ -269,6 +287,7 @@ task.
 | Skill | Use when |
 |---|---|
 | [`gate`](.claude/skills/gate/SKILL.md) | before every push: the full local quality gate |
+| [`buat-pr`](.claude/skills/buat-pr/SKILL.md) | asked to open a pull request: find or open the `ready` issue first, then fill the PR template |
 | [`stack`](.claude/skills/stack/SKILL.md) | the app must run locally: Postgres + Redis + API + web |
 | [`screenshot-roles`](.claude/skills/screenshot-roles/SKILL.md) | before/after screenshots, per-role visual QA |
 | [`sync-records`](.claude/skills/sync-records/SKILL.md) | end of a work session or before compaction: update memory, roadmap, guides |
@@ -279,9 +298,12 @@ task.
 | [`google-ad-grants`](.claude/skills/google-ad-grants/SKILL.md) | the Google Ad Grant: eligibility, monthly compliance (CTR, keywords, sitelinks, geo, conversions), the 2025–2026 program changes, the campaign plan, and the site gaps to close first (GA4/GTM host-aware, conversion tracking) |
 
 The Claude Code hooks, what each one enforces, and why each works the way it
-does are in [`.claude/README.md`](./.claude/README.md). Read it before touching
-a hook: most of these designs replaced an earlier one that looked right and did
-nothing.
+does are in [`.claude/README.md`](./.claude/README.md); the OpenHands side —
+`setup.sh`, the hook adapters, and the memory pointer — is in
+[`.openhands/README.md`](./.openhands/README.md), because `guard.sh` and
+`format-before-push.sh` are shared by both. Read the matching one before
+touching a hook: most of these designs replaced an earlier one that looked right
+and did nothing.
 
 <!-- BEGIN:turborepo-agent-rules -->
 

@@ -6,8 +6,13 @@
 #
 # The comment-driven automations and their triggers (docs/SDLC-FLOW.md):
 #   - `Bot sebutan`      — an `@cipansor-bot` mention, maintainer only;
-#   - `Penjernih issue`  — any reply to a `needs-info` issue, the reporter included;
-#   - `Diskusi`          — a maintainer's reply to a `pending-maintainer`/`needs-info` issue.
+#   - a maintainer's reply on a `question` issue — handled by `Triase issue`
+#     (SDLC 15) since `Diskusi` (SDLC 22) was retired on 2026-11-12 and
+#     `Penjernih issue` (SDLC 16) on the same day (owner decision, option (a) of
+#     #1056). No automation is comment-triggered for a `question` reply any more:
+#     the triage bridge dispatches the triage owner on any non-fleet activity, so
+#     the reply is still answered and is still acknowledged — the wait is the
+#     bridge's next sweep, not a webhook.
 # Reacting only for these keeps an ordinary comment thread unspammed.
 #
 # Usage: acknowledge.sh --stdin          # a `issue_comment.created` webhook event
@@ -61,10 +66,7 @@ case "$BODY" in
     case "$AUTHOR" in OWNER | MEMBER | COLLABORATOR) react=1 ;; esac ;;
 esac
 case ",$LABELS," in
-  *,needs-info,*)
-    # Penjernih issue fires on any reply, the reporter included.
-    react=1 ;;
-  *,pending-maintainer,*)
+  *,question,*)
     # Diskusi is about a maintainer's decision.
     case "$AUTHOR" in OWNER | MEMBER | COLLABORATOR) react=1 ;; esac ;;
 esac

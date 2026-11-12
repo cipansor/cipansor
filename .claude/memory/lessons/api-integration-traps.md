@@ -29,6 +29,19 @@ role, not as the admin.**
   `/payments`, `/report-cards`, `/rooms`, …) and hooks written against
   endpoints that were never built. A hook existing is not evidence its
   endpoint does. Check the route file, not the hook.
+- **A path parameter sent as a query string, and a response shape the reader
+  cannot use (#849).** The Menu Makan page called
+  `GET /meals/menus/today?unitId=`, but the route is
+  `/menus/today/:unitId` — so `/menus/:id` answered it with `id = "today"`
+  and always 404'd; and even when reached, the handler returns an array while
+  the page read `{ breakfast, lunch, dinner, snack }`, so the cards stayed
+  empty. Two mismatches in one call. `web-api-contract.guard.test.ts` could
+  not see either: it strips the query string and normalizes `${…}` → a UUID
+  id, so `/menus/today` "matched" `/menus/:id`. **When a route takes its key
+  in the path, the caller must put it there; and a guard that drops the query
+  and the response body cannot enforce the contract.** The fix keeps the
+  canonical path (`unitId` in path, like `calendar` and `duty-roster`) and
+  folds the array into the object the page reads in the hook.
 - **`RoleCode` is a Prisma-only enum — no column uses it** (`roles.code` is
   plain `text`). Adding or removing a value needs no SQL migration: edit
   `schema.prisma`, `db:generate`, and let `tsc` list every stale reference.

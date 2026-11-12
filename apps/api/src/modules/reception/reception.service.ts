@@ -13,8 +13,25 @@ import {
 import { Errors } from '../../middleware/error';
 import { todayWib } from '../../utils/wib';
 import { wibDayStart, wibDayEnd } from '../../utils/wib-day';
+import { assertStudentInUnit, type ScopeActor } from '../../utils/student-scope';
+import { actorReachesUnit } from '../../utils/resolve-unit-id';
 // DB enums are the source of truth from Prisma, not the shared package.
 import { Prisma, VisitStatus, PackageStatus } from '@prisma/client';
+
+/**
+ * A row the account may change: its unit is one the account reaches. Out of
+ * reach answers 404, as for an id that does not exist, so the answer never
+ * confirms the row. The read paths scope by unit in the `where`; the write
+ * paths used to look a row up by id alone, so any signed-in staff member could
+ * change another unit's guest book, visit or parcel.
+ */
+const assertReachesRowUnit = (
+  actor: ScopeActor,
+  unitId: string | null | undefined,
+  resource: string
+) => {
+  if (!actorReachesUnit(actor, unitId)) throw Errors.notFound(resource);
+};
 
 /**
  * The instant window of a WIB calendar day, the form a `DateTime` column
@@ -142,9 +159,14 @@ export const createGuestBook = async (
   });
 };
 
-export const updateGuestBook = async (id: string, data: UpdateGuestBookInput) => {
+export const updateGuestBook = async (
+  id: string,
+  data: UpdateGuestBookInput,
+  actor: ScopeActor
+) => {
   const guestBook = await prisma.guestBook.findUnique({ where: { id } });
   if (!guestBook) throw Errors.notFound('Guest book entry');
+  assertReachesRowUnit(actor, guestBook.unitId, 'Guest book entry');
 
   return prisma.guestBook.update({
     where: { id },
@@ -196,16 +218,16 @@ export const getStudentVisits = async (
   return rows.map(toStudentVisit);
 };
 
-export const createStudentVisit = async (unitId: string, data: CreateStudentVisitInput) => {
-  // Validate student belongs to unit
-  const student = await prisma.student.findUnique({
-    where: { id: data.studentId },
-  });
-
-  if (!student) throw Errors.notFound('Student');
-  // In a real scenario, we might want to check if student.unitId === unitId
-  // But for now we trust the input or assume global student access within allowed scopes
-
+export const createStudentVisit = async (
+  unitId: string,
+  data: CreateStudentVisitInput,
+  actor: ScopeActor
+) => {
+  // The visit is about one santri *of this unit*, so the santri must both be
+  // in the account's scope and belong to the record's unit: 404 otherwise, as
+  // for an id that does not exist. Scope alone let a foundation account file a
+  // unit-A visit about a unit-B santri, whose identity unit A then read.
+  await assertStudentInUnit(data.studentId, unitId, actor);
   const row = await prisma.studentVisit.create({
     data: {
       unitId,
@@ -234,9 +256,14 @@ export const createStudentVisit = async (unitId: string, data: CreateStudentVisi
   return toStudentVisit(row);
 };
 
-export const updateStudentVisit = async (id: string, data: UpdateStudentVisitInput) => {
+export const updateStudentVisit = async (
+  id: string,
+  data: UpdateStudentVisitInput,
+  actor: ScopeActor
+) => {
   const visit = await prisma.studentVisit.findUnique({ where: { id } });
   if (!visit) throw Errors.notFound('Visit');
+  assertReachesRowUnit(actor, visit.unitId, 'Visit');
 
   const row = await prisma.studentVisit.update({
     where: { id },
@@ -304,8 +331,12 @@ export const getPackages = async (
 export const createPackage = async (
   unitId: string,
   userId: string,
-  data: CreateStudentPackageInput
+  data: CreateStudentPackageInput,
+  actor: ScopeActor
 ) => {
+  // The parcel is about one santri *of this unit*, so the santri must both be
+  // in the account's scope and belong to the record's unit: 404 otherwise.
+  await assertStudentInUnit(data.studentId, unitId, actor);
   const row = await prisma.studentPackage.create({
     data: {
       unitId,
@@ -314,6 +345,7 @@ export const createPackage = async (
       expedition: data.expedition,
       content: data.content,
       photoUrl: data.photoUrl,
+      storageLocation: data.storageLocation,
       notes: data.notes,
       receivedById: userId,
       receivedAt: new Date(),
@@ -339,9 +371,14 @@ export const createPackage = async (
   return toStudentPackage(row);
 };
 
-export const updatePackage = async (id: string, data: UpdateStudentPackageInput) => {
+export const updatePackage = async (
+  id: string,
+  data: UpdateStudentPackageInput,
+  actor: ScopeActor
+) => {
   const pkg = await prisma.studentPackage.findUnique({ where: { id } });
   if (!pkg) throw Errors.notFound('Package');
+  assertReachesRowUnit(actor, pkg.unitId, 'Package');
 
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const updateData: any = {
@@ -350,11 +387,12 @@ export const updatePackage = async (id: string, data: UpdateStudentPackageInput)
   };
 
   if (data.pickedUpAt) {
-    updateData.pickedUpAt = data.pickedUpAt;
+    updateData.pickedUpAt = new Date(data.pickedUpAt);
   }
 
-  // Stamp pickup time when the package transitions to PICKED_UP.
-  if (data.status === PackageStatus.PICKED_UP && !pkg.pickedUpAt) {
+  // Stamp pickup time when the package transitions to PICKED_UP and none is on
+  // record. An explicit pickedUpAt wins; otherwise the status change stamps it.
+  if (data.status === PackageStatus.PICKED_UP && !data.pickedUpAt && !pkg.pickedUpAt) {
     updateData.pickedUpAt = new Date();
   }
 

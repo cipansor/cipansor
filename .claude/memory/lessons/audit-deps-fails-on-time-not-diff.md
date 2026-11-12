@@ -15,11 +15,14 @@ not of the diff: a newly published advisory reddens every open PR at once, and
    range and the advisory URL.
 2. If it prints only `Bulk advisory endpoint returned 503` (no package, no
    range), the endpoint failed — run it again before pinning anything.
-3. The fix is almost always a pin in the **root** `pnpm-workspace.yaml` →
-   `overrides` (a curated list of exactly these pins; the package is
-   usually transitive). Then `pnpm install` — commit the lockfile, CI installs
-   `--frozen-lockfile` — and re-run until it reports 0 advisories. Run the full
-   gate afterwards: an override can pull in a transitive major.
+3. The fix is almost always a floor in the **root** `pnpm-workspace.yaml` →
+   `overrides` (a curated list of exactly these; the package is usually
+   transitive). Raise it **to the advisory's first fixed release or above** —
+   never one patch below it: `overrides` is a floor, so a value one patch low
+   still resolves the vulnerable release and leaves `Security` red (the
+   2026-11-02 failure, #910). Then `pnpm install` — commit the lockfile, CI
+   installs `--frozen-lockfile` — and re-run until it reports 0 advisories. Run
+   the full gate afterwards: an override can pull in a transitive major.
 
 Example (2026-09-02): `fast-uri >=4.1.2` → `>=4.1.3` and `qs ^6.15.2` →
 `^6.16.0`. Two lines.

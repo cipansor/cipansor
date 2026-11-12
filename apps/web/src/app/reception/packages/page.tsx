@@ -87,6 +87,7 @@ export default function PackagePage() {
               <TableHead>Pengirim</TableHead>
               <TableHead>Ekspedisi</TableHead>
               <TableHead>Isi Paket</TableHead>
+              <TableHead>Lokasi Simpan</TableHead>
               <TableHead>Status</TableHead>
               <TableHead>Aksi</TableHead>
             </TableRow>
@@ -94,14 +95,14 @@ export default function PackagePage() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center h-24">
+                <TableCell colSpan={8} className="text-center h-24">
                   <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : packages?.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="text-center h-24 text-muted-foreground"
                 >
                   Belum ada paket hari ini
@@ -251,6 +252,11 @@ function PackageRow({ pkg }: { pkg: StudentPackage }) {
       <TableCell>{pkg.senderName}</TableCell>
       <TableCell>{pkg.expedition}</TableCell>
       <TableCell>{pkg.content}</TableCell>
+      <TableCell>
+        {pkg.storageLocation || (
+          <span className="text-xs text-muted-foreground">-</span>
+        )}
+      </TableCell>
       <TableCell>{getStatusBadge(pkg.status)}</TableCell>
       <TableCell>
         {pkg.status !== "PICKED_UP" && (

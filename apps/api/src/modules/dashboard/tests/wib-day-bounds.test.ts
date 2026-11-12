@@ -45,6 +45,10 @@ import { dashboardService } from '../dashboard.service';
 import { dayOf, todayWib } from '@/utils/wib';
 import { wibDayStart } from '@/utils/wib-day';
 
+/** The `where.dueDate.lt` the overdue-invoice alert count was given. */
+const invoiceDueDateArg = () =>
+  prismaMock.invoice.count.mock.calls.at(-1)![0].where.dueDate.lt as Date;
+
 /** 1 Nov 2026 00:30 WIB, the window where the UTC and WIB days differ. */
 const NOW = new Date('2026-10-31T17:30:00.000Z');
 const WIB_DAY = '2026-11-01';
@@ -101,6 +105,17 @@ describe('the WIB day the dashboard speaks about', () => {
     await dashboardService.getMetrics({});
 
     expect(attendanceDateArg()).toEqual(dayOf(WIB_DAY));
+  });
+
+  it('flags an overdue invoice only after its WIB due day has ended (getMetrics)', async () => {
+    await dashboardService.getMetrics({});
+
+    // The cutoff is the start of today's WIB day (1 Nov 00:00 WIB = 31 Oct
+    // 17:00Z), not `new Date()` (00:30 WIB). A bill due WIB day D is stored at
+    // D 00:00Z and stays due through the whole of D, so it must not count as
+    // overdue during D itself.
+    expect(invoiceDueDateArg().toISOString()).toBe('2026-10-31T17:00:00.000Z');
+    expect(invoiceDueDateArg().getTime()).toBeLessThan(NOW.getTime());
   });
 
   it('keeps an early-morning setoran in "hari ini" (getTeacherStats)', async () => {

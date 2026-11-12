@@ -4,12 +4,13 @@
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo bendahara unit pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
 | 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Nama kontrol Pengumuman dicocokkan ke layar: tombol **Buat Pengumuman** (bukan "Buat Baru"), judul formulir **Buat Pengumuman**, dan kolom **Judul**/**Isi** (bukan "Konten"); pesan validasi **"Judul dan isi wajib diisi"** disalin dari `announcements/page.tsx` #779) |
-| 0.3 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: tombol simpan dialog pengumuman baru bernama **Terbitkan** (bukan **Simpan**) dan pesan hasilnya menyebut jumlah penerima ("Pengumuman terbit — masuk ke lonceng … orang"); ditandai pada kartu |
+| 0.3 | 11 November 2026 | kode `af09e9a6` | **T1** (kartu tak berubah; catatan tanggal dibaca dari kode) | **Tanggal Jatuh Tempo** dijelaskan sebagai tanggal (bukan jam) dengan ambang menunggak pukul **07.00 WIB** pada tanggal itu, dan penagihan otomatis/pengingat SPP menagih bulan WIB — dibaca dari `finance.service.ts` (#775), kartu *Membuat tagihan santri*, *Membuat tagihan massal*, dan *Memantau tunggakan* (#825) |
+| 0.4 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: tombol simpan dialog pengumuman baru bernama **Terbitkan** (bukan **Simpan**) dan pesan hasilnya menyebut jumlah penerima ("Pengumuman terbit — masuk ke lonceng … orang"); ditandai pada kartu |
 
 > **Tingkat verifikasi.** Kartu tugas di bawah **dijalankan pada aplikasi
 > berjalan** dengan akun demo bendahara unit, dan tiap kartu memuat tangkapan layar asli
 > (T1). Langkah yang ditandai *(dibaca dari kode, belum dicoba ulang di aplikasi
-> berjalan)* adalah pengecualian: disusun dari kode pada revisi 0.2–0.3 dan
+> berjalan)* adalah pengecualian: disusun dari kode pada revisi 0.2–0.4 dan
 > belum diuji ulang di layar. Bila Anda menemukan layar yang berbeda dari gambar
 > di sini, laporkan kepada admin unit.
 
@@ -81,6 +82,9 @@ ada di halaman itu; formulirnya di `/finance/bills/new`.
 
 *Gambar 1. Formulir Buat Tagihan: pilih santri, jenis tagihan, jumlah, dan jatuh tempo.*
 
+**Catatan.** **Tanggal Jatuh Tempo** adalah sebuah tanggal, bukan jam tertentu.
+Tagihan dihitung **menunggak mulai pukul 07.00 WIB** pada tanggal itu.
+
 **Hasilnya, dan giliran siapa berikutnya.** Tagihan tampil di daftar dan
 notifikasinya terkirim ke santri. Giliran keluarga membayar; setelah itu bukti
 pembayaran masuk ke antrean verifikasi Anda.
@@ -119,6 +123,9 @@ ada di halaman itu; formulirnya di `/finance/bills/bulk`.
 
 *Gambar 2. Formulir Buat Tagihan Massal: satu jenis tagihan untuk banyak santri sekaligus.*
 
+**Catatan.** **Tanggal Jatuh Tempo** adalah sebuah tanggal, bukan jam tertentu.
+Tagihan dihitung **menunggak mulai pukul 07.00 WIB** pada tanggal itu.
+
 **Hasilnya, dan giliran siapa berikutnya.** Tagihan terbentuk untuk setiap
 santri yang dicentang. Giliran keluarga membayar.
 
@@ -154,6 +161,9 @@ santri yang dicentang. Giliran keluarga membayar.
 
 **Hasilnya, dan giliran siapa berikutnya.** Anda tahu santri mana yang masih
 menunggak; langkah berikutnya menagih keluarga atau menunggu pembayaran.
+
+**Catatan.** Penagihan otomatis bulanan dan pengingat SPP menagih bulan
+menurut waktu Indonesia barat (WIB), bukan bulan menurut jam peladen.
 
 **Bila tidak berhasil.**
 

@@ -8,7 +8,7 @@
 # period), but the *detection* half was not — it was one instruction inside the
 # `Triase issue` prompt (`SDLC 15`), so a family no triage run noticed stayed
 # open until a person closed it by hand. That is what happened to the
-# deploy-watch family: #944 and #957 were closed by hand, and #958 sat open a day
+# watchdog family: #944 and #957 were closed by hand, and #958 sat open a day
 # because no triage run ever labelled it `duplicate`.
 #
 # The signal is deliberately narrow: two titles equal after lowercasing,

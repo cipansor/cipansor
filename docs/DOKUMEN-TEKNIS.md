@@ -14,6 +14,7 @@
 | 1.0 | 5 Oktober 2026 | commit `3ba5cb974` (`main` digabung ke cabang README/galeri; 33 commit sejak `aefc719`) | Seluruh angka diukur ulang terhadap pohon hasil gabung: **95 modul API**, **292 model**, **162 enum**, ~**1.407 hulu rute API**, **432 halaman web**, **16 entri jadwal** atas **14 berkas pekerjaan**, **81 kunci** `.env.example`; Lampiran A diganti baris demi baris; modul `environment` masuk tabel ranah 5.3; alamat SPMB publik di bab 6 diperbaiki menjadi `GET /api/admissions/public/intakes`; lima keputusan baru (`fasilitas-dan-kegiatan-situs-publik`, `notifikasi-push`, `siaran-pengumuman`, `spmb-2027-2028`, `surat-keterangan-lewat-eoffice`) ditambahkan ke bab 9. `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
 | 1.1 | 10 Oktober 2026 | `main` digabung ke cabang README/galeri (`66609623d`) dan perbaikan tinjauan | Angka diukur ulang: **294 model**, **163 enum**, ~**1.411 hulu rute API**, **434 halaman web**, **82 kunci** `.env.example`; Lampiran A `correspondence` 15→18 dan `esign` 18→19 handler; empat keputusan ditambahkan ke bab 9; **Lampiran F — Peta Tampilan** baru (galeri gambar dikeluarkan dari git, lihat `decisions/dokumentasi-bergambar.md`). `check_docs.py --final` 0 ERROR | Claude Code |
 | 1.2 | 11 Oktober 2026 | commit `c56078f04` | Angka tata letak modul dan jadwal diukur ulang dan kini diperiksa mesin (#771): 68 dari 95 modul empat berkas, 26 lima bagian, 17 entri jadwal atas 15 berkas pekerjaan. Pemeriksa `check_docs.py` tidak lagi hanya mengenali "dari 93". | Agen Claude Code |
+| 1.4 | 11 November 2026 | kode `af09e9a6` | Konvensi tanggal/waktu ditambahkan ke §8 (tanggal-saja `YYYY-MM-DD` pada tengah malam UTC, pembacaan sebagai timestamp ISO, perbandingan lewat jatuh tempo memakai instan itu — bukan akhir hari WIB — dan bulan penagihan WIB lewat `utils/wib-day.ts`), dan §6.6 menyebut bulan penagihan/pengingat mengikuti kalender WIB (#825). | Agen OpenHands |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
 > seiring pengembangan. Dokumen diperbarui dengan menjalankan ulang pengukuran, bukan dengan menyunting angka.
@@ -442,8 +443,8 @@ dalam proses API. Satu berkas bisa dijadwalkan lebih dari sekali
 |---|---|---|
 | `dashboard-metrics.job` | tiap menit | Menghitung dan menyimpan metrik dasbor |
 | `dashboard-snapshot.job` | harian 01:00; Minggu 02:00; harian 03:00 | Cuplikan harian; ringkasan mingguan; memangkas cuplikan lama |
-| `finance-billing.job` | tanggal 1, 04:00 | Penagihan otomatis bulanan |
-| `spp-reminder.job` | tanggal 1, 06:00 | Pengingat SPP bulanan |
+| `finance-billing.job` | tanggal 1, 04:00 | Penagihan otomatis bulanan; bulan mengikuti **kalender WIB**, bukan bulan jam server |
+| `spp-reminder.job` | tanggal 1, 06:00 | Pengingat SPP bulanan; bulan mengikuti **kalender WIB** |
 | `attendance-register-reminder.job` | tiap 5 menit, pukul 05:00–16:55 | Pengingat mengisi register kelas |
 | `attendance-follow-up.job` | harian 15:00 | Pengingat tindak lanjut Alpa |
 | `attendance-pattern.job` | harian 16:00 | Menandai pola kehadiran |
@@ -526,6 +527,13 @@ sampai ke kontainer; pada Azure App Service, ke app settings tiap kontainer.
 - **Migrasi basis data.** Di-squash ke baseline `0_init`; `migrate deploy`
   dapat diputar dari basis data kosong; migrasi dijalankan saat kontainer
   mulai (`MIGRATE_ON_START`).
+- **Tanggal dan waktu.** Kolom tanggal-saja (mis. `Invoice.dueDate`) disimpan
+  pada **tengah malam UTC** — sebuah hari, bukan jam. Kontrak tulisnya
+  **`YYYY-MM-DD`** (Zod `z.string().date`); pembacaan menyerialkannya sebagai
+  timestamp ISO di tengah malam UTC. Perbandingan "lewat jatuh tempo" memakai
+  instan tengah malam UTC itu (pukul 07.00 WIB), bukan akhir hari WIB. Periode
+  bulanan (penagihan otomatis, pengingat SPP, nomor invoice) dihitung pada
+  **kalender WIB**, bukan pada jam server, lewat `apps/api/src/utils/wib-day.ts`.
 - **Pengujian.** Uji unit (vitest, Prisma dimock), e2e Playwright, dan uji
   penjaga (kontrak web↔API, route shadowing, sinkron peran).
 - **Pekerjaan terjadwal.** `node-cron` di dalam proses API (lihat 6.6).
@@ -583,6 +591,7 @@ berkata demikian; itu jujur, dan itu utang (bab 11).
 |---|---|---|---|---|
 | Keamanan: akses | Rute tulis yang dapat dijangkau tanpa sesi → dijaga Turnstile | 0 rute tulis publik tanpa Turnstile di luar daftar pengecualian beralasan | `public-routes-gated.test.ts` memindai pohon rute | Terbukti (uji di CI) |
 | Keamanan: kode | Perubahan yang memicu peringatan CodeQL tingkat tinggi → tidak dapat digabung ke `main` | 0 peringatan CodeQL tingkat tinggi ke atas yang lolos ke `main` (CodeQL berstatus wajib) | aturan repositori sejak 25 September 2026 (`progress.md`) | Terbukti |
+| Keamanan: rantai pasok | Action pihak ketiga memakai tag yang bisa digeser, atau batas bawah `overrides` turun di bawah rilis perbaikan advisory → uji merah | 0 `uses:` pihak ketiga tanpa SHA 40 karakter; 0 batas bawah `overrides` di bawah rilis perbaikan pertama | `github-actions-pinning.guard.test.ts`, `pnpm-supply-chain.guard.test.ts` | Terbukti (uji di CI) |
 | Keterpeliharaan: kontrak | Halaman web memanggil alamat API yang tak ada → uji merah | jumlah panggilan tak terlayani hanya boleh menyusut dari baseline | `web-api-contract.guard.test.ts` | Sebagian: baseline lama belum nol |
 | Keterpeliharaan: rute | Rute berparameter menutupi rute statis → uji merah | 0 rute yang tertutup bayangan | `route-shadowing.guard.test.ts` | Terbukti |
 | Kemudahan pakai: bahasa | String situs publik hanya ada di satu bahasa → uji merah | 0 string yang hilang di salah satu dari 3 bahasa | `i18n-coverage.test.ts` | Terbukti |

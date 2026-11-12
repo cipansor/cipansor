@@ -11,8 +11,10 @@ import {
   assignScholarshipSchema,
   createScholarshipCriterionSchema,
   createPaymentComponentSchema,
+  createBudgetSchema,
+  updateBudgetSchema,
+  createFinancialPeriodSchema,
 } from './finance-enhancement.schema';
-import { z } from 'zod';
 
 // Reusable admin authorizer for finance-enhancement routes.
 // Includes SUPER_ADMIN + all per-unit/yayasan admin RoleCodes + legacy
@@ -27,36 +29,6 @@ const financeAdmin = () =>
     RoleCode.SMAQ_ADMIN,
     'UNIT_ADMIN' // Legacy pre-migration token value
   );
-
-// Minimal schemas for new endpoints (should be moved to schema.ts properly)
-const createBudgetSchema = z.object({
-  body: z.object({
-    unitId: z.string().uuid(),
-    academicYearId: z.string().uuid(),
-    accountId: z.string().uuid(),
-    amount: z.number().positive(),
-    periodType: z.enum(['YEARLY', 'MONTHLY']).optional(),
-    notes: z.string().optional(),
-  }),
-});
-
-const updateBudgetSchema = z.object({
-  body: z.object({
-    amount: z.number().positive().optional(),
-    periodType: z.enum(['YEARLY', 'MONTHLY']).optional(),
-    notes: z.string().optional(),
-  }),
-});
-
-const createFinancialPeriodSchema = z.object({
-  body: z.object({
-    unitId: z.string().uuid(),
-    name: z.string().min(1),
-    startDate: z.string().datetime().or(z.date()),
-    endDate: z.string().datetime().or(z.date()),
-    notes: z.string().optional(),
-  }),
-});
 
 const router = Router();
 

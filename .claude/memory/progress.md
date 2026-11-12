@@ -15,7 +15,7 @@ backlog to [`roadmap.md`](roadmap.md).
   documentation-only merge is not rebuilt). At `b6e0eed86` (#714) on
   2026-10-11 (the first attempt met an Azure Resource Manager 503 and was
   re-run); its `/healthz` reports `database` and `environment` (#675), and
-  `deploy-watch.yml` checks every deploy against it (#664). SMP IT's accreditation certificate was recorded there on
+  `deploy-watch.yml` checked every deploy against it (#664; watcher deleted 2026-11-11 — the owner watches the Actions tab). SMP IT's accreditation certificate was recorded there on
   2026-09-29 at the user's request, by the SMP admin demo account — which
   therefore now asks for a 2FA code — so the public section shows it.
 - **CodeQL is a required check** on `main` since 2026-09-25 (ruleset rule
@@ -72,7 +72,7 @@ backlog to [`roadmap.md`](roadmap.md).
 
 **Answered on 2026-09-27** (recorded in the decisions; the work is in
 `roadmap.md`): the three permit parameters (`pemutus-izin-santri`); who
-manages asrama (`unit-vs-asrama-vs-takhosus`); *santri* on every screen
+manages asrama (`unit-vs-asrama-vs-takhosus`); _santri_ on every screen
 (`istilah-dan-penamaan` §1); guru wali runs at SMP IT and SMA Qur'an
 (`peran-dan-tugas-tambahan`); daily attendance — one page, automatic
 follow-up, no guru piket (`absensi-harian`); one TK daily-report page and the
@@ -148,7 +148,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   restored).
   **Folded into #512 (2026-09-30, user's call).** #627 (this branch) was closed
   and its content moved onto `docs/readme-overhaul-visual-qa`: #512 already
-  rewrote the README with a full screenshot gallery and had fixed the *same*
+  rewrote the README with a full screenshot gallery and had fixed the _same_
   seven dynamic detail pages for the Next 16 `params` Promise, so the two were
   the "individually green, red when merged" pair of golden rule #9. The merge
   kept #512's page implementation and brought over only the guard test that
@@ -187,13 +187,13 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   cleared by removing the tainted path (the alert's source was a test
   passphrase literal, not production code), and the audit corrected a wrong
   premise — **Ed25519 does not block PAdES**; ETSI TS 119 312 V2.1.1 Table A.1
-  lists EdDSA as *shall support*, and it is **AATL** that omits it. The
+  lists EdDSA as _shall support_, and it is **AATL** that omits it. The
   a.n./u.b./Plt./Plh. signing-authority forms and signing uploaded DOCX/PDF
   bytes were built in `1513317`; the one remaining item, **PAdES B-B + RFC
   3161**, was **deferred (option b, 2026-09-29)** until the yayasan procures a
   TSA endpoint — without a trusted timestamp it adds a CMS/PKCS#7 builder and an
   X.509 certificate (today the signer identity is a raw public key) but no
-  evidential value. The Ed25519→RSA/ECDSA switch stays an *interoperability*
+  evidential value. The Ed25519→RSA/ECDSA switch stays an _interoperability_
   choice, not a PAdES requirement. See `decisions/esign-standards-ceiling.md`.
 
   **Round-2 follow-up, found by this agent (not in F1–F12): cross-unit service
@@ -209,13 +209,13 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   the letters they are actually part of. Regression tests pin the list clause,
   the direct read, and `choosesUnit`. Also silenced the `/correspondence/stats`
   toast the E-Office home fired for every staff member without letter duty
-  (`skipErrorToast`), and hardened `verifyByPdfBuffer` to verify the *uploaded*
+  (`skipErrorToast`), and hardened `verifyByPdfBuffer` to verify the _uploaded_
   hash rather than read back the field it looked the row up by.
 
   **Two gate defects found while closing the follow-up:** the retention
   controller test cast `vi.fn()` to `NextFunction` and read `next.mock.calls`
   (TS2339 under `build:strict`, fixed with `NextFunction & ReturnType<typeof
-  vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
+vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   `waitForResponse` after `page.goto` (the race the file's own first test warns
   against; the listener now registers first). Both were pre-existing, neither a
   regression from the access-control change.
@@ -225,7 +225,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   things a diff review would not:
 
   - **`canonicalVersion`.** Adding the authority fields extended the signed
-    payload, so every letter signed *before* the change would have been
+    payload, so every letter signed _before_ the change would have been
     reported as forged (a `v1` signature checked against the `v2` shape). The
     payload is now versioned (`canonicalPayload(payload, version)`,
     `CURRENT_CANONICAL_VERSION`, `LetterSignature.canonicalVersion`,
@@ -234,7 +234,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   - **Upload ownership (CWE-639).** The `UPLOADED` signing path read
     `Letter.fileUrl` and signed those bytes without asking who uploaded them —
     so a drafter could paste another user's upload URL and have the system
-    sign and archive *someone else's document* as their own naskah. `LetterUpload`
+    sign and archive _someone else's document_ as their own naskah. `LetterUpload`
     records `filename → userId` at upload, and `assertLetterUploadOwnedBy`
     refuses a file whose owner is not in the letter's chain; a file with no
     ownership row is refused, not waved through.
@@ -247,12 +247,12 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
     copies.
   - **A retention guard that actually guards.** The user's hard constraint is
     that retention lists, never destroys; `letter-retention.no-destroy.guard.test.ts`
-    now checks the job, its CLI *and* the whole API tree for any `delete`/
+    now checks the job, its CLI _and_ the whole API tree for any `delete`/
     `deleteMany`/raw SQL `DELETE` of `Letter`/`LetterSignature`.
 
   **Citations corrected at the source.** Five files cited "Peraturan ANRI
-  5/2021 Pasal 6" for the destruction rule; that regulation is *Pedoman Umum
-  Tata Naskah Dinas* and its Pasal 6 is about types of regulatory naskah —
+  5/2021 Pasal 6" for the destruction rule; that regulation is _Pedoman Umum
+  Tata Naskah Dinas_ and its Pasal 6 is about types of regulatory naskah —
   nothing to do with retention. The destruction rule is **UU 43/2009 Pasal
   51–52 jo. PP 28/2012**. Two more attributions were wrong the same way:
   signature validity cited UU 43/2009 (Kearsipan) instead of **UU 11/2008 jo.
@@ -260,10 +260,11 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   Peraturan ANRI 5/2021 rather than the instansi tata-naskah pedoman. All fixed
   in `docs/EOFFICE_ESIGN_PLAN.md` (§2.9–§2.13, §4.3), the `naskah-dinas` skill,
   `decisions/esign-standards-ceiling.md` and the source comments.
+
 - **The brochure's facilities, extracurriculars and agenda on the public site
   — merged 2026-10-04 (#653, #654), on staging and checked there.** Decided
   by the user (`decisions/fasilitas-dan-kegiatan-situs-publik.md`):
-  *Fasilitas* (`/campus`) and *Kegiatan* (`/activities`) as two menu items,
+  _Fasilitas_ (`/campus`) and _Kegiatan_ (`/activities`) as two menu items,
   in Indonesian, English and Arabic. The extracurriculars are read from the
   portal module; the brochure's nine were loaded on staging by
   `db:seed:ekskul-2027-2028`, and staging's two invented demo rows were
@@ -307,7 +308,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   (`decisions/realtime-polling.md`, 2026-09-28). Sign-in (roadmap 00.9):
   2FA recovery codes that work and the 2FA screens in Indonesian (#614),
   sessions that follow the account's live roles (#615), and 2FA mandatory for
-  the head of every unit (#616). Then a unit's NPSN, set on *Edit Unit*, and
+  the head of every unit (#616). Then a unit's NPSN, set on _Edit Unit_, and
   Profil Unit's real statistics (#619). #441 (SSO and Blob storage) closed
   after its third audit; rebuilt as six PRs (roadmap 4). Profil → Legalitas
   states its governance note once (#622). The post-login invitation to turn
@@ -364,7 +365,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   schedules, HR employees, Sertifikat, then the dead calls, `services/` and
   the `api-client` alias.
 - **Homeroom, what is left** (known-issues, "Homeroom pages that still do
-  not work"): *Pesan Orang Tua*, the pupil page's figures, the kepala
+  not work"): _Pesan Orang Tua_, the pupil page's figures, the kepala
   sekolah's way to a class's dashboard.
 - **Naming, endpoint and architecture audit — done 2026-09-25**; the user
   widened it the same day to every module without exception, every API
@@ -394,6 +395,44 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   `continue-on-error`. The Chromium run reports 41 skipped (2026-09-27);
   one of them, `tk-daily-report`, had been hiding a broken flow for months
   (`lessons/guard-tests-that-measure-the-wrong-thing.md`).
+
+- **Issue triage, 2026-11-11 (lanjutan):** #825 (`documentation`, kontrak
+  `dueDate` tanggal-saja + kalender WIB setelah #775) dikerjakan di **PR #1049**
+  pada `docs/825-dueDate-wib-contract`: `MOBILE_API.md` §3 menyebut `dueDate` =
+  `YYYY-MM-DD` dan bulan tagihan WIB; `DOKUMEN-TEKNIS.md` §8 dapat butir
+  konvensi tanggal/waktu (menunjuk `utils/wib-day.ts`) dan §6.6 menyebut bulan
+  WIB; `PANDUAN-PENGGUNA-BENDAHARA.md` menjelaskan Tanggal Jatuh Tempo = sebuah
+  tanggal (bukan jam), dengan ambang menunggak 07.00 WIB. `check_docs.py` tidak
+  menambah ERROR (16 teknis / 2 pengguna =
+  baseline `main`). Murni dokumentasi → job kode CI di-skip. Beririsan berkas
+  dengan PR dokumen yang menunggu (#1035/#1036/#1046) tetapi di lokasi berbeda;
+  nomor versi diambil 1.4/0.3 agar tak bentrok. **Koreksi tinjauan:** versi awal
+  salah dua kali — (a) `getChildFinance` mengembalikan `dueDate` sebagai
+  **timestamp ISO**, bukan `YYYY-MM-DD` (Prisma `Date` diserialkan `res.json`);
+  (b) `getStudentOutstandingBalances` (`dueDate < new Date()`) membuat tagihan
+  menunggak **07.00 WIB** pada tanggal jatuh tempo, bukan akhir hari — jadi
+  "sehari penuh" itu tidak benar. Dokumen dikoreksi; cacat kode dilacak di
+  **#1050** (`lessons/date-only-midnight-utc-vs-now.md`). **PR #1049 sudah
+  MERGED ke `main`** (merge commit `25693e32`, 2026-11-11), jadi #825 selesai.
+
+- **Issue triage, 2026-11-11 (lanjutan 2):** #830 (`docs`: aturan pin GitHub
+  Actions ke commit SHA) + #943 (`docs`: batas bawah `overrides` + penjaga
+  pnpm-supply-chain) dikerjakan bersama sesuai keputusan maintainer **K16** di
+  **PR #1051** pada `docs/830-943-ci-supply-chain`. Subbagian baru **"Rantai
+  pasok CI"** di `docs/SDLC-FLOW.md` (kedua aturan), satu baris di blok gerbang
+  mutu `AGENTS.md`, satu baris DT §10 "Keamanan: rantai pasok", satu kalimat
+  kebijakan `overrides` di `docs/DEPLOYMENT.md`, dan tiga berkas `.claude/`
+  (gate/SKILL.md, lessons/audit-deps…, roadmap.md) diubah dari "pin" menjadi
+  "batas bawah ≥ rilis perbaikan pertama". `docs/SDLC-FLOW.md` tergolong
+  **kode** (`is_code()`, dibaca `automation-fleet.guard.test.ts`), jadi job CI
+  berjalan. `check_docs.py` 16 ERROR = baseline; guard (automation-fleet,
+  github-actions-pinning, decommissioned-modules) lulus 189; sensitive bersih.
+  Satu uji `pnpm-supply-chain.guard.test.ts` gagal **lingkungan** (pnpm tak
+  terpasang di sini) — lulus di CI. **#801** (docs #747: cakupan baca portofolio
+  + balasan pesan) sudah ditangani di PR #1035 (branch #778), jadi tidak
+  diduplikasi. **#749** sudah ditangani PR #1033. **#778/#779/#792/#811**
+  masing-masing sudah punya PR terbuka (#1035/#1036/#1046/#1048).
+
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
   permissions, separation-of-duty rules locked in code, and the account
@@ -402,6 +441,60 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   any code. `docs/DEPLOYMENT.md` goes
   after 2026-10-01 (the VM is the rollback target until then, and a guard test
   reads it).
+
+- **Issue triage, 2026-11-11 (continued, oldest open `ready` first):** #811
+  (`refactor`, the date-only sweep for `Invoice.dueDate` — K15) implemented in
+  **PR #1048** on `refactor/811-date-only-dueDate`: the non-formal course
+  invoice writer now stores `dayDate(wibDayOf(now + 7d))`, `getSppMatrix`
+  bounds the year and reads the month on the UTC calendar (dropping the dead
+  `monthDate`), the SPP seed uses `Date.UTC`, and `dayDate`'s comment again
+  claims the single canonical form. New coverage: `tests/spp-matrix.test.ts`
+  (runs under a non-UTC `TZ`) plus two non-formal dueDate cases; four of them
+  fail on `main`, all pass after. Gate green locally (api 5177, web 961,
+  build:strict, lint). E2E red on the **runner DNS flake** (apt cannot resolve
+  `security.ubuntu.com` in *Install Playwright*), not the diff. The review's
+  first round then found the regression this PR's own canonical form caused —
+  a date-only `dueDate` compared to `new Date()` marks a bill overdue at 07:00
+  WIB on its due day — so a follow-up commit adds `wibOverdueCutoff()` and
+  replaces that bound in `getInvoices`, `getStudentFinanceSummary`,
+  `getFinancialSummary`, `getStudentOutstandingBalances`, `getSppMatrix`, the
+  dashboard alert, `checkOverdueInvoices` and parent-engagement. The review
+  asked for tests pinning the three changed services (golden rule #7); added
+  in `dashboard/tests/wib-day-bounds.test.ts`, `analytics/tests/wib-day-bounds.test.ts`
+  and a new `analytics/tests/alerts-overdue-bound.test.ts` — all three fail on
+  the pre-fix code. Gate green locally (api 5188, build:strict, lint).
+
+- **Issue triage, 2026-11-11 (lanjutan 5):** #848 (`bug`, `priority:medium`,
+  jembatan triase mendispatch `SDLC 01` pada label bot → triase ganda)
+  **ditutup dengan bukti** — bukan karena kurang bermanfaat. **K26** sudah
+  terpenuhi oleh commit `c86b9969` (2026-11-09, masuk `main` lewat PR #972 yang
+  tidak menyebut nomor issue ini, sehingga ia tertinggal terbuka): `SDLC 01 ·
+  Triase bug` dilebur ke `SDLC 15 · Triase issue`, dan
+  `issue-triage-bridge.sh:71` kini mendispatch id SDLC 15 (`42ec7401…`) saja.
+  Penjaga `apps/api/src/utils/automation-fleet.guard.test.ts` (*"folds Triase
+  bug into the single triage owner"*, 163 tes lulus) menegaskan jembatan memuat
+  id SDLC 15 dan **tidak** memuat id SDLC 01; `docs/SDLC-FLOW.md` butir 1 & 3
+  ditandai **SELESAI (2026-11-09)**. Komentar penutup mencatat tiap kriteria
+  penerimaan beserta buktinya.
+
+- **Issue triage, 2026-11-11 (lanjutan 4):** #849 (`bug`, `priority:high`, tab
+  **Hari Ini** halaman Menu Makan selalu 404) dikerjakan sesuai **K5** di
+  **PR #1059** pada `fix/849-meals-today-routing`. Cacatnya routing **dan**
+  bentuk respons: web memanggil `GET /meals/menus/today?unitId=`, tidak ada
+  rute yang menjawabnya — `/menus/:id` mengambilnya dengan `id = "today"` →
+  selalu 404; dan handler hari ini mengembalikan array sedangkan halaman
+  membaca `{ breakfast, lunch, dinner, snack }`. Perbaikan: hook memanggil rute
+  kanonik `GET /meals/menus/today/:unitId` (unit di path, seperti
+  `calendar`/`duty-roster`) lalu **melipat** array ke objek yang dibaca
+  halaman; query nonaktif tanpa unit; tab Hari Ini meminta memilih satu unit
+  saat "Semua Unit" (tidak ada agregasi, K5). Tes: `use-meals.test.tsx` (3),
+  `today-menu-route.test.ts` (mengunci rute kanonik + 404 path lama),
+  `e2e/meals.spec.ts` (gagal sebelum, lulus sesudah). Tangkapan sebelum/sesudah
+  di cabang `screenshots/849` (`docs/pr-screens/849/`). Cakupan hanya tab Hari
+  Ini; tab Mingguan & `/meals/stats` menyusul sebagai issue terpisah (K5 poin
+  3). Cacat WIB di `getTodayMenu` sudah beres di `main`. Tidak ada PR terbuka
+  lain yang menyentuh berkas `meals` → aturan emas 9 tidak berlaku. Pelajaran
+  ditambahkan ke `lessons/api-integration-traps.md`.
 
 ## Recently done (2026-10-09 → 10)
 
@@ -436,18 +529,18 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   longer reported as failed when telling its assignee fails.
 - **Units' accreditation (#597 record, #598 public site; both on staging
   2026-09-28):** one official record per unit, kept by the unit's admin or
-  the Super Admin at *Sistem → Profil Unit* with the certificate PDF, read by
+  the Super Admin at _Sistem → Profil Unit_ with the certificate PDF, read by
   the EMIS/Dapodik exports and the SKHUN; the public site shows the one in
-  force on *Profil → Legalitas* and the unit's section, in three languages,
+  force on _Profil → Legalitas_ and the unit's section, in three languages,
   hidden once expired; a reminder 12 months before. Before/after:
   <https://claude.ai/artifact/3hknmFTyFDXGC21eRhSaoV>,
   <https://claude.ai/artifact/4seR52ain9pns4gimg7iz3>.
 
-- **Absence follow-up, tier 2 (#588, merged 2026-09-28):** *Wali Kelas →
-  Tindak Lanjut Absensi* (and *Pengasuhan → Tindak Lanjut Absensi* for the
+- **Absence follow-up, tier 2 (#588, merged 2026-09-28):** _Wali Kelas →
+  Tindak Lanjut Absensi_ (and _Pengasuhan → Tindak Lanjut Absensi_ for the
   musyrif) lists the last 7 days' Alpa with no reason, whom to call (linked
   walis, then the enrolment contact; tel and WhatsApp links) and what was
-  tried. *Catat hasil* logs a contact (`attendance_follow_ups`, additive
+  tried. _Catat hasil_ logs a contact (`attendance_follow_ups`, additive
   migration): Sakit/Izin change the mark, "tanpa keterangan" closes it,
   "tidak terhubungi" keeps it open. A santri mukim's Alpa is their
   musyrif's; everyone else's — a boarder with no musyrif on record included —
@@ -455,22 +548,22 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   <https://claude.ai/artifact/Pf6E87kiXVtoWY5zVMi3Yk>.
 - **Alpa/Terlambat told at once, and a personal inbox (#587, on staging):**
   the wali in the app and by email, a boarder's musyrif in the app; only a
-  change, only today's register. The header bell opens *Notifikasi Saya*
+  change, only today's register. The header bell opens _Notifikasi Saya_
   (`/notifications/me`) for every role. Before/after:
   <https://claude.ai/artifact/U8v1GvscgBToGn5JbyfY34>.
 - **Open (auto-merge):** #589 the Kurikulum list removed, its addresses 308
-  to Kurikulum Merdeka, the page renamed *Mata Pelajaran & Jadwal*
+  to Kurikulum Merdeka, the page renamed _Mata Pelajaran & Jadwal_
   (<https://claude.ai/artifact/A2DxB8CfdYucgp7Swwdeuy>); #590 the register
   reminder 30 minutes after a class's first lesson (in-app, holidays silent).
 
 - **The donation forms offer what the yayasan offers (#584, merged
-  2026-09-28):** Zakat Maal and Zakat Fitrah are off the public *Wakaf &
-  Infaq* form and staff entry (*Keuangan → Donation/ZIS → Catat Donasi*), and
+  2026-09-28):** Zakat Maal and Zakat Fitrah are off the public _Wakaf &
+  Infaq_ form and staff entry (_Keuangan → Donation/ZIS → Catat Donasi_), and
   the API refuses them on both create routes; one list in shared
   (`OFFERED_DONATION_TYPES`). Before/after:
   <https://claude.ai/artifact/5h545yrMwLAuvtc9HmnRcE>.
-- **One register, one page (#585, merged 2026-09-28):** *Wali Kelas →
-  Absensi Harian* opens `/attendance/record` on the homeroom class;
+- **One register, one page (#585, merged 2026-09-28):** _Wali Kelas →
+  Absensi Harian_ opens `/attendance/record` on the homeroom class;
   `/homeroom/attendance` 308s and its copy is gone; the sidebar lights one
   entry (`activeNavHref`). Before/after:
   <https://claude.ai/artifact/Xpvzges8nGMSjSxCEMwHXh>.
@@ -478,7 +571,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   first, then offered as a multiple-choice question.
 
 - **Wali kelas is a relation, not a role (#579, merged and on staging
-  2026-09-27):** the *Wali Kelas* menu group shows for the wali kelas of a
+  2026-09-27):** the _Wali Kelas_ menu group shows for the wali kelas of a
   class this academic year (`Class.homeroomTeacherId`); a class's homeroom
   data is read by its wali kelas and the unit's kepala sekolah and operator,
   written by the wali kelas in the current year, 404 to other teachers; notes
@@ -583,7 +676,7 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   and also Pembina; Musyrifah, Wali Kamar and Murabbi merged into Musyrif,
   Muhafidzah into Muhafidz.
 - The E2E helper that picked another spec's plan (#551).
-- The server checks who is named *atasan penilai* on a PK: never the owner,
+- The server checks who is named _atasan penilai_ on a PK: never the owner,
   and only someone who holds a supervising role (#553).
 - Agent context (#554, #555, #556): `CLAUDE.md` imports `AGENTS.md` and this
   index; stale docs deleted; roadmap and known issues cut to open work;

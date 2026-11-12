@@ -8,6 +8,7 @@ import {
   wibMonthRange,
   wibDayBound,
   wibYearBounds,
+  wibOverdueCutoff,
 } from './wib-day';
 
 // The WIB helpers must derive the calendar from the instant alone, never from
@@ -233,5 +234,40 @@ describe('wibYearBounds', () => {
     // 2025-12-31 19:00Z is 2026-01-01 02:00 WIB — the year rolls.
     const { start } = wibYearBounds(new Date('2025-12-31T19:00:00Z'));
     expect(start.toISOString()).toBe('2025-12-31T17:00:00.000Z');
+  });
+});
+
+describe('wibOverdueCutoff', () => {
+  it('is the first instant of the WIB day the clock is on', () => {
+    // 26 Nov 2026 08:00 WIB is 26 Nov 01:00Z; the cutoff is 26 Nov 00:00 WIB.
+    expect(wibOverdueCutoff(new Date('2026-11-26T01:00:00Z')).toISOString()).toBe(
+      '2026-11-25T17:00:00.000Z'
+    );
+  });
+
+  it('holds the same cutoff through the whole WIB day', () => {
+    const morning = wibOverdueCutoff(new Date('2026-11-26T01:00:00Z')); // 08:00 WIB
+    const evening = wibOverdueCutoff(new Date('2026-11-26T16:30:00Z')); // 23:30 WIB
+    expect(evening.getTime()).toBe(morning.getTime());
+  });
+
+  it('advances to the next WIB day once the WIB midnight passes', () => {
+    // 26 Nov 2026 23:30 WIB (16:30Z) is still 26 November; 27 Nov 00:30 WIB
+    // (26 Nov 17:30Z) has crossed into the next WIB day.
+    expect(wibOverdueCutoff(new Date('2026-11-26T16:30:00Z')).toISOString()).toBe(
+      '2026-11-25T17:00:00.000Z'
+    );
+    expect(wibOverdueCutoff(new Date('2026-11-26T17:30:00Z')).toISOString()).toBe(
+      '2026-11-26T17:00:00.000Z'
+    );
+  });
+
+  it('is the same instant on any server timezone', () => {
+    const utc = wibOverdueCutoff(new Date('2026-11-26T01:00:00Z'));
+    process.env.TZ = 'America/New_York';
+    const newYork = wibOverdueCutoff(new Date('2026-11-26T01:00:00Z'));
+    process.env.TZ = 'UTC';
+
+    expect(newYork.getTime()).toBe(utc.getTime());
   });
 });

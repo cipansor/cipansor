@@ -92,7 +92,7 @@ export const updateGuestBook = async (
   next: NextFunction
 ) => {
   try {
-    const data = await ReceptionService.updateGuestBook(req.params.id, req.body);
+    const data = await ReceptionService.updateGuestBook(req.params.id, req.body, req.user!);
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -120,7 +120,7 @@ export const createStudentVisit = async (
   next: NextFunction
 ) => {
   try {
-    const data = await ReceptionService.createStudentVisit(requireUnitId(req), req.body);
+    const data = await ReceptionService.createStudentVisit(requireUnitId(req), req.body, req.user!);
     res.status(201).json({ success: true, data });
   } catch (error) {
     next(error);
@@ -133,7 +133,7 @@ export const updateStudentVisit = async (
   next: NextFunction
 ) => {
   try {
-    const data = await ReceptionService.updateStudentVisit(req.params.id, req.body);
+    const data = await ReceptionService.updateStudentVisit(req.params.id, req.body, req.user!);
     res.json({ success: true, data });
   } catch (error) {
     next(error);
@@ -161,7 +161,12 @@ export const createPackage = async (
   next: NextFunction
 ) => {
   try {
-    const data = await ReceptionService.createPackage(requireUnitId(req), req.user!.id, req.body);
+    const data = await ReceptionService.createPackage(
+      requireUnitId(req),
+      req.user!.id,
+      req.body,
+      req.user!
+    );
     res.status(201).json({ success: true, data });
   } catch (error) {
     next(error);
@@ -174,7 +179,7 @@ export const updatePackage = async (
   next: NextFunction
 ) => {
   try {
-    const data = await ReceptionService.updatePackage(req.params.id, req.body);
+    const data = await ReceptionService.updatePackage(req.params.id, req.body, req.user!);
     res.json({ success: true, data });
   } catch (error) {
     next(error);

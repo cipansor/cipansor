@@ -49,6 +49,7 @@ import {
   useDutyRosters,
   useDutyStatistics,
 } from "@/hooks/use-duty-roster";
+import { todayWibDay, wibDayOf } from "@/lib/date";
 
 // Extended UI status for local display
 type UIStatus = DutyStatus | "SCHEDULED" | "IN_PROGRESS" | "MISSED" | "EXCUSED";
@@ -116,9 +117,14 @@ const DAYS_OF_WEEK = [
 ];
 
 function DutyRosterPageContent() {
-  const [selectedDate, setSelectedDate] = useState(
-    new Date().toISOString().split("T")[0],
-  );
+  // "Hari Ini" is the WIB calendar day (Asia/Jakarta, UTC+7). `toISOString()`
+  // reads the UTC day, which is still yesterday in Tasikmalaya until 07:00 WIB,
+  // so the page asked the API for the previous day's roster each morning
+  // (ticket #1026). The instant is taken once per mount so the day the page
+  // asks for and the statistics window it reports cannot drift apart mid-session.
+  const [mountedAt] = useState(() => new Date());
+  const todayWib = todayWibDay(mountedAt);
+  const [selectedDate, setSelectedDate] = useState(todayWib);
   const [filterShift, setFilterShift] = useState<string>("all");
   const [activeTab, setActiveTab] = useState("today");
 
@@ -127,13 +133,11 @@ function DutyRosterPageContent() {
     date: selectedDate,
   });
 
-  // Fetch statistics for report view
-  const startOfMonth = new Date();
-  startOfMonth.setDate(1);
+  // Fetch statistics for report view: WIB start of month through WIB today.
   const { data: statisticsData, isLoading: isLoadingStats } = useDutyStatistics(
     {
-      startDate: startOfMonth.toISOString().split("T")[0],
-      endDate: new Date().toISOString().split("T")[0],
+      startDate: `${todayWib.slice(0, 7)}-01`,
+      endDate: todayWib,
     },
   );
 
@@ -190,11 +194,18 @@ function DutyRosterPageContent() {
   };
 
   const navigateDate = (direction: "prev" | "next") => {
+    // `new Date("YYYY-MM-DD")` is UTC midnight; shift it with UTC arithmetic so
+    // the day moves by exactly one on every device clock, then read it back as
+    // a WIB day. Using the local `setDate`/`toISOString` pair would land a
+    // device west of WIB on the wrong day.
     const date = new Date(selectedDate);
-    date.setDate(date.getDate() + (direction === "next" ? 1 : -1));
-    setSelectedDate(date.toISOString().split("T")[0]);
+    date.setUTCDate(date.getUTCDate() + (direction === "next" ? 1 : -1));
+    setSelectedDate(wibDayOf(date));
   };
 
+  // The label names the WIB day the page asked the API for. `new Date("YYYY-MM-DD")`
+  // is UTC midnight, so formatting it in the device zone prints the previous day on
+  // any device west of UTC — pinning `timeZone` keeps the label on the requested day.
   const formatDate = (dateStr: string) => {
     const date = new Date(dateStr);
     return date.toLocaleDateString("id-ID", {
@@ -202,6 +213,7 @@ function DutyRosterPageContent() {
       year: "numeric",
       month: "long",
       day: "numeric",
+      timeZone: "Asia/Jakarta",
     });
   };
 
@@ -348,6 +360,7 @@ function DutyRosterPageContent() {
                 <Button
                   variant="ghost"
                   size="icon"
+                  aria-label="Hari sebelumnya"
                   onClick={() => navigateDate("prev")}
                 >
                   <ChevronLeft className="h-5 w-5" />
@@ -363,6 +376,7 @@ function DutyRosterPageContent() {
                 <Button
                   variant="ghost"
                   size="icon"
+                  aria-label="Hari berikutnya"
                   onClick={() => navigateDate("next")}
                 >
                   <ChevronRight className="h-5 w-5" />

@@ -1,0 +1,80 @@
+name: Perapian kode
+description: Perilaku tetap sama, susunan kode menjadi lebih bersih.
+labels: ["refactor"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        بِسْمِ اللَّهِ الرَّحْمَنِ الرَّحِيمِ
+
+        Automation `Triase issue` menetapkan prioritas dan status, lalu menandai
+        issue ini `ready` begitu kolom di bawah terisi cukup untuk
+        diimplementasikan tanpa pertanyaan lanjutan. Tipe sudah terpasang dari
+        formulir yang Anda pilih. Lihat
+        [docs/LABELS.md](https://github.com/cipansor/cipansor/blob/main/docs/LABELS.md).
+
+        Salah formulir? Kembali dan pilih yang lain: **Perbaikan bug**,
+        **Permintaan fitur**, **Perapian kode**, **Pemeliharaan**, atau
+        **Pengerasan keamanan**.
+
+        Formulir ini untuk perubahan yang **tidak mengubah perilaku** yang
+        teramati — penamaan, pemecahan modul, menghapus duplikasi. Bila ada
+        perilaku yang berubah, pakai **Perbaikan bug** atau **Permintaan fitur**.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Masalah atau motivasi
+      description: Apa yang sulit dilakukan sekarang, atau apa yang salah dengan perilaku saat ini?
+      placeholder: Menutup tagihan akhir bulan masih dikerjakan manual, memakan waktu.
+    validations:
+      required: true
+
+  - type: textarea
+    id: desired
+    attributes:
+      label: Perilaku yang diinginkan
+      description: |
+        Jelaskan seolah sudah berjalan, cukup konkret sehingga peninjau tahu
+        kapan selesai.
+    validations:
+      required: true
+
+  - type: textarea
+    id: who-benefits
+    attributes:
+      label: Siapa yang diuntungkan, dan area mana
+      description: |
+        Peran/unit yang terbantu dan bagian aplikasi yang tersentuh (modul,
+        halaman, atau layar). Membantu triase menaksir dampak dan usaha.
+      placeholder: Bendahara unit (5 orang); halaman Tagihan dan Pembayaran.
+    validations:
+      required: false
+
+  - type: textarea
+    id: acceptance
+    attributes:
+      label: Kriteria penerimaan
+      description: |
+        Hasil yang bisa diamati, sebagai kotak centang. Bila dikosongkan,
+        `Triase issue` yang melengkapinya — issue tetap dapat ditandai `ready`.
+      value: |
+        - [ ]
+    validations:
+      required: false
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatif yang dipertimbangkan
+      description: Pendekatan lain, dan mengapa kurang cocok. Termasuk opsi "tidak perlu sama sekali".
+    validations:
+      required: false
+
+  - type: textarea
+    id: context
+    attributes:
+      label: Konteks tambahan
+      description: Tangkapan layar, tautan, contoh sebelumnya, atau apa pun yang membantu.
+    validations:
+      required: false
