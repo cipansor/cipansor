@@ -12,14 +12,8 @@ vi.mock('@/lib/logger', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { config } from '@/config';
-import {
-  estimateCost,
-  monthToDateUsage,
-  recordUsage,
-  wibDay,
-  wibMonthKey,
-  wibMonthStart,
-} from '../usage.service';
+import { estimateCost, monthToDateUsage, recordUsage } from '../usage.service';
+import { wibDay, wibMonthKey, wibMonthStart } from '@/utils/wib';
 
 const db = prisma as unknown as {
   chatbotUsageDaily: {

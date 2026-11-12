@@ -11,6 +11,7 @@ import {
   type ScopeActor,
 } from '@/utils/student-scope';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { dayOf, todayWib, wibTimeOnDay } from '@/utils/wib';
 import { STUDENT_STATUS, type BulkCreateDailyReportsResult } from '@cipansor/shared';
 import type {
   ListDailyReportsQuery,
@@ -31,12 +32,6 @@ import type {
 // it a report answers 404, so its id is not confirmed. What an account may do
 // is the route guard's (DAILY_REPORT_*_ROLE_CODES in @cipansor/shared).
 // ============================================
-
-/** A calendar day ("yyyy-MM-dd") as the date column stores it. */
-const dayOf = (day: string) => new Date(`${day}T00:00:00.000Z`);
-
-/** "HH:mm" in WIB on `day`, as a point in time. */
-const timeOn = (day: string, hhmm: string) => new Date(`${day}T${hhmm}:00+07:00`);
 
 const scopeOf = (actor: ScopeActor): Prisma.DailyStudentReportWhereInput =>
   onlyScopedStudents(studentScope(actor));
@@ -235,7 +230,7 @@ export const dailyReportService = {
         academicYearId: await academicYearFor(reportDate),
         reportDate,
         unitType: student.unit.type as UnitType,
-        arrivalTime: data.arrivalTime ? timeOn(data.reportDate, data.arrivalTime) : undefined,
+        arrivalTime: data.arrivalTime ? wibTimeOnDay(data.reportDate, data.arrivalTime) : undefined,
         mood: data.morningMood ?? undefined,
         healthStatus: data.healthNotes,
         temperature: data.temperature,
@@ -351,7 +346,7 @@ export const dailyReportService = {
               reportDate,
               unitType: student.unit.type as UnitType,
               arrivalTime: report.arrivalTime
-                ? timeOn(data.reportDate, report.arrivalTime)
+                ? wibTimeOnDay(data.reportDate, report.arrivalTime)
                 : undefined,
               mood: report.morningMood ?? undefined,
               healthStatus: report.healthNotes,
@@ -662,7 +657,7 @@ export const dailyReportService = {
   async getClassDailySummary(query: ClassDailySummaryQuery, actor: ScopeActor) {
     const { classId, date } = query;
     const unitId = seesAllUnits(actor) ? query.unitId : (actor.unitId ?? undefined);
-    const day = date ?? new Date().toLocaleDateString('en-CA', { timeZone: 'Asia/Jakarta' });
+    const day = date ?? todayWib();
     const reportDate = dayOf(day);
 
     const students = await prisma.student.findMany({

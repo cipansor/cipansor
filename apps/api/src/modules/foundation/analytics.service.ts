@@ -1,5 +1,5 @@
 import { prisma } from '../../lib/prisma';
-import { wibMonthYear, wibMonthRange } from '../../utils/wib-day';
+import { wibMonthYear, wibMonthRange } from '../../utils/wib';
 import {
   FoundationExecutiveSummary,
   FoundationFinancialOverview,

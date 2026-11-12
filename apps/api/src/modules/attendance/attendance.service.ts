@@ -15,14 +15,8 @@ import {
 import type { ListAttendanceQuery, AttendanceSummaryQuery } from './attendance.schema';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
 import { STUDENT_SAFE_SELECT, studentScope, type ScopeActor } from '@/utils/student-scope';
-import {
-  assertMayRecord,
-  dayOf,
-  dayString,
-  recorderScope,
-  todayWib,
-  type AttendanceActor,
-} from './attendance.access';
+import { assertMayRecord, recorderScope, type AttendanceActor } from './attendance.access';
+import { dayOf, dayString, todayWib } from '@/utils/wib';
 import { tellAbsences } from './attendance.notice';
 
 export class AttendanceService {

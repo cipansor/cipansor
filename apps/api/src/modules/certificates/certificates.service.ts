@@ -6,7 +6,7 @@ import { assertStudentInScope, studentScope } from '../../utils/student-scope';
 import { STUDENT_SUMMARY_SELECT, toStudentSummary } from '../../utils/student-summary';
 import { generateCertificatePdfBuffer } from '../../utils/generate-certificate-pdf';
 import { Errors } from '../../middleware/error';
-import { wibMonthYear } from '../../utils/wib-day';
+import { wibMonthYear } from '../../utils/wib';
 import type {
   CreateCertificateDto,
   QueryCertificateDto,

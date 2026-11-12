@@ -24,7 +24,7 @@ import {
 import { seesAllUnits } from '@/utils/resolve-unit-id';
 import { CLASS_ENROLLMENT_STATUS, STUDENT_STATUS } from '@cipansor/shared';
 import { nisMapForUnit } from '@/utils/student-nis';
-import { wibMonthYear, wibDate, dayDate, utcMonthRange, wibOverdueCutoff } from '@/utils/wib-day';
+import { wibMonthYear, wibDate, dayDate, utcMonthRange, wibOverdueCutoff } from '@/utils/wib';
 
 // =====================================
 // PAYMENT TYPE SERVICE

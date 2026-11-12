@@ -15,6 +15,7 @@ import {
 import { prisma } from '@/lib/prisma';
 import { ApiError, ErrorCode, Errors } from '@/middleware/error';
 import { isFoundationScopedRole } from '@/utils/resolve-unit-id';
+import { dayOf, dayString, todayWib } from '@/utils/wib';
 
 /**
  * A unit's accreditation as its certificate states it (decided 2026-09-28,
@@ -35,13 +36,6 @@ export interface CertificateFile {
   buffer: Buffer;
   originalname?: string;
 }
-
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-/** Today's calendar day in WIB, yyyy-MM-dd. */
-const todayWib = (now = new Date()) =>
-  new Date(now.getTime() + WIB_OFFSET_MS).toISOString().slice(0, 10);
-const dayOf = (day: string) => new Date(`${day}T00:00:00.000Z`);
-const dayString = (date: Date) => date.toISOString().slice(0, 10);
 
 const code = (actor: AccreditationActor) => actor.roleCode ?? '';
 

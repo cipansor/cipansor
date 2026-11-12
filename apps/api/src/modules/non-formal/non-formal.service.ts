@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { CreateCourseInput, UpdateCourseInput, EnrollCourseInput } from './non-formal.schema';
 import { Prisma } from '@prisma/client';
-import { dayDate, wibDayOf, wibMonthYear } from '../../utils/wib-day';
+import { dayDate, wibDayOf, wibMonthYear } from '../../utils/wib';
 
 export const courseService = {
   async findAll(unitId?: string) {

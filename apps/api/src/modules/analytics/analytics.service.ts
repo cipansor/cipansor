@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma, Gender } from '@prisma/client';
-import { todayWib } from '@/utils/wib';
-import { wibDayEnd, wibDayStart, wibMonthRange, wibMonthYear } from '@/utils/wib-day';
+import { todayWib, wibDayEnd, wibDayStart, wibMonthRange, wibMonthYear } from '@/utils/wib';
+
 import type {
   DashboardSummary,
   StudentStatistics,

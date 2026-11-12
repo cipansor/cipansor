@@ -27,7 +27,7 @@ import {
   replaceAdmissionFeesSchema,
 } from '../../../../packages/shared/src/schemas/admissions';
 import { academicYearStarting } from '../../src/lib/academic-calendar';
-import { calendarDate, wibDayEnd, wibDayStart } from '../../src/utils/wib-day';
+import { calendarDate, wibDayEnd, wibDayStart } from '../../src/utils/wib';
 import {
   BROCHURE_INTAKES,
   BROCHURE_REGISTRATION,

@@ -10,6 +10,7 @@
  */
 
 import { prisma } from '@/lib/prisma';
+import { wibMinutesOfDay } from '@/utils/wib';
 import { Errors } from '@/middleware/error';
 import {
   DEFAULT_NOTIFICATION_PREFERENCES,
@@ -133,17 +134,7 @@ export async function shouldSendNotification(
 }
 
 /** Minutes past midnight, Western Indonesian Time. */
-function wibMinutes(now: Date): number {
-  const parts = new Intl.DateTimeFormat('en-GB', {
-    timeZone: 'Asia/Jakarta',
-    hour: '2-digit',
-    minute: '2-digit',
-    hourCycle: 'h23',
-  }).formatToParts(now);
-  const hour = Number(parts.find((p) => p.type === 'hour')?.value ?? 0);
-  const minute = Number(parts.find((p) => p.type === 'minute')?.value ?? 0);
-  return hour * 60 + minute;
-}
+const wibMinutes = (now: Date): number => wibMinutesOfDay(now);
 
 function clockMinutes(value: string): number {
   const [h, m] = value.split(':').map(Number);
