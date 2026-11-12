@@ -16,6 +16,7 @@ Tiap baris adalah cacat nyata yang pernah lolos ke laporan; kode pemeriksa di
 | Baris Bagian 4 tanpa kolom status | ID/peringkat/kategori temuan terbuka terbit tanpa kesalahan | `summary_errors()` — baris tanpa status dihitung terbuka |
 | Kategori berbeda kode OWASP kedua (mis. tabel `A01, A03` vs Register `A01, A02`) | Pemetaan OWASP temuan keliru | `_categories_match()` membandingkan **himpunan** kode, bukan kode pertama saja |
 | Dua kategori Arab berbeda (tanpa kode OWASP) dianggap sama | Ringkasan dan Register bertentangan lolos | `_norm_text()` mempertahankan huruf Arab (normalisasi Unicode), bukan membuangnya |
+| Kategori Arab berharakat di satu sisi, tanpa di sisi lain (`الحَقْن` vs `الحقن`) | Kategori sama ditolak keliru (harakat jadi pemisah kata) | `_norm_text()` membuang tanda kombinasi Unicode (`Mn`/`Mc`/`Me`) sebelum menandai tanda baca |
 | Bagian 4 berjudul tingkat tiga (`### 4. …`) | Pemeriksaan bagian wajib menerimanya, tetapi perbandingan baris dulu dilewati | `summary_table()` menerima heading tingkat 1–3, sama dengan pemeriksaan bagian wajib |
 | Tabel Bagian 4 berisi temuan yatim (Register kosong) | Baris temuan yang tak ada di Register lolos | perbandingan baris kini jalan tanpa syarat "ada temuan" |
 | Baris Bagian 4 mencantumkan temuan berstatus terbuka | Temuan terbuka bocor ke ringkasan publik | `summary_errors()` — "tabel Ringkasan publik mencantumkan … terbuka" |

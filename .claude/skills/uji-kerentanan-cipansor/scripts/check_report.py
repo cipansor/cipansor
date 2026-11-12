@@ -32,6 +32,7 @@ import argparse
 import math
 import re
 import sys
+import unicodedata
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -224,14 +225,22 @@ def _category_codes(text: str) -> set[str]:
 
 
 def _norm_text(text: str) -> str:
-    """Normalisasi untuk perbandingan: huruf kecil, tanda baca jadi spasi.
+    """Normalisasi untuk perbandingan: buang harakat, tanda baca jadi spasi.
 
-    `\\W` pada mode Unicode mempertahankan huruf dan angka dari aksara apa pun
-    (termasuk Arab); hanya tanda baca dan spasi berlebih yang dirapikan. Kalau
-    tidak, dua kategori Arab yang berbeda sama-sama menjadi string kosong dan
-    dianggap cocok.
+    Langkah pertama adalah komposisi NFKC, lalu **membuang tanda kombinasi**
+    (kategori Unicode `Mn`/`Mc`/`Me` — harakat Arab seperti fatah, kasrah,
+    dhammah). Tanpa ini, `\\W` menganggap harakat sebagai bukan huruf dan
+    menggantinya dengan spasi, sehingga `الحَقْن` terpecah menjadi `الح ق ن` dan
+    tidak lagi sama dengan `الحقن`.
+
+    Setelah harakat dibuang, `\\W` mode Unicode mempertahankan huruf dan angka
+    dari aksara apa pun (termasuk Arab); hanya tanda baca dan spasi berlebih
+    yang dirapikan. Kalau tidak, dua kategori Arab yang berbeda sama-sama
+    menjadi string kosong dan dianggap cocok.
     """
-    return re.sub(r"[\W_]+", " ", (text or "").lower()).strip()
+    decomposed = unicodedata.normalize("NFKC", text or "").lower()
+    without_marks = "".join(ch for ch in decomposed if not unicodedata.category(ch).startswith("M"))
+    return re.sub(r"[\W_]+", " ", without_marks).strip()
 
 
 def _categories_match(a: str, b: str) -> bool:

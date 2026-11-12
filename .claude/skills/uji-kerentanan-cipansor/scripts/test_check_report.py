@@ -257,6 +257,14 @@ class ReadTest(unittest.TestCase):
             any("kategori" in e and "Register" in e for e in res["errors"]), res["errors"]
         )
 
+    def test_summary_table_arabic_category_with_harakat_matches(self):
+        # Kategori Arab yang sama, satu sisi memakai harakat: tanda kombinasi
+        # dibuang dulu, jadi keduanya tetap dianggap sama (bukan salah ditolak).
+        ok = REPORT.replace("- Kategori: A01\n", "- Kategori: الحقن\n")
+        ok = ok.replace("| F-01 | Tinggi | A01 |", "| F-01 | Tinggi | الحَقْن |")
+        res = cr.read(ok)
+        self.assertEqual([e for e in res["errors"] if "kategori" in e], [], res["errors"])
+
     def test_orphan_summary_row_without_register_is_error(self):
         # Register kosong (tak ada blok F-nn) tetapi tabel Bagian 4 punya F-01.
         broken = REPORT.replace(
