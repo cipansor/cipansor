@@ -57,10 +57,12 @@ export async function calculateCampaignROI(unitId?: string) {
 
   // 2. Revenue from settled student invoices. Only the campaign that FIRST
   // brought the student in is credited, so a student carrying two registrations
-  // does not count the same revenue twice. The oldest registration is selected
-  // WITHOUT the `campaignIds` scope: filtering it here would let a student with
-  // registrations in two units change attribution as the report scope changes.
-  // The selected campaign is counted only when it is in scope (see `addRevenue`).
+  // does not count the same revenue twice. The oldest registration that HAS a
+  // campaign is selected, and WITHOUT the `campaignIds` scope: an organic
+  // registration predating the campaign must not hide it, and filtering by
+  // scope would let a student with registrations in two units change
+  // attribution as the report scope changes. The selected campaign is counted
+  // only when it is in scope (see `addRevenue`).
   const studentRevenueData = await prisma.invoice.findMany({
     where: {
       student: {
@@ -70,7 +72,7 @@ export async function calculateCampaignROI(unitId?: string) {
           some: { campaignId: { in: campaignIds } },
         },
       },
-      status: 'PAID',
+      status: { in: ['PAID', 'PARTIAL'] },
       NOT: { paymentType: { code: 'REG_FEE' } },
     },
     select: {
@@ -78,6 +80,7 @@ export async function calculateCampaignROI(unitId?: string) {
       student: {
         select: {
           registrants: {
+            where: { campaignId: { not: null } },
             orderBy: { createdAt: 'asc' },
             take: 1,
             select: { campaignId: true },
@@ -88,30 +91,34 @@ export async function calculateCampaignROI(unitId?: string) {
   });
 
   // A REG_FEE invoice is a second way the same fee can be received: staff can
-  // raise one via `createInvoice` and settle it through `createPayment`, which
-  // never writes the Registrant. When the student has no registration-fee record
-  // (`registrationFeePaidAt` unset) the invoice is the only evidence the fee was
-  // paid, so it is counted; when a record exists it is the canonical source and
-  // `none` below drops the invoice, so the fee is never counted twice.
+  // raise one via `createInvoice` and settle it — fully or partially — through
+  // `createPayment`, which never writes the Registrant. The Registrant is the
+  // canonical home for the fee, so the invoice is counted only for a unit whose
+  // registration has no fee record. The dedup is per unit, not per student: a
+  // student who settled the SD fee and is separately billed for SMP keeps both
+  // (progresi antarunit — one `Registrant` per registration).
   const regFeeInvoiceData = await prisma.invoice.findMany({
     where: {
-      status: 'PAID',
+      status: { in: ['PAID', 'PARTIAL'] },
       paymentType: { code: 'REG_FEE' },
       student: {
         registrants: {
           some: { campaignId: { in: campaignIds } },
-          none: { registrationFeePaidAt: { not: null } },
         },
       },
     },
     select: {
       paidAmount: true,
+      paymentType: { select: { unitId: true } },
       student: {
         select: {
           registrants: {
-            orderBy: { createdAt: 'asc' },
-            take: 1,
-            select: { campaignId: true },
+            select: {
+              campaignId: true,
+              createdAt: true,
+              registrationFeePaidAt: true,
+              admissionPeriod: { select: { unitId: true } },
+            },
           },
         },
       },
@@ -140,12 +147,34 @@ export async function calculateCampaignROI(unitId?: string) {
     revenueMap.set(campaignId, (revenueMap.get(campaignId) || 0) + Number(amount ?? 0));
   };
 
+  /** The campaign the student FIRST came in through: the oldest registration that
+   * has a campaign. Organic registrations (no campaign) never win attribution. */
+  const firstCampaignId = (
+    registrants: { campaignId: string | null; createdAt: Date }[]
+  ): string | null => {
+    let best: { campaignId: string; createdAt: Date } | null = null;
+    for (const r of registrants) {
+      if (!r.campaignId) continue;
+      if (!best || r.createdAt < best.createdAt)
+        best = { campaignId: r.campaignId, createdAt: r.createdAt };
+    }
+    return best?.campaignId ?? null;
+  };
+
   studentRevenueData.forEach((inv) =>
     addRevenue(inv.student?.registrants?.[0]?.campaignId, inv.paidAmount)
   );
-  regFeeInvoiceData.forEach((inv) =>
-    addRevenue(inv.student?.registrants?.[0]?.campaignId, inv.paidAmount)
-  );
+  // A REG_FEE invoice is counted only when the unit that billed it has no
+  // registration recording the fee — otherwise the Registrant is the source.
+  regFeeInvoiceData.forEach((inv) => {
+    const unitId = inv.paymentType?.unitId;
+    const registrants = inv.student?.registrants ?? [];
+    const alreadyRecorded = registrants.some(
+      (r) => r.admissionPeriod?.unitId === unitId && r.registrationFeePaidAt != null
+    );
+    if (alreadyRecorded) return;
+    addRevenue(firstCampaignId(registrants), inv.paidAmount);
+  });
   registrationFeeRows.forEach((row) => addRevenue(row.campaignId, row.registrationFeeAmount));
 
   const results = campaigns.map((campaign) => {
@@ -257,20 +286,31 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
               },
             },
           },
-          // A non-REG_FEE payment always counts. A REG_FEE payment is counted
-          // only when the student has no registration-fee record: otherwise the
-          // fee is read from the Registrant below and counting the payment too
-          // would double it. This is the same rule the campaign ROI applies.
-          OR: [
-            { NOT: { paymentType: { code: 'REG_FEE' } } },
-            {
-              paymentType: { code: 'REG_FEE' },
-              student: { registrants: { none: { registrationFeePaidAt: { not: null } } } },
-            },
-          ],
         },
       },
-      select: { id: true, paidAt: true, amount: true },
+      select: {
+        id: true,
+        paidAt: true,
+        amount: true,
+        // Read what the aggregation needs to decide whether a REG_FEE payment is
+        // the fee (billing unit has no registration recording it) or a duplicate
+        // of the Registrant source. A PARTIAL invoice's payment counts too.
+        invoice: {
+          select: {
+            paymentType: { select: { code: true, unitId: true } },
+            student: {
+              select: {
+                registrants: {
+                  select: {
+                    registrationFeePaidAt: true,
+                    admissionPeriod: { select: { unitId: true } },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
       orderBy: { id: 'asc' },
       skip,
       take,
@@ -306,6 +346,17 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
     `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}`;
 
   for (const payment of payments) {
+    // A REG_FEE payment is a second record of the same fee the Registrant holds
+    // (read below); drop it only when the billing unit has a registration that
+    // already records the fee, so a fee settled by invoice — in part or in full —
+    // is not double-counted and a separate unit's fee is not dropped.
+    if (payment.invoice?.paymentType?.code === 'REG_FEE') {
+      const billingUnitId = payment.invoice.paymentType.unitId;
+      const recorded = (payment.invoice.student?.registrants ?? []).some(
+        (r) => r.admissionPeriod?.unitId === billingUnitId && r.registrationFeePaidAt != null
+      );
+      if (recorded) continue;
+    }
     const bucket = buckets.get(bucketKey(payment.paidAt));
     if (bucket) {
       bucket.revenue += Number(payment.amount);

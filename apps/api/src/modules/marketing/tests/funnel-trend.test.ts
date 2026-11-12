@@ -77,25 +77,16 @@ describe('getMonthlyAttributedRevenue', () => {
 
     // The campaign link hangs off the to-many `registrants` relation on
     // Student; a bare `registrant` is not a relation and Prisma rejects it.
-    // A non-REG_FEE payment always counts; a REG_FEE payment counts only when
-    // the student has no registration-fee record (read from the Registrant),
-    // so the fee is never counted twice.
-    expect(mocked.payment.findMany).toHaveBeenCalledWith(
-      expect.objectContaining({
-        where: expect.objectContaining({
-          invoice: expect.objectContaining({
-            student: { registrants: { some: { campaignId: { not: null } } } },
-            OR: [
-              { NOT: { paymentType: { code: 'REG_FEE' } } },
-              {
-                paymentType: { code: 'REG_FEE' },
-                student: { registrants: { none: { registrationFeePaidAt: { not: null } } } },
-              },
-            ],
-          }),
-        }),
-      })
-    );
+    // A REG_FEE payment is dropped only when the billing unit already has a
+    // registration recording the fee (checked while bucketing, so the query
+    // reads the fields it needs).
+    const args = mocked.payment.findMany.mock.calls[0][0] as any;
+    expect(args.where.invoice.student.registrants).toEqual({
+      some: { campaignId: { not: null } },
+    });
+    expect(args.select.invoice.select.paymentType).toEqual({
+      select: { code: true, unitId: true },
+    });
   });
 
   it('menghitung pembayaran tagihan REG_FEE saat pendaftar belum mencatat biayanya', async () => {
@@ -103,13 +94,71 @@ describe('getMonthlyAttributedRevenue', () => {
     const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
     // Staf melunasi tagihan REG_FEE lewat createPayment; registrationFeePaidAt
     // tidak terisi. Pembayaran ini satu-satunya bukti, jadi harus dihitung.
-    mocked.payment.findMany.mockResolvedValue([{ paidAt: now, amount: 500000 }]);
+    mocked.payment.findMany.mockResolvedValue([
+      {
+        paidAt: now,
+        amount: 500000,
+        invoice: {
+          paymentType: { code: 'REG_FEE', unitId: 'unit-smp' },
+          student: {
+            registrants: [{ registrationFeePaidAt: null, admissionPeriod: { unitId: 'unit-smp' } }],
+          },
+        },
+      },
+    ]);
     mocked.registrant.findMany.mockResolvedValue([]);
 
     const trend = await getMonthlyAttributedRevenue(undefined, 3);
 
     const current = trend.find((t) => t.month === thisMonthKey);
     expect(current).toEqual({ month: thisMonthKey, revenue: 500000, transactionCount: 1 });
+  });
+
+  it('mengecualikan pembayaran REG_FEE bila unit penagih sudah mencatat biayanya', async () => {
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    mocked.payment.findMany.mockResolvedValue([
+      {
+        paidAt: now,
+        amount: 500000,
+        invoice: {
+          paymentType: { code: 'REG_FEE', unitId: 'unit-smp' },
+          student: {
+            registrants: [{ registrationFeePaidAt: now, admissionPeriod: { unitId: 'unit-smp' } }],
+          },
+        },
+      },
+    ]);
+    mocked.registrant.findMany.mockResolvedValue([]);
+
+    const trend = await getMonthlyAttributedRevenue(undefined, 3);
+
+    // Biaya dibaca dari Registrant; pembayaran tagihan unit yang sama diabaikan.
+    const current = trend.find((t) => t.month === thisMonthKey);
+    expect(current?.revenue ?? 0).toBe(0);
+  });
+
+  it('tetap menghitung pembayaran tagihan biasa walau pendaftar sudah mencatat biaya', async () => {
+    const now = new Date();
+    const thisMonthKey = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    mocked.payment.findMany.mockResolvedValue([
+      {
+        paidAt: now,
+        amount: 300000,
+        invoice: {
+          paymentType: { code: 'SPP', unitId: 'unit-smp' },
+          student: {
+            registrants: [{ registrationFeePaidAt: now, admissionPeriod: { unitId: 'unit-smp' } }],
+          },
+        },
+      },
+    ]);
+    mocked.registrant.findMany.mockResolvedValue([]);
+
+    const trend = await getMonthlyAttributedRevenue(undefined, 3);
+
+    const current = trend.find((t) => t.month === thisMonthKey);
+    expect(current).toEqual({ month: thisMonthKey, revenue: 300000, transactionCount: 1 });
   });
 
   it('menambahkan biaya daftar ulang lunas, per bulan registrationFeePaidAt', async () => {
