@@ -76,7 +76,7 @@ body:
       description: |
         Langkah, perintah, atau permintaan persis yang bisa diikuti peninjau.
         Bila Anda tidak bisa mereproduksinya, sebutkan — automation
-        `Reproduksi bug` yang akan melengkapinya, bukan alasan menolak laporan.
+        `Triase issue` yang akan melengkapinya, bukan alasan menolak laporan.
       value: |
         1.
         2.
