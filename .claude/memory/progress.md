@@ -413,7 +413,17 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
   (runs under a non-UTC `TZ`) plus two non-formal dueDate cases; four of them
   fail on `main`, all pass after. Gate green locally (api 5177, web 961,
   build:strict, lint). E2E red on the **runner DNS flake** (apt cannot resolve
-  `security.ubuntu.com` in *Install Playwright*), not the diff.
+  `security.ubuntu.com` in *Install Playwright*), not the diff. The review's
+  first round then found the regression this PR's own canonical form caused —
+  a date-only `dueDate` compared to `new Date()` marks a bill overdue at 07:00
+  WIB on its due day — so a follow-up commit adds `wibOverdueCutoff()` and
+  replaces that bound in `getInvoices`, `getStudentFinanceSummary`,
+  `getFinancialSummary`, `getStudentOutstandingBalances`, `getSppMatrix`, the
+  dashboard alert, `checkOverdueInvoices` and parent-engagement. The review
+  asked for tests pinning the three changed services (golden rule #7); added
+  in `dashboard/tests/wib-day-bounds.test.ts`, `analytics/tests/wib-day-bounds.test.ts`
+  and a new `analytics/tests/alerts-overdue-bound.test.ts` — all three fail on
+  the pre-fix code. Gate green locally (api 5188, build:strict, lint).
 
 ## Recently done (2026-10-09 → 10)
 

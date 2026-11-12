@@ -60,9 +60,10 @@ export function wibYearBounds(moment: Date): { start: Date; end: Date } {
  * first-of-month agree on the day.
  *
  * `Invoice.dueDate` now has this one canonical form: every writer stores it
- * through here or through `wibDate` — the manual `createInvoice`/`updateInvoice`
- * path, the recurring and bulk SPP runs, the course enrollment invoice, and the
- * seed — so the column holds midnight UTC everywhere (#811).
+ * through here or through another midnight-UTC helper — the manual
+ * `createInvoice`/`updateInvoice` path, the recurring and bulk SPP runs, the
+ * course enrollment invoice, and the seed — so the column holds midnight UTC
+ * everywhere (#811).
  */
 export function dayDate(day: string): Date {
   return new Date(`${day}T00:00:00.000Z`);

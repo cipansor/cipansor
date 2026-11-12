@@ -84,4 +84,17 @@ describe('analytics day bounds follow the WIB calendar, not the UTC server clock
     const where = prismaMock.student.count.mock.calls[2][0].where; // newStudentsThisMonth
     expect(where.createdAt.gte.toISOString()).toBe('2026-10-31T17:00:00.000Z');
   });
+
+  it('counts an invoice overdue only once its WIB due day has ended (getParentEngagement)', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-11-01T17:30:00.000Z')); // Senin 2 Nov 2026 00:30 WIB
+
+    await getParentEngagement();
+
+    const where = prismaMock.invoice.count.mock.calls[0][0].where;
+    // The cutoff is the start of the WIB day (2 Nov 00:00 WIB = 1 Nov 17:00Z),
+    // not the server instant (00:30 WIB). A bill due WIB day D is stored at
+    // D 00:00Z and stays due through the whole of D.
+    expect(where.dueDate.lt.toISOString()).toBe('2026-11-01T17:00:00.000Z');
+  });
 });
