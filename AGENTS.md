@@ -144,7 +144,8 @@ pnpm lint                             # eslint (api + web)
 CI supply chain: pin every third-party `uses:` in `.github/workflows/` to a
 full-length commit SHA with a `# vX` comment (`github-actions-pinning.guard.test.ts`),
 and keep every `overrides` floor in `pnpm-workspace.yaml` at or above the first
-fixed release of its advisory (`pnpm-supply-chain.guard.test.ts`). Both fail the
+fixed release of its advisory (`pnpm-supply-chain.guard.test.ts`, for the packages
+listed in its `MIN_OVERRIDES`). Both fail the
 Tests job. Details: [`docs/SDLC-FLOW.md`](docs/SDLC-FLOW.md) → "Rantai pasok CI".
 
 ## Architecture standard (API module)

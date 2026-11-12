@@ -627,7 +627,12 @@ pelanggarannya memerahkan job **Tests** — bukan sekadar konvensi.
   wajib **Security** di setiap PR dan di `main` — kegagalan 2026-11-02 yang
   memblokir seluruh PR terbuka (#910). Batas bawah benar hanya pada atau di atas
   rilis perbaikan pertama advisory. Penjaganya
-  `apps/api/src/utils/pnpm-supply-chain.guard.test.ts` (`MIN_OVERRIDES`).
+  `apps/api/src/utils/pnpm-supply-chain.guard.test.ts`, tetapi hanya untuk paket
+  yang terdaftar di `MIN_OVERRIDES` (empat saat ini: `body-parser`, `dompurify`,
+  `follow-redirects`, `multer`) — penjaga membaca daftar itu, bukan seluruh
+  `overrides`. Entri yang tidak masuk `MIN_OVERRIDES` tidak diperiksa batas
+  bawahnya oleh **Tests**, jadi saat menambah override dengan advisory baru,
+  daftarkan paket dan rilis perbaikan pertamanya di `MIN_OVERRIDES` juga.
 
 ## Rilis & operasi
 
