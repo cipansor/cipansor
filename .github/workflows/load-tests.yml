@@ -64,7 +64,7 @@ permissions:
   contents: read
 
 env:
-  NODE_VERSION: '22'
+  NODE_VERSION: '26'
   LOAD_TEST_URL: ${{ github.event.inputs.url || 'https://staging.cipansor.or.id' }}
   LOAD_TEST_SCENARIO: ${{ github.event.inputs.scenario || 'public-smoke' }}
   LOAD_TEST_PROFILE: ${{ github.event.inputs.profile || 'smoke' }}
