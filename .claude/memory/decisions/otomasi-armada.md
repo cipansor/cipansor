@@ -811,3 +811,50 @@ sensitif; peninjau menandainya. Angka-angka itu dihapus dari repo (pelajarannya
 tetap, angkanya tidak) dan hanya hidup di memory mesin. Pola yang sama sudah
 pernah terjadi sebelumnya dengan kuota sandbox: **menulis hasil observasi live
 terasa seperti pengetahuan, tetapi jam dan nomor run adalah detail insiden.**
+
+**PR draf tidak terlihat oleh gerbang — dan tidak ada yang menua-kannya.**
+Insiden yang memicu konsolidasi 2026-11-12: sebuah PR dibuka sebagai **draf**,
+CI-nya hijau, tetapi tidak ada satu pun yang memindahkannya ke siap-ditinjau.
+`pr-lifecycle.sh` sengaja **tidak** mengubah draf/siap (itu keputusan maintainer),
+dan `Tiket jadi PR` yang membukanya berhenti setelah draf. Akibatnya PR itu
+diam sampai manusia menandainya siap, dan issue-nya tetap `ready` (antrean
+menganggapnya belum dikerjakan). Dua pelajaran tetap:
+
+1. **"Siap ditinjau" adalah langkah yang harus dimiliki seseorang.** Membuka draf
+   lalu berhenti berarti pekerjaan yang mati diam bila uji sudah hijau. `Tiket
+   jadi PR` kini menaikkan PR-nya sendiri ke siap-ditinjau saat uji lokal hijau
+   dan kriteria terpenuhi; draf tetap menjadi jalan keluar bila belum.
+2. **Klaim issue tidak boleh bergantung pada prompt LLM.** Memindahkan `ready`
+   → `in-progress` kini deterministik (`.github/workflows/issue-claim.yml`), bukan
+   instruksi di prompt: satu langkah, satu pemilik, sehingga keadaan label tidak
+   bisa berselisih antara dua penulis.
+
+**Balasan maintainer sudah ditangani jembatan triase.** `Diskusi` (SDLC 22)
+mengawasi balasan maintainer pada issue `question` lewat `issue_comment.created`,
+padahal `issue-triage-bridge.sh` **sudah** mendispatch `Triase issue` pada setiap
+aktivitas non-armada — termasuk balasan maintainer. Dua pemilik untuk satu
+komentar berarti dua run sandbox dan dua balasan untuk satu pertanyaan; `Diskusi`
+dipensiunkan dan perannya masuk ke tail `Triase issue`.
+
+**QA bukan pemilik terpisah.** `Peninjau kode` (SDLC 08) dan `Otomasi QA`
+(SDLC 10) sama-sama menulis putusan per head, sehingga satu head bisa menerima
+dua review yang berselisih. Keduanya dilebur ke `Gerbang tinjau PR` (SDLC 18):
+satu gerbang meninjau kode **dan** menilai alur yang berubah (membaca berkas tes
+dan check-run E2E, bukan `pnpm install`, karena anggaran waktu melarangnya).
+Hasil QA hidup di bagian `<!-- sdlc:gerbang -->` yang sama, bukan `sdlc:qa`.
+
+**Diagnosis kegagalan `main` tidak butuh LLM.** `Pemantau deployment` (SDLC 12)
+dipensiunkan: `main-failure-bridge.yml` kini membuka **satu issue per workflow**
+lewat `.github/scripts/main-failure-report.sh` (deterministik, tanpa
+`OPENHANDS_API_KEY`), dan maintainer membaca penyebabnya dari tab Actions. Pola
+"peringatan deterministik, penilaian manual" yang sama dengan `stale-sweep` dan
+`docs-drift`.
+
+**Gerbang tidak menulis "putusan akhir".** Pemilik menandai satu judul bagian di
+deskripsi PR ("Gerbang tinjau — putusan akhir", PR #1033, 2026-11-12): putusan
+gerbang adalah **rekomendasi**, bukan kata terakhir — merge tetap milik
+maintainer, dan bahasa yang menyebut dirinya final membuat bot tampak memutuskan
+sendiri. Prompt SDLC 18 kini melarangnya (pakai "putusan tinjauan"/"putusan
+gerbang", judul `## Gerbang tinjau — putusan (head <sha>)`), dan satu guard test
+menolak frasa itu kembali ke prompt. Aturan tetap: **kata-kata yang memberi bot
+wewenang yang bukan miliknya adalah cacat, bukan gaya bahasa.**

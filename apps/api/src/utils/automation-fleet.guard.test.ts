@@ -388,40 +388,25 @@ describe('deploy-sdlc-agents.py fleet triggers', () => {
       { encoding: 'utf8' }
     );
 
-  it('splits the two `question` reply owners so one comment starts one agent', () => {
-    // SDLC 16 (`Penjernih issue`) and SDLC 22 (`Diskusi`) both watch a reply on
-    // a `question` issue. Their filters were byte-identical, so every maintainer
-    // reply ran both agents for one answer — two sandbox slots, two replies.
-    // The split is by author: the reporter's reply re-judges, the maintainer's
-    // reply is answered.
+  it('keeps a single `question` reply owner after retiring `Diskusi`', () => {
+    // SDLC 16 (`Penjernih issue`) and SDLC 22 (`Diskusi`) both watched a reply on
+    // a `question` issue; their filters were byte-identical, so every maintainer
+    // reply ran both agents for one answer. `Diskusi` was RETIRED on 2026-11-12
+    // (owner decision) and folded into `Triase issue` (SDLC 15), which the triage
+    // bridge already dispatches on any non-fleet activity. What is left is the
+    // reporter's `Penjernih issue`: it must still exclude maintainers, so a
+    // maintainer reply is not answered twice.
     const triggers = block('TRIGGERS');
-    const entry = (key: string) => {
-      const at = triggers.indexOf(`"${key}": {`);
-      expect(at, `${key} entry`).toBeGreaterThan(-1);
-      return triggers.slice(at, triggers.indexOf('},', at));
-    };
-    const sixteen = entry('SDLC 16');
-    const twentytwo = entry('SDLC 22');
-    expect(sixteen).not.toBe(twentytwo);
-    // `Penjernih issue` is the reporter's, so it excludes maintainers.
+    const at = triggers.indexOf('"SDLC 16": {');
+    expect(at, 'SDLC 16 entry').toBeGreaterThan(-1);
+    const sixteen = triggers.slice(at, triggers.indexOf('},', at));
     expect(sixteen).toContain("comment.author_association != 'OWNER'");
     expect(sixteen).toContain("comment.author_association != 'MEMBER'");
     expect(sixteen).toContain("comment.author_association != 'COLLABORATOR'");
-    // `Diskusi` is the maintainer's.
-    expect(twentytwo).toContain("comment.author_association == 'OWNER'");
-    expect(twentytwo).toContain("comment.author_association == 'MEMBER'");
-    expect(twentytwo).toContain("comment.author_association == 'COLLABORATOR'");
-    // Both still require a `question` issue and keep the author guard.
-    for (const f of [sixteen, twentytwo]) {
-      expect(f).toContain("contains(issue.labels[].name, 'question')");
-      expect(f).toContain('AUTHOR_GUARD');
-    }
-    // The split must be total: every maintainer association that SDLC 22
-    // accepts, SDLC 16 rejects, so no reply matches both.
-    for (const role of ['OWNER', 'MEMBER', 'COLLABORATOR']) {
-      expect(sixteen).toContain(`comment.author_association != '${role}'`);
-      expect(twentytwo).toContain(`comment.author_association == '${role}'`);
-    }
+    expect(sixteen).toContain("contains(issue.labels[].name, 'question')");
+    expect(sixteen).toContain('AUTHOR_GUARD');
+    // The retired automation's trigger is gone, so no comment wakes two agents.
+    expect(triggers).not.toContain('"SDLC 22": {');
     // A third automation also watches comments: `Bot sebutan` (SDLC 07) fires on
     // a mention, so a plain `question` reply must not reach it. If its mention
     // gate ever dropped, a maintainer reply would start three agents.
@@ -1589,19 +1574,24 @@ describe('fleet contracts', () => {
     expect(flow).not.toContain('label `bot-implement` (`Bot sebutan`');
   });
 
-  it('makes `Tiket jadi PR` claim the issue and un-draft the PR it opens', () => {
+  it('makes `Tiket jadi PR` hand the issue claim to Actions and un-draft its PR', () => {
     // The 2026-11-11 queue rewrite dropped the two steps that move work forward:
     // the prompt opened a draft PR and stopped. Issue #857 shows the result — the
     // PR was merged 19 days later only because a human marked it ready, and the
     // issue kept `ready` (with `bot-implement`) for two more days, so the queue
-    // still held work that was already in review. The prompt must move the issue
-    // out of the queue and the PR out of draft.
+    // still held work that was already in review. The PR must leave draft, and
+    // the issue must leave the queue — but the label move itself is now a
+    // deterministic consequence (`issue-claim.yml`), not something the LLM prompt
+    // performs, so two owners cannot disagree about it.
     const script = read(join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py'));
     const start = script.indexOf('Anda adalah SATU-SATUNYA pembuka pull request');
     expect(start, 'SDLC 06 prompt body').toBeGreaterThan(-1);
     const prompt = script.slice(start, script.indexOf('"SDLC 07"', start));
     expect(prompt).toContain('`in-progress`');
-    expect(prompt).toMatch(/CABUT `ready`/);
+    // The move is named as Actions' job, and the prompt is told not to do it.
+    expect(prompt).toContain('issue-claim');
+    expect(prompt).toMatch(/JANGAN melabeli sendiri/);
+    expect(prompt).not.toMatch(/CABUT `ready`/);
     expect(prompt).toContain('ready_for_review');
     // The draft stays the escape hatch when the work is not done, so the
     // instruction is conditional, not unconditional.
@@ -2182,26 +2172,29 @@ describe('deploy-sdlc-agents.py', () => {
     }
   );
 
-  it.skipIf(!hasPy)(
-    'tells both PR reviewers to check the acceptance criteria as a checklist',
-    () => {
-      // The user asked twice (2026-10-14): a PR review must say whether every
-      // acceptance criterion of the linked issue is met or not, as a simple
-      // markdown checkbox list — the diff, not the PR description, decides.
-      for (const name of ['SDLC 08', 'SDLC 18']) {
-        const out = newPrompt(name, `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`);
-        expect(out, name).toContain('KRITERIA PENERIMAAN (WAJIB)');
-        expect(out, name).toContain('- [x] <kriteria>');
-        expect(out, name).toContain('- [ ] <kriteria>');
-        // Two states only, and a derived criterion is marked as derived — the
-        // prompt, the PR body and the reviewer's output must agree (finding:
-        // the body promised a `sebagian` state the prompt never had).
-        expect(out, name).not.toContain('sebagian');
-        expect(out, name).toContain('(turunan)');
-        expect(out, name).toMatch(/Fixes #n/);
-      }
-    }
-  );
+  it.skipIf(!hasPy)('tells the review gate to check the acceptance criteria as a checklist', () => {
+    // The user asked twice (2026-10-14): a PR review must say whether every
+    // acceptance criterion of the linked issue is met or not, as a simple
+    // markdown checkbox list — the diff, not the PR description, decides.
+    // `Peninjau kode` (SDLC 08) was retired into the gate (2026-11-12), so the
+    // gate is the one owner of this checklist now.
+    const out = newPrompt(
+      'SDLC 18',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(out).toContain('KRITERIA PENERIMAAN (WAJIB)');
+    expect(out).toContain('- [x] <kriteria>');
+    expect(out).toContain('- [ ] <kriteria>');
+    // Two states only, and a derived criterion is marked as derived — the
+    // prompt, the PR body and the reviewer's output must agree (finding:
+    // the body promised a `sebagian` state the prompt never had).
+    expect(out).not.toContain('sebagian');
+    expect(out).toContain('(turunan)');
+    expect(out).toMatch(/Fixes #n/);
+    // The QA half folded in with SDLC 10: the gate runs the changed flow and
+    // reports pass/fail with evidence.
+    expect(out).toContain('QA — JALANKAN ALUR YANG BERUBAH');
+  });
 
   it.skipIf(!hasPy)('gives the review gate a target rule and a no-build budget', () => {
     // The gate's own runs died on the 1800s platform ceiling (PATCH timeout
@@ -2236,6 +2229,22 @@ describe('deploy-sdlc-agents.py', () => {
     // commands / 36 min and never posted before the 1800s ceiling.
     expect(out).toMatch(/Setelah \*\*30 perintah\*\*/);
     expect(out).toMatch(/Jangan pernah melewati 30 perintah/);
+  });
+
+  it.skipIf(!hasPy)('forbids the review gate from calling its verdict the final word', () => {
+    // The owner asked (2026-11-12, on PR #1033): the gate's verdict is a
+    // recommendation, not the last word — merge stays with the maintainer.
+    // A body section titled "Gerbang tinjau — putusan akhir" reads as if the
+    // bot had decided, so the phrase must never be produced. Pin both halves:
+    // the forbidden wording is absent, and the replacement rule is present.
+    const out = newPrompt(
+      'SDLC 18',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(out).not.toMatch(/putusan akhir/i);
+    expect(out).not.toMatch(/keputusan akhir/i);
+    expect(out).toContain('BAHASA — PUTUSANMU REKOMENDASI, BUKAN KATA TERAKHIR');
+    expect(out).toContain('## Gerbang tinjau — putusan (head <sha>)');
   });
 });
 

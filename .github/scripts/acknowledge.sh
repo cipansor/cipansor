@@ -6,7 +6,10 @@
 #
 # The comment-driven automations and their triggers (docs/SDLC-FLOW.md):
 #   - `Bot sebutan`      — an `@cipansor-bot` mention, maintainer only;
-#   - `Diskusi`          — a maintainer's reply to a `question` issue.
+#   - a maintainer's reply on a `question` issue — handled by `Triase issue`
+#     (SDLC 15) since `Diskusi` (SDLC 22) was retired on 2026-11-12; the triage
+#     bridge dispatches the triage owner on any non-fleet activity, so the reply
+#     is still answered and is still acknowledged.
 # Reacting only for these keeps an ordinary comment thread unspammed.
 #
 # Usage: acknowledge.sh --stdin          # a `issue_comment.created` webhook event

@@ -141,10 +141,12 @@ detect` workflow: when two **open** issues share a title once normalised
 6. **Approval needs more than green CI.** `Gerbang tinjau PR` approves a
    ready PR only when every check is green, no review thread is open, the labels
    match the linked issue, and it found no correctness problem in the diff. It
-   never merges and never changes the draft state.
+   never merges and never changes the draft state. Its verdict is a
+   recommendation, not the last word — merge stays with the maintainer, so it is
+   never written up as a final decision.
 
-7. **A review proposes the fix, it does not only complain.** `Peninjau arsitektur`,
-   `Peninjau kode`, dan `Gerbang tinjau PR` saat mengembalikan PR, memposting setiap masalah lokal dan mekanis
+7. **A review proposes the fix, it does not only complain.** `Peninjau arsitektur`
+   dan `Gerbang tinjau PR` saat mengembalikan PR, memposting setiap masalah lokal dan mekanis
    problem as a GitHub `suggestion` block so the author can apply it in one
    click, and describe the proposed change in words for a problem too large for
    a block. A suggestion is never placed on a line the automation is not certain
@@ -235,20 +237,21 @@ detect` workflow: when two **open** issues share a title once normalised
 
 | Automation            | Trigger                                   | Labels it sets                                                                                               |
 | --------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
-| `Triase issue`        | issue opened                              | tipe, prioritas, `ready` / `question` / `duplicate`                                                          |
+| `Triase issue`        | issue opened; balasan maintainer pada issue `question` (via jembatan triase) | tipe, prioritas, `ready` / `question` / `duplicate`; balasan maintainer → `ready` / `wontfix`                |
 | `Tiket jadi PR`       | daily cron 08:00 WIB, `ready` queue oldest-first | tidak ada — ia membuka PR                                                                                    |
 | `Penjernih issue`     | comment on a `question` issue             | `question` ↔ `ready`, `duplicate`, `invalid`                                                                 |
 | `Issue label sync`    | PR opened / issue relabeled               | tipe dan prioritas issue tertaut (deterministik, `issue-label-sync.yml`)                                     |
+| `issue-claim.sh`      | PR opened / issue relabeled               | `ready` ↔ `in-progress` pada issue tertaut (deterministik, `issue-claim.yml`)                                |
 | `duplicate-detect.sh` | issue opened / jadwal harian              | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan |
 | `pr-duplicate.sh`     | jadwal harian                             | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama                         |
 | `stale-sweep.sh`      | jadwal harian                             | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`)              |
-| `Gerbang tinjau PR`   | PR ready for review, or CI-green dispatch | tidak ada — ia meninjau atau menyetujui                                                                      |
+| `Gerbang tinjau PR`   | PR ready for review, or CI-green dispatch | tidak ada — ia meninjau (termasuk QA) atau menyetujui                                                         |
 | `Pemburu bug`         | daily cron                                | membuka issue `bug`, satu prioritas (tanpa label provenans)                                                  |
 | `Pemindai standar`    | weekly cron                               | membuka issue dengan tipe, prioritas, `question`                                                             |
-| `Diskusi`             | comment on a `question` issue             | `ready`, `wontfix`, `question`                                                                               |
 
 The deterministic consequences are GitHub Actions workflows
-(`issue-label-sync.yml`, `pr-lifecycle.yml`, `duplicate-detect.yml`,
+(`issue-label-sync.yml`, `issue-claim.yml`, `pr-lifecycle.yml`,
+`main-failure-bridge.yml`, `duplicate-detect.yml`,
 `duplicate-sweep.yml`,
 `stale-sweep.yml`, `docs-drift.yml`, `label-guard.yml`,
 `basmalah.yml`,

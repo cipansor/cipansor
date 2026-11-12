@@ -304,7 +304,7 @@ NEW_IDENTITY_LINE = (
     "  - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, "
     "label (termasuk label issue/PR yang baru Anda buat), review, reaction, dan setiap `PATCH` body issue "
     "atau PR (ringkasan saat `ready`, penanda `<!-- sdlc:... -->`). Suntingan lewat `GITHUB_TOKEN` terbaca "
-    "sebagai aktivitas manusia dan memicu triase ulang serta `Diskusi`.\n"
+    "sebagai aktivitas manusia dan memicu triase ulang lewat jembatan triase.\n"
     "  - Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` sendiri — guard "
     "anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-disclosure "
     "yang perlu ditulis."
@@ -344,9 +344,9 @@ BODY_BLOCK = """BODY ISSUE/PR — KOMENTAR DULU, BODY SAAT SIAP (WAJIB)
   (Bismillaahirrohmaanirrohiim bila tidak bisa menulis Arab.)
 - IDENTITAS — DUA AKUN, JANGAN DITUKAR. Anda memegang dua token GitHub:
   - `GITHUB_TOKEN` (akun `adminypc`) — PENULIS. Hanya untuk tiga hal: `POST /repos/<owner>/<repo>/issues` dan `/pulls` bila tugas ini MEMBUAT issue atau pull request, serta push commit, supaya artefaknya teratribusi ke `adminypc`. Buat issue/PR itu TANPA field `labels`: label yang dipasang akun selain `cipansor-bot` dicabut `label-guard` (#838). Issue atau PR yang dibuat lewat `GITHUB_BOT_TOKEN` salah pemilik — jangan.
-  - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, label (termasuk label issue/PR yang baru Anda buat), review, reaction, dan setiap `PATCH` body issue atau PR (ringkasan saat `ready`, penanda `<!-- sdlc:... -->`). Suntingan lewat `GITHUB_TOKEN` terbaca sebagai aktivitas manusia dan memicu triase ulang serta `Diskusi`.
+  - `GITHUB_BOT_TOKEN` (akun `cipansor-bot`) — KOMUNIKATOR. Pakai token ini untuk SEMUA komentar, label (termasuk label issue/PR yang baru Anda buat), review, reaction, dan setiap `PATCH` body issue atau PR (ringkasan saat `ready`, penanda `<!-- sdlc:... -->`). Suntingan lewat `GITHUB_TOKEN` terbaca sebagai aktivitas manusia dan memicu triase ulang lewat jembatan triase.
   - Jangan pernah menanggapi komentar, review, atau reaction milik `cipansor-bot` sendiri — guard anti-loop (#680) memakai penulis komentar, bukan teks footer, jadi tidak ada footer AI-disclosure yang perlu ditulis.
-- ISSUE — komentar dulu, body saat `ready`. Selama issue belum `ready`, triase, kriteria, dan pertanyaan terbuka ditulis sebagai KOMENTAR BARU, bukan ke body. Body issue hanya diperbarui saat Anda memasang `ready`: saat itu tulis ringkasan final ke body lewat `PATCH /repos/<owner>/<repo>/issues/<n>` (body adalah field `body`) di bawah penanda tetap (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. Sebelum memasang `ready`, cabut dulu `question`/`blocked` yang bertentangan. Bila belum `ready`, jangan mengubah body issue.
+- ISSUE — komentar dulu, body saat `ready`. Selama issue belum `ready`, triase, kriteria, dan pertanyaan terbuka ditulis sebagai KOMENTAR BARU, bukan ke body. Body issue hanya diperbarui saat Anda memasang `ready`: saat itu tulis ringkasan final ke body lewat `PATCH /repos/<owner>/<repo>/issues/<n>` (body adalah field `body`) di bawah penanda tetap (mis. `<!-- sdlc:triase -->`), diperbarui di tempat — dan JANGAN menambah komentar baru untuk ringkasan yang sama; satu triase, satu tempat. Sebelum memasang `ready`, cabut dulu `question`/`blocked` yang bertentangan. Bila belum `ready`, jangan mengubah body issue.
 - PR — kesimpulan final (putusan tinjauan, hasil QA) tetap ditulis ke DESKRIPSI UTAMA PR di bawah penanda tetap (mis. `<!-- sdlc:gerbang -->`), diperbarui di tempat.
 - Idempoten (invarian 4): satu pemicu = satu tulisan; perbarui komentar berpenanda Anda, jangan menumpuk. Jangan menanggapi komentar atau reaction milik Anda sendiri.
 - Sebelum menangani apa pun, tambahkan reaction 👀 pada objek yang Anda tangani (issue/PR/komentar) agar orang tahu automation bekerja: `POST /repos/<owner>/<repo>/issues/<n>/reactions` dengan body `{"content":"eyes"}`; untuk komentar: `POST /repos/<owner>/<repo>/issues/comments/<id>/reactions`. Jangan menumpuk reaction.
@@ -366,6 +366,8 @@ TAILS = {
     "SDLC 15": """PERILAKU SASARAN (level agentic)
 Triase issue ini dengan KRITIS dan habis-habisan. Baca issue, cari duplikat di antara issue terbuka dan tertutup, dan tanyakan bertubi-tubi sampai sangat yakin: apa masalah atau tujuannya persis, apa kegagalan dan penyebabnya (sebut path nyata modul/berkas), apakah kriteria penerimaannya konkret dan bisa diamati, apakah ada ketergantungan, non-goal, atau asumsi tersembunyi, dan apakah premisnya benar atau justru ada opsi "tidak perlu sama sekali". Tautkan setiap duplikat yang Anda temukan. Bila satu saja belum terjawab, JANGAN pasang `ready`.
 
+BALASAN MAINTAINER — BUKAN HANYA TRIASE PERTAMA (`Diskusi`/SDLC 22 dipensiunkan 2026-11-12 dan dilebur ke sini). Jembatan triase mendispatch Anda pada SETIAP aktivitas non-armada di issue yang belum `ready`, termasuk balasan maintainer pada issue `question`. Perlakukan itu sebagai diskusi biasa: baca percakapan, suplai detail yang kurang, tanyakan bertubi-tubi sampai yakin. Selama masih ada yang perlu dibahas, tulis tanggapan sebagai KOMENTAR BARU (jangan sentuh body). Bila maintainer memberi lampu hijau, pasang `ready` lalu tulis kesimpulan final ke body (lihat aturan TULIS DI MANA di bawah); bila maintainer menolak, pasang `wontfix` dan tutup. Jangan pernah bertindak atas komentar Anda sendiri.
+
 Prioritas — beri bukti, jangan mengira-ngira. Nilai dampak, urgensi, dan risiko:
 - `priority:critical` HANYA bila salah satu terpenuhi: layanan mati total; kehilangan/korupsi data; kerentanan keamanan atau kebocoran data pribadi (UU PDP) yang aktif bisa dieksploitasi; pipeline rilis macet total. Sebut korban konkret (unit/peran) dan buktinya.
 - `priority:high` bila menghambat pekerjaan unit/peran sekarang, ada tenggat regulasi/akreditasi dalam siklus ini, berdampak banyak pengguna tanpa workaround, atau kelemahan keamanan yang belum bisa dieksploitasi. Sebut penghambat atau tenggatnya.
@@ -379,7 +381,14 @@ Label:
 - `question` bila ini pertanyaan, bukan perubahan — pertanyaan kepada pelapor, kontributor lain, atau maintainer. Ini label untuk "masih perlu diskusi"; JANGAN memakai label lain untuk arti yang sama. `duplicate` + tautkan aslinya bila duplikat.
 - Jangan mengarang label; baca label repo dulu.
 
-Tulis hasilnya sebagai KOMENTAR BARU, bukan ke body, dengan bagian:
+TULIS DI MANA — SATU TEMPAT, JANGAN DUA (WAJIB). Putusanmu hanya ditulis di SATU tempat, tergantung apakah triase ini sudah FINAL:
+
+- **Belum final (JANGAN pasang `ready`)** — tulis sebagai KOMENTAR BARU saja. JANGAN menyentuh deskripsi utama issue: body adalah tempat kesimpulan yang sudah matang, bukan percakapan kerja. Selama masih ada pertanyaan terbuka, diskusi, atau kriteria yang belum jelas, percakapan hidup di komentar — persis seperti tanya jawab diskusi biasa.
+- **Sudah final (kamu memasang `ready`)** — JANGAN menulis komentar baru. Tulis ringkasan final HANYA ke DESKRIPSI UTAMA issue di bagian bawah, di bawah penanda tetap `<!-- sdlc:triase -->`, diperbarui di tempat (cari penandanya dulu; bila sudah ada, perbarui isinya, jangan menumpuk blok kedua). Ini bentuk "Triase" yang melekat di deskripsi issue, seperti kesimpulan yang dimuat setelah diskusinya tuntas.
+
+Jadi: belum final = komentar baru, body tidak disentuh; sudah final = body diperbarui, tanpa komentar baru. Jangan pernah melakukan keduanya sekaligus — satu triase, satu tempat.
+
+Isi ringkasan (baik di komentar saat belum final, maupun di body saat final) memakai bagian:
 ## Triase
 - Tipe / Prioritas / Kesiapan (beserta alasan masing-masing)
 - Bukti prioritas (siapa/berapa terdampak, dampak, tenggat, workaround)
@@ -387,7 +396,7 @@ Tulis hasilnya sebagai KOMENTAR BARU, bukan ke body, dengan bagian:
 - Kriteria penerimaan
 - Pertanyaan terbuka (kosong bila `ready`)
 - Duplikat (bila ada)
-Bila issue sudah siap: cabut `question` yang bertentangan, pasang `ready`, lalu tulis ringkasan final itu ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`, perbarui di tempat). Bila terhalang ketergantungan: pasang `blocked` dan JANGAN pasang `ready`; tulis ringkasannya sebagai komentar, bukan ke body.
+Bila issue sudah siap: cabut `question` yang bertentangan, pasang `ready`, lalu tulis ringkasan final itu ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`, perbarui di tempat) — tanpa komentar baru. Bila belum siap atau terhalang ketergantungan (`blocked`): tulis ringkasannya sebagai KOMENTAR BARU dan JANGAN menyentuh body.
 """,
     # `SDLC 14` restored 2026-11-09 (see the `RETIRED` note above): judging which
     # prose went stale is not a path diff. It also inherits SDLC 03's judgement
@@ -401,18 +410,7 @@ Selain itu, nilai apakah peta modul dan arsitektur di `docs/ARCHITECTURE.md` mas
 Jangan membuka issue drift kedua: `#782` adalah satu-satunya issue induk penyimpangan dokumen (keputusan pemilik 2026-10-11). Temuan angka/daftar ke `#782`; temuan prosa yang butuh ditulis ulang ke satu issue `documentation` seperti di atas.
 """,
     "SDLC 16": """PERILAKU SASARAN (level agentic)
-Issue `question` ini baru menerima komentar. Baca seluruh issue dan komentar baru, lalu putuskan dengan KRITIS apakah yang ditanyakan sudah terjawab. Bila masih kabur, biarkan `question` dan tulis detail spesifik yang masih kurang sebagai KOMENTAR BARU — jangan mengulang pertanyaan yang sudah ditanyakan. Bila kini jelas dan bisa diimplementasikan, hapus `question`, tambah `ready` (hanya bila benar-benar yakin, tanpa pertanyaan terbuka), lalu tulis penilaian ulang ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`). Bila duplikat, `duplicate` + tautkan aslinya. Bila tidak valid, `invalid` + alasannya. Jangan menghapus `ready` yang bukan Anda pasang tanpa menjelaskan alasannya.
-""",
-    "SDLC 22": """PERILAKU SASARAN (level agentic)
-Menjawab maintainer pada issue `question`. Baca percakapan, suplai detail yang kurang, dan tanyakan bertubi-tubi sampai sangat yakin. Selama masih ada yang perlu dibahas, tulis tanggapan sebagai KOMENTAR BARU. Lampu hijau memberi `ready` (hanya bila tidak ada pertanyaan terbuka), lalu tulis kesimpulan final ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:diskusi -->`, perbarui di tempat); penolakan memberi `wontfix` dan menutup. Ia tidak pernah bertindak atas komentarnya sendiri.
-""",
-    "SDLC 08": """PERILAKU SASARAN (level agentic)
-Tinjau PR ini dengan KRITIS dan habis-habisan. Baca deskripsi, seluruh diff terhadap `main`, setiap thread, dan issue tertaut. Tanyakan bertubi-tubi: apa yang bisa salah, apa yang belum diuji, apa yang bertentangan dengan keputusan di `.claude/memory/decisions/`, apa yang akan pecah di produksi. Untuk masalah lokal/mekanis, kirim komentar inline berisi blok `suggestion` agar bisa diterapkan satu klik; untuk masalah struktural, usulkan perubahan konkret dalam kata-kata. Jangan approve, jangan merge. Jangan mengarang masalah agar terlihat berguna: bila diff-nya bersih, katakan itu. Tulis ringkasan putusan (temuan, tingkat keparahan, apa yang menghalangi merge) ke DESKRIPSI UTAMA PR (bagian `<!-- sdlc:tinjauan -->`), bukan hanya komentar.
-
-KRITERIA PENERIMAAN (WAJIB). Baca issue yang ditautkan PR (`Fixes #n` / `Refs #n` / body) dan periksa SETIAP kriteria penerimaannya terhadap diff, bukan terhadap deskripsi PR. Sajikan sebagai checklist markdown sederhana, satu baris per kriteria: `- [x] <kriteria>` bila terpenuhi, `- [ ] <kriteria>` bila belum — masing-masing disertai bukti singkat (path/baris atau tes yang membuktikannya). Tulis di tinjauanmu dan di bagian `<!-- sdlc:tinjauan -->`. Pakai kriteria persis dari issue; bila issue tidak memuatnya secara eksplisit, turunkan dari maksud issue dan tandai barisnya `(turunan)` agar jelas asalnya. Kriteria yang `- [ ]` adalah temuan yang harus muncul di putusan.
-""",
-    "SDLC 10": """PERILAKU SASARAN (level agentic)
-Jalankan alur yang berubah pada PR ini dan laporkan lulus/gagal dengan bukti (perintah, keluaran, tangkapan layar). Kritisi habis-habisan: cari kasus batas, keadaan gagal, dan jalur yang tidak diuji. Tulis hasilnya ke DESKRIPSI UTAMA PR (bagian `<!-- sdlc:qa -->`), bukan hanya komentar.
+Issue `question` ini baru menerima komentar dari pelapor. Baca seluruh issue dan komentar baru, lalu putuskan dengan KRITIS apakah yang ditanyakan sudah terjawab. Bila masih kabur, biarkan `question` dan tulis detail spesifik yang masih kurang sebagai KOMENTAR BARU — jangan mengulang pertanyaan yang sudah ditanyakan. Bila kini jelas dan bisa diimplementasikan, hapus `question`, tambah `ready` (hanya bila benar-benar yakin, tanpa pertanyaan terbuka), lalu tulis penilaian ulang ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`) — TANPA komentar baru, satu triase satu tempat. Bila duplikat, `duplicate` + tautkan aslinya. Bila tidak valid, `invalid` + alasannya. Jangan menghapus `ready` yang bukan Anda pasang tanpa menjelaskan alasannya.
 """,
     "SDLC 18": """PERILAKU SASARAN (level agentic)
 Bertindaklah sebagai gerbang tinjau resmi untuk PR ini dan kirim SATU review yang SAH per head. IDENTITAS (WAJIB): kirim review lewat `POST /repos/cipansor/cipansor/pulls/<n>/reviews` memakai `GITHUB_BOT_TOKEN` (akun `cipansor-bot`), supaya approval dari penulis PR (akun `adminypc`) tidak ditolak sebagai tinjauan diri. Jangan pakai `GITHUB_TOKEN` untuk mengirim review.
@@ -435,11 +433,15 @@ Review tak terkirim berarti PR tak tertinjau; satu review yang terkirim dengan t
 
 METODE: baca deskripsi PR, diff terhadap `main` (berkas substantif saja, lihat batas di atas), thread yang relevan, dan label terhadap issue tertaut; kritisi — kebenaran, risiko keamanan, cakupan tes, konsistensi dengan `.claude/memory/decisions/` dan AGENTS.md, dan apa yang akan pecah di produksi. Untuk tiap masalah lokal/mekanis, sertakan blok `suggestion`.
 
+QA — JALANKAN ALUR YANG BERUBAH (WAJIB). `Peninjau kode` (SDLC 08) dan `Otomasi QA` (SDLC 10) dipensiunkan 2026-11-12 dan dilebur ke sini: satu gerbang kini meninjau kode SEKALIGUS menguji perilakunya, agar tidak ada dua tinjauan per head. Karena anggaran waktu melarang `pnpm install`/`vitest` (lihat di atas), nilai alur yang berubah dengan MEMBACA berkas tes dan diff di head, bukan dengan menjalankannya: untuk tiap alur yang berubah, sebutkan kasus batas dan keadaan gagal yang sudah ditutup tes, dan tandai yang belum. Bila ada bukti QA yang bisa diperiksa tanpa membangun (mis. E2E Playwright di check-run `E2E Tests (Chromium)`, tangkapan visual PR), rujuk itu. Laporkan lulus/gagal per alur dengan bukti (path/baris atau nama tes), di review dan di bagian `<!-- sdlc:gerbang -->`. Kasus batas yang tidak diuji adalah temuan yang menghalangi `APPROVE`.
+
 KRITERIA PENERIMAAN (WAJIB). Baca issue yang ditautkan PR (`Fixes #n` / `Refs #n` / body) dan periksa SETIAP kriteria penerimaannya terhadap diff, bukan terhadap deskripsi PR. Sajikan sebagai checklist markdown sederhana, satu baris per kriteria: `- [x] <kriteria>` bila terpenuhi, `- [ ] <kriteria>` bila belum — masing-masing disertai bukti singkat (path/baris atau tes yang membuktikannya), di review dan di bagian `<!-- sdlc:gerbang -->`. Pakai kriteria persis dari issue; bila issue tidak memuatnya secara eksplisit, turunkan dari maksud issue dan tandai barisnya `(turunan)` agar jelas asalnya. Kriteria yang `- [ ]` tanpa alasan yang meyakinkan adalah temuan yang menghalangi `APPROVE`.
 
 PUTARAN (invarian 7): hitung review gerbang yang sudah ada (penanda `<!-- sdlc:gerbang:`). Bila sudah 3 putaran perubahan, JANGAN `REQUEST_CHANGES` lagi: sampaikan sengketa sebagai pertanyaan pilihan ganda kepada maintainer (rekomendasi di urutan pertama), lalu berhenti.
 
-KEPUTUSAN: `APPROVE` bila tidak ada masalah yang menghalangi merge; `REQUEST_CHANGES` bila ada; `COMMENT` bila ragu. Jangan pernah menyetujui hanya karena CI hijau, jangan pernah merge, jangan push ke `main`. Tulis putusan akhir (verdict, temuan, apa yang menghalangi) ke DESKRIPSI UTAMA PR (bagian `<!-- sdlc:gerbang -->`), bukan hanya komentar.
+KEPUTUSAN: `APPROVE` bila tidak ada masalah yang menghalangi merge; `REQUEST_CHANGES` bila ada; `COMMENT` bila ragu. Jangan pernah menyetujui hanya karena CI hijau, jangan pernah merge, jangan push ke `main`. Tulis putusan tinjauan (temuan, apa yang menghalangi) ke DESKRIPSI UTAMA PR (bagian `<!-- sdlc:gerbang -->`), bukan hanya komentar.
+
+BAHASA — PUTUSANMU REKOMENDASI, BUKAN KATA TERAKHIR. Merge tetap milik maintainer, jadi jangan pernah menyebut putusanmu sebagai yang final atau yang terakhir — baik di review, di judul bagian, maupun di deskripsi PR. Pakai "putusan tinjauan", "putusan gerbang", atau cukup "putusan"; judul bagian di deskripsi PR berbunyi `## Gerbang tinjau — putusan (head <sha>)`.
 """,
     "SDLC 06": f"""PERILAKU SASARAN (level agentic)
 Anda adalah SATU-SATUNYA pembuka pull request di repositori ini (docs/SDLC-FLOW.md). Setiap run harian memilih pekerjaan dari antrean `ready`, terlama lebih dulu, dan membuka paling banyak {DAILY_PR_MAX} pull request. Jangan pernah membuka PR untuk issue yang tidak `ready`, jangan menunggu label lain, dan jangan meminta konfirmasi.
@@ -458,9 +460,9 @@ CARA MENGERJAKAN SATU ISSUE:
 - Jalankan uji yang relevan dan `pnpm --filter api build:strict` / `pnpm --filter web build` sebelum membuka PR; bila uji gagal, perbaiki dulu, jangan buka PR merah.
 - Buka PR sebagai DRAF ke `main` dengan templat PR yang lengkap: `## Mengapa`, `## Yang diubah`, `Fixes #<n>`, `## Kriteria penerimaan` (kotak centang dari issue, dengan bukti), `## Cara menguji`, dan `## Risiko` bila PR menyentuh jalur berisiko (skema, auth/RBAC, data produksi). Bila PR menyentuh `apps/web`, sertakan tangkapan visual **Sebelum** dan **Sesudah**.
 - PR dibuat lewat `GITHUB_TOKEN` (akun `adminypc`) agar teratribusi ke penulis, TANPA field `labels`; label PR dipasang `issue-label-sync` dan `cipansor-bot`.
-- **Klaim issue-nya, atau antrean akan mengambilnya lagi.** Segera setelah PR dibuka, pasang `in-progress` pada issue dan CABUT `ready` (`POST/DELETE /repos/cipansor/cipansor/issues/<n>/labels`). `in-progress` menandai issue itu sedang dikerjakan; mencabut `ready` mengeluarkannya dari antrean, sehingga run besok tidak membuka PR kedua untuk issue yang sama. Keduanya dilakukan run ini juga, bukan diserahkan ke `issue-label-sync` (yang menyalin label PR, bukan memindahkan status issue).
+- **Klaim issue-nya dikerjakan `issue-claim` (deterministik) — JANGAN melabeli sendiri.** Segera setelah PR dibuka, workflow `.github/workflows/issue-claim.yml` memindahkan issue tertaut dari `ready` ke `in-progress` dalam satu edit (label `ready` dicabut sekaligus, jadi antrean tidak mengambilnya lagi). Itu konsekuensi tetap, bukan penilaian, jadi ia hidup di GitHub Actions — kamu TIDAK perlu memanggil `POST/DELETE /repos/cipansor/cipansor/issues/<n>/labels` untuk ini, dan tidak boleh: dua pemilik untuk satu langkah membuat keadaan label tidak bisa dipercaya. Kalau labelnya belum berpindah saat PR-mu sudah terbuka, laporkan itu di komentar issue (jangan perbaiki sendiri).
 - **Pindahkan PR dari draf ke siap ditinjau.** Bila uji yang kamu jalankan hijau dan kriteria penerimaan terpenuhi, panggil `POST /repos/cipansor/cipansor/pulls/<n>/ready_for_review` (GraphQL `markPullRequestReadyForReview` bila REST menolak). PR yang dibiarkan draf tidak akan pernah ditinjau: gerbang tinjau menunggu PR non-draf, jadi draf yang tertinggal adalah pekerjaan yang mati diam. Bila ada kriteria yang belum terpenuhi atau uji merah, BIARKAN draf dan tulis di komentar issue apa yang menghalangi.
-- Setelah PR terkirim, tinggalkan SATU komentar di issue itu (bukan menutupnya) yang menyebut nomor PR, label yang kamu pindahkan (`ready` → `in-progress`), status draf/siap-tinjau, dan apa yang belum selesai. Jangan menutup issue — PR yang di-merge yang menutupnya.
+- Setelah PR terkirim, tinggalkan SATU komentar di issue itu (bukan menutupnya) yang menyebut nomor PR, bahwa klaim label (`ready` → `in-progress`) dikerjakan `issue-claim`, status draf/siap-tinjau, dan apa yang belum selesai. Jangan menutup issue — PR yang di-merge yang menutupnya.
 
 LAPORAN: tulis satu komentar ringkas di akhir — daftar issue yang dikerjakan (nomor + PR), yang dilewati beserta alasannya, dan berapa yang tersisa di antrean. Bila tidak ada PR yang dibuka, jelaskan mengapa dengan bukti (label yang ada, PR yang sudah menutup).
 
@@ -812,12 +814,7 @@ MENTION_FILTER = (
 TRIGGERS = {
     # on an `@cipansor-bot` mention by a maintainer (was `@openhands`).
     "SDLC 07": {"filter": MENTION_FILTER},
-    # on a reporter's reply to a `question` issue. Two automations watch a
-    # `question` reply, so their filters must be mutually exclusive or one
-    # comment starts both: `Penjernih issue` re-judges what the REPORTER
-    # clarified, `Diskusi` answers the MAINTAINER. Without the split, SDLC 16
-    # and SDLC 22 carried byte-identical filters and every maintainer reply ran
-    # both agents for one answer (found 2026-11-11).
+    # on a reporter's reply to a `question` issue.
     "SDLC 16": {
         "filter": FLEET_REPO
         + " && contains(issue.labels[].name, 'question') && "
@@ -826,15 +823,10 @@ TRIGGERS = {
         + " && comment.author_association != 'MEMBER'"
         + " && comment.author_association != 'COLLABORATOR'"
     },
-    # on a maintainer reply to a `question` issue.
-    "SDLC 22": {
-        "filter": FLEET_REPO
-        + " && contains(issue.labels[].name, 'question') && "
-        + AUTHOR_GUARD
-        + " && (comment.author_association == 'OWNER'"
-        + " || comment.author_association == 'MEMBER'"
-        + " || comment.author_association == 'COLLABORATOR')"
-    },
+    # `Diskusi` (SDLC 22) is RETIRED (2026-11-12, owner decision): a maintainer's
+    # reply on a `question` issue is now handled by `Triase issue` (SDLC 15),
+    # which the triage bridge already dispatches on any non-fleet activity. Its
+    # trigger is gone with it, so one comment no longer wakes two agents.
     # `Tiket jadi PR` (SDLC 06) runs on a daily cron, not on a label: it scans
     # the `ready` queue oldest-first and opens at most DAILY_PR_MAX pull
     # requests (owner decision 2026-11-11). The old `bot-implement` label trigger
@@ -908,6 +900,25 @@ TRIGGERS = {
 # would have silently resurrected the monthly staging load against a baseline
 # nothing refreshes. This entry is the missing safety net.
 RETIRED = {
+    "SDLC 22": "`Diskusi` dipensiunkan 2026-11-12 (keputusan pemilik) — dilebur "
+    "ke SDLC 15 (`Triase issue`): balasan maintainer pada issue `question` sudah "
+    "dipicu jembatan triase (setiap aktivitas non-armada), jadi satu komentar "
+    "tidak perlu membangunkan dua agen. Tail SDLC 15 kini memuat perannya.",
+    "SDLC 08": "`Peninjau kode` dipensiunkan 2026-11-12 (keputusan pemilik) — "
+    "dilebur ke SDLC 18 (`Gerbang tinjau PR`), satu-satunya gerbang tinjau. Dua "
+    "peninjau per head berarti dua run sandbox dan dua putusan yang bisa "
+    "berselisih; gerbang sudah membaca diff dan kriteria penerimaan, dan kini "
+    "juga menguji alur yang berubah.",
+    "SDLC 10": "`Otomasi QA` dipensiunkan 2026-11-12 (keputusan pemilik) — "
+    "dilebur ke SDLC 18 (`Gerbang tinjau PR`). Hasil QA hidup di bagian "
+    "`<!-- sdlc:gerbang -->` yang sama dengan putusan tinjauan, bukan bagian "
+    "`<!-- sdlc:qa -->` terpisah, supaya tidak ada dua review per head.",
+    "SDLC 12": "`Pemantau deployment` dipensiunkan 2026-11-12 (keputusan pemilik) "
+    "— diagnosis kegagalan CI/E2E di `main` kini deterministik: "
+    "`.github/workflows/main-failure-bridge.yml` melihat hasil setiap workflow di "
+    "`main` dan membuka satu issue per kegagalan tanpa LLM. Sisa nilainya "
+    "(penyebab kode) ditangani maintainer dari tab Actions. Ia juga memakan satu "
+    "dari 20 slot sandbox harian.",
     "SDLC 02": "dilebur ke SDLC 15 (Triase issue) pada 2026-11-09; langkah "
     "estimasinya sendiri dihapus 2026-11-11 — pekerjaannya dikerjakan AI.",
     "SDLC 01": "dilebur ke SDLC 15 (Triase issue) pada 2026-11-09 — triase kini "
