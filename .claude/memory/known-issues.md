@@ -55,6 +55,43 @@ workers refused on a closed day. Still open:
   evidence) instead of marking it.
 - **Non-teaching staff cannot file leave.** `/hr/leaves/new` is under `/hr`,
   and the `STAFF` bucket in `rbac.ts` opens only `/hr/attendance/me`.
+- **The *Ajukan Cuti* form sends the user id where the API wants a staff id.**
+  `hr/leaves/new` binds each employee `<SelectItem value={emp.id}>`, and
+  `emp.id` is the **user** id (`normalizeEmployee`), then posts it as `staffId`.
+  `createLeave` resolves `staffId` against the `staff` profile (or a teacher's
+  `staffId`), so a user id matches neither. Observed on the running stack
+  2026-11-12: unit admin → 404 "Staff not found"; Super Admin → 500 (foreign
+  key `leaves_staff_id_fkey`); a guru filing for self → 403 ("Anda hanya dapat
+  mengelola cuti milik sendiri"); a non-teaching staff member → 404 "Data
+  kepegawaian Anda belum dibuat…". A guru who leaves the field blank gets 201 —
+  the API auto-fills their own staff row. Tracked in **#1061**.
+- **The employee *Status* filter on `/hr` does not filter, and offers statuses
+  the API rejects.** `HRPage` sends `status` to `GET /hr/employees`, but
+  `getEmployees` never reads it, so `status=ACTIVE`, `INACTIVE` and `ON_LEAVE`
+  all return the whole unit (8 rows on the demo unit). The dropdown
+  (`EMPLOYEE_STATUS` in `lib/constants.ts`) also offers **Resign** and
+  **Pensiun**, which `queryTeachersSchema` rejects with 400 (`status` is
+  `enum(['ACTIVE','INACTIVE','ON_LEAVE'])`). Found 2026-11-12 while verifying the
+  kepala-unit guide; the guide no longer tells anyone to filter by status.
+- **`/hr` greets the kepala unit with error toasts.** `HRPage` fires
+  `useLeaves`, `useRetentionRisk` and `useExpiringContracts` for every role.
+  `GET /hr/analytics/retention-risk` and `GET /hr/contracts/expiring` are
+  admin-only → 403 for a kepala (always two "Insufficient permissions" toasts),
+  and `GET /hr/leaves` answers 404 "Employee profile not found" **only** for a
+  kepala with no staff/teacher row (a third toast; a kepala who has one gets
+  200). `lib/api.ts` toasts each. Observed 2026-11-12 on the running stack as
+  `sdit.kepala` (3 toasts) and `smpit.kepala` (2). Ask for those queries only
+  when the role may read them.
+- **A non-admin's `/hr` Cuti tab reads only one of the account's profiles.**
+  `getLeaves` (controller) filters non-admins to their own profile, but it
+  prefers `teacherId` over `staffId` (the first of the two `findUnique` results
+  that hits), while `createLeave` fills `staffId` when the caller sends no
+  profile id. So for an account with **both** rows — `smpit.kepala` has a
+  `staff` and a `teacher` row — a self-filed leave lands on `staff` and the
+  list (filtered by `teacherId`) stays empty. Reproduced 2026-11-12: `POST
+  /hr/leaves` (staffId) → 201, `GET /hr/leaves` → 0 rows. A real fix needs
+  `getLeaves` to union both profiles. Found while verifying the kepala-unit
+  guide.
 - **The bulk register loads the first 100 employees only** (`useStaffList`
   forces `limit: 100`).
 - **Dead code.** `teacherId` is still in three `hr.schema.ts` schemas and in

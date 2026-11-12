@@ -478,6 +478,88 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   diduplikasi. **#749** sudah ditangani PR #1033. **#778/#779/#792/#811**
   masing-masing sudah punya PR terbuka (#1035/#1036/#1046/#1048).
 
+- **Issue triage, 2026-11-11 (lanjutan 3):** #833 (`docs`: jalur galat 409 pada
+  keputusan cuti setelah #668) dikerjakan sesuai keputusan **K17** di **PR
+  #1052** pada `docs/833-leave-409`: DT §8.3 menyebut `Errors.conflict` → 409 +
+  pemakaiannya di modul `hr` (keputusan cuti bersamaan; setujui dua kali =
+  idempoten, tolak yang sudah disetujui = 400); panduan Kepala Unit kartu
+  *Mengelola pegawai dan cuti* menambah baris 409 (pesan disalin persis dari
+  `hr.service.ts`, penjaga `pesan-karangan` mencocokkan ke kode web+API);
+  `README.md` baris Kepegawaian. Anotasi Swagger `409` di `hr.routes.ts`
+  dikeluarkan dari lingkup (K17 → PR kode terpisah) dan **dilacak di issue baru
+  #1053** (`documentation`, `priority:low`). `check_docs.py` TEKNIS 16 =
+  baseline, KEPALA-UNIT 2 = pra-ada (L386 `**Buat Baru**`, L403 pesan "Judul dan
+  konten wajib diisi"); sensitive bersih. Catatan: `progress.md` disunting di
+  tiga cabang (#1049 sudah merged; #1051 & #1052 menambah blok di titik yang
+  sama) sehingga resolusi konflik = simpan kedua blok.
+
+- **Koreksi tinjauan #1052, 2026-11-12.** Tinjauan `adminypc` meminta lebih dari
+  sekadar kutipan pesan: kartu panduan Kepala Unit menjanjikan kemampuan yang
+  tidak dimiliki perannya. Diverifikasi pada tumpukan berjalan: `POST
+  /hr/employees` dan `PATCH /hr/leaves/:id/approve` sama-sama dijawab **403**
+  untuk `*_KEPALA_SEKOLAH` (kelompok TEACHER; rute `authorize(SUPER_ADMIN,
+  UNIT_ADMIN)`). Maka kartu *Mengelola pegawai dan cuti* diganti menjadi
+  *Memantau pegawai dan cuti* (hanya tab Karyawan/Cuti/Risiko Retensi), baris
+  galat 409 dilepas dari kartu (peran tak dapat mencapainya; tetap di DT §8),
+  dan Riwayat Revisi 0.2 kembali jujur **T1** karena langkah barunya dijalankan
+  ulang. `README.md` menyebut aktor yang benar (admin unit / Super Admin).
+  Sekaligus ditemukan cacat aplikasi di luar lingkup dokumen: **formulir
+  *Ajukan Cuti*** mengirim **id pengguna** sebagai `staffId` (API menuntut id
+  profil pegawai) → 404 "Staff not found"; dilacak di **#1061**.
+
+- **Koreksi tinjauan #1052, putaran kedua, 2026-11-12.** Setelah balasan putaran
+  pertama, kartu *Memantau pegawai dan cuti* masih menyatakan hal yang tidak
+  benar dan diverifikasi ulang pada tumpukan berjalan (kepala `sdit.kepala`):
+  langkah "saring dengan **Semua Status**" **tidak menyaring** (`GET
+  /hr/employees?status=ACTIVE|INACTIVE|ON_LEAVE` → total 8, sama; `RESIGNED`/
+  `RETIRED` → 400 karena `queryTeachersSchema` hanya menerima tiga nilai), dan
+  klaim tab **Cuti**/**Risiko Retensi** berisi data keliru — `GET /hr/leaves`
+  kepala → **404 "Employee profile not found"**, `GET /hr/analytics/retention-risk`
+  → **403** (rute admin-only), jadi kedua tab kosong bagi kepala. Kartu
+  dirapikan: hanya tab **Karyawan** (8 pegawai) yang dijanjikan, kotak **Cari
+  nama atau NIP...** menggantikan saringan status, dan tab Cuti/Retensi
+  dinyatakan kosong bagi kepala. Gambar 6 ditangkap ulang dari `/hr` (kepala,
+  tab Karyawan) dan manifes diperbarui. Riwayat Revisi menambah baris **0.3**
+  (kode `6b3c6127`). `.claude/memory/known-issues.md`: entri formulir cuti
+  diperkaya (unit admin 404, Super Admin **500** FK `leaves_staff_id_fkey`,
+  guru-untuk-diri 403, staf non-guru 404) dan ditambah entri baru "saringan
+  Status `/hr` tidak menyaring + menawarkan status yang ditolak API 400".
+  `check_docs.py` KEPALA-UNIT tetap **2 ERROR** (keduanya pra-ada di `main`:
+  kartu Pengumuman `Buat Baru` & pesan "Judul dan konten wajib diisi").
+
+- **Koreksi tinjauan #1052, putaran ketiga, 2026-11-12.** Dua temuan lanjutan
+  `adminypc`: (E) kartu menyembunyikan akses cuti pribadi kepala unit; (F)
+  anjuran "abaikan notifikasi galat" terlalu luas. Diverifikasi pada tumpukan
+  berjalan dengan **dua** akun kepala: `smpit.kepala` (punya baris `staff`
+  **dan** `teacher`) vs `sdit.kepala` (tak punya profil). Temuan E benar dan
+  lebih halus dari dugaan: `getLeaves` (controller) membatasi non-admin ke
+  profil sendiri tetapi **mendahulukan `teacherId` atas `staffId`**, jadi cuti
+  yang dibuat pada baris `staff` tak pernah muncul bagi kepala yang punya
+  keduanya — `POST /hr/leaves` (staffId) → **201**, `GET /hr/leaves` → **0
+  baris**. Kartu diperbaiki: tab **Cuti** = pengajuan atas nama profil kepala
+  sendiri (bukan seluruh unit), tab **Risiko Retensi** tak dapat diakses kepala
+  (403); baris bantuan dipisah untuk kedua tab. Temuan F: notifikasi galat
+  berasal dari `retention-risk`/`contracts-expiring` (403, selalu) dan `leaves`
+  (404, hanya bila profil kepala tak ada) — `useEmployees` justru **berhasil**
+  (kepala dijawab 200, 8 baris), jadi kartu kini menyuruh mengabaikan galat
+  **hanya bila** daftar **Karyawan** tetap tampil. `known-issues.md`: entri
+  notifikasi diperjelas (2 vs 3 toast per akun) + entri baru "tab Cuti non-admin
+  menyaring profil yang salah". Riwayat Revisi 0.3 diperbarui.
+
+- **Koreksi tinjauan #1052, putaran keempat, 2026-11-12.** Tiga temuan
+  presisi lanjutan atas kartu yang sama, semuanya diperbaiki: (G) batasan dua
+  profil — daftar **Cuti** non-admin hanya membaca **satu** profil
+  (`teacherId` didahulukan) sedangkan `createLeave` mengisi `staffId`, jadi
+  pengajuan pribadi pemilik dua profil bisa hilang dari daftar; kini
+  dinyatakan di langkah dan tabel bantuan (perbaikan perilaku perlu PR kode:
+  `getLeaves` menggabungkan kedua profil). (H) tab **Risiko Retensi** tetap
+  **dapat dibuka** kepala unit — yang ditolak hanya permintaan datanya (403),
+  jadi kartu tidak lagi menulis "tidak dapat diakses". (I) petunjuk
+  "abaikan galat" dirapikan: hanya galat **Risiko Retensi** yang boleh
+  diabaikan; galat **Cuti**/lain harus diperiksa lebih dulu sebelum
+  dilaporkan. `known-issues.md` entri tab Cuti dipertegas (kedua profil;
+  solusi = union).
+
 - **Model A design document** — approved to draft on 2026-09-25: a permission
   per feature and action, data scope from the assignment, menus derived from
   permissions, separation-of-duty rules locked in code, and the account
