@@ -2883,6 +2883,11 @@ describe('deploy-sdlc-agents.py', () => {
     // `issue.body` as the "before" state of the last node is wrong — for the
     // last edit, `issue.body` is the body AFTER it, so comparing to it hides the
     // last triage response. The rule now compares against the previous NODE.
+    // #877 review round 9, "pembanding riwayat bergantung pada format diff": the
+    // previous node is only a valid "before body" if it is a FULL body; GitHub
+    // can mix hunk and full-body formats in one history, so the rule must check
+    // the comparator's shape and fall back (nearest full-body node) instead of
+    // assuming it.
     expect(out).toMatch(/mengubah isi triase/);
     expect(out).toMatch(/BUKAN respons triase/);
     expect(out).toMatch(/baris yang benar-benar ditambah\/dihapus/);
@@ -2893,6 +2898,8 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toMatch(/baris kosong di sekitarnya/);
     expect(out).toMatch(/JANGAN\*\* memakai `issue\.body` sebagai keadaan sebelum/);
     expect(out).toMatch(/`diff` \*\*node tepat sebelumnya\*\*/);
+    expect(out).toMatch(/Format `diff` bisa berbeda antar-node/);
+    expect(out).toMatch(/node terdekat sebelumnya yang berupa body penuh/);
     expect(out).toContain('editor{login} diff');
     expect(out).not.toMatch(/body-nya memuat penanda/);
     expect(out).not.toMatch(/buang pembuka basmalah/);

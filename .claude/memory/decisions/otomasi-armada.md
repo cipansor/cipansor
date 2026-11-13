@@ -420,7 +420,12 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       satu baris kosong), dan keadaan "sebelum" dibaca dari `diff` **node tepat
       sebelumnya** — **bukan** dari `issue.body` (untuk node terakhir, `issue.body`
       adalah body **sesudah** suntingan itu, jadi membandingkannya menghapus respons
-      triase terakhir). Lima tinjauan berturut-turut menyerang baris yang sama dari
+      triase terakhir). Karena GitHub **dapat mencampur** hunk dan body penuh dalam
+      satu riwayat, pembanding itu harus **diperiksa** dulu: node sebelumnya sah
+      hanya bila berupa body penuh (tak memuat header `@@`); bila ia hunk, pakai
+      node terdekat sebelumnya yang body penuh, atau baca hunk suntingan ini. (Fakta
+      repo: ~148 suntingan diperiksa, **semuanya body penuh**, tak ada riwayat
+      campuran.) Lima tinjauan berturut-turut menyerang baris yang sama dari
       arah berlawanan: putaran-3 "penanda di `diff` tiap suntingan" (salah — `diff`
       bisa hunk berkonteks terbatas), putaran-4 "penanda di `issue.body` sekarang"
       (salah — pembuka yang dikembalikan `basmalah` pada `issues.edited` setelah
@@ -430,7 +435,9 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       menambahkannya kembali berbeda, jadi tampak "berubah"), putaran-7 "abaikan
       hanya baris pembuka" (salah — `basmalah.sh` menambah pembuka **+ baris kosong**,
       jadi pemisahnya ikut terlihat sebagai perubahan), putaran-8 "pakai `issue.body`
-      sebagai keadaan sebelum" (salah — untuk node terakhir `issue.body` = sesudah).
+      sebagai keadaan sebelum" (salah — untuk node terakhir `issue.body` = sesudah),
+      putaran-9 "pembanding = node sebelumnya" (belum cukup — format `diff` bisa
+      dicampur hunk/body penuh, jadi pembanding harus diperiksa bentuknya dulu).
       Pelajaran: jangan kunci aturan pada **artefak** (teks penanda di diff/body,
       bentuk `diff`, atau `issue.body`); kunci pada **peristiwa semantik** (apakah
       isi triase berubah), dibaca dari baris yang berubah dengan pembuka+pemisah
