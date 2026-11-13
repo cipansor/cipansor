@@ -23,7 +23,7 @@ import {
 } from './admissions.schema';
 import { Errors } from '../../middleware/error';
 import { readsAllUnits } from './admissions.access';
-import { calendarDate, wibDayEnd, wibDayStart } from '@/utils/wib-day';
+import { calendarDate, wibDayEnd, wibDayStart } from '@/utils/wib';
 
 type AuthUser = { id: string; role: string; roleCode?: string; unitId?: string | null };
 

@@ -14,7 +14,10 @@ vi.mock('@/lib/prisma', () => ({
 }));
 vi.mock('@/modules/notifications', () => ({ createNotification: vi.fn() }));
 vi.mock('@/modules/dormitories', () => ({ musyrifOfBoarders: vi.fn() }));
-vi.mock('../attendance.access', () => ({ todayWib: () => '2026-09-28' }));
+vi.mock('@/utils/wib', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/wib')>()),
+  todayWib: () => '2026-09-28',
+}));
 
 import { prisma } from '@/lib/prisma';
 import { createNotification } from '@/modules/notifications';

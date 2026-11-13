@@ -7,7 +7,7 @@ import {
   type ScopeActor,
 } from '../../utils/student-scope';
 import { STUDENT_SUMMARY_SELECT, withStudentSummary } from '../../utils/student-summary';
-import { wibDayBound, wibDayEnd, wibDayStart } from '../../utils/wib-day';
+import { wibDayBound, wibDayEnd, wibDayStart } from '../../utils/wib';
 import type { DisciplineSummaryRange, RewardsSummary } from '@cipansor/shared';
 
 /**

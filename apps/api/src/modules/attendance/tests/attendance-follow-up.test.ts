@@ -29,8 +29,8 @@ vi.mock('@/modules/dormitories', () => ({
   boardersOfMusyrif: vi.fn(),
   musyrifOfBoarders: vi.fn(),
 }));
-vi.mock('../attendance.access', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../attendance.access')>()),
+vi.mock('@/utils/wib', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/utils/wib')>()),
   todayWib: () => '2026-09-28',
 }));
 

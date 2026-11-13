@@ -25,7 +25,7 @@ import { prisma } from '@/lib/prisma';
 import * as notificationService from '@/modules/notifications/notifications.service';
 import { notificationService as channelService } from '@/modules/notifications/email-sms.service';
 import { sendMonthlySppReminders } from './spp-reminder.job';
-import { wibDate } from '@/utils/wib-day';
+import { wibDate } from '@/utils/wib';
 
 const mockFindMany = prisma.invoice.findMany as unknown as ReturnType<typeof vi.fn>;
 const mockCreateNotification = notificationService.createNotification as unknown as ReturnType<

@@ -1,7 +1,7 @@
 import { DayOfWeek, EventType, Prisma } from '@prisma/client';
 import { CLASS_ENROLLMENT_STATUS, STUDENT_STATUS } from '@cipansor/shared';
 import { prisma } from '@/lib/prisma';
-import { dayOf, todayWib } from './attendance.access';
+import { dayOf, todayWib, wibDayStart } from '@/utils/wib';
 
 /**
  * The register reminder (decisions/absensi-harian.md): a class whose register
@@ -69,7 +69,7 @@ interface FirstLesson {
 
 /** Of `classes`, those on a holiday today: all units, their unit, or the class. */
 async function onHoliday(day: string, classes: Map<string, FirstLesson>) {
-  const from = new Date(`${day}T00:00:00+07:00`);
+  const from = wibDayStart(day);
   const to = new Date(from.getTime() + 86_400_000);
   const units = [...new Set([...classes.values()].map((c) => c.unitId))];
   const [events, islamic] = await Promise.all([

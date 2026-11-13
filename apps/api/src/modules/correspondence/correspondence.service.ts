@@ -1,4 +1,4 @@
-import { wibDayOf } from '@/utils/wib-day';
+import { wibDayOf } from '@/utils/wib';
 import {
   Prisma,
   LetterFlowAction,

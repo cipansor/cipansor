@@ -10,7 +10,8 @@ import {
 import { prisma } from '@/lib/prisma';
 import { boardersOfMusyrif, musyrifOfBoarders } from '@/modules/dormitories';
 import { semesterAt } from '@/utils/semester';
-import { dayOf, dayString, todayWib, type AttendanceActor } from './attendance.access';
+import { type AttendanceActor } from './attendance.access';
+import { dayOf, dayString, todayWib } from '@/utils/wib';
 
 /**
  * The third tier of the attendance follow-up (decided 2026-09-28,

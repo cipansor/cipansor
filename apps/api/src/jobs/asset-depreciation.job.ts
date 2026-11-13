@@ -1,7 +1,7 @@
 import { prisma } from '../lib/prisma';
 import { AssetStatus, Prisma } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import { wibMonthYear } from '../utils/wib-day';
+import { wibMonthYear } from '../utils/wib';
 
 // Use same ID as in seed.ts
 const SYSTEM_USER_UUID = '00000000-0000-0000-0000-000000000000';

@@ -12,7 +12,8 @@ import {
 import { prisma } from '@/lib/prisma';
 import { ApiError, ErrorCode } from '@/middleware/error';
 import { boardersOfMusyrif, musyrifOfBoarders } from '@/modules/dormitories';
-import { dayOf, dayString, todayWib, type AttendanceActor } from './attendance.access';
+import { type AttendanceActor } from './attendance.access';
+import { dayOf, dayString, todayWib } from '@/utils/wib';
 
 /**
  * The second tier of the attendance follow-up (decisions/absensi-harian.md):

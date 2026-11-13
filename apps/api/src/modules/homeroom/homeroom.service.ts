@@ -4,7 +4,7 @@ import { Prisma, ViolationType } from '@prisma/client';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
 import { assertMayWrite, classAccess, notFound, studentAccess, viewerOf } from './homeroom.access';
 import type { HomeroomNote, HomeroomNoteInput } from '@cipansor/shared';
-import { wibDayOf } from '@/utils/wib-day';
+import { wibDayOf } from '@/utils/wib';
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 

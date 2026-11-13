@@ -3,7 +3,7 @@ import { logger } from '@/lib/logger';
 import { createNotification } from '@/modules/notifications';
 import { musyrifOfBoarders } from '@/modules/dormitories';
 import { AttendanceStatus as PrismaAttendanceStatus } from '@prisma/client';
-import { todayWib } from './attendance.access';
+import { todayWib } from '@/utils/wib';
 
 /**
  * The first tier of the attendance follow-up (decisions/absensi-harian.md):

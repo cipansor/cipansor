@@ -12,8 +12,7 @@ import {
 import { ACCOUNT_MAPPING_KEYS, getAccountOrFallback } from '../finance/accounting-config.service';
 import { JournalReferenceType } from '@cipansor/shared';
 import { CLASS_ENROLLMENT_STATUS } from '@cipansor/shared';
-import { todayWib } from '../../utils/wib';
-import { wibDayStart } from '../../utils/wib-day';
+import { todayWib, wibDayStart } from '../../utils/wib';
 
 export class WalletService {
   /**

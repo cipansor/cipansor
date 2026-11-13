@@ -1,4 +1,5 @@
 import { prisma } from '@/lib/prisma';
+import { dayString, todayWib } from '@/utils/wib';
 import { ApiError, ErrorCode, Errors } from '@/middleware/error';
 import {
   ADMIN_ROLE_CODES,
@@ -24,11 +25,6 @@ export interface AttendanceActor {
 }
 
 type Standing = 'ADMIN' | 'HOMEROOM' | 'TEACHER';
-
-// The WIB day helpers live in `@/utils/wib` (one home); re-exported here so
-// existing importers of this module keep working.
-import { todayWib, dayOf, dayString } from '@/utils/wib';
-export { todayWib, dayOf, dayString };
 
 const isSuperAdmin = (actor: AttendanceActor) => actor.roleCode === 'SUPER_ADMIN';
 const isUnitAdmin = (actor: AttendanceActor) =>

@@ -43,10 +43,10 @@ import {
 import {
   estimateCost,
   monthToDateUsage,
-  wibMonthKey,
   type CostEstimate,
   type MonthToDateUsage,
 } from '@/modules/chatbot/usage.service';
+import { wibMonthKey } from '@/utils/wib';
 
 /** Nama tindakan pada `audit_logs`, sekaligus penanda "sudah diberitahukan". */
 export const CHATBOT_SPEND_AUDIT_ACTION = 'CHATBOT_SPEND_ALERT';

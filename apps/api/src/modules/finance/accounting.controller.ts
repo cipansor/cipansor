@@ -2,13 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import * as service from './accounting.service';
 import * as reportsService from './reports.service';
 import * as configService from './accounting-config.service';
-import {
-  wibDayBound,
-  wibDayOf,
-  wibMonthRange,
-  wibMonthYear,
-  wibYearBounds,
-} from '../../utils/wib-day';
+import { wibDayBound, wibDayOf, wibMonthRange, wibMonthYear, wibYearBounds } from '../../utils/wib';
 import {
   CreateAccountDto,
   CreateJournalDto,

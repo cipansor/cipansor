@@ -4,7 +4,7 @@ import { Errors } from '@/middleware/error';
 import { CreateWaveInput, UpdateWaveInput } from './ppdb-wave.schema';
 import { readsAllUnits } from './admissions.access';
 import { admissionWaveDateIssues } from '@cipansor/shared';
-import { calendarDate, dayOf, wibDayEnd, wibDayOf, wibDayStart } from '@/utils/wib-day';
+import { calendarDate, calendarDayOf, wibDayEnd, wibDayOf, wibDayStart } from '@/utils/wib';
 
 type AuthUser = { id: string; role: string; roleCode?: string; unitId?: string | null };
 
@@ -323,7 +323,10 @@ export const waveService = {
         startDate: input.startDate ?? wibDayOf(stored.startDate),
         endDate: input.endDate ?? wibDayOf(stored.endDate),
         ...Object.fromEntries(
-          SESSION_FIELDS.map((f) => [f, input[f] !== undefined ? input[f] : dayOf(stored[f])])
+          SESSION_FIELDS.map((f) => [
+            f,
+            input[f] !== undefined ? input[f] : calendarDayOf(stored[f]),
+          ])
         ),
       });
       if (issues.length) {
