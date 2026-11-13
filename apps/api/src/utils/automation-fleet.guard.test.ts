@@ -2859,21 +2859,25 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toMatch(/pembuatan issue itu sendiri/);
     // #877 review round 3, "suntingan basmalah menutupi komentar pelapor": the
     // `basmalah` workflow prepends to the body as `cipansor-bot`, but that is
-    // not a triage answer. A bot body edit counts as a response only on an issue
-    // whose body carries the `<!-- sdlc:triase -->` marker, so the prepend (which
-    // happens before any triage) cannot mask a reporter comment older than it.
+    // not a triage answer.
     expect(out).toMatch(/basmalah/);
-    // #877 review round 4, "pembaruan triase berulang memilih issue lama": the
-    // marker must be read from the issue BODY, not from each edit's `diff`.
-    // GitHub's `diff` may return only the changed hunk with limited context, so
-    // editing a line far from (or at the end of) a long triage block would drop
-    // the marker from the diff and re-select an already-answered issue. The body
-    // keeps the marker once written, so the check is `issue.body` and the rule
-    // says so explicitly, and asks for `body` in the GraphQL query.
-    expect(out).toMatch(/body issue itu sendiri|`issue\.body`/);
-    expect(out).toMatch(/BUKAN.{0,40}diff/i);
-    expect(out).toContain('body userContentEdits');
-    expect(out).not.toMatch(/`diff`-nya memuat/);
+    // #877 review round 5, "suntingan basmalah menyembunyikan aktivitas
+    // pelapor": classifying every historical bot edit by whether the CURRENT
+    // body carries the marker is wrong — on an already-triaged issue, a basmalah
+    // re-prepend (basmalah.yml fires on `issues.edited`, after the reporter's
+    // edit) would count as a triage response and mask the reporter. The rule now
+    // classifies an edit by WHAT IT CHANGED: a bot body edit is a triage response
+    // iff it changed something other than the basmalah opening, decided by
+    // comparing the body before vs after the edit with the basmalah stripped —
+    // not by the marker's presence in the current body, and not by looking for
+    // the marker inside each `diff` (a limited-context hunk may omit it).
+    expect(out).toMatch(/mengubah isi triase/);
+    expect(out).toMatch(/rentang perubahan/);
+    expect(out).toMatch(/BUKAN respons triase/);
+    expect(out).toMatch(/sebelum\/sesudah/);
+    expect(out).toMatch(/buang pembuka basmalah/);
+    expect(out).toContain('editor{login} diff');
+    expect(out).not.toMatch(/body-nya memuat penanda/);
     // #877 review, "pemulihan issue ready di luar halaman pertama": the
     // candidate list must be paged past the first 50 issues — a recovery target
     // can be older than the newest page, and stopping there would report

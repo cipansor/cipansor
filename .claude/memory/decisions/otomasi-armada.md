@@ -410,11 +410,16 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       (komentar author ≠ `cipansor-bot`/`*[bot]` **dan** suntingan body
       `editor.login` ≠ `cipansor-bot`) dibandingkan dengan respons armada
       (komentar `cipansor-bot`, suntingan body `editor.login == cipansor-bot`);
-      suntingan body diambil lewat GraphQL `issue.userContentEdits` (yang `diff`-nya
-      menyimpan body utuh saat suntingan itu — tetapi **jangan** bersandar pada
-      itu: `diff` tak dijamin memuat seluruh body, jadi penanda `<!-- sdlc:triase -->`
-      harus dibaca dari **`issue.body`**, bukan dari `diff` tiap suntingan; tinjauan
-      putaran-4 menutup celah memperbarui baris jauh dari penanda). Dua celah yang
+      suntingan body diambil lewat GraphQL `issue.userContentEdits`. Klasifikasi
+      suntingan bot sebagai respons triase memakai **rentang perubahan** (apa yang
+      berubah), **bukan** keberadaan penanda `<!-- sdlc:triase -->`: suntingan body
+      bot dihitung respons bila ia mengubah sesuatu **selain** pembuka basmalah —
+      diputuskan dengan membandingkan body **sebelum vs sesudah** (buang pembuka
+      dari keduanya). Tinjauan putaran-4 menolak "penanda harus ada di `diff`" (diff
+      bisa berupa hunk berkonteks terbatas); tinjauan putaran-5 menolak "penanda ada
+      di `issue.body` sekarang" (pembuka basmalah yang dikembalikan `basmalah` pada
+      `issues.edited` setelah suntingan pelapor lalu terhitung respons dan menutupi
+      pelapor). Dua celah yang
       ditinggalkan aturan itu ditutup pada tinjauan putaran-3: (a) **pembuatan
       issue** dihitung sebagai aktivitas non-armada (`issue.createdAt`) — issue
       baru yang run `issues.opened`-nya gagal tak punya komentar maupun suntingan
