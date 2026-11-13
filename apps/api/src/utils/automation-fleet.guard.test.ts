@@ -3069,13 +3069,20 @@ describe('issue-triage-bridge.sh', () => {
 
   it('refuses activity on a `ready`/`in-progress` issue unless a maintainer mentions the bot (#1083)', () => {
     for (const status of ['ready', 'in-progress']) {
-      const { calls } = runBridge({ GH_STUB_STATUS_LABELS: status }, ['--comment'], commentEvent('adminypc'));
+      const { calls } = runBridge(
+        { GH_STUB_STATUS_LABELS: status },
+        ['--comment'],
+        commentEvent('adminypc')
+      );
       expect(calls, status).not.toContain('DISPATCH');
     }
     const { calls } = runBridge(
       { GH_STUB_STATUS_LABELS: 'in-progress' },
       ['--comment'],
-      commentEvent('adminypc', { body: '@cipansor-bot mohon tinjau ulang tipe issue ini', assoc: 'MEMBER' })
+      commentEvent('adminypc', {
+        body: '@cipansor-bot mohon tinjau ulang tipe issue ini',
+        assoc: 'MEMBER',
+      })
     );
     expect(calls).toContain('DISPATCH');
   });
@@ -3101,12 +3108,20 @@ describe('issue-triage-bridge.sh', () => {
   });
 
   it('triages a `stale` issue on new activity, since it is not a lifecycle end (#1084)', () => {
-    const { calls } = runBridge({ GH_STUB_STATUS_LABELS: 'stale' }, ['--comment'], commentEvent('adminypc'));
+    const { calls } = runBridge(
+      { GH_STUB_STATUS_LABELS: 'stale' },
+      ['--comment'],
+      commentEvent('adminypc')
+    );
     expect(calls).toContain('DISPATCH');
   });
 
   it('triages a `blocked` issue on new activity, since only ready/in-progress are exempt (#1083)', () => {
-    const { calls } = runBridge({ GH_STUB_STATUS_LABELS: 'blocked' }, ['--comment'], commentEvent('adminypc'));
+    const { calls } = runBridge(
+      { GH_STUB_STATUS_LABELS: 'blocked' },
+      ['--comment'],
+      commentEvent('adminypc')
+    );
     expect(calls).toContain('DISPATCH');
   });
 
