@@ -415,18 +415,26 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       ditambah/dihapus** (perubahan sebenarnya), **bukan** keberadaan penanda
       `<!-- sdlc:triase -->` dan **bukan** dengan memperlakukan dua `diff` sebagai
       snapshot lalu membandingkannya: suntingan body bot dihitung respons bila ia
-      mengubah baris **selain** pembuka basmalah. Tiga tinjauan berturut-turut
-      menyerang baris yang sama dari arah berlawanan: putaran-3 "penanda di `diff`
-      tiap suntingan" (salah — `diff` bisa hunk berkonteks terbatas), putaran-4
-      "penanda di `issue.body` sekarang" (salah — pembuka yang dikembalikan
-      `basmalah` pada `issues.edited` setelah suntingan pelapor terhitung respons
-      dan menutupi pelapor), putaran-5 "bandingkan dua `diff` sebagai snapshot body"
-      (salah — `diff` adalah representasi perubahan; patch pelapor yang menghapus
-      pembuka dan patch bot yang menambahkannya kembali berbeda, jadi tampak
-      "berubah"). Pelajaran: jangan kunci aturan pada **artefak** (teks penanda di
-      diff/body, atau bentuk `diff`); kunci pada **peristiwa semantik** (apakah isi
-      triase berubah), dibaca dari baris yang berubah dengan pembuka sebagai
-      kebisingan. Dua celah yang
+      mengubah baris **selain** pembuka basmalah **beserta baris kosong pemisahnya**
+      (basmalah.sh menulis `ARABIC\n\n$FRESH`, jadi bot menambah pembuka **dan**
+      satu baris kosong), dan keadaan "sebelum" dibaca dari `diff` **node tepat
+      sebelumnya** — **bukan** dari `issue.body` (untuk node terakhir, `issue.body`
+      adalah body **sesudah** suntingan itu, jadi membandingkannya menghapus respons
+      triase terakhir). Lima tinjauan berturut-turut menyerang baris yang sama dari
+      arah berlawanan: putaran-3 "penanda di `diff` tiap suntingan" (salah — `diff`
+      bisa hunk berkonteks terbatas), putaran-4 "penanda di `issue.body` sekarang"
+      (salah — pembuka yang dikembalikan `basmalah` pada `issues.edited` setelah
+      suntingan pelapor terhitung respons dan menutupi pelapor), putaran-5
+      "bandingkan dua `diff` sebagai snapshot body" (salah — `diff` adalah
+      representasi perubahan; patch pelapor yang menghapus pembuka dan patch bot yang
+      menambahkannya kembali berbeda, jadi tampak "berubah"), putaran-7 "abaikan
+      hanya baris pembuka" (salah — `basmalah.sh` menambah pembuka **+ baris kosong**,
+      jadi pemisahnya ikut terlihat sebagai perubahan), putaran-8 "pakai `issue.body`
+      sebagai keadaan sebelum" (salah — untuk node terakhir `issue.body` = sesudah).
+      Pelajaran: jangan kunci aturan pada **artefak** (teks penanda di diff/body,
+      bentuk `diff`, atau `issue.body`); kunci pada **peristiwa semantik** (apakah
+      isi triase berubah), dibaca dari baris yang berubah dengan pembuka+pemisah
+      sebagai kebisingan. Dua celah yang
       ditinggalkan aturan itu ditutup pada tinjauan putaran-3: (a) **pembuatan
       issue** dihitung sebagai aktivitas non-armada (`issue.createdAt`) — issue
       baru yang run `issues.opened`-nya gagal tak punya komentar maupun suntingan

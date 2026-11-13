@@ -2875,13 +2875,24 @@ describe('deploy-sdlc-agents.py', () => {
     // noise: an edit is a triage response iff it changed a line other than the
     // opening. That is correct whether `diff` is a snapshot or a hunk, and it
     // still recognises a triage-block update whose hunk omits the marker.
+    // #877 review round 7, "pemisah basmalah menutupi suntingan pelapor":
+    // `basmalah.sh` writes `ARABIC\n\n$FRESH`, so the bot adds the opening AND a
+    // blank separator line; excluding only the opening line would see the blank
+    // as "another change". The rule now discards the opening with its separator.
+    // #877 review round 8, "triase terakhir terbaca belum dijawab": using
+    // `issue.body` as the "before" state of the last node is wrong — for the
+    // last edit, `issue.body` is the body AFTER it, so comparing to it hides the
+    // last triage response. The rule now compares against the previous NODE.
     expect(out).toMatch(/mengubah isi triase/);
     expect(out).toMatch(/BUKAN respons triase/);
     expect(out).toMatch(/baris yang benar-benar ditambah\/dihapus/);
     expect(out).toMatch(/abaikan baris konteks/);
     expect(out).toMatch(/kebisingan/);
     expect(out).toMatch(/dua `?diff`? sebagai dua snapshot body/);
-    expect(out).toMatch(/menambahkan \*\*hanya\*\* baris pembuka/);
+    expect(out).toMatch(/pembuka DAN baris kosong pemisah/);
+    expect(out).toMatch(/baris kosong di sekitarnya/);
+    expect(out).toMatch(/JANGAN\*\* memakai `issue\.body` sebagai keadaan sebelum/);
+    expect(out).toMatch(/`diff` \*\*node tepat sebelumnya\*\*/);
     expect(out).toContain('editor{login} diff');
     expect(out).not.toMatch(/body-nya memuat penanda/);
     expect(out).not.toMatch(/buang pembuka basmalah/);
