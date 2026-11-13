@@ -83,6 +83,13 @@ API="https://app.all-hands.dev/api/automation/v1"
 API_RUNS="$API/$TRIAGE_ID/runs"
 CURL="${CURL:-curl}"
 TYPE_LABELS="bug enhancement documentation refactor chore security"
+# The status labels that end a triage episode. `ready` is the implementation
+# queue and `in-progress` is already being implemented, so neither needs triage
+# again: a new comment or an edited body must not restart it (#1083). The one way
+# back in is a maintainer's `@cipansor-bot` mention, which asks for a specific
+# correction. `blocked` is deliberately absent: it is a state a person sets, not
+# an episode end, and it keeps being triaged (owner decision 2026-11-13).
+LIFECYCLE_LABELS="ready in-progress"
 # SWEEP_MAX caps dispatches (cost); SWEEP_PAGES caps the API calls. The sweep
 # reads up to SWEEP_PAGES pages, sorts by activity, then stops dispatching after
 # SWEEP_MAX so the freshest issues go first and the rest wait for the next run.
@@ -142,6 +149,13 @@ STATE_KEY="triage-state-"
 # labeler set, this one on a burst of revocations for one issue, and the two must
 # not collapse each other.
 UNLABELED_KEY="triage-unlabeled-"
+# The collapse key of the activity path (`--comment`, `--edited`, #1084). A
+# burst of comments on one issue must not start a run each: it records the epoch
+# second of the last activity dispatch per issue, and a second event inside
+# BURST_WINDOW is collapsed. Separate from STATE_KEY (a label state) and from the
+# side keys, because a label and a comment are different responses that must not
+# collapse each other.
+ACTIVITY_KEY="triage-activity-"
 # The collapse key of the type-conflict path (`label-guard` declined a type
 # restore, #838 follow-up). A separate key from UNLABELED_KEY: a revocation can
 # dispatch `--relabel` (a missing priority) and a type change can follow within
@@ -280,6 +294,46 @@ issue_state() { # issue_state <number>
   gh api "repos/$REPO/issues/$1" \
     --jq '[.labels[].name | select(test("^(bug|enhancement|documentation|refactor|chore|security)$") or startswith("priority:"))] | sort | join("+")' \
     2>/dev/null || echo ""
+}
+
+# The status labels the issue holds now, space-separated (empty when none). A
+# read failure prints `unknown` so a caller can tell a hiccup from "no status
+# label" and skip rather than dispatch on a bad read.
+issue_status_labels() { # issue_status_labels <number>
+  out=$(gh api "repos/$REPO/issues/$1" \
+    --jq '[.labels[].name | select(. == "ready" or . == "in-progress")] | join(" ")' \
+    2>/dev/null) || { printf 'unknown'; return 0; }
+  printf '%s' "$out"
+}
+
+# True (0) when the issue is out of triage scope because of a lifecycle label:
+# `ready` (the implementation queue) or `in-progress` (already being built).
+# A read failure returns non-zero (fail-open): a missed triage is worse than a
+# duplicate one, and the triage owner is idempotent (#1083).
+in_lifecycle_state() { # in_lifecycle_state <number>
+  st=$(issue_status_labels "$1")
+  [ "$st" = "unknown" ] && return 1
+  for s in $st; do
+    case " $LIFECYCLE_LABELS " in *" $s "*) return 0 ;; esac
+  done
+  return 1
+}
+
+# True (0) when this very event is a maintainer's `@cipansor-bot` mention — the
+# ONE way to re-triage a `ready`/`in-progress` issue (#1083). It is read from the
+# triggering comment, not from the issue's history: an old mention must not keep
+# the gate open, or every later reporter comment would re-triage the issue the
+# owner asked to leave alone. The association is GitHub's own (`OWNER`, `MEMBER`,
+# `COLLABORATOR`) and the body is matched by the fleet account, not `@openhands`.
+is_maintainer_mention() { # is_maintainer_mention <event-json>
+  assoc=$(printf '%s' "$1" | jq -r '.comment.author_association // empty')
+  case "$assoc" in
+    OWNER | MEMBER | COLLABORATOR) : ;;
+    *) return 1 ;;
+  esac
+  body=$(printf '%s' "$1" | jq -r '.comment.body // empty')
+  case "$body" in *"@cipansor-bot"*) return 0 ;; esac
+  return 1
 }
 
 # The type+priority the issue is left holding, as a `+`-joined sorted set (or
@@ -772,6 +826,16 @@ on_label() { # on_label <event-json>
   [ "$is_signal" = 1 ] || { echo "label '$label' is not a type or priority; nothing to do."; exit 0; }
   [ -n "$number" ] || { echo "no issue number in the event; nothing to do."; exit 0; }
 
+  # A `ready` or `in-progress` issue is out of triage scope (#1083). The labeler
+  # applies type+priority+status in one burst, so without this a `ready` issue's
+  # own type label would re-dispatch the triage owner right after it was queued.
+  # A maintainer's mention re-opens the issue through the `comment` path, not
+  # here: a `labeled` event carries no comment to read.
+  if in_lifecycle_state "$number"; then
+    echo "#$number is \`ready\`/\`in-progress\`; triage is closed until a maintainer mentions @cipansor-bot."
+    exit 0
+  fi
+
   # The same type+priority state was already dispatched. Collapse only a burst:
   # once BURST_WINDOW has passed, a return to a state the issue held before is a
   # fresh response and dispatches again. The state and when it was recorded live
@@ -849,6 +913,103 @@ on_label() { # on_label <event-json>
     if [ -n "$sig" ]; then write_sweep_marker "$number" "$sig" "$RUN_ID"; fi
   else
     echo "::warning::#${number}'s label state stays unrecorded; a later label or the sweep retries."
+    exit 1
+  fi
+}
+
+# --comment / --edited: an issue got a new comment, or its body was edited.
+# This is the event-driven path the bridge lacked (#1084): before it, only the
+# hourly sweep noticed new activity, and the sweep's cap (`MAX_INFLIGHT`) left a
+# maintainer's reply waiting hours behind ~40 candidates.
+#
+# Both modes read the event from stdin (like `--stdin`), take the issue number
+# and the sender from it, and share one guard set:
+#   * a fleet account's own comment or edit never dispatches (anti-loop): the
+#     triage owner writes as `cipansor-bot` and GitHub Actions as `*[bot]`;
+#   * a `ready`/`in-progress` issue is out of scope unless a maintainer mentioned
+#     `@cipansor-bot` (#1083);
+#   * a burst on one issue collapses to one dispatch per `BURST_WINDOW`;
+#   * `MAX_INFLIGHT` is honoured — a maintainer's reply does NOT jump the cap
+#     (owner decision 2026-11-13: exceeding it makes the pool unstable and runs
+#     fail in OpenHands). A deferral is recorded as a `pending` checkpoint and the
+#     sweep picks it up in FIFO order, so the reply is queued, not lost.
+#
+# The activity *signal* is not read here: the event is the signal, and reading the
+# body plus every comment on each event would spend API budget for nothing. The
+# sweep still owns the content-hash signal, so an edit the event missed (or a
+# comment posted while the pool was full) is still caught.
+on_activity() { # on_activity <kind> <event-json>
+  kind="$1"; event="$2"
+  sender=$(printf '%s' "$event" | jq -r '.sender.login // empty')
+  case "$kind" in
+    comment) number=$(printf '%s' "$event" | jq -r '.issue.number // empty') ;;
+    edited)
+      number=$(printf '%s' "$event" | jq -r '.issue.number // empty')
+      # Only a body edit is the activity this path answers (#1084). `issues.edited`
+      # also fires on a title change or a label-driven edit, which the label path
+      # already covers; requiring `changes.body` keeps this path to its purpose.
+      has_body=$(printf '%s' "$event" | jq -r 'if (.changes.body // null) != null then "yes" else "no" end')
+      [ "$has_body" = "yes" ] || { echo "no body change in the event; nothing to do."; exit 0; }
+      ;;
+    *) echo "unknown activity kind '$kind'; nothing to do."; exit 0 ;;
+  esac
+  [ -n "$number" ] || { echo "no issue number in the event; nothing to do."; exit 0; }
+  # A PR comment/body edit is not an issue: the bridge is issues-only.
+  is_pr=$(printf '%s' "$event" | jq -r '.issue.pull_request // empty')
+  [ -z "$is_pr" ] || { echo "#$number is a pull request; nothing to do."; exit 0; }
+
+  # Anti-loop: the fleet's own account and any App (`*[bot]`) never re-trigger
+  # triage. A person's comment is the point.
+  case "$sender" in
+    *bot | *\[bot\]) echo "sender '$sender' is the fleet; nothing to do."; exit 0 ;;
+  esac
+  [ -n "$sender" ] || { echo "no sender in the event; nothing to do."; exit 0; }
+
+  # `ready`/`in-progress` end the triage episode (#1083); a maintainer's mention
+  # of `@cipansor-bot` in THIS comment is the one way back in.
+  if in_lifecycle_state "$number" && ! is_maintainer_mention "$event"; then
+    echo "#$number is \`ready\`/\`in-progress\`; triage is closed until a maintainer mentions @cipansor-bot."
+    exit 0
+  fi
+
+  # Collapse a burst on one issue: the labeler's counterpart for comments, so
+  # three comments in a row are one run, not three.
+  now=$(date -u +%s)
+  if kv_get "$ACTIVITY_KEY$number"; then
+    prev_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
+    case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
+    since=$((now - prev_at))
+    if [ "$since" -lt "$BURST_WINDOW" ]; then
+      echo "#$number already dispatched for activity ${since}s ago; burst collapsed."
+      exit 0
+    fi
+  fi
+
+  # Snapshot the signal before the dispatch, so the checkpoint records what this
+  # run answers: an edit landing between the snapshot and the write changes the
+  # signal and the next sweep still catches it (same ordering as `on_label`).
+  sig=$(activity_signal "$number") || sig=""
+
+  inflight=$(inflight_count)
+  if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
+    echo "#$number: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT); the sweep retries it."
+    if [ -n "$sig" ]; then
+      read_sweep_marker "$number"
+      if [ "$MARK_FORM" = "unknown" ]; then
+        write_retry_marker "$number" "$sig"
+      else
+        if [ "$MARK_RUN" = "$PENDING_RUN" ]; then at="${MARK_AT:-0}"; else at=""; fi
+        write_sweep_marker "$number" "$sig" "$PENDING_RUN" "$at"
+      fi
+    fi
+    exit 0
+  fi
+
+  if dispatch "$number" "$kind" "activity-$kind"; then
+    kv_put "$ACTIVITY_KEY$number" "$(jq -nc --argjson at "$now" '{at: $at}')" || true
+    [ -n "$sig" ] && write_sweep_marker "$number" "$sig" "$RUN_ID"
+  else
+    echo "::warning::#${number}'s activity dispatch failed; the sweep retries it."
     exit 1
   fi
 }
@@ -1025,10 +1186,11 @@ type_conflict_dispatch() { # type_conflict_dispatch <number> <declined-type>
 # One candidate issue: decide whether it needs a dispatch. Returns 0 when a
 # dispatch was accepted, 2 when a dispatch was attempted and failed, 3 when the
 # issue is deferred because the in-flight cap is reached, 1 otherwise.
-# `ready_ok` = 1 lets a `ready` issue through: it is the recovery pass for a
-# label dispatch deferred while the pool was full (see `recover_ready`).
-process_one() { # process_one <number> <inflight> [ready_ok]
-  n="$1"; inflight="${2:-0}"; ready_ok="${3:-0}"
+# `scope_ok` = 1 lets a `ready` issue through: it is the recovery pass for a
+# label dispatch deferred while the pool was full (see `recover_ready`). An
+# `in-progress` issue is out of scope even then (#1083).
+process_one() { # process_one <number> <inflight> [scope_ok]
+  n="$1"; inflight="${2:-0}"; scope_ok="${3:-0}"
   # Reset the marker's slot policy per issue: only the re-dispatch below turns it
   # off, and a prior issue must not carry that into this one's writes.
   SWEEP_MARKER_PRESERVE_SLOTS=1
@@ -1043,18 +1205,35 @@ process_one() { # process_one <number> <inflight> [ready_ok]
       remove_sweep_marker "$n"
       return 1
       ;;
-    *" ready "*)
-      [ "$ready_ok" = "1" ] || {
-        # A `ready` issue is out of the ordinary sweep's scope, but a *deferred*
-        # (`pending`) or in-flight checkpoint must survive: `pending_keys` feeds it
-        # here, and `recover_ready` — which runs *after* this sweep and reads the
-        # store — is the pass that finishes it. Dropping such a checkpoint here
-        # would lose the deferred dispatch for good (#872 review). Only a finished
-        # checkpoint is stale; a read hiccup (`unknown`) keeps it too.
+    *" ready "*|*" in-progress "*)
+      # `ready` and `in-progress` end the triage episode: neither is triaged
+      # again by the ordinary sweep, so a new comment or an edited body does not
+      # restart it (#1083). The `in-progress` label matters because the sweep's
+      # search query is only a prefilter — a label the query cannot see (a
+      # relabelled issue, or an in-progress one that entered via the label path)
+      # is still refused here, in one place.
+      #
+      # A *deferred* (`pending`) or in-flight checkpoint must survive: a
+      # `ready` issue's checkpoint is finished by `recover_ready`, which runs
+      # *after* this sweep and reads the store. Dropping such a checkpoint here
+      # would lose the deferred dispatch for good (#872 review). Only a finished
+      # checkpoint is stale; a read hiccup (`unknown`) keeps it too.
+      #
+      # `scope_ok` = 1 lets a `ready` issue through (the recovery pass for a
+      # deferred label dispatch); an `in-progress` issue is never in scope, and a
+      # `ready` issue with `scope_ok` falls through to the dispatch logic below.
+      ok=0
+      if [ "$scope_ok" = "1" ]; then
+        case " $state " in
+          *" in-progress "*) ok=0 ;;
+          *) ok=1 ;;
+        esac
+      fi
+      if [ "$ok" != "1" ]; then
         read_sweep_marker "$n"
         if [ "$MARK_FORM" = "some" ] && [ -z "$MARK_RUN" ]; then remove_sweep_marker "$n"; fi
         return 1
-      }
+      fi
       ;;
   esac
 
@@ -1417,7 +1596,7 @@ sweep() {
   page=1
   while [ "$page" -le "$SWEEP_PAGES" ]; do
     items=$(gh api -X GET search/issues \
-      -f q="repo:$REPO is:issue is:open -label:ready" -f per_page=100 \
+      -f q="repo:$REPO is:issue is:open -label:ready -label:in-progress" -f per_page=100 \
       -f sort=updated -f order=desc -f page="$page" \
       --jq '.items[] | "\(.updated_at) \(.number)"' 2>/dev/null || echo "")
     [ -n "$items" ] || break
@@ -1471,10 +1650,12 @@ sweep() {
 
 case "${1:-}" in
   --stdin) on_label "$(cat)" ;;
+  --comment) on_activity comment "$(cat)" ;;
+  --edited) on_activity edited "$(cat)" ;;
   --relabel) relabel_after_revocation "${2:?usage: issue-triage-bridge.sh --relabel <number>}" ;;
   --type-conflict) type_conflict_dispatch "${2:?usage: issue-triage-bridge.sh --type-conflict <number> <declined-type>}" "${3:-}" ;;
   --sweep) sweep ;;
   --recover-ready) recover_ready ;;
   --purge-markers) purge_markers ;;
-  *) echo "usage: issue-triage-bridge.sh --stdin | --relabel <n> | --type-conflict <n> <type> | --sweep | --recover-ready | --purge-markers" >&2; exit 2 ;;
+  *) echo "usage: issue-triage-bridge.sh --stdin | --comment | --edited | --relabel <n> | --type-conflict <n> <type> | --sweep | --recover-ready | --purge-markers" >&2; exit 2 ;;
 esac

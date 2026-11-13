@@ -161,25 +161,36 @@ pertentangan itu dilaporkan sebagai issue.
     `medium`, dan bila ragu pilih yang lebih rendah. `critical` hanya untuk
     layanan mati total, kehilangan/korupsi data, atau masalah keamanan/privacy
     yang aktif bisa dieksploitasi. Jangan menginflasi `critical`.
-19. **Triase ulang dipicu setelah automation lain menanggapi.** Tak satu pun
-    automation memicu `issues.edited`. Sebuah jembatan deterministik
+19. **Triase ulang dipicu setelah automation lain menanggapi atau ada aktivitas
+    baru.** Sebuah jembatan deterministik
     (`issue-triage-bridge.yml` + `.github/scripts/issue-triage-bridge.sh`)
     mendispatch pemilik triase saat bot memasang label tipe/prioritas, saat
     **`label-guard` mencabut** label yang dipasang orang dan tak memasang
     penggantinya sehingga issue kehilangan tipe/prioritas (#838) — pemilik triase
     dipanggil lewat mode `--relabel` di run yang sama, sebab pencabutannya
     memakai `GITHUB_TOKEN` otomatis dan GitHub tak memulai run untuk event yang
-    dibuat token itu — dan saat **sinyal aktivitas** sebuah issue belum `ready`
-    berubah sejak checkpoint terakhir jembatan. Sinyalnya adalah hash dari body issue plus setiap
+    dibuat token itu — saat **ada komentar baru** atau **body issue disunting**
+    (sejak #1084 workflow-nya sendiri berlangganan `issue_comment.created` dan
+    `issues.edited`, jadi balasan maintainer dijawab seketika, tak menunggu sweep
+    per jam), dan saat **sinyal aktivitas** sebuah issue di luar cakupan berubah
+    sejak checkpoint terakhir jembatan. Sinyalnya adalah hash dari body issue plus setiap
     komentar **bukan-armada** (penulis + `updated_at` + body) — jadi suntingan
     deskripsi, komentar baru, atau komentar yang disunting semuanya mengubah
     sinyal. Karena sinyalnya isi, bukan timestamp beresolusi detik, suntingan
     pelapor pada detik yang sama dengan tulisan checkpoint tetap tertangkap
     (perbandingan `<=`-detik lama menelannya). Komentar armada sendiri (bot dan
     GitHub Actions) tidak dihitung, sehingga balasan bot tak pernah memicu
-    triase ulang dirinya — itu yang menutup loop. Idempoten: satu putaran = satu
+    triase ulang dirinya — itu yang menutup loop. Issue `ready` dan `in-progress`
+    **di luar cakupan** di setiap jalur (#1083): keduanya mengakhiri episode
+    triase, jadi komentar atau suntingan baru tidak memulainya lagi; `blocked`
+    sengaja **tidak** dikecualikan karena ia keadaan yang dipasang orang, bukan
+    akhir episode. Satu-satunya jalan masuk kembali adalah sebutan
+    `@cipansor-bot` oleh maintainer. Idempoten: satu putaran = satu
     dispatch (checkpoint per keadaan tipe+prioritas dalam jendela burst 300 dtk,
-    dan satu checkpoint sweep per issue). Checkpoint disimpan di **KV store
+    dan satu checkpoint sweep per issue). Balasan maintainer **tidak**
+    menembus plafon `MAX_INFLIGHT` — ia mengantre seperti kandidat lain, karena
+    menembusnya membuat kolam sandbox tak stabil (keputusan pemilik
+    2026-11-13). Checkpoint disimpan di **KV store
     otomasi**, bukan di komentar: penanda yang hanya berisi HTML tampil sebagai
     komentar **kosong**, memberi notifikasi ke setiap pelanggan issue dan
     meninggalkan cangkang tak terbaca (2026-11-11: 153 penanda). Jembatan tidak
@@ -778,7 +789,7 @@ Timer dan pengecualiannya sama seperti `Penjaga issue` dulu.
 | Triase issue          | **satu-satunya triase**: tipe + prioritas (berbukti) + keparahan/sebab + area + kesiapan + duplikat; belum final → komentar, final (`ready`) → body issue. Sejak 2026-11-12 juga menangani balasan pada issue `question` (balasan maintainer `Diskusi` + pelapor `Penjernih issue`, keduanya dilebur) **dan mereproduksi laporan bug** (`Reproduksi bug` dilebur): bila cacat bisa dieksploitasi, jangan publikasikan — buat draf advisory privat dan pasang `security` saja |
 | Pengelola dokumentasi | **dipensiunkan 2026-11-12** (kuota sandbox) — pemicu `push` ke main menyala setiap merge dan menghabiskan kuota; bagian terukurnya sudah di `docs-drift.yml` ke #782, penilaian prosa kini manual                                                                                                                                                                                                                                                                                                                                                  |
 | Penjernih issue       | **dipensiunkan 2026-11-12** (opsi (a) #1056) — dilebur ke `Triase issue`: jembatan triase sudah menyapu issue `question`, jadi satu balasan pelapor membangunkan dua agen                                                                                                                                                                                                                                                                                                                                                                                                                                         |
-| (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `issue-claim.yml` memindahkan issue `ready` → `in-progress` saat PR dibuka (dan sebaliknya bila issue baru `ready` setelahnya); `duplicate-detect.sh` melabeli `duplicate` saat dua issue **terbuka** berjudul sama setelah dinormalkan (menautkan yang lebih baru ke yang lebih awal, tidak menutup apa pun; hanya pencabutan oleh `cipansor-bot` yang permanen); `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`); label itu kandidat untuk maintainer, tidak menutup PR |
+| (deterministik)       | `issue-label-sync.yml` menyalin tipe + prioritas issue tertaut ke PR; `issue-claim.yml` memindahkan issue `ready` → `in-progress` saat PR dibuka (dan sebaliknya bila issue baru `ready` setelahnya); `lifecycle-cleanup.yml` melepas `ready` dan `in-progress` saat issue ditutup (plus sapuan harian untuk 136 issue tertutup yang masih membawanya, #1083); `duplicate-detect.sh` melabeli `duplicate` saat dua issue **terbuka** berjudul sama setelah dinormalkan (menautkan yang lebih baru ke yang lebih awal, tidak menutup apa pun; hanya pencabutan oleh `cipansor-bot` yang permanen); `pr-duplicate.sh` melabeli `duplicate-pr` saat dua PR terbuka menutup issue yang sama (menggantikan `Pelabel PR`); label itu kandidat untuk maintainer, tidak menutup PR |
 | Gerbang tinjau PR     | **satu-satunya yang boleh APPROVE**; menunggu CI hijau; sejak 2026-11-12 juga menjalankan QA atas alur yang berubah (`Peninjau kode` + `Otomasi QA` dilebur ke sini)                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 | Pemburu bug           | bug proaktif yang bisa direproduksi → issue berbukti; **kerentanan → draf advisory privat** (atas nama `adminypc`), bukan issue publik                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Pemindai standar      | standar/regulasi terbaru → issue `question`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
@@ -915,7 +926,17 @@ _menulis_ artefak tidak pernah menjadi akun yang _menyetujuinya_.
   sekali" 2026-10-15). Begitu penulis mendorong head baru dan head itu hijau,
   `pr-lifecycle.sh` men-dispatch gerbang lagi untuk head itu; yang membatasinya
   adalah idempotensi gerbang (satu review per head), sehingga dispatch hanya
-  terjadi pada head yang benar-benar baru. Tinjauan ulang tetap bisa diminta
+  terjadi pada head yang benar-benar baru. Pembacaan "sudah ditinjau?" itu
+  sendiri baca-lalu-tulis: dua run pada detik yang sama sama-sama membacanya
+  sebagai "belum ditinjau" dan keduanya men-dispatch — inilah yang membuat PR
+  #1052 menerima 3× `APPROVED` pada satu SHA (#1083). Karena itu dispatch kini
+  dikunci lewat klaim di KV store (satu kunci per `(PR, head)`, `nx=true`/
+  `if_version`; yang kalah menerima 409 dan tidak men-dispatch). Klaim membawa
+  hitungan percobaan dan waktunya: dispatch yang mati di infrastruktur dicoba
+  ulang oleh run berikutnya (`REVIEW_GATE_ATTEMPT_MAX=3`), sedangkan klaim yang
+  gerbangnya masih berjalan dibiarkan (`REVIEW_GATE_STALE_MIN=45` menit). Store
+  yang tidak terjangkau tidak mengganjal gerbang: klaim bersifat best-effort.
+  Tinjauan ulang tetap bisa diminta
   dengan mengajukan permintaan tinjauan ke `cipansor-bot`
   (`pull_request.review_requested` adalah pemicu gerbang), tetapi ini tidak lagi
   wajib untuk head baru; permintaan perubahan hanya menahan PR selama ia masih
