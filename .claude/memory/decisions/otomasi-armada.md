@@ -375,9 +375,129 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       `gh api --paginate` mencetak **satu array JSON per halaman**, jadi halaman
       harus di-`jq -rs` (slurp) dulu: tanpa itu `attempts` menjadi `"3\n0"`,
       perbandingan angka gagal, dan gerbang bisa di-dispatch ulang tanpa batas.
+    - **`issue-triage-bridge.sh`** (#877, 2026-11-11; direvisi 2026-11-12 tinjauan
+      `adminypc`): sweep men-dispatch `Triase issue` (SDLC 15) pada setiap
+      aktivitas non-armada issue non-`ready`, lalu **membaca hasil run** dari
+      checkpoint (`triage-sweep-<n>` menyimpan run id). Run yang mati
+      infrastruktur di-retry ke **issue yang sama** — kuncinya nomor issue, jadi
+      sasarannya deterministik — tetapi **dibatasi**: hitungan percobaan
+      disimpan sebagai **field `attempt` di checkpoint itu sendiri**, bukan kunci
+      `triage-attempt-<n>` terpisah. Alasannya (tinjauan #1075): (1) hitungan
+      ikut dalam **penulisan kondisional yang sama** dengan run id, jadi
+      kegagalan tulis KV tak menghilangkan run *maupun* hitungan; (2) penundaan
+      (`pending` saat kolam penuh) dan tulis sisi (`extra`) yang membawa
+      checkpoint **tak bisa diam-diam me-reset** anggaran; (3) tak ada kunci
+      kedua yang bisa menghilang terpisah dari checkpoint. Pada `ATTEMPT_MAX` (3)
+      **hanya slot `run` utama** yang difinalkan (`finalise_main_value`) —
+      slot sisi `extra` dan hitungan **dipertahankan**, lalu sweep masih
+      memproses slot sisi yang tertunda/gagal di baris berikutnya; kalau tidak,
+      label bisa tetap salah. Hitungan **scoped ke sinyal** (komentar/suntingan
+      baru = episode baru, mulai 0) dan hilang bersama checkpoint saat semua slot
+      `COMPLETED`. **Sasaran dispatch payload-less** juga ditutup: dispatch
+      membawa **tanpa body**, jadi prompt SDLC 15 memuat aturan
+      `SASARAN (WAJIB saat payload kosong)` yang menetapkan sasaran dari
+      **keadaan GitHub** — `## Event Payload` bila ada, jika tidak SATU issue
+      (tanpa `-label:ready`, karena pass `--recover-ready` menyasar issue `ready`
+      juga) dengan aktivitas non-armada terbaru yang belum dijawab
+      (`search/issues` diurut `updated desc`, **ditelusuri ke halaman
+      berikutnya** sampai kandidat ketemu — 50 terbaru belum tentu memuat issue
+      pemulihan yang lebih lama). Uji "belum dijawab" memakai riwayat **yang
+      mengenal pelakunya**, bukan penulis komentar terakhir dan bukan
+      `issue.updated_at` saja: memfinalkan triase **menyunting body** (blok
+      `<!-- sdlc:triase -->`) dan memasang label, jadi `updated_at` bergerak
+      karena kerja armada sendiri dan suntingan bot itu sempat terbaca sebagai
+      aktivitas pelapor → dispatch berulang. Aturannya: aktivitas non-armada
+      (komentar author ≠ `cipansor-bot`/`*[bot]` **dan** suntingan body
+      `editor.login` ≠ `cipansor-bot`) dibandingkan dengan respons armada
+      (komentar `cipansor-bot`, suntingan body `editor.login == cipansor-bot`);
+      suntingan body diambil lewat GraphQL `issue.userContentEdits`. Klasifikasi
+      suntingan bot sebagai respons triase memakai **baris yang benar-benar
+      ditambah/dihapus** (perubahan sebenarnya), **bukan** keberadaan penanda
+      `<!-- sdlc:triase -->` dan **bukan** dengan memperlakukan dua `diff` sebagai
+      snapshot lalu membandingkannya: suntingan body bot dihitung respons bila ia
+      mengubah baris **selain** pembuka basmalah **beserta baris kosong pemisahnya**
+      (basmalah.sh menulis `ARABIC\n\n$FRESH`, jadi bot menambah pembuka **dan**
+      satu baris kosong). Karena `diff` bisa berupa hunk **atau** body penuh (bahkan
+      dicampur), aturan **merekonstruksi body tiap suntingan** dulu: jangkar pada
+      node body penuh terawal, lalu terapkan hunk node-node berikutnya berurutan,
+      sehingga tiap suntingan punya keadaan **sebelum** dan **sesudah**. Suntingan
+      bot dibandingkan dengan **node tepat sebelumnya** (jangan melompati suntingan
+      — melompatinya menggabungkan perubahan pelapor ke dalam suntingan bot), dan
+      **jangan** memakai `issue.body` sebagai keadaan sebelum (untuk node terakhir ia
+      = sesudah). **Node jangkar** (body penuh terawal) tak punya keadaan sebelum —
+      yang menentukan adalah apakah jangkar **mengubah isi triase**. Penanda
+      `<!-- sdlc:triase -->` **hanya** ditulis oleh tulisan triase `cipansor-bot`
+      (tak pernah di body pembuatan issue; hunk pelapor dan pengembalian pembuka
+      `basmalah` tak menulisnya). Jadi: jangkar **tanpa** penanda → bukan respons;
+      jangkar berpenanda **tanpa** node lebih tua berpenanda → **memperkenalkan**
+      → respons; jangkar berpenanda **dengan** node lebih tua berpenanda → blok
+      sudah ada, jadi **bandingkan ISI blok** (baris di bawah penanda) antara
+      keadaan tepat-sebelum jangkar vs jangkar — **berubah** → respons (mis.
+      ringkasan final diperbarui di tempat setelah balasan pelapor), **tak berubah**
+      → bukan respons (pengembalian pembuka). Ketidakadaan penanda di semua node
+      sebelumnya **membuktikan** jangkar memperkenalkannya — jangan bilang "bukan
+      respons" hanya karena baseline hunk tak lengkap; ambil riwayat selengkap
+      mungkin (`first:100` + paginasi). Status **tak pasti** **bukan** alasan
+      menyatakan issue "belum dijawab" (jangan re-dispatch). Hunk yang lebih tua
+      dari jangkar tanpa baseline → nilai dari baris yang berubah. (Fakta repo: ~148 suntingan
+      diperiksa, **semuanya body penuh**, tak ada riwayat campuran — rekonstruksi
+      tetap benar bila bentuknya berubah.) Lima tinjauan berturut-turut menyerang baris yang sama dari
+      arah berlawanan: putaran-3 "penanda di `diff` tiap suntingan" (salah — `diff`
+      bisa hunk berkonteks terbatas), putaran-4 "penanda di `issue.body` sekarang"
+      (salah — pembuka yang dikembalikan `basmalah` pada `issues.edited` setelah
+      suntingan pelapor terhitung respons dan menutupi pelapor), putaran-5
+      "bandingkan dua `diff` sebagai snapshot body" (salah — `diff` adalah
+      representasi perubahan; patch pelapor yang menghapus pembuka dan patch bot yang
+      menambahkannya kembali berbeda, jadi tampak "berubah"), putaran-7 "abaikan
+      hanya baris pembuka" (salah — `basmalah.sh` menambah pembuka **+ baris kosong**,
+      jadi pemisahnya ikut terlihat sebagai perubahan), putaran-8 "pakai `issue.body`
+      sebagai keadaan sebelum" (salah — untuk node terakhir `issue.body` = sesudah),
+      putaran-9 "pembanding = node sebelumnya" (belum cukup — format `diff` bisa
+      dicampur hunk/body penuh, jadi pembanding harus diperiksa bentuknya dulu),
+      putaran-10 "lompat ke node body penuh terdekat" (salah — melompati suntingan
+      menggabungkan perubahan pelapor ke dalam suntingan bot, sehingga suntingan
+      basmalah tampak sebagai respons; perbaikannya: **rekonstruksi body tiap
+      suntingan** lalu bandingkan dengan node tepat sebelumnya), putaran-11 "node
+      jangkar konservatif = bukan respons" (salah — triase final bisa jadi
+      **satu-satunya** suntingan body pada issue formulir ber-basmalah), putaran-12
+      "jangkar = respons bila memuat blok triase" (belum cukup — blok bisa sudah ada
+      sebelum jangkar karena pengembalian pembuka), putaran-13 "baseline hunk tak
+      lengkap → bukan respons" (salah — menghapus respons triase **pertama**; ganti:
+      jangkar bernilai bila ia **memperkenalkan** penanda, dibuktikan dari
+      ketidakadaan penanda di node lebih tua; status tak pasti ≠ belum dijawab),
+      putaran-14 "penanda lama → bukan respons" (belum cukup — ringkasan final
+      diperbarui **di tempat** tanpa mengubah penanda; jangkar berpenanda-lama harus
+      dibandingkan **ISI**-nya, bukan ditolak dari keberadaan penanda).
+      Pelajaran: jangan kunci aturan pada **artefak** (teks penanda di diff/body,
+      bentuk `diff`, atau `issue.body`); kunci pada **peristiwa semantik** (apakah
+      isi triase berubah), dibaca dari baris yang berubah dengan pembuka+pemisah
+      sebagai kebisingan. Dua celah yang
+      ditinggalkan aturan itu ditutup pada tinjauan putaran-3: (a) **pembuatan
+      issue** dihitung sebagai aktivitas non-armada (`issue.createdAt`) — issue
+      baru yang run `issues.opened`-nya gagal tak punya komentar maupun suntingan
+      sama sekali, jadi tanpa ini run pemulihan melaporkan "tak ada sasaran" dan
+      checkpoint difinalkan tanpa triase; (b) **suntingan bot non-triase tidak
+      dihitung respons** — workflow `basmalah` menambahkan pembuka ke body sebagai
+      `cipansor-bot`, dan dulu itu menyaring komentar pelapor yang lebih lama
+      darinya sebagai "sudah dijawab"; kini respons triase = komentar `cipansor-bot`
+      **dan** suntingan body bot yang `diff`-nya memuat blok `<!-- sdlc:triase -->`.
+      Sisa batas
+      (dispatch tak menamai issue — `POST /dispatch` **membuang body**,
+      didokumentasikan `known-issues.md` — jadi dua kandidat serentak hanya
+      di-tie-break "paling baru") dinyatakan di prompt; jembatan menutup
+      selisihnya dengan re-dispatch terbatas `ATTEMPT_MAX`, dan perbaikan akar
+      (target per-run sampai ke agen) menuntut perubahan platform. **Jangan baca
+      `$AUTOMATION_*` dari terminal agen**: proses automation memegang
+      `$AUTOMATION_EVENT_PAYLOAD`/`$AUTOMATION_KV_TOKEN`/`$AUTOMATION_RUN_ID`,
+      tetapi terminal agen **tidak mewarisinya** (dinyatakan preset OpenHands
+      `presets/*/sdk_main.py`), jadi aturan sasaran yang membaca KV
+      `triage-run-<run-id>` tak akan pernah resolve — dihapus sebelum rilis.
+      Ini melengkapi `gate-watch.sh`: keduanya retrier **deterministik** untuk
+      run ber-pemicu event, yang tak bisa di-retry oleh `automation-retry.sh`
+      (payload-nya tak diekspos API runs).
     - **`set -eu` + pipa ke `while` = subshell**: variabel yang di-set di dalam
       `| while` tidak bertahan setelah loop. Karena itu hitungan percobaan
-      disimpan di **penanda komentar**, bukan variabel shell.
+      disimpan di **checkpoint KV** (field `attempt`), bukan variabel shell.
     - Pelajaran shell yang sudah menggigit dua kali: `${v:-{...}}` dengan `}`
       literal **menutup ekspansi lebih awal** dan menyisipkan `}` liar ke JSON
       (default harus lewat variabel); dan `jq` `expr as $x | if …` mengikat `as`

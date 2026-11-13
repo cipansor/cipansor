@@ -111,6 +111,19 @@ READY_PAGES="${READY_PAGES:-50}"
 # than this collapses the burst to one dispatch. A later change to a type or
 # priority the issue held before still dispatches once the window has passed.
 BURST_WINDOW="${BURST_WINDOW:-300}"
+# How many times a triage run that died in infrastructure (FAILED/CANCELLED/
+# SKIPPED, or gone from the run listing) is retried for the *same* activity
+# before the sweep gives up and leaves the checkpoint final. The retry is
+# deterministic — the checkpoint key is `triage-sweep-<n>`, so the same issue is
+# re-dispatched — but an unbounded retry against an issue that always kills the
+# run burns a sandbox slot every sweep forever (#877). The count is a field of
+# the checkpoint itself (`attempt`), written in the *same* conditional write as
+# the `run` it counts: a failed write loses neither (reviewer: "kegagalan tulis
+# KV memulihkan retry"), and a deferral or a side response — which carry the
+# checkpoint forward — cannot silently reset it (reviewer: "antrean penuh
+# mengulang anggaran retry"). It is scoped to the activity signal (a new signal
+# drops it) and cleared with the checkpoint when every slot COMPLETED.
+ATTEMPT_MAX="${ATTEMPT_MAX:-3}"
 # Checkpoints live in the automation KV store, never in issue comments. A marker
 # comment renders as an empty comment (it is only HTML), so creating one notifies
 # every subscriber of the issue and leaves an unreadable husk behind: the sweep's
@@ -118,7 +131,8 @@ BURST_WINDOW="${BURST_WINDOW:-300}"
 # The KV store has optimistic
 # locking, a `nx` create, a list, and a delete, and it notifies no one.
 #   `<SWEEP_KEY><n>` -> {"signal": "<hash>", "run": "<run-id>" | "pending" | "",
-#                        "extra": {"<kind>": "<run-id>" | "pending"}}
+#                        "extra": {"<kind>": "<run-id>" | "pending"},
+#                        "attempt": <n>}
 #                       `at` (epoch seconds) is set only while `run` is
 #                       `pending`: the FIRST deferral time, which the sweep
 #                       orders deferred issues by (K25, #872).
@@ -130,6 +144,10 @@ BURST_WINDOW="${BURST_WINDOW:-300}"
 # move `activity_signal`, so two responses on one issue would otherwise overwrite
 # each other's run id in the single `run` field and the sweep would finalise the
 # issue while one run is still unread (#838 follow-up).
+# `attempt` counts the infra-failed runs of the current episode (#877). It rides
+# in this object, not in a key of its own, so a deferral or a side response that
+# carries the checkpoint forward cannot reset it, and a write that fails loses
+# neither the count nor the `run` it counts.
 SWEEP_KEY="triage-sweep-"
 # A deferral the label path could not fold into the sweep checkpoint because the
 # store could not be read: `{signal, at}` under its own key, so the old
@@ -359,8 +377,12 @@ MARK_AT=""
 MARK_FORM="none"
 MARK_ACTIVE=0
 MARK_PENDING=0
+# The infra-failed attempt count stored in the checkpoint (`attempt`), 0 when
+# absent. Read here, not from a key of its own, so it survives a deferral or a
+# side write that carries the checkpoint forward (#877 review).
+MARK_ATTEMPT=0
 read_sweep_marker() { # read_sweep_marker <number>
-  SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_AT=""; MARK_FORM="none"; MARK_ACTIVE=0; MARK_PENDING=0
+  SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_AT=""; MARK_FORM="none"; MARK_ACTIVE=0; MARK_PENDING=0; MARK_ATTEMPT=0
   # `|| rc=$?` (not `; rc=$?`): a 404 is a normal answer, and under `set -e` a
   # bare failing command aborts the script — the direct callers in
   # `recover_ready`/`purge_markers` are not inside an `if`, so the absent-key
@@ -376,7 +398,9 @@ read_sweep_marker() { # read_sweep_marker <number>
   MARK_EXTRA=$(printf '%s' "$KV_JSON" | jq -c '.extra // {}' 2>/dev/null) || MARK_EXTRA="{}"
   MARK_AT=$(printf '%s' "$KV_JSON" | jq -r '.at // ""' 2>/dev/null) || MARK_AT=""
   case "$MARK_AT" in '' | *[!0-9]*) MARK_AT="" ;; esac
-  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_AT=""; MARK_FORM="none"; return 0; }
+  MARK_ATTEMPT=$(printf '%s' "$KV_JSON" | jq -r '.attempt // 0' 2>/dev/null) || MARK_ATTEMPT=0
+  case "$MARK_ATTEMPT" in '' | *[!0-9]*) MARK_ATTEMPT=0 ;; esac
+  [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_AT=""; MARK_ATTEMPT=0; MARK_FORM="none"; return 0; }
   MARK_FORM="some"
   # The checkpoint is unfinished while any slot (the main `run` or a side
   # response) is a `pending` or a run id; it is finished only when every slot is
@@ -546,19 +570,54 @@ SWEEP_MARKER_CAS_MAX="${SWEEP_MARKER_CAS_MAX:-5}"
 MARK_WRITE_OK=0
 
 # The value a main write stores: the fields this writer owns (`signal`, `run`,
-# `at`) plus the fields it carries forward from <stored> when <preserve> is 1 and
-# the signal matches. Echoed for `sweep_cas_write` to PUT.
-sweep_marker_value() { # sweep_marker_value <stored> <sig> <run> <at> <preserve>
-  stored="$1"; v_sig="$2"; v_run="$3"; v_at="$4"; v_preserve="$5"
+# `at`, `attempt`) plus the fields it carries forward from <stored> when
+# <preserve> is 1 and the signal matches. Echoed for `sweep_cas_write` to PUT.
+#
+# `attempt` (the infra-failed count of this episode, #877) is explicit when
+# <attempt> is a positive number — a dispatch records the count it is dispatching
+# under. When <attempt> is empty it is carried from <stored> while the signal
+# matches and a slot is still open (`run` non-empty), so a deferral or a side
+# write cannot silently reset the budget; a finished checkpoint (`run` empty)
+# drops it with the other carried fields.
+sweep_marker_value() { # sweep_marker_value <stored> <sig> <run> <at> <preserve> <attempt>
+  stored="$1"; v_sig="$2"; v_run="$3"; v_at="$4"; v_preserve="$5"; v_attempt="${6:-}"
   carry="{}"
-  if [ "$v_preserve" = 1 ] && [ -n "$v_run" ]; then
-    prev_sig=$(printf '%s' "$stored" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
-    if [ "$prev_sig" = "$v_sig" ]; then
-      carry=$(printf '%s' "$stored" | jq -c 'del(.signal, .run, .at)' 2>/dev/null) || carry="{}"
+  prev_attempt=0
+  prev_sig=$(printf '%s' "$stored" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
+  if [ "$prev_sig" = "$v_sig" ]; then
+    pa=$(printf '%s' "$stored" | jq -r '.attempt // 0' 2>/dev/null) || pa=0
+    case "$pa" in '' | *[!0-9]*) pa=0 ;; esac
+    prev_attempt="$pa"
+    if [ "$v_preserve" = 1 ] && [ -n "$v_run" ]; then
+      carry=$(printf '%s' "$stored" | jq -c 'del(.signal, .run, .at, .attempt)' 2>/dev/null) || carry="{}"
     fi
   fi
-  jq -nc --arg s "$v_sig" --arg r "$v_run" --arg a "$v_at" --argjson c "$carry" \
-    '$c + {signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)'
+  # Explicit attempt wins; otherwise carry it while a slot is still open.
+  [ -n "$v_attempt" ] || v_attempt="$prev_attempt"
+  [ -n "$v_run" ] || v_attempt=0
+  jq -nc --arg s "$v_sig" --arg r "$v_run" --arg a "$v_at" --argjson c "$carry" --argjson n "$v_attempt" \
+    '$c + {signal: $s, run: $r}
+     + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)
+     + (if $n > 0 then {attempt: $n} else {} end)'
+}
+
+# Finalise only the main `run` slot of a checkpoint, preserving any side slots
+# (`extra`) and the attempt count (#877 review). The attempt cap stops the *main*
+# run's retries, but a side response that is still deferred or failed must still
+# be processed: finalising the whole checkpoint there — dropping `extra` — is
+# what lost a pending relabel/conflict the sweep had not answered. The count is
+# kept only while a side slot remains (the episode is not over, so the budget
+# must survive); with no side slot the value is a plain finished checkpoint
+# (`{signal, run: ""}`) and the count goes with it. Echoed for `sweep_cas_write`
+# to PUT.
+finalise_main_value() { # finalise_main_value <stored> <sig>
+  stored="$1"; v_sig="$2"
+  printf '%s' "$stored" | jq -c --arg s "$v_sig" '
+    if (.signal // "") == $s and (((.extra // {}) | length) > 0)
+    then {signal: $s, run: "", extra: .extra}
+         + (if ((.attempt // 0) > 0) then {attempt: .attempt} else {} end)
+    else {signal: $s, run: ""} end' 2>/dev/null \
+    || jq -nc --arg s "$v_sig" '{signal: $s, run: ""}'
 }
 
 # The value a side write stores: <stored> minus `signal`, with this response's
@@ -608,13 +667,24 @@ sweep_cas_write() { # sweep_cas_write <key> <value-fn> <value-fn-args...>
   return 1
 }
 
-write_sweep_marker() { # write_sweep_marker <number> <signal> <run> [first-deferred-at]
-  n="$1"; sig="$2"; run="${3:-}"; at="${4:-}"
+write_sweep_marker() { # write_sweep_marker <number> <signal> <run> [first-deferred-at] [attempt]
+  n="$1"; sig="$2"; run="${3:-}"; at="${4:-}"; att="${5:-}"
   if [ "$run" = "$PENDING_RUN" ] && [ -z "$at" ]; then
     at=$(date -u +%s)
   fi
-  if ! sweep_cas_write "$SWEEP_KEY$n" sweep_marker_value "$sig" "$run" "$at" "$SWEEP_MARKER_PRESERVE_SLOTS"; then
+  if ! sweep_cas_write "$SWEEP_KEY$n" sweep_marker_value "$sig" "$run" "$at" "$SWEEP_MARKER_PRESERVE_SLOTS" "$att"; then
     echo "::warning::could not record the triage checkpoint on #$n."
+  fi
+}
+
+# Finalise the main `run` slot only, keeping any side slot and the attempt count
+# (#877 review). Used at the attempt cap: the main run's retries stop, but a
+# deferred or failed relabel/conflict slot on the same issue must still be read
+# by the sweep, so it is preserved rather than dropped with the main slot.
+finalise_main_slot() { # finalise_main_slot <number> <signal>
+  n="$1"; sig="$2"
+  if ! sweep_cas_write "$SWEEP_KEY$n" finalise_main_value "$sig"; then
+    echo "::warning::could not finalise the triage checkpoint on #$n."
   fi
 }
 
@@ -1066,7 +1136,14 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   [ -n "$sig" ] || return 1
 
   read_sweep_marker "$n"
-  prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_extra="$MARK_EXTRA"; prev_form="$MARK_FORM"; prev_at="$MARK_AT"
+  prev_sig="$SIGNAL"; prev_run="$MARK_RUN"; prev_extra="$MARK_EXTRA"; prev_form="$MARK_FORM"; prev_at="$MARK_AT"; prev_attempt="$MARK_ATTEMPT"
+  # The attempt count to record once this pass dispatches. It starts at the
+  # checkpoint's stored count (#877): a retry below raises it by one, and a
+  # deferral that falls through to the capacity check carries it so a full pool
+  # does not restart the budget (reviewer: "antrean penuh mengulang anggaran
+  # retry"). A fresh signal (the checkpoint's signal differs) carries nothing.
+  attempt_next="$prev_attempt"
+  [ "$prev_sig" = "$sig" ] || attempt_next=0
 
   # The checkpoint names a run that answered this same activity. Read its outcome
   # instead of trusting the 201: only a COMPLETED run is a finished checkpoint; a
@@ -1134,14 +1211,31 @@ process_one() { # process_one <number> <inflight> [ready_ok]
           slot_completed=1
           ;;
         *)
-          echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying."
-          slot_failed=1
+          # The main run died in infrastructure. Retry the SAME issue
+          # deterministically — the checkpoint key is the issue number — but bound
+          # the attempts (#877): an issue whose every run dies (or a persistent
+          # platform fault) would otherwise re-dispatch on every sweep and hold a
+          # sandbox slot forever. Past the cap the main slot is finalised with a
+          # warning, so the issue is reported once and left to a human — but only
+          # the *main* slot: a side response still pending or failed on this issue
+          # must still be read, so `finalise_main_slot` keeps `extra` and the
+          # count, and the code below still queues that slot (reviewer: "batas
+          # retry menghilangkan pemulihan label").
+          if [ "$prev_attempt" -ge "$ATTEMPT_MAX" ]; then
+            echo "::warning::#$n: run ${prev_run} did not complete (${st:-unreadable}) and the attempt cap (ATTEMPT_MAX=$ATTEMPT_MAX) is reached; leaving the checkpoint final. A human must look at this issue."
+            finalise_main_slot "$n" "$sig"
+          else
+            attempt_next=$((prev_attempt + 1))
+            echo "#$n: run ${prev_run} did not complete (${st:-unreadable}); retrying (attempt ${attempt_next}/${ATTEMPT_MAX})."
+            slot_failed=1
+          fi
           ;;
       esac
     fi
     # A failed slot (main or side) re-dispatches: fall through. A pending slot is
     # a deferred dispatch: fall through to the capacity check. Otherwise, if any
-    # run completed, the whole checkpoint is finished — clear it. If no run was
+    # run completed, the whole checkpoint is finished — clear it (the attempt
+    # count goes with it, so a later episode starts fresh). If no run was
     # recorded at all, the activity is already answered.
     if [ "$slot_failed" = 0 ] && [ "$slot_pending" = 0 ]; then
       if [ "$slot_completed" = 1 ]; then
@@ -1158,9 +1252,11 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   # across re-deferrals (K25, #872) so the sweep's FIFO order cannot be reset by
   # a later activity change: an existing pending checkpoint keeps its `at` (a
   # pre-`at` pending one counts as oldest, 0), while a first deferral stamps now.
+  # The attempt count is carried (explicitly), so a deferral does not restart the
+  # retry budget.
   if [ "$inflight" -ge "$MAX_INFLIGHT" ]; then
     if [ "$prev_run" = "$PENDING_RUN" ]; then at="${prev_at:-0}"; else at=""; fi
-    write_sweep_marker "$n" "$sig" "$PENDING_RUN" "$at"
+    write_sweep_marker "$n" "$sig" "$PENDING_RUN" "$at" "$attempt_next"
     echo "#$n: deferred, ${inflight} triage run(s) already in flight (MAX_INFLIGHT=$MAX_INFLIGHT)."
     return 3
   fi
@@ -1168,9 +1264,12 @@ process_one() { # process_one <number> <inflight> [ready_ok]
   # Dispatch; record the run so the next sweep reads its result, not the 201.
   # This run supersedes the failed/pending slots read above, so it replaces them
   # rather than carrying them forward (else the sweep would re-dispatch forever).
+  # The attempt count is written in the SAME conditional write as the run: a
+  # write that fails loses neither the count nor the run (reviewer: "kegagalan
+  # tulis KV memulihkan retry").
   if dispatch "$n" sweep-activity "$sig"; then
     SWEEP_MARKER_PRESERVE_SLOTS=0
-    write_sweep_marker "$n" "$sig" "$RUN_ID"
+    write_sweep_marker "$n" "$sig" "$RUN_ID" "" "$attempt_next"
     return 0
   fi
   echo "::warning::dispatch failed for #$n; the checkpoint is unchanged, so the next sweep retries."
