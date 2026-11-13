@@ -6,6 +6,7 @@ import {
   SEED_USERS,
   type AuthSession,
 } from "./helpers/auth-api";
+import { isProductionApi } from "./helpers/api-env";
 
 /**
  * Menu Makan (/meals) — the "Menu Hari Ini" tab must load today's menu.
@@ -135,5 +136,158 @@ test.describe("Menu Makan — tombol tulis hanya untuk penulis", () => {
     await page.goto("/meals/menus");
 
     await expect(page.getByRole("link", { name: "Tambah Menu" })).toBeVisible();
+  });
+});
+
+/**
+ * The button gate is not one page but three: the list (`/meals/menus`), the
+ * day tab (`/meals`) and the detail (`/meals/menus/:id`) each read
+ * `useCanManageMeals`. The list had a test; the other two did not, so a button
+ * that `403`s could sit on the detail page unnoticed — the exact shape of the
+ * CWE-863 this PR closes. This block walks every writer/reader surface, then
+ * drives the real delete flow on the detail page so the button that *is* shown
+ * is the button that *works*.
+ *
+ * Its own menu (a far-future SNACK on SD IT) keeps it off the other block's
+ * fixture; the delete flow runs last, so the block is serial.
+ */
+test.describe("Menu Makan — gerbang tombol per peran di setiap layar", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let writer: AuthSession;
+  let unitId = "";
+  let menuId = "";
+  // The five browser projects run this block in parallel. Give each its own
+  // date — the model is unique on (unitId, date, mealType) — so one project's
+  // fixture (and its later delete) never touches another's.
+  let mainDish = "";
+  let fixtureDate = "";
+
+  test.beforeAll(async () => {
+    test.skip(
+      await isProductionApi(),
+      "API_URL menunjuk API produksi; uji ini menulis menu, jadi dilewati",
+    );
+    const offset = [...test.info().project.name].reduce(
+      (n, c) => n + c.charCodeAt(0),
+      0,
+    );
+    mainDish = `Puding Uji Gerbang ${offset}`;
+    fixtureDate = new Date(
+      Date.UTC(2032, 11, 1) + (offset % 300) * 86_400_000,
+    ).toISOString();
+
+    writer = await apiLogin(SEED_USERS.adminSdit);
+    unitId = writer.user.unitId as string;
+    expect(unitId, "the SD IT admin belongs to a unit").toBeTruthy();
+
+    try {
+      const created = await apiRequest<{ data: { id: string } }>(
+        writer,
+        "POST",
+        "/meals/menus",
+        {
+          unitId,
+          date: fixtureDate,
+          mealType: "SNACK",
+          mainDish,
+          drink: "Air Hangat",
+        },
+      );
+      menuId = created.data.id;
+    } catch (error) {
+      // A previous run may have left the row behind (a failure before teardown).
+      if (!String(error).includes("409")) throw error;
+      const found = await apiRequest<{
+        data: { id: string; mainDish: string }[];
+      }>(
+        writer,
+        "GET",
+        `/meals/menus?unitId=${unitId}&mealType=SNACK&limit=100`,
+      );
+      menuId = found.data.find((m) => m.mainDish === mainDish)?.id ?? "";
+      expect(menuId, "the leftover fixture is found").toBeTruthy();
+    }
+  });
+
+  test.afterAll(async () => {
+    if (!writer || !menuId) return;
+    await apiRequest(writer, "DELETE", `/meals/menus/${menuId}`).catch(
+      () => undefined,
+    );
+  });
+
+  test("tab Menu Hari Ini (/meals): Pengawas tidak melihat Tambah Menu", async ({
+    page,
+  }) => {
+    await loginAs(page, "pengawas");
+    await page.goto("/meals");
+
+    await expect(page.getByText("Manajemen Menu Makan")).toBeVisible();
+    await expect(page.getByRole("link", { name: "Tambah Menu" })).toHaveCount(
+      0,
+    );
+  });
+
+  test("tab Menu Hari Ini (/meals): admin unit melihat Tambah Menu", async ({
+    page,
+  }) => {
+    await loginAs(page, "adminSdit");
+    await page.goto("/meals");
+
+    await expect(page.getByRole("link", { name: "Tambah Menu" })).toBeVisible();
+  });
+
+  test("detail menu: Pengawas membaca tanpa tombol Edit/Hapus, dan API menolak", async ({
+    page,
+  }) => {
+    const pengawas = await loginAs(page, "pengawas");
+    await page.goto(`/meals/menus/${menuId}`);
+
+    // The row is readable (foundation scope widens the read) ...
+    await expect(page.getByText(mainDish)).toBeVisible();
+    // ... but the write buttons are gone, not merely refused on click.
+    await expect(page.getByRole("link", { name: "Edit" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Hapus" })).toHaveCount(0);
+
+    // The API agrees: the hidden button is a door that does not open (CWE-863).
+    await expect(
+      apiRequest(pengawas, "PUT", `/meals/menus/${menuId}`, {
+        mainDish: "Ditolak",
+      }),
+    ).rejects.toThrow(/→ 403/);
+    await expect(
+      apiRequest(pengawas, "DELETE", `/meals/menus/${menuId}`),
+    ).rejects.toThrow(/→ 403/);
+  });
+
+  test("detail menu: admin unit melihat tombol Edit dan Hapus", async ({
+    page,
+  }) => {
+    await loginAs(page, "adminSdit");
+    await page.goto(`/meals/menus/${menuId}`);
+
+    await expect(page.getByRole("link", { name: "Edit" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Hapus" })).toBeVisible();
+  });
+
+  test("detail menu: admin unit menghapus lewat halaman detail", async ({
+    page,
+  }) => {
+    await loginAs(page, "adminSdit");
+    await page.goto(`/meals/menus/${menuId}`);
+
+    await page.getByRole("button", { name: "Hapus" }).click();
+    await page
+      .getByRole("alertdialog")
+      .getByRole("button", { name: "Hapus" })
+      .click();
+
+    // The page returns to the list and the row is gone for real.
+    await page.waitForURL((url) => url.pathname === "/meals/menus");
+    await expect(
+      apiRequest(writer, "GET", `/meals/menus/${menuId}`),
+    ).rejects.toThrow(/→ 404/);
+    menuId = "";
   });
 });
