@@ -2836,12 +2836,27 @@ describe('deploy-sdlc-agents.py', () => {
     // search must NOT carry `-label:ready` — that exclusion hid the very issue
     // being recovered. And the "unanswered" test must not rely on the last
     // comment's author alone: a reporter who edits the description leaves the
-    // last comment as the bot's, so the body/updated_at must be compared too
+    // last comment as the bot's, so the body edit must be compared too
     // ("suntingan issue terlewat setelah komentar bot").
     expect(out).not.toContain('is:issue is:open -label:ready');
     expect(out).toContain('`--recover-ready`');
-    expect(out).toMatch(/deskripsi \*\*disunting\*\*/);
-    expect(out).toMatch(/issue\.updated_at/);
+    // #877 review, "suntingan body bot terbaca sebagai aktivitas pelapor": the
+    // signal must not be `issue.updated_at` alone. Finalising a triage edits the
+    // body (the `<!-- sdlc:triase -->` block) and moves that timestamp, so the
+    // old rule counted the bot's own edit as an unanswered reporter edit and
+    // re-dispatched forever. The rule now compares non-fleet activity against
+    // fleet responses using actor-aware history — `userContentEdits` (whose
+    // `editor.login` says who edited the body), so the bot's own edit is a
+    // response, not an activity.
+    expect(out).toContain('userContentEdits');
+    expect(out).toContain('editor.login');
+    expect(out).toMatch(/aktivitas non-armada/);
+    expect(out).toMatch(/suntingan body oleh Anda sendiri TIDAK/);
+    // #877 review, "pemulihan issue ready di luar halaman pertama": the
+    // candidate list must be paged past the first 50 issues — a recovery target
+    // can be older than the newest page, and stopping there would report
+    // "tak ada sasaran" while the target exists.
+    expect(out).toContain('-f page=2');
     // One target only, and the choice is written before any investigation. The
     // residual limit (the dispatch names no issue, so two simultaneous candidates
     // are only tie-broken by "newest") is stated rather than hidden.
@@ -4666,13 +4681,18 @@ describe('issue-triage-bridge.sh', () => {
     // carry a main run and a deferred (`pending`) side response in the same
     // checkpoint. Finalising the whole checkpoint at the main cap — dropping
     // `extra` — would lose that deferred relabel/conflict, so the label could
-    // stay wrong. The cap must finalise only the main slot and still queue the
-    // side response.
+    // stay wrong. The cap must finalise only the main slot and keep the side
+    // slot queued for the next pass.
+    //
+    // The pool is full here, so the cap's fall-through defers instead of
+    // dispatching: the checkpoint itself shows what survived. The deferred
+    // (`pending`) main slot carries the side slot forward, and the attempt count
+    // stays (the episode is not over).
     const { calls, out, kv } = runBridge(
       {
         GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
         GH_STUB_BODY: 'edited',
-        CURL_STUB_RUN_ID: 'sweep-run',
+        MAX_INFLIGHT: '1',
         KV_SEED: {
           'triage-sweep-818': {
             signal: signal('edited'),
@@ -4680,15 +4700,65 @@ describe('issue-triage-bridge.sh', () => {
             attempt: 3,
             extra: { conflict: 'pending' },
           },
+          // The pre-fix bridge read the count from its own `triage-attempt-<n>`
+          // key; seeding it too makes this a true fail-before: on the old bridge
+          // the cap branch finalised the whole checkpoint (dropping `extra`) and
+          // returned, so the side slot was lost. The fixed bridge ignores this
+          // key (the count rides in the checkpoint now).
+          'triage-attempt-818': { signal: signal('edited'), count: 3 },
         },
-        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"},{"status":"RUNNING"}]}',
       },
       ['--sweep']
     );
-    // The main cap is reported, but the pending side slot still dispatches.
     expect(out).toContain('attempt cap');
-    expect(calls).toContain('DISPATCH');
-    expect(kv['triage-sweep-818']).toMatchObject({ run: 'sweep-run' });
+    // The pool is full, so the side response is not dispatched yet — but it is
+    // not lost: it is carried into the deferred checkpoint.
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'pending',
+      attempt: 3,
+      extra: { conflict: 'pending' },
+    });
+  });
+
+  it('keeps a failed side slot when the attempt cap finalises the main slot on --recover-ready', () => {
+    // #877 review, "batas retry menghilangkan pemulihan label": the cap branch
+    // is shared by the ordinary sweep and the `--recover-ready` pass. On a
+    // `ready` issue only the recovery pass reaches it, so the same guarantee
+    // must hold there: the main slot is finalised, the failed `extra` side slot
+    // survives, and the recovery still queues the side response.
+    //
+    // A *failed* (not `pending`) side run is used deliberately: the recovery
+    // pass skips a `pending` checkpoint while the pool is full, so a `pending`
+    // side slot would never reach the cap branch here. The pool is full, so the
+    // cap's fall-through defers; the deferred main slot carries the failed side
+    // run forward, and the checkpoint itself shows it survived.
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'edited',
+        MAX_INFLIGHT: '1',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('edited'),
+            run: 'run-x',
+            attempt: 3,
+            extra: { relabel: 'relabel-x' },
+          },
+          'triage-attempt-818': { signal: signal('edited'), count: 3 },
+        },
+        CURL_STUB_RUNS:
+          '{"runs":[{"id":"run-x","status":"FAILED"},{"id":"relabel-x","status":"FAILED"},{"status":"RUNNING"}]}',
+      },
+      ['--recover-ready']
+    );
+    expect(out).toContain('attempt cap');
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'pending',
+      extra: { relabel: 'relabel-x' },
+    });
   });
 
   it('clears the attempt counter when the run completes, so a later episode starts fresh', () => {

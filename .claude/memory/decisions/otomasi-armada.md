@@ -399,12 +399,23 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       **keadaan GitHub** — `## Event Payload` bila ada, jika tidak SATU issue
       (tanpa `-label:ready`, karena pass `--recover-ready` menyasar issue `ready`
       juga) dengan aktivitas non-armada terbaru yang belum dijawab
-      (`search/issues` diurut `updated desc`). Uji "belum dijawab" **tidak**
-      boleh hanya melihat penulis komentar terakhir: pelapor yang menyunting
-      deskripsi meninggalkan komentar terakhir milik bot, jadi `issue.updated_at`
-      dan body harus dibandingkan juga. Sisa batas (dispatch tak menamai issue,
-      jadi dua kandidat serentak hanya di-tie-break "paling baru") dinyatakan
-      di prompt, bukan disembunyikan. **Jangan baca
+      (`search/issues` diurut `updated desc`, **ditelusuri ke halaman
+      berikutnya** sampai kandidat ketemu — 50 terbaru belum tentu memuat issue
+      pemulihan yang lebih lama). Uji "belum dijawab" memakai riwayat **yang
+      mengenal pelakunya**, bukan penulis komentar terakhir dan bukan
+      `issue.updated_at` saja: memfinalkan triase **menyunting body** (blok
+      `<!-- sdlc:triase -->`) dan memasang label, jadi `updated_at` bergerak
+      karena kerja armada sendiri dan suntingan bot itu sempat terbaca sebagai
+      aktivitas pelapor → dispatch berulang. Aturannya: aktivitas non-armada
+      (komentar author ≠ `cipansor-bot`/`*[bot]` **dan** suntingan body
+      `editor.login` ≠ `cipansor-bot`) dibandingkan dengan respons armada
+      (komentar `cipansor-bot`, suntingan body `editor.login == cipansor-bot`);
+      suntingan body diambil lewat GraphQL `issue.userContentEdits`. Sisa batas
+      (dispatch tak menamai issue — `POST /dispatch` **membuang body**,
+      didokumentasikan `known-issues.md` — jadi dua kandidat serentak hanya
+      di-tie-break "paling baru") dinyatakan di prompt; jembatan menutup
+      selisihnya dengan re-dispatch terbatas `ATTEMPT_MAX`, dan perbaikan akar
+      (target per-run sampai ke agen) menuntut perubahan platform. **Jangan baca
       `$AUTOMATION_*` dari terminal agen**: proses automation memegang
       `$AUTOMATION_EVENT_PAYLOAD`/`$AUTOMATION_KV_TOKEN`/`$AUTOMATION_RUN_ID`,
       tetapi terminal agen **tidak mewarisinya** (dinyatakan preset OpenHands
