@@ -411,15 +411,22 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       `editor.login` ≠ `cipansor-bot`) dibandingkan dengan respons armada
       (komentar `cipansor-bot`, suntingan body `editor.login == cipansor-bot`);
       suntingan body diambil lewat GraphQL `issue.userContentEdits`. Klasifikasi
-      suntingan bot sebagai respons triase memakai **rentang perubahan** (apa yang
-      berubah), **bukan** keberadaan penanda `<!-- sdlc:triase -->`: suntingan body
-      bot dihitung respons bila ia mengubah sesuatu **selain** pembuka basmalah —
-      diputuskan dengan membandingkan body **sebelum vs sesudah** (buang pembuka
-      dari keduanya). Tinjauan putaran-4 menolak "penanda harus ada di `diff`" (diff
-      bisa berupa hunk berkonteks terbatas); tinjauan putaran-5 menolak "penanda ada
-      di `issue.body` sekarang" (pembuka basmalah yang dikembalikan `basmalah` pada
-      `issues.edited` setelah suntingan pelapor lalu terhitung respons dan menutupi
-      pelapor). Dua celah yang
+      suntingan bot sebagai respons triase memakai **baris yang benar-benar
+      ditambah/dihapus** (perubahan sebenarnya), **bukan** keberadaan penanda
+      `<!-- sdlc:triase -->` dan **bukan** dengan memperlakukan dua `diff` sebagai
+      snapshot lalu membandingkannya: suntingan body bot dihitung respons bila ia
+      mengubah baris **selain** pembuka basmalah. Tiga tinjauan berturut-turut
+      menyerang baris yang sama dari arah berlawanan: putaran-3 "penanda di `diff`
+      tiap suntingan" (salah — `diff` bisa hunk berkonteks terbatas), putaran-4
+      "penanda di `issue.body` sekarang" (salah — pembuka yang dikembalikan
+      `basmalah` pada `issues.edited` setelah suntingan pelapor terhitung respons
+      dan menutupi pelapor), putaran-5 "bandingkan dua `diff` sebagai snapshot body"
+      (salah — `diff` adalah representasi perubahan; patch pelapor yang menghapus
+      pembuka dan patch bot yang menambahkannya kembali berbeda, jadi tampak
+      "berubah"). Pelajaran: jangan kunci aturan pada **artefak** (teks penanda di
+      diff/body, atau bentuk `diff`); kunci pada **peristiwa semantik** (apakah isi
+      triase berubah), dibaca dari baris yang berubah dengan pembuka sebagai
+      kebisingan. Dua celah yang
       ditinggalkan aturan itu ditutup pada tinjauan putaran-3: (a) **pembuatan
       issue** dihitung sebagai aktivitas non-armada (`issue.createdAt`) — issue
       baru yang run `issues.opened`-nya gagal tak punya komentar maupun suntingan

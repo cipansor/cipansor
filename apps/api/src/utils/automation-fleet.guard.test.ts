@@ -2865,19 +2865,26 @@ describe('deploy-sdlc-agents.py', () => {
     // pelapor": classifying every historical bot edit by whether the CURRENT
     // body carries the marker is wrong — on an already-triaged issue, a basmalah
     // re-prepend (basmalah.yml fires on `issues.edited`, after the reporter's
-    // edit) would count as a triage response and mask the reporter. The rule now
-    // classifies an edit by WHAT IT CHANGED: a bot body edit is a triage response
-    // iff it changed something other than the basmalah opening, decided by
-    // comparing the body before vs after the edit with the basmalah stripped —
-    // not by the marker's presence in the current body, and not by looking for
-    // the marker inside each `diff` (a limited-context hunk may omit it).
+    // edit) would count as a triage response and mask the reporter.
+    // #877 review round 6, "pembuka basmalah menutupi suntingan pelapor": the
+    // round-5 wording told the agent to compare two `diff` values as body
+    // snapshots, but `diff` is a change representation whose shape is not
+    // promised — the reporter's remove-patch and the bot's re-add-patch differ,
+    // so that comparison wrongly read the re-add as a response. The rule now
+    // reads the LINES ACTUALLY ADDED/REMOVED and ignores the basmalah opening as
+    // noise: an edit is a triage response iff it changed a line other than the
+    // opening. That is correct whether `diff` is a snapshot or a hunk, and it
+    // still recognises a triage-block update whose hunk omits the marker.
     expect(out).toMatch(/mengubah isi triase/);
-    expect(out).toMatch(/rentang perubahan/);
     expect(out).toMatch(/BUKAN respons triase/);
-    expect(out).toMatch(/sebelum\/sesudah/);
-    expect(out).toMatch(/buang pembuka basmalah/);
+    expect(out).toMatch(/baris yang benar-benar ditambah\/dihapus/);
+    expect(out).toMatch(/abaikan baris konteks/);
+    expect(out).toMatch(/kebisingan/);
+    expect(out).toMatch(/dua `?diff`? sebagai dua snapshot body/);
+    expect(out).toMatch(/menambahkan \*\*hanya\*\* baris pembuka/);
     expect(out).toContain('editor{login} diff');
     expect(out).not.toMatch(/body-nya memuat penanda/);
+    expect(out).not.toMatch(/buang pembuka basmalah/);
     // #877 review, "pemulihan issue ready di luar halaman pertama": the
     // candidate list must be paged past the first 50 issues — a recovery target
     // can be older than the newest page, and stopping there would report
