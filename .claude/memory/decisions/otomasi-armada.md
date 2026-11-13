@@ -1234,3 +1234,42 @@ saat memakai `UNLABELED_KEY` dan hijau dengan `CONFLICT_KEY`; tes slot run sisi
 (`extra`) dibuktikan gagal (7 tes) saat `issue-triage-bridge.sh` dipulihkan ke
 `HEAD` dan hijau dengannya. Seluruh 68 berkas guard `src/utils/`: **1155
 passed**.
+
+## 2026-11-13 — jembatan triase: penjaga siklus hidup + pemicu peristiwa (#1083, #1084)
+
+Keputusan pemilik (dari #1083/#1084, dicatat di issue):
+`blocked` **tetap** ditriase; hanya `in-progress`/`ready` yang dikecualikan dari
+triase otomatis. Balasan pelapor pada issue `ready`/`in-progress` tidak memicu
+triase otomatis. Satu-satunya pengecualian: sebutan `@cipansor-bot` oleh
+maintainer, yang memicu triase spesifik sesuai isi komentar dan boleh mengubah
+tipe/prioritas/kesiapan. Balasan maintainer **tidak** menembus `MAX_INFLIGHT` —
+mengantre seperti kandidat lain, karena menembusnya membuat kolam sandbox tak
+stabil. `stale` yang masih terbuka tetap ditriase; komentar pelapor pada
+`question` tetap memicu.
+
+Akar yang diperbaiki:
+1. **Kueri kandidat sweep** hanya `-label:ready`, jadi issue `in-progress`
+   (#851) tetap ditriase penuh. Kini `-label:ready -label:in-progress`, dan
+   `process_one` menolak `in-progress` juga (kueri hanya prefilter; label yang
+   tak terlihat kueri — issue yang baru dilabeli ulang — tetap ditolak di sana).
+2. **Tidak ada pemicu peristiwa** untuk komentar/suntingan. Kini workflow
+   berlangganan `issue_comment: [created]` dan `issues: [labeled, edited]`,
+   dengan job `activity` memanggil `--comment`/`--edited`. Sweep tetap jaring
+   pengaman. Bukti masalah: 7 balasan maintainer 01:45–01:47Z ditunda sweep
+   #1466 ("deferred, 3 triage run(s) already in flight") karena `MAX_INFLIGHT=3`
+   vs antrean ~40 (dispatch 3,3,2,6,6 vs defer 36,35,40,41,41).
+
+Penjaga baru di `issue-triage-bridge.sh`: `in_lifecycle_state` (label status
+`ready`/`in-progress`; baca gagal = lewati, bukan dispatch),
+`maintainer_mention` (komentar non-armada **terakhir** dari
+OWNER/MEMBER/COLLABORATOR yang memuat `@cipansor-bot`; sebutan lama tak membuka
+gerbang selamanya), `on_activity` (anti-loop `*bot`/`*[bot]`, lewati PR,
+`changes.body` saja untuk `edited`, burst collapse via `ACTIVITY_KEY`
+`triage-activity-<n>` dengan `BURST_WINDOW`, deferral `pending` saat cap penuh).
+Jalur `--relabel`/`--type-conflict` **tidak** dijaga siklus hidup: keduanya
+memperbaiki label, bukan memulai triase.
+
+Uji: `automation-fleet.guard.test.ts` **242 passed** (110 untuk
+`issue-triage-bridge.sh`), termasuk penjaga baru. Stub `gh` ditambah dua cabang
+(status-label dan `author_association`) yang harus mendahului pola `select((`
+(activity signal), kalau tidak keduanya tertelan.

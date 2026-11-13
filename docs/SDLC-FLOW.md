@@ -161,25 +161,36 @@ pertentangan itu dilaporkan sebagai issue.
     `medium`, dan bila ragu pilih yang lebih rendah. `critical` hanya untuk
     layanan mati total, kehilangan/korupsi data, atau masalah keamanan/privacy
     yang aktif bisa dieksploitasi. Jangan menginflasi `critical`.
-19. **Triase ulang dipicu setelah automation lain menanggapi.** Tak satu pun
-    automation memicu `issues.edited`. Sebuah jembatan deterministik
+19. **Triase ulang dipicu setelah automation lain menanggapi atau ada aktivitas
+    baru.** Sebuah jembatan deterministik
     (`issue-triage-bridge.yml` + `.github/scripts/issue-triage-bridge.sh`)
     mendispatch pemilik triase saat bot memasang label tipe/prioritas, saat
     **`label-guard` mencabut** label yang dipasang orang dan tak memasang
     penggantinya sehingga issue kehilangan tipe/prioritas (#838) — pemilik triase
     dipanggil lewat mode `--relabel` di run yang sama, sebab pencabutannya
     memakai `GITHUB_TOKEN` otomatis dan GitHub tak memulai run untuk event yang
-    dibuat token itu — dan saat **sinyal aktivitas** sebuah issue belum `ready`
-    berubah sejak checkpoint terakhir jembatan. Sinyalnya adalah hash dari body issue plus setiap
+    dibuat token itu — saat **ada komentar baru** atau **body issue disunting**
+    (sejak #1084 workflow-nya sendiri berlangganan `issue_comment.created` dan
+    `issues.edited`, jadi balasan maintainer dijawab seketika, tak menunggu sweep
+    per jam), dan saat **sinyal aktivitas** sebuah issue di luar cakupan berubah
+    sejak checkpoint terakhir jembatan. Sinyalnya adalah hash dari body issue plus setiap
     komentar **bukan-armada** (penulis + `updated_at` + body) — jadi suntingan
     deskripsi, komentar baru, atau komentar yang disunting semuanya mengubah
     sinyal. Karena sinyalnya isi, bukan timestamp beresolusi detik, suntingan
     pelapor pada detik yang sama dengan tulisan checkpoint tetap tertangkap
     (perbandingan `<=`-detik lama menelannya). Komentar armada sendiri (bot dan
     GitHub Actions) tidak dihitung, sehingga balasan bot tak pernah memicu
-    triase ulang dirinya — itu yang menutup loop. Idempoten: satu putaran = satu
+    triase ulang dirinya — itu yang menutup loop. Issue `ready` dan `in-progress`
+    **di luar cakupan** di setiap jalur (#1083): keduanya mengakhiri episode
+    triase, jadi komentar atau suntingan baru tidak memulainya lagi; `blocked`
+    sengaja **tidak** dikecualikan karena ia keadaan yang dipasang orang, bukan
+    akhir episode. Satu-satunya jalan masuk kembali adalah sebutan
+    `@cipansor-bot` oleh maintainer. Idempoten: satu putaran = satu
     dispatch (checkpoint per keadaan tipe+prioritas dalam jendela burst 300 dtk,
-    dan satu checkpoint sweep per issue). Checkpoint disimpan di **KV store
+    dan satu checkpoint sweep per issue). Balasan maintainer **tidak**
+    menembus plafon `MAX_INFLIGHT` — ia mengantre seperti kandidat lain, karena
+    menembusnya membuat kolam sandbox tak stabil (keputusan pemilik
+    2026-11-13). Checkpoint disimpan di **KV store
     otomasi**, bukan di komentar: penanda yang hanya berisi HTML tampil sebagai
     komentar **kosong**, memberi notifikasi ke setiap pelanggan issue dan
     meninggalkan cangkang tak terbaca (2026-11-11: 153 penanda). Jembatan tidak

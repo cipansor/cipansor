@@ -242,6 +242,11 @@ stub_legacy_page() {
 }
 case "$*" in
   *"search/issues"*) printf '%s\\n' "\${GH_STUB_SEARCH:-}" ;;
+  # The status-label read (#1083): the issue_status_labels helper. Matched on a
+  # quote-free fragment of its jq filter, and placed before the broader
+  # select(( pattern (the activity signal) so the two do not collide.
+  *".labels[].name | select(. =="*)
+    printf '%s\\n' "\${GH_STUB_STATUS_LABELS:-}" ;;
   # The open ready-issue list legacy_ready_issues enumerates (#1031 review).
   # It checks each number for a legacy marker, so the marker is found however
   # far back it sits in the comment history. GH_STUB_READY_PAGE2, when set, is a
@@ -1796,10 +1801,11 @@ describe('fleet contracts', () => {
     expect(read(LABEL_GUARD)).not.toContain(AI_FOOTER);
   });
 
-  it('wires the triage bridge into a workflow that fires on labels and a sweep', () => {
+  it('wires the triage bridge into a workflow that fires on labels, activity and a sweep', () => {
     const wf = read(join(WORKFLOWS, 'issue-triage-bridge.yml'));
     expect(wf).toContain('issue-triage-bridge.sh');
     expect(wf).toMatch(/issues:[\s\S]*types:[\s\S]*labeled/);
+    expect(wf).toMatch(/issue_comment:[\s\S]*types:\s*\[created\]/);
     expect(wf).toMatch(/schedule:/);
     expect(wf).toContain('--sweep');
   });
@@ -1860,19 +1866,24 @@ describe('fleet contracts', () => {
     expect(read(join(WORKFLOWS, 'issue-triage-bridge.yml'))).toContain('--purge-markers');
   });
 
-  it('keeps the triage bridge issues-only and off the edited event', () => {
-    // The bridge answers issue activity, never a pull request; and it hooks
-    // `issues.labeled` and a sweep, not `issues.edited` (an edited event would
-    // also fire on basmalah.yml's and issue-label-sync.yml's own body PATCHes,
-    // as `github-actions[bot]`). A PR description edit needs no automation: the
-    // review gate already reads the description, the linked issue, the diff and
-    // every comment. Inspect the `on:` block — the file's own comment names the
-    // events it deliberately avoids.
+  it('keeps the triage bridge issues-only and fires on the edited event (#1084)', () => {
+    // The bridge answers issue activity, never a pull request. It now hooks
+    // `issues.edited` and `issue_comment.created` (#1084): before, a maintainer's
+    // reply waited behind the hourly sweep's ~40-candidate queue. A PR
+    // description edit is still excluded: the review gate already reads the
+    // description, the linked issue, the diff and every comment, and the fleet's
+    // own body PATCHes (`basmalah`, `issue-label-sync`) post as
+    // `github-actions[bot]`, which the script's anti-loop guard ignores.
     const wf = read(join(WORKFLOWS, 'issue-triage-bridge.yml'));
     const onBlock = wf.slice(wf.indexOf('\non:'), wf.indexOf('\njobs:'));
     expect(onBlock).toContain('labeled');
+    expect(onBlock).toContain('edited');
+    expect(onBlock).toContain('issue_comment');
     expect(onBlock).not.toContain('pull_request');
-    expect(onBlock).not.toContain('edited');
+    // The edited event must be routed to the script's own guard, not to a raw
+    // dispatch: `--edited` reads the sender and the lifecycle labels.
+    expect(wf).toContain('issue-triage-bridge.sh --edited');
+    expect(wf).toContain('issue-triage-bridge.sh --comment');
   });
 
   it('states in docs/SDLC-FLOW.md that a PR description edit is not auto-answered', () => {
@@ -2966,6 +2977,137 @@ describe('issue-triage-bridge.sh', () => {
       labeledEvent('cipansor-bot', 'ready')
     );
     expect(calls).not.toContain('DISPATCH');
+  });
+
+  // #1083: a `ready`/`in-progress` issue is out of triage scope. The labeler
+  // applies type+priority+status in one burst, so without this guard a `ready`
+  // issue's own type label would re-dispatch the triage owner right after it was
+  // queued. A maintainer's `@cipansor-bot` mention is the one way back in.
+  it('refuses to triage a label on an `in-progress` issue (#1083)', () => {
+    const { calls, out } = runBridge(
+      { GH_STUB_ISSUE_LABELS: 'bug+priority:high', GH_STUB_STATUS_LABELS: 'in-progress' },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'bug')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('triage is closed until a maintainer mentions');
+  });
+
+  it('refuses to triage a label on a `ready` issue (#1083)', () => {
+    const { calls } = runBridge(
+      { GH_STUB_ISSUE_LABELS: 'bug+priority:high', GH_STUB_STATUS_LABELS: 'ready' },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('triages a `ready` issue again when a maintainer mentions the bot (#1083)', () => {
+    const { calls } = runBridge(
+      { GH_STUB_ISSUE_LABELS: 'bug+priority:high', GH_STUB_STATUS_LABELS: 'ready' },
+      ['--comment'],
+      commentEvent('adminypc', {
+        body: '@cipansor-bot tolong perbaiki prioritasnya',
+        assoc: 'MEMBER',
+      })
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  // #1084: the event-driven paths. Before them, only the hourly sweep noticed
+  // new activity, and its cap left a maintainer's reply waiting hours behind
+  // ~40 candidates.
+  const commentEvent = (
+    login: string,
+    opts: { pr?: boolean; body?: string; assoc?: string } = {}
+  ) =>
+    JSON.stringify({
+      action: 'created',
+      sender: { login },
+      issue: { number: 818, pull_request: opts.pr ? { url: 'x' } : null },
+      comment: {
+        body: opts.body ?? 'terima kasih, saya jawab',
+        author_association: opts.assoc ?? 'NONE',
+      },
+    });
+  const editedEvent = (login: string) =>
+    JSON.stringify({
+      action: 'edited',
+      sender: { login },
+      issue: { number: 818, pull_request: null },
+      changes: { body: { from: 'a' } },
+    });
+
+  it('dispatches triage on a new non-fleet comment (#1084)', () => {
+    const { calls, out } = runBridge({}, ['--comment'], commentEvent('adminypc'));
+    expect(calls).toContain('DISPATCH');
+    expect(out).toContain('Dispatched the triage owner for #818');
+  });
+
+  it('dispatches triage on an edited issue body (#1084)', () => {
+    const { calls } = runBridge({}, ['--edited'], editedEvent('adminypc'));
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('ignores a comment posted by the fleet, so the loop stays closed (#1084)', () => {
+    for (const login of ['cipansor-bot', 'github-actions[bot]', 'some-app[bot]']) {
+      const { calls } = runBridge({}, ['--comment'], commentEvent(login));
+      expect(calls, login).not.toContain('DISPATCH');
+    }
+  });
+
+  it('ignores a body edit made by the fleet (#1084)', () => {
+    const { calls } = runBridge({}, ['--edited'], editedEvent('github-actions[bot]'));
+    expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('ignores activity on a pull request (#1084)', () => {
+    const { calls, out } = runBridge({}, ['--comment'], commentEvent('adminypc', { pr: true }));
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('is a pull request');
+  });
+
+  it('refuses activity on a `ready`/`in-progress` issue unless a maintainer mentions the bot (#1083)', () => {
+    for (const status of ['ready', 'in-progress']) {
+      const { calls } = runBridge({ GH_STUB_STATUS_LABELS: status }, ['--comment'], commentEvent('adminypc'));
+      expect(calls, status).not.toContain('DISPATCH');
+    }
+    const { calls } = runBridge(
+      { GH_STUB_STATUS_LABELS: 'in-progress' },
+      ['--comment'],
+      commentEvent('adminypc', { body: '@cipansor-bot mohon tinjau ulang tipe issue ini', assoc: 'MEMBER' })
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('does not let a non-maintainer mention open the gate (#1083)', () => {
+    const { calls } = runBridge(
+      { GH_STUB_STATUS_LABELS: 'ready' },
+      ['--comment'],
+      commentEvent('someone', { body: '@cipansor-bot tolong', assoc: 'NONE' })
+    );
+    expect(calls).not.toContain('DISPATCH');
+  });
+
+  it('collapses a burst of comments on one issue to one dispatch (#1084)', () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { calls, out } = runBridge(
+      { KV_SEED: { 'triage-activity-818': { at: now } } },
+      ['--comment'],
+      commentEvent('adminypc')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+  });
+
+  it('triages a `stale` issue on new activity, since it is not a lifecycle end (#1084)', () => {
+    const { calls } = runBridge({ GH_STUB_STATUS_LABELS: 'stale' }, ['--comment'], commentEvent('adminypc'));
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('triages a `blocked` issue on new activity, since only ready/in-progress are exempt (#1083)', () => {
+    const { calls } = runBridge({ GH_STUB_STATUS_LABELS: 'blocked' }, ['--comment'], commentEvent('adminypc'));
+    expect(calls).toContain('DISPATCH');
   });
 
   // #838: `label-guard` removes a protected label a person applied and applies
