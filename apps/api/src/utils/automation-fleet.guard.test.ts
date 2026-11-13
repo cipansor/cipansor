@@ -35,6 +35,8 @@ const ACKNOWLEDGE = join(REPO_ROOT, '.github', 'scripts', 'acknowledge.sh');
 const DEPLOY = join(REPO_ROOT, 'scripts', 'deploy-sdlc-agents.py');
 const WORKFLOWS = join(REPO_ROOT, '.github', 'workflows');
 const BRIDGE = join(REPO_ROOT, '.github', 'scripts', 'issue-triage-bridge.sh');
+const LIFECYCLE = join(REPO_ROOT, '.github', 'scripts', 'pr-lifecycle.sh');
+const CLEANUP = join(REPO_ROOT, '.github', 'scripts', 'lifecycle-cleanup.sh');
 
 const AI_FOOTER = 'This comment was created by an AI agent';
 
@@ -45,8 +47,22 @@ case "$1" in
     case "$2" in
       list) printf '%s\\n' "\${GH_STUB_LABELS:-}" ;;
     esac ;;
+  issue)
+    # \`gh issue edit\` — the lifecycle-label release. Logged so a test can assert
+    # the removal without a real edit.
+    case "$*" in
+      *"edit"*) log "ISSUE_EDIT $*" ;;
+    esac ;;
   api)
     case "$*" in
+      # The closed-issue sweep of \`lifecycle-cleanup.sh\`: \`search/issues\` with a
+      # \`--jq\` filter. The stub honours the filter, as the real \`gh\` does.
+      *"search/issues"*)
+        [ "\${GH_STUB_SEARCH_FAIL:-}" = 1 ] && exit 1
+        jqexpr=""; prev=""
+        for a in "$@"; do [ "$prev" = "--jq" ] && jqexpr="$a"; prev="$a"; done
+        if [ -n "$jqexpr" ]; then printf '%s' "\${GH_STUB_SEARCH:-}" | jq -r "$jqexpr" 2>/dev/null || true
+        else printf '%s' "\${GH_STUB_SEARCH:-}"; fi ;;
       # The real endpoint answers an object with two fields, and the script
       # selects both with --jq. Honouring --jq here is what makes the
       # role_name branch testable: permission read + role_name triage
@@ -336,12 +352,98 @@ exit 0
 
 let dir: string;
 let bridgeDir: string;
+let lifeDir: string;
 let log: string;
+
+// A `gh` stub for `pr-lifecycle.sh`. It answers the fields the script reads
+// (`pr view` for state/draft/reviewDecision/headRefOid/potentialMergeCommit,
+// the check-runs listing, the reviews listing) from environment variables, so a
+// test can pose a green, ready, unreviewed head and then assert on the dispatch.
+const LIFE_STUB = `#!/bin/sh
+log() { [ -n "\${GH_STUB_LOG:-}" ] && echo "$*" >> "\${GH_STUB_LOG}"; }
+log "GH $*"
+case "$*" in
+  *"pr view"*)
+    case "$*" in
+      *".state"*) printf '%s\\n' "\${GH_STUB_PR_STATE:-OPEN}" ;;
+      *".isDraft"*) printf '%s\\n' "\${GH_STUB_PR_DRAFT:-false}" ;;
+      *".reviewDecision"*) printf '%s\\n' "\${GH_STUB_PR_REVIEW:-}" ;;
+      *".headRefOid"*) printf '%s\\n' "\${GH_STUB_PR_HEAD:-aaaaaaaaaaaa}" ;;
+      *".potentialMergeCommit"*) printf '%s\\n' "\${GH_STUB_PR_MERGE:-}" ;;
+    esac ;;
+  *"check-runs"*)
+    printf '%s\\n' "\${GH_STUB_CHECKS:-}" ;;
+  *"/reviews"*)
+    printf '%s\\n' "\${GH_STUB_REVIEWS:-[]}" ;;
+esac
+exit 0
+`;
+
+// A `curl` stub for `pr-lifecycle.sh`: the KV store (one file per key, as the
+// bridge's stub does) plus the gate dispatch. CURL_STUB_DISPATCH_CODE sets the
+// dispatch's HTTP answer.
+const LIFE_CURL_STUB = `#!/bin/sh
+log() { [ -n "\${CURL_STUB_LOG:-}" ] && echo "$*" >> "\${CURL_STUB_LOG}"; }
+code="\${CURL_STUB_CODE:-200}"; exitcode=0
+out=""; method=""; bodyarg=""; wantcode=""
+while [ $# -gt 0 ]; do
+  case "$1" in
+    -o) out="$2"; shift 2 ;;
+    -w) wantcode=1; shift 2 ;;
+    -X) method="$2"; shift 2 ;;
+    -d) bodyarg="$2"; log "BODY $2"; shift 2 ;;
+    -H) shift 2 ;;
+    -*) shift ;;
+    *) [ -z "$url" ] && url="$1"; shift ;;
+  esac
+done
+case "$url" in
+  *"/kv/"*|*"/kv?"*)
+    kvdir="\${CURL_STUB_KV_DIR:-/tmp/life-kv-stub}"
+    mkdir -p "$kvdir" 2>/dev/null || true
+    k=$(printf '%s' "$url" | sed -n 's#.*/kv/\\([^?]*\\).*#\\1#p')
+    case "$method" in
+      DELETE)
+        rm -f "$kvdir/$k" "$kvdir/$k.ver"; body='{"deleted":true}'; code=200 ;;
+      PUT)
+        log "KV_PUT $k $bodyarg"
+        cur=0
+        if [ -f "$kvdir/$k" ]; then cur=$(cat "$kvdir/$k.ver" 2>/dev/null || echo 1); case "$cur" in '' | *[!0-9]*) cur=1 ;; esac; fi
+        cond=""; exp=""
+        case "$url" in *"nx=true"*) cond="nx" ;; esac
+        case "$url" in *if_version=*) exp="\${url#*if_version=}"; exp="\${exp%%&*}" ;; esac
+        conflict=0
+        if [ "$cond" = "nx" ] && [ "$cur" != 0 ]; then conflict=1; fi
+        if [ -n "$exp" ] && [ "$exp" != "$cur" ]; then conflict=1; fi
+        if [ "$conflict" = 1 ]; then body='{"detail":"version_conflict"}'; code=409; exitcode=22
+        else
+          if [ "$cur" = 0 ]; then code=201; else code=200; fi
+          printf '%s' "$bodyarg" > "$kvdir/$k"; echo $((cur + 1)) > "$kvdir/$k.ver"
+          body='{"key":"'"$k"'"}'
+        fi ;;
+      *)
+        if [ -f "$kvdir/$k" ]; then
+          v=$(cat "$kvdir/$k"); ver=$(cat "$kvdir/$k.ver" 2>/dev/null || echo 1)
+          case "$ver" in '' | *[!0-9]*) ver=1 ;; esac
+          body=$(jq -nc --argjson v "$v" --argjson ver "$ver" '{value:$v,version:$ver}'); code=200
+        else body='{"detail":"key_not_found"}'; code=404; fi ;;
+    esac
+    if [ -n "$out" ]; then printf '%s' "$body" > "$out"; else printf '%s' "$body"; fi
+    [ -n "$wantcode" ] && printf '%s' "$code"
+    exit "$exitcode" ;;
+esac
+log "DISPATCH $url"
+printf '%s' "\${CURL_STUB_DISPATCH_CODE:-201}"
+exit 0
+`;
 
 beforeAll(() => {
   dir = mkdtempSync(join(tmpdir(), 'fleet-guards-'));
   bridgeDir = mkdtempSync(join(tmpdir(), 'fleet-bridge-'));
+  lifeDir = mkdtempSync(join(tmpdir(), 'fleet-life-'));
   writeFileSync(join(dir, 'gh'), STUB, { mode: 0o755 });
+  writeFileSync(join(lifeDir, 'gh'), LIFE_STUB, { mode: 0o755 });
+  writeFileSync(join(lifeDir, 'curl'), LIFE_CURL_STUB, { mode: 0o755 });
   // The bridge talks to more endpoints than the other guards, so it gets its own
   // `gh` (as `gh`), alongside the `curl` stub it dispatches through.
   writeFileSync(join(bridgeDir, 'gh'), BRIDGE_STUB, { mode: 0o755 });
@@ -351,6 +453,7 @@ beforeAll(() => {
 afterAll(() => {
   rmSync(dir, { recursive: true, force: true });
   rmSync(bridgeDir, { recursive: true, force: true });
+  rmSync(lifeDir, { recursive: true, force: true });
 });
 
 function run(
@@ -410,6 +513,32 @@ function run(
 
 const runBridge = (env: Record<string, unknown>, args: string[], stdin?: string) =>
   run(BRIDGE, env, args, stdin, bridgeDir);
+
+const runLifecycle = (env: Record<string, unknown>, args: string[]) =>
+  run(LIFECYCLE, env, args, undefined, lifeDir);
+
+const runCleanup = (env: Record<string, unknown>, args: string[]) => run(CLEANUP, env, args);
+
+// A full set of green check runs on the tested head, one per required check.
+// The API answers `{check_runs: [...]}` per page, which is the shape
+// `pr-lifecycle.sh` slurps with `jq -s '[.[].check_runs[]]'`.
+const GREEN_CHECKS = JSON.stringify({
+  check_runs: [
+    'CI scope',
+    'Lint',
+    'Build',
+    'Tests',
+    'Security',
+    'E2E scope',
+    'E2E Tests (Chromium)',
+  ].map((name) => ({
+    name,
+    status: 'completed',
+    conclusion: 'success',
+    started_at: '2026-11-13T00:00:00Z',
+    id: 1,
+  })),
+});
 
 // The repository labels the guard tests reason about, mirroring `gh label list`
 // for every one a test names — `blocked` included, because it is a real label
@@ -1772,6 +1901,7 @@ describe('fleet contracts', () => {
       'issue-claim.yml',
       'issue-triage-bridge.yml',
       'label-guard.yml',
+      'lifecycle-cleanup.yml',
       'main-failure-bridge.yml',
       'pr-description-checks.yml',
       'pr-lifecycle.yml',
@@ -4732,5 +4862,134 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).not.toContain('DISPATCH');
     expect(out).toContain('burst collapsed');
     expect(kv['triage-state-818']).toMatchObject({ state: 'bug+priority:high' });
+  });
+});
+
+describe('pr-lifecycle.sh review-gate dispatch claim (#1083)', () => {
+  const PR = '1085';
+  const HEAD = 'aaaaaaaaaaaa';
+  const CLAIM = `review-gate-${PR}-${HEAD}`;
+  const now = () => Math.floor(Date.now() / 1000);
+
+  // A green, ready, unreviewed head: the exact state that used to double-dispatch.
+  const greenReady = (env: Record<string, unknown> = {}) => ({
+    GH_STUB_CHECKS: GREEN_CHECKS,
+    GH_STUB_REVIEWS: '[]',
+    GH_STUB_PR_STATE: 'OPEN',
+    GH_STUB_PR_DRAFT: 'false',
+    GH_STUB_PR_HEAD: HEAD,
+    ...env,
+  });
+
+  it('dispatches once and records a claim when no run has claimed the head', () => {
+    const { calls, kv } = runLifecycle(greenReady(), [PR, HEAD]);
+    expect(calls).toContain('DISPATCH');
+    expect(kv[CLAIM]).toMatchObject({ attempt: 1 });
+  });
+
+  it('does not dispatch when another run already holds a fresh claim', () => {
+    // The second of the two same-second runs that produced PR #1052's three
+    // APPROVED reviews: it reads "not reviewed yet" too, but the claim it cannot
+    // create is what stops it. Before the claim existed this dispatched.
+    const { calls, out } = runLifecycle(
+      greenReady({ KV_SEED: { [CLAIM]: { at: now(), attempt: 1 } } }),
+      [PR, HEAD]
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('already working on it');
+  });
+
+  it('re-dispatches a stale claim whose gate never posted a review', () => {
+    // The claim is old (past the stale window) and the attempt budget is not
+    // spent, so a dispatch that died in infrastructure is retried.
+    const { calls, kv } = runLifecycle(
+      greenReady({ KV_SEED: { [CLAIM]: { at: now() - 3600, attempt: 1 } } }),
+      [PR, HEAD]
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv[CLAIM]).toMatchObject({ attempt: 2 });
+  });
+
+  it('stops re-dispatching once the attempt budget is spent', () => {
+    const { calls, out } = runLifecycle(
+      greenReady({ KV_SEED: { [CLAIM]: { at: now() - 3600, attempt: 3 } } }),
+      [PR, HEAD]
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('leaving it for a human');
+  });
+
+  it('releases the claim when the dispatch fails, so a re-request retries at once', () => {
+    const { calls, kv } = runLifecycle(greenReady({ CURL_STUB_DISPATCH_CODE: '502' }), [PR, HEAD]);
+    expect(calls).toContain('DISPATCH');
+    expect(kv[CLAIM]).toBeUndefined();
+  });
+
+  it('dispatches when the head was already reviewed, so the claim never blocks a new head', () => {
+    // The pre-existing idempotency still short-circuits first: a reviewed head
+    // needs no claim at all.
+    const { calls, kv } = runLifecycle(
+      greenReady({
+        GH_STUB_REVIEWS: JSON.stringify([{ user: { login: 'cipansor-bot' }, commit_id: HEAD }]),
+      }),
+      [PR, HEAD]
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv[CLAIM]).toBeUndefined();
+  });
+});
+
+describe('lifecycle-cleanup.sh (#1083)', () => {
+  it('releases both lifecycle labels from a closed issue', () => {
+    const { calls } = runCleanup({ GH_STUB_CURRENT: 'ready\nin-progress\nbug' }, ['857']);
+    expect(calls).toContain('ISSUE_EDIT');
+    expect(calls).toContain('--remove-label ready');
+    expect(calls).toContain('--remove-label in-progress');
+  });
+
+  it('leaves the non-lifecycle labels alone', () => {
+    const { calls } = runCleanup({ GH_STUB_CURRENT: 'ready\nbug\npriority:high' }, ['857']);
+    expect(calls).toContain('--remove-label ready');
+    expect(calls).not.toContain('priority:high');
+    expect(calls).not.toContain('--remove-label bug');
+  });
+
+  it('does nothing when the issue carries no lifecycle label', () => {
+    const { calls, out } = runCleanup({ GH_STUB_CURRENT: 'bug\nquestion' }, ['857']);
+    expect(calls).not.toContain('ISSUE_EDIT');
+    expect(out).toContain('no lifecycle label');
+  });
+
+  it('strips the labels from every closed issue that still carries one (sweep)', () => {
+    const { calls } = runCleanup(
+      {
+        GH_STUB_SEARCH: JSON.stringify({ items: [{ number: 732 }, { number: 749 }] }),
+        GH_STUB_CURRENT: 'ready',
+      },
+      ['--sweep']
+    );
+    const edits = calls.split('\n').filter((l) => l.includes('ISSUE_EDIT'));
+    expect(edits).toHaveLength(2);
+  });
+
+  it('fails the sweep when the closed-issue listing cannot be read', () => {
+    // A failed listing must not look like "none left": that would report success
+    // while closed issues keep their labels.
+    const { status, out } = runCleanup({ GH_STUB_SEARCH_FAIL: '1' }, ['--sweep']);
+    expect(out).toContain('::error::');
+    expect(status).not.toBe(0);
+  });
+});
+
+describe('lifecycle cleanup is wired into a workflow', () => {
+  const read = (p: string) => readFileSync(p, 'utf8');
+
+  it('runs on issue close and on a daily sweep, as cipansor-bot', () => {
+    const wf = read(join(WORKFLOWS, 'lifecycle-cleanup.yml'));
+    expect(wf).toContain('lifecycle-cleanup.sh');
+    expect(wf).toMatch(/issues:[\s\S]*types:\s*\[closed\]/);
+    expect(wf).toMatch(/schedule:/);
+    expect(wf).toContain('--sweep');
+    expect(wf).toContain('secrets.CIPANSOR_BOT_TOKEN || github.token');
   });
 });

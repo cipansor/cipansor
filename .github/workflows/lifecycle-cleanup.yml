@@ -1,0 +1,56 @@
+# Release the lifecycle labels (`ready`, `in-progress`) when an issue closes.
+#
+# `ready` and `in-progress` describe an open issue's place in the pipeline; a
+# closed issue is neither, and leaving them on makes the machine-readable state
+# lie — 136 closed issues still carried them (#1083). No workflow fired on
+# `issues: closed`, so nothing ever released them. The rule lives in
+# `.github/scripts/lifecycle-cleanup.sh` so it can be run by hand.
+#
+# Only these two labels are released; `stale`, `question`, `duplicate` and the
+# type/priority labels stay as the record of why the issue closed.
+name: Lifecycle cleanup
+
+on:
+  issues:
+    types: [closed]
+  # The repair pass for the backlog (the 136 closed issues that predate this
+  # workflow) and for any closure whose event never arrived. Idempotent: an
+  # issue that carries no lifecycle label is left alone.
+  schedule:
+    - cron: '52 2 * * *' # 09:52 WIB, daily
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: lifecycle-cleanup-${{ github.event.issue.number || github.run_id }}
+  cancel-in-progress: true
+
+jobs:
+  cleanup:
+    name: Lifecycle cleanup
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Release the lifecycle labels on the closed issue
+        if: github.event_name == 'issues'
+        env:
+# Posted as `cipansor-bot`, not `github-actions[bot]`: this automation only
+          # comments/labels/closes on issues and PRs, so the fleet's account should own it.
+          # The fallback keeps the workflow working before the secret exists.
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          ISSUE: ${{ github.event.issue.number }}
+        run: sh .github/scripts/lifecycle-cleanup.sh "$ISSUE"
+      - name: Release the lifecycle labels on every closed issue (sweep)
+        if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+        env:
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+        run: sh .github/scripts/lifecycle-cleanup.sh --sweep

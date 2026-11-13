@@ -263,6 +263,80 @@ fi
 # gate is configured for no wake agent, so a dispatch starts a fresh, bounded
 # conversation.
 GATE_ID="${SDLC_REVIEW_GATE_ID:-96eebf19-b64b-4035-9653-2d8b15b06ac4}"
+GATE_API="${GATE_API:-https://app.all-hands.dev/api/automation/v1}"
+
+# --- The dispatch claim, in the automation KV store -------------------------
+#
+# The review check above ("has the gate reviewed this head?") is a read-then-write:
+# two runs for the same green head can both read "not reviewed yet" before either
+# posts a review, and both dispatch. That is how PR #1052 collected three
+# APPROVED reviews on one SHA in three minutes (#1083). The workflow's concurrency
+# group does not close it — it is keyed per PR with `cancel-in-progress: false`,
+# so the second run queues and still runs.
+#
+# The claim below makes the decision a write. One key per (PR, head) is created
+# with `nx=true` (or advanced with `if_version`), the store answers 409 to the
+# loser, and only the winner dispatches. The claim carries the attempt count and
+# the moment it was taken: a dispatch that died in infrastructure is retried by a
+# later run (bounded by REVIEW_GATE_ATTEMPT_MAX), while a claim whose gate is
+# simply still running is left alone (REVIEW_GATE_STALE_MIN).
+#
+# A store that cannot be reached must not wedge the gate: the claim is
+# best-effort, and any non-2xx answer that is not the 409 conflict falls through
+# to the dispatch — the behaviour before the claim existed — with a warning.
+GATE_CLAIM_KEY="review-gate-$PR-$HEAD"
+GATE_ATTEMPT_MAX="${REVIEW_GATE_ATTEMPT_MAX:-3}"
+GATE_STALE_MIN="${REVIEW_GATE_STALE_MIN:-45}"
+
+# Read the claim: GATE_CLAIM is the stored object, GATE_CLAIM_VER its version.
+# Returns 0 when the key exists, 1 when it does not, 2 when the store could not
+# be read — so a hiccup is never mistaken for "no claim".
+GATE_CLAIM="{}"
+GATE_CLAIM_VER=0
+gate_claim_read() {
+  GATE_CLAIM="{}"; GATE_CLAIM_VER=0
+  tmp=$(mktemp)
+  code=$(curl -sS -o "$tmp" -w '%{http_code}' \
+    "$GATE_API/kv/$GATE_CLAIM_KEY?meta=true&automation_id=$GATE_ID" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null) \
+    || { rm -f "$tmp"; return 2; }
+  case "$code" in
+    404) rm -f "$tmp"; return 1 ;;
+    2??) : ;;
+    *) rm -f "$tmp"; return 2 ;;
+  esac
+  GATE_CLAIM=$(jq -c '.value // {}' "$tmp" 2>/dev/null) || { rm -f "$tmp"; return 2; }
+  GATE_CLAIM_VER=$(jq -r '.version // 0' "$tmp" 2>/dev/null) || GATE_CLAIM_VER=0
+  case "$GATE_CLAIM_VER" in '' | *[!0-9]*) GATE_CLAIM_VER=0 ;; esac
+  rm -f "$tmp"
+  return 0
+}
+
+# Conditional upsert. Returns 0 on success, 1 on the 409 conflict (another run
+# claimed it first), 2 on any other failure.
+gate_claim_write() { # <json-object> <expected-version>
+  if [ "$2" -gt 0 ]; then
+    url="$GATE_API/kv/$GATE_CLAIM_KEY?if_version=$2&automation_id=$GATE_ID"
+  else
+    url="$GATE_API/kv/$GATE_CLAIM_KEY?nx=true&automation_id=$GATE_ID"
+  fi
+  code=$(curl -sS -o /dev/null -w '%{http_code}' -X PUT "$url" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" \
+    -H "Content-Type: application/json" -d "$1" 2>/dev/null) || return 2
+  case "$code" in
+    409) return 1 ;;
+    2??) return 0 ;;
+    *) return 2 ;;
+  esac
+}
+
+# Release the claim so a later run retries a dispatch that never landed.
+gate_claim_release() {
+  curl -sS -o /dev/null -X DELETE \
+    "$GATE_API/kv/$GATE_CLAIM_KEY?automation_id=$GATE_ID" \
+    -H "Authorization: Bearer ${OPENHANDS_API_KEY:-}" 2>/dev/null || true
+}
+
 GATE_REVIEWS=$(gh api --paginate "repos/$REPO/pulls/$PR/reviews?per_page=100" 2>/dev/null || echo unread)
 if [ "$GATE_REVIEWS" = "unread" ]; then
   # A failed read must not look like "never reviewed": dispatching then would
@@ -275,23 +349,68 @@ elif printf '%s' "$GATE_REVIEWS" | jq -s -e --arg g "$GATE_LOGIN" --arg s "$HEAD
   # verdict (an approval is final; a request for changes waits on the author).
   echo "PR #$PR head $HEAD was already reviewed by the gate; nothing to dispatch."
 elif [ -n "${OPENHANDS_API_KEY:-}" ]; then
-  # Acknowledge: the gate is about to run on this PR, so react 👀 on it. The
-  # reporter sees the automation is working before the review lands (asked
-  # 2026-10-13). Best-effort — a reaction must never fail the dispatch.
-  sh "$(dirname "$0")/reaction.sh" "$PR" 2>/dev/null || true
-  # `POST /dispatch` has no request body (the API's schema declares none), so
-  # nothing sent here reaches the agent — the gate reads its target from the
-  # PR list itself (the `SASARAN` rule in its prompt). Send no body rather than
-  # a `{pr, head_sha}` object the platform silently drops.
-  # curl exits 0 on any HTTP answer, a 401 included, so the status code is what
-  # says whether the gate was dispatched — not curl's exit code.
-  code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
-      "https://app.all-hands.dev/api/automation/v1/$GATE_ID/dispatch" \
-      -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null || echo 000)
-  case "$code" in
-    2??) echo "Dispatched review gate for PR #$PR at $CHECK_SHA (HTTP $code)." ;;
-    *) echo "::warning::Review-gate dispatch for PR #$PR answered HTTP $code; CI is still green and a re-request will retrigger it." ;;
-  esac
+  # Decide whether this run is the one that dispatches.
+  GATE_DISPATCH=1
+  claim_rc=0; gate_claim_read || claim_rc=$?
+  now=$(date -u +%s)
+  if [ "$claim_rc" = 2 ]; then
+    echo "::warning::PR #$PR: the dispatch claim could not be read; dispatching without it (a concurrent run may double-dispatch)."
+  elif [ "$claim_rc" = 1 ]; then
+    # No claim yet: create it. The winner dispatches; a 409 means another run won.
+    cw=0; gate_claim_write "$(jq -nc --argjson at "$now" '{at:$at,attempt:1}')" 0 || cw=$?
+    case "$cw" in
+      0) echo "PR #$PR head $HEAD: claimed the review-gate dispatch." ;;
+      1) GATE_DISPATCH=0; echo "PR #$PR head $HEAD: another run claimed the review-gate dispatch first; not dispatching." ;;
+      *) echo "::warning::PR #$PR: the dispatch claim could not be written; dispatching without it (a concurrent run may double-dispatch)." ;;
+    esac
+  else
+    prev_at=$(printf '%s' "$GATE_CLAIM" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
+    case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
+    prev_attempt=$(printf '%s' "$GATE_CLAIM" | jq -r '.attempt // 0' 2>/dev/null) || prev_attempt=0
+    case "$prev_attempt" in '' | *[!0-9]*) prev_attempt=0 ;; esac
+    age_min=$(( (now - prev_at) / 60 ))
+    if [ "$prev_attempt" -ge "$GATE_ATTEMPT_MAX" ]; then
+      GATE_DISPATCH=0
+      echo "::warning::PR #$PR head $HEAD: the review gate was dispatched $prev_attempt time(s) and none produced a review; leaving it for a human (REVIEW_GATE_ATTEMPT_MAX=$GATE_ATTEMPT_MAX)."
+    elif [ "$age_min" -lt "$GATE_STALE_MIN" ]; then
+      GATE_DISPATCH=0
+      echo "PR #$PR head $HEAD was claimed ${age_min}m ago; the gate is already working on it, not dispatching again."
+    else
+      attempt=$((prev_attempt + 1))
+      cw=0
+      gate_claim_write "$(jq -nc --argjson at "$now" --argjson a "$attempt" '{at:$at,attempt:$a}')" "$GATE_CLAIM_VER" || cw=$?
+      case "$cw" in
+        0) echo "PR #$PR head $HEAD: the previous dispatch (${age_min}m ago) produced no review; re-dispatching (attempt $attempt/$GATE_ATTEMPT_MAX)." ;;
+        1) GATE_DISPATCH=0; echo "PR #$PR head $HEAD: another run holds the claim; not dispatching." ;;
+        *) echo "::warning::PR #$PR: the dispatch claim could not be written; dispatching without it." ;;
+      esac
+    fi
+  fi
+
+  if [ "$GATE_DISPATCH" = 1 ]; then
+    # Acknowledge: the gate is about to run on this PR, so react 👀 on it. The
+    # reporter sees the automation is working before the review lands (asked
+    # 2026-10-13). Best-effort — a reaction must never fail the dispatch.
+    sh "$(dirname "$0")/reaction.sh" "$PR" 2>/dev/null || true
+    # `POST /dispatch` has no request body (the API's schema declares none), so
+    # nothing sent here reaches the agent — the gate reads its target from the
+    # PR list itself (the `SASARAN` rule in its prompt). Send no body rather than
+    # a `{pr, head_sha}` object the platform silently drops.
+    # curl exits 0 on any HTTP answer, a 401 included, so the status code is what
+    # says whether the gate was dispatched — not curl's exit code.
+    code=$(curl -sS -o /dev/null -w '%{http_code}' -X POST \
+        "$GATE_API/$GATE_ID/dispatch" \
+        -H "Authorization: Bearer $OPENHANDS_API_KEY" 2>/dev/null || echo 000)
+    case "$code" in
+      2??) echo "Dispatched review gate for PR #$PR at $CHECK_SHA (HTTP $code)." ;;
+      *)
+        # The claim would otherwise read as "the gate is running" and hold the
+        # retry back until the stale window; release it so the next run tries
+        # again at once.
+        gate_claim_release
+        echo "::warning::Review-gate dispatch for PR #$PR answered HTTP $code; released the claim so a re-request retriggers it." ;;
+    esac
+  fi
 else
   echo "PR #$PR is green and ready, but OPENHANDS_API_KEY is not set; the gate will run on the next re-request."
 fi

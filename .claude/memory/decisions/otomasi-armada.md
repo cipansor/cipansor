@@ -1273,3 +1273,44 @@ Uji: `automation-fleet.guard.test.ts` **242 passed** (110 untuk
 `issue-triage-bridge.sh`), termasuk penjaga baru. Stub `gh` ditambah dua cabang
 (status-label dan `author_association`) yang harus mendahului pola `select((`
 (activity signal), kalau tidak keduanya tertelan.
+
+## 2026-11-13 — gerbang tinjau dikunci, label siklus hidup dilepas saat tutup (#1083)
+
+Dua sisa kriteria penerimaan #1083 (gejala 4 dan 5); gejala 1–3 sudah ditutup
+oleh perubahan sebelumnya di berkas ini.
+
+**Gerbang tinjau ganda pada satu SHA.** Pemeriksaan "sudah ditinjau?" di
+`pr-lifecycle.sh` adalah baca-lalu-tulis: dua run pada detik yang sama
+sama-sama membacanya sebagai "belum ditinjau" lalu keduanya men-dispatch
+(PR #1052: 3× `APPROVED` pada `eeda681f`). Grup concurrency workflow tidak
+menutupnya — kuncinya per PR dengan `cancel-in-progress: false`, jadi run kedua
+mengantre dan tetap berjalan. Kini dispatch diklaim di KV store automation
+(`review-gate-<PR>-<HEAD>`): `nx=true` saat belum ada, `if_version` saat
+memperpanjang; yang kalah menerima 409 dan tidak men-dispatch. Klaim menyimpan
+`{at, attempt}`: dispatch yang mati di infrastruktur dicoba ulang
+(`REVIEW_GATE_ATTEMPT_MAX=3`), klaim yang gerbangnya masih berjalan dibiarkan
+(`REVIEW_GATE_STALE_MIN=45` menit), dan dispatch yang gagal melepas klaimnya
+supaya re-request langsung mencoba lagi. Store tak terjangkau tidak mengganjal:
+klaim best-effort, gagal-baca/gagal-tulis jatuh ke perilaku lama dengan warning.
+Endpoint store bisa ditimpa lewat `GATE_API` — itu yang dipakai harness uji,
+karena `pr-lifecycle.sh` sebelumnya **tidak punya** harness sama sekali.
+
+**Label siklus hidup tertinggal saat tutup.** Tidak ada workflow yang memicu
+`issues: closed`, jadi `ready`/`in-progress` menempel di 136 issue tertutup.
+`lifecycle-cleanup.sh` (+ `lifecycle-cleanup.yml`) melepas keduanya: satu
+`gh issue edit` dengan `--remove-label` per label (bentuk yang sama dengan
+`issue-claim.sh`; dua panggilan bisa mati di antaranya dan menyisakan satu
+label). Hanya kedua label itu yang dilepas — `stale`/`question`/`duplicate` dan
+tipe/prioritas tetap sebagai catatan alasan tutup. Karena pencabutannya oleh
+`cipansor-bot`, `label-guard.sh` tidak pernah mengembalikannya. Selain pemicu
+`issues: closed` ada sapuan harian (`--sweep`) untuk backlog 136 issue itu dan
+untuk tutup yang event-nya tak sampai; sapuan gagal bila daftarnya tak terbaca,
+supaya "tak ada yang tersisa" tidak pernah salah lapor.
+
+Uji: `automation-fleet.guard.test.ts` **255 passed** (9 uji baru; keempat uji
+klaim gerbang dan kelima uji cleanup **gagal** pada kode sebelum perbaikan).
+Harness `pr-lifecycle.sh` baru: stub `gh` per-field (`GH_STUB_PR_*`,
+`GH_STUB_CHECKS`, `GH_STUB_REVIEWS`) plus stub `curl` yang menyimulasikan KV
+store (`nx`/`if_version` → 409). Jebakan yang tertangkap: komentar di dalam
+template literal stub `gh` tak boleh memakai backtick mentah — parser oxc
+memutuskannya di tengah string.
