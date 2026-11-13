@@ -26,6 +26,7 @@ import {
   useTodayMenus,
   useWeeklyMenus,
   useMealStats,
+  useCanManageMeals,
   MealMenu,
   MEAL_TYPES,
   MEAL_TYPE_LABELS,
@@ -166,6 +167,7 @@ export default function MealsPage() {
   );
 
   const { data: units = [] } = useUnits();
+  const canManage = useCanManageMeals();
   const unitId = selectedUnitId === "ALL" ? undefined : selectedUnitId;
   const { data: todayMenus, isLoading: todayLoading } = useTodayMenus(unitId);
   const { data: weeklyMenus = [], isLoading: weeklyLoading } = useWeeklyMenus({
@@ -246,12 +248,14 @@ export default function MealsPage() {
               <Printer className="h-4 w-4 mr-2" />
               Cetak Menu
             </Button>
-            <Button asChild>
-              <Link href="/meals/menus/new">
-                <Plus className="h-4 w-4 mr-2" />
-                Tambah Menu
-              </Link>
-            </Button>
+            {canManage && (
+              <Button asChild>
+                <Link href="/meals/menus/new">
+                  <Plus className="h-4 w-4 mr-2" />
+                  Tambah Menu
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 

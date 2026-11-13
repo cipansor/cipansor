@@ -1,5 +1,19 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { MEALS_MANAGER_ROLE_CODES } from "@cipansor/shared";
 import api from "@/lib/api";
+import { getActiveRoleCode } from "@/lib/rbac";
+import { useAuthStore } from "@/stores/auth";
+
+/**
+ * Whether the signed-in role may add, edit or delete a menu — the list the
+ * API's write routes check (`MEALS_MANAGER_ROLE_CODES`). The yayasan organs,
+ * whose permission list is read-only, read the pages without the buttons
+ * instead of pressing one and getting a 403.
+ */
+export function useCanManageMeals(): boolean {
+  const user = useAuthStore((s) => s.user);
+  return MEALS_MANAGER_ROLE_CODES.includes(getActiveRoleCode(user) ?? "");
+}
 
 // Types
 export type MealType = "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK";
