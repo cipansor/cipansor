@@ -2909,6 +2909,12 @@ describe('deploy-sdlc-agents.py', () => {
     // only ever written by a triage edit (never in a creation body), so its absence
     // from every older node's `diff` PROVES the anchor introduced it; page the full
     // history; an indeterminate state must not mean "unanswered".
+    // #877 review round 14, "pembaruan triase terakhir terhitung belum dijawab": a
+    // marker-bearing anchor after an OLD marker is not automatically "not a response"
+    // — the final-triage rule UPDATES the block in place (marker unchanged), so the
+    // anchor may be a summary update after a reporter reply. The rule now compares
+    // the block CONTENT (below the marker) at the state before the anchor vs the
+    // anchor: changed = response; unchanged (a basmalah restore) = not.
     expect(out).toMatch(/mengubah isi triase/);
     expect(out).toMatch(/BUKAN respons triase/);
     expect(out).toMatch(/baris yang benar-benar ditambah\/dihapus/);
@@ -2924,8 +2930,9 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toMatch(/Hunk yang lebih tua dari jangkar juga tak punya baseline/);
     expect(out).toMatch(/keberadaan blok `<!-- sdlc:triase -->` saja TIDAK cukup/);
     expect(out).toMatch(/memperkenalkan\*\* blok itu/);
+    expect(out).toMatch(/bandingkan \*\*isi blok triase\*\*/);
     expect(out).toMatch(/pengembalian pembuka/);
-    expect(out).toMatch(/Jangan menyimpulkan "bukan respons" semata-mata karena baseline hunk/);
+    expect(out).toMatch(/Jangan menyimpulkan "bukan respons" karena pembanding tak lengkap/);
     expect(out).toMatch(/jangan re-dispatch issue itu/);
     expect(out).toContain('editor{login} diff');
     expect(out).not.toMatch(/body-nya memuat penanda/);
