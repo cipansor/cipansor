@@ -1,7 +1,7 @@
 # A date-only column at midnight UTC, compared to `now`
 
 `Invoice.dueDate` is a `DateTime` column kept as a **calendar day**: `dayDate()`
-in `apps/api/src/utils/wib-day.ts` writes `new Date("2026-08-10T00:00:00.000Z")`.
+in `apps/api/src/utils/wib.ts` writes `new Date("2026-08-10T00:00:00.000Z")`.
 The `spp-reminder.job` and `utcMonthRange` bound it the same way (midnight UTC),
 and the codebase comment says so — "a `DateTime` column kept as a calendar day".
 

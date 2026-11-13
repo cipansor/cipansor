@@ -122,30 +122,6 @@ describe('the WIB calendar has one home', () => {
     expect(importers).toEqual([]);
   });
 
-  it('the docs do not send a reader to the deleted module', () => {
-    // Prose that says where the WIB calendar lives must name the merged module.
-    // A reader who follows `utils/wib-day.ts` finds nothing, and the revision
-    // history keeps one such mention on purpose (it records an earlier state),
-    // so the history table is skipped here just as `check_docs.py` skips it.
-    const docs = resolve(API, '..', '..', 'docs');
-    const offenders: string[] = [];
-    for (const name of readdirSync(docs)) {
-      if (!name.endsWith('.md')) continue;
-      const lines = readFileSync(join(docs, name), 'utf8').split('\n');
-      let inHistory = false;
-      lines.forEach((line, i) => {
-        if (/^#\s+Riwayat Revisi/.test(line)) inHistory = true;
-        else if (/^#\s+/.test(line)) inHistory = false;
-        if (inHistory) return;
-        // A path in backticks is the reference a reader would follow.
-        if (/`[^`]*wib-day[^`]*`/.test(line)) {
-          offenders.push(`docs/${name}:${i + 1}: ${line.trim().slice(0, 100)}`);
-        }
-      });
-    }
-    expect(offenders).toEqual([]);
-  });
-
   it('only the pinned files still convert a WIB day inline, and the list shrinks', () => {
     const roots = ['src', 'prisma'];
     const offenders = roots
