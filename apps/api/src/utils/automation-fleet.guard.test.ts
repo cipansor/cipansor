@@ -2885,24 +2885,30 @@ describe('deploy-sdlc-agents.py', () => {
     // last triage response. The rule now compares against the previous NODE.
     // #877 review round 9, "pembanding riwayat bergantung pada format diff": the
     // previous node is only a valid "before body" if it is a FULL body; GitHub
-    // can mix hunk and full-body formats in one history, so the rule must check
-    // the comparator's shape and fall back (nearest full-body node) instead of
-    // assuming it.
+    // can mix hunk and full-body formats in one history, so the rule must not
+    // assume the comparator's shape.
+    // #877 review round 10, "suntingan pelapor dianggap respons triase": when the
+    // reporter's `diff` is a hunk, using the nearest OLDER full-body node as the
+    // comparator folds the reporter's intermediate changes into the bot's edit,
+    // so the bot's basmalah edit looks like it changed the triage content. The
+    // rule now reconstructs the body for every edit (anchor at the earliest
+    // full-body node, then apply each node's hunk in order) and compares each bot
+    // edit against its IMMEDIATELY preceding state — never skipping nodes.
     expect(out).toMatch(/mengubah isi triase/);
     expect(out).toMatch(/BUKAN respons triase/);
     expect(out).toMatch(/baris yang benar-benar ditambah\/dihapus/);
-    expect(out).toMatch(/abaikan baris konteks/);
     expect(out).toMatch(/kebisingan/);
     expect(out).toMatch(/dua `?diff`? sebagai dua snapshot body/);
     expect(out).toMatch(/pembuka DAN baris kosong pemisah/);
     expect(out).toMatch(/baris kosong di sekitarnya/);
-    expect(out).toMatch(/JANGAN\*\* memakai `issue\.body` sebagai keadaan sebelum/);
-    expect(out).toMatch(/`diff` \*\*node tepat sebelumnya\*\*/);
-    expect(out).toMatch(/Format `diff` bisa berbeda antar-node/);
-    expect(out).toMatch(/node terdekat sebelumnya yang berupa body penuh/);
+    expect(out).toMatch(/JANGAN memakai `issue\.body` sebagai keadaan sebelum/);
+    expect(out).toMatch(/rekonstruksi body tiap suntingan/);
+    expect(out).toMatch(/JANGAN melompati suntingan di antaranya/);
+    expect(out).toMatch(/node tepat sebelumnya/);
     expect(out).toContain('editor{login} diff');
     expect(out).not.toMatch(/body-nya memuat penanda/);
     expect(out).not.toMatch(/buang pembuka basmalah/);
+    expect(out).not.toMatch(/node terdekat sebelumnya yang berupa body penuh/);
     // #877 review, "pemulihan issue ready di luar halaman pertama": the
     // candidate list must be paged past the first 50 issues — a recovery target
     // can be older than the newest page, and stopping there would report
