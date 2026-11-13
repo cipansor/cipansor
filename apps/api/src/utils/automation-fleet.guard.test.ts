@@ -2901,10 +2901,14 @@ describe('deploy-sdlc-agents.py', () => {
     // #877 review round 12, "pemulihan basmalah menutupi suntingan pelapor": the
     // anchor's mere POSSESSION of the `<!-- sdlc:triase -->` block is not enough —
     // a `basmalah` re-prepend anchor copies the old body (and its old triage block),
-    // so scoring it a response hides the earlier reporter hunk. The rule now: if
-    // the anchor carries the marker and there IS a pre-anchor hunk, compare to
-    // decide whether the triage block pre-existed (not a response) or the anchor
-    // wrote it (response); when unprovable, do not count it.
+    // so scoring it a response hides the earlier reporter hunk. The rule now keys
+    // on whether the anchor INTRODUCED the marker.
+    // #877 review round 13, "respons triase pertama luput setelah hunk": round-12's
+    // "unprovable → not a response" branch dropped a genuine FIRST triage write when
+    // a pre-anchor hunk exists but cannot prove the marker was absent. The marker is
+    // only ever written by a triage edit (never in a creation body), so its absence
+    // from every older node's `diff` PROVES the anchor introduced it; page the full
+    // history; an indeterminate state must not mean "unanswered".
     expect(out).toMatch(/mengubah isi triase/);
     expect(out).toMatch(/BUKAN respons triase/);
     expect(out).toMatch(/baris yang benar-benar ditambah\/dihapus/);
@@ -2919,8 +2923,10 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toMatch(/Node jangkar \(body penuh terawal di jendela\) tak punya keadaan sebelum/);
     expect(out).toMatch(/Hunk yang lebih tua dari jangkar juga tak punya baseline/);
     expect(out).toMatch(/keberadaan blok `<!-- sdlc:triase -->` saja TIDAK cukup/);
-    expect(out).toMatch(/jangkar \*\*adalah penulisan triase pertama\*\*/);
+    expect(out).toMatch(/memperkenalkan\*\* blok itu/);
     expect(out).toMatch(/pengembalian pembuka/);
+    expect(out).toMatch(/Jangan menyimpulkan "bukan respons" semata-mata karena baseline hunk/);
+    expect(out).toMatch(/jangan re-dispatch issue itu/);
     expect(out).toContain('editor{login} diff');
     expect(out).not.toMatch(/body-nya memuat penanda/);
     expect(out).not.toMatch(/buang pembuka basmalah/);

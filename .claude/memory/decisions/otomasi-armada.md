@@ -425,14 +425,17 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       — melompatinya menggabungkan perubahan pelapor ke dalam suntingan bot), dan
       **jangan** memakai `issue.body` sebagai keadaan sebelum (untuk node terakhir ia
       = sesudah). **Node jangkar** (body penuh terawal) tak punya keadaan sebelum —
-      nilainya terpisah, dan **keberadaan blok `<!-- sdlc:triase -->` saja tak
-      cukup** (blok bisa sudah ada sebelum jangkar: jangkar = pengembalian pembuka
-      oleh `basmalah` yang menyalin body lama beserta blok triase lamanya). Bila
-      jangkar berpenanda: (a) tak ada hunk sebelum jangkar → **respons**; (b) ada
-      hunk sebelum jangkar → bandingkan: blok sudah ada sebelum jangkar → **bukan**
-      respons; blok muncul karena jangkar → respons; tak terbukti → bukan respons
-      (konservatif). Hunk yang lebih tua dari jangkar juga tanpa baseline → nilai
-      dari baris yang berubah. (Fakta repo: ~148 suntingan
+      yang menentukan adalah apakah jangkar **memperkenalkan** blok triase.
+      Penanda `<!-- sdlc:triase -->` **hanya** ditulis oleh tulisan triase
+      `cipansor-bot` (tak pernah di body pembuatan issue; hunk pelapor dan
+      pengembalian pembuka `basmalah` tak menulisnya). Jadi: jangkar berpenanda
+      **respons** bila **tak ada** node lebih tua yang `diff`-nya memuat penanda;
+      **bukan** respons bila ada (blok sudah ada sebelum jangkar). Ketidakadaan
+      penanda di semua node sebelumnya **membuktikan** jangkar memperkenalkannya —
+      jangan bilang "bukan respons" hanya karena baseline hunk tak lengkap; ambil
+      riwayat selengkap mungkin (`first:100` + paginasi). Status **tak pasti**
+      **bukan** alasan menyatakan issue "belum dijawab" (jangan re-dispatch). Hunk
+      yang lebih tua dari jangkar tanpa baseline → nilai dari baris yang berubah. (Fakta repo: ~148 suntingan
       diperiksa, **semuanya body penuh**, tak ada riwayat campuran — rekonstruksi
       tetap benar bila bentuknya berubah.) Lima tinjauan berturut-turut menyerang baris yang sama dari
       arah berlawanan: putaran-3 "penanda di `diff` tiap suntingan" (salah — `diff`
@@ -454,8 +457,10 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       jangkar konservatif = bukan respons" (salah — triase final bisa jadi
       **satu-satunya** suntingan body pada issue formulir ber-basmalah), putaran-12
       "jangkar = respons bila memuat blok triase" (belum cukup — blok bisa sudah ada
-      sebelum jangkar karena pengembalian pembuka; harus dibedakan dengan hunk
-      sebelumnya).
+      sebelum jangkar karena pengembalian pembuka), putaran-13 "baseline hunk tak
+      lengkap → bukan respons" (salah — menghapus respons triase **pertama**; ganti:
+      jangkar bernilai bila ia **memperkenalkan** penanda, dibuktikan dari
+      ketidakadaan penanda di node lebih tua; status tak pasti ≠ belum dijawab).
       Pelajaran: jangan kunci aturan pada **artefak** (teks penanda di diff/body,
       bentuk `diff`, atau `issue.body`); kunci pada **peristiwa semantik** (apakah
       isi triase berubah), dibaca dari baris yang berubah dengan pembuka+pemisah
