@@ -410,7 +410,19 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       (komentar author ≠ `cipansor-bot`/`*[bot]` **dan** suntingan body
       `editor.login` ≠ `cipansor-bot`) dibandingkan dengan respons armada
       (komentar `cipansor-bot`, suntingan body `editor.login == cipansor-bot`);
-      suntingan body diambil lewat GraphQL `issue.userContentEdits`. Sisa batas
+      suntingan body diambil lewat GraphQL `issue.userContentEdits` (yang `diff`-nya
+      menyimpan body utuh saat suntingan itu, jadi blok `<!-- sdlc:triase -->`
+      membedakan suntingan triase dari suntingan bot lain). Dua celah yang
+      ditinggalkan aturan itu ditutup pada tinjauan putaran-3: (a) **pembuatan
+      issue** dihitung sebagai aktivitas non-armada (`issue.createdAt`) — issue
+      baru yang run `issues.opened`-nya gagal tak punya komentar maupun suntingan
+      sama sekali, jadi tanpa ini run pemulihan melaporkan "tak ada sasaran" dan
+      checkpoint difinalkan tanpa triase; (b) **suntingan bot non-triase tidak
+      dihitung respons** — workflow `basmalah` menambahkan pembuka ke body sebagai
+      `cipansor-bot`, dan dulu itu menyaring komentar pelapor yang lebih lama
+      darinya sebagai "sudah dijawab"; kini respons triase = komentar `cipansor-bot`
+      **dan** suntingan body bot yang `diff`-nya memuat blok `<!-- sdlc:triase -->`.
+      Sisa batas
       (dispatch tak menamai issue — `POST /dispatch` **membuang body**,
       didokumentasikan `known-issues.md` — jadi dua kandidat serentak hanya
       di-tie-break "paling baru") dinyatakan di prompt; jembatan menutup

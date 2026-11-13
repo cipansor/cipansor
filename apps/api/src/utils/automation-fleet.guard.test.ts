@@ -2845,13 +2845,25 @@ describe('deploy-sdlc-agents.py', () => {
     // body (the `<!-- sdlc:triase -->` block) and moves that timestamp, so the
     // old rule counted the bot's own edit as an unanswered reporter edit and
     // re-dispatched forever. The rule now compares non-fleet activity against
-    // fleet responses using actor-aware history — `userContentEdits` (whose
-    // `editor.login` says who edited the body), so the bot's own edit is a
-    // response, not an activity.
+    // triage responses using actor-aware history — `userContentEdits` (whose
+    // `editor.login` says who edited the body).
     expect(out).toContain('userContentEdits');
     expect(out).toContain('editor.login');
     expect(out).toMatch(/aktivitas non-armada/);
-    expect(out).toMatch(/suntingan body oleh Anda sendiri TIDAK/);
+    // #877 review round 3, "issue baru tanpa komentar terlewat triase": a
+    // brand-new issue the `issues.opened` run failed to answer has no comments
+    // and no edits, so neither history holds the reporter's act. Creation itself
+    // must count as non-fleet activity (`issue.createdAt`), or the recovery run
+    // reports "tak ada sasaran" and the checkpoint finalises untriaged.
+    expect(out).toContain('issue.createdAt');
+    expect(out).toMatch(/pembuatan issue itu sendiri/);
+    // #877 review round 3, "suntingan basmalah menutupi komentar pelapor": the
+    // `basmalah` workflow prepends to the body as `cipansor-bot`, but that is
+    // not a triage answer. A bot body edit counts as a response only when its
+    // `diff` touches the `<!-- sdlc:triase -->` block, so the prepend cannot
+    // mask a reporter comment that is older than it.
+    expect(out).toContain('`diff`');
+    expect(out).toMatch(/basmalah/);
     // #877 review, "pemulihan issue ready di luar halaman pertama": the
     // candidate list must be paged past the first 50 issues — a recovery target
     // can be older than the newest page, and stopping there would report
