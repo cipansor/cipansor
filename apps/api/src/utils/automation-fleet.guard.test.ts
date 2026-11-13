@@ -2412,6 +2412,42 @@ describe('deploy-sdlc-agents.py', () => {
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
   });
 
+  it.skipIf(!hasPy)(
+    'gives every work budget a wall-clock deadline, not only a command count',
+    () => {
+      // #907: the budget counted commands, not seconds. Ten heavy commands
+      // (`pnpm install` alone is ~140s) burn past the 1800s ceiling while the
+      // command count still reads compliant, so the agent that obeys the budget
+      // can still be killed at the wall. Every budget must name a readable
+      // deadline in seconds and say how to read the clock; the guard fails on a
+      // budget that carries only command counts.
+      const r = py(
+        [
+          'print(json.dumps({"generic": m.WORK_BUDGET,',
+          '  "tails": {k: v for k, v in m.TAILS.items() if "ANGGARAN WAKTU" in v}}))',
+        ].join('\n')
+      );
+      expect(r.status).toBe(0);
+      const parsed = JSON.parse(r.stdout) as {
+        generic: string;
+        tails: Record<string, string>;
+      };
+      // The generic budget plus the two tailored ones (`Gerbang tinjau PR`,
+      // `Pengawas armada`) are the budgets the fleet actually ships.
+      expect(Object.keys(parsed.tails)).toEqual(expect.arrayContaining(['SDLC 18', 'SDLC 23']));
+      const budgets: Record<string, string> = { generic: parsed.generic, ...parsed.tails };
+      for (const [name, text] of Object.entries(budgets)) {
+        // How to read the clock ...
+        expect(text, `${name} must tell the agent to read the clock`).toMatch(/date -u \+%s/);
+        // ... and a working deadline in seconds below the 1800s platform ceiling
+        // (the ceiling sentence names `1800 detik` and must not satisfy this).
+        expect(text, `${name} must name a seconds deadline`).toMatch(
+          /\b(?:1[0-4]\d\d|[3-9]\d\d)\s*detik/
+        );
+      }
+    }
+  );
+
   it.skipIf(!hasPy)('renames the live automation in place, and is idempotent', () => {
     // `apply_rename` must PATCH only the display name — the id, prompt and
     // tarball are untouched — and must be a no-op once the name already
