@@ -411,8 +411,10 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       `editor.login` ≠ `cipansor-bot`) dibandingkan dengan respons armada
       (komentar `cipansor-bot`, suntingan body `editor.login == cipansor-bot`);
       suntingan body diambil lewat GraphQL `issue.userContentEdits` (yang `diff`-nya
-      menyimpan body utuh saat suntingan itu, jadi blok `<!-- sdlc:triase -->`
-      membedakan suntingan triase dari suntingan bot lain). Dua celah yang
+      menyimpan body utuh saat suntingan itu — tetapi **jangan** bersandar pada
+      itu: `diff` tak dijamin memuat seluruh body, jadi penanda `<!-- sdlc:triase -->`
+      harus dibaca dari **`issue.body`**, bukan dari `diff` tiap suntingan; tinjauan
+      putaran-4 menutup celah memperbarui baris jauh dari penanda). Dua celah yang
       ditinggalkan aturan itu ditutup pada tinjauan putaran-3: (a) **pembuatan
       issue** dihitung sebagai aktivitas non-armada (`issue.createdAt`) — issue
       baru yang run `issues.opened`-nya gagal tak punya komentar maupun suntingan
