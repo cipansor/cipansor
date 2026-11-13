@@ -424,8 +424,13 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       bot dibandingkan dengan **node tepat sebelumnya** (jangan melompati suntingan
       — melompatinya menggabungkan perubahan pelapor ke dalam suntingan bot), dan
       **jangan** memakai `issue.body` sebagai keadaan sebelum (untuk node terakhir ia
-      = sesudah). (Fakta repo: ~148 suntingan diperiksa, **semuanya body penuh**,
-      tak ada riwayat campuran — rekonstruksi tetap benar bila bentuknya berubah.) Lima tinjauan berturut-turut menyerang baris yang sama dari
+      = sesudah). **Node jangkar** (body penuh terawal) tak punya keadaan sebelum —
+      nilainya terpisah: bot + body hasilnya memuat `<!-- sdlc:triase -->` = respons
+      (penting: issue formulir ber-basmalah bisa menerima triase final sebagai
+      **satu-satunya** suntingan body). Hunk yang lebih tua dari jangkar juga tanpa
+      baseline → nilai dari baris yang berubah. (Fakta repo: ~148 suntingan
+      diperiksa, **semuanya body penuh**, tak ada riwayat campuran — rekonstruksi
+      tetap benar bila bentuknya berubah.) Lima tinjauan berturut-turut menyerang baris yang sama dari
       arah berlawanan: putaran-3 "penanda di `diff` tiap suntingan" (salah — `diff`
       bisa hunk berkonteks terbatas), putaran-4 "penanda di `issue.body` sekarang"
       (salah — pembuka yang dikembalikan `basmalah` pada `issues.edited` setelah
@@ -441,7 +446,10 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       putaran-10 "lompat ke node body penuh terdekat" (salah — melompati suntingan
       menggabungkan perubahan pelapor ke dalam suntingan bot, sehingga suntingan
       basmalah tampak sebagai respons; perbaikannya: **rekonstruksi body tiap
-      suntingan** lalu bandingkan dengan node tepat sebelumnya).
+      suntingan** lalu bandingkan dengan node tepat sebelumnya), putaran-11 "node
+      jangkar konservatif = bukan respons" (salah — triase final bisa jadi
+      **satu-satunya** suntingan body pada issue formulir ber-basmalah, jadi jangkar
+      bernilai bila hasilnya memuat blok triase).
       Pelajaran: jangan kunci aturan pada **artefak** (teks penanda di diff/body,
       bentuk `diff`, atau `issue.body`); kunci pada **peristiwa semantik** (apakah
       isi triase berubah), dibaca dari baris yang berubah dengan pembuka+pemisah
