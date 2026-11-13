@@ -2897,8 +2897,14 @@ describe('deploy-sdlc-agents.py', () => {
     // #877 review round 11, "respons triase pertama tidak terhitung": the anchor
     // node has no "before" state, so round-10's conservative "not a response" is
     // wrong when the bot's first body edit IS the triage write (a form issue whose
-    // body already has the basmalah). The rule now scores the anchor separately:
-    // bot + its resulting body carries the `<!-- sdlc:triase -->` block = response.
+    // body already has the basmalah). The rule now scores the anchor separately.
+    // #877 review round 12, "pemulihan basmalah menutupi suntingan pelapor": the
+    // anchor's mere POSSESSION of the `<!-- sdlc:triase -->` block is not enough —
+    // a `basmalah` re-prepend anchor copies the old body (and its old triage block),
+    // so scoring it a response hides the earlier reporter hunk. The rule now: if
+    // the anchor carries the marker and there IS a pre-anchor hunk, compare to
+    // decide whether the triage block pre-existed (not a response) or the anchor
+    // wrote it (response); when unprovable, do not count it.
     expect(out).toMatch(/mengubah isi triase/);
     expect(out).toMatch(/BUKAN respons triase/);
     expect(out).toMatch(/baris yang benar-benar ditambah\/dihapus/);
@@ -2912,6 +2918,9 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toMatch(/node tepat sebelumnya/);
     expect(out).toMatch(/Node jangkar \(body penuh terawal di jendela\) tak punya keadaan sebelum/);
     expect(out).toMatch(/Hunk yang lebih tua dari jangkar juga tak punya baseline/);
+    expect(out).toMatch(/keberadaan blok `<!-- sdlc:triase -->` saja TIDAK cukup/);
+    expect(out).toMatch(/jangkar \*\*adalah penulisan triase pertama\*\*/);
+    expect(out).toMatch(/pengembalian pembuka/);
     expect(out).toContain('editor{login} diff');
     expect(out).not.toMatch(/body-nya memuat penanda/);
     expect(out).not.toMatch(/buang pembuka basmalah/);
