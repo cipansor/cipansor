@@ -257,7 +257,7 @@ flowchart TD
   GT -- "sengketa / putaran habis" --> MD
   GT -- approve --> UPD["perbarui cabang bila tertinggal main, CI ulang"]:::gh --> MG(["auto-merge squash"])
   MG --> STG["deploy-staging"]:::gh
-  MG -. "CI/E2E gagal di main" .-> BR["main-failure-bridge.yml → satu issue"]:::gh
+  MG -. "CI/E2E gagal/dibatalkan di main" .-> BR["main-failure-bridge.yml → satu issue"]:::gh
   REL["maintainer push tag vX.Y.Z (setelah k6 smoke manual)"]:::human --> PRD["deploy-production: gerbang release-gate.sh lalu deploy"]:::gh
 ```
 
@@ -275,7 +275,7 @@ flowchart TD
 | 10  | Staging      | E2E hijau di `main`                                                                                                                 | `deploy-staging`                                                                           | staging menyajikan SHA itu                                                                                                                                                                                         | —                                                                                           |
 | 11  | Calon rilis  | manual: k6 smoke dijalankan terhadap staging, lalu tag `vX.Y.Z` di-push                                                             | maintainer                                                                                 | tag rilis pada commit yang sudah diverifikasi staging                                                                                                                                                              | tag ter-push                                                                                |
 | 12  | Produksi     | push tag `vX.Y.Z`                                                                                                                   | `deploy-production` (gerbang `release-gate.sh`)                                            | produksi menyajikan SHA itu; langkah data pasca-rilis masing-masing dengan persetujuan                                                                                                                             | —                                                                                           |
-| 13  | Operasi      | CI/E2E gagal di `main`; Health check / availability test                                                                            | `main-failure-bridge.yml`; platform                                                        | satu issue per workflow (deterministik, tanpa LLM)                                                                                                                                                                 | —                                                                                           |
+| 13  | Operasi      | CI/E2E gagal atau dibatalkan di `main`; Health check / availability test                                                                            | `main-failure-bridge.yml`; platform                                                        | satu issue per workflow (deterministik, tanpa LLM)                                                                                                                                                                 | —                                                                                           |
 | 14  | Pengawasan   | manual                                                                                                                              | OpenHands Cloud (riwayat run) + pemeriksa Actions                                          | kesehatan, pemakaian, kegagalan diam                                                                                                                                                                               | —                                                                                           |
 
 ### Gerbang manusia — hanya empat
@@ -580,7 +580,7 @@ flowchart TB
     MG --> STG["deploy-staging.yml (build + push image)"]:::gh
     STG --> PROD["deploy-production.yml (push tag vX.Y.Z)"]:::gh
     PROD -. "selesai" .-> DW
-    MG -. "CI atau E2E gagal di main" .-> BR["main-failure-bridge.yml → satu issue"]:::gh
+    MG -. "CI atau E2E gagal/dibatalkan di main" .-> BR["main-failure-bridge.yml → satu issue"]:::gh
     C13["maintainer: tag vX.Y.Z"]:::human
     C13 -. "rilis + memicu deploy (tidak ada pre-release -rc lagi, 2026-11-09)" .-> REL2(["GitHub Release + produksi"])
   end
@@ -702,7 +702,7 @@ flowchart LR
   STG -. selesai .-> DWI(["deploy diawasi manual di tab Actions"]):::gh
   PROD -. selesai .-> DW
   LT["load-tests.yml (k6, manual sebelum rilis)"]:::human -.-> TAGV["tag vX.Y.Z"]:::human
-  BR2["main-failure-bridge.yml (CI/E2E gagal di main → satu issue, deterministik)"]:::gh
+  BR2["main-failure-bridge.yml (CI/E2E gagal/dibatalkan di main → satu issue, deterministik)"]:::gh
   TAGV -. "memicu" .-> PROD
   C20["Pemindai standar (Sen 06:00) → issue question"]:::cloud -.-> PROD
   C19["Pemburu bug (harian 09:00) → issue bug berbukti; kerentanan → advisory privat"]:::cloud -.-> PROD
@@ -783,7 +783,7 @@ Timer dan pengecualiannya sama seperti `Penjaga issue` dulu.
 | Pemburu bug           | bug proaktif yang bisa direproduksi → issue berbukti; **kerentanan → draf advisory privat** (atas nama `adminypc`), bukan issue publik                                                                                                                                                                                                                                                                                                                                                                                                             |
 | Pemindai standar      | standar/regulasi terbaru → issue `question`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | Penjaga issue         | timer usang untuk `question`/lainnya — **kini `stale-sweep.yml`** (deterministik, 2026-11-09)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| (deterministik)       | `main-failure-bridge.yml` membuka satu issue saat CI/E2E gagal di `main`; menggantikan `Pemantau deployment` (dipensiunkan 2026-11-12)                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| (deterministik)       | `main-failure-bridge.yml` membuka satu issue saat CI/E2E gagal atau dibatalkan di `main`; menggantikan `Pemantau deployment` (dipensiunkan 2026-11-12)                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | Audit kematangan      | **dinonaktifkan 2026-11-10** — menilai 18 item kerangka → satu issue; pemilik menilainya manual dari OpenHands Cloud                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 ## Identitas — siapa berbuat sebagai siapa

@@ -348,8 +348,19 @@ jobs:
       # test (the CSP's upgrade-insecure-requests, #626); with three attempts
       # each it ran past 45 minutes and staging was never updated. Stopping
       # early keeps a broken engine a red, reported job instead.
+      #
+      # `timeout` on the command, not only the job ceiling (#915): `--max-failures`
+      # only helps when the engine fails FAST. On 2026-10-20/22 WebKit ran the
+      # full 45 minutes without reaching 30 failures — a slow, flaky engine — so
+      # the JOB was killed at its ceiling, which concludes `cancelled`, and
+      # `continue-on-error` does NOT absorb a cancellation: the run went
+      # `cancelled`, the staging deploy was `skipped`, and nothing reported it.
+      # Wrapping the command in `timeout` turns a hang into a step failure
+      # (exit 124) that `continue-on-error` absorbs, so the run stays `success`.
+      # 36 minutes leaves ~5 minutes under the 45-minute job ceiling for the
+      # post steps, and is well above the ~16–22 minutes a healthy run takes.
       - name: Run E2E tests (${{ matrix.browser }})
-        run: pnpm --filter web exec playwright test --project=${{ matrix.browser }} --max-failures=30
+        run: timeout --signal=TERM 2160 pnpm --filter web exec playwright test --project=${{ matrix.browser }} --max-failures=30
 
       - name: Stop API
         if: always()

@@ -26,6 +26,7 @@ const BRIDGE = readFileSync(
 );
 const SCRIPT = readFileSync(resolve(REPO, '.github', 'scripts', 'main-failure-report.sh'), 'utf8');
 const SCRIPT_PATH = join(REPO, '.github', 'scripts', 'main-failure-report.sh');
+const E2E = readFileSync(resolve(REPO, '.github', 'workflows', 'e2e-tests.yml'), 'utf8');
 
 // A stub `gh` that answers the two reads the report makes — the open-issue list
 // and the issue create/comment writes — so the failure path can be driven.
@@ -43,7 +44,7 @@ esac
 exit 0
 `;
 
-function runReport(env: Record<string, string> = {}) {
+function runReport(env: Record<string, string> = {}, conclusion = 'failure') {
   const dir = mkdtempSync(join(tmpdir(), 'main-failure-'));
   const bin = join(dir, 'gh');
   writeFileSync(bin, STUB, { mode: 0o755 });
@@ -51,7 +52,7 @@ function runReport(env: Record<string, string> = {}) {
   writeFileSync(logPath, '');
   const res = spawnSync(
     'sh',
-    [SCRIPT_PATH, 'CI', '123', 'abcdef1234567890', 'https://run', 'main'],
+    [SCRIPT_PATH, 'CI', '123', 'abcdef1234567890', 'https://run', 'main', conclusion],
     {
       encoding: 'utf8',
       env: {
@@ -89,12 +90,23 @@ describe('main-failure-bridge.yml', () => {
     expect(list).not.toContain('Deploy production');
   });
 
-  it('acts only on a failure on main', () => {
+  it('acts only on a failure or cancellation on main', () => {
+    // `cancelled` joined `failure` (#915): a job killed at its `timeout-minutes`
+    // concludes `cancelled`, which `continue-on-error` does not absorb, so the
+    // run went `cancelled` and the staging deploy was `skipped` with no report.
     expect(BRIDGE).toMatch(/conclusion == 'failure'/);
+    expect(BRIDGE).toMatch(/conclusion == 'cancelled'/);
+    // `success` and `skipped` must not be reported: a skipped run is the failure
+    // this bridge already reports, not a problem of its own.
+    expect(BRIDGE).not.toMatch(/conclusion == 'success'/);
+    expect(BRIDGE).not.toMatch(/conclusion == 'skipped'/);
     expect(BRIDGE).toMatch(/head_branch == 'main'/);
     // A fork's pull request from a branch named `main` runs CI here too, with
     // head_branch 'main'; only this repository's own main may report.
     expect(BRIDGE).toMatch(/head_repository\.full_name == github\.repository/);
+    // The conclusion is handed to the report, so the issue can name it.
+    expect(BRIDGE).toMatch(/CONCLUSION:\s*\$\{\{\s*github\.event\.workflow_run\.conclusion\s*\}\}/);
+    expect(BRIDGE).toMatch(/main-failure-report\.sh[^\n]*"\$CONCLUSION"/);
   });
 
   it('reads the tip of main as a SHA, with no scope it does not use', () => {
@@ -169,8 +181,44 @@ describe('main-failure-bridge.yml', () => {
     // GitHub prose is Indonesian (AGENTS.md); only the workflow name and the
     // run link stay as they are. The title and opening line used to be English.
     expect(SCRIPT).toMatch(/TITLE="[^"]*Kegagalan/);
-    expect(SCRIPT).toContain('gagal pada');
+    expect(SCRIPT).toContain('$KIND pada');
     expect(SCRIPT).not.toContain('Deploy watchdog');
     expect(SCRIPT).not.toMatch(/failed on \\`\$BRANCH\\`/);
+  });
+
+  it('names the conclusion, so a cancellation is not flattened into a failure', () => {
+    // #915: `cancelled` is reported too, and the report must say which one it
+    // is — a reader who cannot tell a cancellation from an ordinary failure
+    // still cannot act on it.
+    const cancelled = runReport({ GH_STUB_LIST: '' }, 'cancelled');
+    expect(cancelled.status).toBe(0);
+    expect(cancelled.log).toContain('CREATE');
+    // The issue body and title carry the conclusion verbatim.
+    expect(cancelled.log).toContain('cancelled');
+    // The prose distinguishes it: "dibatalkan", not "gagal".
+    expect(cancelled.log).toContain('dibatalkan');
+    // An ordinary failure keeps its own wording and does not claim cancellation.
+    const failed = runReport({ GH_STUB_LIST: '' }, 'failure');
+    expect(failed.log).toContain('gagal');
+    expect(failed.log).not.toContain('dibatalkan');
+  });
+
+  it('keeps a hung cross-browser run a failure, not a cancelled run', () => {
+    // The other half of #915 (root cause, K28): the cross-browser job is
+    // `continue-on-error`, but a job killed at `timeout-minutes` concludes
+    // `cancelled`, which `continue-on-error` does NOT absorb — so a hung WebKit
+    // run turned the whole run `cancelled` and the staging deploy `skipped`.
+    // Wrapping the command in `timeout` makes the STEP fail (exit 124), which
+    // `continue-on-error` absorbs, so the run stays `success`.
+    const step =
+      E2E.match(/name: Run E2E tests \(\$\{\{ matrix\.browser \}\}\)\n\s*run: ([^\n]+)/)?.[1] ?? '';
+    expect(step, 'the cross-browser test step wraps the command in `timeout`').toMatch(
+      /^timeout --signal=TERM \d+ pnpm --filter web exec playwright test/
+    );
+    // The inner timeout stays under the 45-minute job ceiling, so the post steps
+    // still run and the job is never the thing the runner kills.
+    const seconds = Number(step.match(/^timeout --signal=TERM (\d+)/)?.[1]);
+    expect(seconds).toBeGreaterThan(0);
+    expect(seconds).toBeLessThan(45 * 60);
   });
 });
