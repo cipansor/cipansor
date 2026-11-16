@@ -18,6 +18,13 @@ Scope is the prose that describes the codebase: the tracked `docs/*.md` and the
 skips them: a revision-history row or a progress log records what was true at
 that commit, and rewriting it would be the mistake.
 
+A reference is read in the form its author wrote it. The repository-root forms
+(`apps/…`, `packages/…`) are themselves; a bare `utils/…` is the API module
+directory; a bare `src/…` — how the architecture document names `apps/web/src/lib/api.ts`
+— is resolved against the document's own workspace, and a document outside every
+workspace (the root `AGENTS.md`, `docs/`) may name either app, so both are tried.
+Missing the bare `src/…` form is what let a moved `src/lib/api.ts` pass unnoticed.
+
 Usage:
   check-doc-paths.py --self-test     the cases below; CI runs it first
   check-doc-paths.py [path...]       default: the tracked doc set
@@ -40,15 +47,23 @@ DEFAULT_PATTERNS = [
 
 # A path a reader could open, written in backticks. The `apps/` and `packages/`
 # forms are repository-root relative; a bare `utils/x.ts` is the API module
-# directory, which is how §8 of the technical document names it.
+# directory, which is how §8 of the technical document names it; a bare
+# `src/x.ts` is resolved against the document's own workspace (see
+# `document_workspace`) — the architecture document writes `src/lib/api.ts` for
+# what is really `apps/web/src/lib/api.ts`.
 PATH_IN_BACKTICKS = re.compile(
     r"`(?P<span>[^`]+)`"
 )
 PATH = re.compile(
-    r"\b(?P<path>(?:apps|packages)/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*"
+    r"(?<![\w/])(?P<path>"
+    r"(?:apps|packages|src)/[A-Za-z0-9_.-]+(?:/[A-Za-z0-9_.-]+)*"
     r"|utils/[A-Za-z0-9_.-]+\.ts)(?::\d+)?"
 )
 CODE_SUFFIX = re.compile(r"\.(ts|tsx|js|jsx|mjs|cjs|py|sh|json|yml|yaml|css|prisma)$")
+
+# The source roots a bare `src/…` can belong to, in the order a reader would
+# try them. `packages/shared` is here because `src/index.ts` names its entry.
+WORKSPACES = ("apps/api", "apps/web", "packages/shared")
 
 HISTORY_HEADING = re.compile(r"^#\s+Riwayat Revisi\s*$")
 FENCE = re.compile(r"^\s*(```|~~~)")
@@ -66,12 +81,33 @@ def is_ignored(path: str, cwd: str = ".") -> bool:
     )
 
 
-def candidates(raw: str) -> list[str]:
-    """Where the named path could be. A bare `utils/…` is `apps/api/src/utils/…`."""
-    out = [raw]
+def document_workspace(name: str) -> str | None:
+    """The workspace a document belongs to, so a bare `src/…` in it resolves
+    the way its author read it. A document outside every workspace (`docs/`,
+    the root `AGENTS.md`) is ambiguous — it may name either app — and returns
+    `None`."""
+    for w in WORKSPACES:
+        if name == f"{w}/AGENTS.md" or name.startswith(w + "/"):
+            return w
+    return None
+
+
+def candidates(raw: str, name: str) -> list[str]:
+    """Where the named path could be, given the document that names it.
+
+    A repository-root form (`apps/…`, `packages/…`) is itself. A bare `utils/…`
+    is the API module directory. A bare `src/…` is resolved against the
+    document's own workspace; a document outside every workspace may name
+    either app, so every workspace is tried."""
+    if raw.startswith(("apps/", "packages/")):
+        return [raw]
     if raw.startswith("utils/"):
-        out.append(os.path.join("apps/api/src", raw))
-    return out
+        return [raw, os.path.join("apps/api/src", raw)]
+    if raw.startswith("src/"):
+        ws = document_workspace(name)
+        roots = (ws,) if ws else WORKSPACES
+        return [os.path.join(root, raw) for root in roots]
+    return [raw]
 
 
 def scan_text(name: str, text: str, exists=os.path.exists, ignored=None) -> list[str]:
@@ -92,7 +128,7 @@ def scan_text(name: str, text: str, exists=os.path.exists, ignored=None) -> list
                 raw = m.group("path")
                 if not CODE_SUFFIX.search(raw):
                     continue
-                if any(exists(c) for c in candidates(raw)):
+                if any(exists(c) for c in candidates(raw, name)):
                     continue
                 if ignored(raw):
                     continue
@@ -109,35 +145,52 @@ def tracked(patterns: list[str]) -> list[str]:
 
 def self_test() -> int:
     # An existing path must pass; a deleted one must be caught; a chronological
-    # record and a fenced block must be left alone; a gitignored path must pass.
+    # record and a fenced block must be left alone; a gitignored path must pass;
+    # a bare `src/…` resolves against its document's workspace.
     tree = {
         "apps/api/src/utils/wib.ts": True,
         "apps/api/src/app.ts": True,
         "apps/web/src/lib/host-split.ts": True,
+        "apps/web/src/lib/api.ts": True,
         "apps/api/coverage/coverage-summary.json": True,
     }
     exists = lambda p: tree.get(p, False)  # noqa: E731
     ignored = {"apps/api/coverage/coverage-summary.json"}
     is_ignored_in_test = lambda p: p in ignored  # noqa: E731
 
-    def scan(text: str) -> list[str]:
-        return scan_text("t.md", text, exists=exists, ignored=is_ignored_in_test)
+    def scan(text: str, name: str = "t.md") -> list[str]:
+        return scan_text(name, text, exists=exists, ignored=is_ignored_in_test)
 
     must_flag = [
         "bulan penagihan WIB lewat `apps/api/src/utils/wib-day.ts`.",
         "the helper lives in `utils/wib-day.ts`.",
         "called from `apps/web/src/lib/gone.ts`, which no longer exists",
+        # A bare `src/…` that no workspace carries (the reported gap).
+        "the data layer is `src/lib/gone.ts`.",
     ]
     must_pass = [
         "bulan penagihan WIB lewat `apps/api/src/utils/wib.ts`.",
         "called from `apps/api/src/app.ts`.",
         "generated into `apps/api/coverage/coverage-summary.json`",
+        # A bare `src/…` in a document outside every workspace resolves against
+        # either app — the architecture document writes `src/lib/api.ts`.
+        "the data layer is a single client in `src/lib/api.ts`",
+        "the module directory `apps/api/src/utils` holds it",
         "# Riwayat Revisi\n| 1.4 | … | lewat `utils/wib-day.ts` | Agen |\n",
         "```\nlewat `apps/api/src/utils/wib-day.ts`\n```\n",
-        "the module directory `apps/api/src/utils` holds it",
+    ]
+    must_pass_scoped = [
+        # The same web path, named by the web guide, must pass …
+        ("apps/web/AGENTS.md", "the data layer is `src/lib/api.ts`."),
+    ]
+    must_flag_scoped = [
+        # … and named by the API guide (host-split is web-only) must be caught.
+        ("apps/api/AGENTS.md", "the helper is `src/lib/host-split.ts`."),
     ]
     bad = [t for t in must_flag if not scan(t)]
     bad += [t for t in must_pass if scan(t)]
+    bad += [f"{n}: {t}" for n, t in must_pass_scoped if scan(t, n)]
+    bad += [f"{n}: {t}" for n, t in must_flag_scoped if not scan(t, n)]
     for t in bad:
         print(f"self-test: wrong verdict for {t!r}")
     return 1 if bad else 0
