@@ -155,8 +155,9 @@ satunya. `Triase issue` adalah gerbang itu.
 
 Prosedur **sebelum** gerbang itu bekerja ada di skill
 [`buat-pr`](../.claude/skills/buat-pr/SKILL.md) (aturan emas 6 `AGENTS.md`):
-cari issue terbuka yang diselesaikan; bila belum ada, buka lewat formulir dan
-tunggu `Triase issue` memasang `ready`; **tolak keras membuka PR tanpa issue
+cari issue terbuka yang diselesaikan; bila belum ada, buka lewat formulir dengan
+skill [`buat-issue`](../.claude/skills/buat-issue/SKILL.md) dan tunggu
+`Triase issue` memasang `ready`; **tolak keras membuka PR tanpa issue
 `ready`** — penolakan adalah jawaban yang benar, bukan celah untuk dilewati.
 Skill itu juga memuat isian templat PR dan aturan `Fixes #<n>`.
 

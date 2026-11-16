@@ -436,6 +436,16 @@ decision.
    families side by side. The seed now has one per unit; the live data was not
    rechecked. Prefer `is_active = false` over deleting, so the audit trail
    survives.
+7. **A `blocked` issue is never re-triaged when its dependency closes**
+   (measured 2026-11-13). `stale-sweep` exempts `blocked`, and the triage bridge
+   wakes only on a person's activity or a bot's label; no workflow reacts to
+   `issues: closed`. All phase-2 issues still named the merged #974 as their
+   blocker, so #987 — which depends on nothing — sat `blocked`. Until it is
+   automated, whoever merges a PR comments "penghalang #n sudah digabung" on
+   each dependent (skills `buat-pr`, `triase-issue`). The proposed workflow
+   (on `issues: closed`, dispatch triage for open `blocked` issues whose
+   `Bergantung pada:` names the number) waits on the owner (#1023, comment of
+   2026-11-13).
 
 ## Design gaps
 

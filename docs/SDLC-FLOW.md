@@ -671,9 +671,19 @@ membuka PR tanpa issue `ready` adalah jawaban yang benar**, bukan celah untuk
 dilewati: `pr-template-guard.sh` merah sampai ada issue terbuka berlabel
 `ready` atau `in-progress` (`issue-claim.yml` memindahkan `ready` ke
 `in-progress` begitu PR dibuka), dan menautkan nomor yang ternyata PR atau issue
-tertutup tetap gagal.
+tertutup tetap gagal. PR yang hanya memuat `Refs #<n>` juga merah, karena guard
+hanya membaca kata penutup; pekerjaan bertahap dipecah menjadi issue anak, satu
+per PR.
 Prosedur lengkapnya ada di skill `buat-pr` (`.claude/skills/buat-pr/SKILL.md`),
-yang juga memuat isian templat PR dan aturan `Fixes #<n>`.
+yang juga memuat isian templat PR dan aturan `Fixes #<n>`; issue-nya dibuka
+dengan skill `buat-issue` (`.claude/skills/buat-issue/SKILL.md`).
+
+**Padanan manual automation.** Orang atau agen yang membantu di luar armada
+memakai skill `triase-issue` (`.claude/skills/triase-issue/SKILL.md`) untuk
+membantu triase dan skill `tinjau-pr` (`.claude/skills/tinjau-pr/SKILL.md`)
+untuk meninjau PR. Keduanya menghasilkan bukti dan putusan dalam satu komentar
+atau tinjauan `COMMENT`. Label tetap dipasang `cipansor-bot` lewat `Triase
+issue`, dan approval tetap milik `Gerbang tinjau PR`.
 
 ## Rantai pasok CI
 
