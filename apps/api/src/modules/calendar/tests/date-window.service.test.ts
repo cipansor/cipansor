@@ -6,7 +6,7 @@ vi.mock('@prisma/client', async (importOriginal) => {
   return { ...actual };
 });
 
-vi.mock('../../../../src/lib/prisma', () => ({
+vi.mock('@/lib/prisma', () => ({
   prisma: {
     calendarEvent: {
       findMany: vi.fn().mockResolvedValue([]),
@@ -15,8 +15,8 @@ vi.mock('../../../../src/lib/prisma', () => ({
   },
 }));
 
-import { calendarService } from '../../../../src/modules/calendar/calendar.service';
-import { prisma } from '../../../../src/lib/prisma';
+import { calendarService } from '../calendar.service';
+import { prisma } from '@/lib/prisma';
 
 const findMany = prisma.calendarEvent.findMany as unknown as ReturnType<typeof vi.fn>;
 
