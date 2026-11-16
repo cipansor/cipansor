@@ -715,6 +715,8 @@ router.get(
  *     responses:
  *       200:
  *         description: Leave request updated
+ *       409:
+ *         description: Cuti yang sudah diputuskan tidak dapat diubah; muat ulang halaman
  */
 router.put(
   '/leaves/:id',
@@ -753,6 +755,10 @@ router.put(
  *     responses:
  *       200:
  *         description: Leave request approved/rejected
+ *       400:
+ *         description: Cuti yang sudah disetujui tidak dapat diubah; batalkan terlebih dahulu
+ *       409:
+ *         description: Cuti ini sudah diputuskan oleh permintaan lain; muat ulang halaman
  */
 router.patch(
   '/leaves/:id/approve',
@@ -777,6 +783,8 @@ router.patch(
  *     responses:
  *       200:
  *         description: Leave request cancelled
+ *       409:
+ *         description: Cuti ini sudah diputuskan oleh permintaan lain; muat ulang halaman
  */
 router.patch(
   '/leaves/:id/cancel',
