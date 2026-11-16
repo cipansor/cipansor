@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter, useParams } from "next/navigation";
-import { useForm } from "react-hook-form";
+import { useForm, type SubmitHandler } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { toast } from "sonner";
@@ -113,6 +113,8 @@ function EditUnitForm({ unit }: { unit: Unit }) {
     register,
     handleSubmit,
     setValue,
+    setError,
+    clearErrors,
     watch,
     formState: { errors, isSubmitting },
   } = useForm<UnitFormData>({
@@ -130,7 +132,24 @@ function EditUnitForm({ unit }: { unit: Unit }) {
     },
   });
 
-  const onSubmit = async (data: UnitFormData) => {
+  const onSubmit: SubmitHandler<UnitFormData> = async (data, event) => {
+    // A native date input reports `value === ""` while any one of its segments
+    // is still incomplete — month and year stay visible on screen. That is
+    // indistinguishable, in the string Zod sees, from the admin clearing the
+    // whole field, so a half-typed date would be saved as `null` and wipe the
+    // stored one. The DOM flags that state with `validity.badInput`; refuse it
+    // with a field error and leave the stored date untouched.
+    const form = event?.target as HTMLFormElement | undefined;
+    const dateField = form?.elements.namedItem("operatingPermitDate");
+    if (dateField instanceof HTMLInputElement && dateField.validity.badInput) {
+      setError("operatingPermitDate", {
+        type: "validate",
+        message:
+          "Lengkapi tanggal izin operasional, atau kosongkan seluruhnya untuk menghapusnya.",
+      });
+      return;
+    }
+
     try {
       await updateUnit.mutateAsync({
         id: unitId,
@@ -359,6 +378,13 @@ function EditUnitForm({ unit }: { unit: Unit }) {
                     id="operatingPermitDate"
                     type="date"
                     {...register("operatingPermitDate")}
+                    // Drop the partial-date error as soon as the field leaves
+                    // the `badInput` state — completed, or cleared entirely.
+                    onInput={(e) => {
+                      if (!(e.target as HTMLInputElement).validity.badInput) {
+                        clearErrors("operatingPermitDate");
+                      }
+                    }}
                   />
                   {errors.operatingPermitDate && (
                     <p className="text-sm text-destructive">
