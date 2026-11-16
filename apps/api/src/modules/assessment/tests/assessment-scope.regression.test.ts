@@ -16,7 +16,7 @@ vi.mock('@/lib/redis', () => ({
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     student: { findMany: vi.fn() },
-    teacher: { findFirst: vi.fn() },
+    teacher: { findFirst: vi.fn(), findUnique: vi.fn() },
     teacherSubject: { findMany: vi.fn() },
     takhosusEnrollment: { findMany: vi.fn() },
     musyrif: { findFirst: vi.fn() },
@@ -29,6 +29,7 @@ vi.mock('@/lib/prisma', () => ({
       findMany: vi.fn(),
       count: vi.fn(),
       update: vi.fn(),
+      create: vi.fn(),
     },
     grade: { findUnique: vi.fn(), update: vi.fn() },
     reportCard: { findUnique: vi.fn(), update: vi.fn() },
@@ -73,6 +74,8 @@ beforeEach(() => {
     { id: ST, unitId: 'unit-a', enrollments: [] },
   ] as any);
   vi.mocked(prisma.teacher.findFirst).mockResolvedValue({ id: 't-1', unitId: 'unit-a' } as any);
+  vi.mocked(prisma.teacher.findUnique).mockResolvedValue({ unitId: 'unit-a' } as any);
+  vi.mocked(prisma.subject.findUnique).mockResolvedValue({ unitId: 'unit-a' } as any);
   vi.mocked(prisma.teacherSubject.findMany).mockResolvedValue([] as any);
   vi.mocked(prisma.takhosusEnrollment.findMany).mockResolvedValue([] as any);
   vi.mocked(prisma.musyrif.findFirst).mockResolvedValue(null as any);
@@ -102,6 +105,7 @@ const SUB = '55555555-5555-4555-8555-555555555555';
 const CLS = '66666666-6666-4666-8666-666666666666';
 const YR = '77777777-7777-4777-8777-777777777777';
 const GRADER = '88888888-8888-4888-8888-888888888888';
+const UNIT_A = '99999999-9999-4999-8999-999999999999';
 
 const send = (
   who: Who,
@@ -338,5 +342,39 @@ describe('R13.4, R13.6, R13.8 — the paths that are allowed, and the one that i
     });
     expect(res.status).toBe(400);
     expect(res.body?.error?.message ?? res.body?.message).toMatch(/Pilih unit/i);
+  });
+
+  it('R25.3 — a Guru creating an exam without the subject in that class is 404', async () => {
+    // Same unit, but the caller has no TeacherSubject for the subject/class —
+    // refused as if the class were not there, and nothing is written (R25.3).
+    vi.mocked(prisma.class.findUnique).mockResolvedValue({ unitId: 'unit-a' } as any);
+    const res = await send('guruSameUnit', 'post', '/assessment/exams', {
+      unitId: UNIT_A,
+      academicYearId: YR,
+      subjectId: SUB,
+      classId: CLS,
+      teacherId: GRADER,
+      type: 'DAILY_TEST',
+      title: 'Ujian baru',
+      scheduledAt: '2026-11-20T08:00:00.000Z',
+    });
+    expect(res.status).toBe(404);
+    expect(prisma.exam.create).not.toHaveBeenCalled();
+  });
+
+  it('R25.3 — a class outside the exam unit is 404 and nothing is written', async () => {
+    vi.mocked(prisma.class.findUnique).mockResolvedValue({ unitId: 'unit-b' } as any);
+    const res = await send('guruSameUnit', 'post', '/assessment/exams', {
+      unitId: UNIT_A,
+      academicYearId: YR,
+      subjectId: SUB,
+      classId: CLS,
+      teacherId: GRADER,
+      type: 'DAILY_TEST',
+      title: 'Ujian baru',
+      scheduledAt: '2026-11-20T08:00:00.000Z',
+    });
+    expect(res.status).toBe(404);
+    expect(prisma.exam.create).not.toHaveBeenCalled();
   });
 });
