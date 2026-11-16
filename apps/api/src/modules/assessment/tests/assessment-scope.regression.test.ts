@@ -31,7 +31,7 @@ vi.mock('@/lib/prisma', () => ({
       update: vi.fn(),
       create: vi.fn(),
     },
-    grade: { findUnique: vi.fn(), update: vi.fn() },
+    grade: { findUnique: vi.fn(), update: vi.fn(), create: vi.fn() },
     reportCard: { findUnique: vi.fn(), update: vi.fn() },
   },
 }));
@@ -50,6 +50,8 @@ const TOKENS = {
   // A homeroom teacher: passes `isTeacherOrAbove`, but holds only relation (d)
   // with the santri — enough for a report card, never for a grade.
   wali: { roleCode: 'SMPIT_GURU', unitId: 'unit-a' },
+  // A Pembaca_Lintas_Unit (reads every unit) that is not a Penulis_Penilaian.
+  ustadz: { roleCode: 'USTADZ', unitId: null },
   superAdmin: { roleCode: 'SUPER_ADMIN', unitId: null },
   student: { roleCode: 'SMPIT_SISWA', unitId: 'unit-a' },
 } as const;
@@ -139,6 +141,17 @@ describe('R13.5 — out-of-scope writes answer 404 like a missing id', () => {
     '%s — a Guru of the same unit with no relation is 404',
     async (_name, method, path, body) => {
       const res = await send('guruSameUnit', method, path, body);
+      expect(res.status).toBe(404);
+      expectNoWrite();
+    }
+  );
+
+  // R13.8: a Pembaca_Lintas_Unit that passes the guard but is not a
+  // Penulis_Penilaian is refused even for a record it may read.
+  it.each(WRITES)(
+    '%s — a cross-unit reader with no relation is 404 (R13.8)',
+    async (_name, method, path, body) => {
+      const res = await send('ustadz', method, path, body);
       expect(res.status).toBe(404);
       expectNoWrite();
     }
@@ -243,6 +256,54 @@ describe('R25.9 — out-of-scope creates answer 404 and change nothing', () => {
     });
     expect(res.status).toBe(404);
   });
+
+  it('an exam for a class of another unit is 404 (R25.1, R25.3)', async () => {
+    // The Guru is in unit B; the class is in unit A, so the exam has no
+    // same-unit class — 404, nothing written.
+    vi.mocked(prisma.class.findUnique).mockResolvedValue({ unitId: 'unit-a' } as any);
+    const res = await send('guruOtherUnit', 'post', '/assessment/exams', {
+      unitId: UNIT_A,
+      academicYearId: YR,
+      subjectId: SUB,
+      classId: CLS,
+      teacherId: GRADER,
+      type: 'DAILY_TEST',
+      title: 'Ujian baru',
+      scheduledAt: '2026-11-20T08:00:00.000Z',
+    });
+    expect(res.status).toBe(404);
+    expect(prisma.exam.create).not.toHaveBeenCalled();
+  });
+
+  it('a report card for a santri of another unit is 404', async () => {
+    vi.mocked(prisma.student.findMany).mockResolvedValue([] as any);
+    const res = await send('guruOtherUnit', 'post', '/assessment/report-cards', {
+      studentId: ST,
+      classId: CLS,
+      academicYearId: YR,
+      semester: 1,
+    });
+    expect(res.status).toBe(404);
+  });
+
+  it('a grade for a Wali_Kelas’s own class is 404 when it holds no relation (a)–(c)', async () => {
+    // The homeroom teacher of the santri's active class: relation (d) alone
+    // never creates a grade (R25.4).
+    vi.mocked(prisma.class.findMany).mockResolvedValue([{ id: CLS }] as any);
+    vi.mocked(prisma.student.findMany).mockResolvedValue([
+      { id: ST, unitId: 'unit-a', enrollments: [{ classId: CLS }] },
+    ] as any);
+    const res = await send('wali', 'post', '/assessment/grades', {
+      studentId: ST,
+      subjectId: SUB,
+      academicYearId: YR,
+      type: 'EXAM',
+      score: 90,
+      gradedById: GRADER,
+    });
+    expect(res.status).toBe(404);
+    expect(prisma.grade.create).not.toHaveBeenCalled();
+  });
 });
 
 describe('R25.9 — GET /assessment/exams lists only in-scope exams', () => {
@@ -260,6 +321,14 @@ describe('R25.9 — GET /assessment/exams lists only in-scope exams', () => {
     await send('guruSameUnit', 'get', '/assessment/exams');
     const where = vi.mocked(prisma.exam.findMany).mock.calls[0][0]!.where as any;
     expect(where.unitId).toBe('unit-a');
+  });
+
+  it('a cross-unit reader sees exams of every unit (R25.7)', async () => {
+    vi.mocked(prisma.exam.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.exam.count).mockResolvedValue(0 as any);
+    await send('ustadz', 'get', '/assessment/exams');
+    const where = vi.mocked(prisma.exam.findMany).mock.calls[0][0]!.where as any;
+    expect(where.unitId).toBeUndefined();
   });
 });
 
