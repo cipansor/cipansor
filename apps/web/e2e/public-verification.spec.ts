@@ -79,6 +79,50 @@ test("it asks for a fingerprint, not for who you are", async ({ page }) => {
   await expect(page.getByRole("textbox", { name: /email/i })).toHaveCount(0);
 });
 
+/**
+ * A fingerprint typed before React hydrates must not be lost.
+ *
+ * On Safari/WebKit over a slow connection the visitor can type into the input
+ * while the server HTML is interactive but the component is not yet hydrated.
+ * The input was controlled, so the text sat in the DOM while React state stayed
+ * empty: the box looked filled, the *Periksa Status Kunci* button stayed
+ * disabled, and the form could not be submitted. This holds the JS chunks back
+ * until after the fill, which is exactly the state the failure needs.
+ */
+test("a fingerprint typed before hydration is not lost", async ({ page }) => {
+  await page.route("**/api/esign/public/key-status**", async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        success: true,
+        data: { found: false, status: "UNKNOWN" },
+      }),
+    });
+  });
+
+  let releaseJs!: () => void;
+  const jsGate = new Promise<void>((resolve) => {
+    releaseJs = resolve;
+  });
+  await page.route("**/_next/static/**/*.js", async (route) => {
+    await jsGate;
+    await route.continue();
+  });
+
+  const nav = page.goto("/public/verify-key", { waitUntil: "commit" });
+  await page
+    .getByRole("textbox", { name: /sidik jari kunci/i })
+    .fill("AB:CD:EF:00");
+  releaseJs();
+  await nav.catch(() => {});
+
+  const button = page.getByRole("button", { name: /periksa status kunci/i });
+  await expect(button).toBeEnabled();
+  await button.click();
+  await expect(page.getByText(/sidik jari tidak dikenal/i)).toBeVisible();
+});
+
 test("an unknown fingerprint is reported as unknown, not as an error", async ({
   page,
 }) => {

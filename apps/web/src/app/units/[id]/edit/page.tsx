@@ -171,7 +171,11 @@ function EditUnitForm({ unit }: { unit: Unit }) {
           </div>
         </div>
 
-        <form onSubmit={handleSubmit(onSubmit)}>
+        {/* noValidate: Zod is the single source of validation (AGENTS.md rule
+            4). Without it WebKit's native date input, once cleared, latches a
+            `badInput` state that silently blocks the submit — the Save button
+            looks enabled but the click does nothing (#852). */}
+        <form onSubmit={handleSubmit(onSubmit)} noValidate>
           <div className="grid gap-6 md:grid-cols-2">
             <Card>
               <CardHeader>

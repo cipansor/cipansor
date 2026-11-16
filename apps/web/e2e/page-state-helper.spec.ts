@@ -13,21 +13,31 @@ test.describe("e2e helper: settledContent", () => {
   test("reading the DOM straight through a redirect is what breaks", async ({
     page,
   }) => {
+    // A read during a navigation either throws ("Unable to retrieve content
+    // because the page is navigating") or — WebKit and Firefox — returns the
+    // empty placeholder document instead of the real page. Either is a broken
+    // read; Chromium happened to parse by the time the loop ran, which is why
+    // this used to pass there and fail on the other two. Assert the *contract*
+    // (a read landed on a non-page) rather than the engine-specific symptom.
     const nav = page.goto("/inventory", { waitUntil: "commit" });
-    let error: unknown;
+    let sawBrokenRead = false;
     try {
-      // One of these lands mid-navigation; which one is a matter of timing,
-      // which is exactly why the specs could not do this.
-      for (let i = 0; i < 40; i += 1) await page.content();
-    } catch (caught) {
-      error = caught;
+      for (let i = 0; i < 40; i += 1) {
+        const html = await page.content();
+        if (!html || /<body[^>]*>\s*<\/body>/i.test(html)) {
+          sawBrokenRead = true;
+          break;
+        }
+      }
+    } catch {
+      sawBrokenRead = true;
     }
     await nav.catch(() => {});
 
     expect(
-      error,
-      "page.content() should fail during a navigation",
-    ).toBeDefined();
+      sawBrokenRead,
+      "a read straight through a navigation is not a usable document",
+    ).toBe(true);
   });
 
   test("settledContent reads the same moment without failing", async ({

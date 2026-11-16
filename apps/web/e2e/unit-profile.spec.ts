@@ -6,7 +6,11 @@ import {
   type AuthSession,
 } from "./helpers/auth-api";
 import { isProductionApi } from "./helpers/api-env";
-import { waitForLoadingComplete, waitForToast } from "./helpers/page-helpers";
+import {
+  waitForLoadingComplete,
+  waitForToast,
+  dismissToasts,
+} from "./helpers/page-helpers";
 import { DEMO_ACCOUNTS } from "../../../packages/shared/src/types/demo-accounts";
 import type { UnitSummary } from "../../../packages/shared/src/types/unit";
 
@@ -159,7 +163,6 @@ test("the unit's admin records the official name and operating permit, which doc
   await page.getByLabel("Tanggal Izin Operasional").fill("2019-05-02");
   await page.getByRole("button", { name: "Simpan Perubahan" }).click();
   await waitForToast(page, /Unit berhasil diperbarui/);
-
   await expect(page).toHaveURL(new RegExp(`/units/${unitId}$`));
   await expect(page.getByTestId("unit-official-name")).toHaveText(
     "SMP IT Pesantren Cipansor",
@@ -176,11 +179,21 @@ test("the unit's admin records the official name and operating permit, which doc
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(unit.name);
 
   // Cleared again from the form: an emptied field is sent as null.
+  //
+  // Two WebKit traps had to be cleared to reach the second save (#852): the
+  // success toast is anchored over the *Simpan Perubahan* button and, because
+  // the pointer is left resting on it after the click, sonner never lets it
+  // auto-dismiss — so the next click hit the toast and no submit ever fired.
+  // Dismiss it, then wait for the Edit URL before filling, or the fill lands on
+  // the previous page's detached inputs.
+  await dismissToasts(page);
   await page.getByRole("link", { name: "Edit Unit" }).click();
+  await expect(page).toHaveURL(new RegExp(`/units/${unitId}/edit$`));
   await page.getByLabel("Nomor Izin Operasional").fill("");
   await page.getByLabel("Tanggal Izin Operasional").fill("");
   await page.getByRole("button", { name: "Simpan Perubahan" }).click();
   await waitForToast(page, /Unit berhasil diperbarui/);
+  await expect(page).toHaveURL(new RegExp(`/units/${unitId}$`));
   await expect(page.getByTestId("unit-permit")).toHaveText("Belum diisi");
 });
 

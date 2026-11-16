@@ -686,8 +686,12 @@ loosely mis-attributes runs. -->
   (Ringkasan, Akademik, Keuangan, …) — one test was green for months by
   matching the "Keuangan" group instead of the page. Those using an exact name
   are safe; the regex ones are not. Sweep file by file.
-- **Firefox and WebKit fail `page-state-helper.spec.ts:33`** deterministically.
-  The matrix is `continue-on-error`, so it does not block; it is not a flake.
+- ~~**Firefox and WebKit fail `page-state-helper.spec.ts:33`** deterministically.
+  The matrix is `continue-on-error`, so it does not block; it is not a flake.~~
+  Resolved in #852: the test now asserts the *contract* (a read straight through
+  a navigation does not yield a usable document), not Chromium's particular
+  symptom (a thrown error). WebKit and Firefox return the empty placeholder
+  instead, which is the same broken read.
 
 - **`teacher-management.spec.ts` skips all 12 of its tests** ("Teachers page
   not available"): the page it looks for does not exist (HR employees is on

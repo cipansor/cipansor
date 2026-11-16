@@ -228,16 +228,18 @@ jobs:
         with:
           report-file: apps/web/test-results/results.json
 
-  # Supplementary cross-browser coverage on main. Firefox/WebKit are not the
-  # primary target and can surface engine-specific quirks, so this is reported
-  # but does not block the pipeline (flip continue-on-error off to gate on it).
+  # Supplementary cross-browser coverage on main. Firefox is not the primary
+  # target and still surfaces engine-specific flake, so it is reported but does
+  # not block. WebKit *is* a gate (#852): its failures were real, and leaving it
+  # continue-on-error is what let a permanent red job hide them — "red every
+  # run" trains people to stop reading the signal.
   e2e-cross-browser:
     name: E2E Tests (${{ matrix.browser }})
     runs-on: ubuntu-latest
     needs: scope
     if: ${{ needs.scope.outputs.run == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
     timeout-minutes: 45
-    continue-on-error: true
+    continue-on-error: ${{ matrix.browser == 'firefox' }}
     strategy:
       fail-fast: false
       matrix:
