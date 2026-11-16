@@ -29,6 +29,12 @@ import {
 // the Halaqoh's own isActive/deletedAt.
 
 const setOf = fc.subarray(['a', 'b', 'c', 'd']).map((ids) => new Set(ids));
+// The relation names themselves — the permission property must generate members
+// of `TeachingRelation`, not the santri ids `setOf` produces, or it never sees
+// a set that allows a write.
+const relationsArb = fc
+  .subarray(['SUBJECT', 'HALAQOH', 'MUSYRIF', 'HOMEROOM'] as const)
+  .map((rs) => new Set<TeachingRelation>(rs));
 const stateArb: fc.Arbitrary<TeachingState> = fc.record({
   subject: setOf,
   halaqoh: setOf,
@@ -65,8 +71,7 @@ describe('Property 10: teaching relations', () => {
   it('a grade needs (a), (b) or (c); a report card any relation', () => {
     // Feature: web-api-reconnect-phase-2, Property 10: Relasi pengajaran dan penulis ibadah
     fc.assert(
-      fc.property(setOf, (ids) => {
-        const r = new Set<TeachingRelation>([...ids] as TeachingRelation[]);
+      fc.property(relationsArb, (r) => {
         expect(mayWriteGradeVia(r)).toBe(r.has('SUBJECT') || r.has('HALAQOH') || r.has('MUSYRIF'));
         expect(mayWriteReportCardVia(r)).toBe(r.size > 0);
       }),

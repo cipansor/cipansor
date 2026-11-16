@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { activeMusyrifAssignment } from '@/modules/dormitories/boarders';
+import { activeMusyrifAssignment } from '@/modules/dormitories';
 
 /**
  * Relasi_Pengajaran — the relation between an account and a santri that lets

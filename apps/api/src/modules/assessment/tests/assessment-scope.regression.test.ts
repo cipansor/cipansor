@@ -53,6 +53,8 @@ const TOKENS = {
   // A Pembaca_Lintas_Unit (reads every unit) that is not a Penulis_Penilaian.
   ustadz: { roleCode: 'USTADZ', unitId: null },
   superAdmin: { roleCode: 'SUPER_ADMIN', unitId: null },
+  // A unit admin of unit A — a Kepala/Admin_Unit, so a Penulis_Penilaian of A.
+  adminUnitA: { roleCode: 'SMPIT_ADMIN', unitId: 'unit-a' },
   student: { roleCode: 'SMPIT_SISWA', unitId: 'unit-a' },
 } as const;
 type Who = keyof typeof TOKENS;
@@ -443,6 +445,68 @@ describe('R13.4, R13.6, R13.8 — the paths that are allowed, and the one that i
       title: 'Ujian baru',
       scheduledAt: '2026-11-20T08:00:00.000Z',
     });
+    expect(res.status).toBe(404);
+    expect(prisma.exam.create).not.toHaveBeenCalled();
+  });
+});
+
+// R25.3 — the pengampu may be a teacher of another unit. `assignTeacherToSubject`
+// accepts a cross-unit pengampu (the class must be in the subject's unit; the
+// teacher's own unit is not constrained), so `createExam` must not refuse one:
+// the authority is the caller's Penulis_Penilaian over the exam's unit, never the
+// pengampu's unit. Fails before the fix (404 "Teacher"), passes after.
+describe('R25.3 — a cross-unit pengampu does not block an exam', () => {
+  // A teacher of another unit (unit-b) assigned to teach in unit A.
+  const crossUnitTeacher = { id: GRADER, unitId: 'unit-b' };
+  const body = {
+    unitId: UNIT_A,
+    academicYearId: YR,
+    subjectId: SUB,
+    classId: CLS,
+    teacherId: GRADER,
+    type: 'DAILY_TEST',
+    title: 'Ujian lintas unit',
+    scheduledAt: '2026-11-20T08:00:00.000Z',
+  };
+
+  it('a unit admin creates it (201) when the pengampu belongs to another unit', async () => {
+    vi.mocked(prisma.class.findUnique).mockResolvedValue({ unitId: 'unit-a' } as any);
+    vi.mocked(prisma.subject.findUnique).mockResolvedValue({ unitId: 'unit-a' } as any);
+    vi.mocked(prisma.teacher.findUnique).mockResolvedValue(crossUnitTeacher as any);
+    vi.mocked(prisma.exam.create).mockResolvedValue({
+      id: EX,
+      unitId: 'unit-a',
+      teacherId: GRADER,
+    } as any);
+
+    const res = await send('adminUnitA', 'post', '/assessment/exams', body);
+
+    expect(res.status).toBe(201);
+    expect(prisma.exam.create).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ teacherId: GRADER }) })
+    );
+  });
+
+  it('a Super_Admin creates it (201) with the same cross-unit pengampu', async () => {
+    vi.mocked(prisma.unit.findUnique).mockResolvedValue({ id: UNIT_A } as any);
+    vi.mocked(prisma.class.findUnique).mockResolvedValue({ unitId: UNIT_A } as any);
+    vi.mocked(prisma.subject.findUnique).mockResolvedValue({ unitId: UNIT_A } as any);
+    vi.mocked(prisma.teacher.findUnique).mockResolvedValue(crossUnitTeacher as any);
+    vi.mocked(prisma.exam.create).mockResolvedValue({
+      id: EX,
+      unitId: UNIT_A,
+      teacherId: GRADER,
+    } as any);
+
+    const res = await send('superAdmin', 'post', '/assessment/exams', body);
+
+    expect(res.status).toBe(201);
+    expect(prisma.exam.create).toHaveBeenCalled();
+  });
+
+  it('a pengampu that does not exist is still 404', async () => {
+    vi.mocked(prisma.teacher.findUnique).mockResolvedValue(null as any);
+    const res = await send('adminUnitA', 'post', '/assessment/exams', body);
     expect(res.status).toBe(404);
     expect(prisma.exam.create).not.toHaveBeenCalled();
   });

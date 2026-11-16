@@ -157,11 +157,16 @@ export async function createExam(data: CreateExamInput, actor: WriteActor): Prom
   if (!cls || !subject || cls.unitId !== unitId || subject.unitId !== unitId) {
     throw Errors.notFound('Class');
   }
+  // The pengampu may belong to another unit: `assignTeacherToSubject` accepts a
+  // teacher of any unit as long as the class is in the subject's unit, so
+  // requiring the teacher's own unit here refused a valid cross-unit assignment.
+  // Only existence is checked; the class/subject unit and the Penulis_Penilaian
+  // rule below carry the authority.
   const teacher = await prisma.teacher.findUnique({
     where: { id: data.teacherId },
-    select: { unitId: true },
+    select: { id: true },
   });
-  if (!teacher || teacher.unitId !== unitId) throw Errors.notFound('Teacher');
+  if (!teacher) throw Errors.notFound('Teacher');
 
   const actorSubjects = await actorExamSubjects(actor);
   const allowed = isPenulisPenilaian(actor, {
