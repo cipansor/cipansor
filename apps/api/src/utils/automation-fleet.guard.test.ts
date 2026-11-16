@@ -3274,6 +3274,29 @@ describe('deploy-sdlc-agents.py', () => {
     expect(other).toContain('BAHASA — JANGAN MENGAKUI WEWENANG YANG BUKAN MILIKMU');
     expect(other).not.toMatch(/putusan akhir/i);
   });
+
+  it.skipIf(!hasPy)(
+    'resolves the CI-gate rule against the priority-ceiling correction (#1054)',
+    () => {
+      // The two rules contradicted each other: "a red check -> just
+      // REQUEST_CHANGES" told the gate to ask for a change, while the priority
+      // correction told it to fix the label itself. `Issue label sync` is not a
+      // required check (ruleset 19429529: Build/Lint/Tests/Security/E2E/PR
+      // template reminder), so its red does not block dispatch and its fix — the
+      // label write — is the gate's own. Pin both halves of the carve-out.
+      const out = newPrompt(
+        'SDLC 18',
+        `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+      );
+      // The CI paragraph names the exception rather than leaving "just
+      // REQUEST_CHANGES" as the unqualified rule.
+      expect(out).toMatch(/Pengecualian — `Issue label sync` merah/);
+      expect(out).toMatch(/bukan check wajib/);
+      // The priority paragraph states it is the single exception, so the two
+      // paragraphs agree instead of contradicting.
+      expect(out).toMatch(/Inilah pengecualian tunggal pada aturan GERBANG CI/);
+    }
+  );
 });
 
 // The EXTRACT mode archives the fleet source that only lives in the automation
@@ -3387,6 +3410,55 @@ describe('issue-triage-bridge.sh', () => {
       { GH_STUB_ISSUE_LABELS: 'bug+priority:high' },
       ['--stdin'],
       labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  // #1054: `Gerbang tinjau PR` (SDLC 18) corrects an issue's priority when a
+  // PR's priority exceeds the ceiling, then records the correction under
+  // `triage-gate-<n>`. That label write is a bot's, so without reading the
+  // record the `labeled` path would wake the triage owner to re-judge a priority
+  // the gate already decided with evidence.
+  it("does not dispatch triage when the label matches the gate's correction (#1054)", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:critical',
+        KV_SEED: { 'triage-gate-818': { state: 'bug+priority:critical', at: now } },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:critical')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain("carries the gate's correction");
+    // The state is adopted so the next sweep does not read it as a change either.
+    expect(kv['triage-state-818']).toMatchObject({ state: 'bug+priority:critical' });
+  });
+
+  it("dispatches on a later label that differs from the gate's correction (#1054)", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { calls } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        KV_SEED: { 'triage-gate-818': { state: 'bug+priority:critical', at: now } },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('ignores a stale gate correction, dispatching the fresh label (#1054)', () => {
+    // A record older than BURST_WINDOW is not the correction answering this
+    // label: a genuine later change is a fresh response and dispatches.
+    const old = Math.floor(Date.now() / 1000) - 100000;
+    const { calls } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:critical',
+        KV_SEED: { 'triage-gate-818': { state: 'bug+priority:critical', at: old } },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:critical')
     );
     expect(calls).toContain('DISPATCH');
   });

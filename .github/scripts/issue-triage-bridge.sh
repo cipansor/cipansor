@@ -8,7 +8,12 @@
 # dispatched deterministically by this bridge:
 #
 #   --stdin   a bot applies a type or priority label — the labeler responded, so
-#             the triage owner studies the issue and the bot's comment
+#             the triage owner studies the issue and the bot's comment. The
+#             exception is the review gate's own correction (#1054): when the
+#             gate raises an issue's priority because a PR's priority exceeded
+#             the ceiling, it records the result under `triage-gate-<n>` and the
+#             label path adopts it without dispatching — a second agent must not
+#             re-judge a priority the gate already decided with evidence.
 #   --relabel <n>
 #             `label-guard` removed a protected label a person applied and
 #             applied nothing in its place, leaving the issue with no type or no
@@ -184,6 +189,17 @@ ACTIVITY_KEY="triage-activity-"
 # the burst window — different responses — so sharing the key would let the
 # relabel's burst collapse the conflict and the wrong type would survive.
 CONFLICT_KEY="triage-conflict-"
+# The gate-correction key (`Gerbang tinjau PR`, SDLC 18, #1054). The gate may
+# raise an issue's priority when a PR's priority exceeds the ceiling (the
+# highest priority of the issues it closes). That label write is a bot's, so
+# without this the `labeled` path would dispatch the triage owner — a second
+# agent woken to re-judge a priority the gate already decided with evidence. The
+# gate records its correction here (`{state: "<type+priority>", at}`); the
+# `labeled` path reads it first and, when the issue's state matches the record
+# and the record is within BURST_WINDOW, adopts the state into `triage-state-<n>`
+# and does NOT dispatch. A later, different label is a fresh response and
+# dispatches as usual.
+GATE_KEY="triage-gate-"
 # The marker prefix the bridge used before it moved to the KV store. It is read
 # once, to adopt an existing checkpoint, and then deleted; nothing writes it any
 # more. `--purge-markers` clears the ones on issues the sweep no longer visits
@@ -1007,6 +1023,27 @@ on_label() { # on_label <event-json>
   cur_state=$(issue_state "$number")
   state=""
   prev_state=""; prev_at=0
+  # The gate's own correction (#1054). `Gerbang tinjau PR` (SDLC 18) may raise an
+  # issue's priority when a PR's priority exceeds the ceiling; it records the
+  # resulting state under GATE_KEY. That label write is a bot's, so without this
+  # the `labeled` path would wake the triage owner to re-judge a priority the
+  # gate already decided with evidence. When the issue's current state matches
+  # the recorded one and the record is within BURST_WINDOW, adopt the state into
+  # `triage-state-<n>` (so the next sweep does not read it as a change either)
+  # and stop. Read before the burst collapse so the adoption happens on the same
+  # pass. A record whose state differs is a stale correction: the label that
+  # landed is a fresh response and dispatches below.
+  if [ -n "$cur_state" ] && kv_get "$GATE_KEY$number"; then
+    gate_state=$(printf '%s' "$KV_JSON" | jq -r '.state // ""' 2>/dev/null) || gate_state=""
+    gate_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || gate_at=0
+    case "$gate_at" in '' | *[!0-9]*) gate_at=0 ;; esac
+    if [ -n "$gate_state" ] && [ "$gate_state" = "$cur_state" ] \
+       && [ "$(( $(date -u +%s) - gate_at ))" -lt "$BURST_WINDOW" ]; then
+      echo "#$number carries the gate's correction to '$cur_state'; triage is not re-dispatched."
+      kv_put "$STATE_KEY$number" "$(jq -nc --arg s "$cur_state" '{state: $s, at: (now|floor)}')" || true
+      exit 0
+    fi
+  fi
   if [ -n "$cur_state" ]; then
     state=$(jq -nc --arg s "$cur_state" '{state: $s, at: (now|floor)}')
     if kv_get "$STATE_KEY$number"; then

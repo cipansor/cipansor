@@ -381,8 +381,11 @@ describe('issue-label-sync.sh', () => {
     expect(calls).toContain('conclusion=failure');
   });
 
-  it('corrects a stale priority with a single edit', () => {
-    const { calls } = run(
+  it('leaves a PR below the priority ceiling alone (#1054)', () => {
+    // Owner decision P4: the sync sets the priority only when the PR has none.
+    // A PR already at or below the ceiling is left exactly as it is — it is not
+    // the sync's job to raise it, and no edit is made.
+    const { status, calls } = run(
       SYNC,
       {
         GH_STUB_CLOSING: '3',
@@ -391,19 +394,83 @@ describe('issue-label-sync.sh', () => {
       },
       ['7']
     );
+    expect(status).toBe(0);
+    expect(calls).not.toContain('EDIT');
+  });
+
+  it('sets the ceiling when the PR carries no priority (#1054)', () => {
+    const { status, calls } = run(
+      SYNC,
+      {
+        GH_STUB_CLOSING: '3',
+        GH_STUB_PR_LABELS: 'bug',
+        GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
+      },
+      ['7']
+    );
+    expect(status).toBe(0);
     const edits = calls.split('\n').filter((l) => l.startsWith('EDIT'));
     expect(edits).toHaveLength(1);
     expect(edits[0]).toContain('--add-label priority:high');
-    expect(edits[0]).toContain('--remove-label priority:low');
   });
 
-  it('fails a fork PR whose labels differ, naming what a maintainer must apply', () => {
+  it('passes a cross-priority PR and leaves one priority label = ceiling (#1054)', () => {
+    // The bug this fixes: PR #1033 closed a `high` and a `medium` issue. The
+    // ceiling is `high`; the PR already carries it, so the check is green and
+    // the PR keeps exactly one priority label.
+    const { status, out, calls } = run(
+      SYNC,
+      {
+        GH_STUB_CLOSING: '3\n4',
+        GH_STUB_PR_LABELS: 'bug\npriority:high',
+        GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
+        GH_STUB_ISSUE_LABELS_4: 'bug\npriority:medium',
+      },
+      ['7']
+    );
+    expect(status).toBe(0);
+    expect(out).toContain('in sync');
+    expect(calls).not.toContain('EDIT');
+  });
+
+  it('fails a PR above the ceiling, naming the ceiling (#1054)', () => {
+    // Above the ceiling is the signal the review gate (SDLC 18) corrects; the
+    // check must never be green above a wrong label (docs/LABELS.md).
+    const { status, out, calls } = run(
+      SYNC,
+      {
+        GH_STUB_CLOSING: '3',
+        GH_STUB_PR_LABELS: 'bug\npriority:critical',
+        GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
+      },
+      ['7']
+    );
+    expect(status).toBe(1);
+    expect(out).toContain('above the priority ceiling');
+    expect(calls).not.toContain('EDIT');
+  });
+
+  it('fails a PR that carries two priority labels (#1054)', () => {
+    const { status, out } = run(
+      SYNC,
+      {
+        GH_STUB_CLOSING: '3',
+        GH_STUB_PR_LABELS: 'bug\npriority:high\npriority:medium',
+        GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
+      },
+      ['7']
+    );
+    expect(status).toBe(1);
+    expect(out).toContain('more than one priority');
+  });
+
+  it('fails a fork PR that is missing a shared label, naming what a maintainer must apply', () => {
     const { status, out, calls } = run(
       SYNC,
       {
         READ_ONLY: '1',
         GH_STUB_CLOSING: '3',
-        GH_STUB_PR_LABELS: 'bug\npriority:low',
+        GH_STUB_PR_LABELS: 'bug',
         GH_STUB_ISSUE_LABELS_3: 'bug\npriority:high',
       },
       ['7']
