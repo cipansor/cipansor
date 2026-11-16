@@ -14,7 +14,7 @@ import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import * as notificationService from '@/modules/notifications/notifications.service';
 import { notificationService as channelService } from '@/modules/notifications/email-sms.service';
-import { wibMonthYear, utcMonthRange } from '@/utils/wib-day';
+import { wibMonthYear, utcMonthRange } from '@/utils/wib';
 
 const formatter = new Intl.NumberFormat('id-ID', {
   style: 'currency',

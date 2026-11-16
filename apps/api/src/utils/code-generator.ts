@@ -1,5 +1,5 @@
 import { prisma, type Db } from '@/lib/prisma';
-import { wibMonthYear } from '@/utils/wib-day';
+import { wibMonthYear } from '@/utils/wib';
 
 export const generateUniqueCode = async (
   prefix: string,

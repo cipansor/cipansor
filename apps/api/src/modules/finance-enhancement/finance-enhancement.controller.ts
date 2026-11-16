@@ -1,5 +1,5 @@
 import { requireUser } from '../../middleware/auth';
-import { wibDayBound } from '../../utils/wib-day';
+import { wibDayBound } from '../../utils/wib';
 import { Request, Response, NextFunction } from 'express';
 import { financeEnhancementService } from './finance-enhancement.service';
 import {

@@ -19,7 +19,7 @@ import {
   createAdmissionWaveSchema,
 } from '../../../../packages/shared/src/schemas/admissions';
 import { admissionWindows } from '../../src/lib/academic-calendar';
-import { calendarDate, dayOf, wibDayEnd, wibDayStart } from '../../src/utils/wib-day';
+import { calendarDate, calendarDayOf, wibDayEnd, wibDayStart } from '../../src/utils/wib';
 import { statusByDates } from './spmb-2027-2028';
 import {
   BROCHURE_INTAKES,
@@ -52,12 +52,12 @@ function shift(day: string, days: number): string {
  */
 function demoWaves(unit: BrochureUnit, quotas: [number, number], now: Date) {
   return admissionWindows(now).map((win, i) => {
-    const closes = dayOf(win.endDate)!;
+    const closes = calendarDayOf(win.endDate)!;
     const discount = BROCHURE_WAVES[i].fullPaymentDiscount;
     return {
       waveNumber: i + 1,
       name: `Gelombang ${i + 1}`,
-      startDate: dayOf(win.startDate)!,
+      startDate: calendarDayOf(win.startDate)!,
       endDate: closes,
       quota: quotas[i],
       testStartDate: closes,

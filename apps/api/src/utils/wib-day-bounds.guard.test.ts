@@ -9,7 +9,7 @@ import { join, relative, resolve } from 'path';
  * on the UTC container, midnight UTC, which is the day before WIB between
  * 00:00 and 06:59 WIB. The dashboard reads `Attendance.date` (`@db.Date`,
  * filled with the WIB day) and `TahfidzRecord.recordedAt` (`DateTime`), so its
- * bounds come from `utils/wib.ts` / `utils/wib-day.ts`. The analytics module
+ * bounds come from `utils/wib.ts`. The analytics module
  * builds the same "hari ini" bounds (`getDashboardStats`) and labels the parent
  * activity chart by day (`getParentEngagement`), so it is pinned too (#978).
  *

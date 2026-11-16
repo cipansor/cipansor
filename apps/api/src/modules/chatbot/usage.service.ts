@@ -18,39 +18,7 @@ import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import { config } from '@/config';
 import type { LlmUsage } from './providers/types';
-
-/**
- * WIB itu UTC+7 tetap, tanpa DST — jadi tidak ada perpustakaan zona waktu di
- * sini, hanya satu pergeseran yang benar sepanjang tahun.
- */
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-
-/**
- * Hari kalender WIB dari sebuah saat, sebagai `Date` tengah malam UTC.
- *
- * Kolomnya `@db.Date`, dan Prisma membaca bagian tanggalnya dalam UTC. Kalau
- * `new Date()` dipakai apa adanya, setiap pertanyaan antara pukul 00:00 dan
- * 07:00 WIB akan tercatat pada tanggal kemarin — tepat pada jam ketika
- * penyalahgunaan otomatis paling mungkin berjalan, dan laporan bulanannya akan
- * memotong bulan di tempat yang salah.
- */
-export function wibDay(now: Date): Date {
-  const shifted = new Date(now.getTime() + WIB_OFFSET_MS);
-  return new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), shifted.getUTCDate()));
-}
-
-/** Tanggal pertama bulan WIB yang memuat `now`, dalam bentuk yang sama. */
-export function wibMonthStart(now: Date): Date {
-  const shifted = new Date(now.getTime() + WIB_OFFSET_MS);
-  return new Date(Date.UTC(shifted.getUTCFullYear(), shifted.getUTCMonth(), 1));
-}
-
-/** `2026-09` — kunci bulan yang dipakai penanda "sudah pernah diberitahukan". */
-export function wibMonthKey(now: Date): string {
-  const shifted = new Date(now.getTime() + WIB_OFFSET_MS);
-  const month = String(shifted.getUTCMonth() + 1).padStart(2, '0');
-  return `${shifted.getUTCFullYear()}-${month}`;
-}
+import { wibDay, wibMonthStart, wibMonthKey } from '@/utils/wib';
 
 export interface RecordUsageInput {
   /** Model yang menjawab, seperti dikembalikan penyedia. */

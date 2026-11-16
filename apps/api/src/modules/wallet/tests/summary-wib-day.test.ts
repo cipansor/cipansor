@@ -17,8 +17,8 @@ vi.mock('../../finance/accounting-config.service', () => ({
 }));
 
 import { prisma } from '@/lib/prisma';
-import { todayWib } from '@/utils/wib';
-import { wibDayStart } from '@/utils/wib-day';
+import { todayWib, wibDayStart } from '@/utils/wib';
+
 import { walletService } from '../wallet.service';
 
 const mocked = prisma as any;

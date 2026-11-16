@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
-// The "ujian mendatang" window is a WIB day window (utils/wib-day.ts). The
+// The "ujian mendatang" window is a WIB day window (utils/wib.ts). The
 // container runs UTC, so a UTC-midnight lower bound was still yesterday for
 // the first seven hours of a WIB day — an exam held yesterday stayed listed as
 // upcoming until 07:00 WIB. These tests freeze the clock inside that window

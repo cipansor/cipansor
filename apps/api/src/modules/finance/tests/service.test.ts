@@ -48,7 +48,7 @@ import * as financeService from '../finance.service';
 import * as notificationService from '../../notifications/notifications.service';
 
 import { eventBus } from '@/lib/event-bus';
-import { dayDate, wibDayOf } from '@/utils/wib-day';
+import { dayDate, wibDayOf } from '@/utils/wib';
 
 vi.mock('../../notifications/notifications.service', () => ({
   createNotification: vi.fn(),

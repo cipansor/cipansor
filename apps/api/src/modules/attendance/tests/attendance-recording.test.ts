@@ -31,7 +31,7 @@ import { prisma } from '@/lib/prisma';
 import { AttendanceStatus } from '@cipansor/shared';
 import { attendanceService } from '../attendance.service';
 import { tellAbsences } from '../attendance.notice';
-import { todayWib } from '../attendance.access';
+import { todayWib } from '@/utils/wib';
 
 type Mocked = Record<string, Record<string, ReturnType<typeof vi.fn>>>;
 const db = prisma as unknown as Mocked;

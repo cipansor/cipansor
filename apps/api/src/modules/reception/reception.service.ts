@@ -11,8 +11,8 @@ import {
   StudentPackage,
 } from '@cipansor/shared';
 import { Errors } from '../../middleware/error';
-import { todayWib } from '../../utils/wib';
-import { wibDayStart, wibDayEnd } from '../../utils/wib-day';
+import { todayWib, wibDayStart, wibDayEnd } from '../../utils/wib';
+
 import { assertStudentInUnit, type ScopeActor } from '../../utils/student-scope';
 import { actorReachesUnit } from '../../utils/resolve-unit-id';
 // DB enums are the source of truth from Prisma, not the shared package.

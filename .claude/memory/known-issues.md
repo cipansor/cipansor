@@ -103,7 +103,7 @@ workers refused on a closed day. Still open:
 - **An invoice enters the arrears list at 07.00 WIB on its due date, not after
   the day ends** (found 2026-11-11 reviewing the #825 docs; tracked in #1050).
   `Invoice.dueDate` is a date-only `DateTime` at midnight UTC (`dayDate()` in
-  `utils/wib-day.ts`) — which is 07:00 WIB. Readers that compare it to
+  `utils/wib.ts`) — which is 07:00 WIB. Readers that compare it to
   `new Date()` therefore call the invoice overdue from 07:00 WIB on the due
   date: `getStudentOutstandingBalances` (`finance.service.ts`, `dueDate: { lt:
   new Date() }`, feeds the *Tunggakan* tab), `getSppMatrix`, `dashboard.service.ts`,
