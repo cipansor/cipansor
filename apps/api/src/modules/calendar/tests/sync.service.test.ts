@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { getAcademicEvents } from '../../../../src/modules/calendar/sync.service';
+import { getAcademicEvents } from '../sync.service';
 import { prisma } from '@/lib/prisma';
 
 // Mock Prisma
