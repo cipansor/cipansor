@@ -16,10 +16,10 @@ describe('foundation analytics - getExecutiveSummary', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('includes the active admissions pipeline count and student growth', async () => {
-    // Order of awaits: students(total), teachers, staff, units, registrants, studentsLastMonth.
+    // Order of awaits: students(total), teachers, staff, units, registrants, studentsBeforeThisMonth.
     vi.mocked(prisma.student.count)
       .mockResolvedValueOnce(120) // total active students
-      .mockResolvedValueOnce(100); // students a month ago
+      .mockResolvedValueOnce(100); // active students at the start of this month
     vi.mocked(prisma.userRoleAssignment.count)
       .mockResolvedValueOnce(40) // teachers
       .mockResolvedValueOnce(15); // staff
