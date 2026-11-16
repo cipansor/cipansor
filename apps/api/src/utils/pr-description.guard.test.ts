@@ -951,3 +951,63 @@ describe('buat-pr — a pull request starts from a ready issue', () => {
     expect(SDLC).toMatch(/PR lahir dari issue `ready`/);
   });
 });
+
+/**
+ * The four skills an agent loads around an issue and a pull request —
+ * `buat-issue`, `triase-issue`, `buat-pr`, `tinjau-pr` — describe one flow, so
+ * they must say the same thing about it. Each opens with the same flow line
+ * (a copy that drifts in one skill is the disharmony this guards against), the
+ * two entry skills point at each other, and the two helper skills never take a
+ * decision that belongs to `cipansor-bot` (labels) or to the review gate
+ * (approval). The rules themselves live in `docs/LABELS.md` and the guards; the
+ * skills are the procedure, so only the parts that keep them in step are pinned.
+ */
+describe('issue and PR skills — one flow, four skills that agree', () => {
+  const ROOT = resolve(__dirname, '..', '..', '..', '..');
+  const skill = (name: string) =>
+    readFileSync(join(ROOT, '.claude', 'skills', name, 'SKILL.md'), 'utf8');
+  const NAMES = ['buat-issue', 'triase-issue', 'buat-pr', 'tinjau-pr'];
+  const FLOW =
+    '**Alur kerja issue dan PR di repo ini:** `buat-issue` → triase (`Triase issue`; ' +
+    'dibantu skill `triase-issue`) → `ready` → `buat-pr` → tinjauan (`Gerbang tinjau PR`; ' +
+    'dibantu skill `tinjau-pr`) → merge oleh pemilik.';
+
+  it.each(NAMES)('%s names itself in its frontmatter and states the shared flow', (name) => {
+    const s = skill(name);
+    expect(s.startsWith('---\n')).toBe(true);
+    expect(s).toMatch(new RegExp(`\\nname: ${name}\\n`));
+    expect(s).toMatch(/\ndescription: .*\bUse when\b/);
+    expect(s, `${name} carries the shared flow line verbatim`).toContain(FLOW);
+  });
+
+  it('buat-issue routes through the forms and leaves every other label to the bot', () => {
+    const s = skill('buat-issue');
+    expect(s).toMatch(/description:.*buat issue/i);
+    expect(s).toContain('.github/ISSUE_TEMPLATE/');
+    expect(s).toContain('`bug`, `enhancement`, `documentation`, `refactor`, `chore`, `security`');
+    expect(s).toMatch(/tetap milik `cipansor-bot`/);
+    // A vulnerability is never a public issue. (A regex, not a quoted file
+    // name: change-scope.guard.test.ts treats a quoted `.md` a test names as a
+    // file the test reads, and the security policy is not read here.)
+    expect(s).toMatch(/SECURITY\.md/);
+    expect(s).toContain('Bergantung pada:');
+    expect(s).toContain('`buat-pr`');
+  });
+
+  it('buat-pr hands a missing issue to buat-issue', () => {
+    expect(skill('buat-pr')).toContain('.claude/skills/buat-issue/SKILL.md');
+  });
+
+  it('both entry skills say a pull request that only Refs an issue cannot pass', () => {
+    // `pr-template-guard.sh` links only closing keywords; `Refs #n` is a
+    // mention, so staged work is split into child issues, one per PR.
+    for (const name of ['buat-issue', 'buat-pr']) {
+      expect(skill(name), name).toMatch(/hanya `Refs` selalu\s+merah/);
+    }
+  });
+
+  it('the helper skills never take the bot’s or the gate’s decision', () => {
+    expect(skill('triase-issue')).toMatch(/Jangan memasang atau mencabut label apa pun/);
+    expect(skill('tinjau-pr')).toMatch(/Jangan pernah `APPROVE`/);
+  });
+});

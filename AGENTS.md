@@ -58,9 +58,10 @@ monorepo**:
    issue it resolves — `Fixes #n` once per issue (GitHub closes them only when
    the PR merges into `main`), `Refs #n` for one it only advances, with a
    comment there saying what remains — and copies the issue's acceptance
-   criteria as checkboxes. The `buat-pr` skill is the checklist; the `PR
-   description` check is the enforcement (it fails a PR whose linked number is
-   not an open issue carrying `ready` or `in-progress` — `issue-claim.yml` moves
+   criteria as checkboxes. The `buat-issue` and `buat-pr` skills are the
+   checklists; the `PR description` check is the enforcement (it fails a PR
+   whose linked number is not an open issue carrying `ready` or `in-progress` —
+   `issue-claim.yml` moves
    the issue to `in-progress` the moment the PR opens — is a PR, or is missing
    any section — `pr-template-guard.sh`, #772; only Dependabot is exempt). Before opening a
    PR, search the open issues for the files and terms it touches; an issue a
@@ -287,7 +288,10 @@ task.
 | Skill | Use when |
 |---|---|
 | [`gate`](.claude/skills/gate/SKILL.md) | before every push: the full local quality gate |
-| [`buat-pr`](.claude/skills/buat-pr/SKILL.md) | asked to open a pull request: find or open the `ready` issue first, then fill the PR template |
+| [`buat-issue`](.claude/skills/buat-issue/SKILL.md) | asked to open or report an issue: advisory or issue, duplicate search, the form that sets the type, a body triage can mark `ready`; only the form's type label |
+| [`buat-pr`](.claude/skills/buat-pr/SKILL.md) | asked to open a pull request: find or open the `ready` issue first (`buat-issue`), one type per PR, never `Refs` alone, local proof, then the PR template and draft → ready |
+| [`triase-issue`](.claude/skills/triase-issue/SKILL.md) | helping triage issues (not the `Triase issue` automation): premise checked against `main`, the real state of each dependency, priority with evidence, one comment with the ask — never a label |
+| [`tinjau-pr`](.claude/skills/tinjau-pr/SKILL.md) | reviewing a pull request (not the review gate): needed and proportionate, issue and template, claims checked against the code, tests that can fail, release risks — a verdict, never an approval |
 | [`stack`](.claude/skills/stack/SKILL.md) | the app must run locally: Postgres + Redis + API + web |
 | [`screenshot-roles`](.claude/skills/screenshot-roles/SKILL.md) | before/after screenshots, per-role visual QA |
 | [`sync-records`](.claude/skills/sync-records/SKILL.md) | end of a work session or before compaction: update memory, roadmap, guides |

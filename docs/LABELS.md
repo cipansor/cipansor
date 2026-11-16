@@ -420,3 +420,10 @@ matches either the Indonesian name or the old English one, so a body written
 before the rename still passes. Fenced code counts as section content, so a
 `## Cara menguji` that is only a block of commands is complete; it is left out
 of the language check. See `docs/IDEAS.md` § 6.
+
+The procedures that apply these rules by hand live in four skills, so a person
+or an agent outside the fleet follows the same steps: `buat-issue` (opening an
+issue through the right form), `buat-pr` (opening a pull request from a `ready`
+issue), `triase-issue` (helping triage without applying labels) and `tinjau-pr`
+(reviewing without approving), all under `.claude/skills/`. This file stays the
+source of the rules; the skills point here rather than restating them.
