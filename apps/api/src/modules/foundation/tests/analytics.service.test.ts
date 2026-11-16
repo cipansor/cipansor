@@ -109,12 +109,14 @@ describe('getFinancialOverview trend and rollover', () => {
   });
 });
 
-// The executive summary's student growth counted "students last month" with
-// `new Date(); setMonth(getMonth() - 1)`. `setMonth` keeps the day-of-month and
-// JS rolls the overflow forward, so on the 29th–31st the baseline landed in the
-// *current* month (31 March → 3 March): students created this month were counted
-// as already there and the growth shrank or went negative. The baseline is the
-// start of the previous WIB calendar month, which also rolls the year correctly.
+// The executive summary's student growth compares the active total now against
+// the active total at the start of the current WIB calendar month. It used to
+// count "students last month" with `new Date(); setMonth(getMonth() - 1)`, whose
+// overflow landed the baseline in the *current* month on the 29th–31st (31 March
+// → 3 March). It then based the baseline a whole month back, so `total - baseline`
+// spanned TWO months: a month that added nobody still read positive because last
+// month's additions were counted (#930 review). The baseline is the start of the
+// current WIB month, which also rolls the year correctly.
 const growthBaseline = () => {
   const calls = vi.mocked(prisma.student.count).mock.calls as Array<
     [{ where: { createdAt?: { lt: Date } } }]
@@ -127,24 +129,24 @@ describe('getExecutiveSummary student growth baseline', () => {
     vi.useRealTimers();
   });
 
-  it('is the start of the previous WIB month on the 31st, not a day in this one', async () => {
+  it('is the start of the current WIB month on the 31st, not a day in this one', async () => {
     vi.useFakeTimers();
     // 31 March 2026 09:00 WIB (02:00Z) — the issue's reproduction instant.
     vi.setSystemTime(new Date('2026-03-31T02:00:00.000Z'));
 
     await getExecutiveSummary();
 
-    expect(growthBaseline()?.toISOString()).toBe('2026-01-31T17:00:00.000Z');
+    expect(growthBaseline()?.toISOString()).toBe('2026-02-28T17:00:00.000Z');
   });
 
-  it('rolls over the year boundary in WIB (31 January → start of December)', async () => {
+  it('rolls over the year boundary in WIB (1 January → start of January)', async () => {
     vi.useFakeTimers();
     // 31 January 2026 09:00 WIB (02:00Z).
     vi.setSystemTime(new Date('2026-01-31T02:00:00.000Z'));
 
     await getExecutiveSummary();
 
-    expect(growthBaseline()?.toISOString()).toBe('2025-11-30T17:00:00.000Z');
+    expect(growthBaseline()?.toISOString()).toBe('2025-12-31T17:00:00.000Z');
   });
 
   it('uses the WIB month in the first hours of the 1st, not the previous UTC month', async () => {
@@ -154,6 +156,30 @@ describe('getExecutiveSummary student growth baseline', () => {
 
     await getExecutiveSummary();
 
-    expect(growthBaseline()?.toISOString()).toBe('2026-02-28T17:00:00.000Z');
+    expect(growthBaseline()?.toISOString()).toBe('2026-03-31T17:00:00.000Z');
+  });
+
+  it('reads 0% for a month that added nobody, not last month’s additions', async () => {
+    // The reviewer's case (#930 review): students joined last month, none this
+    // month. A baseline one month back counts only those who were there BEFORE
+    // last month (1 of the 3), so `total - baseline` read +200% — last month's
+    // additions leaked in. With the baseline at the start of THIS month the count
+    // is the whole 3 and the growth is 0%. The mock counts real createdAt
+    // instants, so it discriminates the two baselines rather than restating one.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-15T02:00:00.000Z')); // 15 March 2026 WIB
+    const createdAt = [
+      new Date('2025-06-01T00:00:00.000Z'), // long before last month
+      new Date('2026-02-10T00:00:00.000Z'), // last month
+      new Date('2026-02-20T00:00:00.000Z'), // last month
+    ];
+    vi.mocked(prisma.student.count).mockImplementation((async (args: never) => {
+      const lt = (args as { where?: { createdAt?: { lt: Date } } })?.where?.createdAt?.lt;
+      return lt ? createdAt.filter((d) => d < lt).length : createdAt.length;
+    }) as never);
+
+    const summary = await getExecutiveSummary();
+
+    expect(summary.growth.students).toBe(0);
   });
 });

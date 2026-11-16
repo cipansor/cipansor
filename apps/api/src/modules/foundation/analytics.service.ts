@@ -50,27 +50,33 @@ export async function getExecutiveSummary(): Promise<FoundationExecutiveSummary>
     },
   });
 
-  // Calculate growth based on students created in the last month
+  // Calculate this month's growth: the active total now against the active total
+  // at the start of the current WIB calendar month. The baseline is the start of
+  // the CURRENT month, not the previous one (#930 review): a baseline one month
+  // back makes `total - baseline` span two months — students added last month
+  // AND this month — so a month that added nobody still read positive because
+  // last month's additions were counted. The window is one calendar month, so
+  // "no one added this month" reads 0%.
+  //
+  // The month is a WIB calendar month, not the server clock: the container runs
+  // UTC, so the boundary must be shifted, and `setMonth(-1)` kept the
+  // day-of-month and rolled the overflow forward (on the 29th–31st the baseline
+  // landed in the same month).
   const now = new Date();
-  // The baseline is the start of the previous WIB calendar month, not
-  // `setMonth(-1)` on the server clock: `setMonth` keeps the day-of-month and
-  // JS rolls the overflow forward, so on the 29th–31st the baseline landed in
-  // the *current* month (31 March → 3 March) and students created this month
-  // were counted as already there. The container also runs UTC, so a WIB
-  // boundary is needed for the month and the year to roll correctly.
   const { year, month } = wibMonthYear(now);
-  const prevMonth = month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 };
-  const { start: startOfLastMonth } = wibMonthRange(prevMonth.year, prevMonth.month);
+  const { start: startOfMonth } = wibMonthRange(year, month);
 
-  const studentsLastMonth = await prisma.student.count({
+  const studentsBeforeThisMonth = await prisma.student.count({
     where: {
       status: STUDENT_STATUS.ACTIVE,
-      createdAt: { lt: startOfLastMonth },
+      createdAt: { lt: startOfMonth },
     },
   });
 
   const growth =
-    studentsLastMonth > 0 ? ((totalStudents - studentsLastMonth) / studentsLastMonth) * 100 : 0;
+    studentsBeforeThisMonth > 0
+      ? ((totalStudents - studentsBeforeThisMonth) / studentsBeforeThisMonth) * 100
+      : 0;
 
   return {
     totalStudents,
