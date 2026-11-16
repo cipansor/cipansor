@@ -132,6 +132,22 @@ templat PR yang terikat ke sistem label, bukan prosa bebas:
   Judul bagian diganti ke Bahasa Indonesia pada 2026-11-10 (#982); guard
   menerima nama Indonesia maupun nama Inggris lama.
 
+Mockup keempat templat itu disimpan di `docs/screens/templates-preview/` agar
+bentuknya tidak hilang saat templat berubah lagi (dari #982/#983):
+
+<details>
+<summary>Lihat mockup keempat templat</summary>
+
+![Memilih jenis issue](screens/templates-preview/01-pilih-jenis-issue.png)
+
+![Formulir bug](screens/templates-preview/02-formulir-bug.png)
+
+![Formulir fitur](screens/templates-preview/03-formulir-fitur.png)
+
+![Templat PR](screens/templates-preview/04-templat-pr.png)
+
+</details>
+
 Tautan yang menjaganya jujur (polanya dari OpenHands upstream, yang memakai
 label `ready-for-dev`; di repo ini `ready`): **sebuah issue
 hanya mendapat `ready` saat kriteria penerimaannya nyata**, dan PR harus menunjuk ke salah
