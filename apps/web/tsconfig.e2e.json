@@ -11,8 +11,9 @@
   "extends": "./tsconfig.json",
   "compilerOptions": {
     "noEmit": true,
-    // TS 6.0 no longer auto-includes @types/* packages; the Playwright specs
-    // and config use Node globals (process, Buffer, path, __dirname).
+    // TS 6.0 and later (including the TS 7 compiler) no longer auto-include
+    // @types/* packages; the Playwright specs and config use Node globals
+    // (process, Buffer, path, __dirname).
     "types": ["node"]
   },
   "include": ["e2e/**/*.ts", "playwright.config.ts"],
