@@ -15,6 +15,15 @@ the bug being fixed. Count the thing that ties the two together:
 `<main\b[^>]*\bid="main-content"` exactly once, plus the invariant that every
 `<main>` under `src/` carries the id.
 
+## A regex over a format something else parses
+
+The guard for the issue/PR skills matched each `SKILL.md` frontmatter with
+regexes (`name: …`, `description:.*Use when`) and stayed green while the
+`tinjau-pr` description read "never merge: only …": a plain YAML scalar may
+not contain `: `, so the skill loader could not parse it and the skill never
+loaded (PR #1119). When a file is consumed by a parser, the guard parses it
+with the same kind of parser (`yaml`'s `parse`) and asserts on the result.
+
 ## The walker never visited the root
 
 A directory walker that only looked at `page.tsx` inside **sub**directories

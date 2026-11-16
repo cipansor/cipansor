@@ -52,7 +52,12 @@ backlog to [`roadmap.md`](roadmap.md).
   extracurricular loaders, `apps/api/scripts/require-password-change-all.ts`,
   and the production VAPID pair. Passwords parts A and B must go out together,
   with that script run once after the deploy; SPMB 2027/2028 needs a release
-  before 1 January 2027 to take wave 2. (Which fixes production still lacks is
+  before 1 January 2027 to take wave 2. Since 2026-11-13 (owner, on #786) that
+  SPMB release also waits on #786 items 1–2 — the guardian's consent on the
+  public form, recorded with time and text version, and one versioned
+  trilingual privacy policy (PR #1116) — and the yayasan writes the policy text
+  (controller and contact, retention) before it goes out; items 3–4 (data-
+  subject requests, the 3×24-hour breach procedure) stay deferred. (Which fixes production still lacks is
   for the machine-local memory, not here — see "Where things live".)
 - Role catalogue items decided but not built: wakasek per bidang as a
   timed assignment (Model A; wakasek is no longer a role code —
