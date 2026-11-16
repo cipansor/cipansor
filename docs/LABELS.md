@@ -64,7 +64,11 @@ The evidence rule, enforced in the triage owner's prompt:
 sync` workflow adds anything missing and **fails the check** when the type
    genuinely disagrees (a different type is a real conflict, not something to
    guess at). A PR that closes **more than one** issue must satisfy every one of
-   them, and the check fails when the issues disagree among themselves. Changing
+   them, and the check fails when the issues disagree among themselves. When a
+   PR closes issues of **different types**, check first whether one of them is
+   simply mistyped: if so, ask `cipansor-bot` to align it (as with #868
+   `chore` → `bug` on PR #1067). If both types are right, split the PR by type —
+   a type is one fact, so the sync never picks one for you. Changing
    a linked issue's labels re-runs the sync on every open PR that closes it,
    because an `issues` event fires no `pull_request` event. A **fork** PR's
    token cannot edit labels, so the sync fails (naming the labels) rather than

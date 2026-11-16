@@ -270,7 +270,26 @@ describe('issue-label-sync.sh', () => {
       ['7']
     );
     expect(status).toBe(1);
-    expect(out).toContain('disagree on type');
+    // The message must name the real remedy — correct the mistyped issue, or
+    // split the PR — not "fix the labels", which reads as if a label were wrong
+    // on the PR (the PR is where it cannot be fixed). #1069, decision (a).
+    expect(out).toContain('closes issues of different types');
+    expect(out).toContain('correct the issue whose type is wrong');
+    expect(out).not.toContain('fix the labels before merging');
+  });
+
+  it('fails an issue that carries two type labels', () => {
+    const { status, out } = run(
+      SYNC,
+      {
+        GH_STUB_CLOSING: '3',
+        GH_STUB_PR_LABELS: 'bug\npriority:high',
+        GH_STUB_ISSUE_LABELS_3: 'bug\nenhancement\npriority:high',
+      },
+      ['7']
+    );
+    expect(status).toBe(1);
+    expect(out).toContain('more than one type or priority label');
   });
 
   it('does not change the PR labels when the issues disagree', () => {
