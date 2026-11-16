@@ -6,6 +6,11 @@ import {
   type NotificationChannel,
 } from './email-sms.service';
 import { todayWib, dayOf, shiftWibDay } from '../../utils/wib';
+import {
+  buildPaymentReminderContent,
+  buildSppReminderContent,
+  type ReminderInvoice,
+} from './reminder-content';
 import crypto from 'node:crypto';
 import type {
   CreateNotificationInput,
@@ -393,7 +398,16 @@ export async function updateChannelPolicy(policy: ChannelPolicy) {
   });
 }
 
-export async function createNotification(data: CreateNotificationInput) {
+/**
+ * Create a notification. For a keyed one (`dedupeKey`), an existing marker
+ * normally means "retry the channels that never confirmed"; callers whose retry
+ * is owned elsewhere pass `retryExisting: false` to create only, so the first
+ * send and a retry never land in the same run (#1074).
+ */
+export async function createNotification(
+  data: CreateNotificationInput,
+  options: { retryExisting?: boolean } = {}
+) {
   const { dbType, originalType } = mapTypeToPrisma(data.type ?? 'INFO');
   const { channels, dedupeKey } = data;
 
@@ -423,7 +437,18 @@ export async function createNotification(data: CreateNotificationInput) {
       // blocked by policy) are left alone. The per-channel claim inside
       // dispatchExternalChannels is what makes two concurrent retries send only
       // one message.
-      await dispatchExternalChannels({ ...data, userId: data.userId }, externalChannels, marker.id);
+      //
+      // A caller that owns its retries elsewhere (`retryExisting: false`)
+      // leaves the marker to that owner: the daily sweep runs first in the
+      // reminder task, and a second attempt here would spend the same day's
+      // quota and starve tomorrow's recovery (#1074).
+      if (options.retryExisting !== false) {
+        await dispatchExternalChannels(
+          { ...data, userId: data.userId },
+          externalChannels,
+          marker.id
+        );
+      }
       return null;
     }
 
@@ -582,32 +607,88 @@ async function dispatchExternalChannels(
 
 /** The reminder kinds whose channels the daily sweep may retry (#1074). */
 const RETRYABLE_REMINDER_PREFIXES = ['payment-reminder:', 'spp-reminder:'] as const;
+type ReminderKind = (typeof RETRYABLE_REMINDER_PREFIXES)[number];
 
 /** External channels a marker can carry a retryable state for. */
 const RETRYABLE_CHANNELS: ExternalChannel[] = ['EMAIL', 'SMS', 'WHATSAPP'];
 
+/**
+ * How many days of markers the sweep scans (#1074). A marker lives from its
+ * creation until its bill's WIB due day; the monthly SPP reminder can be created
+ * a month before that, so the window covers a month plus slack. Anything older
+ * is settled or at the attempt cap. The window bounds the scan by `createdAt`
+ * (which never moves), so paginating it is stable.
+ */
+const RETRY_SCAN_WINDOW_DAYS = 40;
+
+/** How many markers one page of the scan reads. */
+const RETRY_PAGE_SIZE = 500;
+
+/** The reminder kind a marker's `dedupeKey` names, or null for another kind. */
+function reminderKindOf(dedupeKey: string): ReminderKind | null {
+  return RETRYABLE_REMINDER_PREFIXES.find((p) => dedupeKey.startsWith(p)) ?? null;
+}
+
 /** The invoice a reminder marker guards, from its `dedupeKey`. */
 function invoiceIdOf(dedupeKey: string): string | null {
-  const prefix = RETRYABLE_REMINDER_PREFIXES.find((p) => dedupeKey.startsWith(p));
+  const prefix = reminderKindOf(dedupeKey);
   if (!prefix) return null;
   const id = dedupeKey.slice(prefix.length);
   return id.length > 0 ? id : null;
 }
 
 /**
- * Whether a marker still owes a send: an external channel left `FAILED`/
- * `PENDING` whose attempt count has not reached the cap. A channel at the cap
- * stays `FAILED` and is never claimed again (#1074).
+ * Whether a marker still owes a send at `now`: an external channel left
+ * `FAILED`/`PENDING` below the attempt cap, or a `RETRYING` claim whose lease
+ * has expired (a run killed mid-send left the channel wedged). A channel at the
+ * cap stays `FAILED` and is never claimed again; an active `RETRYING` lease is
+ * left to its owner — the atomic claim would refuse it anyway (#1074).
  */
-function hasRetryableChannel(channels: unknown): boolean {
+function hasRetryableChannel(channels: unknown, now: Date): boolean {
   if (!channels || typeof channels !== 'object') return false;
   const map = channels as Record<string, unknown>;
   const attempts = (map._attempts ?? {}) as Record<string, unknown>;
+  const claims = (map._claims ?? {}) as Record<string, unknown>;
   return RETRYABLE_CHANNELS.some((channel) => {
+    if (Number(attempts[channel] ?? 0) >= MAX_CHANNEL_ATTEMPTS) return false;
     const state = map[channel];
-    if (state !== DELIVERY_FAILED && state !== DELIVERY_PENDING) return false;
-    return Number(attempts[channel] ?? 0) < MAX_CHANNEL_ATTEMPTS;
+    if (state === DELIVERY_FAILED || state === DELIVERY_PENDING) return true;
+    if (state === DELIVERY_IN_FLIGHT) {
+      const claim = Number(claims[channel] ?? 0);
+      return now.getTime() - claim >= CHANNEL_CLAIM_LEASE_MS;
+    }
+    return false;
   });
+}
+
+/** The invoice fields the sweep reads: delivery entitlement and message copy. */
+const REMINDER_INVOICE_SELECT = {
+  status: true,
+  amount: true,
+  paidAmount: true,
+  period: true,
+  dueDate: true,
+  paymentType: { select: { name: true } },
+  student: {
+    select: {
+      userId: true,
+      user: { select: { name: true } },
+      parents: { select: { parentId: true } },
+    },
+  },
+} satisfies Prisma.InvoiceSelect;
+
+type ReminderInvoiceRow = Prisma.InvoiceGetPayload<{ select: typeof REMINDER_INVOICE_SELECT }>;
+
+/**
+ * Whether the marker's recipient may still be told about this bill (#1074). A
+ * former guardian keeps the marker after the link is revoked, so the sweep
+ * re-checks entitlement at send time instead of trusting the key: the student's
+ * own account for a payment reminder, a still-linked parent for an SPP one.
+ */
+function isRecipientEntitled(kind: ReminderKind, userId: string, invoice: ReminderInvoiceRow) {
+  if (kind === 'payment-reminder:') return invoice.student?.userId === userId;
+  return (invoice.student?.parents ?? []).some((p) => p.parentId === userId);
 }
 
 /**
@@ -619,43 +700,52 @@ function hasRetryableChannel(channels: unknown): boolean {
  * failure on the last attempt (SMTP down, WhatsApp not configured yet) left the
  * reminder frozen in `FAILED`/`PENDING` forever, and a bill already due dropped
  * out of the window entirely. This sweep walks the markers of both reminder
- * kinds, re-sends the channels still `FAILED`/`PENDING` (up to
- * `MAX_CHANNEL_ATTEMPTS`), and stops once the WIB day the bill is due on has
- * ended — the point past which "due in N days" would read wrong. A bill that is
- * paid or cancelled is left alone; the state is read at retry time, so a bill
- * settled since the first attempt is not reminded again.
+ * kinds, re-sends the channels still `FAILED`/`PENDING` (or a `RETRYING` whose
+ * lease lapsed), up to `MAX_CHANNEL_ATTEMPTS`, and stops once the WIB day the
+ * bill is due on has ended.
  *
- * The message is re-read from the in-app row the marker guards, so a retry
- * carries the same text as the first attempt rather than a rebuilt one. Each
- * retry goes through `createNotification`, whose per-channel claim keeps two
- * concurrent runs to one send.
+ * Each marker's bill is re-read at send time: a paid/cancelled bill is left
+ * alone, and a recipient whose guardian link was revoked is skipped, so a
+ * former guardian stops receiving a child's bill details. The message is rebuilt
+ * from the invoice (never the stored in-app row), so a retry carries a fresh
+ * countdown and survives the recipient deleting the bell row.
  */
 export async function retryDueReminderChannels(now: Date = new Date()): Promise<number> {
   const today = todayWib(now);
-  // A marker is retryable only until its bill's WIB day ends; a marker updated
-  // long before that is either settled or at the attempt cap, so the scan is
-  // bounded to the recent window instead of walking every marker ever written.
-  const scanFrom = dayOf(shiftWibDay(today, -8));
+  const scanFrom = dayOf(shiftWibDay(today, -RETRY_SCAN_WINDOW_DAYS));
 
-  const markers = await prisma.notificationDelivery.findMany({
-    where: {
-      OR: RETRYABLE_REMINDER_PREFIXES.map((prefix) => ({ dedupeKey: { startsWith: prefix } })),
-      updatedAt: { gte: scanFrom },
-    },
-    select: { userId: true, dedupeKey: true, channels: true },
-    orderBy: { updatedAt: 'asc' },
-    take: 500,
-  });
+  // Paginate the whole window with a stable cursor. A single capped page let
+  // finished markers — which stop updating, so they kept sorting first — fill
+  // it and starve the ones behind them (review finding on #1074). `createdAt`
+  // never moves, so the cursor stays valid while the loop runs.
+  const markers: Array<{ id: string; userId: string; dedupeKey: string; channels: unknown }> = [];
+  let cursor: string | undefined;
+  for (;;) {
+    const page = await prisma.notificationDelivery.findMany({
+      where: {
+        OR: RETRYABLE_REMINDER_PREFIXES.map((prefix) => ({ dedupeKey: { startsWith: prefix } })),
+        createdAt: { gte: scanFrom },
+      },
+      select: { id: true, userId: true, dedupeKey: true, channels: true },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: RETRY_PAGE_SIZE,
+      ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+    });
+    markers.push(...page);
+    if (page.length < RETRY_PAGE_SIZE) break;
+    cursor = page[page.length - 1].id;
+  }
 
   let retried = 0;
   for (const marker of markers) {
-    if (!hasRetryableChannel(marker.channels)) continue;
+    if (!hasRetryableChannel(marker.channels, now)) continue;
+    const kind = reminderKindOf(marker.dedupeKey);
     const invoiceId = invoiceIdOf(marker.dedupeKey);
-    if (!invoiceId) continue;
+    if (!kind || !invoiceId) continue;
 
     const invoice = await prisma.invoice.findUnique({
       where: { id: invoiceId },
-      select: { status: true, dueDate: true },
+      select: REMINDER_INVOICE_SELECT,
     });
     if (!invoice) continue;
     if (invoice.status === PaymentStatus.PAID || invoice.status === PaymentStatus.CANCELLED) {
@@ -664,33 +754,14 @@ export async function retryDueReminderChannels(now: Date = new Date()): Promise<
     // Stop at the end of the WIB day the bill is due on: from the next run on,
     // the due day has passed and the reminder text no longer holds.
     if (invoice.dueDate < dayOf(today)) continue;
+    if (!isRecipientEntitled(kind, marker.userId, invoice)) continue;
 
-    const row = await prisma.notification.findFirst({
-      where: { userId: marker.userId, dedupeKey: marker.dedupeKey },
-      select: { title: true, message: true, type: true, link: true, data: true },
-    });
-    // No in-app row means there is nothing to re-send; the marker alone does
-    // not carry the message. Leave the slot for a future attempt.
-    if (!row) continue;
+    const content =
+      kind === 'spp-reminder:'
+        ? buildSppReminderContent(invoice)
+        : buildPaymentReminderContent(invoice, now);
 
-    const stored = (row.data ?? {}) as {
-      priority?: CreateNotificationInput['priority'];
-      channels?: CreateNotificationInput['channels'];
-      recipientType?: CreateNotificationInput['recipientType'];
-      originalType?: string;
-    };
-
-    await createNotification({
-      userId: marker.userId,
-      title: row.title,
-      message: row.message,
-      type: (stored.originalType ?? row.type) as CreateNotificationInput['type'],
-      priority: stored.priority,
-      channels: stored.channels,
-      recipientType: stored.recipientType,
-      link: row.link ?? undefined,
-      dedupeKey: marker.dedupeKey,
-    });
+    await createNotification({ userId: marker.userId, ...content, dedupeKey: marker.dedupeKey });
     retried++;
   }
 

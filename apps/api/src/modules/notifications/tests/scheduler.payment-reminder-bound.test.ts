@@ -119,7 +119,8 @@ describe('sendPaymentReminders bounds the window in WIB days (#1050)', () => {
     await SchedulerService.runTask('payment-reminder');
 
     expect(createNotification).toHaveBeenCalledWith(
-      expect.objectContaining({ userId: 'u-1', dedupeKey: 'payment-reminder:inv-today' })
+      expect.objectContaining({ userId: 'u-1', dedupeKey: 'payment-reminder:inv-today' }),
+      { retryExisting: false }
     );
   });
 });

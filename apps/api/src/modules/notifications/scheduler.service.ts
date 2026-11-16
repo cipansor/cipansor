@@ -17,6 +17,7 @@ import {
   retryDueReminderChannels,
 } from './notifications.service';
 import { CreateNotificationInput } from './notifications.schema';
+import { buildPaymentReminderContent } from './reminder-content';
 import { type ScheduledTaskId } from './scheduler.tasks';
 import {
   NotificationType,
@@ -407,34 +408,21 @@ export class SchedulerService {
       const student = invoice.student;
       if (!student?.user) continue;
 
-      const daysUntilDue = Math.round(
-        (invoice.dueDate.getTime() - dayOf(today).getTime()) / (1000 * 60 * 60 * 24)
-      );
-
-      const typeName = invoice.paymentType?.name || 'SPP';
-      const amount = Number(invoice.amount).toLocaleString('id-ID');
-      const message =
-        'Tagihan ' +
-        typeName +
-        ' sebesar Rp ' +
-        amount +
-        ' akan jatuh tempo dalam ' +
-        daysUntilDue +
-        ' hari.';
-
       // One reminder per invoice, ever. The daily rerun used to remind the same
       // unpaid invoice again every day (#802); the delivery key holds it to the
       // first time. A genuine change (a new invoice) has a new id and notifies.
-      const created = await createNotification({
-        userId: student.user.id,
-        title: 'Pengingat Pembayaran',
-        message,
-        type: NotificationType.PAYMENT,
-        priority: 'HIGH',
-        channels: ['IN_APP', 'EMAIL'],
-        recipientType: 'INDIVIDUAL',
-        dedupeKey: `payment-reminder:${invoice.id}`,
-      });
+      //
+      // The sweep above already retried every existing marker, so this call only
+      // *creates*: `retryExisting: false` keeps it from spending a second
+      // attempt on the same channel in one run (#1074).
+      const created = await createNotification(
+        {
+          userId: student.user.id,
+          ...buildPaymentReminderContent(invoice, new Date()),
+          dedupeKey: `payment-reminder:${invoice.id}`,
+        },
+        { retryExisting: false }
+      );
       if (created) sentCount++;
     }
 

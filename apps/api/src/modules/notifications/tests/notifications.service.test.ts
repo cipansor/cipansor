@@ -378,6 +378,28 @@ describe('createNotification — durable recurring delivery (#802)', () => {
     expect(prisma.$transaction).toHaveBeenCalled();
     expect(prisma.notificationDelivery.delete).not.toHaveBeenCalled();
   });
+
+  it('`retryExisting: false` creates only, leaving an existing marker untouched (#1074)', async () => {
+    // The reminder task runs the sweep first; a second attempt from the day's
+    // selection would spend the same day's quota. The create-only caller must
+    // not dispatch for a marker that already exists.
+    (prisma.notificationDelivery.create as any).mockRejectedValue({ code: 'P2002' });
+    (prisma.notificationDelivery.findUnique as any).mockResolvedValue({
+      id: 'd-1',
+      channels: { EMAIL: 'FAILED' },
+    });
+    (prisma.$queryRaw as any).mockResolvedValue([{ id: 'd-1' }]);
+    (prisma.user.findUnique as any).mockResolvedValue({ email: 'a@b.c', phone: null });
+
+    const result = await createNotification(
+      { ...base, channels: ['IN_APP', 'EMAIL'], dedupeKey: 'payment-reminder:inv-1' },
+      { retryExisting: false }
+    );
+
+    expect(result).toBeNull();
+    expect(dispatchExternal()).not.toHaveBeenCalled();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
 });
 
 describe('clearNotificationDeliveries — a recovery resets the slot (#804)', () => {
@@ -414,18 +436,23 @@ describe('retryDueReminderChannels — the sweep retries a marker past the windo
     (prisma.setting.findFirst as any).mockResolvedValue(null);
   });
 
-  /** The marker whose channel already failed; the in-app row it guards. */
-  function retryableMarker(dedupeKey: string, channels: Record<string, unknown>) {
-    (prisma.notificationDelivery.findMany as any).mockResolvedValue([
-      { userId: 'u-1', dedupeKey, channels },
-    ]);
-    (prisma.notification.findFirst as any).mockResolvedValue({
-      title: 'Pengingat Pembayaran',
-      message: 'Tagihan akan jatuh tempo dalam 0 hari.',
-      type: 'PAYMENT',
-      link: '/parent/finance',
-      data: { priority: 'HIGH', channels: ['IN_APP', 'EMAIL'], recipientType: 'INDIVIDUAL' },
-    });
+  /** One page of markers; a short page ends the pagination loop. */
+  function markerPage(rows: Array<Record<string, unknown>>) {
+    (prisma.notificationDelivery.findMany as any).mockResolvedValue(rows);
+  }
+
+  /** A payment-reminder invoice whose recipient is the marker's own user. */
+  function paymentInvoice(overrides: Record<string, unknown> = {}) {
+    return {
+      status: 'PENDING',
+      amount: 500000,
+      paidAmount: 0,
+      period: 'Juli 2026',
+      dueDate: new Date('2026-07-10T00:00:00.000Z'),
+      paymentType: { name: 'SPP' },
+      student: { userId: 'u-1', user: { name: 'Ahmad' }, parents: [] },
+      ...overrides,
+    };
   }
 
   /** `createNotification` finding the marker already claimed, retrying EMAIL. */
@@ -442,11 +469,15 @@ describe('retryDueReminderChannels — the sweep retries a marker past the windo
   }
 
   it('retries a FAILED channel of a bill due today (its last in-window day)', async () => {
-    retryableMarker('payment-reminder:inv-1', { EMAIL: 'FAILED', _attempts: { EMAIL: 1 } });
-    (prisma.invoice.findUnique as any).mockResolvedValue({
-      status: 'PENDING',
-      dueDate: new Date('2026-07-10T00:00:00.000Z'),
-    });
+    markerPage([
+      {
+        id: 'm-1',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-1',
+        channels: { EMAIL: 'FAILED', _attempts: { EMAIL: 1 } },
+      },
+    ]);
+    (prisma.invoice.findUnique as any).mockResolvedValue(paymentInvoice());
     markerAlreadyClaimed();
 
     // 08:00 WIB on the due day: the bill is no longer in the *new* selection
@@ -459,24 +490,19 @@ describe('retryDueReminderChannels — the sweep retries a marker past the windo
   });
 
   it('retries a PENDING WhatsApp channel on an SPP marker', async () => {
-    (prisma.notificationDelivery.findMany as any).mockResolvedValue([
+    markerPage([
       {
+        id: 'm-2',
         userId: 'p-1',
         dedupeKey: 'spp-reminder:inv-2',
         channels: { WHATSAPP: 'PENDING', _attempts: { WHATSAPP: 0 } },
       },
     ]);
-    (prisma.notification.findFirst as any).mockResolvedValue({
-      title: 'Tagihan SPP Bulan Ini',
-      message: 'Tagihan SPP ...',
-      type: 'PAYMENT',
-      link: '/parent/finance',
-      data: { priority: 'HIGH', channels: ['IN_APP', 'WHATSAPP'], recipientType: 'INDIVIDUAL' },
-    });
-    (prisma.invoice.findUnique as any).mockResolvedValue({
-      status: 'PARTIAL',
-      dueDate: new Date('2026-07-10T00:00:00.000Z'),
-    });
+    (prisma.invoice.findUnique as any).mockResolvedValue(
+      paymentInvoice({
+        student: { userId: 's-1', user: { name: 'Ahmad' }, parents: [{ parentId: 'p-1' }] },
+      })
+    );
     (prisma.notificationDelivery.create as any).mockRejectedValue({ code: 'P2002' });
     (prisma.notificationDelivery.findUnique as any).mockResolvedValue({
       id: 'd-2',
@@ -496,12 +522,18 @@ describe('retryDueReminderChannels — the sweep retries a marker past the windo
   });
 
   it('stops once the WIB day the bill is due on has ended', async () => {
-    retryableMarker('payment-reminder:inv-3', { EMAIL: 'FAILED', _attempts: { EMAIL: 1 } });
+    markerPage([
+      {
+        id: 'm-3',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-3',
+        channels: { EMAIL: 'FAILED', _attempts: { EMAIL: 1 } },
+      },
+    ]);
     // Due yesterday: past the point the reminder text holds.
-    (prisma.invoice.findUnique as any).mockResolvedValue({
-      status: 'PENDING',
-      dueDate: new Date('2026-07-09T00:00:00.000Z'),
-    });
+    (prisma.invoice.findUnique as any).mockResolvedValue(
+      paymentInvoice({ dueDate: new Date('2026-07-09T00:00:00.000Z') })
+    );
 
     const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
 
@@ -510,11 +542,15 @@ describe('retryDueReminderChannels — the sweep retries a marker past the windo
   });
 
   it('leaves a paid or cancelled bill alone, whatever its channel state', async () => {
-    retryableMarker('payment-reminder:inv-4', { EMAIL: 'FAILED', _attempts: { EMAIL: 1 } });
-    (prisma.invoice.findUnique as any).mockResolvedValue({
-      status: 'PAID',
-      dueDate: new Date('2026-07-10T00:00:00.000Z'),
-    });
+    markerPage([
+      {
+        id: 'm-4',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-4',
+        channels: { EMAIL: 'FAILED', _attempts: { EMAIL: 1 } },
+      },
+    ]);
+    (prisma.invoice.findUnique as any).mockResolvedValue(paymentInvoice({ status: 'PAID' }));
 
     const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
 
@@ -523,7 +559,14 @@ describe('retryDueReminderChannels — the sweep retries a marker past the windo
   });
 
   it('does not retry a channel that already reached the attempt cap', async () => {
-    retryableMarker('payment-reminder:inv-5', { EMAIL: 'FAILED', _attempts: { EMAIL: 3 } });
+    markerPage([
+      {
+        id: 'm-5',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-5',
+        channels: { EMAIL: 'FAILED', _attempts: { EMAIL: 3 } },
+      },
+    ]);
 
     const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
 
@@ -533,11 +576,132 @@ describe('retryDueReminderChannels — the sweep retries a marker past the windo
   });
 
   it('never touches a channel that already went out (SENT)', async () => {
-    retryableMarker('payment-reminder:inv-6', { EMAIL: 'SENT' });
+    markerPage([
+      {
+        id: 'm-6',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-6',
+        channels: { EMAIL: 'SENT' },
+      },
+    ]);
 
     const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
 
     expect(retried).toBe(0);
     expect(dispatchExternal()).not.toHaveBeenCalled();
+  });
+
+  it('recovers a RETRYING claim whose lease has lapsed (#1074)', async () => {
+    // A run killed mid-send leaves the channel RETRYING; past the lease the
+    // sweep must offer it again, or the SPP reminder is wedged until it ages
+    // out (the monthly job has no other daily selection).
+    const claimedAt = new Date('2026-07-10T01:00:00.000Z').getTime() - 2 * 60 * 60 * 1000;
+    markerPage([
+      {
+        id: 'm-7',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-7',
+        channels: { EMAIL: 'RETRYING', _attempts: { EMAIL: 1 }, _claims: { EMAIL: claimedAt } },
+      },
+    ]);
+    (prisma.invoice.findUnique as any).mockResolvedValue(paymentInvoice());
+    markerAlreadyClaimed();
+
+    const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
+
+    expect(retried).toBe(1);
+  });
+
+  it('leaves an active RETRYING claim to its owner (#1074)', async () => {
+    const claimedAt = new Date('2026-07-10T01:00:00.000Z').getTime() - 60 * 1000;
+    markerPage([
+      {
+        id: 'm-8',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-8',
+        channels: { EMAIL: 'RETRYING', _attempts: { EMAIL: 1 }, _claims: { EMAIL: claimedAt } },
+      },
+    ]);
+
+    const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
+
+    expect(retried).toBe(0);
+    expect(dispatchExternal()).not.toHaveBeenCalled();
+  });
+
+  it('skips a former guardian whose link to the student was revoked (#1074)', async () => {
+    // The marker outlives the link; the sweep re-checks entitlement at send
+    // time so a revoked guardian stops receiving the child's bill details.
+    markerPage([
+      {
+        id: 'm-9',
+        userId: 'p-former',
+        dedupeKey: 'spp-reminder:inv-9',
+        channels: { WHATSAPP: 'FAILED', _attempts: { WHATSAPP: 1 } },
+      },
+    ]);
+    (prisma.invoice.findUnique as any).mockResolvedValue(
+      paymentInvoice({
+        student: { userId: 's-1', user: { name: 'Ahmad' }, parents: [{ parentId: 'p-current' }] },
+      })
+    );
+
+    const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
+
+    expect(retried).toBe(0);
+    expect(dispatchExternal()).not.toHaveBeenCalled();
+  });
+
+  it('rebuilds the message with a fresh countdown, not the stored row (#1074)', async () => {
+    // The bell row is not read at all: a retry recomputes "due in N days" from
+    // the invoice, so a bill due today reads "0 hari" instead of a frozen 7, and
+    // a recipient deleting the row cannot end the retries.
+    markerPage([
+      {
+        id: 'm-10',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-10',
+        channels: { EMAIL: 'FAILED', _attempts: { EMAIL: 1 } },
+      },
+    ]);
+    (prisma.invoice.findUnique as any).mockResolvedValue(paymentInvoice());
+    markerAlreadyClaimed();
+
+    await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
+
+    expect(prisma.notification.findFirst).not.toHaveBeenCalled();
+    // The retry path does not create a row (the marker already exists); the
+    // rebuilt message is what goes out on the channel.
+    expect(dispatchExternal()).toHaveBeenCalledWith(
+      expect.objectContaining({ message: expect.stringContaining('0 hari') })
+    );
+  });
+
+  it('paginates past a full page of finished markers (#1074)', async () => {
+    // A finished marker stops updating, so a single capped page let it fill the
+    // result and starve the retryable marker behind it. The sweep pages by a
+    // stable cursor instead of stopping after one page.
+    const finished = Array.from({ length: 500 }, (_, i) => ({
+      id: `done-${i}`,
+      userId: 'u-x',
+      dedupeKey: `payment-reminder:done-${i}`,
+      channels: { EMAIL: 'SENT' },
+    }));
+    const retryable = {
+      id: 'm-11',
+      userId: 'u-1',
+      dedupeKey: 'payment-reminder:inv-11',
+      channels: { EMAIL: 'FAILED', _attempts: { EMAIL: 1 } },
+    };
+    (prisma.notificationDelivery.findMany as any)
+      .mockResolvedValueOnce(finished)
+      .mockResolvedValueOnce([retryable]);
+    (prisma.invoice.findUnique as any).mockResolvedValue(paymentInvoice());
+    markerAlreadyClaimed();
+
+    const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
+
+    expect(prisma.notificationDelivery.findMany).toHaveBeenCalledTimes(2);
+    expect(retried).toBe(1);
   });
 });
