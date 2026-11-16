@@ -42,8 +42,12 @@ or chown the paths back from a container.
 ## Two invocation traps
 
 - `node node_modules/.bin/tsc` runs the **shell wrapper**, not the compiler
-  (`SyntaxError: missing ) after argument list`). Use
-  `node <workspace>/node_modules/typescript/bin/tsc`.
+  (`SyntaxError: missing ) after argument list`). Since the TypeScript 7 alias
+  migration the compiler paths changed: the `typescript` name now points at the
+  compatibility package `@typescript/typescript6`, whose only bin is `tsc6`
+  (there is no `node_modules/typescript/bin/tsc` any more). The TS 7 compiler
+  lives at `node_modules/@typescript/native/bin/tsc`; the TS 6 API compiler at
+  `node_modules/typescript/bin/tsc6`. Invoke either with `node <path>`.
 - Piping a long build into `| tail -N` leaves a background output file empty
   until the build ends — that is not "still on step 1". Redirect to a log file
   and tail the file.
