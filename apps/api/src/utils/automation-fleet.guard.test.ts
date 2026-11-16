@@ -49,9 +49,12 @@ case "$1" in
     esac ;;
   issue)
     # \`gh issue edit\` — the lifecycle-label release. Logged so a test can assert
-    # the removal without a real edit.
+    # the removal without a real edit. GH_STUB_EDIT_FAIL makes the edit fail, so a
+    # test can prove the job fails (and is retried) rather than reporting success.
     case "$*" in
-      *"edit"*) log "ISSUE_EDIT $*" ;;
+      *"edit"*)
+        log "ISSUE_EDIT $*"
+        [ "\${GH_STUB_EDIT_FAIL:-}" = 1 ] && exit 1 ;;
     esac ;;
   api)
     case "$*" in
@@ -76,6 +79,15 @@ case "$1" in
         else printf '%s\\n' "$json"; fi ;;
       *"/comments?per_page"*) [ -n "\${GH_STUB_COMMENTS:-}" ] && printf '%s\\n' "\${GH_STUB_COMMENTS}" ;;
       *"/reactions?per_page"*) [ -n "\${GH_STUB_REACTIONS:-}" ] && printf '%s\\n' "\${GH_STUB_REACTIONS}" ;;
+      # The combined state+lifecycle read of \`lifecycle-cleanup.sh\` (#1083):
+      # \`gh api .../issues/<n> --jq '[.state, (.labels[].name | select(...))]'\`. It
+      # answers one line — \`closed\` plus GH_STUB_CURRENT's labels, newlines
+      # collapsed to spaces as jq's \`join(" ")\` does — so \`release_issue\` reads a
+      # single snapshot. GH_STUB_CURRENT_STATE overrides the state (to model a
+      # reopened issue); GH_STUB_READ_FAIL=state makes the read fail.
+      *"/issues/"*"[.state, (.labels[].name | select("*)
+        [ "\${GH_STUB_READ_FAIL:-}" = state ] && exit 1
+        printf '%s\\n' "\${GH_STUB_CURRENT_STATE:-closed} $(printf '%s' "\${GH_STUB_CURRENT:-}" | tr '\\n' ' ')" ;;
       *"/issues/"*"/labels"*"--jq"*) [ -n "\${GH_STUB_CURRENT:-}" ] && printf '%s\\n' "\${GH_STUB_CURRENT}" ;;
       # The issue's event timeline (#838 restore): the restore path reads the
       # actor of the last labeled event. GH_STUB_EVENTS_FAIL makes the read
@@ -258,6 +270,14 @@ stub_legacy_page() {
 }
 case "$*" in
   *"search/issues"*) printf '%s\\n' "\${GH_STUB_SEARCH:-}" ;;
+  # The combined state+lifecycle read of the activity path (#1083): one call so
+  # the gate uses a single snapshot. GH_STUB_ACTIVITY_SNAPSHOT overrides the whole
+  # line (e.g. closed); otherwise it is \`open\` plus the status labels the older
+  # tests already set. Placed before the label-select pattern below, which would
+  # otherwise match the same filter and drop the state prefix.
+  *"[.state, (.labels[].name | select("*)
+    [ "\${GH_STUB_READ_FAIL:-}" = state ] && exit 1
+    printf '%s\\n' "\${GH_STUB_ACTIVITY_SNAPSHOT:-open \${GH_STUB_STATUS_LABELS:-}}" ;;
   # The status-label read (#1083): the issue_status_labels helper. Matched on a
   # quote-free fragment of its jq filter, and placed before the broader
   # select(( pattern (the activity signal) so the two do not collide.
@@ -3255,6 +3275,99 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).toContain('DISPATCH');
   });
 
+  it('ignores a comment on a closed issue, which has no lifecycle label left (#1083)', () => {
+    // A comment can still arrive on a closed issue: the workflow subscribes to
+    // `issue_comment.created`, and the cleanup removes `ready`/`in-progress` on
+    // close, so a label-only gate would see no lifecycle label and re-triage
+    // finished work. The state read closes that hole.
+    const { calls, out } = runBridge(
+      { GH_STUB_ACTIVITY_SNAPSHOT: 'closed' },
+      ['--comment'],
+      commentEvent('reporter')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('closed');
+  });
+
+  it('does not collapse a maintainer mention behind a recent reporter comment (#1083)', () => {
+    // The burst key holds only a time: a reporter comment that ran a moment
+    // earlier would collapse the maintainer's deliberate correction. The mention
+    // must be dispatched whatever the key says.
+    const now = Math.floor(Date.now() / 1000);
+    const { calls, out } = runBridge(
+      {
+        KV_SEED: { 'triage-activity-818': { at: now } },
+        GH_STUB_STATUS_LABELS: 'ready',
+      },
+      ['--comment'],
+      commentEvent('adminypc', {
+        body: '@cipansor-bot ubah prioritasnya',
+        assoc: 'MEMBER',
+      })
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(out).not.toContain('burst collapsed');
+  });
+
+  it('still collapses a reporter comment that follows a mention (#1083)', () => {
+    // The mention is not collapsed, but it records its own time, so an ordinary
+    // comment right after it collapses as usual.
+    const now = Math.floor(Date.now() / 1000);
+    const { calls, out } = runBridge(
+      { KV_SEED: { 'triage-activity-818': { at: now } } },
+      ['--comment'],
+      commentEvent('reporter')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('burst collapsed');
+  });
+
+  it('recovers a maintainer mention deferred on an `in-progress` issue (#1083)', () => {
+    // The mention defers while the pool is full; the sweep excludes `in-progress`
+    // and the recovery pass refused it too, so the checkpoint would be stranded
+    // and the mention never triaged. The `mention` flag on the checkpoint is what
+    // lets the recovery pass re-enter the issue. Round-trip: defer, then recover.
+    const deferred = runBridge(
+      {
+        GH_STUB_STATUS_LABELS: 'in-progress',
+        CURL_STUB_RUNS: '{"runs":[{"status":"RUNNING"}]}',
+        MAX_INFLIGHT: '1',
+      },
+      ['--comment'],
+      commentEvent('adminypc', {
+        body: '@cipansor-bot perbaiki prioritasnya',
+        assoc: 'MEMBER',
+      })
+    );
+    expect(deferred.calls).not.toContain('DISPATCH');
+    expect(deferred.kv['triage-sweep-818']).toMatchObject({ run: 'pending', mention: true });
+
+    const recovered = runBridge(
+      {
+        KV_SEED: { 'triage-sweep-818': deferred.kv['triage-sweep-818'] },
+        GH_STUB_STATE_LABELS: 'open bug in-progress',
+        GH_STUB_BODY: 'triaged',
+      },
+      ['--recover-ready']
+    );
+    expect(recovered.calls).toContain('DISPATCH');
+  });
+
+  it('still refuses a plain deferred comment on an `in-progress` issue in recovery (#1083)', () => {
+    // A plain comment's checkpoint carries no `mention` flag, so the recovery
+    // pass must keep refusing the `in-progress` issue — only a maintainer's
+    // mention re-enters one.
+    const recovered = runBridge(
+      {
+        KV_SEED: { 'triage-sweep-818': { signal: signal('reporter'), run: 'pending' } },
+        GH_STUB_STATE_LABELS: 'open bug in-progress',
+        GH_STUB_BODY: 'reporter',
+      },
+      ['--recover-ready']
+    );
+    expect(recovered.calls).not.toContain('DISPATCH');
+  });
+
   // #838: `label-guard` removes a protected label a person applied and applies
   // nothing in its place, leaving the issue with no type or no priority. The
   // guard cannot trigger the bridge through GitHub (its removal is made with the
@@ -4976,6 +5089,40 @@ describe('lifecycle-cleanup.sh (#1083)', () => {
     // A failed listing must not look like "none left": that would report success
     // while closed issues keep their labels.
     const { status, out } = runCleanup({ GH_STUB_SEARCH_FAIL: '1' }, ['--sweep']);
+    expect(out).toContain('::error::');
+    expect(status).not.toBe(0);
+  });
+
+  it('fails when the label read fails, instead of reporting a clean cleanup (#1083)', () => {
+    // A failed read must not be mistaken for "no label": the old `|| true` turned
+    // an HTTP 503 into an empty list and the job went green while the labels
+    // stayed. The exit status (not only the message) proves the failure.
+    const { status, out } = runCleanup({ GH_STUB_CURRENT: 'ready', GH_STUB_READ_FAIL: 'state' }, [
+      '857',
+    ]);
+    expect(out).toContain('::error::');
+    expect(status).not.toBe(0);
+  });
+
+  it('leaves the labels on a reopened issue instead of stripping them (#1083)', () => {
+    // `issues.closed` is delivered asynchronously and the issue can be reopened
+    // before the job runs. `release_issue` used to read the labels only, so it
+    // stripped `ready`/`in-progress` from an issue that is open again — and the
+    // daily sweep only looks at closed issues, so nothing repaired it.
+    const { calls, out } = runCleanup(
+      { GH_STUB_CURRENT: 'ready\nin-progress', GH_STUB_CURRENT_STATE: 'open' },
+      ['857']
+    );
+    expect(calls).not.toContain('ISSUE_EDIT');
+    expect(out).toContain('not closed');
+  });
+
+  it('fails the run when the label removal itself fails (#1083)', () => {
+    // `gh issue edit` failing must fail the run so the release is retried; a
+    // green job would leave the closed issue labelled with no trace.
+    const { status, out } = runCleanup({ GH_STUB_CURRENT: 'ready', GH_STUB_EDIT_FAIL: '1' }, [
+      '857',
+    ]);
     expect(out).toContain('::error::');
     expect(status).not.toBe(0);
   });

@@ -26,7 +26,17 @@ set -eu
 REPO="${REPO:?REPO is required}"
 LIFECYCLE_LABELS='ready in-progress'
 
-labels_of() { gh api "repos/$REPO/issues/$1/labels" --jq '.[].name' 2>/dev/null || true; }
+# The issue's latest state and its lifecycle labels in ONE read. Prints
+# `<state> <lifecycle-label…>`. Non-zero when the read fails — deliberately NOT
+# `|| true`: the removal depends on this list, and a failed read must fail the
+# job so it can be retried, not be mistaken for "no label" and reported as a
+# clean cleanup (#1083). The state is read here too, so the caller can skip an
+# issue that was reopened before this job ran (#1083).
+state_and_labels_of() { # state_and_labels_of <issue-number>
+  gh api "repos/$REPO/issues/$1" \
+    --jq '[.state, (.labels[].name | select(. == "ready" or . == "in-progress"))] | join(" ")' \
+    2>/dev/null
+}
 
 has() { printf '%s\n' "$1" | grep -qxF "$2"; }
 
@@ -35,7 +45,19 @@ has() { printf '%s\n' "$1" | grep -qxF "$2"; }
 # and leave one label behind.
 release_issue() { # <issue-number>
   N="$1"
-  LABELS=$(labels_of "$N")
+  snap=$(state_and_labels_of "$N") \
+    || { echo "::error::could not read the state or labels of issue #$N; the release cannot proceed."; return 1; }
+  state=$(printf '%s' "$snap" | cut -d' ' -f1)
+  if [ "$state" != "closed" ]; then
+    # `issues.closed` is delivered asynchronously and the issue can be reopened
+    # before this job runs. Its `ready`/`in-progress` labels are then valid
+    # again: releasing them would leave an open issue mislabelled, and the daily
+    # sweep only looks at closed issues, so nothing would repair it (#1083).
+    echo "issue #$N is '${state:-unknown}'; not closed, so its lifecycle labels stay."
+    return 0
+  fi
+  # One label per line, the shape `has` matches with `grep -x`.
+  LABELS=$(printf '%s' "$snap" | cut -d' ' -f2- | tr ' ' '\n')
   drop=""
   for L in $LIFECYCLE_LABELS; do
     has "$LABELS" "$L" && drop="$drop $L"

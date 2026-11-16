@@ -125,10 +125,15 @@ BURST_WINDOW="${BURST_WINDOW:-300}"
 # The KV store has optimistic
 # locking, a `nx` create, a list, and a delete, and it notifies no one.
 #   `<SWEEP_KEY><n>` -> {"signal": "<hash>", "run": "<run-id>" | "pending" | "",
-#                        "extra": {"<kind>": "<run-id>" | "pending"}}
+#                        "extra": {"<kind>": "<run-id>" | "pending"},
+#                        "mention": true}
 #                       `at` (epoch seconds) is set only while `run` is
 #                       `pending`: the FIRST deferral time, which the sweep
-#                       orders deferred issues by (K25, #872).
+#                       orders deferred issues by (K25, #872). `mention` is set
+#                       only for a dispatch a maintainer's `@cipansor-bot`
+#                       mention asked for; it is what lets the recovery pass
+#                       honour such a dispatch on an `in-progress` issue, which
+#                       is otherwise out of scope on every path (#1083).
 #   `<STATE_KEY><n>` -> {"state": "<type+priority>", "at": <epoch seconds>}
 # `run` empty is the finished checkpoint; `pending` is a dispatch deferred while
 # the pool was full; anything else is the run that is answering the signal.
@@ -319,6 +324,20 @@ in_lifecycle_state() { # in_lifecycle_state <number>
   return 1
 }
 
+# The issue's latest `state` and its lifecycle labels, read in ONE call so the
+# event path's gate uses a single snapshot (a label applied between two reads
+# could otherwise be seen by one and missed by the other). Prints
+# `<state> <lifecycle-labels…>`, or non-zero when the read fails. The `open`
+# check matters: a comment can still arrive on a closed issue (the workflow
+# subscribes to `issue_comment.created`), and the cleanup removes the lifecycle
+# labels on close, so without the state a closed issue's comment would re-open the
+# triage episode on finished work (#1083).
+issue_state_and_status() { # issue_state_and_status <number>
+  gh api "repos/$REPO/issues/$1" \
+    --jq '[.state, (.labels[].name | select(. == "ready" or . == "in-progress"))] | join(" ")' \
+    2>/dev/null
+}
+
 # True (0) when this very event is a maintainer's `@cipansor-bot` mention — the
 # ONE way to re-triage a `ready`/`in-progress` issue (#1083). It is read from the
 # triggering comment, not from the issue's history: an old mention must not keep
@@ -404,8 +423,9 @@ adopt_legacy_state_marker() { # adopt_legacy_state_marker <number>
 # "" for a finished checkpoint, or `pending` for a deferred dispatch), MARK_EXTRA
 # (the per-kind side runs, a compact JSON object), MARK_AT (the epoch second of a
 # `pending` checkpoint's first deferral, or ""), MARK_FORM
-# (`none`/`some`/`unknown`), MARK_ACTIVE (1 when any slot is unfinished) and
-# MARK_PENDING (1 when any slot is `pending`).
+# (`none`/`some`/`unknown`), MARK_ACTIVE (1 when any slot is unfinished),
+# MARK_PENDING (1 when any slot is `pending`) and MARK_MENTION (1 when the
+# checkpoint was created by a maintainer's mention).
 SIGNAL=""
 MARK_RUN=""
 MARK_EXTRA="{}"
@@ -413,8 +433,9 @@ MARK_AT=""
 MARK_FORM="none"
 MARK_ACTIVE=0
 MARK_PENDING=0
+MARK_MENTION=0
 read_sweep_marker() { # read_sweep_marker <number>
-  SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_AT=""; MARK_FORM="none"; MARK_ACTIVE=0; MARK_PENDING=0
+  SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_AT=""; MARK_FORM="none"; MARK_ACTIVE=0; MARK_PENDING=0; MARK_MENTION=0
   # `|| rc=$?` (not `; rc=$?`): a 404 is a normal answer, and under `set -e` a
   # bare failing command aborts the script — the direct callers in
   # `recover_ready`/`purge_markers` are not inside an `if`, so the absent-key
@@ -432,6 +453,9 @@ read_sweep_marker() { # read_sweep_marker <number>
   case "$MARK_AT" in '' | *[!0-9]*) MARK_AT="" ;; esac
   [ -n "$SIGNAL" ] || { SIGNAL=""; MARK_RUN=""; MARK_EXTRA="{}"; MARK_AT=""; MARK_FORM="none"; return 0; }
   MARK_FORM="some"
+  case "$(printf '%s' "$KV_JSON" | jq -r '.mention // false' 2>/dev/null)" in
+    true) MARK_MENTION=1 ;;
+  esac
   # The checkpoint is unfinished while any slot (the main `run` or a side
   # response) is a `pending` or a run id; it is finished only when every slot is
   # empty. A `ready` issue is recovered only when `MARK_ACTIVE` is 1.
@@ -601,18 +625,30 @@ MARK_WRITE_OK=0
 
 # The value a main write stores: the fields this writer owns (`signal`, `run`,
 # `at`) plus the fields it carries forward from <stored> when <preserve> is 1 and
-# the signal matches. Echoed for `sweep_cas_write` to PUT.
-sweep_marker_value() { # sweep_marker_value <stored> <sig> <run> <at> <preserve>
-  stored="$1"; v_sig="$2"; v_run="$3"; v_at="$4"; v_preserve="$5"
+# the signal matches. `mention` is carried whenever the signal matches (even when
+# <preserve> is 0, as `process_one`'s superseding re-dispatch sets): the flag
+# marks an episode a maintainer's mention opened, and it must outlive every write
+# of that episode — the deferral, the dispatch, a retry — or the recovery pass can
+# no longer tell it may re-enter an `in-progress` issue (#1083). Echoed for
+# `sweep_cas_write` to PUT.
+sweep_marker_value() { # sweep_marker_value <stored> <sig> <run> <at> <preserve> [mention]
+  stored="$1"; v_sig="$2"; v_run="$3"; v_at="$4"; v_preserve="$5"; v_mention="${6:-}"
+  prev_sig=$(printf '%s' "$stored" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
   carry="{}"
-  if [ "$v_preserve" = 1 ] && [ -n "$v_run" ]; then
-    prev_sig=$(printf '%s' "$stored" | jq -r '.signal // ""' 2>/dev/null) || prev_sig=""
-    if [ "$prev_sig" = "$v_sig" ]; then
-      carry=$(printf '%s' "$stored" | jq -c 'del(.signal, .run, .at)' 2>/dev/null) || carry="{}"
+  if [ "$v_preserve" = 1 ] && [ -n "$v_run" ] && [ "$prev_sig" = "$v_sig" ]; then
+    carry=$(printf '%s' "$stored" | jq -c 'del(.signal, .run, .at, .mention)' 2>/dev/null) || carry="{}"
+  fi
+  mention="{}"
+  if [ -n "$v_run" ]; then
+    if [ "$v_mention" = "1" ]; then
+      mention='{"mention":true}'
+    elif [ "$prev_sig" = "$v_sig" ] \
+      && [ "$(printf '%s' "$stored" | jq -r '.mention // false' 2>/dev/null)" = "true" ]; then
+      mention='{"mention":true}'
     fi
   fi
-  jq -nc --arg s "$v_sig" --arg r "$v_run" --arg a "$v_at" --argjson c "$carry" \
-    '$c + {signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)'
+  jq -nc --arg s "$v_sig" --arg r "$v_run" --arg a "$v_at" --argjson c "$carry" --argjson mn "$mention" \
+    '$c + $mn + {signal: $s, run: $r} + (if ($r == "pending" and $a != "") then {at: ($a|tonumber)} else {} end)'
 }
 
 # The value a side write stores: <stored> minus `signal`, with this response's
@@ -662,12 +698,12 @@ sweep_cas_write() { # sweep_cas_write <key> <value-fn> <value-fn-args...>
   return 1
 }
 
-write_sweep_marker() { # write_sweep_marker <number> <signal> <run> [first-deferred-at]
-  n="$1"; sig="$2"; run="${3:-}"; at="${4:-}"
+write_sweep_marker() { # write_sweep_marker <number> <signal> <run> [first-deferred-at] [mention]
+  n="$1"; sig="$2"; run="${3:-}"; at="${4:-}"; mention="${5:-}"
   if [ "$run" = "$PENDING_RUN" ] && [ -z "$at" ]; then
     at=$(date -u +%s)
   fi
-  if ! sweep_cas_write "$SWEEP_KEY$n" sweep_marker_value "$sig" "$run" "$at" "$SWEEP_MARKER_PRESERVE_SLOTS"; then
+  if ! sweep_cas_write "$SWEEP_KEY$n" sweep_marker_value "$sig" "$run" "$at" "$SWEEP_MARKER_PRESERVE_SLOTS" "$mention"; then
     echo "::warning::could not record the triage checkpoint on #$n."
   fi
 }
@@ -703,16 +739,20 @@ remove_sweep_marker() { # remove_sweep_marker <number>
 # checkpoint, and `recover_ready` (reading the store *after* the sweep) never
 # sees it. The deferral is the label's only chance to be triaged, so it is kept
 # under its own key, with the `at` the read failed to give us: the current time
-# on the first deferral, or the `at` already recorded by an earlier retry.
-write_retry_marker() { # write_retry_marker <number> <signal>
+# on the first deferral, or the `at` already recorded by an earlier retry. The
+# `mention` flag travels with it, so a deferred maintainer mention is still
+# recognisable when the fold reaches the sweep checkpoint (#1083).
+write_retry_marker() { # write_retry_marker <number> <signal> [mention]
   at=""
   if kv_get "$RETRY_KEY$1"; then
     at=$(printf '%s' "$KV_JSON" | jq -r '.at // ""' 2>/dev/null) || at=""
     case "$at" in '' | *[!0-9]*) at="" ;; esac
   fi
   [ -n "$at" ] || at=$(date -u +%s)
+  mn=false
+  if [ "${3:-}" = "1" ]; then mn=true; fi
   kv_put "$RETRY_KEY$1" \
-    "$(jq -nc --arg s "$2" --argjson a "$at" '{signal: $s, at: $a}')" \
+    "$(jq -nc --arg s "$2" --argjson a "$at" --argjson mn "$mn" '{signal: $s, at: $a, mention: $mn}')" \
     || echo "::warning::could not record the deferred retry for #$1."
 }
 
@@ -759,14 +799,14 @@ drain_retry_markers() {
     fi
     # A closed or `ready`-and-final issue is dropped by the pass itself
     # (`process_one`), so the fold is safe whatever the issue's state.
-    write_sweep_marker "$n" "$RETRY_SIGNAL" "$PENDING_RUN" "$at"
+    write_sweep_marker "$n" "$RETRY_SIGNAL" "$PENDING_RUN" "$at" "$RETRY_MENTION"
     if [ "$MARK_WRITE_OK" = 1 ]; then remove_retry_marker "$n"; fi
   done
   return 0
 }
 
-read_retry_marker() { # read_retry_marker <number>; sets RETRY_SIGNAL, RETRY_AT, RETRY_FORM
-  RETRY_SIGNAL=""; RETRY_AT=""; RETRY_FORM="none"
+read_retry_marker() { # read_retry_marker <number>; sets RETRY_SIGNAL, RETRY_AT, RETRY_MENTION, RETRY_FORM
+  RETRY_SIGNAL=""; RETRY_AT=""; RETRY_MENTION=""; RETRY_FORM="none"
   rc=0
   kv_get "$RETRY_KEY$1" || rc=$?
   case "$rc" in
@@ -776,7 +816,10 @@ read_retry_marker() { # read_retry_marker <number>; sets RETRY_SIGNAL, RETRY_AT,
   RETRY_SIGNAL=$(printf '%s' "$KV_JSON" | jq -r '.signal // ""' 2>/dev/null) || RETRY_SIGNAL=""
   RETRY_AT=$(printf '%s' "$KV_JSON" | jq -r '.at // ""' 2>/dev/null) || RETRY_AT=""
   case "$RETRY_AT" in '' | *[!0-9]*) RETRY_AT="" ;; esac
-  [ -n "$RETRY_SIGNAL" ] || { RETRY_SIGNAL=""; RETRY_AT=""; RETRY_FORM="none"; return 0; }
+  case "$(printf '%s' "$KV_JSON" | jq -r '.mention // false' 2>/dev/null)" in
+    true) RETRY_MENTION=1 ;;
+  esac
+  [ -n "$RETRY_SIGNAL" ] || { RETRY_SIGNAL=""; RETRY_AT=""; RETRY_MENTION=""; RETRY_FORM="none"; return 0; }
   RETRY_FORM="some"
 }
 
@@ -965,17 +1008,39 @@ on_activity() { # on_activity <kind> <event-json>
   esac
   [ -n "$sender" ] || { echo "no sender in the event; nothing to do."; exit 0; }
 
-  # `ready`/`in-progress` end the triage episode (#1083); a maintainer's mention
-  # of `@cipansor-bot` in THIS comment is the one way back in.
-  if in_lifecycle_state "$number" && ! is_maintainer_mention "$event"; then
+  # A maintainer's `@cipansor-bot` mention in THIS comment is the one way back
+  # into a `ready`/`in-progress` issue (#1083). Read before the state gate and
+  # carried into the checkpoint, so the recovery pass honours it too.
+  mention=0
+  if is_maintainer_mention "$event"; then mention=1; fi
+
+  # The issue's state and lifecycle labels from ONE read (see the helper). A
+  # comment can still arrive on a closed issue — the workflow subscribes to
+  # `issue_comment.created`, and the cleanup removes the lifecycle labels on
+  # close — so the state must gate the dispatch or a closed issue's comment would
+  # re-triage finished work (#1083).
+  snap=$(issue_state_and_status "$number") \
+    || { echo "::warning::could not read the state of #$number; skipped the activity."; exit 1; }
+  state=$(printf '%s' "$snap" | cut -d' ' -f1)
+  [ "$state" = "open" ] || { echo "#$number is '${state:-unknown}'; nothing to do."; exit 0; }
+  statuses=$(printf '%s' "$snap" | cut -d' ' -f2-)
+  in_scope=0
+  for s in $statuses; do
+    case " $LIFECYCLE_LABELS " in *" $s "*) in_scope=1 ;; esac
+  done
+  if [ "$in_scope" = 1 ] && [ "$mention" != 1 ]; then
     echo "#$number is \`ready\`/\`in-progress\`; triage is closed until a maintainer mentions @cipansor-bot."
     exit 0
   fi
 
   # Collapse a burst on one issue: the labeler's counterpart for comments, so
-  # three comments in a row are one run, not three.
+  # three comments in a row are one run, not three. A maintainer's mention is a
+  # deliberate request, not a burst, so it does NOT collapse — the key holds only
+  # a time and cannot tell the reporter's comment that ran a moment earlier from
+  # the maintainer's correction (#1083). It still records its time below, so a
+  # reporter comment right after it collapses as usual.
   now=$(date -u +%s)
-  if kv_get "$ACTIVITY_KEY$number"; then
+  if [ "$mention" != 1 ] && kv_get "$ACTIVITY_KEY$number"; then
     prev_at=$(printf '%s' "$KV_JSON" | jq -r '.at // 0' 2>/dev/null) || prev_at=0
     case "$prev_at" in '' | *[!0-9]*) prev_at=0 ;; esac
     since=$((now - prev_at))
@@ -996,10 +1061,10 @@ on_activity() { # on_activity <kind> <event-json>
     if [ -n "$sig" ]; then
       read_sweep_marker "$number"
       if [ "$MARK_FORM" = "unknown" ]; then
-        write_retry_marker "$number" "$sig"
+        write_retry_marker "$number" "$sig" "$mention"
       else
         if [ "$MARK_RUN" = "$PENDING_RUN" ]; then at="${MARK_AT:-0}"; else at=""; fi
-        write_sweep_marker "$number" "$sig" "$PENDING_RUN" "$at"
+        write_sweep_marker "$number" "$sig" "$PENDING_RUN" "$at" "$mention"
       fi
     fi
     exit 0
@@ -1007,7 +1072,7 @@ on_activity() { # on_activity <kind> <event-json>
 
   if dispatch "$number" "$kind" "activity-$kind"; then
     kv_put "$ACTIVITY_KEY$number" "$(jq -nc --argjson at "$now" '{at: $at}')" || true
-    [ -n "$sig" ] && write_sweep_marker "$number" "$sig" "$RUN_ID"
+    [ -n "$sig" ] && write_sweep_marker "$number" "$sig" "$RUN_ID" "" "$mention"
   else
     echo "::warning::#${number}'s activity dispatch failed; the sweep retries it."
     exit 1
@@ -1220,12 +1285,20 @@ process_one() { # process_one <number> <inflight> [scope_ok]
       # checkpoint is stale; a read hiccup (`unknown`) keeps it too.
       #
       # `scope_ok` = 1 lets a `ready` issue through (the recovery pass for a
-      # deferred label dispatch); an `in-progress` issue is never in scope, and a
-      # `ready` issue with `scope_ok` falls through to the dispatch logic below.
+      # deferred label dispatch). An `in-progress` issue is normally out of scope
+      # even then — EXCEPT when its checkpoint carries the `mention` flag: a
+      # maintainer's `@cipansor-bot` mention asks for a correction on work
+      # already under way, and if that dispatch was deferred (pool full) the
+      # checkpoint would be stranded — the sweep excludes `in-progress` and this
+      # recovery pass refused it too, so the mention would never be triaged
+      # (#1083). A plain comment's checkpoint has no flag and is still refused.
       ok=0
       if [ "$scope_ok" = "1" ]; then
         case " $state " in
-          *" in-progress "*) ok=0 ;;
+          *" in-progress "*)
+            read_sweep_marker "$n"
+            if [ "$MARK_MENTION" = 1 ]; then ok=1; fi
+            ;;
           *) ok=1 ;;
         esac
       fi
