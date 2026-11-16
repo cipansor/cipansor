@@ -323,6 +323,13 @@ case "$*" in
       # Another bot's notice, authored cipansor-bot but carrying neither the
       # marker nor the heading: it must NOT count as a triage answer.
       printf '[{"user":{"login":"cipansor-bot"},"body":"Label dicabut <!-- label-guard:revoked -->"}]\\n'
+    elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = "pages" ]; then
+      # An issue past 100 comments: gh api --paginate emits one JSON array PER
+      # PAGE, so a filter without -s decides on the LAST page alone. Page 1 holds
+      # the triage answer; page 2 is a label notice. The answer must still be
+      # found (#877 review, "jawaban triase terabaikan sebelum halaman terakhir").
+      printf '[{"user":{"login":"cipansor-bot"},"body":"<!-- sdlc:triase -->"}]\\n'
+      printf '[{"user":{"login":"cipansor-bot"},"body":"Label dicabut <!-- label-guard:revoked -->"}]\\n'
     elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = 1 ]; then
       # triage_answered reads this same listing (no --jq). The marker comment is
       # authored by the bot, so the activity signal still excludes it; its
@@ -4029,6 +4036,34 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).not.toContain('DISPATCH');
     expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+  });
+
+  it('finds a triage answer on an earlier page of a paginated comment listing', () => {
+    // #877 review, "jawaban triase terabaikan sebelum halaman terakhir": an
+    // issue past 100 comments returns one JSON array PER PAGE from `gh api
+    // --paginate`. A filter without `-s` decides on the LAST page alone, so an
+    // answer on page 1 with a label notice on page 2 read as "no answer" and
+    // retried a finished run to the attempt cap. `-s` + `.[][]` reads every
+    // page, so the answer is found and the checkpoint finalises.
+    // Two pages hash as two non-fleet lines, so the checkpoint's signal is the
+    // two-page hash — the sweep then reaches `triage_answered` on a matching
+    // signal, exactly as it would on a real >100-comment issue.
+    const pagesSig = createHash('sha256')
+      .update(`${JSON.stringify({ body: 'edited' })}\n[]\n[]\n`)
+      .digest('hex')
+      .slice(0, 16);
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: 'pages',
+        KV_SEED: { 'triage-sweep-818': { signal: pagesSig, run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: pagesSig, run: '' });
   });
 
   it('still retries a completed run whose issue shows only another bot notice', () => {

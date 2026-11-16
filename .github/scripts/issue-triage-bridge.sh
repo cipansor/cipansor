@@ -518,12 +518,20 @@ triage_answered() { # triage_answered <number>; prints 1 when an answer is prese
   fi
   comments=$(gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" 2>/dev/null) \
     || { printf '1'; return 0; }
-  # A listing that is not a JSON array is an unreadable read, not "no answer":
-  # a hiccup must not re-dispatch every sweep.
-  printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 \
-    || { printf '1'; return 0; }
+  # `gh api --paginate` emits one JSON array PER PAGE (its documented contract),
+  # so a filter run without `-s` decides on the LAST page alone: an issue past
+  # 100 comments whose triage answer sits on an earlier page and whose last page
+  # is a label notice would be judged "no answer" and retried to the attempt cap
+  # (#877 review, "jawaban triase terabaikan sebelum halaman terakhir"). `-s`
+  # slurps every page into one outer array, so `.[][]` reads them all — and it
+  # reads a merged array (one page, or a gh that concatenates pages) the same
+  # way, so the check is correct whichever shape gh returns.
+  # A listing that is not a page of JSON arrays is an unreadable read, not "no
+  # answer": a hiccup must not re-dispatch every sweep.
+  printf '%s' "$comments" | jq -s -e 'length > 0 and all(.[]; type == "array")' \
+    >/dev/null 2>&1 || { printf '1'; return 0; }
   if printf '%s' "$comments" \
-    | jq -e '[.[] | select((.user.login // "") == "cipansor-bot") | select((.body // "") | (contains("<!-- sdlc:triase") or test("(?m)^## Triase")))] | length > 0' \
+    | jq -s -e '[.[][] | select((.user.login // "") == "cipansor-bot") | select((.body // "") | (contains("<!-- sdlc:triase") or test("(?m)^## Triase")))] | length > 0' \
       >/dev/null 2>&1; then
     printf '1'; return 0
   fi
