@@ -463,7 +463,7 @@ export async function generateRaportMerdekaPdfBuffer(data: RaportMerdekaPdfData)
 
   const rightSigX = PAGE_WIDTH - MARGIN - 140;
   currentPage.drawText(
-    `${LETTERHEAD.city}, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+    `${LETTERHEAD.city}, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' })}`,
     { x: rightSigX, y: sigY + 40, size: 8.5, font: bodyFont }
   );
   currentPage.drawText('Wali Kelas', { x: rightSigX, y: sigY + 30, size: 8.5, font: bodyFont });
@@ -692,7 +692,7 @@ export async function generateRaportMerdekaPdfBuffer(data: RaportMerdekaPdfData)
   }
 
   currentP5Page.drawText(
-    `${LETTERHEAD.city}, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric' })}`,
+    `${LETTERHEAD.city}, ${new Date().toLocaleDateString('id-ID', { day: 'numeric', month: 'long', year: 'numeric', timeZone: 'Asia/Jakarta' })}`,
     { x: rightSigX, y: sigY2 + 40, size: 8.5, font: bodyFont }
   );
   currentP5Page.drawText('Musyrif / Wali Kelas', {
