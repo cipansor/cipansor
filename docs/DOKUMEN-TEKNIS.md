@@ -22,6 +22,7 @@
 | 1.8 | 12 November 2026 | kode `5fa174e` | §8 menunjuk modul tanggal WIB yang **gabungan**, `apps/api/src/utils/wib.ts`. Kalimat keadaan-sekarang tidak lagi mengarahkan pembaca ke `utils/wib-day.ts` yang sudah dihapus saat dua modul tanggal disatukan; baris riwayat 1.4 dibiarkan apa adanya karena mencatat keadaan pada revisi itu. | Agen OpenHands |
 | 1.9 | 12 November 2026 | kode `1b394b1` | Gerbang baru **`check-doc-paths.py`** (job `Security`, yang selalu jalan) menolak dokumen yang menunjuk berkas kode yang tidak ada. Gerbang lama tidak menangkapnya: `check_docs.py` memeriksa angka/rute/label/pesan, bukan keberadaan berkas, dan job `Tests` di-skip pada perubahan dokumen-saja. Pemeriksa ini menemukan dua rujukan basi nyata di memori proyek (`known-issues.md`, `lessons/date-only-midnight-utc-vs-now.md`), keduanya diperbaiki. | Agen OpenHands |
 | 1.10 | 12 November 2026 | kode `e2bff54` | `check-doc-paths.py` kini mengenali rujukan **`src/…`** tanpa awalan workspace — bentuk yang dipakai bab arsitektur untuk berkas web (`src/lib/api.ts`). Rujukan itu diselesaikan relatif terhadap workspace dokumennya (dokumen di luar workspace boleh menunjuk app mana pun). Sebelumnya rujukan seperti itu lolos, sehingga berkas yang dipindah tidak tercatat. | Agen OpenHands |
+| 1.11 | 12 November 2026 | kode `1f26036` | §8 dikoreksi: ambang "lewat jatuh tempo" untuk kolom tanggal-saja kini **awal hari WIB** (`wibOverdueCutoff()`), bukan instan tengah malam UTC-nya (07.00 WIB). Kalimat lama menyebut perbandingan memakai instan tengah malam UTC itu; kode diperbaiki di #1050 (pembaca `finance`, `dashboard`, `analytics`). | Agen OpenHands |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
 > seiring pengembangan. Dokumen diperbarui dengan menjalankan ulang pengukuran, bukan dengan menyunting angka.
@@ -120,7 +121,7 @@ setiap orang pada data yang berhak dilihatnya.
 
 | Jenis | Batasan | Sumber |
 |---|---|---|
-| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7, Zod 4, PostgreSQL, Redis (opsional), Node 26, TypeScript 6. Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
+| Teknis | Monorepo pnpm + Turborepo. API: Express 5, Prisma 7, Zod 4, PostgreSQL, Redis (opsional), Node 26, TypeScript 7 (kompiler Go; API kompilator 6 lewat `@typescript/typescript6`). Web: Next.js 16, React 19, React Query 5, Tailwind 4. Manajer paket `pnpm@12.11.2`. | `package.json` |
 | Organisasi | Tim pengembang kecil; yayasan nirlaba memakai perkakas hibah; satu basis data untuk semua unit; repositori bersifat **publik sampai rilis** (lisensi proprietary, menjadi privat saat rilis). | `AGENTS.md`, `LICENSE` |
 | Hukum (yang tercatat di repo) | UU 16/2001 (Yayasan) untuk wewenang organ; UU 27/2022 (PDP) untuk data pribadi; PP 71/2019 untuk tanda tangan elektronik. | `decisions/pengesahan-dokumen-yayasan.md`, `decisions/esign-standards-ceiling.md`, `skills/tata-kelola-yayasan` |
 | Konvensi | Portal berbahasa Indonesia; situs publik tiga bahasa (Indonesia, Inggris, Arab; Arab ditulis kanan ke kiri). Istilah pesantren tidak diterjemahkan; istilah umum berbahasa Inggris di kode/URL, label berbahasa Indonesia. | `decisions/istilah-dan-penamaan.md` |
@@ -606,9 +607,12 @@ sampai ke kontainer; pada Azure App Service, ke app settings tiap kontainer.
   pada **tengah malam UTC** — sebuah hari, bukan jam. Kontrak tulisnya
   **`YYYY-MM-DD`** (Zod `z.string().date`); pembacaan menyerialkannya sebagai
   timestamp ISO di tengah malam UTC. Perbandingan "lewat jatuh tempo" memakai
-  instan tengah malam UTC itu (pukul 07.00 WIB), bukan akhir hari WIB. Periode
-  bulanan (penagihan otomatis, pengingat SPP, nomor invoice) dihitung pada
-  **kalender WIB**, bukan pada jam server, lewat `apps/api/src/utils/wib.ts`.
+  **awal hari WIB** saat ini (`wibOverdueCutoff()`), sehingga tagihan tetap
+  "jatuh tempo" sepanjang hari yang ditunjuknya dan baru menunggak setelah hari
+  WIB-nya berakhir — bukan pada instan tengah malam UTC-nya (pukul 07.00 WIB)
+  (#1050). Periode bulanan (penagihan otomatis, pengingat SPP, nomor invoice)
+  dihitung pada **kalender WIB**, bukan pada jam server, lewat
+  `apps/api/src/utils/wib.ts`.
 - **Pengujian.** Uji unit (vitest, Prisma dimock), e2e Playwright, dan uji
   penjaga (kontrak web↔API, route shadowing, sinkron peran).
 - **Pekerjaan terjadwal.** `node-cron` di dalam proses API (lihat 6.6).

@@ -1,19 +1,27 @@
 # Re-triage an issue after another automation has responded, or after new
-# activity, without a trigger on `issues.edited`.
+# activity.
 #
-# Why: nothing in the fleet fires on `issues.edited`, so a reporter who edits an
-# issue description gets no re-triage (found on #818, whose body was edited twice
-# after triage with no answer). The triage owner is dispatched deterministically
-# instead:
+# Why: nothing in the fleet fires on `issues.edited` or on a new comment, so a
+# reporter who edits an issue description, or a maintainer who answers a
+# `question`, got no re-triage until the hourly sweep happened to pick it up
+# (#818, #1084). The triage owner is dispatched deterministically instead:
 #
 #   labeled -> a bot applied a type or priority label; the labeler responded, so
 #              the triage owner studies the issue and the bot's comment. The
 #              labeler's burst of labels collapses to one dispatch per
 #              type+priority state (a marker comment).
-#   sweep   -> an open, not-`ready` issue's activity signal (body + non-fleet
-#              comments) changed since the bridge's last checkpoint, so an edited
-#              description or a new comment is caught without a trigger on
-#              `issues.edited`. The description is never touched by this workflow.
+#   comment -> a non-fleet account commented on an open issue. This is the
+#              event-driven path for a maintainer's reply (#1084): before it, a
+#              reply waited behind the sweep's ~40-candidate queue. A burst on
+#              one issue collapses to one dispatch per BURST_WINDOW.
+#   edited  -> a non-fleet account edited an issue's body (#1084). The fleet's
+#              own body PATCHes (`basmalah`, `issue-label-sync`) post as
+#              `github-actions[bot]` and are ignored by the anti-loop guard.
+#   sweep   -> an open, not-`ready`, not-`in-progress` issue's activity signal
+#              (body + non-fleet comments) changed since the bridge's last
+#              checkpoint. The safety net behind the event paths, so an event the
+#              workflow missed (or one that arrived while the pool was full) is
+#              still caught. The description is never touched by this workflow.
 #              A dispatch deferred while the pool was full (`pending`) is queued
 #              with its first-deferral time; the sweep also discovers these from
 #              the store and takes the oldest wait first (FIFO), so a deferred
@@ -32,6 +40,10 @@
 #              the dispatches per pass are capped. A final checkpoint is skipped,
 #              so a new comment on a `ready` issue is not re-triaged (#837 R496).
 #
+# `ready` and `in-progress` issues are out of scope on every path (#1083): both
+# end the triage episode. The one way back in is a maintainer's `@cipansor-bot`
+# mention, which asks for a specific correction.
+#
 # The signal is content, not a timestamp, so a same-second edit is still caught.
 # The triage owner is idempotent, so a duplicate dispatch is not a duplicate
 # comment; the markers only save runs. A marker is written only after the
@@ -41,7 +53,9 @@ name: Issue triage bridge
 
 on:
   issues:
-    types: [labeled]
+    types: [labeled, edited]
+  issue_comment:
+    types: [created]
   schedule:
     - cron: '17 * * * *' # hourly, off the top of the hour (gate-watch uses :23)
   workflow_dispatch:
@@ -64,7 +78,7 @@ concurrency:
 jobs:
   labeled:
     name: Dispatch triage after a bot's label
-    if: github.event_name == 'issues'
+    if: github.event_name == 'issues' && github.event.action == 'labeled'
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
@@ -82,9 +96,37 @@ jobs:
           OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
         run: sh .github/scripts/issue-triage-bridge.sh --stdin < "$GITHUB_EVENT_PATH"
 
+  # The event-driven paths (#1084): a new comment, or an edited issue body. Both
+  # read the event from the same file and share the guard set in the script
+  # (anti-loop, lifecycle, burst, in-flight cap).
+  activity:
+    name: Dispatch triage after new issue activity
+    if: github.event_name == 'issue_comment' || (github.event_name == 'issues' && github.event.action == 'edited')
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          sparse-checkout: .github/scripts
+          persist-credentials: false
+      - name: Dispatch the triage owner for the new comment
+        if: github.event_name == 'issue_comment'
+        env:
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: sh .github/scripts/issue-triage-bridge.sh --comment < "$GITHUB_EVENT_PATH"
+      - name: Dispatch the triage owner for the edited issue
+        if: github.event_name == 'issues'
+        env:
+          GH_TOKEN: ${{ secrets.CIPANSOR_BOT_TOKEN || github.token }}
+          REPO: ${{ github.repository }}
+          OPENHANDS_API_KEY: ${{ secrets.OPENHANDS_API_KEY }}
+        run: sh .github/scripts/issue-triage-bridge.sh --edited < "$GITHUB_EVENT_PATH"
+
   sweep:
     name: Sweep not-ready issues with new activity
-    if: github.event_name != 'issues'
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:

@@ -337,6 +337,33 @@ describe('duplicate-detect.sh', () => {
     expect(out).not.toContain('Labelled #958');
   });
 
+  it('exits non-zero when the link comment fails, so the step is not green (#984)', () => {
+    // An `::error::` on its own left the step green: the loop continued, the
+    // script printed "Done." and exited 0, so the silent failure was never
+    // surfaced as a failed run. The error path now ends the run non-zero.
+    const failed = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+      GH_STUB_FAIL_COMMENT: '1',
+    });
+    expect(failed.status).not.toBe(0);
+    expect(failed.out).toContain('::error::');
+    expect(failed.out).not.toContain('Done.');
+  });
+
+  it('exits zero on the ordinary path', () => {
+    const ok = run({
+      GH_STUB_ISSUES: issues([
+        { number: 800, title: `${WATCH}38324975861 failed` },
+        { number: 958, title: `${WATCH}42569593649 failed` },
+      ]),
+    });
+    expect(ok.status).toBe(0);
+    expect(ok.out).toContain('Done.');
+  });
+
   it('never removes a label itself, however the writes fail', () => {
     // Comment-first: even with both writes failing there is nothing to roll back,
     // so the detector is never the author of an `unlabeled` event.
