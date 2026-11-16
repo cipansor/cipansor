@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
+import { wibMonthYear, wibMonthKey, wibMonthRange } from '@/utils/wib';
 
 /** Page size for the row-by-row reads below; every page is read, so it is a
  * transport detail, not a cap on how much revenue is counted. */
@@ -293,10 +294,19 @@ export async function getAdmissionFunnel(unitId?: string) {
  * student that came in through a campaign, bucketed per month.
  */
 export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
-  const start = new Date();
-  start.setMonth(start.getMonth() - (months - 1));
-  start.setDate(1);
-  start.setHours(0, 0, 0, 0);
+  // The window and its buckets follow the WIB calendar (Asia/Jakarta, UTC+7), not
+  // the host clock: the API container runs UTC, so `setMonth`/`getMonth` on the
+  // raw date scrolled the window on the 29th–31st (keeping the date overflowed
+  // into the next month) and filed a payment made in the first seven hours of a
+  // WIB month under the previous one (#1086).
+  const { year, month } = wibMonthYear(new Date());
+  /** The WIB month `n` months from the current one, as a normalised (year, month). */
+  const shift = (n: number) => {
+    const total = year * 12 + month + n;
+    return { year: Math.floor(total / 12), month: ((total % 12) + 12) % 12 };
+  };
+  const first = shift(-(months - 1));
+  const start = wibMonthRange(first.year, first.month).start;
 
   const payments = await readAllPages(({ skip, take }) =>
     prisma.payment.findMany({
@@ -363,14 +373,16 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
 
   const buckets = new Map<string, { revenue: number; count: number }>();
   for (let i = 0; i < months; i++) {
-    const d = new Date(start.getFullYear(), start.getMonth() + i, 1);
-    buckets.set(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`, {
+    const m = shift(-(months - 1) + i);
+    buckets.set(`${m.year}-${String(m.month + 1).padStart(2, '0')}`, {
       revenue: 0,
       count: 0,
     });
   }
-  const bucketKey = (at: Date) =>
-    `${at.getFullYear()}-${String(at.getMonth() + 1).padStart(2, '0')}`;
+  // File each payment under the WIB month it was actually paid in, so a payment
+  // made between 00:00 and 06:59 WIB on the 1st does not fall into the previous
+  // month (#1086).
+  const bucketKey = (at: Date) => wibMonthKey(at);
 
   for (const payment of payments) {
     // A REG_FEE payment is a second record of the same fee the Registrant holds
