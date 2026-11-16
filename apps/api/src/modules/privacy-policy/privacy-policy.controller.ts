@@ -12,9 +12,11 @@ import {
 /**
  * Kebijakan Privasi publik (UU PDP 27/2022 Pasal 30, 35).
  *
- * `getCurrent` sengaja TANPA autentikasi: halaman publik dan formulir SPMB
- * membacanya tanpa sesi. Yang tertutup hanya penerbitan versi baru dan daftar
- * riwayat — keduanya Super Admin (lihat `privacy-policy.routes.ts`).
+ * `getCurrent` dan `getVersion` sengaja TANPA autentikasi: halaman publik dan
+ * formulir SPMB membacanya tanpa sesi, dan formulir menautkan versi yang akan
+ * dicatat supaya halaman menampilkan teks yang persis akan disetujui. Yang
+ * tertutup hanya penerbitan versi baru dan daftar riwayat — keduanya Super Admin
+ * (lihat `privacy-policy.routes.ts`).
  */
 
 /** GET /privacy-policy/current — versi yang berlaku, untuk halaman publik. */

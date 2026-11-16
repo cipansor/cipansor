@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import type {
@@ -119,35 +120,57 @@ export async function getVersion(version: number): Promise<PrivacyPolicyCurrentD
  * Terbitkan versi baru (Super Admin).
  *
  * Nomornya dihitung peladen (`max(version) + 1`), bukan dikirim pemanggil:
- * nomor yang diketik manusia adalah nomor yang akan salah, dan dua penerbitan
- * bersamaan harus berurutan. Versi lama tidak pernah disentuh — barisnya tetap
- * ada sebagai teks yang disetujui pendaftar dahulu.
+ * nomor yang diketik manusia adalah nomor yang akan salah. Membaca nomor
+ * tertinggi dan menyisipkan barisnya adalah dua operasi; dua permintaan
+ * bersamaan bisa membaca nomor yang sama, dan batas unik `version` menolak
+ * salah satunya dengan 409 walaupun isiannya sah. Karena itu penyisipan diulang
+ * saat benturan itu terjadi (pola yang sama dengan `createRegistrant`), sehingga
+ * penerbitan bersamaan menghasilkan dua nomor berurutan, bukan satu kegagalan.
+ * Versi lama tidak pernah disentuh — barisnya tetap ada sebagai teks yang
+ * disetujui pendaftar dahulu.
  */
 export async function createVersion(
   input: CreatePrivacyPolicyVersionInput,
   actor: { sub: string }
 ): Promise<PrivacyPolicyCurrentDTO> {
-  const latest = await prisma.privacyPolicyVersion.findFirst({
-    orderBy: { version: 'desc' },
-    select: { version: true },
-  });
-  const nextVersion = (latest?.version ?? 0) + 1;
-
-  const row = await prisma.privacyPolicyVersion.create({
-    data: {
-      version: nextVersion,
-      bodyId: input.bodies.id,
-      bodyEn: input.bodies.en,
-      bodyAr: input.bodies.ar,
-      summaryId: input.summaries.id,
-      summaryEn: input.summaries.en,
-      summaryAr: input.summaries.ar,
-      effectiveAt: input.effectiveAt,
-      createdById: actor.sub,
-    },
-  });
-
-  return toCurrentDTO(row);
+  const MAX_ATTEMPTS = 5;
+  let lastError: unknown;
+  for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
+    const latest = await prisma.privacyPolicyVersion.findFirst({
+      orderBy: { version: 'desc' },
+      select: { version: true },
+    });
+    const nextVersion = (latest?.version ?? 0) + 1;
+    try {
+      const row = await prisma.privacyPolicyVersion.create({
+        data: {
+          version: nextVersion,
+          bodyId: input.bodies.id,
+          bodyEn: input.bodies.en,
+          bodyAr: input.bodies.ar,
+          summaryId: input.summaries.id,
+          summaryEn: input.summaries.en,
+          summaryAr: input.summaries.ar,
+          effectiveAt: input.effectiveAt,
+          createdById: actor.sub,
+        },
+      });
+      return toCurrentDTO(row);
+    } catch (err) {
+      lastError = err;
+      if (
+        err instanceof Prisma.PrismaClientKnownRequestError &&
+        err.code === 'P2002' &&
+        Array.isArray((err.meta as { target?: string[] } | undefined)?.target) &&
+        (err.meta as { target: string[] }).target.includes('version')
+      ) {
+        // Another publish took this number between our read and our insert.
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw lastError;
 }
 
 /**
