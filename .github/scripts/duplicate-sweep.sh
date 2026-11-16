@@ -44,6 +44,12 @@ LINK_MARK="<!-- duplicate-detect -->"
 # not by the AI-disclosure footer: `cipansor-bot` is a bot account, so its name
 # already says the comment is automated and no footer is needed (#680).
 BOT_LOGIN="${BOT_LOGIN:-cipansor-bot}"
+# The account whose removal of the `duplicate` label is a maintainer's verdict.
+# `duplicate-detect.sh` re-applies any other removal, so the warning the
+# reporter reads must name this account rather than "a maintainer" generally —
+# the same variable and default as the detector, so the text and the rule
+# cannot drift apart (#985).
+TRUSTED="${DUPLICATE_DETECT_TRUSTED_ACTOR:-cipansor-bot}"
 
 body_hash() { printf '%s' "$1" | sha256sum | cut -d' ' -f1; }
 
@@ -75,7 +81,7 @@ for n in $ITEMS; do
     HASH=$(body_hash "$BODY")
     gh issue comment "$n" --repo "$REPO" --body "This issue looks like a **duplicate** of one already open or closed. It will be closed automatically in $GRACE_DAYS days unless it is shown to be distinct — edit the issue, or reply with why it is not a duplicate.
 
-If a maintainer agrees it is distinct, removing the \`duplicate\` label cancels the close. $MARK
+If \`$TRUSTED\` agrees it is distinct, removing the \`duplicate\` label cancels the close; the detector re-applies a removal by any other account on the next sweep. $MARK
 
 <!-- duplicate-sweep:hash:$HASH -->"
     echo "Warned on issue #$n."
