@@ -215,10 +215,33 @@ describe('main-failure-bridge.yml', () => {
     expect(step, 'the cross-browser test step wraps the command in `timeout`').toMatch(
       /^timeout --signal=TERM \d+ pnpm --filter web exec playwright test/
     );
-    // The inner timeout stays under the 45-minute job ceiling, so the post steps
-    // still run and the job is never the thing the runner kills.
     const seconds = Number(step.match(/^timeout --signal=TERM (\d+)/)?.[1]);
     expect(seconds).toBeGreaterThan(0);
-    expect(seconds).toBeLessThan(45 * 60);
+
+    // The ceiling covers the WHOLE job — checkout, install, seed, build, start
+    // the API, the test step and the post steps — while `timeout` starts only
+    // when the test command does. So "seconds < ceiling" is not the contract: a
+    // timeout of 44 minutes is under the 45-minute ceiling yet a hung run would
+    // still be killed by the runner at 45 and conclude `cancelled`, the very
+    // outcome #915 removes. The timeout must fit inside the ceiling TOGETHER
+    // with preparation and teardown, or the wrap buys nothing. Read the ceiling
+    // from the job, so the check tracks the workflow instead of a literal 45.
+    const job = E2E.slice(E2E.indexOf('e2e-cross-browser:'));
+    const ceilingSeconds = Number(job.match(/timeout-minutes:\s*(\d+)/)?.[1]) * 60;
+    expect(ceilingSeconds, 'the cross-browser job sets a timeout-minutes ceiling').toBeGreaterThan(
+      0
+    );
+
+    // Preparation (job start → the test step) and teardown (the test step → job
+    // end), measured across the 68 cross-browser jobs of the 60 most recent
+    // completed E2E runs (2026-11-16): preparation min 37s / mean 198s / p95
+    // 230s / max 255s; teardown ≤ 10s. The allowance is the observed maximum
+    // with margin, so the guard fails if a later timeout is raised past what the
+    // ceiling can actually absorb — the "leaves ~5 minutes" claim in the
+    // workflow is only true because preparation was measured, not assumed.
+    const PREP_MAX = 255;
+    const POST_MAX = 30;
+    const MARGIN = 60;
+    expect(seconds + PREP_MAX + POST_MAX + MARGIN).toBeLessThanOrEqual(ceilingSeconds);
   });
 });
