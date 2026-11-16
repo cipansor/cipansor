@@ -91,6 +91,58 @@ describe('reading muhadatsah', () => {
   });
 });
 
+// The "already scheduled this week" filter is the WIB Monday–Sunday week (K2,
+// #918): the old code read the server clock (UTC on the container) and started
+// the week on Sunday, so a muhadatsah booked in the Sunday 00:00–06:59 WIB
+// stretch was filed into the wrong week and the santri was suggested again.
+describe('the week window matchPartners filters on', () => {
+  const WINDOW = {
+    gte: new Date('2026-03-01T17:00:00.000Z'), // Mon 2026-03-02 00:00 WIB
+    lt: new Date('2026-03-08T17:00:00.000Z'), // Mon 2026-03-09 00:00 WIB
+  };
+
+  it('is the WIB Monday–Sunday week on a Sunday 00:00–06:59 WIB instant', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-07T20:00:00Z')); // Sun 2026-03-08 03:00 WIB
+
+    await muhadatsahService.matchPartners(ACTORS.musyrif, undefined, 'Arabic');
+
+    expect(prismaMock.muhadatsah.findMany.mock.calls[0][0].where.scheduledAt).toEqual(WINDOW);
+    vi.useRealTimers();
+  });
+
+  it('is the same for any instant within the same WIB week', async () => {
+    // Monday 00:00 WIB, Wednesday 12:00 WIB, Sunday 23:59 WIB — one window.
+    for (const instant of [
+      '2026-03-01T17:00:00Z',
+      '2026-03-04T05:00:00Z',
+      '2026-03-08T16:59:00Z',
+    ]) {
+      vi.useFakeTimers();
+      vi.setSystemTime(new Date(instant));
+      prismaMock.muhadatsah.findMany.mockClear();
+
+      await muhadatsahService.matchPartners(ACTORS.musyrif, undefined, 'Arabic');
+
+      expect(prismaMock.muhadatsah.findMany.mock.calls[0][0].where.scheduledAt).toEqual(WINDOW);
+      vi.useRealTimers();
+    }
+  });
+
+  it('ends exclusively at the next WIB Monday midnight', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-03-04T05:00:00Z')); // Wed 2026-03-04 12:00 WIB
+
+    await muhadatsahService.matchPartners(ACTORS.musyrif, undefined, 'Arabic');
+
+    const window = prismaMock.muhadatsah.findMany.mock.calls[0][0].where.scheduledAt;
+    // `lt`, not `lte`: an instant at exactly the next Monday 00:00 WIB is out.
+    expect(window).not.toHaveProperty('lte');
+    expect(window.lt).toEqual(new Date('2026-03-08T17:00:00.000Z'));
+    vi.useRealTimers();
+  });
+});
+
 describe('what a muhadatsah answer carries about people', () => {
   it('the santri, partner and evaluator by name only — no NIK, No. KK, address or bank account', async () => {
     const m = prismaMock.muhadatsah;

@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
-import { wibDayOf } from '../../utils/wib-day';
+import { wibDayOf } from '../../utils/wib';
 import {
   AccountType,
   BalanceSheetReport,

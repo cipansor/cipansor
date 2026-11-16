@@ -81,4 +81,36 @@ describe('change-scope.sh', () => {
       'a test reads these files but change-scope.sh would skip CI for a change to them — add each to the first branch of is_code()'
     ).toEqual([]);
   });
+
+  // A guard that reads `docs/` by listing the directory names no file the scan
+  // above can see: it matches literals, and `readdirSync(docs)` is not one. Such
+  // a guard runs only in `Tests`, which a documentation-only change skips — so
+  // the prose it should protect is exactly what slips past it. The docs-path
+  // checker therefore belongs to the always-on job, and this pins it there.
+  it('runs the docs-path checker in a job that every change reaches', () => {
+    const ci = readFileSync(join(REPO_ROOT, '.github', 'workflows', 'ci.yml'), 'utf8');
+    // Split on job headers (two-space indent) — `security` is the last one, so a
+    // lookahead for the next header would need an end-of-input case.
+    const job = ci.split(/\n(?=  [a-z][\w-]*:\n)/).find((j) => j.startsWith('  security:\n')) ?? '';
+    expect(job, 'ci.yml has no `security` job').not.toBe('');
+    // The job's own header (before its first step) must not be scope-gated. Its
+    // later steps may be — the heavy install and audit are — but the step that
+    // runs the checker must not be, or a docs-only change skips it again.
+    const header = job.split(/\n(?=      - )/)[0];
+    expect(header, '`security` must not be gated on scope').not.toContain('if:');
+
+    const step =
+      job
+        .split(/\n(?=      - )/)
+        // Anchor on the line that EXECUTES it: the preceding step's trailing
+        // comment also mentions the name, and matching that would check the
+        // wrong step and pass while the real one is gated.
+        .find((s) =>
+          s
+            .split('\n')
+            .some((l) => l.trim().startsWith('python3 .github/scripts/check-doc-paths.py'))
+        ) ?? '';
+    expect(step, 'no step in `security` runs check-doc-paths.py').not.toBe('');
+    expect(step, 'the docs-path step must run unconditionally').not.toContain('if:');
+  });
 });

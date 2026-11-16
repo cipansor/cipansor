@@ -119,21 +119,28 @@ export class CalendarService {
       where.isPublic = isPublic;
     }
 
-    // Date filters
+    // Date filters. An event belongs to the window when it *overlaps* it, not
+    // merely when it starts inside it: an event running 31 Dec–4 Jan must also
+    // appear in January. Filtering on `startDate` alone dropped it (#911). The
+    // overlap goes in `AND` because `OR` already carries the unit scope.
+    let rangeStart: Date | undefined;
+    let rangeEnd: Date | undefined;
     if (startDate || endDate) {
-      where.startDate = {};
-      if (startDate) where.startDate.gte = new Date(startDate);
-      if (endDate) where.startDate.lte = new Date(endDate);
+      rangeStart = startDate ? new Date(startDate) : undefined;
+      rangeEnd = endDate ? new Date(endDate) : undefined;
+    } else if (month && year) {
+      rangeStart = new Date(year, month - 1, 1);
+      rangeEnd = new Date(year, month, 0);
     }
-
-    // Month/Year filter
-    if (month && year) {
-      const monthStart = new Date(year, month - 1, 1);
-      const monthEnd = new Date(year, month, 0);
-      where.startDate = {
-        gte: monthStart,
-        lte: monthEnd,
-      };
+    if (rangeStart || rangeEnd) {
+      const overlapping: Prisma.CalendarEventWhereInput[] = [];
+      if (rangeEnd) overlapping.push({ startDate: { lte: rangeEnd } });
+      if (rangeStart) {
+        overlapping.push({
+          OR: [{ endDate: { gte: rangeStart } }, { endDate: null, startDate: { gte: rangeStart } }],
+        });
+      }
+      where.AND = overlapping;
     }
 
     if (search) {

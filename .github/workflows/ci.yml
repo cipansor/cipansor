@@ -245,6 +245,18 @@ jobs:
             sed -E 's/^([^:]+):([0-9]+): (.*)$/::error file=\1,line=\2::\3 — keep it in the machine-local memory, or use a placeholder/' findings.txt
             exit 1
           }
+      # A document that names a code file which is not there. This runs here and
+      # not in Tests because a documentation-only change skips Tests (see
+      # change-scope.sh), and prose is exactly what such a change carries. The
+      # `Tests` job also skips a test that READS the docs, so a stale reference
+      # could only be caught by a human. See check-doc-paths.py.
+      - name: No document points at a file that is not there
+        run: |
+          python3 .github/scripts/check-doc-paths.py --self-test
+          python3 .github/scripts/check-doc-paths.py > findings.txt || {
+            sed -E 's/^([^:]+):([0-9]+): (.*)$/::error file=\1,line=\2::\3/' findings.txt
+            exit 1
+          }
       - uses: pnpm/action-setup@73e46992e05b19abd31f2f3c20e0e7370d762115 # v6.1.1
         if: needs.scope.outputs.run == 'true'
         with:

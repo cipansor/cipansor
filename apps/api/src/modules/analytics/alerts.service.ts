@@ -8,7 +8,7 @@ import { createNotification } from '@/modules/notifications/notifications.servic
 import { NotificationType, AttendanceStatus } from '@prisma/client';
 import { logger } from '@/lib/logger';
 import { STUDENT_STATUS } from '@cipansor/shared';
-import { wibOverdueCutoff } from '@/utils/wib-day';
+import { wibOverdueCutoff } from '@/utils/wib';
 
 export interface AlertRule {
   id: string;

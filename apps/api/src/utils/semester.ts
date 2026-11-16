@@ -1,4 +1,5 @@
 import { ApiError, ErrorCode } from '@/middleware/error';
+import { wibDayOf } from '@/utils/wib';
 
 /**
  * The two semesters of an academic year — one rule for report cards and
@@ -63,8 +64,6 @@ export function getSemesterDateRange(
   return semester === 1 ? { startDate, endDate: sem1End } : { startDate: sem2Start, endDate };
 }
 
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-
 /**
  * The semester `at` falls in, and its first day as a WIB calendar day
  * (yyyy-MM-dd) — the form the attendance register stores its dates in.
@@ -75,6 +74,5 @@ export function semesterAt(
 ): { semester: 1 | 2; startDay: string } {
   const semester = at <= getSemesterDateRange(academicYear, 1).endDate ? 1 : 2;
   const { startDate } = getSemesterDateRange(academicYear, semester);
-  const startDay = new Date(startDate.getTime() + WIB_OFFSET_MS).toISOString().slice(0, 10);
-  return { semester, startDay };
+  return { semester, startDay: wibDayOf(new Date(startDate)) };
 }

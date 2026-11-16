@@ -1,7 +1,7 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma, BusinessUnitType } from '@prisma/client';
 import { Errors } from '@/middleware/error';
-import { wibMonthYear, wibDayStart } from '@/utils/wib-day';
+import { wibMonthYear, wibDayStart } from '@/utils/wib';
 
 export const businessUnitService = {
   async list(params: { unitId?: string; type?: BusinessUnitType; isActive?: boolean }) {

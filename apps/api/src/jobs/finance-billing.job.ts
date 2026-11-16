@@ -1,7 +1,7 @@
 import { logger } from '@/lib/logger';
 import { prisma } from '@/lib/prisma';
 import { generateBulkSppInvoices } from '@/modules/finance/finance.service';
-import { wibMonthYear } from '@/utils/wib-day';
+import { wibMonthYear } from '@/utils/wib';
 
 /**
  * Run Monthly Auto-Billing for all recurring PaymentTypes (e.g., SPP)

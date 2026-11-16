@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { studentScope, type ScopeActor } from '@/utils/student-scope';
-import { dayDate, wibDayOf } from '@/utils/wib-day';
+import { dayDate, wibDayOf } from '@/utils/wib';
 import { Prisma, MurojaahType, TahfidzMistakeType } from '@prisma/client';
 import type {
   ListMurojaahQuery,

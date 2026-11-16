@@ -1,6 +1,6 @@
 ---
 name: naskah-dinas
-description: Naskah dinas elektronik (E-Office) dan Tanda Tangan Elektronik (TTE) Cipansor — jenis naskah, alur konsep → paraf → tanda tangan → kirim atau disposisi → arsip, penomoran, kunci TTE dan verifikasi identitas penandatangan, PDF yang ditandatangani dan arsip byte-nya, verifikasi publik lewat unggah PDF (bukan QR/token), pencabutan naskah, dan batas standarnya (UU ITE, PP 71/2019, AATL). Use when touching the correspondence or esign modules, the letter PDF generator, the public verification page, revocation, or answering how a letter moves and who may sign, revoke or verify it — and before "restoring" a QR landing page or proposing a PSrE, both of which are settled.
+description: Naskah dinas elektronik (E-Office) dan Tanda Tangan Elektronik (TTE) Cipansor — menyusun isi surat (memilih jenis, sifat, dan derajat kecepatan; menyusun kalimat sesuai EYD; memakai template konsep), jenis naskah, alur konsep → paraf → tanda tangan → kirim atau disposisi → arsip, penomoran, kunci TTE dan verifikasi identitas penandatangan, PDF yang ditandatangani dan arsip byte-nya, verifikasi publik lewat unggah PDF (bukan QR/token), pencabutan naskah, dan batas standarnya (UU ITE, PP 71/2019, AATL). Use when asked to draft, write, or compose a yayasan letter or surat (jenis, sifat, urgency, wording, template); when touching the correspondence or esign modules, the letter PDF generator, the public verification page, or revocation; or when answering how a letter moves and who may sign, revoke or verify it — and before "restoring" a QR landing page or proposing a PSrE, both of which are settled.
 ---
 
 # Naskah dinas dan TTE
@@ -27,6 +27,118 @@ peserta (`EXCLUDED_CORRESPONDENCE_ROLES`). TU, kepala sekolah, dan admin unit
 menangani surat unitnya sebagai bagian tugasnya (`LETTER_UNIT_SCOPE_ROLES`).
 Keduanya ada di `packages/shared/src/roles.ts` dan dibaca UI maupun
 `apps/api/src/utils/letter-access.ts`.
+
+## Menyusun isi surat
+
+Bagian ini untuk **menyusun isi** naskah: memilih jenis dan sifat, menyusun
+kalimat, dan memakai template yang sudah ada. Bentuk naskahnya sendiri
+(kop, blok tanda tangan, penomoran) diurus sistem — yang disusun di sini hanya
+kalimatnya.
+
+**Nomor terbit di E-Office — termasuk untuk naskah yang diunggah.** Nomor
+keluar lahir saat naskah meninggalkan `DRAFT` (atau langsung, bila diajukan
+dengan status `PENDING_REVIEW`). Naskah yang **disusun di luar lalu diunggah
+tetap mendapat nomor**: `createLetter` menerima `fileUrl` untuk surat keluar dan
+menandai jalur penyusunannya `UPLOADED`; berkas unggahan itulah yang
+ditandatangani, di-hash, dan dicocokkan saat verifikasi publik lewat unggah PDF
+(`resolveLetterPdf`, `signLetter`), bukan hasil render sistem. Yang tidak dapat
+diverifikasi hanyalah naskah yang tidak pernah melewati jalur tanda tangan
+elektronik ini.
+
+Menyusun langsung di E-Office tetap dianjurkan: template jenis, pemeriksaan
+placeholder, dan kerangka naskah tersedia di sana, sedangkan naskah unggahan
+tidak mendapat pemeriksaan itu.
+
+### 1. Pilih jenis
+
+Jenis menentukan **kerangka** yang ditawarkan tombol *Isi dari template*
+(`renderTemplateDraft`), dan buku nomor tempat nomornya keluar. Sembilan jenis
+(`LetterType`) dan bentuk kerangkanya ada di `packages/shared/src/types/letter-template.ts`:
+
+| Jenis | Bentuk kerangka |
+|---|---|
+| Surat Keterangan | "Yang bertanda tangan di bawah ini" → "menerangkan bahwa" → data orang |
+| Surat Tugas | "menugaskan kepada" → data orang → uraian tugas + tempat + sumber biaya |
+| Surat Keputusan | naskah penetapan: Menimbang/Mengingat → MEMUTUSKAN → diktum KESATU/KEDUA/KETIGA |
+| Berita Acara | "Pada hari ini …, yang bertanda tangan di bawah ini" → uraian kegiatan |
+| Surat Dinas | alamat tujuan ("Kepada Yth.") → isi bebas |
+| Nota Dinas | ditujukan ke pihak tertentu, isi singkat |
+| Surat Edaran | "Sehubungan dengan …" → poin bernomor 1/2/3 |
+| Undangan | "Mengharap kehadiran …" → tabel Hari/Tanggal, Waktu, Tempat, Acara |
+| Pengumuman | "Diberitahukan kepada …" → isi |
+
+Tiap jenis punya **kode nomor** sendiri (`AGENDA_TYPE_CODE`,
+`apps/api/src/utils/letter-naskah.ts`), dan tiap jenis punya buku nomornya
+sendiri sehingga nomor SK tidak melompat tiap kali ada surat biasa keluar.
+Kode `Sket` (Surat Keterangan) satu-satunya yang **terverifikasi dari surat
+asli**; sisanya memakai singkatan yang lazim dan **belum dikonfirmasi Tata
+Usaha** — jangan mengubahnya tanpa konfirmasi itu.
+
+### 2. Pilih sifat (derajat kerahasiaan)
+
+Sifat **tidak bebas** untuk tiap jenis; pasangan yang tidak sah ditolak server
+(`assertNatureAllowed`). Aturannya (`naturesForType`,
+`packages/shared/src/types/letter-naskah.ts`):
+
+- **Surat Edaran dan Pengumuman:** hanya **Biasa**.
+- **Surat Keputusan, Surat Tugas, Berita Acara, Surat Keterangan, Undangan:**
+  **Biasa** atau **Terbatas**.
+- **Surat Dinas dan Nota Dinas:** keempat tingkat (Biasa, Terbatas, Rahasia,
+  Sangat Rahasia).
+
+Menandai Surat Keputusan "Rahasia" adalah **keliru kategori** — keputusan
+justru harus dapat dibaca oleh yang terkena keputusannya. Sifat "Biasa" tidak
+diberi tanda apa pun di naskah; tiga tingkat lain dicetak **TERBATAS** /
+**RAHASIA** / **SANGAT RAHASIA** (`natureMarking`).
+
+### 3. Pilih derajat kecepatan
+
+Bukan kerahasiaan, melainkan tenggat penyampaian (`LetterUrgency`): **Sangat
+Segera** (24 jam), **Segera** (2 × 24 jam), **Biasa** (menurut urutan).
+"Kilat" tidak ada sebagai derajat terpisah (`decisions/derajat-kecepatan-naskah.md`).
+
+### 4. Susun kalimat
+
+- **Klik *Isi dari template*** untuk memuat kerangka jenis yang dipilih ke
+  kolom isi. Tombol ini **tidak menimpa diam-diam**: bila kolom sudah ada
+  isinya, ia bertanya lebih dulu.
+- Isi **placeholder dalam kurung siku** — `[NAMA]`, `[URAIAN TUGAS]`. Yang
+  masih tersisa ditandai kuning di bawah kolom isi (`remainingPlaceholders`),
+  dan naskah yang naik ke pemaraf dengan `[NAMA]` di dalamnya akan kembali
+  sebagai revisi. Lengkapi semuanya sebelum diajukan.
+- **Kalimat mengikuti EYD** (ejaan yang disempurnakan): huruf kapital pada
+  nama jabatan dan lembaga, tanda baca baku, bahasa baku (bukan bahasa lisan).
+- **Tanggal surat dicetak otomatis; tanggal kegiatan tidak.** Tanggal surat
+  muncul sendiri di kepala naskah — atau di kaki "Pada tanggal" untuk Surat
+  Keputusan — dengan format "5 April 2012", zona **WIB**
+  (`generate-letter-pdf.ts`), jadi tanggal itu tidak perlu ditulis ulang di isi.
+  Sebaliknya, **tanggal kegiatan** yang diminta template (`[HARI, TANGGAL]` pada
+  Surat Tugas, `[HARI], tanggal [TANGGAL]` pada Berita Acara) adalah tanggal
+  pelaksanaan, bukan tanggal surat: itu **wajib** diisi di isi naskah, dan
+  tidak digantikan tanggal otomatis.
+- **Kop dan blok tanda tangan tidak disunting di sini.** Kop datang dari
+  `LETTERHEAD` (nama yayasan, akta notaris, alamat, telepon) dan blok tanda
+  tangan dari jabatan + garis kewenangan; keduanya sama untuk semua jenis.
+- **Surat Keputusan punya susunan sendiri**, bukan susunan surat: konsideran
+  (Menimbang/Mengingat) mendahului diktum (MEMUTUSKAN/KESATU), dan kakinya
+  "Ditetapkan di … / pada tanggal …" — bukan "Tasikmalaya, <tanggal>". Jangan
+  menulis SK dengan kerangka surat keterangan.
+
+### 5. Batas yang jangan dilampaui
+
+- **Jangan menjanjikan kewenangan tanda tangan.** Garis a.n./u.b./Plt./Plh.
+  **tercetak** tetapi tata kelolanya **belum diputuskan** yayasan: siapa boleh
+  menandatangani a.n. siapa, kapan tiap bentuk berlaku, dan apakah naskah yang
+  mewakili yayasan ke pihak luar menuntut **dua** tanda tangan (Anggaran Dasar
+  Pasal 18 ayat 1). Jangan memakai a.n. sebagai pengganti penanda tangan kedua.
+  Rinciannya di bagian "Batas standar" di bawah.
+- **Jangan menyalin kalimat kaki BSrE** atau mengaku bersertifikat PP 71/2019 —
+  yayasan memakai kunci sendiri, tanpa PSrE.
+- **Jangan mengarang nomor surat.** Nomor terbit otomatis di E-Office; nomor
+  yang diketik sendiri akan berbeda dari buku agenda.
+- **Identitas resmi yayasan** (nama sesuai pengesahan, NPWP, alamat) masih
+  menunggu konfirmasi terhadap dokumennya (§6 `docs/EOFFICE_ESIGN_PLAN.md`);
+  pakai `LETTERHEAD` apa adanya sampai itu diputuskan.
 
 ## Alur status (`LetterStatus`)
 

@@ -20,7 +20,7 @@ import { escapeHtml } from '@/utils/html';
 import { Errors } from '@/middleware/error';
 import { unitDocumentName } from '@cipansor/shared';
 import { studentScope } from '@/utils/student-scope';
-import { wibMonthYear } from '@/utils/wib-day';
+import { wibMonthYear } from '@/utils/wib';
 
 const JUZ_NAMES: Record<number, string> = {
   1: 'Juz Amma',

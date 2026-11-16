@@ -4,6 +4,7 @@ import { PARENT_ROLE_CODES, PERMIT_NOTE_MAX_BYTES } from '@cipansor/shared';
 import { prisma } from '@/lib/prisma';
 import { ApiError, ErrorCode, Errors } from '@/middleware/error';
 import type { ScopeActor } from '@/utils/student-scope';
+import { dayOf, wibDayOf } from '@/utils/wib';
 import { mayOpenNote } from './permits.decider';
 import {
   findInScope,
@@ -78,10 +79,6 @@ export function checkNote(file: NoteFile | undefined) {
   };
 }
 
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-const wibDay = (d: Date) => new Date(d.getTime() + WIB_OFFSET_MS).toISOString().slice(0, 10);
-const dayOf = (day: string) => new Date(`${day}T00:00:00.000Z`);
-
 /**
  * The last day of the academic year the leave starts in. With no academic
  * year on record for that day, 30 June — the end of the Indonesian school
@@ -93,8 +90,8 @@ export async function retainUntilFor(start: Date): Promise<Date> {
     select: { endDate: true },
     orderBy: { startDate: 'desc' },
   });
-  if (year) return dayOf(wibDay(year.endDate));
-  const [y, m] = wibDay(start).split('-').map(Number);
+  if (year) return dayOf(wibDayOf(year.endDate));
+  const [y, m] = wibDayOf(start).split('-').map(Number);
   return dayOf(`${m >= 7 ? y + 1 : y}-06-30`);
 }
 
@@ -142,7 +139,7 @@ export async function attachDoctorNote(
           mimeType: note.mimeType,
           sizeBytes: note.sizeBytes,
           sha256: note.sha256,
-          retainUntil: wibDay(retainUntil),
+          retainUntil: wibDayOf(retainUntil),
         } as Prisma.InputJsonValue,
       },
     });
@@ -201,7 +198,7 @@ export async function openDoctorNote(id: string, actor: ScopeActor) {
  */
 export async function erasePermitNotes(now = new Date()): Promise<number> {
   const due = await prisma.permitAttachment.findMany({
-    where: { erasedAt: null, retainUntil: { lt: dayOf(wibDay(now)) } },
+    where: { erasedAt: null, retainUntil: { lt: dayOf(wibDayOf(now)) } },
     select: { id: true, permitId: true },
   });
   if (!due.length) return 0;

@@ -42,8 +42,7 @@ vi.mock('@/lib/dashboard-metrics', () => ({
 }));
 
 import { dashboardService } from '../dashboard.service';
-import { dayOf, todayWib } from '@/utils/wib';
-import { wibDayStart } from '@/utils/wib-day';
+import { dayOf, todayWib, wibDayStart } from '@/utils/wib';
 
 /** The `where.dueDate.lt` the overdue-invoice alert count was given. */
 const invoiceDueDateArg = () =>

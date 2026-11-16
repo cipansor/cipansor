@@ -1,5 +1,5 @@
 import { test, expect } from "./fixtures/auth.fixture";
-import { loginAs } from "./helpers/auth-api";
+import { SEED_USERS, apiLogin, apiRequest, loginAs } from "./helpers/auth-api";
 import { settledContent } from "./helpers/page-state";
 
 /**
@@ -84,6 +84,100 @@ test.describe("Calendar - Features", () => {
       content.includes("Minggu");
 
     expect(hasViewSelector || page.url().includes("calendar")).toBeTruthy();
+  });
+});
+
+/**
+ * The month window the page asks the API for must name the month exactly in a
+ * WIB browser (Asia/Jakarta, UTC+7) — every user of the pesantren portal. The
+ * window was built from `new Date(year, month, 1)` (local midnight) read back
+ * with `toISOString()` (UTC), so it slid one day at both ends: the month lost
+ * its last day and pulled in the last day of the previous one (ticket #911).
+ *
+ * The clock is pinned inside January 2026, so the page opens on that month and
+ * the request carries its window.
+ */
+test.describe("Kalender Akademik — jendela bulan memakai bulan yang dilihat", () => {
+  test.use({ timezoneId: "Asia/Jakarta" });
+
+  test("Januari 2026 meminta 2026-01-01 sampai 2026-01-31", async ({
+    page,
+  }) => {
+    await loginAs(page, "superAdmin");
+
+    // 2026-01-15 05:00 WIB == 2026-01-14T22:00:00Z: mid-January, inside the
+    // 00:00–06:59 WIB window where the UTC and WIB days disagree.
+    await page.clock.install({ time: new Date("2026-01-14T22:00:00.000Z") });
+
+    const monthRequest = page.waitForRequest(
+      (r) =>
+        r.url().includes("/calendar?") &&
+        r.url().includes("startDate=") &&
+        r.url().includes("endDate="),
+    );
+    await page.goto("/calendar");
+
+    const params = new URL((await monthRequest).url()).searchParams;
+    expect(params.get("startDate")).toBe("2026-01-01");
+    expect(params.get("endDate")).toBe("2026-01-31");
+  });
+});
+
+/**
+ * An agenda that straddles a month boundary — the classic "libur semester"
+ * running 31 Dec–4 Jan — must appear in *both* months it touches. The month
+ * window is right (#911 fixed `useMonthEvents`), but the API's `findAll`
+ * filtered on `startDate` alone, so the January view dropped any event that
+ * began in December: the month lost the holiday it was in the middle of.
+ *
+ * The event is seeded through the API and read back through the page, so the
+ * test fails if the server-side window regresses, not merely if the client
+ * window does. It overlaps the *current* month, so it needs no pinned clock.
+ */
+test.describe("Kalender Akademik — agenda lintas bulan tetap tampil", () => {
+  test("agenda yang mulai bulan lalu dan berlanjut ke bulan ini muncul", async ({
+    page,
+  }) => {
+    // A day in WIB, `offset` days from today (negative = earlier).
+    const wibDay = (offset: number) =>
+      new Date(Date.now() + offset * 86_400_000 + 7 * 3_600_000)
+        .toISOString()
+        .slice(0, 10);
+
+    // Starts on the last day of the previous month, ends on the 2nd of this
+    // one — so the current month's view can only find it by overlap.
+    const lastDayOfPrevMonth = new Date(Date.now() + 7 * 3_600_000);
+    lastDayOfPrevMonth.setUTCDate(0);
+    const start = lastDayOfPrevMonth.toISOString().slice(0, 10);
+    const end = wibDay(0).slice(0, 8) + "02";
+
+    const title = `Libur lintas bulan e2e ${Date.now()}`;
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/calendar",
+      {
+        title,
+        eventType: "HOLIDAY",
+        startDate: `${start}T00:00:00.000Z`,
+        endDate: `${end}T00:00:00.000Z`,
+        isAllDay: true,
+        isPublic: true,
+      },
+    );
+
+    try {
+      await loginAs(page, "superAdmin");
+      await page.goto("/calendar");
+
+      // The current month's grid must carry it, even though it began last month.
+      await expect(
+        page.getByRole("button", { name: title }).first(),
+      ).toBeVisible({ timeout: 15000 });
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
+    }
   });
 });
 

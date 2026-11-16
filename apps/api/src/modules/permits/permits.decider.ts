@@ -9,6 +9,7 @@ import {
   type PermitRoute,
 } from '@cipansor/shared';
 import type { ScopeActor } from '@/utils/student-scope';
+import { wibDayOf } from '@/utils/wib';
 
 /**
  * Who decides a permit — pure rules over what the service loads (no Prisma
@@ -41,14 +42,16 @@ export interface DecidablePermit {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 /** The calendar days in WIB a period touches: Friday 13:00 → Sunday 17:00 is 3. */
 export function calendarDays(start: Date, end: Date): number {
-  const first = Math.floor((start.getTime() + WIB_OFFSET_MS) / DAY_MS);
-  const last = Math.floor((end.getTime() + WIB_OFFSET_MS) / DAY_MS);
+  const first = Math.floor(wibDayStartMs(start) / DAY_MS);
+  const last = Math.floor(wibDayStartMs(end) / DAY_MS);
   return last - first + 1;
 }
+
+/** The WIB midnight a moment falls after, as a UTC epoch — for day counting. */
+const wibDayStartMs = (moment: Date): number => Date.parse(`${wibDayOf(moment)}T00:00:00.000Z`);
 
 /**
  * A boarder going home, or off the pondok overnight — izin pulang or

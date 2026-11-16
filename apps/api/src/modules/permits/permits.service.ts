@@ -28,6 +28,7 @@ import {
   studentScope,
   type ScopeActor,
 } from '@/utils/student-scope';
+import { wibDayOf, wibDayStart } from '@/utils/wib';
 import { createNotification } from '../notifications/notifications.service';
 import type { ListPermitsQueryParsed, PermitDeciderQueryParsed } from './permits.schema';
 import { decisionFor, mayOpenNote, whoDecides, type Guardianship } from './permits.decider';
@@ -397,7 +398,7 @@ export async function listPermits(
         ...(outside && { departedAt: { not: null }, returnedAt: null }),
         // A permit is in the window if its period touches it.
         ...(to && { startDate: { lt: dayAfter(to) } }),
-        ...(from && { endDate: { gte: new Date(`${from}T00:00:00+07:00`) } }),
+        ...(from && { endDate: { gte: wibDayStart(from) } }),
       },
     ],
   };
@@ -620,12 +621,9 @@ const TYPE_LABEL: Record<PermitType, string> = {
   OTHER: 'lainnya',
 };
 
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
-
 /** `YYYY-MM-DD` + 1 day, as the instant that day starts in WIB. */
 function dayAfter(date: string): Date {
-  const start = new Date(`${date}T00:00:00+07:00`);
-  return new Date(start.getTime() + 24 * 60 * 60 * 1000);
+  return new Date(wibDayStart(date).getTime() + 24 * 60 * 60 * 1000);
 }
 
 /**
@@ -634,10 +632,8 @@ function dayAfter(date: string): Date {
  * 17:00 covers Friday, Saturday and Sunday.
  */
 export function daysCovered(start: Date, end: Date): Date[] {
-  const first = new Date(start.getTime() + WIB_OFFSET_MS);
-  const last = new Date(end.getTime() + WIB_OFFSET_MS);
-  const day = Date.UTC(first.getUTCFullYear(), first.getUTCMonth(), first.getUTCDate());
-  const stop = Date.UTC(last.getUTCFullYear(), last.getUTCMonth(), last.getUTCDate());
+  const day = Date.parse(`${wibDayOf(start)}T00:00:00.000Z`);
+  const stop = Date.parse(`${wibDayOf(end)}T00:00:00.000Z`);
   const days: Date[] = [];
   for (let t = day; t <= stop && days.length < 62; t += 24 * 60 * 60 * 1000) {
     days.push(new Date(t));

@@ -1,8 +1,8 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import { JournalReferenceType } from '@cipansor/shared';
-import { todayWib } from '../../utils/wib';
-import { wibDayStart, wibDayEnd } from '../../utils/wib-day';
+import { todayWib, wibDayStart, wibDayEnd } from '../../utils/wib';
+
 import { getAccountOrFallback, ACCOUNT_MAPPING_KEYS } from '../finance/accounting-config.service';
 import { isPeriodOpen } from '../finance-enhancement/period.service';
 import type {

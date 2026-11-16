@@ -354,6 +354,32 @@ case "$*" in
       printf '[{"user":{"login":"%s"},"updated_at":"%s","body":%s}]\\n' \\
         "\${GH_STUB_NONFLEET_LOGIN:-reporter}" "\${GH_STUB_NONFLEET_AT:-2026-01-01T00:00:00Z}" \\
         "$(printf '%s' "$GH_STUB_NONFLEET" | jq -c -Rs .)"
+    elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = "legacy" ]; then
+      # A contract-shaped triage comment written before the marker rule: the
+      # "## Triase" heading with no "<!-- sdlc:triase" marker. triage_answered
+      # must still count it, or a finished run is retried to the attempt cap
+      # (#877 review, "triase nonfinal sah memicu retry palsu").
+      printf '[{"user":{"login":"cipansor-bot"},"body":"## Triase"}]\\n'
+    elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = "noise" ]; then
+      # Another bot's notice, authored cipansor-bot but carrying neither the
+      # marker nor the heading: it must NOT count as a triage answer.
+      printf '[{"user":{"login":"cipansor-bot"},"body":"Label dicabut <!-- label-guard:revoked -->"}]\\n'
+    elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = "pages" ]; then
+      # An issue past 100 comments: gh api --paginate emits one JSON array PER
+      # PAGE, so a filter without -s decides on the LAST page alone. Page 1 holds
+      # the triage answer; page 2 is a label notice. The answer must still be
+      # found (#877 review, "jawaban triase terabaikan sebelum halaman terakhir").
+      printf '[{"user":{"login":"cipansor-bot"},"body":"<!-- sdlc:triase -->"}]\\n'
+      printf '[{"user":{"login":"cipansor-bot"},"body":"Label dicabut <!-- label-guard:revoked -->"}]\\n'
+    elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = 1 ]; then
+      # triage_answered reads this same listing (no --jq). The marker comment is
+      # authored by the bot, so the activity signal still excludes it; its
+      # presence is what proves the issue has a triage answer (#877 review,
+      # "issue asal terlantar setelah salah sasaran"). Default 1 (answered);
+      # GH_STUB_TRIAGE_ANSWER=0 models an unanswered issue whose completed run
+      # must be retried.
+      printf '[{"user":{"login":"cipansor-bot"},"body":"<!-- sdlc:triase -->"}]\\n'
+
     else
       printf '[]\\n'
     fi ;;
@@ -1655,7 +1681,12 @@ describe('issue-triage-bridge.sh --recover-ready', () => {
     );
     expect(calls).toContain('RUNS');
     expect(calls).toContain('DISPATCH');
-    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: 'run-1' });
+    // The re-dispatch records attempt 1, in the same write as the new run id.
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-1',
+      attempt: 1,
+    });
   });
 
   it('finalises a completed recovery run on a ready issue without re-dispatching', () => {
@@ -2573,6 +2604,97 @@ describe('deploy-sdlc-agents.py', () => {
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
   });
 
+  it.skipIf(!hasPy)('upgrades a live prompt carrying the old command-only budget, once', () => {
+    // #907: the generic budget the fleet deployed before this change counted
+    // commands only (10/25/35) and named no seconds. A live prompt still
+    // carries that text inside its tarball, and its `ANGGARAN WAKTU` marker
+    // satisfies the insert guard, so a redeploy would keep the command-only
+    // budget forever. `new_prompt` must recognise the old block and swap it
+    // for the deadline budget — exactly once, and without touching a prompt
+    // that already carries the new one.
+    const oldBudget = py('print(json.dumps(m.OLD_WORK_BUDGET))');
+    expect(oldBudget.status, oldBudget.stderr).toBe(0);
+    const legacy = JSON.parse(oldBudget.stdout) as string;
+    expect(legacy).toContain('JAM PASIR');
+    expect(legacy).not.toContain('date -u +%s');
+
+    // A prompt as the live tarball holds it: head, then the old budget, then
+    // the tail.
+    const original = `Header\n\n${FOOTER}\n\n${legacy}\n\nPERILAKU SASARAN (level agentic)\nOriginal tail`;
+    const redeployed = newPrompt('SDLC 05 · Reproduksi bug', original);
+
+    // The command-only text is gone, replaced by the deadline budget.
+    expect(redeployed).not.toContain(legacy);
+    expect(redeployed).toContain('date -u +%s');
+    expect(redeployed).toContain('~1200 detik');
+    // The task's own tail survives the swap.
+    expect(redeployed).toContain('Original tail');
+    // Exactly one budget: the redeploy must not stack the generic one on top
+    // of the text it just replaced.
+    expect(redeployed.match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(redeployed.match(/date -u \+%s/g)).toHaveLength(1);
+    // Idempotent: a second redeploy is a no-op.
+    const again = newPrompt('SDLC 05 · Reproduksi bug', redeployed);
+    expect(again.match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(again.match(/date -u \+%s/g)).toHaveLength(1);
+  });
+
+  it.skipIf(!hasPy)(
+    'gives every work budget a wall-clock deadline, not only a command count',
+    () => {
+      // #907: the budget counted commands, not seconds. Ten heavy commands
+      // (`pnpm install` alone is ~140s) burn past the 1800s ceiling while the
+      // command count still reads compliant, so the agent that obeys the budget
+      // can still be killed at the wall. Every budget must name a readable
+      // deadline in seconds and say how to read the clock; the guard fails on a
+      // budget that carries only command counts.
+      const r = py(
+        [
+          'print(json.dumps({"generic": m.WORK_BUDGET,',
+          '  "tails": {k: v for k, v in m.TAILS.items() if "ANGGARAN WAKTU" in v}}))',
+        ].join('\n')
+      );
+      expect(r.status).toBe(0);
+      const parsed = JSON.parse(r.stdout) as {
+        generic: string;
+        tails: Record<string, string>;
+      };
+      // The generic budget plus the two tailored ones (`Gerbang tinjau PR`,
+      // `Pengawas armada`) are the budgets the fleet actually ships.
+      expect(Object.keys(parsed.tails)).toEqual(expect.arrayContaining(['SDLC 18', 'SDLC 23']));
+      const budgets: Record<string, string> = { generic: parsed.generic, ...parsed.tails };
+      for (const [name, text] of Object.entries(budgets)) {
+        // How to read the clock ...
+        expect(text, `${name} must tell the agent to read the clock`).toMatch(/date -u \+%s/);
+        // ... and a seconds deadline must sit in the SAME clause as each of the
+        // two instructions that bound the work: "stop collecting" and "must
+        // have sent / opened the result". Counting bare numbers is not enough —
+        // `Pengawas armada` (SDLC 23) names `1000 detik` in its `wall` failure
+        // classification, so a count would still read two after the `~1200
+        // detik` stop instruction was deleted. The band starts at 1000s on
+        // purpose: the writing reserve (~300 detik) and the first checkpoint
+        // (~500 detik) are not the work deadline, and the ceiling sentence
+        // names `1800 detik`, which the band excludes.
+        const clauses = text.split(/[.;]\s+|\n+/);
+        const namesDeadline = (c: string) => /\b1[0-6]\d\d\s*detik/.test(c);
+        const stopClause = clauses.some(
+          (c) => namesDeadline(c) && /hentikan|berhenti mengumpulkan/.test(c)
+        );
+        const sendClause = clauses.some(
+          (c) => namesDeadline(c) && /mengirim|memanggil|buka issue/.test(c)
+        );
+        expect(
+          stopClause,
+          `${name} must pair a seconds deadline (1000–1700) with the stop-collecting instruction`
+        ).toBe(true);
+        expect(
+          sendClause,
+          `${name} must pair a seconds deadline (1000–1700) with the send-the-result instruction`
+        ).toBe(true);
+      }
+    }
+  );
+
   it.skipIf(!hasPy)('renames the live automation in place, and is idempotent', () => {
     // `apply_rename` must PATCH only the display name — the id, prompt and
     // tarball are untouched — and must be a no-op once the name already
@@ -2968,6 +3090,164 @@ describe('deploy-sdlc-agents.py', () => {
     // commands / 36 min and never posted before the 1800s ceiling.
     expect(out).toMatch(/Setelah \*\*30 perintah\*\*/);
     expect(out).toMatch(/Jangan pernah melewati 30 perintah/);
+  });
+
+  it.skipIf(!hasPy)('gives the triage owner a target rule for a payload-less dispatch', () => {
+    // #877: the bridge dispatches SDLC 15 with `POST /dispatch`, which carries
+    // no body, so the run cannot know which issue it was started for — and one
+    // sweep may dispatch several issues at once. Without a target rule the run
+    // either guesses or triages the wrong issue. SDLC 18 already had one; SDLC
+    // 15 must too.
+    const out = newPrompt(
+      'SDLC 15',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    expect(out).toContain('SASARAN (WAJIB saat payload kosong)');
+    // It finds the target from GitHub state — the freshest issue whose
+    // non-fleet activity is unanswered — never from an env var: the automation
+    // process holds `$AUTOMATION_*`, but the agent's terminal does not inherit
+    // them (OpenHands preset), so a KV read would never resolve.
+    expect(out).toContain('TIDAK mewarisi `$AUTOMATION_*`');
+    expect(out).not.toContain('triage-run-');
+    // #877 review, "pemulihan issue ready tidak menemukan sasaran": the
+    // `--recover-ready` pass re-dispatches a `ready` issue, so the candidate
+    // search must NOT carry `-label:ready` — that exclusion hid the very issue
+    // being recovered. And the "unanswered" test must not rely on the last
+    // comment's author alone: a reporter who edits the description leaves the
+    // last comment as the bot's, so the body edit must be compared too
+    // ("suntingan issue terlewat setelah komentar bot").
+    expect(out).not.toContain('is:issue is:open -label:ready');
+    expect(out).toContain('`--recover-ready`');
+    // #877 review, "suntingan body bot terbaca sebagai aktivitas pelapor": the
+    // signal must not be `issue.updated_at` alone. Finalising a triage edits the
+    // body (the `<!-- sdlc:triase -->` block) and moves that timestamp, so the
+    // old rule counted the bot's own edit as an unanswered reporter edit and
+    // re-dispatched forever. The rule now compares non-fleet activity against
+    // triage responses using actor-aware history — `userContentEdits` (whose
+    // `editor.login` says who edited the body).
+    expect(out).toContain('userContentEdits');
+    expect(out).toContain('editor.login');
+    expect(out).toMatch(/aktivitas non-armada/);
+    // #877 review round 3, "issue baru tanpa komentar terlewat triase": a
+    // brand-new issue the `issues.opened` run failed to answer has no comments
+    // and no edits, so neither history holds the reporter's act. Creation itself
+    // must count as non-fleet activity (`issue.createdAt`), or the recovery run
+    // reports "tak ada sasaran" and the checkpoint finalises untriaged.
+    expect(out).toContain('issue.createdAt');
+    expect(out).toMatch(/pembuatan issue itu sendiri/);
+    // #877 review round 3, "suntingan basmalah menutupi komentar pelapor": the
+    // `basmalah` workflow prepends to the body as `cipansor-bot`, but that is
+    // not a triage answer.
+    expect(out).toMatch(/basmalah/);
+    // #877 review round 5, "suntingan basmalah menyembunyikan aktivitas
+    // pelapor": classifying every historical bot edit by whether the CURRENT
+    // body carries the marker is wrong — on an already-triaged issue, a basmalah
+    // re-prepend (basmalah.yml fires on `issues.edited`, after the reporter's
+    // edit) would count as a triage response and mask the reporter.
+    // #877 review round 6, "pembuka basmalah menutupi suntingan pelapor": the
+    // round-5 wording told the agent to compare two `diff` values as body
+    // snapshots, but `diff` is a change representation whose shape is not
+    // promised — the reporter's remove-patch and the bot's re-add-patch differ,
+    // so that comparison wrongly read the re-add as a response. The rule now
+    // reads the LINES ACTUALLY ADDED/REMOVED and ignores the basmalah opening as
+    // noise: an edit is a triage response iff it changed a line other than the
+    // opening. That is correct whether `diff` is a snapshot or a hunk, and it
+    // still recognises a triage-block update whose hunk omits the marker.
+    // #877 review round 7, "pemisah basmalah menutupi suntingan pelapor":
+    // `basmalah.sh` writes `ARABIC\n\n$FRESH`, so the bot adds the opening AND a
+    // blank separator line; excluding only the opening line would see the blank
+    // as "another change". The rule now discards the opening with its separator.
+    // #877 review round 8, "triase terakhir terbaca belum dijawab": using
+    // `issue.body` as the "before" state of the last node is wrong — for the
+    // last edit, `issue.body` is the body AFTER it, so comparing to it hides the
+    // last triage response. The rule now compares against the previous NODE.
+    // #877 review round 9, "pembanding riwayat bergantung pada format diff": the
+    // previous node is only a valid "before body" if it is a FULL body; GitHub
+    // can mix hunk and full-body formats in one history, so the rule must not
+    // assume the comparator's shape.
+    // #877 review round 10, "suntingan pelapor dianggap respons triase": when the
+    // reporter's `diff` is a hunk, using the nearest OLDER full-body node as the
+    // comparator folds the reporter's intermediate changes into the bot's edit,
+    // so the bot's basmalah edit looks like it changed the triage content. The
+    // rule now reconstructs the body for every edit (anchor at the earliest
+    // full-body node, then apply each node's hunk in order) and compares each bot
+    // edit against its IMMEDIATELY preceding state — never skipping nodes.
+    // #877 review round 11, "respons triase pertama tidak terhitung": the anchor
+    // node has no "before" state, so round-10's conservative "not a response" is
+    // wrong when the bot's first body edit IS the triage write (a form issue whose
+    // body already has the basmalah). The rule now scores the anchor separately.
+    // #877 review round 12, "pemulihan basmalah menutupi suntingan pelapor": the
+    // anchor's mere POSSESSION of the `<!-- sdlc:triase -->` block is not enough —
+    // a `basmalah` re-prepend anchor copies the old body (and its old triage block),
+    // so scoring it a response hides the earlier reporter hunk. The rule now keys
+    // on whether the anchor INTRODUCED the marker.
+    // #877 review round 13, "respons triase pertama luput setelah hunk": round-12's
+    // "unprovable → not a response" branch dropped a genuine FIRST triage write when
+    // a pre-anchor hunk exists but cannot prove the marker was absent. The marker is
+    // only ever written by a triage edit (never in a creation body), so its absence
+    // from every older node's `diff` PROVES the anchor introduced it; page the full
+    // history; an indeterminate state must not mean "unanswered".
+    // #877 review round 14, "pembaruan triase terakhir terhitung belum dijawab": a
+    // marker-bearing anchor after an OLD marker is not automatically "not a response"
+    // — the final-triage rule UPDATES the block in place (marker unchanged), so the
+    // anchor may be a summary update after a reporter reply. The rule now compares
+    // the block CONTENT (below the marker) at the state before the anchor vs the
+    // anchor: changed = response; unchanged (a basmalah restore) = not.
+    expect(out).toMatch(/mengubah isi triase/);
+    expect(out).toMatch(/BUKAN respons triase/);
+    expect(out).toMatch(/baris yang benar-benar ditambah\/dihapus/);
+    expect(out).toMatch(/kebisingan/);
+    expect(out).toMatch(/dua `?diff`? sebagai dua snapshot body/);
+    expect(out).toMatch(/pembuka DAN baris kosong pemisah/);
+    expect(out).toMatch(/baris kosong di sekitarnya/);
+    expect(out).toMatch(/JANGAN memakai `issue\.body` sebagai keadaan sebelum/);
+    expect(out).toMatch(/rekonstruksi body tiap suntingan/);
+    expect(out).toMatch(/JANGAN melompati suntingan di antaranya/);
+    expect(out).toMatch(/node tepat sebelumnya/);
+    expect(out).toMatch(/Node jangkar \(body penuh terawal di jendela\) tak punya keadaan sebelum/);
+    expect(out).toMatch(/Hunk yang lebih tua dari jangkar juga tak punya baseline/);
+    expect(out).toMatch(/keberadaan blok `<!-- sdlc:triase -->` saja TIDAK cukup/);
+    expect(out).toMatch(/memperkenalkan\*\* blok itu/);
+    expect(out).toMatch(/bandingkan \*\*isi blok triase\*\*/);
+    expect(out).toMatch(/pengembalian pembuka/);
+    expect(out).toMatch(/Jangan menyimpulkan "bukan respons" karena pembanding tak lengkap/);
+    expect(out).toMatch(/jangan re-dispatch issue itu/);
+    // #877 review, "pemberitahuan label menutupi balasan pelapor": a label-guard
+    // (or other bot) comment posted as `cipansor-bot` is not a triage answer.
+    // A triage comment counts by its marker OR its contract heading, or a guard
+    // notice after the reporter would filter the reporter's unanswered reply.
+    expect(out).toMatch(/ber-penanda\*\* `<!-- sdlc:triase`/);
+    expect(out).toMatch(/membuka dengan judul kontrak `## Triase`/);
+    expect(out).toMatch(/label-guard/);
+    // #877 review, "triase nonfinal sah memicu retry palsu": the writing
+    // contract once asked only for a `## Triase` comment, so a comment written
+    // under it carries no marker. Requiring the marker alone rejected it and
+    // retried a finished run, so the rule accepts BOTH shapes — and the writing
+    // contract now requires the marker, so the ambiguity cannot recur.
+    expect(out).toMatch(/judul kontrak `## Triase`/);
+    expect(out).toMatch(/berjudul `## Triase`/);
+    // #877 review, "perubahan label gagal menemukan sasaran triase": a label
+    // change does not move the comment/body history, so the target rule must
+    // also select a candidate whose label STATE needs reconciliation (no type,
+    // no priority, or a type conflict) even when no comment or body edit exists.
+    expect(out).toMatch(/menuntut rekonsiliasi/);
+    expect(out).toMatch(/lebih dari satu tipe/);
+    expect(out).toMatch(/tanpa tipe/);
+    expect(out).toContain('editor{login} diff');
+    expect(out).not.toMatch(/body-nya memuat penanda/);
+    expect(out).not.toMatch(/buang pembuka basmalah/);
+    expect(out).not.toMatch(/node terdekat sebelumnya yang berupa body penuh/);
+    // #877 review, "pemulihan issue ready di luar halaman pertama": the
+    // candidate list must be paged past the first 50 issues — a recovery target
+    // can be older than the newest page, and stopping there would report
+    // "tak ada sasaran" while the target exists.
+    expect(out).toContain('-f page=2');
+    // One target only, and the choice is written before any investigation. The
+    // residual limit (the dispatch names no issue, so two simultaneous candidates
+    // are only tie-broken by "newest") is stated rather than hidden.
+    expect(out).toMatch(/jangan men-triase lebih dari satu issue/);
+    expect(out).toContain('BATAS SASARAN');
+    expect(out).toContain('tak ada sasaran');
   });
 
   it.skipIf(!hasPy)('forbids the review gate from calling its verdict the final word', () => {
@@ -4209,6 +4489,106 @@ describe('issue-triage-bridge.sh', () => {
     expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
   });
 
+  // #877 review, "issue asal terlantar setelah salah sasaran": a completed run
+  // proves the RUN finished, not that it answered THIS issue — `POST /dispatch`
+  // names no issue, so a run can triage a different one. The checkpoint's issue
+  // is trusted answered only when it shows a triage marker; otherwise the run is
+  // retried (bounded), so a mis-targeted run cannot strand the issue.
+  it('re-dispatches a completed run whose issue shows no triage answer', () => {
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: '0',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({ run: 'run-1', attempt: 1 });
+  });
+
+  it('finalises a completed run whose issue carries only a contract-shaped triage comment', () => {
+    // #877 review, "triase nonfinal sah memicu retry palsu": the writing
+    // contract once asked only for a `## Triase` comment, so a comment written
+    // under it carries no `<!-- sdlc:triase` marker. Requiring the marker alone
+    // rejected that legitimate answer and retried a finished run to the attempt
+    // cap. The heading counts too, so the checkpoint finalises without a retry.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: 'legacy',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+  });
+
+  it('finds a triage answer on an earlier page of a paginated comment listing', () => {
+    // #877 review, "jawaban triase terabaikan sebelum halaman terakhir": an
+    // issue past 100 comments returns one JSON array PER PAGE from `gh api
+    // --paginate`. A filter without `-s` decides on the LAST page alone, so an
+    // answer on page 1 with a label notice on page 2 read as "no answer" and
+    // retried a finished run to the attempt cap. `-s` + `.[][]` reads every
+    // page, so the answer is found and the checkpoint finalises.
+    // Two pages hash as two non-fleet lines, so the checkpoint's signal is the
+    // two-page hash — the sweep then reaches `triage_answered` on a matching
+    // signal, exactly as it would on a real >100-comment issue.
+    const pagesSig = createHash('sha256')
+      .update(`${JSON.stringify({ body: 'edited' })}\n[]\n[]\n`)
+      .digest('hex')
+      .slice(0, 16);
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: 'pages',
+        KV_SEED: { 'triage-sweep-818': { signal: pagesSig, run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: pagesSig, run: '' });
+  });
+
+  it('still retries a completed run whose issue shows only another bot notice', () => {
+    // The counterpart: a `cipansor-bot` comment that carries NEITHER the marker
+    // nor the `## Triase` heading (a label-guard notice) is not a triage answer,
+    // so the run must still be retried — the broadening must not swallow it.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: 'noise',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('finalises an unanswered completed run at the attempt cap, without retrying forever', () => {
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: '0',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 3 } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+  });
+
   it('leaves an in-flight run alone rather than dispatching it again', () => {
     const { calls } = runBridge(
       {
@@ -4975,6 +5355,217 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).not.toContain('DISPATCH');
     expect(out).toContain('burst collapsed');
     expect(kv['triage-state-818']).toMatchObject({ state: 'bug+priority:high' });
+  });
+
+  // ---- #877: bounded deterministic retry for a payload-less dispatch -------
+
+  it('raises the attempt counter on each infra-failed run, scoped to the signal', () => {
+    // A FAILED run re-dispatches the same issue, and the attempt is counted in
+    // the checkpoint itself (not a key of its own), written with the new run id.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-1',
+      attempt: 1,
+    });
+  });
+
+  it('stops retrying an issue once ATTEMPT_MAX is reached, finalising the checkpoint', () => {
+    // #877: an issue whose every run dies must not re-dispatch on every sweep
+    // forever. At the cap the main slot is finalised (so the sweep stops) and a
+    // warning is emitted for a human. With no side slot the checkpoint is a plain
+    // finished one and the attempt count goes with it.
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 3 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain('attempt cap');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+  });
+
+  it('keeps a pending side slot when the attempt cap finalises the main slot', () => {
+    // #877 review, "batas retry menghilangkan pemulihan label": one issue can
+    // carry a main run and a deferred (`pending`) side response in the same
+    // checkpoint. Finalising the whole checkpoint at the main cap — dropping
+    // `extra` — would lose that deferred relabel/conflict, so the label could
+    // stay wrong. The cap must finalise only the main slot and keep the side
+    // slot queued for the next pass.
+    //
+    // The pool is full here, so the cap's fall-through defers instead of
+    // dispatching: the checkpoint itself shows what survived. The deferred
+    // (`pending`) main slot carries the side slot forward, and the attempt count
+    // stays (the episode is not over).
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        MAX_INFLIGHT: '1',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('edited'),
+            run: 'run-x',
+            attempt: 3,
+            extra: { conflict: 'pending' },
+          },
+          // The pre-fix bridge read the count from its own `triage-attempt-<n>`
+          // key; seeding it too makes this a true fail-before: on the old bridge
+          // the cap branch finalised the whole checkpoint (dropping `extra`) and
+          // returned, so the side slot was lost. The fixed bridge ignores this
+          // key (the count rides in the checkpoint now).
+          'triage-attempt-818': { signal: signal('edited'), count: 3 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"},{"status":"RUNNING"}]}',
+      },
+      ['--sweep']
+    );
+    expect(out).toContain('attempt cap');
+    // The pool is full, so the side response is not dispatched yet — but it is
+    // not lost: it is carried into the deferred checkpoint.
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'pending',
+      attempt: 3,
+      extra: { conflict: 'pending' },
+    });
+  });
+
+  it('keeps a failed side slot when the attempt cap finalises the main slot on --recover-ready', () => {
+    // #877 review, "batas retry menghilangkan pemulihan label": the cap branch
+    // is shared by the ordinary sweep and the `--recover-ready` pass. On a
+    // `ready` issue only the recovery pass reaches it, so the same guarantee
+    // must hold there: the main slot is finalised, the failed `extra` side slot
+    // survives, and the recovery still queues the side response.
+    //
+    // A *failed* (not `pending`) side run is used deliberately: the recovery
+    // pass skips a `pending` checkpoint while the pool is full, so a `pending`
+    // side slot would never reach the cap branch here. The pool is full, so the
+    // cap's fall-through defers; the deferred main slot carries the failed side
+    // run forward, and the checkpoint itself shows it survived.
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_STATE_LABELS: 'open bug ready',
+        GH_STUB_BODY: 'edited',
+        MAX_INFLIGHT: '1',
+        KV_SEED: {
+          'triage-sweep-818': {
+            signal: signal('edited'),
+            run: 'run-x',
+            attempt: 3,
+            extra: { relabel: 'relabel-x' },
+          },
+          'triage-attempt-818': { signal: signal('edited'), count: 3 },
+        },
+        CURL_STUB_RUNS:
+          '{"runs":[{"id":"run-x","status":"FAILED"},{"id":"relabel-x","status":"FAILED"},{"status":"RUNNING"}]}',
+      },
+      ['--recover-ready']
+    );
+    expect(out).toContain('attempt cap');
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({
+      run: 'pending',
+      extra: { relabel: 'relabel-x' },
+    });
+  });
+
+  it('clears the attempt counter when the run completes, so a later episode starts fresh', () => {
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 2 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+  });
+
+  it('counts a fresh signal from zero, not from the previous episode', () => {
+    // The counter is scoped to the activity signal: an edited description is a
+    // new episode, so the previous episode's count must not shorten it.
+    const { kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited-again',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 3 },
+        },
+      },
+      ['--sweep']
+    );
+    // A fresh signal re-dispatches with the count reset (no attempt field).
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited-again'),
+      run: 'run-1',
+    });
+  });
+
+  it('carries the attempt count across a deferral, so a full pool cannot reset the budget', () => {
+    // #877 review, "antrean penuh mengulang anggaran retry": a run that failed
+    // while the pool was full is deferred (`pending`) with its attempt count, and
+    // the next dispatch continues from that count rather than restarting at 0.
+    const deferred = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        MAX_INFLIGHT: '1',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 1 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"},{"status":"RUNNING"}]}',
+      },
+      ['--sweep']
+    );
+    expect(deferred.kv['triage-sweep-818']).toMatchObject({
+      run: 'pending',
+      attempt: 2,
+    });
+  });
+
+  it('loses neither the attempt count nor the run when the checkpoint write fails', () => {
+    // #877 review, "kegagalan tulis KV memulihkan retry": the count rides in the
+    // same conditional write as the run id, so a write that fails leaves the old
+    // checkpoint untouched — the next sweep reads the same count and run, and the
+    // budget is not reset by a partial write.
+    const { kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        CURL_STUB_KV_PUT_FAIL: '1',
+        KV_SEED: {
+          'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 1 },
+        },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"FAILED"}]}',
+      },
+      ['--sweep']
+    );
+    // The store kept the prior value: the run and the count survive together.
+    expect(kv['triage-sweep-818']).toEqual({
+      signal: signal('edited'),
+      run: 'run-x',
+      attempt: 1,
+    });
   });
 });
 

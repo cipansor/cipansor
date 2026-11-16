@@ -83,6 +83,35 @@ describe('Rapor Merdeka PDF signature place', () => {
     expect(drawn.some((t) => t.startsWith('Tasikmalaya, '))).toBe(true);
     expect(drawn.join('\n')).not.toMatch(/Bogor/);
   });
+
+  // The date beside the city printed the *UTC* day: the container runs UTC, so
+  // every raport made 00:00–06:59 WIB was dated the day before, and on a month
+  // or year boundary the wrong month and year too. The block is part of the
+  // printed, archived document, so it must read the WIB day the user sees.
+  it('is dated in WIB, not UTC, in the small hours', async () => {
+    const drawn: string[] = [];
+    const original = PDFPage.prototype.drawText;
+    vi.spyOn(PDFPage.prototype, 'drawText').mockImplementation(function (
+      this: PDFPage,
+      text,
+      options
+    ) {
+      drawn.push(text);
+      return original.call(this, text, options);
+    });
+
+    // 2026-10-31T17:30Z is 1 November 2026, 00:30 WIB.
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-10-31T17:30:00.000Z'));
+    try {
+      await generateRaportMerdekaPdfBuffer(data);
+    } finally {
+      vi.useRealTimers();
+    }
+
+    expect(drawn).toContain('Tasikmalaya, 1 November 2026');
+    expect(drawn.join('\n')).not.toContain('31 Oktober 2026');
+  });
 });
 
 describe('Rapor Merdeka PDF font', () => {

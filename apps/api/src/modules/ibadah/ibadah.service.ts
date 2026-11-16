@@ -32,7 +32,7 @@ import {
   studentScope,
   type ScopeActor,
 } from '@/utils/student-scope';
-import { wibDayOf, dayDate } from '@/utils/wib-day';
+import { wibDayOf, dayDate } from '@/utils/wib';
 
 /**
  * The santri an account reads here: `studentScope` (a santri their own, a wali

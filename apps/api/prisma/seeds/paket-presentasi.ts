@@ -83,6 +83,7 @@ import {
 } from '../../src/lib/academic-calendar';
 import { ensureDemoIntake } from './spmb-demo';
 import { syncParentRoleAssignments, type ParentScopeClient } from '../../src/utils/parent-scope';
+import { dayOf, wibDayOf, wibTimeOnDay } from '../../src/utils/wib';
 import { QURAN_SURAHS } from '../../src/modules/tahfidz/quran-surahs';
 import { YAYASAN_ORGANS } from '../../../../packages/shared/src/types/office-holders';
 import { siteConfig } from '../../../../packages/shared/src/public-site';
@@ -1034,7 +1035,6 @@ function createRng(seed: number) {
 type Rng = ReturnType<typeof createRng>;
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
 
 function utcDate(y: number, m: number, d: number): Date {
   return new Date(Date.UTC(y, m, d));
@@ -1044,7 +1044,7 @@ function addDays(d: Date, n: number): Date {
 }
 /** Jam WIB pada tanggal `day` (tengah malam UTC) sebagai instan UTC. */
 function atWib(day: Date, hour: number, minute = 0): Date {
-  return new Date(day.getTime() + (hour * 60 + minute) * 60 * 1000 - WIB_OFFSET_MS);
+  return wibTimeOnDay(wibDayOf(day), `${pad(hour, 2)}:${pad(minute, 2)}`);
 }
 function isoDay(d: Date): string {
   return d.toISOString().slice(0, 10);
@@ -1183,12 +1183,12 @@ export async function seedPaketPresentasi(
   const superAdmin = await db.user.findFirst({ where: { email: 'super.admin@cipansor.or.id' } });
   if (!superAdmin) throw new Error('super.admin@cipansor.or.id tidak ada');
 
-  const todayWib = new Date(now.getTime() + WIB_OFFSET_MS);
+  const today = dayOf(wibDayOf(now));
   const ctx: Ctx = {
     db,
     rng: createRng(20260715),
     now,
-    today: utcDate(todayWib.getUTCFullYear(), todayWib.getUTCMonth(), todayWib.getUTCDate()),
+    today,
     ay: {
       id: ayRow.id,
       name: ayRow.name,

@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma, SimaanType } from '@prisma/client';
-import { dayDate, wibDayOf } from '@/utils/wib-day';
+import { dayDate, wibDayOf } from '@/utils/wib';
 import type {
   ListSimaanQuery,
   CreateSimaanInput,
