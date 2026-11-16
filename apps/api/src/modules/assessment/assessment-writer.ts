@@ -101,14 +101,16 @@ export async function actorExamSubjects(actor: WriteActor): Promise<TeacherSubje
 
 /**
  * 404 unless `examId` is an exam `actor` may write — same answer as an id that
- * does not exist. Returns the row so a caller can reuse it.
+ * does not exist. Returns the row so a caller can reuse it. `resource` names
+ * the answer's subject so it reads the same as the endpoint's own missing-id
+ * answer (R13.1, R25.4).
  */
-export async function assertExamWritable(actor: WriteActor, examId: string) {
+export async function assertExamWritable(actor: WriteActor, examId: string, resource = 'Exam') {
   const exam = await prisma.exam.findUnique({
     where: { id: examId },
     select: { id: true, unitId: true, subjectId: true, classId: true },
   });
-  if (!exam) throw Errors.notFound('Exam');
+  if (!exam) throw Errors.notFound(resource);
 
   const target: AssessmentTarget = {
     kind: 'EXAM',
@@ -117,15 +119,20 @@ export async function assertExamWritable(actor: WriteActor, examId: string) {
     classId: exam.classId,
     actorSubjects: await actorExamSubjects(actor),
   };
-  if (!isPenulisPenilaian(actor, target)) throw Errors.notFound('Exam');
+  if (!isPenulisPenilaian(actor, target)) throw Errors.notFound(resource);
   return exam;
 }
 
-/** 404 unless every santri among `studentIds` is one `actor` may grade. */
+/**
+ * 404 unless every santri among `studentIds`, and every exam among `examIds`,
+ * is one `actor` may write. `resource` names the answer so a grade endpoint's
+ * out-of-scope answer reads like its own missing-id answer (R13.2, R25.4).
+ */
 export async function assertGradesWritable(
   actor: WriteActor,
   studentIds: string[],
-  examIds: string[] = []
+  examIds: string[] = [],
+  resource = 'Student'
 ): Promise<void> {
   const ids = [...new Set(studentIds)];
   if (ids.length) {
@@ -133,7 +140,7 @@ export async function assertGradesWritable(
       where: { id: { in: ids } },
       select: { id: true, unitId: true },
     });
-    if (students.length !== ids.length) throw Errors.notFound('Student');
+    if (students.length !== ids.length) throw Errors.notFound(resource);
     // A Penulis_Lintas_Unit writes any santri; relations are not consulted.
     if (!isCrossUnitWriter(actor)) {
       const relations = await teachingRelations(actor.sub, ids);
@@ -145,20 +152,25 @@ export async function assertGradesWritable(
             relations: relations.get(s.id) ?? new Set(),
           })
         ) {
-          throw Errors.notFound('Student');
+          throw Errors.notFound(resource);
         }
       }
     }
   }
   for (const examId of [...new Set(examIds)].filter(Boolean)) {
-    await assertExamWritable(actor, examId);
+    await assertExamWritable(actor, examId, resource);
   }
 }
 
-/** 404 unless every santri among `studentIds` is one `actor` may write a report card for. */
+/**
+ * 404 unless every santri among `studentIds` is one `actor` may write a report
+ * card for. `resource` names the answer so a report card endpoint's
+ * out-of-scope answer reads like its own missing-id answer (R13.3, R25.5).
+ */
 export async function assertReportCardsWritable(
   actor: WriteActor,
-  studentIds: string[]
+  studentIds: string[],
+  resource = 'Student'
 ): Promise<void> {
   const ids = [...new Set(studentIds)];
   if (!ids.length) return;
@@ -166,7 +178,7 @@ export async function assertReportCardsWritable(
     where: { id: { in: ids } },
     select: { id: true, unitId: true },
   });
-  if (students.length !== ids.length) throw Errors.notFound('Student');
+  if (students.length !== ids.length) throw Errors.notFound(resource);
   if (isCrossUnitWriter(actor)) return;
   const relations = await teachingRelations(actor.sub, ids);
   for (const s of students) {
@@ -177,7 +189,7 @@ export async function assertReportCardsWritable(
         relations: relations.get(s.id) ?? new Set(),
       })
     ) {
-      throw Errors.notFound('Student');
+      throw Errors.notFound(resource);
     }
   }
 }

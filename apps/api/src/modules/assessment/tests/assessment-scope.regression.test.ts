@@ -31,7 +31,7 @@ vi.mock('@/lib/prisma', () => ({
       update: vi.fn(),
     },
     grade: { findUnique: vi.fn(), update: vi.fn() },
-    reportCard: { findUnique: vi.fn() },
+    reportCard: { findUnique: vi.fn(), update: vi.fn() },
   },
 }));
 
@@ -46,6 +46,9 @@ import assessmentRoutes from '../assessment.routes';
 const TOKENS = {
   guruSameUnit: { roleCode: 'SMPIT_GURU', unitId: 'unit-a' },
   guruOtherUnit: { roleCode: 'SMPIT_GURU', unitId: 'unit-b' },
+  // A homeroom teacher: passes `isTeacherOrAbove`, but holds only relation (d)
+  // with the santri — enough for a report card, never for a grade.
+  wali: { roleCode: 'SMPIT_GURU', unitId: 'unit-a' },
   superAdmin: { roleCode: 'SUPER_ADMIN', unitId: null },
   student: { roleCode: 'SMPIT_SISWA', unitId: 'unit-a' },
 } as const;
@@ -125,6 +128,7 @@ describe('R13.5 — out-of-scope writes answer 404 like a missing id', () => {
   it.each(WRITES)('%s — another unit is 404', async (_name, method, path, body) => {
     const res = await send('guruOtherUnit', method, path, body);
     expect(res.status).toBe(404);
+    expectNoWrite();
   });
 
   it.each(WRITES)(
@@ -132,9 +136,72 @@ describe('R13.5 — out-of-scope writes answer 404 like a missing id', () => {
     async (_name, method, path, body) => {
       const res = await send('guruSameUnit', method, path, body);
       expect(res.status).toBe(404);
+      expectNoWrite();
     }
   );
+
+  it('update grade — a Wali_Kelas with relation (d) only is 404 (R13.2)', async () => {
+    // The homeroom teacher of the santri's active class: relation (d) reaches a
+    // report card but never a grade, so this is out of scope.
+    vi.mocked(prisma.class.findMany).mockResolvedValue([{ id: CLS }] as any);
+    vi.mocked(prisma.student.findMany).mockResolvedValue([
+      { id: ST, unitId: 'unit-a', enrollments: [{ classId: CLS }] },
+    ] as any);
+    const res = await send('wali', 'patch', `/assessment/grades/${GR}`, { score: 90 });
+    expect(res.status).toBe(404);
+    expectNoWrite();
+  });
+
+  it('the 404 body is the same shape as for a missing id', async () => {
+    const outOfScope = await send('guruSameUnit', 'patch', `/assessment/grades/${GR}`, {
+      score: 90,
+    });
+    vi.mocked(prisma.grade.findUnique).mockResolvedValue(null as any);
+    const absent = await send('guruSameUnit', 'patch', `/assessment/grades/${GR}`, { score: 90 });
+    expect(outOfScope.status).toBe(404);
+    expect(absent.status).toBe(404);
+    expect(absent.body).toEqual(outOfScope.body);
+  });
+
+  // R13.5: the out-of-scope answer is indistinguishable from the missing-id
+  // answer for every write endpoint, not just the grade one above.
+  it.each(WRITES)(
+    '%s — the out-of-scope 404 reads like a missing id',
+    async (name, method, path, body) => {
+      const outOfScope = await send('guruSameUnit', method, path, body);
+      const missing =
+        name.includes('exam') || name.includes('Exam')
+          ? prisma.exam.findUnique
+          : name.includes('grade')
+            ? prisma.grade.findUnique
+            : prisma.reportCard.findUnique;
+      vi.mocked(missing).mockResolvedValue(null as any);
+      const absent = await send('guruSameUnit', method, path, body);
+      expect(outOfScope.status).toBe(404);
+      expect(absent.status).toBe(404);
+      expect(absent.body).toEqual(outOfScope.body);
+    }
+  );
+
+  it('update report card — a Wali_Kelas with relation (d) is allowed (200, R13.6)', async () => {
+    vi.mocked(prisma.class.findMany).mockResolvedValue([{ id: CLS }] as any);
+    vi.mocked(prisma.student.findMany).mockResolvedValue([
+      { id: ST, unitId: 'unit-a', enrollments: [{ classId: CLS }] },
+    ] as any);
+    vi.mocked(prisma.reportCard.update).mockResolvedValue({ id: RC, studentId: ST } as any);
+    const res = await send('wali', 'patch', `/assessment/report-cards/${RC}`, {
+      teacherNotes: 'Baik',
+    });
+    expect(res.status).toBe(200);
+  });
 });
+
+/** No write of any kind happened — the record and its child rows are untouched. */
+function expectNoWrite() {
+  expect(prisma.exam.update).not.toHaveBeenCalled();
+  expect(prisma.grade.update).not.toHaveBeenCalled();
+  expect(prisma.reportCard.update).not.toHaveBeenCalled();
+}
 
 describe('R25.9 — out-of-scope creates answer 404 and change nothing', () => {
   it('a grade for a santri of another unit is 404', async () => {

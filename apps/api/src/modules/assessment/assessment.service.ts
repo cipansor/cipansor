@@ -517,7 +517,7 @@ export async function updateGrade(
   // R13.2/R13.6: an existing grade is written through the actor's relation with
   // its santri alone — the exam is not re-checked here (that is a create-time
   // rule, R25.4).
-  await assertGradesWritable(actor, [existing.studentId]);
+  await assertGradesWritable(actor, [existing.studentId], [], 'Grade');
 
   const updateData: Prisma.GradeUpdateInput = {};
 
@@ -556,7 +556,7 @@ export async function deleteGrade(id: string, actor: WriteActor): Promise<Grade>
     select: { studentId: true },
   });
   if (!existing) throw Errors.notFound('Grade');
-  await assertGradesWritable(actor, [existing.studentId]);
+  await assertGradesWritable(actor, [existing.studentId], [], 'Grade');
 
   const grade = await prisma.grade.delete({ where: { id } });
   return mapToGrade(grade);
@@ -787,7 +787,7 @@ export async function updateReportCard(
     select: { studentId: true },
   });
   if (!existing) throw Errors.notFound('ReportCard');
-  await assertReportCardsWritable(actor, [existing.studentId]);
+  await assertReportCardsWritable(actor, [existing.studentId], 'ReportCard');
 
   const updateData: Prisma.ReportCardUpdateInput = {};
 
@@ -822,7 +822,7 @@ export async function deleteReportCard(id: string, actor: WriteActor): Promise<R
     select: { studentId: true },
   });
   if (!existing) throw Errors.notFound('ReportCard');
-  await assertReportCardsWritable(actor, [existing.studentId]);
+  await assertReportCardsWritable(actor, [existing.studentId], 'ReportCard');
 
   // Delete details first
   await prisma.reportCardDetail.deleteMany({ where: { reportCardId: id } });
@@ -1050,7 +1050,7 @@ export async function publishReportCard(id: string, actor: WriteActor): Promise<
     select: { studentId: true },
   });
   if (!existing) throw Errors.notFound('ReportCard');
-  await assertReportCardsWritable(actor, [existing.studentId]);
+  await assertReportCardsWritable(actor, [existing.studentId], 'ReportCard');
 
   const reportCard = await prisma.reportCard.update({
     where: { id },
