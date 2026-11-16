@@ -10,9 +10,11 @@
 #
 #   * missing shared labels are added to the PR
 #   * a priority on the PR that contradicts the issues is corrected
-#   * a genuine disagreement (a different type on the PR, two issues it closes
-#     that disagree, an ambiguous issue with two priorities) fails the check for
-#     a human or the review automation to resolve
+#   * a genuine disagreement fails the check for a human to resolve: a different
+#     type on the PR, two issues it closes of different types, or an ambiguous
+#     issue with two types or two priorities. A priority is a spectrum, but a
+#     type is one fact — so a type conflict is never guessed at. The fix is to
+#     correct the issue whose type is wrong, or to split the PR by type.
 #
 # Usage: issue-label-sync.sh <pr-number>
 #        issue-label-sync.sh --issue <issue-number>   # re-sync every open PR
@@ -73,7 +75,7 @@ sync_pr() { # sync_pr <pr-number>
     # A conflict between issues this PR closes, or between the PR and an issue.
     if [ -n "$I_TYPES" ]; then
       if [ -n "$REQ_TYPES" ] && [ "$I_TYPES" != "$REQ_TYPES" ]; then
-        echo "::error::PR #$PR closes issues that disagree on type ($REQ_TYPES vs $I_TYPES); fix the labels before merging."
+        echo "::error::PR #$PR closes issues of different types ($REQ_TYPES vs $I_TYPES). A type is one fact: correct the issue whose type is wrong, or split the PR by type."
         FAIL=1
       fi
       REQ_TYPES="$I_TYPES"
