@@ -716,7 +716,7 @@ router.get(
  *       200:
  *         description: Leave request updated
  *       409:
- *         description: Already decided, so it can no longer be changed; reload the page
+ *         description: Cuti yang sudah diputuskan tidak dapat diubah; muat ulang halaman
  */
 router.put(
   '/leaves/:id',
@@ -756,9 +756,9 @@ router.put(
  *       200:
  *         description: Leave request approved/rejected
  *       400:
- *         description: An approved leave cannot be rejected; cancel it first
+ *         description: Cuti yang sudah disetujui tidak dapat diubah; batalkan terlebih dahulu
  *       409:
- *         description: Decided by another request in the meantime; reload the page
+ *         description: Cuti ini sudah diputuskan oleh permintaan lain; muat ulang halaman
  */
 router.patch(
   '/leaves/:id/approve',
@@ -784,7 +784,7 @@ router.patch(
  *       200:
  *         description: Leave request cancelled
  *       409:
- *         description: Decided by another request in the meantime; reload the page
+ *         description: Cuti ini sudah diputuskan oleh permintaan lain; muat ulang halaman
  */
 router.patch(
   '/leaves/:id/cancel',

@@ -42,5 +42,20 @@ describe('swagger spec', () => {
     it('PATCH /api/hr/leaves/{id}/cancel documents 409', () => {
       expect(path('/api/hr/leaves/{id}/cancel').patch.responses['409']).toBeDefined();
     });
+
+    /**
+     * The descriptions are read in Swagger UI, so they follow the Indonesian
+     * rule (AGENTS.md): a person reads them, not a client. Guarded because the
+     * surrounding blocks are still English and a copy-paste re-introduces it.
+     */
+    it('states the responses in Indonesian', () => {
+      const idText = /muat ulang halaman|batalkan terlebih dahulu/i;
+      const description = (p: string, m: string, code: string) =>
+        (path(p)[m].responses[code] as { description: string }).description;
+      expect(description('/api/hr/leaves/{id}', 'put', '409')).toMatch(idText);
+      expect(description('/api/hr/leaves/{id}/approve', 'patch', '409')).toMatch(idText);
+      expect(description('/api/hr/leaves/{id}/approve', 'patch', '400')).toMatch(idText);
+      expect(description('/api/hr/leaves/{id}/cancel', 'patch', '409')).toMatch(idText);
+    });
   });
 });
