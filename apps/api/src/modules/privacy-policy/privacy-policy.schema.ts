@@ -1,8 +1,4 @@
 import { z } from 'zod';
-import {
-  createPrivacyPolicyVersionSchema,
-  listPrivacyPolicyVersionsQuerySchema,
-} from '@cipansor/shared';
 
 /**
  * Skema modul Kebijakan Privasi. Kontrak yang dibagi ke web hidup di
