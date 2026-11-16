@@ -4,9 +4,21 @@ import {
   apiRequest,
   injectSession,
   SEED_USERS,
+  type SeedUser,
 } from "../helpers/auth-api";
 
 type AuthSession = Awaited<ReturnType<typeof apiLogin>>;
+
+/**
+ * A santri of SMP IT, enrolled in class 7A. Since #987 a student reads only the
+ * exams of a class they are actively enrolled in (R25.7), so the take page
+ * needs a student whose enrolment matches the exam's class — the seeded SD IT
+ * student (`SEED_USERS.student`) has no active enrolment and would 404.
+ */
+const SMPIT_STUDENT: SeedUser = {
+  email: "smpit.siswa@cipansor.or.id",
+  password: "Cipansor123!",
+};
 
 /**
  * E2E coverage for the CBT best-practice enhancements on the student
@@ -58,7 +70,9 @@ interface FullAttempt {
 async function createCbtExam(
   session: AuthSession,
 ): Promise<{ exam: Exam; questions: QuestionDto[]; bankId: string }> {
-  // Pick a seeded unit (SMP IT) + the first subject/academic-year/class/teacher.
+  // Pick the seeded SMP IT unit and its 7A class. The exam's class decides who
+  // may read it: since #987 a santri reads only the exams of a class they are
+  // actively enrolled in (R25.7), and the santri used here sits in SMP IT 7A.
   const units = await apiRequest<{ data: Array<{ id: string; name: string }> }>(
     session,
     "GET",
@@ -73,17 +87,27 @@ async function createCbtExam(
       "GET",
       "/curriculum/subjects",
     ),
-    apiRequest<{ data: Array<{ id: string }> }>(
+    apiRequest<{ data: Array<{ id: string; isActive: boolean }> }>(
       session,
       "GET",
       "/academic-years",
     ),
-    apiRequest<{ data: Array<{ id: string }> }>(session, "GET", "/classes"),
+    apiRequest<{ data: Array<{ id: string; unitId: string; name: string }> }>(
+      session,
+      "GET",
+      "/classes",
+    ),
     apiRequest<{ data: Array<{ id: string }> }>(session, "GET", "/hr/teachers"),
   ]);
+  // The class must be the SMP IT 7A the santri is enrolled in — the first class
+  // the list happens to return (1A, SD IT) is another unit's.
+  const year = academicYears.data.find((y) => y.isActive);
+  const cls = classes.data.find(
+    (c) => c.unitId === smpit.id && c.name === "7A",
+  );
   expect(subjects.data?.[0], "seeded subject required").toBeTruthy();
-  expect(academicYears.data?.[0], "seeded academic year required").toBeTruthy();
-  expect(classes.data?.[0], "seeded class required").toBeTruthy();
+  expect(year, "seeded active academic year required").toBeTruthy();
+  expect(cls, "SMP IT 7A required").toBeTruthy();
   expect(teachers.data?.[0], "seeded teacher required").toBeTruthy();
 
   const bank = await apiRequest<{ data: { id: string } }>(
@@ -151,9 +175,9 @@ async function createCbtExam(
     title: `Ujian E2E ${Date.now()}`,
     description: "E2E CBT exam",
     type: "MIDTERM",
-    academicYearId: academicYears.data[0].id,
+    academicYearId: year!.id,
     subjectId: subjects.data[0].id,
-    classId: classes.data[0].id,
+    classId: cls!.id,
     scheduledAt: new Date(Date.now() + 1000 * 60 * 60 * 24).toISOString(),
     duration: 1,
     maxScore: 100,
@@ -220,7 +244,7 @@ test.describe("CBT Take Exam (Student)", () => {
   }) => {
     const admin = await apiLogin(SEED_USERS.superAdmin);
     const { exam, bankId } = await createCbtExam(admin);
-    const student = await apiLogin(SEED_USERS.student);
+    const student = await apiLogin(SMPIT_STUDENT);
     const attempt = await startAttempt(student, exam.id);
     await injectSession(page, student);
 
@@ -254,7 +278,7 @@ test.describe("CBT Take Exam (Student)", () => {
   }) => {
     const admin = await apiLogin(SEED_USERS.superAdmin);
     const { exam, bankId } = await createCbtExam(admin);
-    const student = await apiLogin(SEED_USERS.student);
+    const student = await apiLogin(SMPIT_STUDENT);
     const attempt = await startAttempt(student, exam.id);
     await injectSession(page, student);
 
@@ -294,7 +318,7 @@ test.describe("CBT Take Exam (Student)", () => {
   }) => {
     const admin = await apiLogin(SEED_USERS.superAdmin);
     const { exam, bankId } = await createCbtExam(admin);
-    const student = await apiLogin(SEED_USERS.student);
+    const student = await apiLogin(SMPIT_STUDENT);
     const attempt = await startAttempt(student, exam.id);
     await injectSession(page, student);
 
@@ -354,7 +378,7 @@ test.describe("CBT Take Exam (Student)", () => {
   }) => {
     const admin = await apiLogin(SEED_USERS.superAdmin);
     const { exam, bankId } = await createCbtExam(admin);
-    const student = await apiLogin(SEED_USERS.student);
+    const student = await apiLogin(SMPIT_STUDENT);
     const attempt = await startAttempt(student, exam.id);
     await injectSession(page, student);
 

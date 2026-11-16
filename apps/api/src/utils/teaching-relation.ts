@@ -75,7 +75,7 @@ export async function teachingRelations(
 
   const [teacher, students] = await Promise.all([
     prisma.teacher.findFirst({
-      where: { userId, isActive: true },
+      where: { userId, deletedAt: null },
       select: { id: true, unitId: true },
     }),
     prisma.student.findMany({
