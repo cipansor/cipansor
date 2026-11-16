@@ -36,11 +36,47 @@ const field = (page: Page, label: string) =>
     .locator("input, textarea")
     .first();
 
+/**
+ * Fill steps 1–5 for one child and stop on the consent step (6). The unit is
+ * already set by the intake's "Daftar" button. Steps are identical for every
+ * child, so two consecutive registrations share this.
+ */
+async function fillRegistrationSteps(page: Page, childName: string) {
+  // Step 1: student.
+  await field(page, "Nama Lengkap").fill(childName);
+  await field(page, "Tempat Lahir").fill("Tasikmalaya");
+  await field(page, "Tanggal Lahir").fill("2014-05-01");
+  await page.getByText("Pilih jenis kelamin").click();
+  await page.getByRole("option", { name: /Laki/ }).click();
+  await page.getByRole("button", { name: "Selanjutnya" }).click();
+  // Step 2: parents.
+  await field(page, "Nama Ayah").fill(`Ayah ${childName}`);
+  await field(page, "Nama Ibu").fill(`Ibu ${childName}`);
+  await field(page, "No. WhatsApp").fill("081234567890");
+  await page.getByRole("button", { name: "Selanjutnya" }).click();
+  // Step 3: address.
+  await field(page, "Alamat Lengkap (Jalan, RT/RW)").fill(
+    "Kp. Nyalindung RT 001 RW 001",
+  );
+  await field(page, "Kota/Kabupaten").fill("Tasikmalaya");
+  await field(page, "Provinsi").fill("Jawa Barat");
+  await page.getByRole("button", { name: "Selanjutnya" }).click();
+  // Step 4: the Qur'an ability is stored as the code every other reader uses.
+  await page.getByText("Pilih kemampuan").click();
+  await page.getByRole("option", { name: "Sudah hafal beberapa juz" }).click();
+  await page.getByRole("button", { name: "Selanjutnya" }).click();
+  // Step 5 (documents) is optional.
+  await page.getByRole("button", { name: "Selanjutnya" }).click();
+}
+
 test.describe("SPMB publik per unit", () => {
   test.describe.configure({ mode: "serial" });
   let admin: AuthSession;
   const runId = `e2e-${Date.now()}`;
-  const created: { periods: string[]; registrant?: string } = { periods: [] };
+  const created: { periods: string[]; registrants: string[] } = {
+    periods: [],
+    registrants: [],
+  };
   let smp = { id: "", name: "" };
   let sma = { id: "", name: "" };
   let smpPeriod = "";
@@ -156,12 +192,10 @@ test.describe("SPMB publik per unit", () => {
 
   test.afterAll(async () => {
     if (!admin) return;
-    if (created.registrant) {
-      await apiRequest(
-        admin,
-        "DELETE",
-        `/admissions/registrants/${created.registrant}`,
-      ).catch(() => undefined);
+    for (const id of created.registrants) {
+      await apiRequest(admin, "DELETE", `/admissions/registrants/${id}`).catch(
+        () => undefined,
+      );
     }
     for (const id of created.periods) {
       const period = await apiRequest<{
@@ -256,34 +290,8 @@ test.describe("SPMB publik per unit", () => {
     );
     await expect(page.getByTestId("spmb-registration-fee")).toHaveCount(0);
 
-    // Step 1: the unit is already chosen.
-    await field(page, "Nama Lengkap").fill(`Calon ${runId}`);
-    await field(page, "Tempat Lahir").fill("Tasikmalaya");
-    await field(page, "Tanggal Lahir").fill("2014-05-01");
-    await page.getByText("Pilih jenis kelamin").click();
-    await page.getByRole("option", { name: /Laki/ }).click();
-    await page.getByRole("button", { name: "Selanjutnya" }).click();
-    // Step 2: parents.
-    await field(page, "Nama Ayah").fill(`Ayah ${runId}`);
-    await field(page, "Nama Ibu").fill(`Ibu ${runId}`);
-    await field(page, "No. WhatsApp").fill("081234567890");
-    await page.getByRole("button", { name: "Selanjutnya" }).click();
-    // Step 3: address.
-    await field(page, "Alamat Lengkap (Jalan, RT/RW)").fill(
-      "Kp. Nyalindung RT 001 RW 001",
-    );
-    await field(page, "Kota/Kabupaten").fill("Tasikmalaya");
-    await field(page, "Provinsi").fill("Jawa Barat");
-    await page.getByRole("button", { name: "Selanjutnya" }).click();
-    // Step 4: the Qur'an ability is stored as the code every other reader
-    // uses — the form once sent "HAFIDZ" where the scores read "TAHFIDZ".
-    await page.getByText("Pilih kemampuan").click();
-    await page
-      .getByRole("option", { name: "Sudah hafal beberapa juz" })
-      .click();
-    await page.getByRole("button", { name: "Selanjutnya" }).click();
-    // Step 5 is optional.
-    await page.getByRole("button", { name: "Selanjutnya" }).click();
+    // Steps 1–5: fill the child's data. The unit is already chosen.
+    await fillRegistrationSteps(page, `Calon ${runId}`);
     // Step 6: the parent/guardian must consent before the form will send the
     // child's data (UU PDP 27/2022 Pasal 20, 25). The checkbox starts
     // unchecked, so tick it — the API refuses a submission without it.
@@ -305,8 +313,61 @@ test.describe("SPMB publik per unit", () => {
       `/admissions/registrants?search=${encodeURIComponent(`Calon ${runId}`)}`,
     );
     expect(data).toHaveLength(1);
-    created.registrant = data[0].id;
+    created.registrants.push(data[0].id);
     expect(data[0].admissionPeriodId).toBe(smpPeriod);
     expect(data[0].quranAbility).toBe("TAHFIDZ");
+  });
+
+  test("a second registration on the same page asks for consent again", async ({
+    page,
+  }) => {
+    // The reviewer's case: the guardian registers one child, then a sibling
+    // without reloading the page. Consent is the lawful basis for THIS child
+    // (UU PDP 27/2022 Pasal 25), so the box must come back empty — otherwise
+    // the second child is filed under a consent the guardian never gave for
+    // them. The reset lives beside the form-data reset in both success paths.
+    test.setTimeout(180_000);
+    await page.goto("/public/spmb");
+    const section = page.getByTestId("public-intakes");
+    await section.getByRole("tab", { name: smp.name }).click();
+    const register = section
+      .getByTestId("public-intake")
+      .filter({ hasText: `Panitia ${runId}` })
+      .getByTestId("public-intake-register");
+
+    // First child: register, then close the success dialog without reloading.
+    await register.click();
+    await fillRegistrationSteps(page, `Kakak ${runId}`);
+    const consent = page.getByRole("checkbox", { name: /Kebijakan Privasi/ });
+    await consent.check();
+    await page.getByRole("button", { name: "Kirim Pendaftaran" }).click();
+    await expect(page.getByText("Pendaftaran Berhasil!")).toBeVisible();
+    await page
+      .getByRole("dialog")
+      .getByRole("button", { name: "Tutup" })
+      .click();
+    await expect(page.getByText("Pendaftaran Berhasil!")).toBeHidden();
+
+    // Second child, same page. The unit is chosen again the way a guardian
+    // would: through the intake's own button.
+    await register.click();
+    await fillRegistrationSteps(page, `Adik ${runId}`);
+    await expect(consent).not.toBeChecked();
+    await consent.check();
+    await page.getByRole("button", { name: "Kirim Pendaftaran" }).click();
+    await expect(page.getByText("Pendaftaran Berhasil!")).toBeVisible();
+
+    // Both children are filed, each carrying its own recorded consent.
+    for (const child of [`Kakak ${runId}`, `Adik ${runId}`]) {
+      const { data } = await apiRequest<{
+        data: Array<{ id: string; fullName: string }>;
+      }>(
+        admin,
+        "GET",
+        `/admissions/registrants?search=${encodeURIComponent(child)}`,
+      );
+      expect(data).toHaveLength(1);
+      created.registrants.push(data[0].id);
+    }
   });
 });
