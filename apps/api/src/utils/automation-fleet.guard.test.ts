@@ -3274,6 +3274,29 @@ describe('deploy-sdlc-agents.py', () => {
     expect(other).toContain('BAHASA — JANGAN MENGAKUI WEWENANG YANG BUKAN MILIKMU');
     expect(other).not.toMatch(/putusan akhir/i);
   });
+
+  it.skipIf(!hasPy)(
+    'resolves the CI-gate rule against the priority-ceiling correction (#1054)',
+    () => {
+      // The two rules contradicted each other: "a red check -> just
+      // REQUEST_CHANGES" told the gate to ask for a change, while the priority
+      // correction told it to fix the label itself. `Issue label sync` is not a
+      // required check (ruleset 19429529: Build/Lint/Tests/Security/E2E/PR
+      // template reminder), so its red does not block dispatch and its fix — the
+      // label write — is the gate's own. Pin both halves of the carve-out.
+      const out = newPrompt(
+        'SDLC 18',
+        `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+      );
+      // The CI paragraph names the exception rather than leaving "just
+      // REQUEST_CHANGES" as the unqualified rule.
+      expect(out).toMatch(/Pengecualian — `Issue label sync` merah/);
+      expect(out).toMatch(/bukan check wajib/);
+      // The priority paragraph states it is the single exception, so the two
+      // paragraphs agree instead of contradicting.
+      expect(out).toMatch(/Inilah pengecualian tunggal pada aturan GERBANG CI/);
+    }
+  );
 });
 
 // The EXTRACT mode archives the fleet source that only lives in the automation
