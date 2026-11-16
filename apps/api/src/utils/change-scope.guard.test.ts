@@ -61,6 +61,19 @@ describe('change-scope.sh', () => {
     expect(codeAmong(code)).toEqual(code);
   });
 
+  it('calls a mockup-only change to docs/screens/templates-preview code', () => {
+    // A PNG-only change must reach the Tests job, where templates-preview.guard
+    // runs: docs/* is non-code, so the folder needs its own code rule or an
+    // unreferenced binary slips in with every job skipped.
+    const paths = [
+      'docs/screens/templates-preview/05-mockup.png',
+      'docs/screens/templates-preview/01-pilih-jenis-issue.png',
+    ];
+    expect(codeAmong(paths)).toEqual(paths);
+    // A sibling image outside the folder stays non-code.
+    expect(codeAmong(['docs/screens/other/photo.png'])).toEqual([]);
+  });
+
   it('calls every markdown file a test reads code', () => {
     const repoFiles = walk(REPO_ROOT).map((f) => relative(REPO_ROOT, f));
     const self = relative(REPO_ROOT, __filename);
