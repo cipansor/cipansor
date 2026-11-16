@@ -210,6 +210,40 @@ describe('write routes — only a writer reaches them (CWE-863)', () => {
     );
   });
 
+  it('menerima kalori `null` pada PUT sehingga nilai lama dapat dihapus (#1081)', async () => {
+    // Mengosongkan isian kalori di formulir Edit berarti "hapus nilai lama", dan
+    // dikirim sebagai `null`. Skema ubah harus meloloskannya sampai ke layanan;
+    // sebelumnya `null` ditolak sehingga tidak ada cara menghapusnya.
+    const spy = vi.spyOn(mealsService, 'updateMenu').mockResolvedValue({ id: 'm-1' } as never);
+
+    const res = await request(app).put('/meals/menus/m-1').set(asRole()).send({ calories: null });
+
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      'm-1',
+      expect.objectContaining({ calories: null }),
+      expect.anything()
+    );
+  });
+
+  it('menolak kalori `null` pada POST — menu baru cukup mengosongkan isian (#1081)', async () => {
+    // `null` hanya bermakna pada pembaruan (menghapus yang sudah ada). Menu baru
+    // tanpa kalori tidak mengirim kolomnya sama sekali, jadi `null` di sini tetap
+    // 400 dan bukan nilai yang disimpan.
+    const spy = vi.spyOn(mealsService, 'createMenu');
+
+    const res = await request(app).post('/meals/menus').set(asRole()).send({
+      unitId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      date: '2026-11-02',
+      mealType: 'LUNCH',
+      mainDish: 'Nasi',
+      calories: null,
+    });
+
+    expect(res.status).toBe(400);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('menerima guru mencatat absensi makan', async () => {
     const spy = vi
       .spyOn(mealsService, 'recordAttendance')

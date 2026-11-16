@@ -316,10 +316,47 @@ describe('mealsService — peran lintas unit: baca melebar, tulis tetap', () => 
     expect(call.data).toEqual({ mainDish: 'Soto' });
   });
 
+  it('meneruskan `null` kalori ke Prisma sehingga nilai lama terhapus (#1081)', async () => {
+    // Membiarkan `null` ikut ke Prisma adalah satu-satunya cara menghapus
+    // kalori: `undefined` meninggalkan kolom apa adanya. Formulir Edit
+    // mengirim `null` ketika admin mengosongkan isian kalori.
+    prismaMock.mealMenu.findUnique.mockResolvedValue({
+      id: 'm-1',
+      unitId: UNIT_A,
+      date: new Date('2026-11-01'),
+      mealType: 'BREAKFAST',
+    });
+    prismaMock.mealMenu.update.mockResolvedValue({ id: 'm-1' });
+
+    await mealsService.updateMenu('m-1', { calories: null }, actor());
+
+    const call = prismaMock.mealMenu.update.mock.calls[0][0];
+    expect(call.data).toEqual({ calories: null });
+  });
+
+  it('pembaruan tanpa kalori tidak menyentuh kolom kalori (#1081)', async () => {
+    // Sebaliknya: properti yang tidak dikirim berarti "jangan ubah". Ini yang
+    // membedakan isian yang sengaja dikosongkan (`null`) dari yang tak disentuh
+    // (absen), dan itulah inti koreksi ini.
+    prismaMock.mealMenu.findUnique.mockResolvedValue({
+      id: 'm-1',
+      unitId: UNIT_A,
+      date: new Date('2026-11-01'),
+      mealType: 'BREAKFAST',
+    });
+    prismaMock.mealMenu.update.mockResolvedValue({ id: 'm-1' });
+
+    await mealsService.updateMenu('m-1', { mainDish: 'Soto' }, actor());
+
+    const call = prismaMock.mealMenu.update.mock.calls[0][0];
+    expect(call.data).toEqual({ mainDish: 'Soto' });
+    expect('calories' in call.data).toBe(false);
+  });
+
   it('menjawab 409 (bukan 500) saat memindahkan menu ke tanggal yang sudah terisi', async () => {
     // Memindahkan menu ke (tanggal, waktu makan) yang sudah dipegang menu lain
-    // melanggar @@unique([unitId, date, mealType]); tanpa pemeriksaan lebih
-    // dulu Prisma menjawab 500 mentah.
+    // melanggar @@unique([unitId, date, mealType]); pemeriksaan lebih dulu
+    // menjawab 409 dengan pesan jelas alih-alih membiarkan Prisma melempar.
     prismaMock.mealMenu.findUnique
       .mockResolvedValueOnce({
         id: 'm-1',

@@ -1,4 +1,4 @@
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import {
   apiLogin,
   apiRequest,
@@ -407,5 +407,235 @@ test.describe("Menu Makan — alur Edit menyimpan perubahan (#1081)", () => {
       `/meals/menus/${menuId}`,
     );
     expect(reread.data.mainDish).toBe(editedDish);
+  });
+
+  test("mengosongkan kalori menghapus nilai lama (#1081)", async ({ page }) => {
+    // Beri fixture sebuah nilai kalori lewat API, lalu kosongkan di formulir dan
+    // simpan. Sebelum perbaikan, isian kosong menjadi `undefined` yang hilang
+    // dari JSON, sehingga angka lama tetap tersimpan dan formulir melaporkan
+    // sukses — persis keluhan pemilik (#1081). Sekarang kosong dikirim `null`
+    // dan kolomnya benar-benar dikosongkan.
+    await apiRequest(writer, "PUT", `/meals/menus/${menuId}`, {
+      calories: 650,
+    });
+
+    await loginAs(page, "adminSdit");
+    const saved = page.waitForResponse(
+      (r) =>
+        r.url().includes(`/meals/menus/${menuId}`) &&
+        r.request().method() === "PUT",
+    );
+    await page.goto(`/meals/menus/${menuId}/edit`);
+
+    const calories = page.getByLabel("Kalori (kkal)");
+    await expect(calories).toHaveValue("650");
+    await calories.fill("");
+    await page.getByRole("button", { name: "Simpan" }).click();
+
+    const response = await saved;
+    expect(response.status()).toBe(200);
+
+    const reread = await apiRequest<{ data: { calories: number | null } }>(
+      writer,
+      "GET",
+      `/meals/menus/${menuId}`,
+    );
+    expect(reread.data.calories ?? null).toBeNull();
+  });
+});
+
+/**
+ * The New-menu flow, end to end (#1081).
+ *
+ * The Edit flow above builds its fixture through the API, so it never exercises
+ * the New form: a broken adapter there — a field the contract rejects, a date
+ * the picker formats wrongly — would leave the Edit tests green while creating a
+ * menu stayed broken. This block drives the real form (pick unit and date, fill
+ * the dishes, save) and reads the result back through the API. It also pins the
+ * two behaviours review asked for: empty calories is allowed on create, and an
+ * invalid field is refused with an Indonesian message instead of a request.
+ *
+ * Each browser project gets its own dates within the current month — the picker
+ * opens on the month of "today" — so the parallel projects never collide on the
+ * model's unique (unit, date, meal type) key.
+ */
+test.describe("Menu Makan — alur Tambah Menu (#1081)", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let writer: AuthSession;
+  let unitName = "";
+  let unitId = "";
+  let offset = 0;
+  let yearMonth = "";
+
+  /** A day of the current month, distinct per project and per test index. */
+  const dayFor = (index: number) => 1 + (((offset % 27) + index * 9) % 27);
+  const isoFor = (index: number) =>
+    `${yearMonth}-${String(dayFor(index)).padStart(2, "0")}`;
+  const dishFor = (index: number) => `Menu Baru Uji ${offset} ${index}`;
+
+  test.beforeAll(async () => {
+    test.skip(
+      await isProductionApi(),
+      "API_URL menunjuk API produksi; uji ini menulis menu, jadi dilewati",
+    );
+    offset = [...test.info().project.name].reduce(
+      (n, c) => n + c.charCodeAt(0),
+      0,
+    );
+    // The date picker's default value is "today", so the calendar opens on this
+    // month; the fixture dates must live in it. WIB, matching the browser.
+    yearMonth = new Date()
+      .toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" })
+      .slice(0, 7);
+
+    writer = await apiLogin(SEED_USERS.adminSdit);
+    unitId = writer.user.unitId as string;
+    expect(unitId, "the SD IT admin belongs to a unit").toBeTruthy();
+    const units = await apiRequest<{ data: { id: string; name: string }[] }>(
+      writer,
+      "GET",
+      "/units?limit=100",
+    );
+    unitName =
+      units.data.find((u) => u.id === unitId)?.name ??
+      units.data[0]?.name ??
+      "";
+
+    // Clear leftovers from a previous run (a failure before teardown): a create
+    // on a date that already holds a menu is a 409, not the 201 the test wants.
+    const existing = await apiRequest<{
+      data: { id: string; mainDish: string }[];
+    }>(writer, "GET", `/meals/menus?unitId=${unitId}&limit=100`);
+    for (const m of existing.data) {
+      if (m.mainDish.startsWith(`Menu Baru Uji ${offset} `)) {
+        await apiRequest(writer, "DELETE", `/meals/menus/${m.id}`).catch(
+          () => undefined,
+        );
+      }
+    }
+  });
+
+  test.afterAll(async () => {
+    if (!writer) return;
+    const existing = await apiRequest<{
+      data: { id: string; mainDish: string }[];
+    }>(writer, "GET", `/meals/menus?unitId=${unitId}&limit=100`);
+    for (const m of existing.data) {
+      if (m.mainDish.startsWith(`Menu Baru Uji ${offset} `)) {
+        await apiRequest(writer, "DELETE", `/meals/menus/${m.id}`).catch(
+          () => undefined,
+        );
+      }
+    }
+  });
+
+  /** Pick the unit, fill the main dish, and choose this test's date. */
+  const fillForm = async (page: Page, index: number) => {
+    // The unit select renders no text until a unit is chosen, so it is found by
+    // the card it sits in rather than by its placeholder.
+    const unitCard = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Unit Pendidikan" });
+    await unitCard.getByRole("combobox").click();
+    await page.getByRole("option", { name: unitName, exact: true }).click();
+
+    await page.getByLabel("Hidangan Utama").fill(dishFor(index));
+
+    // The picker shows the date as dd/MM/yyyy; opening it and clicking the
+    // day's grid cell sets both the value and the popover's label.
+    await page.locator('button[data-slot="popover-trigger"]').click();
+    await page.locator(`td[data-day="${isoFor(index)}"] button`).click();
+    // Dismiss the popover by clicking the card title, so it cannot overlay the
+    // submit button (Escape alone can leave it open).
+    await unitCard.locator('[data-slot="card-title"]').click();
+  };
+
+  test("menyimpan Tambah Menu membuat menu baru lewat formulir", async ({
+    page,
+  }) => {
+    await loginAs(page, "adminSdit");
+    await page.goto("/meals/menus/new");
+
+    const created = page.waitForResponse(
+      (r) =>
+        r.url().includes("/meals/menus") && r.request().method() === "POST",
+    );
+    await fillForm(page, 0);
+    await page.getByRole("button", { name: "Simpan Menu" }).click();
+
+    const response = await created;
+    expect(response.status()).toBe(201);
+
+    await page.waitForURL((url) => url.pathname === "/meals/menus");
+    await expect(page.getByText(dishFor(0))).toBeVisible();
+
+    // The API agrees — the row exists, on the date the picker was given.
+    const found = await apiRequest<{
+      data: { id: string; mainDish: string; date: string }[];
+    }>(writer, "GET", `/meals/menus?unitId=${unitId}&limit=100`);
+    const row = found.data.find((m) => m.mainDish === dishFor(0));
+    expect(row, "the created menu is returned by the API").toBeTruthy();
+    expect(row!.date.slice(0, 10)).toBe(isoFor(0));
+  });
+
+  test("Tambah Menu dengan kalori kosong tersimpan sebagai null", async ({
+    page,
+  }) => {
+    await loginAs(page, "adminSdit");
+    await page.goto("/meals/menus/new");
+
+    const created = page.waitForResponse(
+      (r) =>
+        r.url().includes("/meals/menus") && r.request().method() === "POST",
+    );
+    await fillForm(page, 1);
+    // Leave "Kalori (kkal)" empty: creation simply omits it.
+    await page.getByRole("button", { name: "Simpan Menu" }).click();
+
+    const response = await created;
+    expect(response.status()).toBe(201);
+
+    const found = await apiRequest<{
+      data: { id: string; mainDish: string; calories: number | null }[];
+    }>(writer, "GET", `/meals/menus?unitId=${unitId}&limit=100`);
+    const row = found.data.find((m) => m.mainDish === dishFor(1));
+    expect(row, "the created menu is returned by the API").toBeTruthy();
+    expect(row!.calories ?? null).toBeNull();
+  });
+
+  test("Tambah Menu menolak isian tidak sah dengan pesan Indonesia", async ({
+    page,
+  }) => {
+    await loginAs(page, "adminSdit");
+    await page.goto("/meals/menus/new");
+
+    let posted = false;
+    page.on("request", (r) => {
+      if (r.method() === "POST" && r.url().includes("/meals/menus")) {
+        posted = true;
+      }
+    });
+
+    await page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Unit Pendidikan" })
+      .getByRole("combobox")
+      .click();
+    await page.getByRole("option", { name: unitName, exact: true }).click();
+
+    const mainDish = page.getByLabel("Hidangan Utama");
+    // Over the 200-character limit: the message is Indonesian, not Zod's default
+    // English (review finding).
+    await mainDish.fill("x".repeat(201));
+    await page.getByRole("button", { name: "Simpan Menu" }).click();
+    await expect(page.getByText("Maksimal 200 karakter")).toBeVisible();
+
+    // Empty is required: the form blocks the request entirely.
+    await mainDish.fill("");
+    await page.getByRole("button", { name: "Simpan Menu" }).click();
+    await expect(page.getByText("Hidangan utama wajib diisi")).toBeVisible();
+
+    expect(posted, "an invalid form sends no request").toBe(false);
   });
 });

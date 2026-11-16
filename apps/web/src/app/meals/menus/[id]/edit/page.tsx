@@ -75,18 +75,22 @@ import { updateMenuSchema } from "@cipansor/shared";
  * The update contract is @cipansor/shared's `updateMenuSchema`, read by the API
  * too (#1081). Two fields are adapted for the form: the date picker holds a
  * `Date` (the schema wants "yyyy-MM-dd", formatted on submit), and the calories
- * input yields a string (`z.coerce.number()` turns "" into 0, so empty is
- * treated as "not filled").
+ * input yields a string. An emptied calories field means "clear it": the schema
+ * accepts `null` for the update, so "" is sent as `null` rather than dropped —
+ * otherwise the old number stayed stored and the form reported success. An
+ * untouched empty field stays `undefined` (omitted), which the service reads as
+ * "leave the column alone". Every other empty field stays `""` (the model's text
+ * columns are nullable but the contract keeps them as strings).
  */
 const formSchema = updateMenuSchema
   .omit({ date: true, calories: true })
   .extend({
     date: z.date({ error: "Tanggal wajib diisi" }),
-    calories: z.preprocess(
-      (v) =>
-        v === "" || v === null || v === undefined ? undefined : Number(v),
-      z.number().int().positive("Kalori harus bilangan positif").optional(),
-    ),
+    calories: z.preprocess((v) => {
+      if (v === "" || v === null) return null;
+      if (v === undefined) return undefined;
+      return Number(v);
+    }, z.number().int().positive("Kalori harus bilangan positif").nullable().optional()),
   });
 
 type UpdateMenuFormValues = z.infer<typeof formSchema>;

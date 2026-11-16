@@ -237,7 +237,10 @@ export class MealsService {
     // rather than spread: a raw `data: input` is how `name`, `dayType` and
     // `nutritionInfo` reached Prisma and answered 500. A partial update must
     // also leave untouched columns alone — `undefined` does that; `null` does
-    // not, so absent optional fields are dropped rather than nulled.
+    // not, so absent optional fields are dropped rather than nulled. The one
+    // exception is `calories`, which is nullable and accepts an explicit `null`
+    // to clear a stored value: the form sends `null` when the admin empties the
+    // field, and that must reach Prisma rather than be dropped (#1081).
     const data: Prisma.MealMenuUpdateInput = {};
     if (input.mealType !== undefined) data.mealType = input.mealType;
     if (input.date !== undefined) data.date = new Date(input.date);
@@ -259,8 +262,11 @@ export class MealsService {
     }
 
     // Moving a menu onto a (unit, date, meal type) another menu already holds
-    // would violate `@@unique([unitId, date, mealType])` and surface as a raw
-    // 500. Check first and answer 409, as `createMenu` does.
+    // violates `@@unique([unitId, date, mealType])`. Check first so the common
+    // case answers a 409 with a clear message; a concurrent write that slips
+    // past this check is still caught — the unique constraint raises P2002, which
+    // `errorHandler` maps to 409 too (not a raw 500). Answer 409 here as
+    // `createMenu` does.
     const nextDate = input.date !== undefined ? new Date(input.date) : current.date;
     const nextMealType = input.mealType ?? current.mealType;
     const moved =

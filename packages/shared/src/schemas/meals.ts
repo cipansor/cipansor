@@ -58,18 +58,30 @@ export type MealTypeCode = (typeof MEAL_TYPE_VALUES)[number];
 /** A calendar day, "yyyy-MM-dd", as the date picker holds it. Not a datetime. */
 export const menuDay = z.iso.date("Tanggal tidak valid (yyyy-MM-dd)");
 
-const optionalText = (max: number) => z.string().trim().max(max).optional();
+const optionalText = (max: number) =>
+  z.string().trim().max(max, `Maksimal ${max} karakter`).optional();
+
+/**
+ * `calories` is optional on the model and may be cleared. Creation omits it
+ * (never `null`); an update may send `null` to remove a value that is already
+ * there — see `updateMenuSchema` (#1081).
+ */
+const calories = z.number().int().positive("Kalori harus bilangan positif");
 
 const menuFields = {
   mealType: z.enum(MEAL_TYPE_VALUES, "Waktu makan wajib dipilih"),
   date: menuDay,
-  mainDish: z.string().trim().min(1, "Hidangan utama wajib diisi").max(200),
+  mainDish: z
+    .string()
+    .trim()
+    .min(1, "Hidangan utama wajib diisi")
+    .max(200, "Maksimal 200 karakter"),
   sideDish: optionalText(200),
   vegetable: optionalText(200),
   soup: optionalText(200),
   dessert: optionalText(200),
   drink: optionalText(200),
-  calories: z.number().int().positive().optional(),
+  calories: calories.optional(),
   notes: optionalText(500),
 };
 
@@ -88,11 +100,17 @@ export type CreateMenuInput = z.input<typeof createMenuSchema>;
  * another unit is a write the service scopes the same way creation is, and a
  * unit admin can only ever move it within their own unit. Omitting a field
  * leaves it unchanged (no defaults to overwrite it).
+ *
+ * `calories` additionally accepts `null`, meaning "clear the stored value":
+ * the column is nullable, so a form that empties the field must be able to
+ * remove a number it no longer wants. `null` is deliberately not offered on
+ * `createMenuSchema` — a new menu with no calories simply omits the field.
  */
 export const updateMenuSchema = z
   .object({
     unitId: z.string().uuid("Unit tidak valid").optional(),
     ...menuFields,
+    calories: calories.nullable().optional(),
   })
   .partial()
   .strict();
