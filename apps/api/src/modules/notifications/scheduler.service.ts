@@ -20,7 +20,7 @@ import { type ScheduledTaskId } from './scheduler.tasks';
 import { NotificationType, AttendanceStatus, PaymentStatus, EventScope } from '@prisma/client';
 import { logger } from '../../lib/logger';
 import { STUDENT_STATUS } from '@cipansor/shared';
-import { todayWib, dayOf, dayString } from '../../utils/wib';
+import { todayWib, dayOf, dayString, shiftWibDay } from '../../utils/wib';
 import cron, { type ScheduledTask as CronTask } from 'node-cron';
 
 interface ScheduledTask {
@@ -329,9 +329,14 @@ export class SchedulerService {
   }
 
   private static async sendPaymentReminders(): Promise<void> {
-    const now = new Date();
-    const sevenDaysLater = new Date(now);
-    sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
+    // `Invoice.dueDate` is date-only, stored at midnight UTC (07:00 WIB on the
+    // day it names). Bounding it with the current instant dropped a bill due
+    // today (D 00:00Z is already behind `now`) and pushed the 7-day window
+    // seven hours late, so the reminder walked its whole range on the wrong
+    // WIB days. Bound by WIB calendar days instead: from today through seven
+    // WIB days out, inclusive (#1050).
+    const today = todayWib();
+    const sevenDaysLater = shiftWibDay(today, 7);
 
     // Get invoices that are PENDING or PARTIAL and due within 7 days
     const unpaidInvoices = await prisma.invoice.findMany({
@@ -340,8 +345,8 @@ export class SchedulerService {
           in: [PaymentStatus.PENDING, PaymentStatus.PARTIAL],
         },
         dueDate: {
-          lte: sevenDaysLater,
-          gte: now,
+          lte: dayOf(sevenDaysLater),
+          gte: dayOf(today),
         },
       },
       include: {
@@ -363,8 +368,8 @@ export class SchedulerService {
       const student = invoice.student;
       if (!student?.user) continue;
 
-      const daysUntilDue = Math.ceil(
-        (invoice.dueDate.getTime() - now.getTime()) / (1000 * 60 * 60 * 24)
+      const daysUntilDue = Math.round(
+        (invoice.dueDate.getTime() - dayOf(today).getTime()) / (1000 * 60 * 60 * 24)
       );
 
       const typeName = invoice.paymentType?.name || 'SPP';

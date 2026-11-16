@@ -1,4 +1,4 @@
-# Open one issue when a workflow on `main` fails.
+# Open one issue when a workflow on `main` fails or is cancelled.
 #
 # GitHub Actions is the deterministic bridge: it sees the finished result of
 # every workflow on `main` and acts only while the run that failed is still the
@@ -6,6 +6,13 @@
 # never raises an issue, and an older failure whose tip has already moved on is
 # left to the event of the newer tip. This mirrors `pr-lifecycle.yml`, which
 # dispatches the review gate.
+#
+# `cancelled` is reported too, not just `failure` (#915): a job that hits its
+# `timeout-minutes` ends `cancelled`, which `continue-on-error` does not absorb,
+# so the run's conclusion becomes `cancelled`, the staging deploy is `skipped`,
+# and — before this — no watchdog saw it. The tip gate below keeps a `cancelled`
+# run that a newer push already superseded (`concurrency.cancel-in-progress`)
+# silent, so only the tip's own cancellation is reported.
 #
 # `Pemantau deployment` (SDLC 12) was retired on 2026-11-12 (owner decision): a
 # red `main` is reported here, without an LLM sandbox, and a maintainer reads the
@@ -35,8 +42,13 @@ jobs:
   report:
     # head_branch alone also matches a fork's branch named `main` (its pull
     # request runs CI here); only a run of this repository's own main counts.
+    # `cancelled` is included with `failure` (#915): a job killed at its
+    # `timeout-minutes` concludes `cancelled`, which `continue-on-error` does not
+    # absorb, and that run was reported by no watchdog. `success` and `skipped`
+    # stay out — a skipped run is the failure this bridge already reports.
     if: |
-      github.event.workflow_run.conclusion == 'failure' &&
+      (github.event.workflow_run.conclusion == 'failure' ||
+       github.event.workflow_run.conclusion == 'cancelled') &&
       github.event.workflow_run.head_branch == 'main' &&
       github.event.workflow_run.head_repository.full_name == github.repository
     runs-on: ubuntu-latest
@@ -78,4 +90,5 @@ jobs:
           SHA: ${{ github.event.workflow_run.head_sha }}
           RUN_URL: ${{ github.event.workflow_run.html_url }}
           BRANCH: ${{ github.event.workflow_run.head_branch }}
-        run: sh .github/scripts/main-failure-report.sh "$WORKFLOW" "$RUN_ID" "$SHA" "$RUN_URL" "$BRANCH"
+          CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+        run: sh .github/scripts/main-failure-report.sh "$WORKFLOW" "$RUN_ID" "$SHA" "$RUN_URL" "$BRANCH" "$CONCLUSION"

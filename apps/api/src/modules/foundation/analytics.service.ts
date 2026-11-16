@@ -50,19 +50,33 @@ export async function getExecutiveSummary(): Promise<FoundationExecutiveSummary>
     },
   });
 
-  // Calculate growth based on students created in the last month
-  const oneMonthAgo = new Date();
-  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  // Calculate this month's growth: the active total now against the active total
+  // at the start of the current WIB calendar month. The baseline is the start of
+  // the CURRENT month, not the previous one (#930 review): a baseline one month
+  // back makes `total - baseline` span two months — students added last month
+  // AND this month — so a month that added nobody still read positive because
+  // last month's additions were counted. The window is one calendar month, so
+  // "no one added this month" reads 0%.
+  //
+  // The month is a WIB calendar month, not the server clock: the container runs
+  // UTC, so the boundary must be shifted, and `setMonth(-1)` kept the
+  // day-of-month and rolled the overflow forward (on the 29th–31st the baseline
+  // landed in the same month).
+  const now = new Date();
+  const { year, month } = wibMonthYear(now);
+  const { start: startOfMonth } = wibMonthRange(year, month);
 
-  const studentsLastMonth = await prisma.student.count({
+  const studentsBeforeThisMonth = await prisma.student.count({
     where: {
       status: STUDENT_STATUS.ACTIVE,
-      createdAt: { lt: oneMonthAgo },
+      createdAt: { lt: startOfMonth },
     },
   });
 
   const growth =
-    studentsLastMonth > 0 ? ((totalStudents - studentsLastMonth) / studentsLastMonth) * 100 : 0;
+    studentsBeforeThisMonth > 0
+      ? ((totalStudents - studentsBeforeThisMonth) / studentsBeforeThisMonth) * 100
+      : 0;
 
   return {
     totalStudents,

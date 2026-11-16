@@ -14,6 +14,9 @@ vi.mock('@/lib/prisma', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { simaanService } from '../simaan.service';
+import type { ScopeActor } from '@/utils/student-scope';
+
+const guru: ScopeActor = { sub: 'u-guru', roleCode: 'SMPIT_GURU', unitId: 'unit-smp' };
 
 const findMany = vi.mocked(prisma.simaanExam.findMany);
 
@@ -39,7 +42,7 @@ describe('simaanService.getUpcomingExams — WIB day boundary', () => {
     // 2026-11-05T19:00Z is 2026-11-06 02:00 WIB.
     vi.setSystemTime(new Date('2026-11-05T19:00:00.000Z'));
 
-    await simaanService.getUpcomingExams(undefined, 7);
+    await simaanService.getUpcomingExams(guru, undefined, 7);
 
     const { gte, lte } = bounds();
     expect(gte.toISOString()).toBe('2026-11-06T00:00:00.000Z');
@@ -51,7 +54,7 @@ describe('simaanService.getUpcomingExams — WIB day boundary', () => {
     // 2026-11-06T05:00Z is 2026-11-06 12:00 WIB — same WIB day as above.
     vi.setSystemTime(new Date('2026-11-06T05:00:00.000Z'));
 
-    await simaanService.getUpcomingExams(undefined, 7);
+    await simaanService.getUpcomingExams(guru, undefined, 7);
 
     const { gte, lte } = bounds();
     expect(gte.toISOString()).toBe('2026-11-06T00:00:00.000Z');
@@ -62,7 +65,7 @@ describe('simaanService.getUpcomingExams — WIB day boundary', () => {
     // 2026-11-05T17:30Z is 2026-11-06 00:30 WIB.
     vi.setSystemTime(new Date('2026-11-05T17:30:00.000Z'));
 
-    await simaanService.getUpcomingExams(undefined, 1);
+    await simaanService.getUpcomingExams(guru, undefined, 1);
 
     const { gte, lte } = bounds();
     expect(gte.toISOString()).toBe('2026-11-06T00:00:00.000Z');
@@ -72,7 +75,7 @@ describe('simaanService.getUpcomingExams — WIB day boundary', () => {
   it('passes halaqohId through when given', async () => {
     vi.setSystemTime(new Date('2026-11-05T19:00:00.000Z'));
 
-    await simaanService.getUpcomingExams('halaqoh-1', 7);
+    await simaanService.getUpcomingExams(guru, 'halaqoh-1', 7);
 
     expect(findMany.mock.calls[0][0]?.where).toMatchObject({ halaqohId: 'halaqoh-1' });
   });

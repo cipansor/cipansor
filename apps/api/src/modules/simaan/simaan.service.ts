@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma, SimaanType } from '@prisma/client';
 import { dayDate, wibDayOf } from '@/utils/wib';
+import { studentScope, type ScopeActor } from '@/utils/student-scope';
 import type {
   ListSimaanQuery,
   CreateSimaanInput,
@@ -21,7 +22,7 @@ export const simaanService = {
   // LIST & READ
   // ============================================
 
-  async findAll(query: ListSimaanQuery) {
+  async findAll(query: ListSimaanQuery, context: ScopeActor) {
     const {
       page = 1,
       limit = 20,
@@ -36,12 +37,19 @@ export const simaanService = {
       search,
     } = query;
 
-    const where: Prisma.SimaanExamWhereInput = {};
+    // Scoped like murojaah.findAll: staff their unit (the yayasan board and the
+    // boarding/shared-service staff, whose santri span units, all of them), a
+    // santri their own records, a wali their children's. `?unitId=` narrows
+    // within that scope; it used to replace it, so a unit account could reopen
+    // any unit's exam list — scores and NISN included.
+    const scope = studentScope(context);
+    const where: Prisma.SimaanExamWhereInput = {
+      student: unitId ? { AND: [scope, { unitId }] } : scope,
+    };
 
     if (studentId) where.studentId = studentId;
     if (enrollmentId) where.enrollmentId = enrollmentId;
     if (halaqohId) where.halaqohId = halaqohId;
-    if (unitId) where.student = { unitId };
     if (simaanType) where.simaanType = simaanType as SimaanType;
     if (passed !== undefined) where.passed = passed;
 
@@ -100,9 +108,9 @@ export const simaanService = {
     };
   },
 
-  async findById(id: string) {
-    const record = await prisma.simaanExam.findUniqueOrThrow({
-      where: { id },
+  async findById(id: string, context: ScopeActor) {
+    const record = await prisma.simaanExam.findFirstOrThrow({
+      where: { id, student: studentScope(context) },
       include: {
         student: {
           select: {
@@ -433,7 +441,7 @@ export const simaanService = {
   // UPCOMING EXAMS
   // ============================================
 
-  async getUpcomingExams(halaqohId?: string, days: number = 7) {
+  async getUpcomingExams(context: ScopeActor, halaqohId?: string, days: number = 7) {
     // A date-only column stored at midnight UTC: the window's lower bound is
     // today's *WIB* day (a UTC-midnight "today" is still yesterday for the
     // first seven hours of a WIB day, so yesterday's exam read as upcoming),
@@ -442,6 +450,7 @@ export const simaanService = {
     const lastDay = new Date(today.getTime() + days * 86_400_000);
 
     const where: Prisma.SimaanExamWhereInput = {
+      student: studentScope(context),
       examDate: { gte: today, lte: lastDay },
     };
 

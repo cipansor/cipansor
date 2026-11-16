@@ -132,6 +132,22 @@ templat PR yang terikat ke sistem label, bukan prosa bebas:
   Judul bagian diganti ke Bahasa Indonesia pada 2026-11-10 (#982); guard
   menerima nama Indonesia maupun nama Inggris lama.
 
+Mockup keempat templat itu disimpan di `docs/screens/templates-preview/` agar
+bentuknya tidak hilang saat templat berubah lagi (dari #982/#983):
+
+<details>
+<summary>Lihat mockup keempat templat</summary>
+
+![Memilih jenis issue](screens/templates-preview/01-pilih-jenis-issue.png)
+
+![Formulir bug](screens/templates-preview/02-formulir-bug.png)
+
+![Formulir fitur](screens/templates-preview/03-formulir-fitur.png)
+
+![Templat PR](screens/templates-preview/04-templat-pr.png)
+
+</details>
+
 Tautan yang menjaganya jujur (polanya dari OpenHands upstream, yang memakai
 label `ready-for-dev`; di repo ini `ready`): **sebuah issue
 hanya mendapat `ready` saat kriteria penerimaannya nyata**, dan PR harus menunjuk ke salah
@@ -221,10 +237,13 @@ setiap prompt dan dijaga workflow deterministik):
   wajib menyebut bukti konkret, tanpa bukti maksimum `medium`, bila ragu pilih
   yang lebih rendah. `critical` hanya untuk layanan mati total, kehilangan data,
   atau keamanan/privacy yang aktif bisa dieksploitasi. Jangan menginflasi.
-- **Triase ulang lewat jembatan, bukan `issues.edited`.** `issue-triage-bridge.yml`
+- **Triase ulang lewat jembatan, pada komentar dan suntingan.** `issue-triage-bridge.yml`
   - `.github/scripts/issue-triage-bridge.sh` mendispatch pemilik triase saat bot
-    memasang label tipe/prioritas dan saat issue belum `ready` punya aktivitas baru
-    (komentar atau suntingan deskripsi). Idempoten (checkpoint di KV store
+    memasang label tipe/prioritas, saat ada komentar baru, dan saat body issue
+    disunting (sejak #1084 workflow-nya sendiri berlangganan
+    `issue_comment.created` dan `issues.edited`; sweep per jam tetap jadi jaring
+    pengaman). Issue `ready`/`in-progress` di luar cakupan kecuali maintainer
+    menyebut `@cipansor-bot`. Idempoten (checkpoint di KV store
     otomasi, per keadaan dan per stempel aktivitas). **Deskripsi PR tidak ditanggapi otomatis** — tidak ada
     pemicu `pull_request.edited`; gerbang tinjau sudah membaca deskripsi, issue,
     diff, dan semua komentar.

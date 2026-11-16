@@ -5,6 +5,9 @@
 
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
+import { dayOf, todayWib, wibMonthStart, wibMonthYear } from '@/utils/wib';
+
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 interface ForecastResult {
   currentValue: number;
@@ -253,8 +256,12 @@ export async function getOutstandingPaymentPrediction(unitId?: string): Promise<
   const predictedCollection = Math.round(totalOutstanding * (collectionRate / 100));
   const atRiskAmount = totalOutstanding - predictedCollection;
 
-  // Categorize by age
-  const now = new Date();
+  // Categorize by age, in whole WIB days from the due day. `Invoice.dueDate`
+  // is date-only at midnight UTC, i.e. 07:00 WIB on the day it names; anchoring
+  // on `new Date()` made a bill due today tick over mid-morning instead of at
+  // the end of its WIB day. `dayOf(todayWib())` is midnight UTC of today's WIB
+  // day, so the difference is an exact whole number of days (#1050).
+  const today = dayOf(todayWib());
   const categories = {
     'Kurang dari 30 hari': 0,
     '30-60 hari': 0,
@@ -263,9 +270,7 @@ export async function getOutstandingPaymentPrediction(unitId?: string): Promise<
   };
 
   outstandingInvoices.forEach((inv) => {
-    const daysDiff = Math.floor(
-      (now.getTime() - new Date(inv.dueDate).getTime()) / (1000 * 60 * 60 * 24)
-    );
+    const daysDiff = Math.floor((today.getTime() - new Date(inv.dueDate).getTime()) / DAY_MS);
     const outstanding = Number(inv.amount) - Number(inv.paidAmount);
 
     if (daysDiff < 30) {
@@ -417,7 +422,13 @@ export async function calculateCashFlowForecast(unitId?: string) {
   // We surface the overdue total under a dedicated `overdue` bucket on the
   // first projection month and on the summary, so consumers can still
   // distinguish "scheduled future income" from "already-overdue receivables".
-  const currentMonthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  //
+  // The months are the WIB ones, not the server's: a request at 00:00–07:00 WIB
+  // on the 1st is still the previous UTC month, so a UTC window would file the
+  // new month's bills as overdue and start the projection a month early. The
+  // bound is the stored day (midnight UTC) of the 1st of the current WIB month,
+  // which is the form `Invoice.dueDate` holds (#1050).
+  const currentMonthStart = wibMonthStart(now);
   const overdueAmount = pendingInvoices
     .filter((inv) => new Date(inv.dueDate) < currentMonthStart)
     .reduce((sum, inv) => sum + (Number(inv.amount) - Number(inv.paidAmount)), 0);
@@ -429,17 +440,17 @@ export async function calculateCashFlowForecast(unitId?: string) {
     return sum + yearlyBudget / 12;
   }, 0);
 
+  const { year: baseYear, month: baseMonth } = wibMonthYear(now);
   for (let i = 0; i < months; i++) {
-    const projectionDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    const monthStr = projectionDate.toISOString().slice(0, 7);
+    const monthIndex = baseMonth + i;
+    const projectionYear = baseYear + Math.floor(monthIndex / 12);
+    const projectionMonth = monthIndex % 12;
+    const monthStr = `${projectionYear}-${String(projectionMonth + 1).padStart(2, '0')}`;
 
     const monthlyIncome = pendingInvoices
       .filter((inv) => {
-        const d = new Date(inv.dueDate);
-        return (
-          d.getFullYear() === projectionDate.getFullYear() &&
-          d.getMonth() === projectionDate.getMonth()
-        );
+        const due = wibMonthYear(new Date(inv.dueDate));
+        return due.year === projectionYear && due.month === projectionMonth;
       })
       .reduce((sum, inv) => sum + (Number(inv.amount) - Number(inv.paidAmount)), 0);
 

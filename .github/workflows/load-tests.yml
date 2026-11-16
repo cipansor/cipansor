@@ -85,7 +85,7 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
 
       - name: Install k6
-        uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1
+        uses: grafana/setup-k6-action@c47136d33d365efbeb9ae7266908b5dcf98cdece # v1
 
       - name: Run load test
         id: load
@@ -183,7 +183,7 @@ jobs:
 
       - name: Install k6
         if: ${{ env.LOAD_TEST_EMAIL != '' }}
-        uses: grafana/setup-k6-action@43b9fc21641a76002687994433dd586f56e791b1 # v1
+        uses: grafana/setup-k6-action@c47136d33d365efbeb9ae7266908b5dcf98cdece # v1
 
       - name: Run authenticated read load test
         id: load

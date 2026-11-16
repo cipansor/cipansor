@@ -17,9 +17,10 @@
   },
   "devDependencies": {
     "semver": "^7.8.6",
-    "turbo": "2.11.10",
-    "prettier": "3.9.10",
-    "typescript": "^6.0.3",
+    "turbo": "2.11.11",
+    "prettier": "3.10.1",
+    "typescript": "npm:@typescript/typescript6@^6.0.2",
+    "@typescript/native": "npm:typescript@^7.0.2",
     "yaml": "^2.9.1"
   },
   "engines": {
