@@ -2412,6 +2412,41 @@ describe('deploy-sdlc-agents.py', () => {
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
   });
 
+  it.skipIf(!hasPy)('upgrades a live prompt carrying the old command-only budget, once', () => {
+    // #907: the generic budget the fleet deployed before this change counted
+    // commands only (10/25/35) and named no seconds. A live prompt still
+    // carries that text inside its tarball, and its `ANGGARAN WAKTU` marker
+    // satisfies the insert guard, so a redeploy would keep the command-only
+    // budget forever. `new_prompt` must recognise the old block and swap it
+    // for the deadline budget — exactly once, and without touching a prompt
+    // that already carries the new one.
+    const oldBudget = py('print(json.dumps(m.OLD_WORK_BUDGET))');
+    expect(oldBudget.status, oldBudget.stderr).toBe(0);
+    const legacy = JSON.parse(oldBudget.stdout) as string;
+    expect(legacy).toContain('JAM PASIR');
+    expect(legacy).not.toContain('date -u +%s');
+
+    // A prompt as the live tarball holds it: head, then the old budget, then
+    // the tail.
+    const original = `Header\n\n${FOOTER}\n\n${legacy}\n\nPERILAKU SASARAN (level agentic)\nOriginal tail`;
+    const redeployed = newPrompt('SDLC 05 · Reproduksi bug', original);
+
+    // The command-only text is gone, replaced by the deadline budget.
+    expect(redeployed).not.toContain(legacy);
+    expect(redeployed).toContain('date -u +%s');
+    expect(redeployed).toContain('~1200 detik');
+    // The task's own tail survives the swap.
+    expect(redeployed).toContain('Original tail');
+    // Exactly one budget: the redeploy must not stack the generic one on top
+    // of the text it just replaced.
+    expect(redeployed.match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(redeployed.match(/date -u \+%s/g)).toHaveLength(1);
+    // Idempotent: a second redeploy is a no-op.
+    const again = newPrompt('SDLC 05 · Reproduksi bug', redeployed);
+    expect(again.match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(again.match(/date -u \+%s/g)).toHaveLength(1);
+  });
+
   it.skipIf(!hasPy)(
     'gives every work budget a wall-clock deadline, not only a command count',
     () => {
@@ -2439,11 +2474,19 @@ describe('deploy-sdlc-agents.py', () => {
       for (const [name, text] of Object.entries(budgets)) {
         // How to read the clock ...
         expect(text, `${name} must tell the agent to read the clock`).toMatch(/date -u \+%s/);
-        // ... and a working deadline in seconds below the 1800s platform ceiling
-        // (the ceiling sentence names `1800 detik` and must not satisfy this).
-        expect(text, `${name} must name a seconds deadline`).toMatch(
-          /\b(?:1[0-4]\d\d|[3-9]\d\d)\s*detik/
-        );
+        // ... and at least two working deadlines in seconds below the 1800s
+        // platform ceiling: the "stop collecting" checkpoint (~1200s) and the
+        // "must have sent" one (~1500s). The band starts at 1000s on purpose —
+        // the writing reserve (~300 detik) and the first checkpoint (~500 detik)
+        // are not the work deadline, and a budget that names only them still
+        // lets the agent be killed at the wall. Requiring two distinct values
+        // fails a budget whose stop-collecting instruction was dropped while a
+        // later number survived.
+        const deadlines = [...text.matchAll(/\b(1[0-6]\d\d)\s*detik/g)].map((m) => m[1]);
+        expect(
+          new Set(deadlines).size,
+          `${name} must name two working deadlines in seconds (1000–1700), not only the ~300 detik reserve`
+        ).toBeGreaterThanOrEqual(2);
       }
     }
   );

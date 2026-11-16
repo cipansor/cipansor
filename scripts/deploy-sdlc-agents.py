@@ -332,6 +332,22 @@ Run ini dibunuh pada 1800 detik oleh plafon platform (`execution/timeout`), dan 
 Hasil yang terkirim dengan temuan yang ada jauh lebih bernilai daripada penelusuran menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, kirim apa yang sudah kamu punya lalu berhenti.
 """
 
+# The generic budget the fleet shipped before #907: it counted commands only
+# (10/25/35) and named no seconds. A prompt deployed then still carries it
+# verbatim inside its tarball, and its `ANGGARAN WAKTU` marker satisfies the
+# insert guard in `new_prompt`, so a redeploy would keep the command-only budget
+# forever and the run could still die at the 1800s wall. Replaced by text, like
+# the other retired blocks, so the live fleet actually gains the deadline.
+OLD_WORK_BUDGET = """ANGGARAN WAKTU — JAM PASIR (WAJIB)
+Run ini dibunuh pada 1800 detik oleh plafon platform (`execution/timeout`), dan plafon itu tidak bisa dinaikkan. Perlakukan anggaran seperti jam pasir:
+- Setelah **10 perintah**, kamu harus sudah tahu sasarannya dan apa yang harus dibaca.
+- Setelah **25 perintah**, hentikan setiap penelusuran baru dan mulai menulis hasilnya.
+- Setelah **35 perintah**, kamu WAJIB sudah mengirim hasilnya (komentar, issue, review, atau laporan) lalu berhenti.
+- Jangan mengulang perintah yang sudah dijalankan, jangan membaca berkas atau objek yang sama dua kali, dan jangan menelusuri riwayat yang sama dengan cara lain.
+- Untuk API GitHub: daftar sekali, satu bacaan per objek; jangan membaca halaman tanpa batas. Untuk berkas: baca yang substantif saja (lewati lockfile dan snapshot).
+Hasil yang terkirim dengan temuan yang ada jauh lebih bernilai daripada penelusuran menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, kirim apa yang sudah kamu punya lalu berhenti.
+"""
+
 # `Tiket jadi PR` (SDLC 06) picks its work from the `ready` queue on a daily
 # cron, oldest-first, and opens at most this many pull requests per run (owner
 # decision 2026-11-11). The cap is what keeps the bot from taking the whole
@@ -649,6 +665,14 @@ def new_prompt(name, prompt):
     # PR`, `Pengawas armada`) already carries the phrase; everyone else gets the
     # generic hourglass. Inserted before the target behaviour, and guarded so a
     # redeploy does not stack a second copy.
+    #
+    # The generic budget itself changed (#907): the old one counted commands
+    # only, so a live prompt that already carries it would keep the command-only
+    # text forever — its `ANGGARAN WAKTU` marker satisfies the guard below, so
+    # the new seconds deadline would never be inserted. Replace the old text
+    # first (like the other retired blocks), so a redeploy converges on the
+    # deadline budget and not just a fresh prompt.
+    result = result.replace(OLD_WORK_BUDGET, WORK_BUDGET)
     if "ANGGARAN WAKTU" not in result:
         result = result.replace(TAIL_MARK, WORK_BUDGET + TAIL_MARK, 1)
     return result
