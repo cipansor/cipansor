@@ -467,7 +467,16 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       ketidakadaan penanda di node lebih tua; status tak pasti ≠ belum dijawab),
       putaran-14 "penanda lama → bukan respons" (belum cukup — ringkasan final
       diperbarui **di tempat** tanpa mengubah penanda; jangkar berpenanda-lama harus
-      dibandingkan **ISI**-nya, bukan ditolak dari keberadaan penanda).
+      dibandingkan **ISI**-nya, bukan ditolak dari keberadaan penanda), putaran-15
+      "komentar bot apa pun = respons" (salah — pemberitahuan `label-guard`
+      (`<!-- label-guard:revoked -->`/`restored`), `basmalah`, `stale-sweep`,
+      `duplicate-sweep`, pengakuan semuanya ditulis sebagai `cipansor-bot`; hanya
+      komentar ber-penanda `<!-- sdlc:triase` yang dihitung respons, atau penjaga
+      yang berkomentar setelah pelapor menyaring balasan pelapor), dan putaran-15
+      "sasaran hanya dari riwayat body/komentar" (salah — jalur label `on_label`/
+      `--relabel`/`--type-conflict` mendispatch tanpa mengubah riwayat itu, jadi
+      aturan sasaran harus memilih kandidat yang **keadaan labelnya** menuntut
+      rekonsiliasi: tanpa tipe, tanpa prioritas, atau lebih dari satu tipe).
       Pelajaran: jangan kunci aturan pada **artefak** (teks penanda di diff/body,
       bentuk `diff`, atau `issue.body`); kunci pada **peristiwa semantik** (apakah
       isi triase berubah), dibaca dari baris yang berubah dengan pembuka+pemisah
@@ -486,7 +495,15 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       didokumentasikan `known-issues.md` — jadi dua kandidat serentak hanya
       di-tie-break "paling baru") dinyatakan di prompt; jembatan menutup
       selisihnya dengan re-dispatch terbatas `ATTEMPT_MAX`, dan perbaikan akar
-      (target per-run sampai ke agen) menuntut perubahan platform. **Jangan baca
+      (target per-run sampai ke agen) menuntut perubahan platform. **Dikonfirmasi
+      pada API live** (`GET /api/automation/openapi.json`): `POST
+      /{automation_id}/dispatch` **tak punya requestBody** — body `{issue,reason,key}`
+      yang dikirim jembatan dibuang, jadi run memang tak membawa nomor issue.
+      Karena itu jembatan **memverifikasi** jawaban sebelum memfinalkan: run
+      `COMPLETED` hanya dipercaya menjawab issue checkpoint-nya bila issue itu
+      memuat penanda `<!-- sdlc:triase` (di body atau komentar); bila tidak, run
+      di-retry seperti gagal infra (dibatasi `ATTEMPT_MAX`) — tanpa ini issue yang
+      salah sasaran terlantar karena sweep hanya mengulang saat sinyal berubah. **Jangan baca
       `$AUTOMATION_*` dari terminal agen**: proses automation memegang
       `$AUTOMATION_EVENT_PAYLOAD`/`$AUTOMATION_KV_TOKEN`/`$AUTOMATION_RUN_ID`,
       tetapi terminal agen **tidak mewarisinya** (dinyatakan preset OpenHands

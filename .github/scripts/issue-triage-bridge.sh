@@ -489,6 +489,27 @@ run_status() { # run_status <run-id>
   done
 }
 
+# Whether the issue already shows a triage answer. The marker `<!-- sdlc:triase`
+# is written only by the triage owner — into the body for a FINAL triage and into
+# a comment for a non-final one — so its presence (in either) is what proves an
+# answer exists. A completed run is only trusted to have answered its
+# checkpoint's issue when this holds (#877 review, "issue asal terlantar setelah
+# salah sasaran"): the dispatch names no issue (`POST /dispatch` has no request
+# body), so a run can triage a DIFFERENT issue than the checkpoint's, and
+# `COMPLETED` alone would then finalise a checkpoint whose own issue was never
+# answered — stranding it, because the sweep only re-dispatches when the activity
+# signal changes. A read failure prints 1 (trust the run) so a hiccup does not
+# re-dispatch every sweep.
+triage_answered() { # triage_answered <number>; prints 1 when an answer is present
+  n="$1"
+  body=$(gh api "repos/$REPO/issues/$n" 2>/dev/null) || { printf '1'; return 0; }
+  case "$body" in *"<!-- sdlc:triase"*) printf '1'; return 0 ;; esac
+  comments=$(gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" 2>/dev/null) \
+    || { printf '1'; return 0; }
+  case "$comments" in *"<!-- sdlc:triase"*) printf '1'; return 0 ;; esac
+  printf '0'
+}
+
 # How many triage runs are RUNNING/PENDING right now, so the sweep can defer the
 # rest instead of starting more than the sandbox pool can host. Returns 0 on a
 # read failure, which makes the cap permissive rather than stalling every sweep
@@ -1186,7 +1207,16 @@ process_one() { # process_one <number> <inflight> [ready_ok]
           echo "#$n: run ${srun} is ${sst}; leaving it in flight."
           return 1
           ;;
-        COMPLETED) slot_completed=1 ;;
+        COMPLETED)
+          # A side run (label dispatch) names no issue either, so it is trusted
+          # only when THIS issue shows a triage answer (#877 review).
+          if [ "$(triage_answered "$n")" = "1" ]; then
+            slot_completed=1
+          else
+            echo "#$n: side run ${srun} completed but #$n shows no triage answer; retrying."
+            slot_failed=1
+          fi
+          ;;
         *)
           echo "#$n: side run ${srun} did not complete (${sst:-unreadable}); retrying."
           slot_failed=1
@@ -1207,8 +1237,25 @@ process_one() { # process_one <number> <inflight> [ready_ok]
           return 1
           ;;
         COMPLETED)
-          echo "#$n: run ${prev_run} completed."
-          slot_completed=1
+          # A completed run is trusted to have answered THIS issue only when the
+          # issue shows a triage answer (#877 review, "issue asal terlantar
+          # setelah salah sasaran"): the dispatch names no issue, so a run can
+          # have triaged a DIFFERENT one, and `COMPLETED` alone would then
+          # finalise a checkpoint whose own issue was never answered — stranding
+          # it, because the sweep re-dispatches only when the signal changes. An
+          # unanswered completed run is retried like an infra failure, bounded by
+          # the same attempt cap.
+          if [ "$(triage_answered "$n")" = "1" ]; then
+            echo "#$n: run ${prev_run} completed."
+            slot_completed=1
+          elif [ "$prev_attempt" -ge "$ATTEMPT_MAX" ]; then
+            echo "::warning::#$n: run ${prev_run} completed but #$n shows no triage answer and the attempt cap (ATTEMPT_MAX=$ATTEMPT_MAX) is reached; leaving the checkpoint final. A human must look at this issue."
+            finalise_main_slot "$n" "$sig"
+          else
+            attempt_next=$((prev_attempt + 1))
+            echo "#$n: run ${prev_run} completed but #$n shows no triage answer; retrying (attempt ${attempt_next}/${ATTEMPT_MAX})."
+            slot_failed=1
+          fi
           ;;
         *)
           # The main run died in infrastructure. Retry the SAME issue

@@ -313,6 +313,15 @@ case "$*" in
       printf '[{"user":{"login":"%s"},"updated_at":"%s","body":%s}]\\n' \\
         "\${GH_STUB_NONFLEET_LOGIN:-reporter}" "\${GH_STUB_NONFLEET_AT:-2026-01-01T00:00:00Z}" \\
         "$(printf '%s' "$GH_STUB_NONFLEET" | jq -c -Rs .)"
+    elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = 1 ]; then
+      # triage_answered reads this same listing (no --jq). The marker comment is
+      # authored by the bot, so the activity signal still excludes it; its
+      # presence is what proves the issue has a triage answer (#877 review,
+      # "issue asal terlantar setelah salah sasaran"). Default 1 (answered);
+      # GH_STUB_TRIAGE_ANSWER=0 models an unanswered issue whose completed run
+      # must be retried.
+      printf '[{"user":{"login":"cipansor-bot"},"body":"<!-- sdlc:triase -->"}]\\n'
+
     else
       printf '[]\\n'
     fi ;;
@@ -2934,6 +2943,21 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toMatch(/pengembalian pembuka/);
     expect(out).toMatch(/Jangan menyimpulkan "bukan respons" karena pembanding tak lengkap/);
     expect(out).toMatch(/jangan re-dispatch issue itu/);
+    // #877 review, "pemberitahuan label menutupi balasan pelapor": a label-guard
+    // (or other bot) comment posted as `cipansor-bot` is not a triage answer.
+    // Only a marker-carrying triage comment may count as a response in the time
+    // comparison, or a guard notice after the reporter would filter the
+    // reporter's unanswered reply.
+    expect(out).toMatch(/hanya\*\* komentar ber-penanda triase/);
+    expect(out).toMatch(/komentar triase ber-penanda `<!-- sdlc:triase`/);
+    expect(out).toMatch(/label-guard/);
+    // #877 review, "perubahan label gagal menemukan sasaran triase": a label
+    // change does not move the comment/body history, so the target rule must
+    // also select a candidate whose label STATE needs reconciliation (no type,
+    // no priority, or a type conflict) even when no comment or body edit exists.
+    expect(out).toMatch(/menuntut rekonsiliasi/);
+    expect(out).toMatch(/lebih dari satu tipe/);
+    expect(out).toMatch(/tanpa tipe/);
     expect(out).toContain('editor{login} diff');
     expect(out).not.toMatch(/body-nya memuat penanda/);
     expect(out).not.toMatch(/buang pembuka basmalah/);
@@ -3948,6 +3972,41 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).not.toContain('DISPATCH');
     // The run field is cleared, so a later sweep sees a finished checkpoint.
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+  });
+
+  // #877 review, "issue asal terlantar setelah salah sasaran": a completed run
+  // proves the RUN finished, not that it answered THIS issue — `POST /dispatch`
+  // names no issue, so a run can triage a different one. The checkpoint's issue
+  // is trusted answered only when it shows a triage marker; otherwise the run is
+  // retried (bounded), so a mis-targeted run cannot strand the issue.
+  it('re-dispatches a completed run whose issue shows no triage answer', () => {
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: '0',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toMatchObject({ run: 'run-1', attempt: 1 });
+  });
+
+  it('finalises an unanswered completed run at the attempt cap, without retrying forever', () => {
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: '0',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x', attempt: 3 } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
     expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
   });
 
