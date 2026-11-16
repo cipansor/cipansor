@@ -133,9 +133,10 @@ export default function NewLeavePage() {
       return;
     }
     try {
-      // The API contract is `type` + a profile id (`staffId`, or `teacherId`
-      // for a teacher without a linked Staff row); the form's own names
-      // (`leaveType`, `employeeId`) must be mapped, not sent through as-is.
+      // The API contract is `type` + a profile id (`staffId`); the form's own
+      // names (`leaveType`, `employeeId`) must be mapped, not sent through
+      // as-is. A teacher's leave is filed against their Staff row too, so
+      // `leaveProfileRef` always yields `staffId` here.
       await createLeaveRequest.mutateAsync({
         type: data.leaveType,
         ...leaveProfileRef(employee),

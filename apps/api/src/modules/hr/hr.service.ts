@@ -760,12 +760,15 @@ export async function resolveStaffId(
  * The message a caller gets when the id they sent as `staffId` is a *user* id,
  * not a Staff profile id. The Ajukan Cuti form did exactly that (tracked in
  * #1061): the write fell through to a bare 404 "Staff not found", which names
- * neither the mistake nor the fix. Only the Ajukan Cuti route uses this — the
- * attendance and balance routes keep taking a staff id and answering 404, which
- * is the correct answer for a path that is not the reported defect.
+ * neither the mistake nor the fix. A guru's leave is filed against their Staff
+ * row too (`resolveStaffId` reaches it through `teacher.staffId`), so the one
+ * id to send is `staff.id` — never the user id, never `teacher.id`. Only the
+ * Ajukan Cuti route uses this — the attendance and balance routes keep taking a
+ * staff id and answering 404, which is the correct answer for a path that is
+ * not the reported defect.
  */
 export const USER_ID_AS_STAFF_ID_MESSAGE =
-  'staffId yang dikirim adalah id pengguna, bukan id profil pegawai. Kirim id profil (staff.id, atau teacher.id bila profil guru belum tertaut).';
+  'staffId yang dikirim adalah id pengguna, bukan id profil pegawai. Kirim id profil pegawai (staff.id).';
 
 /**
  * Resolve the Staff id a named leave is filed against, turning "this is a user

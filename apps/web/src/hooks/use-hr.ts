@@ -234,30 +234,25 @@ export function normalizeEmployee(raw: any): Employee {
 }
 
 /**
- * The profile id a leave is filed against — the Staff row's id, or, for a
- * teacher whose Staff row is not linked yet, the Teacher row's id. `Employee.id`
- * is the *user* id, and the API resolves `staffId`/`teacherId` against the
- * staff and teacher tables, so a user id is refused (404 "Staff not found").
- * The Ajukan Cuti form keys its employee `<SelectItem>` on this, never on `id`.
- * Null when the employee has neither profile.
+ * The Staff profile id a leave is filed against. `Employee.id` is the *user*
+ * id, and POST /hr/leaves resolves `staffId` against the `staff` table, so a
+ * user id is refused (404 "Staff not found"). The Ajukan Cuti form keys its
+ * employee `<SelectItem>` on this, never on `id`, and drops an employee whose
+ * `staffId` is null — the API would refuse the write.
+ *
+ * A guru's leave is filed against their Staff row too: every Teacher has one
+ * (`prisma/seeds/teacher-staff.ts`), so `staffId` is set for them as well. A
+ * teacher id is not a substitute — the API resolves a `teacherId` through the
+ * teacher's *linked* staff row and rejects one that has none, which is the same
+ * condition that leaves `staffId` empty here.
  */
 export function leaveProfileId(employee: Employee): string | null {
-  return employee.staffId ?? employee.teacherId ?? null;
+  return employee.staffId ?? null;
 }
 
-/**
- * The `staffId`/`teacherId` fields POST /hr/leaves expects for an employee. A
- * teacher id must travel as `teacherId`, not as `staffId`: the API resolves a
- * `staffId` against the staff table and a `teacherId` through the teacher's
- * linked staff row, so the two are not interchangeable.
- */
-export function leaveProfileRef(employee: Employee): {
-  staffId?: string;
-  teacherId?: string;
-} {
-  if (employee.staffId) return { staffId: employee.staffId };
-  if (employee.teacherId) return { teacherId: employee.teacherId };
-  return {};
+/** The `staffId` field POST /hr/leaves expects for an employee. */
+export function leaveProfileRef(employee: Employee): { staffId?: string } {
+  return employee.staffId ? { staffId: employee.staffId } : {};
 }
 
 export interface Department {

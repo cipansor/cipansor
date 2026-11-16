@@ -21,19 +21,20 @@ const employee = (overrides: Partial<Employee> = {}): Employee =>
   }) as Employee;
 
 describe("leaveProfileId", () => {
-  it("prefers the staff profile id over the teacher id", () => {
+  it("returns the staff profile id", () => {
     expect(
       leaveProfileId(employee({ staffId: "staff-1", teacherId: "teacher-1" })),
     ).toBe("staff-1");
   });
 
-  it("falls back to the teacher id when there is no staff row", () => {
-    expect(leaveProfileId(employee({ teacherId: "teacher-1" }))).toBe(
-      "teacher-1",
-    );
+  it("is null for a teacher with no Staff row, so the form drops them", () => {
+    // A teacher id is not a substitute: the API resolves a `teacherId` through
+    // the teacher's linked staff row and rejects one that has none — the same
+    // condition that leaves `staffId` empty here.
+    expect(leaveProfileId(employee({ teacherId: "teacher-1" }))).toBeNull();
   });
 
-  it("is null for an employee with neither profile, so the form can drop them", () => {
+  it("is null for an employee with no profile, so the form can drop them", () => {
     expect(leaveProfileId(employee())).toBeNull();
   });
 
@@ -49,10 +50,8 @@ describe("leaveProfileRef", () => {
     ).toEqual({ staffId: "staff-1" });
   });
 
-  it("sends a teacher-only profile id as teacherId, not staffId", () => {
-    expect(leaveProfileRef(employee({ teacherId: "teacher-1" }))).toEqual({
-      teacherId: "teacher-1",
-    });
+  it("sends nothing for a teacher with no Staff row", () => {
+    expect(leaveProfileRef(employee({ teacherId: "teacher-1" }))).toEqual({});
   });
 
   it("sends neither key for an employee with no profile", () => {
