@@ -30,12 +30,17 @@ const creds = (roleCode: string) => {
   return { email: a.email, password: a.password };
 };
 
+/** A row of `GET /hr/employees`: the User with its profile relations. */
 interface EmployeeRow {
   id: string;
-  user?: { name?: string };
-  staff?: { id: string } | null;
+  name?: string;
+  staff?: { id: string; position?: string | null } | null;
   teacher?: { id: string } | null;
 }
+
+/** The `<SelectItem>` label `page.tsx` renders, mirroring `normalizeEmployee`. */
+const optionLabel = (e: EmployeeRow) =>
+  `${e.name ?? ""} - ${e.staff?.position ?? (e.teacher ? "Guru" : "Pegawai")}`;
 
 /** A `date` input value `days` from now (YYYY-MM-DD). */
 function dateInput(days: number): string {
@@ -46,7 +51,9 @@ function dateInput(days: number): string {
 }
 
 let admin: AuthSession;
-let staffEmployee: EmployeeRow;
+/** A user id the form once sent as `staffId`, and their real Staff profile id. */
+let employee: EmployeeRow;
+let option: string;
 
 test.beforeAll(async () => {
   test.skip(
@@ -54,23 +61,29 @@ test.beforeAll(async () => {
     "API_URL menunjuk API produksi; uji ini menulis cuti, jadi dilewati",
   );
   admin = await apiLogin(creds("SMPIT_ADMIN"));
+  // The exact list the form renders: `useEmployees({ status: "ACTIVE" })` sends
+  // `status=ACTIVE` and the API's default `limit` (20).
   const list = await apiRequest<{ data: EmployeeRow[] }>(
     admin,
     "GET",
-    "/hr/employees?limit=100",
+    "/hr/employees?status=ACTIVE",
   );
-  const withStaff = (list.data ?? []).find((e) => e.staff?.id);
+  const rows = (list.data ?? []).filter((e) => e.staff?.id);
+  // Pick a row whose dropdown label is unique, so the click below is exact.
+  employee = rows.find(
+    (e) => rows.filter((o) => optionLabel(o) === optionLabel(e)).length === 1,
+  )!;
   expect(
-    withStaff,
+    employee,
     "an employee with a Staff profile in the admin's unit",
   ).toBeTruthy();
-  staffEmployee = withStaff!;
+  option = optionLabel(employee);
 });
 
 test("the API answers a user id sent as staffId with a clear 400, not 404 'Staff not found'", async () => {
   const error = await apiRequest(admin, "POST", "/hr/leaves", {
     // The very mistake the old form made: the user id, not the staff id.
-    staffId: staffEmployee.id,
+    staffId: employee.id,
     type: "SICK",
     startDate: `${dateInput(900)}T00:00:00.000Z`,
     endDate: `${dateInput(901)}T00:00:00.000Z`,
@@ -90,7 +103,6 @@ test("the form files a leave the API accepts, against the profile id", async ({
   page,
 }) => {
   const reason = `e2e ${Date.now().toString(36)} cuti sakit`;
-  const name = staffEmployee.user?.name ?? "";
 
   await injectSession(page, admin);
   await page.goto("/hr/leaves/new");
@@ -99,10 +111,7 @@ test("the form files a leave the API accepts, against the profile id", async ({
     .getByRole("combobox")
     .filter({ hasText: "Pilih karyawan" })
     .click();
-  await page
-    .getByRole("option", { name: new RegExp(name, "i") })
-    .first()
-    .click();
+  await page.getByRole("option", { name: option, exact: true }).click();
 
   await page
     .getByRole("combobox")
@@ -122,9 +131,9 @@ test("the form files a leave the API accepts, against the profile id", async ({
   // And the API holds the row, filed against the Staff profile — never the user.
   const leaves = await apiRequest<{
     data: Array<{ reason: string; staffId: string | null }>;
-  }>(admin, "GET", `/hr/leaves?staffId=${staffEmployee.staff!.id}&limit=50`);
+  }>(admin, "GET", `/hr/leaves?staffId=${employee.staff!.id}&limit=50`);
   const created = (leaves.data ?? []).find((l) => l.reason === reason);
   expect(created, "the submitted leave is stored").toBeTruthy();
-  expect(created!.staffId).toBe(staffEmployee.staff!.id);
-  expect(created!.staffId).not.toBe(staffEmployee.id);
+  expect(created!.staffId).toBe(employee.staff!.id);
+  expect(created!.staffId).not.toBe(employee.id);
 });
