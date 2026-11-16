@@ -4,9 +4,10 @@
 |---|---|---|---|---|
 | 0.1 | 30 September 2026 | aplikasi berjalan dari kode commit `a4735001` | **T1 — terverifikasi di aplikasi berjalan** | Penyusunan awal; tiap kartu dijalankan dengan akun demo bendahara unit pada tumpukan lokal (PostgreSQL + API :3001 + web :3000) dan memuat tangkapan layar asli |
 | 0.2 | 11 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Nama kontrol Pengumuman dicocokkan ke layar: tombol **Buat Pengumuman** (bukan "Buat Baru"), judul formulir **Buat Pengumuman**, dan kolom **Judul**/**Isi** (bukan "Konten"); pesan validasi **"Judul dan isi wajib diisi"** disalin dari `announcements/page.tsx` #779) |
-| 0.3 | 11 November 2026 | kode `af09e9a6` | **T1** (kartu tak berubah; catatan tanggal dibaca dari kode) | **Tanggal Jatuh Tempo** dijelaskan sebagai tanggal (bukan jam) dengan ambang menunggak pukul **07.00 WIB** pada tanggal itu, dan penagihan otomatis/pengingat SPP menagih bulan WIB — dibaca dari `finance.service.ts` (#775), kartu *Membuat tagihan santri*, *Membuat tagihan massal*, dan *Memantau tunggakan* (#825) |
+| 0.3 | 11 November 2026 | kode `af09e9a6` | **T1** (kartu tak berubah; catatan tanggal dibaca dari kode) | **Tanggal Jatuh Tempo** dijelaskan sebagai tanggal (bukan jam), dan penagihan otomatis/pengingat SPP menagih bulan WIB — dibaca dari `finance.service.ts` (#775), kartu *Membuat tagihan santri*, *Membuat tagihan massal*, dan *Memantau tunggakan* (#825) |
 | 0.4 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: tombol simpan dialog pengumuman baru bernama **Terbitkan** (bukan **Simpan**) dan pesan hasilnya menyebut jumlah penerima ("Pengumuman terbit — masuk ke lonceng" diikuti jumlah penerima dan kata "orang"); ditandai pada kartu |
 | 0.5 | 12 November 2026 | `main` `edd4800` | dari kode, belum dicoba ulang di aplikasi berjalan | Tindak lanjut tinjauan: langkah yang diubah pada revisi 0.2–0.4 kini bertanda **⚠ Belum dicoba di aplikasi berjalan** pada langkahnya, agar klaim T1 tidak mencakup langkah baru (#779) |
+| 0.6 | 12 November 2026 | `main` | dari kode, belum dicoba ulang di aplikasi berjalan | Ambang menunggak dikoreksi ke makna sesungguhnya: tagihan tetap **jatuh tempo sepanjang hari yang ditunjuknya** dan baru menunggak mulai **00.00 WIB keesokan harinya** — bukan pukul 07.00 WIB pada hari itu. Catatan lama (07.00 WIB) salah; kode diperbaiki di #1050 (kartu *Membuat tagihan santri* dan *Membuat tagihan massal*) |
 
 > **Tingkat verifikasi.** Kartu tugas di bawah **dijalankan pada aplikasi
 > berjalan** dengan akun demo bendahara unit, dan tiap kartu memuat tangkapan
@@ -84,7 +85,7 @@ ada di halaman itu; formulirnya di `/finance/bills/new`.
 *Gambar 1. Formulir Buat Tagihan: pilih santri, jenis tagihan, jumlah, dan jatuh tempo.*
 
 **Catatan.** **Tanggal Jatuh Tempo** adalah sebuah tanggal, bukan jam tertentu.
-Tagihan dihitung **menunggak mulai pukul 07.00 WIB** pada tanggal itu.
+Tagihan tetap **jatuh tempo sepanjang hari itu** dan baru dihitung **menunggak setelah tanggal itu berakhir** (mulai 00.00 WIB keesokan harinya).
 
 **Hasilnya, dan giliran siapa berikutnya.** Tagihan tampil di daftar dan
 notifikasinya terkirim ke santri. Giliran keluarga membayar; setelah itu bukti
@@ -125,7 +126,7 @@ ada di halaman itu; formulirnya di `/finance/bills/bulk`.
 *Gambar 2. Formulir Buat Tagihan Massal: satu jenis tagihan untuk banyak santri sekaligus.*
 
 **Catatan.** **Tanggal Jatuh Tempo** adalah sebuah tanggal, bukan jam tertentu.
-Tagihan dihitung **menunggak mulai pukul 07.00 WIB** pada tanggal itu.
+Tagihan tetap **jatuh tempo sepanjang hari itu** dan baru dihitung **menunggak setelah tanggal itu berakhir** (mulai 00.00 WIB keesokan harinya).
 
 **Hasilnya, dan giliran siapa berikutnya.** Tagihan terbentuk untuk setiap
 santri yang dicentang. Giliran keluarga membayar.
