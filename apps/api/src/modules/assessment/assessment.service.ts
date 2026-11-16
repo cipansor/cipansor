@@ -30,6 +30,7 @@ import { Errors } from '@/middleware/error';
 import type { WriteActor } from '@/utils/write-scope';
 import { assertStudentsWritable } from '@/utils/write-scope';
 import {
+  actorExamSubjects,
   assertExamWritable,
   assertGradesWritable,
   assertReportCardsWritable,
@@ -138,8 +139,10 @@ export async function createExam(data: CreateExamInput, actor: WriteActor): Prom
   // The record is written to the actor's own unit; only Super_Admin names one
   // (R25.1, R25.2). A non-Super_Admin never writes another unit, whatever the
   // body says.
-  const unitId = actor.roleCode === 'SUPER_ADMIN' ? data.unitId : actor.unitId;
+  const unitId = actor.roleCode === 'SUPER_ADMIN' ? (data.unitId ?? actor.unitId) : actor.unitId;
   if (!unitId) throw Errors.badRequest('Pilih unit');
+  const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true } });
+  if (!unit) throw Errors.badRequest('Pilih unit');
 
   // The class and subject must be in that unit, and the actor must be a
   // Penulis_Penilaian of the exam — otherwise 404, as for a class that is not
@@ -161,20 +164,13 @@ export async function createExam(data: CreateExamInput, actor: WriteActor): Prom
   });
   if (!teacher || teacher.unitId !== unitId) throw Errors.notFound('Teacher');
 
-  const actorSubjects = await prisma.teacherSubject.findMany({
-    where: { teacher: { userId: actor.sub }, isActive: true },
-    select: { subjectId: true, classId: true, class: { select: { unitId: true } } },
-  });
+  const actorSubjects = await actorExamSubjects(actor);
   const allowed = isPenulisPenilaian(actor, {
     kind: 'EXAM',
     unitId,
     subjectId: data.subjectId,
     classId: data.classId,
-    actorSubjects: actorSubjects.map((s) => ({
-      subjectId: s.subjectId,
-      classId: s.classId,
-      unitId: s.classId ? (s.class?.unitId ?? unitId) : unitId,
-    })),
+    actorSubjects,
   });
   if (!allowed) throw Errors.notFound('Class');
 
@@ -515,10 +511,13 @@ export async function updateGrade(
   // 404 — as does an id that does not exist (R13.2). This used to answer 500.
   const existing = await prisma.grade.findUnique({
     where: { id },
-    select: { studentId: true, examId: true, score: true, maxScore: true },
+    select: { studentId: true, score: true, maxScore: true },
   });
   if (!existing) throw Errors.notFound('Grade');
-  await assertGradesWritable(actor, [existing.studentId], existing.examId ? [existing.examId] : []);
+  // R13.2/R13.6: an existing grade is written through the actor's relation with
+  // its santri alone — the exam is not re-checked here (that is a create-time
+  // rule, R25.4).
+  await assertGradesWritable(actor, [existing.studentId]);
 
   const updateData: Prisma.GradeUpdateInput = {};
 
@@ -554,10 +553,10 @@ export async function updateGrade(
 export async function deleteGrade(id: string, actor: WriteActor): Promise<Grade> {
   const existing = await prisma.grade.findUnique({
     where: { id },
-    select: { studentId: true, examId: true },
+    select: { studentId: true },
   });
   if (!existing) throw Errors.notFound('Grade');
-  await assertGradesWritable(actor, [existing.studentId], existing.examId ? [existing.examId] : []);
+  await assertGradesWritable(actor, [existing.studentId]);
 
   const grade = await prisma.grade.delete({ where: { id } });
   return mapToGrade(grade);

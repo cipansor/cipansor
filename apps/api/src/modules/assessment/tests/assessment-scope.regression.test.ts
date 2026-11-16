@@ -21,9 +21,16 @@ vi.mock('@/lib/prisma', () => ({
     takhosusEnrollment: { findMany: vi.fn() },
     musyrif: { findFirst: vi.fn() },
     class: { findUnique: vi.fn(), findMany: vi.fn() },
+    unit: { findUnique: vi.fn() },
     subject: { findUnique: vi.fn() },
-    exam: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
-    grade: { findUnique: vi.fn() },
+    exam: {
+      findUnique: vi.fn(),
+      findFirst: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
+      update: vi.fn(),
+    },
+    grade: { findUnique: vi.fn(), update: vi.fn() },
     reportCard: { findUnique: vi.fn() },
   },
 }));
@@ -39,6 +46,7 @@ import assessmentRoutes from '../assessment.routes';
 const TOKENS = {
   guruSameUnit: { roleCode: 'SMPIT_GURU', unitId: 'unit-a' },
   guruOtherUnit: { roleCode: 'SMPIT_GURU', unitId: 'unit-b' },
+  superAdmin: { roleCode: 'SUPER_ADMIN', unitId: null },
   student: { roleCode: 'SMPIT_SISWA', unitId: 'unit-a' },
 } as const;
 type Who = keyof typeof TOKENS;
@@ -80,6 +88,7 @@ beforeEach(() => {
   } as any);
   vi.mocked(prisma.reportCard.findUnique).mockResolvedValue({ studentId: ST } as any);
   vi.mocked(prisma.class.findMany).mockResolvedValue([] as any);
+  vi.mocked(prisma.unit.findUnique).mockResolvedValue({ id: 'unit-a' } as any);
 });
 
 const ST = '11111111-1111-4111-8111-111111111111';
@@ -201,5 +210,66 @@ describe('R13.7 — an account outside isTeacherOrAbove stays 403', () => {
   it('a santri is refused before the service, for an id that exists or not', async () => {
     const res = await send('student', 'patch', `/assessment/grades/${GR}`, { score: 90 });
     expect(res.status).toBe(403);
+  });
+});
+
+describe('R13.4, R13.6, R13.8 — the paths that are allowed, and the one that is not', () => {
+  it('R13.4 — Super_Admin updates an exam of any unit (200)', async () => {
+    vi.mocked(prisma.exam.findUnique).mockResolvedValue({
+      id: EX,
+      unitId: 'unit-b',
+      subjectId: SUB,
+      classId: CLS,
+    } as any);
+    vi.mocked(prisma.exam.update).mockResolvedValue({ id: EX } as any);
+    const res = await send('superAdmin', 'patch', `/assessment/exams/${EX}`, {
+      title: 'Ujian baru',
+    });
+    expect(res.status).toBe(200);
+  });
+
+  it('R13.4 — Super_Admin updates a grade of any unit (200)', async () => {
+    vi.mocked(prisma.grade.findUnique).mockResolvedValue({
+      studentId: ST,
+      score: 80,
+      maxScore: 100,
+    } as any);
+    vi.mocked(prisma.grade.update).mockResolvedValue({ id: GR } as any);
+    const res = await send('superAdmin', 'patch', `/assessment/grades/${GR}`, { score: 95 });
+    expect(res.status).toBe(200);
+  });
+
+  it('R13.6 — a Guru teaching the santri updates that santri’s grade (200)', async () => {
+    // The Guru teaches the santri's active class (relation (a)).
+    vi.mocked(prisma.teacherSubject.findMany).mockResolvedValue([
+      { subjectId: SUB, classId: CLS, class: { unitId: 'unit-a' } },
+    ] as any);
+    vi.mocked(prisma.student.findMany).mockResolvedValue([
+      { id: ST, unitId: 'unit-a', enrollments: [{ classId: CLS }] },
+    ] as any);
+    vi.mocked(prisma.grade.findUnique).mockResolvedValue({
+      studentId: ST,
+      score: 80,
+      maxScore: 100,
+    } as any);
+    vi.mocked(prisma.grade.update).mockResolvedValue({ id: GR } as any);
+    const res = await send('guruSameUnit', 'patch', `/assessment/grades/${GR}`, { score: 95 });
+    expect(res.status).toBe(200);
+  });
+
+  it('R25.2 — Super_Admin naming a unit that does not exist answers 400 "Pilih unit"', async () => {
+    vi.mocked(prisma.unit.findUnique).mockResolvedValue(null as any);
+    const res = await send('superAdmin', 'post', '/assessment/exams', {
+      unitId: '99999999-9999-4999-8999-999999999999',
+      academicYearId: YR,
+      subjectId: SUB,
+      classId: CLS,
+      teacherId: GRADER,
+      type: 'DAILY_TEST',
+      title: 'Ujian baru',
+      scheduledAt: '2026-11-20T08:00:00.000Z',
+    });
+    expect(res.status).toBe(400);
+    expect(res.body?.error?.message ?? res.body?.message).toMatch(/Pilih unit/i);
   });
 });

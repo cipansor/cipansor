@@ -82,7 +82,7 @@ export function isPenulisPenilaian(actor: WriteActor, target: AssessmentTarget):
 }
 
 /** The actor's active TeacherSubjects as exam facts, or none if they have no Teacher row. */
-async function actorExamSubjects(actor: WriteActor): Promise<TeacherSubjectFact[]> {
+export async function actorExamSubjects(actor: WriteActor): Promise<TeacherSubjectFact[]> {
   const teacher = await prisma.teacher.findFirst({
     where: { userId: actor.sub, isActive: true },
     select: { unitId: true },

@@ -50,6 +50,7 @@ vi.mock('../../src/lib/prisma', () => ({
       aggregate: vi.fn(),
     },
     student: { findMany: vi.fn() },
+    unit: { findUnique: vi.fn() },
     class: { findUnique: vi.fn() },
     subject: { findUnique: vi.fn() },
     teacher: { findUnique: vi.fn(), findFirst: vi.fn() },
@@ -92,6 +93,7 @@ describe('Assessment Service', () => {
         updatedAt: new Date(),
       };
 
+      vi.mocked(prisma.unit.findUnique).mockResolvedValue({ id: 'unit-1' } as any);
       vi.mocked(prisma.class.findUnique).mockResolvedValue({ unitId: 'unit-1' } as any);
       vi.mocked(prisma.subject.findUnique).mockResolvedValue({ unitId: 'unit-1' } as any);
       vi.mocked(prisma.teacher.findUnique).mockResolvedValue({ unitId: 'unit-1' } as any);
