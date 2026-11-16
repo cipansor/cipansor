@@ -81,6 +81,26 @@ test.describe("SPMB publik per unit", () => {
   let sma = { id: "", name: "" };
   let smpPeriod = "";
 
+  /**
+   * Record a just-created registrant's id for cleanup, by the child's name.
+   *
+   * Called the moment a registration succeeds — not in a batch at the end of
+   * the test — so an assertion that fails in between (the consent check
+   * between two children) cannot leave the earlier registrant behind. An
+   * orphan registrant also blocks the period's deletion in afterAll.
+   */
+  async function recordRegistrant(childName: string) {
+    const { data } = await apiRequest<{
+      data: Array<{ id: string; fullName: string }>;
+    }>(
+      admin,
+      "GET",
+      `/admissions/registrants?search=${encodeURIComponent(childName)}`,
+    );
+    expect(data).toHaveLength(1);
+    created.registrants.push(data[0].id);
+  }
+
   test.beforeAll(async () => {
     test.skip(await isProductionApi(), "API produksi; uji ini menulis data");
     admin = await apiLogin(SUPER);
@@ -300,6 +320,9 @@ test.describe("SPMB publik per unit", () => {
 
     await expect(page.getByText("Pendaftaran Berhasil!")).toBeVisible();
 
+    // Record the id the moment it exists, so a later assertion failing cannot
+    // leave the registrant behind (and block the period's deletion).
+    await recordRegistrant(`Calon ${runId}`);
     const { data } = await apiRequest<{
       data: Array<{
         id: string;
@@ -313,7 +336,6 @@ test.describe("SPMB publik per unit", () => {
       `/admissions/registrants?search=${encodeURIComponent(`Calon ${runId}`)}`,
     );
     expect(data).toHaveLength(1);
-    created.registrants.push(data[0].id);
     expect(data[0].admissionPeriodId).toBe(smpPeriod);
     expect(data[0].quranAbility).toBe("TAHFIDZ");
   });
@@ -342,6 +364,8 @@ test.describe("SPMB publik per unit", () => {
     await consent.check();
     await page.getByRole("button", { name: "Kirim Pendaftaran" }).click();
     await expect(page.getByText("Pendaftaran Berhasil!")).toBeVisible();
+    // Record it now, so a failing consent check below cannot orphan it.
+    await recordRegistrant(`Kakak ${runId}`);
     await page
       .getByRole("dialog")
       .getByRole("button", { name: "Tutup" })
@@ -356,18 +380,6 @@ test.describe("SPMB publik per unit", () => {
     await consent.check();
     await page.getByRole("button", { name: "Kirim Pendaftaran" }).click();
     await expect(page.getByText("Pendaftaran Berhasil!")).toBeVisible();
-
-    // Both children are filed, each carrying its own recorded consent.
-    for (const child of [`Kakak ${runId}`, `Adik ${runId}`]) {
-      const { data } = await apiRequest<{
-        data: Array<{ id: string; fullName: string }>;
-      }>(
-        admin,
-        "GET",
-        `/admissions/registrants?search=${encodeURIComponent(child)}`,
-      );
-      expect(data).toHaveLength(1);
-      created.registrants.push(data[0].id);
-    }
+    await recordRegistrant(`Adik ${runId}`);
   });
 });
