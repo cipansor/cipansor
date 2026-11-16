@@ -9,10 +9,14 @@
 # not copied.
 #
 #   * missing shared labels are added to the PR
-#   * a priority on the PR that contradicts the issues is corrected
-#   * a genuine disagreement (a different type on the PR, two issues it closes
-#     that disagree, an ambiguous issue with two priorities) fails the check for
-#     a human or the review automation to resolve
+#   * the PR's priority ceiling is the HIGHEST priority among the issues it
+#     closes; a PR at or below that ceiling is left as it is (the sync never
+#     lowers a priority), and a PR above it fails — the review gate
+#     (`Gerbang tinjau PR`) corrects the PR label or raises the issue's
+#   * a genuine disagreement fails the check for a human or the review
+#     automation to resolve: a different type on the PR or among the issues it
+#     closes (type is a single fact, not a spectrum), a PR with two priority
+#     labels, or an issue with two types or two priorities
 #
 # Usage: issue-label-sync.sh <pr-number>
 #        issue-label-sync.sh --issue <issue-number>   # re-sync every open PR
@@ -22,6 +26,18 @@ set -eu
 
 REPO="${REPO:?REPO is required}"
 TYPE_LABELS="bug enhancement documentation refactor chore security"
+
+# The priority order, as a number, so "highest wins" is a comparison and not a
+# string match. 0 for anything that is not a priority label.
+prio_rank() { # prio_rank <priority-label> -> 0..4
+  case "$1" in
+    priority:critical) printf '4' ;;
+    priority:high) printf '3' ;;
+    priority:medium) printf '2' ;;
+    priority:low) printf '1' ;;
+    *) printf '0' ;;
+  esac
+}
 
 labels_of() { # labels_of <pr|issue> <number> -> newline-separated label names
   gh "$1" view "$2" --repo "$REPO" --json labels --jq '.labels[].name'
@@ -71,6 +87,8 @@ sync_pr() { # sync_pr <pr-number>
     fi
 
     # A conflict between issues this PR closes, or between the PR and an issue.
+    # Type stays strict: it is a single fact, not a spectrum, so two types among
+    # the issues is a genuine disagreement (#1069 decides the message shape).
     if [ -n "$I_TYPES" ]; then
       if [ -n "$REQ_TYPES" ] && [ "$I_TYPES" != "$REQ_TYPES" ]; then
         echo "::error::PR #$PR closes issues that disagree on type ($REQ_TYPES vs $I_TYPES); fix the labels before merging."
@@ -78,12 +96,16 @@ sync_pr() { # sync_pr <pr-number>
       fi
       REQ_TYPES="$I_TYPES"
     fi
+    # Priority is a spectrum, so the PR's ceiling is the HIGHEST priority among
+    # the issues it closes — the PR works on the most urgent thing it closes.
+    # Cross-priority issues are legitimate (a `high` security leak beside a
+    # `medium` form fix in one PR), so they are no longer a failure (#1054,
+    # owner decision P4): the ceiling is resolved, not rejected. The PR may sit
+    # at or below the ceiling; above it is a real error the review gate corrects.
     if [ -n "$I_PRIO" ]; then
-      if [ -n "$REQ_PRIOS" ] && [ "$I_PRIO" != "$REQ_PRIOS" ]; then
-        echo "::error::PR #$PR closes issues that disagree on priority ($REQ_PRIOS vs $I_PRIO); fix the labels before merging."
-        FAIL=1
+      if [ -z "$REQ_PRIOS" ] || [ "$(prio_rank "$I_PRIO")" -gt "$(prio_rank "$REQ_PRIOS")" ]; then
+        REQ_PRIOS="$I_PRIO"
       fi
-      REQ_PRIOS="$I_PRIO"
     fi
   done
 
@@ -95,40 +117,51 @@ sync_pr() { # sync_pr <pr-number>
     FAIL=1
   fi
 
+  # A PR priority ABOVE the ceiling is the failure the review gate (`Gerbang
+  # tinjau PR`, SDLC 18) resolves — it judges which side is wrong (drop the PR,
+  # or raise the issue with evidence). A PR at or below the ceiling is left
+  # exactly as it is: lowering is not the sync's job, and a PR may legitimately
+  # be less urgent than the issues it closes.
+  if [ -n "$REQ_PRIOS" ] && [ -n "$PR_PRIO" ] \
+     && [ "$(prio_rank "$PR_PRIO")" -gt "$(prio_rank "$REQ_PRIOS")" ]; then
+    echo "::error::PR #$PR carries '$PR_PRIO', above the priority ceiling '$REQ_PRIOS' of the issue(s) it closes (#$(printf '%s\n' $ISSUES | tr '\n' ' ')). The review gate corrects the PR label or raises the issue's."
+    FAIL=1
+  fi
+
   has() { printf '%s\n' "$1" | grep -qxF "$2"; }
+  # A PR must end with exactly one priority label. Two is ambiguous — the sync
+  # cannot tell which to keep — so it is a genuine disagreement, like two types.
+  if [ "$(printf '%s\n' "$PR_PRIO" | grep -c . || true)" -gt 1 ]; then
+    echo "::error::PR #$PR carries more than one priority label ($(printf '%s' "$PR_PRIO" | tr '\n' ' ')); keep exactly one."
+    FAIL=1
+  fi
   # A disagreement is not something to edit labels through: changing the PR's
   # labels while the check fails would make the PR adopt the last issue read and
   # hide the conflict a human has to resolve. On FAIL, leave the labels alone.
   if [ "$FAIL" -eq 0 ]; then
-    # Compute additions and removals before touching the PR, so the priority
-    # correction is one edit. Adding the new priority first and removing the old
-    # one in a second call left both labels on the PR if the workflow died
-    # between them — two priorities on one PR. A single `gh pr edit` with
-    # --add-label and --remove-label is atomic as far as the PR is concerned.
+    # Add every shared type label the PR is missing. The priority is added only
+    # when the PR carries none — the sync sets it to the ceiling, but never
+    # raises a PR that already sits at or below the ceiling (#1054, owner
+    # decision P4: only the review gate corrects a PR above it, and the sync
+    # never lowers a priority).
     ADD=""
-    for l in $REQ_TYPES $REQ_PRIOS; do
+    for l in $REQ_TYPES; do
       has "$PR_LABELS" "$l" || ADD="$ADD,$l"
     done
-    DEL=""
-    if [ -n "$REQ_PRIOS" ] && [ -n "$PR_PRIO" ] && [ "$PR_PRIO" != "$REQ_PRIOS" ]; then
-      DEL="$PR_PRIO"
-      echo "Correcting PR priority '$PR_PRIO' -> '$REQ_PRIOS'."
+    if [ -n "$REQ_PRIOS" ] && [ -z "$PR_PRIO" ]; then
+      ADD="$ADD,$REQ_PRIOS"
     fi
     # A fork PR's `pull_request` token is read-only: the edit below cannot run.
     # The check must not pass with the labels still wrong — a passing "Issue label
     # sync" on a mislabeled PR is what a merge gate reads. Fail it and name the
     # labels a maintainer has to apply; the fork contributor cannot do it.
     if [ "${READ_ONLY:-0}" = "1" ]; then
-      if [ -n "$ADD$DEL" ]; then
-        echo "::error::PR #$PR is from a fork; a maintainer must apply: ${ADD#,}${DEL:+ (remove $DEL)}"
+      if [ -n "$ADD" ]; then
+        echo "::error::PR #$PR is from a fork; a maintainer must apply: ${ADD#,}"
         FAIL=1
       fi
-    elif [ -n "$ADD" ] || [ -n "$DEL" ]; then
-      SET=""
-      [ -n "$ADD" ] && SET="$SET --add-label ${ADD#,}"
-      [ -n "$DEL" ] && SET="$SET --remove-label $DEL"
-      # shellcheck disable=SC2086
-      gh pr edit "$PR" --repo "$REPO" $SET
+    elif [ -n "$ADD" ]; then
+      gh pr edit "$PR" --repo "$REPO" --add-label "${ADD#,}"
     fi
   fi
 

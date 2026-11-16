@@ -63,13 +63,19 @@ The evidence rule, enforced in the triage owner's prompt:
    label. `Issue label sync` sets them from the issue; the `Issue label
 sync` workflow adds anything missing and **fails the check** when the type
    genuinely disagrees (a different type is a real conflict, not something to
-   guess at). A PR that closes **more than one** issue must satisfy every one of
-   them, and the check fails when the issues disagree among themselves. Changing
-   a linked issue's labels re-runs the sync on every open PR that closes it,
-   because an `issues` event fires no `pull_request` event. A **fork** PR's
-   token cannot edit labels, so the sync fails (naming the labels) rather than
-   passing with the PR mislabeled — a passing check on a mislabeled PR is what a
-   merge gate would read.
+   guess at). **Priority is a ceiling, not an equality.** A PR that closes
+   **more than one** issue takes the **highest** priority among them
+   (`critical > high > medium > low`) as its ceiling; the sync sets the PR's
+   priority to that ceiling only when the PR carries none, and leaves a PR at or
+   below the ceiling exactly as it is — it never lowers a priority. A PR **above**
+   the ceiling fails the check, and `Gerbang tinjau PR` corrects it on review
+   (dropping the PR label, or raising the issue's with evidence). This is why a
+   PR closing a `high` and a `medium` issue is green with a single `high` label
+   rather than red. Changing a linked issue's labels re-runs the sync on every
+   open PR that closes it, because an `issues` event fires no `pull_request`
+   event. A **fork** PR's token cannot edit labels, so the sync fails (naming the
+   labels) rather than passing with the PR mislabeled — a passing check on a
+   mislabeled PR is what a merge gate would read.
 
 2. **Status labels are not copied to a pull request.** `question`,
    `duplicate`, `invalid`, `wontfix`, `blocked`, `ready` and `in-progress`

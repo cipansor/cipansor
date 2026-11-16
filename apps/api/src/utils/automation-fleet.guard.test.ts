@@ -3391,6 +3391,55 @@ describe('issue-triage-bridge.sh', () => {
     expect(calls).toContain('DISPATCH');
   });
 
+  // #1054: `Gerbang tinjau PR` (SDLC 18) corrects an issue's priority when a
+  // PR's priority exceeds the ceiling, then records the correction under
+  // `triage-gate-<n>`. That label write is a bot's, so without reading the
+  // record the `labeled` path would wake the triage owner to re-judge a priority
+  // the gate already decided with evidence.
+  it("does not dispatch triage when the label matches the gate's correction (#1054)", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { calls, out, kv } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:critical',
+        KV_SEED: { 'triage-gate-818': { state: 'bug+priority:critical', at: now } },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:critical')
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(out).toContain("carries the gate's correction");
+    // The state is adopted so the next sweep does not read it as a change either.
+    expect(kv['triage-state-818']).toMatchObject({ state: 'bug+priority:critical' });
+  });
+
+  it("dispatches on a later label that differs from the gate's correction (#1054)", () => {
+    const now = Math.floor(Date.now() / 1000);
+    const { calls } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:high',
+        KV_SEED: { 'triage-gate-818': { state: 'bug+priority:critical', at: now } },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:high')
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
+  it('ignores a stale gate correction, dispatching the fresh label (#1054)', () => {
+    // A record older than BURST_WINDOW is not the correction answering this
+    // label: a genuine later change is a fresh response and dispatches.
+    const old = Math.floor(Date.now() / 1000) - 100000;
+    const { calls } = runBridge(
+      {
+        GH_STUB_ISSUE_LABELS: 'bug+priority:critical',
+        KV_SEED: { 'triage-gate-818': { state: 'bug+priority:critical', at: old } },
+      },
+      ['--stdin'],
+      labeledEvent('cipansor-bot', 'priority:critical')
+    );
+    expect(calls).toContain('DISPATCH');
+  });
+
   it('ignores a label a person applied', () => {
     const { calls } = runBridge(
       { GH_STUB_ISSUE_LABELS: 'bug+priority:high' },
