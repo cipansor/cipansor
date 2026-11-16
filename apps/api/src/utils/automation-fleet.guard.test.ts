@@ -2474,19 +2474,31 @@ describe('deploy-sdlc-agents.py', () => {
       for (const [name, text] of Object.entries(budgets)) {
         // How to read the clock ...
         expect(text, `${name} must tell the agent to read the clock`).toMatch(/date -u \+%s/);
-        // ... and at least two working deadlines in seconds below the 1800s
-        // platform ceiling: the "stop collecting" checkpoint (~1200s) and the
-        // "must have sent" one (~1500s). The band starts at 1000s on purpose —
-        // the writing reserve (~300 detik) and the first checkpoint (~500 detik)
-        // are not the work deadline, and a budget that names only them still
-        // lets the agent be killed at the wall. Requiring two distinct values
-        // fails a budget whose stop-collecting instruction was dropped while a
-        // later number survived.
-        const deadlines = [...text.matchAll(/\b(1[0-6]\d\d)\s*detik/g)].map((m) => m[1]);
+        // ... and a seconds deadline must sit in the SAME clause as each of the
+        // two instructions that bound the work: "stop collecting" and "must
+        // have sent / opened the result". Counting bare numbers is not enough —
+        // `Pengawas armada` (SDLC 23) names `1000 detik` in its `wall` failure
+        // classification, so a count would still read two after the `~1200
+        // detik` stop instruction was deleted. The band starts at 1000s on
+        // purpose: the writing reserve (~300 detik) and the first checkpoint
+        // (~500 detik) are not the work deadline, and the ceiling sentence
+        // names `1800 detik`, which the band excludes.
+        const clauses = text.split(/[.;]\s+|\n+/);
+        const namesDeadline = (c: string) => /\b1[0-6]\d\d\s*detik/.test(c);
+        const stopClause = clauses.some(
+          (c) => namesDeadline(c) && /hentikan|berhenti mengumpulkan/.test(c)
+        );
+        const sendClause = clauses.some(
+          (c) => namesDeadline(c) && /mengirim|memanggil|buka issue/.test(c)
+        );
         expect(
-          new Set(deadlines).size,
-          `${name} must name two working deadlines in seconds (1000–1700), not only the ~300 detik reserve`
-        ).toBeGreaterThanOrEqual(2);
+          stopClause,
+          `${name} must pair a seconds deadline (1000–1700) with the stop-collecting instruction`
+        ).toBe(true);
+        expect(
+          sendClause,
+          `${name} must pair a seconds deadline (1000–1700) with the send-the-result instruction`
+        ).toBe(true);
       }
     }
   );
