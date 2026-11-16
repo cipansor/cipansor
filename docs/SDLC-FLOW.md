@@ -381,7 +381,11 @@ issue` dan `Uji beban` dimatikan; k6 berjalan lewat `load-tests.yml` sebelum
    membawa dan mencatat **23** pada jendela yang sama. Karena plafon tidak bisa
    dinaikkan, `scripts/deploy-sdlc-agents.py` kini menyisipkan satu anggaran
    jam pasir (`ANGGARAN WAKTU — JAM PASIR`) ke **setiap** prompt yang belum
-   membawa anggaran sendiri (10/25/35 perintah, berhenti dan kirim hasil).
+   membawa anggaran sendiri. Anggarannya **berbasis detik** — baca jam
+   (`date -u +%s`), sisakan ~300 detik untuk menulis, berhenti mengumpulkan pada
+   ~1200–1500 detik — dengan jumlah perintah (10/25/35) sebagai penjaga
+   sekunder, karena 10 perintah berat (`pnpm install` ~140 detik) bisa menabrak
+   plafon jauh sebelum jumlahnya tercapai (#907).
    `conversation_id` **bukan** penanda sandbox dan tidak boleh dipakai untuk
    mengklasifikasi kegagalan: ia null pada hampir setiap run yang mati di
    dinding (234 dari 253 run FAILED tetap punya `sandbox_id`). Klasifikasi

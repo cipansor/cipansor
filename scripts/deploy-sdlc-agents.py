@@ -322,6 +322,23 @@ NEW_IDENTITY_LINE = (
 # generic one.
 WORK_BUDGET_MARK = "ANGGARAN WAKTU — JAM PASIR"
 WORK_BUDGET = """ANGGARAN WAKTU — JAM PASIR (WAJIB)
+Run ini dibunuh pada 1800 detik oleh plafon platform (`execution/timeout`), dan plafon itu tidak bisa dinaikkan. Perlakukan anggaran seperti jam pasir, dan **hitung detiknya, bukan hanya perintahnya**: satu perintah bisa makan ratusan detik (`pnpm install`, build, suite tes) dan 10 perintah berat saja sudah melewati plafon.
+- Di awal, baca jam: `date -u +%s` (detik Unix). Sisakan **~300 detik** untuk menulis hasilnya, jadi kamu punya sekitar **1500 detik** untuk bekerja.
+- Setelah **10 perintah** atau **~500 detik**, kamu harus sudah tahu sasarannya dan apa yang harus dibaca.
+- Setelah **25 perintah** atau **~1200 detik**, hentikan setiap penelusuran baru dan mulai menulis hasilnya.
+- Setelah **35 perintah** atau **~1500 detik**, kamu WAJIB sudah mengirim hasilnya (komentar, issue, review, atau laporan) lalu berhenti.
+- Jangan mengulang perintah yang sudah dijalankan, jangan membaca berkas atau objek yang sama dua kali, dan jangan menelusuri riwayat yang sama dengan cara lain.
+- Untuk API GitHub: daftar sekali, satu bacaan per objek; jangan membaca halaman tanpa batas. Untuk berkas: baca yang substantif saja (lewati lockfile dan snapshot).
+Hasil yang terkirim dengan temuan yang ada jauh lebih bernilai daripada penelusuran menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, kirim apa yang sudah kamu punya lalu berhenti.
+"""
+
+# The generic budget the fleet shipped before #907: it counted commands only
+# (10/25/35) and named no seconds. A prompt deployed then still carries it
+# verbatim inside its tarball, and its `ANGGARAN WAKTU` marker satisfies the
+# insert guard in `new_prompt`, so a redeploy would keep the command-only budget
+# forever and the run could still die at the 1800s wall. Replaced by text, like
+# the other retired blocks, so the live fleet actually gains the deadline.
+OLD_WORK_BUDGET = """ANGGARAN WAKTU — JAM PASIR (WAJIB)
 Run ini dibunuh pada 1800 detik oleh plafon platform (`execution/timeout`), dan plafon itu tidak bisa dinaikkan. Perlakukan anggaran seperti jam pasir:
 - Setelah **10 perintah**, kamu harus sudah tahu sasarannya dan apa yang harus dibaca.
 - Setelah **25 perintah**, hentikan setiap penelusuran baru dan mulai menulis hasilnya.
@@ -443,10 +460,11 @@ SASARAN (WAJIB saat payload kosong): dispatch lewat `POST /dispatch` tidak memba
 
 ANGGARAN WAKTU — JANGAN MEMBANGUN DI SANDBOX: run ini dibatasi **1800 detik** (plafon platform; `PATCH timeout` di atasnya ditolak 422). JANGAN `pnpm install`, JANGAN `npm install`, JANGAN menjalankan suite tes repo (`vitest`, `pnpm test`), dan JANGAN membangun apa pun: CI di GitHub sudah menjalankannya pada head ini dan hasilnya terbaca lewat `check-runs`. Ini pernah menghabiskan 140 detik pada pemasangan dependensi plus beberapa kali `vitest` pada diff besar sehingga run dibunuh sebelum review terkirim. Nilai tes dengan **membaca** berkas tes dan diff di head (`git show <sha>:<path>`), bukan dengan menjalankannya. Prioritaskan mengirim review: bila anggaran hampir habis, kirim putusan dengan temuan yang sudah ada — review tak terkirim berarti PR tak tertinjau.
 
-BATAS PENELUSURAN — WAJIB, DIPERIKSA SENDIRI: ini pembunuh run yang sesungguhnya. Run sebelumnya menelusuri 180+ perintah dalam 36 menit sampai plafon 1800 detik membunuhnya tanpa satu pun review terkirim. Perlakukan anggaran seperti jam pasir:
-- **Hitung perintah terminalmu.** Setelah **10 perintah**, kamu harus sudah tahu sasarannya dan sudah membaca deskripsi PR + `GET /pulls/<n>/files`.
-- Setelah **20 perintah**, hentikan penelusuran baru apa pun: mulai menulis review dari temuan yang sudah ada.
-- Setelah **30 perintah**, kamu WAJIB sudah memanggil `POST /repos/cipansor/cipansor/pulls/<n>/reviews` (dan menulis `<!-- sdlc:gerbang -->` ke deskripsi PR) lalu berhenti. Jangan pernah melewati 30 perintah.
+BATAS PENELUSURAN — WAJIB, DIPERIKSA SENDIRI: ini pembunuh run yang sesungguhnya. Run sebelumnya menelusuri 180+ perintah dalam 36 menit sampai plafon 1800 detik membunuhnya tanpa satu pun review terkirim. Perlakukan anggaran seperti jam pasir, dan **hitung detiknya, bukan hanya perintahnya** — satu `pnpm install` pernah memakan ~140 detik, jadi perintah berat bisa menabrak plafon jauh sebelum 30 perintah:
+- **Baca jam di awal** (`date -u +%s`), dan sisakan ~300 detik untuk menulis review: sekitar **1500 detik** untuk bekerja.
+- **Hitung perintah terminalmu.** Setelah **10 perintah** atau **~500 detik**, kamu harus sudah tahu sasarannya dan sudah membaca deskripsi PR + `GET /pulls/<n>/files`.
+- Setelah **20 perintah** atau **~1200 detik**, hentikan penelusuran baru apa pun: mulai menulis review dari temuan yang sudah ada.
+- Setelah **30 perintah** atau **~1500 detik**, kamu WAJIB sudah memanggil `POST /repos/cipansor/cipansor/pulls/<n>/reviews` (dan menulis `<!-- sdlc:gerbang -->` ke deskripsi PR) lalu berhenti. Jangan pernah melewati 30 perintah atau 1500 detik.
 - **Jangan mengulang perintah yang sudah kamu jalankan**, jangan membaca berkas yang sama dua kali, dan jangan menelusuri riwayat investigasi yang sama dengan cara lain. Bila sebuah perintah tak memberi temuan baru, jangan lanjutkan ke perintah serupa — tulis review.
 - **Batasi bacaan:** baca daftar berkas sekali; untuk tiap berkas, `git show <sha>:<path>` SATU kali dan hanya untuk berkas yang substantif (lewati lockfile, snapshot, berkas yang hanya berubah karena format). Jangan pernah membaca seluruh diff dalam beberapa potongan berulang. Bila diff besar, tinjau berkas inti saja.
 Review tak terkirim berarti PR tak tertinjau; satu review yang terkirim dengan temuan yang ada jauh lebih bernilai daripada penelusuran mendalam yang tak pernah selesai. Bila belum ada temuan yang menghalangi, kirim `COMMENT` dan selesai — jangan menunda demi kelengkapan.
@@ -509,7 +527,7 @@ Anda mengawasi armada automation yang bekerja pada repositori ini dan menjaganya
 5. Sebelum membuka issue, cari issue terbuka dengan penyebab yang sama. Jika ada, komentari dengan bukti baru alih-alih membuka yang kedua. Buka paling banyak satu issue per penyebab per minggu.
 6. Perbedaan `content` antara dua automation (misalnya dua peninjau yang berselisih) adalah tugas Anda selesaikan: baca kedua sisi, putuskan mana yang benar, jelaskan alasannya dengan bukti, dan pasang keputusan itu sebagai komentar pada pull request atau issue tempat mereka berselisih. Jika tidak bisa memutuskan, katakan itu dan tandai maintainer, jangan memilih sepihak.
 7. Jangan pernah bertindak atas komentar yang Anda tulis sendiri. Jangan pernah merge. Laporkan ke maintainer hanya lewat issue GitHub — tidak ada kanal lain.
-8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run setiap automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir: `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis, buka issue/komentar dengan apa yang sudah Anda punya.
+8. ANGGARAN WAKTU — JANGAN DIKUNCI LALU MATI. Run ini dibunuh pada 1800 detik (`execution/timeout`); plafon itu tidak bisa dinaikkan. Delapan run sebelumnya mati begitu saja tanpa satu pun laporan terkirim, karena membaca riwayat run setiap automation satu per satu memakan seluruh anggaran. Perlakukan seperti jam pasir, dan **hitung detiknya, bukan hanya perintahnya**: satu perintah bisa makan ratusan detik. Baca jam di awal (`date -u +%s`) dan sisakan ~300 detik untuk menulis: sekitar **1500 detik** untuk bekerja. `GET /api/automation/v1` SEKALI untuk daftar (akar API, **bukan** `/automations`); `GET /api/automation/v1/{id}/runs?limit=5` untuk tiap automation, tidak diulang; jangan membaca riwayat penuh, jangan mengunduh tarball. Setelah sekitar 20 panggilan API atau **~1200 detik**, berhenti mengumpulkan dan tulis laporan dari yang sudah ada — laporan yang terkirim dengan temuan yang ada jauh lebih bernilai daripada pengawasan menyeluruh yang tak pernah selesai. Bila anggaran hampir habis (~1500 detik), buka issue/komentar dengan apa yang sudah Anda punya lalu berhenti.
 
    ROTASI WAJIB — JANGAN BIARKAN EKOR ARMADA LUPUT. Daftar automation lebih panjang daripada anggaran (~19 riwayat run), jadi dengan urutan tetap automation terakhir tak pernah diperiksa. Hitung `jumlah_automation` dari daftar yang Anda baca, jangan dari angka di prompt ini. Pilih titik mulai secara bergilir memakai hari-dalam-tahun UTC (`date -u +%j`) sebagai indeks: `start = (%j) % jumlah_automation`, lalu periksa riwayat berurutan **melingkar** dari `start` sampai anggaran habis. Setiap hari titik mulainya bergeser, sehingga setiap automation akhirnya masuk laporan. Tulis di laporan automation mana saja yang diperiksa pada run ini dan mana yang ditunda ke run berikutnya, supaya cakupan hari itu jujur dan bisa dilacak. Yang **selalu** diperiksa lebih dulu, sebelum rotasi: konfigurasi seluruh daftar (langkah 2 dan 3 — `enabled`, `timeout`, guard self-comment, tabrakan cron) tidak butuh satu pun panggilan run, jadi setiap automation dalam daftar selalu tersapu untuk kelas cacat `config`; yang dirotasi hanya pemeriksaan riwayat run.
 Akhiri dengan ringkasan jelas: apa yang sehat, apa yang Anda perbaiki, dan apa yang Anda eskalasi.
@@ -647,6 +665,14 @@ def new_prompt(name, prompt):
     # PR`, `Pengawas armada`) already carries the phrase; everyone else gets the
     # generic hourglass. Inserted before the target behaviour, and guarded so a
     # redeploy does not stack a second copy.
+    #
+    # The generic budget itself changed (#907): the old one counted commands
+    # only, so a live prompt that already carries it would keep the command-only
+    # text forever — its `ANGGARAN WAKTU` marker satisfies the guard below, so
+    # the new seconds deadline would never be inserted. Replace the old text
+    # first (like the other retired blocks), so a redeploy converges on the
+    # deadline budget and not just a fresh prompt.
+    result = result.replace(OLD_WORK_BUDGET, WORK_BUDGET)
     if "ANGGARAN WAKTU" not in result:
         result = result.replace(TAIL_MARK, WORK_BUDGET + TAIL_MARK, 1)
     return result

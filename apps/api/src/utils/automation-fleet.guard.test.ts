@@ -2412,6 +2412,97 @@ describe('deploy-sdlc-agents.py', () => {
     expect(newPrompt('SDLC 23', original)).not.toContain('JAM PASIR');
   });
 
+  it.skipIf(!hasPy)('upgrades a live prompt carrying the old command-only budget, once', () => {
+    // #907: the generic budget the fleet deployed before this change counted
+    // commands only (10/25/35) and named no seconds. A live prompt still
+    // carries that text inside its tarball, and its `ANGGARAN WAKTU` marker
+    // satisfies the insert guard, so a redeploy would keep the command-only
+    // budget forever. `new_prompt` must recognise the old block and swap it
+    // for the deadline budget — exactly once, and without touching a prompt
+    // that already carries the new one.
+    const oldBudget = py('print(json.dumps(m.OLD_WORK_BUDGET))');
+    expect(oldBudget.status, oldBudget.stderr).toBe(0);
+    const legacy = JSON.parse(oldBudget.stdout) as string;
+    expect(legacy).toContain('JAM PASIR');
+    expect(legacy).not.toContain('date -u +%s');
+
+    // A prompt as the live tarball holds it: head, then the old budget, then
+    // the tail.
+    const original = `Header\n\n${FOOTER}\n\n${legacy}\n\nPERILAKU SASARAN (level agentic)\nOriginal tail`;
+    const redeployed = newPrompt('SDLC 05 · Reproduksi bug', original);
+
+    // The command-only text is gone, replaced by the deadline budget.
+    expect(redeployed).not.toContain(legacy);
+    expect(redeployed).toContain('date -u +%s');
+    expect(redeployed).toContain('~1200 detik');
+    // The task's own tail survives the swap.
+    expect(redeployed).toContain('Original tail');
+    // Exactly one budget: the redeploy must not stack the generic one on top
+    // of the text it just replaced.
+    expect(redeployed.match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(redeployed.match(/date -u \+%s/g)).toHaveLength(1);
+    // Idempotent: a second redeploy is a no-op.
+    const again = newPrompt('SDLC 05 · Reproduksi bug', redeployed);
+    expect(again.match(/ANGGARAN WAKTU — JAM PASIR/g)).toHaveLength(1);
+    expect(again.match(/date -u \+%s/g)).toHaveLength(1);
+  });
+
+  it.skipIf(!hasPy)(
+    'gives every work budget a wall-clock deadline, not only a command count',
+    () => {
+      // #907: the budget counted commands, not seconds. Ten heavy commands
+      // (`pnpm install` alone is ~140s) burn past the 1800s ceiling while the
+      // command count still reads compliant, so the agent that obeys the budget
+      // can still be killed at the wall. Every budget must name a readable
+      // deadline in seconds and say how to read the clock; the guard fails on a
+      // budget that carries only command counts.
+      const r = py(
+        [
+          'print(json.dumps({"generic": m.WORK_BUDGET,',
+          '  "tails": {k: v for k, v in m.TAILS.items() if "ANGGARAN WAKTU" in v}}))',
+        ].join('\n')
+      );
+      expect(r.status).toBe(0);
+      const parsed = JSON.parse(r.stdout) as {
+        generic: string;
+        tails: Record<string, string>;
+      };
+      // The generic budget plus the two tailored ones (`Gerbang tinjau PR`,
+      // `Pengawas armada`) are the budgets the fleet actually ships.
+      expect(Object.keys(parsed.tails)).toEqual(expect.arrayContaining(['SDLC 18', 'SDLC 23']));
+      const budgets: Record<string, string> = { generic: parsed.generic, ...parsed.tails };
+      for (const [name, text] of Object.entries(budgets)) {
+        // How to read the clock ...
+        expect(text, `${name} must tell the agent to read the clock`).toMatch(/date -u \+%s/);
+        // ... and a seconds deadline must sit in the SAME clause as each of the
+        // two instructions that bound the work: "stop collecting" and "must
+        // have sent / opened the result". Counting bare numbers is not enough —
+        // `Pengawas armada` (SDLC 23) names `1000 detik` in its `wall` failure
+        // classification, so a count would still read two after the `~1200
+        // detik` stop instruction was deleted. The band starts at 1000s on
+        // purpose: the writing reserve (~300 detik) and the first checkpoint
+        // (~500 detik) are not the work deadline, and the ceiling sentence
+        // names `1800 detik`, which the band excludes.
+        const clauses = text.split(/[.;]\s+|\n+/);
+        const namesDeadline = (c: string) => /\b1[0-6]\d\d\s*detik/.test(c);
+        const stopClause = clauses.some(
+          (c) => namesDeadline(c) && /hentikan|berhenti mengumpulkan/.test(c)
+        );
+        const sendClause = clauses.some(
+          (c) => namesDeadline(c) && /mengirim|memanggil|buka issue/.test(c)
+        );
+        expect(
+          stopClause,
+          `${name} must pair a seconds deadline (1000–1700) with the stop-collecting instruction`
+        ).toBe(true);
+        expect(
+          sendClause,
+          `${name} must pair a seconds deadline (1000–1700) with the send-the-result instruction`
+        ).toBe(true);
+      }
+    }
+  );
+
   it.skipIf(!hasPy)('renames the live automation in place, and is idempotent', () => {
     // `apply_rename` must PATCH only the display name — the id, prompt and
     // tarball are untouched — and must be a no-op once the name already
