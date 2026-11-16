@@ -48,6 +48,7 @@ import curriculumRoutes from '@/modules/curriculum/curriculum.routes';
 import healthRoutes from '@/modules/health/health.routes';
 import { kurikulumMerdekaRoutes } from '@/modules/kurikulum-merdeka';
 import { murojaahRoutes } from '@/modules/murojaah';
+import { simaanRoutes } from '@/modules/simaan';
 import tahfidzRoutes from '@/modules/tahfidz/tahfidz.routes';
 
 const ACCOUNTS: Record<string, Record<string, unknown>> = {
@@ -71,6 +72,7 @@ app.use('/curriculum', curriculumRoutes);
 app.use('/health', healthRoutes);
 app.use('/kurikulum-merdeka', kurikulumMerdekaRoutes);
 app.use('/murojaah', murojaahRoutes);
+app.use('/simaan', simaanRoutes);
 app.use('/tahfidz', tahfidzRoutes);
 app.use(errorHandler);
 
@@ -172,6 +174,7 @@ describe('lists hold only the santri the account may see', () => {
     ['/attendance', 'attendance'],
     ['/tahfidz', 'tahfidzRecord'],
     ['/murojaah', 'murojaahRecord'],
+    ['/simaan', 'simaanExam'],
     ['/kurikulum-merdeka/assessment-results', 'merdekaAssessmentResult'],
     ['/kurikulum-merdeka/p5-assessments', 'p5Assessment'],
   ];
@@ -236,5 +239,22 @@ describe('a santri opening an exam', () => {
     expect(whereOf('exam', 'findUnique').include.grades.where).toEqual({
       student: { userId: 'u-santri' },
     });
+  });
+});
+
+describe('the simaan summary reads the santri named in the URL', () => {
+  const OWN = '11111111-1111-4111-8111-111111111111';
+  const VICTIM = '22222222-2222-4222-8222-222222222222';
+
+  it('does not let ?studentId= swap the identity the scope check approved', async () => {
+    // The URL carries the caller's own santri (the scope check accepts it); the
+    // query tries to read a different santri. The summary must stay on the URL's
+    // santri, or `assertStudentInScope` is checked against one id while the
+    // service reads another (CWE-863, #954).
+    db.student.findFirst.mockResolvedValueOnce({ id: OWN });
+    const res = await call('get', `/simaan/students/${OWN}/summary?studentId=${VICTIM}`, 'santri');
+
+    expect(res.status).toBe(200);
+    expect(whereOf('simaanExam').where.studentId).toBe(OWN);
   });
 });

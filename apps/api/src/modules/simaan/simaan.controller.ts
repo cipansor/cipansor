@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { simaanService } from './simaan.service';
 import { ApiResponse } from '@/utils/response';
+import { assertStudentInScope } from '@/utils/student-scope';
 
 // ============================================
 // Simaan Controllers
@@ -13,7 +14,7 @@ export const listSimaan = async (req: Request, res: Response, next: NextFunction
     // discarded the schema's page=1/limit=20 defaults, so a call that omitted
     // `page` computed `skip: NaN` and Prisma answered with a 500.
     const query = (res.locals.validatedQuery || req.query) as any;
-    const result = await simaanService.findAll(query);
+    const result = await simaanService.findAll(query, req.user!);
     res.json(
       ApiResponse.paginated(
         result.records,
@@ -30,7 +31,7 @@ export const listSimaan = async (req: Request, res: Response, next: NextFunction
 export const getSimaanById = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const record = await simaanService.findById(id);
+    const record = await simaanService.findById(id, req.user!);
     res.json(ApiResponse.success(record));
   } catch (error) {
     next(error);
@@ -107,7 +108,15 @@ export const submitScores = async (req: Request, res: Response, next: NextFuncti
 export const getStudentSummary = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { studentId } = req.params;
-    const query = { studentId, ...req.query } as any;
+    // The summary is about one santri, taken from the URL: refuse one out of
+    // the caller's reach (404, so the answer does not confirm the id) before
+    // reading their exam scores and juz coverage.
+    await assertStudentInScope(studentId, req.user!);
+    // The URL's `studentId` must win over `req.query`: `{ studentId, ...req.query }`
+    // let a `?studentId=<other>` replace the id that was just scope-checked, so a
+    // santri could read another santri's scores and juz coverage (#954). Same
+    // order as `murojaah`/`wallet` — spread the query, then pin the path value.
+    const query = { ...req.query, studentId } as any;
     const summary = await simaanService.getStudentSummary(query);
     res.json(ApiResponse.success(summary));
   } catch (error) {
@@ -130,7 +139,7 @@ export const getUpcomingExams = async (req: Request, res: Response, next: NextFu
   try {
     const halaqohId = req.query.halaqohId as string | undefined;
     const days = req.query.days ? parseInt(req.query.days as string) : 7;
-    const exams = await simaanService.getUpcomingExams(halaqohId, days);
+    const exams = await simaanService.getUpcomingExams(req.user!, halaqohId, days);
     res.json(ApiResponse.success(exams));
   } catch (error) {
     next(error);
