@@ -48,6 +48,7 @@ import curriculumRoutes from '@/modules/curriculum/curriculum.routes';
 import healthRoutes from '@/modules/health/health.routes';
 import { kurikulumMerdekaRoutes } from '@/modules/kurikulum-merdeka';
 import { murojaahRoutes } from '@/modules/murojaah';
+import { simaanRoutes } from '@/modules/simaan';
 import tahfidzRoutes from '@/modules/tahfidz/tahfidz.routes';
 
 const ACCOUNTS: Record<string, Record<string, unknown>> = {
@@ -71,6 +72,7 @@ app.use('/curriculum', curriculumRoutes);
 app.use('/health', healthRoutes);
 app.use('/kurikulum-merdeka', kurikulumMerdekaRoutes);
 app.use('/murojaah', murojaahRoutes);
+app.use('/simaan', simaanRoutes);
 app.use('/tahfidz', tahfidzRoutes);
 app.use(errorHandler);
 
@@ -172,6 +174,7 @@ describe('lists hold only the santri the account may see', () => {
     ['/attendance', 'attendance'],
     ['/tahfidz', 'tahfidzRecord'],
     ['/murojaah', 'murojaahRecord'],
+    ['/simaan', 'simaanExam'],
     ['/kurikulum-merdeka/assessment-results', 'merdekaAssessmentResult'],
     ['/kurikulum-merdeka/p5-assessments', 'p5Assessment'],
   ];
