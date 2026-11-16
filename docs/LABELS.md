@@ -71,11 +71,15 @@ sync` workflow adds anything missing and **fails the check** when the type
    the ceiling fails the check, and `Gerbang tinjau PR` corrects it on review
    (dropping the PR label, or raising the issue's with evidence). This is why a
    PR closing a `high` and a `medium` issue is green with a single `high` label
-   rather than red. Changing a linked issue's labels re-runs the sync on every
-   open PR that closes it, because an `issues` event fires no `pull_request`
-   event. A **fork** PR's token cannot edit labels, so the sync fails (naming the
-   labels) rather than passing with the PR mislabeled — a passing check on a
-   mislabeled PR is what a merge gate would read.
+   rather than red. When a PR closes issues of **different types**, check first
+   whether one of them is simply mistyped: if so, ask `cipansor-bot` to align it
+   (as with #868 `chore` → `bug` on PR #1067). If both types are right, split the
+   PR by type — a type is one fact, so the sync never picks one for you. Changing
+   a linked issue's labels re-runs the sync on every open PR that closes it,
+   because an `issues` event fires no `pull_request` event. A **fork** PR's
+   token cannot edit labels, so the sync fails (naming the labels) rather than
+   passing with the PR mislabeled — a passing check on a mislabeled PR is what a
+   merge gate would read.
 
 2. **Status labels are not copied to a pull request.** `question`,
    `duplicate`, `invalid`, `wontfix`, `blocked`, `ready` and `in-progress`

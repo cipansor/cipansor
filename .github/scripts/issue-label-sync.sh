@@ -5,18 +5,19 @@
 # The PR and each issue it closes must carry the same "shared" labels: the type
 # labels (bug, enhancement, documentation, refactor, chore, security) and the
 # priority label. Labels that describe an issue's own lifecycle (question,
-# question, duplicate, invalid, wontfix, blocked, ready, in-progress, ...) are
-# not copied.
+# duplicate, invalid, wontfix, blocked, ready, in-progress, ...) are not copied.
 #
 #   * missing shared labels are added to the PR
 #   * the PR's priority ceiling is the HIGHEST priority among the issues it
 #     closes; a PR at or below that ceiling is left as it is (the sync never
 #     lowers a priority), and a PR above it fails — the review gate
-#     (`Gerbang tinjau PR`) corrects the PR label or raises the issue's
+#     (`Gerbang tinjau PR`) corrects the PR label or raises the issue's, so the
+#     ceiling itself is never guessed at
 #   * a genuine disagreement fails the check for a human or the review
 #     automation to resolve: a different type on the PR or among the issues it
 #     closes (type is a single fact, not a spectrum), a PR with two priority
-#     labels, or an issue with two types or two priorities
+#     labels, or an issue with two types or two priorities. The fix is to
+#     correct the issue whose type is wrong, or to split the PR by type.
 #
 # Usage: issue-label-sync.sh <pr-number>
 #        issue-label-sync.sh --issue <issue-number>   # re-sync every open PR
@@ -91,7 +92,7 @@ sync_pr() { # sync_pr <pr-number>
     # the issues is a genuine disagreement (#1069 decides the message shape).
     if [ -n "$I_TYPES" ]; then
       if [ -n "$REQ_TYPES" ] && [ "$I_TYPES" != "$REQ_TYPES" ]; then
-        echo "::error::PR #$PR closes issues that disagree on type ($REQ_TYPES vs $I_TYPES); fix the labels before merging."
+        echo "::error::PR #$PR closes issues of different types ($REQ_TYPES vs $I_TYPES). A type is one fact: correct the issue whose type is wrong, or split the PR by type."
         FAIL=1
       fi
       REQ_TYPES="$I_TYPES"
