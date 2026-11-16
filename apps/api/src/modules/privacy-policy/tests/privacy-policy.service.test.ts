@@ -128,6 +128,61 @@ describe('privacy-policy service', () => {
         data: expect.objectContaining({ version: 1 }),
       });
     });
+
+    it('retries when a concurrent publish took the number, and lands on the next one', async () => {
+      // Both callers read v4 and try v5; the loser gets P2002 on `version`,
+      // re-reads, and publishes v6 — instead of failing a valid request.
+      const { Prisma } = await import('@prisma/client');
+      const collision = new Prisma.PrismaClientKnownRequestError('unique', {
+        code: 'P2002',
+        clientVersion: 'test',
+        meta: { target: ['version'] },
+      });
+      vi.mocked(prisma.privacyPolicyVersion.findFirst)
+        .mockResolvedValueOnce({ version: 4 } as any)
+        .mockResolvedValueOnce({ version: 5 } as any);
+      vi.mocked(prisma.privacyPolicyVersion.create)
+        .mockRejectedValueOnce(collision)
+        .mockResolvedValueOnce(row({ version: 6 }) as any);
+
+      const created = await service.createVersion(
+        {
+          bodies: { id: 'b-id', en: 'b-en', ar: 'b-ar' },
+          summaries: { id: 's-id', en: 's-en', ar: 's-ar' },
+          effectiveAt: new Date('2027-01-01T00:00:00.000Z'),
+        },
+        { sub: 'user-1' }
+      );
+
+      expect(created.version).toBe(6);
+      expect(prisma.privacyPolicyVersion.create).toHaveBeenCalledTimes(2);
+      expect(prisma.privacyPolicyVersion.create).toHaveBeenLastCalledWith({
+        data: expect.objectContaining({ version: 6 }),
+      });
+    });
+
+    it('does not swallow a collision on some other unique field', async () => {
+      const { Prisma } = await import('@prisma/client');
+      const other = new Prisma.PrismaClientKnownRequestError('unique', {
+        code: 'P2002',
+        clientVersion: 'test',
+        meta: { target: ['someOtherField'] },
+      });
+      vi.mocked(prisma.privacyPolicyVersion.findFirst).mockResolvedValueOnce({ version: 4 } as any);
+      vi.mocked(prisma.privacyPolicyVersion.create).mockRejectedValueOnce(other);
+
+      await expect(
+        service.createVersion(
+          {
+            bodies: { id: 'b-id', en: 'b-en', ar: 'b-ar' },
+            summaries: { id: 's-id', en: 's-en', ar: 's-ar' },
+            effectiveAt: new Date(),
+          },
+          { sub: 'user-1' }
+        )
+      ).rejects.toBe(other);
+      expect(prisma.privacyPolicyVersion.create).toHaveBeenCalledTimes(1);
+    });
   });
 
   describe('assertVersionExists', () => {
