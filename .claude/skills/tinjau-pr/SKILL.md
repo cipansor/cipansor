@@ -1,6 +1,6 @@
 ---
 name: tinjau-pr
-description: How a person or an agent other than the `Gerbang tinjau PR` automation reviews a pull request in this repository — judge first whether the change is needed and proportionate, then check it against its linked `ready` issues and the PR template, verify its claims against the code, check tests (same commit, failing before the fix, no self-skipping guard), the golden rules, release risks (migrations, paired PRs, CI scope) and UI evidence, and deliver a verdict with evidence and concrete fixes. Never APPROVE and never merge: only `cipansor-bot` approves and the owner merges. Use when asked to "review PR", "tinjau PR", "cek PR #n", "apakah PR ini perlu/layak/bermanfaat", or before recommending a merge.
+description: How a person or an agent other than the `Gerbang tinjau PR` automation reviews a pull request in this repository — judge first whether the change is needed and proportionate, then check it against its linked `ready` issues and the PR template, verify its claims against the code, check tests (same commit, failing before the fix, no self-skipping guard), the golden rules, release risks (migrations, paired PRs, CI scope) and UI evidence, and deliver a verdict with evidence and concrete fixes. Never APPROVE and never merge; only `cipansor-bot` approves and the owner merges. Use when asked to "review PR", "tinjau PR", "cek PR #n", "apakah PR ini perlu/layak/bermanfaat", or before recommending a merge.
 ---
 
 # Meninjau pull request

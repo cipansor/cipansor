@@ -1,8 +1,9 @@
 import { describe, it, expect, beforeAll, afterAll } from 'vitest';
 import { spawnSync } from 'child_process';
-import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync } from 'fs';
+import { mkdtempSync, writeFileSync, readFileSync, existsSync, rmSync, readdirSync } from 'fs';
 import { tmpdir } from 'os';
 import { join, resolve } from 'path';
+import { parse } from 'yaml';
 
 /**
  * The PR-description checks, driven against a stub `gh` and the real `jq`:
@@ -971,6 +972,23 @@ describe('issue and PR skills — one flow, four skills that agree', () => {
     '**Alur kerja issue dan PR di repo ini:** `buat-issue` → triase (`Triase issue`; ' +
     'dibantu skill `triase-issue`) → `ready` → `buat-pr` → tinjauan (`Gerbang tinjau PR`; ' +
     'dibantu skill `tinjau-pr`) → merge oleh pemilik.';
+
+  // Every skill, not only these four: a frontmatter YAML cannot parse is a
+  // skill the loader silently drops. A plain scalar may not hold ": " — the
+  // `tinjau-pr` description once read "never merge: only …", which matched
+  // every regex below and still failed to load.
+  const ALL = readdirSync(join(ROOT, '.claude', 'skills'), { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => entry.name)
+    .filter((name) => existsSync(join(ROOT, '.claude', 'skills', name, 'SKILL.md')));
+
+  it.each(ALL)('%s has frontmatter a YAML parser accepts', (name) => {
+    const frontmatter = /^---\n([\s\S]*?)\n---\n/.exec(skill(name))?.[1];
+    expect(frontmatter, `${name} opens with a --- frontmatter block`).toBeDefined();
+    const meta = parse(frontmatter as string) as Record<string, unknown>;
+    expect(meta?.name).toBe(name);
+    expect(typeof meta?.description).toBe('string');
+  });
 
   it.each(NAMES)('%s names itself in its frontmatter and states the shared flow', (name) => {
     const s = skill(name);
