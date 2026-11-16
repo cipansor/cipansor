@@ -14,10 +14,18 @@ import {
   createNotification,
   createManyNotifications,
   clearNotificationDeliveries,
+  retryDueReminderChannels,
 } from './notifications.service';
 import { CreateNotificationInput } from './notifications.schema';
+import { buildPaymentReminderContent } from './reminder-content';
 import { type ScheduledTaskId } from './scheduler.tasks';
-import { NotificationType, AttendanceStatus, PaymentStatus, EventScope } from '@prisma/client';
+import {
+  NotificationType,
+  AttendanceStatus,
+  PaymentStatus,
+  EventScope,
+  Prisma,
+} from '@prisma/client';
 import { logger } from '../../lib/logger';
 import { STUDENT_STATUS } from '@cipansor/shared';
 import { todayWib, dayOf, dayString, shiftWibDay } from '../../utils/wib';
@@ -338,29 +346,61 @@ export class SchedulerService {
     const today = todayWib();
     const sevenDaysLater = shiftWibDay(today, 7);
 
-    // Get invoices that are PENDING or PARTIAL and due within 7 days
-    const unpaidInvoices = await prisma.invoice.findMany({
-      where: {
-        status: {
-          in: [PaymentStatus.PENDING, PaymentStatus.PARTIAL],
+    // Retry first, from the delivery markers rather than from today's selection
+    // (#1074): a channel that failed on its last in-window attempt (SMTP down,
+    // WhatsApp not yet configured) used to be frozen forever once its bill left
+    // the window. This walks the markers of both reminder kinds and re-sends
+    // what is still `FAILED`/`PENDING`, up to the attempt cap, until the bill's
+    // WIB due day ends.
+    const retried = await retryDueReminderChannels();
+    if (retried > 0) logger.info('Retried ' + retried + ' due reminder channels');
+
+    // Get invoices that are PENDING or PARTIAL and due within 7 days. Ordered by
+    // `dueDate` and paginated so `take` never silently strands the invoices past
+    // the cap: the nearest deadlines are always covered first (#1074).
+    const unpaidInvoices: Array<{
+      id: string;
+      amount: Prisma.Decimal;
+      dueDate: Date;
+      paymentType: { name: string } | null;
+      student: {
+        user: { id: string; name: string; email: string | null; phone: string | null } | null;
+      } | null;
+    }> = [];
+    const PAGE_SIZE = 100;
+    let cursor: string | undefined;
+    for (;;) {
+      const page = await prisma.invoice.findMany({
+        where: {
+          status: {
+            in: [PaymentStatus.PENDING, PaymentStatus.PARTIAL],
+          },
+          dueDate: {
+            lte: dayOf(sevenDaysLater),
+            gte: dayOf(today),
+          },
         },
-        dueDate: {
-          lte: dayOf(sevenDaysLater),
-          gte: dayOf(today),
-        },
-      },
-      include: {
-        student: {
-          include: {
-            user: {
-              select: { id: true, name: true, email: true, phone: true },
+        // A narrow select: the reminder reads a name and a contact, never the
+        // student's NIK or a parent's income (`lessons/prisma-include-leaks-pii.md`).
+        select: {
+          id: true,
+          amount: true,
+          dueDate: true,
+          paymentType: { select: { name: true } },
+          student: {
+            select: {
+              user: { select: { id: true, name: true, email: true, phone: true } },
             },
           },
         },
-        paymentType: true,
-      },
-      take: 100,
-    });
+        orderBy: [{ dueDate: 'asc' }, { id: 'asc' }],
+        take: PAGE_SIZE,
+        ...(cursor ? { cursor: { id: cursor }, skip: 1 } : {}),
+      });
+      unpaidInvoices.push(...page);
+      if (page.length < PAGE_SIZE) break;
+      cursor = page[page.length - 1].id;
+    }
 
     let sentCount = 0;
 
@@ -368,34 +408,21 @@ export class SchedulerService {
       const student = invoice.student;
       if (!student?.user) continue;
 
-      const daysUntilDue = Math.round(
-        (invoice.dueDate.getTime() - dayOf(today).getTime()) / (1000 * 60 * 60 * 24)
-      );
-
-      const typeName = invoice.paymentType?.name || 'SPP';
-      const amount = Number(invoice.amount).toLocaleString('id-ID');
-      const message =
-        'Tagihan ' +
-        typeName +
-        ' sebesar Rp ' +
-        amount +
-        ' akan jatuh tempo dalam ' +
-        daysUntilDue +
-        ' hari.';
-
       // One reminder per invoice, ever. The daily rerun used to remind the same
       // unpaid invoice again every day (#802); the delivery key holds it to the
       // first time. A genuine change (a new invoice) has a new id and notifies.
-      const created = await createNotification({
-        userId: student.user.id,
-        title: 'Pengingat Pembayaran',
-        message,
-        type: NotificationType.PAYMENT,
-        priority: 'HIGH',
-        channels: ['IN_APP', 'EMAIL'],
-        recipientType: 'INDIVIDUAL',
-        dedupeKey: `payment-reminder:${invoice.id}`,
-      });
+      //
+      // The sweep above already retried every existing marker, so this call only
+      // *creates*: `retryExisting: false` keeps it from spending a second
+      // attempt on the same channel in one run (#1074).
+      const created = await createNotification(
+        {
+          userId: student.user.id,
+          ...buildPaymentReminderContent(invoice, new Date()),
+          dedupeKey: `payment-reminder:${invoice.id}`,
+        },
+        { retryExisting: false }
+      );
       if (created) sentCount++;
     }
 

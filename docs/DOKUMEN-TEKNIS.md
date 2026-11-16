@@ -24,6 +24,7 @@
 | 1.10 | 12 November 2026 | kode `e2bff54` | `check-doc-paths.py` kini mengenali rujukan **`src/…`** tanpa awalan workspace — bentuk yang dipakai bab arsitektur untuk berkas web (`src/lib/api.ts`). Rujukan itu diselesaikan relatif terhadap workspace dokumennya (dokumen di luar workspace boleh menunjuk app mana pun). Sebelumnya rujukan seperti itu lolos, sehingga berkas yang dipindah tidak tercatat. | Agen OpenHands |
 | 1.11 | 12 November 2026 | kode `1f26036` | §8 dikoreksi: ambang "lewat jatuh tempo" untuk kolom tanggal-saja kini **awal hari WIB** (`wibOverdueCutoff()`), bukan instan tengah malam UTC-nya (07.00 WIB). Kalimat lama menyebut perbandingan memakai instan tengah malam UTC itu; kode diperbaiki di #1050 (pembaca `finance`, `dashboard`, `analytics`). | Agen OpenHands |
 | 1.12 | 16 November 2026 | kode `193823a4` (kode tidak berubah) | Koreksi klaim CodeQL (#914, K29.3): bab 10 baris **Keamanan: kode** dari "Terbukti" menjadi "Sebagian: belum menjadi pemeriksaan wajib" — ruleset `main` (`19429529`) **tidak** memuat aturan `code_scanning`, jadi peringatan tingkat tinggi belum memblokir PR meski dua catatan lama mengklaim sebaliknya; bab 11 mendapat baris **Kontrol kode (CodeQL)** yang mencatat utangnya beserta arah penanganannya (maintainer menambah aturan `code_scanning`, menonaktifkan tiga entri workflow hantu). Kode tidak berubah; `.claude/memory/progress.md` dan komentar `ci.yml` diselaraskan. `check_docs.py` 0 ERROR/0 WARN | Agen OpenHands |
+| 1.13 | 16 November 2026 | kode `a6be4836` + pohon kerja (perbaikan pengingat tagihan #1074) | Tabel tugas §6.6 mencatat `payment-reminder` kini lebih dulu menjalankan sapuan percobaan ulang dari penanda `NotificationDelivery` (`retryDueReminderChannels`), lepas dari jendela seleksi; `MOBILE_API.md` mengganti pernyataan "percobaan ulang terikat jendela seleksi" dan "jalur SPP bulanan tidak menyimpan status" — keduanya kini keliru setelah #1074 (jalur SPP memakai `dedupeKey` `spp-reminder:<invoice.id>`, kanal dicoba ulang paling banyak 3 kali lewat penghitung `_attempts`). | Agen OpenHands |
 
 > **Catatan.** Angka dalam dokumen ini dihitung dari kode pada commit yang tertera dan akan bergeser
 > seiring pengembangan. Dokumen diperbarui dengan menjalankan ulang pengukuran, bukan dengan menyunting angka.
@@ -487,7 +488,7 @@ Sejak #802, modul `notifications` menjalankan penjadwalnya sendiri di luar
 
 | Id tugas | Jadwal (WIB) | Yang dilakukan |
 |---|---|---|
-| `payment-reminder` | harian 08:00 | Pengingat jatuh tempo tagihan, **sekali per tagihan** dalam jendela 7 hari (kunci `payment-reminder:<id>`) |
+| `payment-reminder` | harian 08:00 | Pengingat jatuh tempo tagihan, **sekali per tagihan** dalam jendela 7 hari (kunci `payment-reminder:<id>`); lebih dulu menjalankan sapuan percobaan ulang kanal yang belum `SENT` (#1074) |
 | `attendance-summary` | harian 18:00 | Ringkasan kehadiran harian |
 | `tahfidz-progress` | Jumat 16:00 | Kemajuan tahfidz mingguan |
 | `event-reminder` | harian 07:00 | Pengingat agenda mendatang |

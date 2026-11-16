@@ -9,18 +9,12 @@
  * no provider credentials are configured).
  */
 
-import { PaymentStatus, NotificationType } from '@prisma/client';
+import { PaymentStatus } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import * as notificationService from '@/modules/notifications/notifications.service';
-import { notificationService as channelService } from '@/modules/notifications/email-sms.service';
+import { buildSppReminderContent } from '@/modules/notifications/reminder-content';
 import { wibMonthYear, utcMonthRange } from '@/utils/wib';
-
-const formatter = new Intl.NumberFormat('id-ID', {
-  style: 'currency',
-  currency: 'IDR',
-  minimumFractionDigits: 0,
-});
 
 /**
  * Send SPP reminders for every unpaid invoice due in the given month to all
@@ -49,7 +43,7 @@ export async function sendMonthlySppReminders(now: Date = new Date()) {
           user: { select: { name: true } },
           parents: {
             select: {
-              parent: { select: { id: true, name: true, phone: true } },
+              parent: { select: { id: true } },
             },
           },
         },
@@ -59,36 +53,27 @@ export async function sendMonthlySppReminders(now: Date = new Date()) {
 
   let notified = 0;
   for (const invoice of invoices) {
-    const amountDue = invoice.amount.sub(invoice.paidAmount);
     for (const link of invoice.student.parents) {
       const parent = link.parent;
-      const message =
-        `Tagihan ${invoice.paymentType.name} ${invoice.period ?? ''} a.n. ` +
-        `${invoice.student.user.name} sebesar ${formatter.format(amountDue.toNumber())} ` +
-        `jatuh tempo ${invoice.dueDate.toLocaleDateString('id-ID')}. ` +
-        `Mohon unggah bukti pembayaran melalui menu Tagihan & Pembayaran.`;
-
       try {
-        await notificationService.createNotification({
-          userId: parent.id,
-          title: `Tagihan ${invoice.paymentType.name} Bulan Ini`,
-          message,
-          type: NotificationType.PAYMENT,
-          link: '/parent/finance',
-          priority: 'HIGH',
-          channels: ['IN_APP'],
-          recipientType: 'INDIVIDUAL',
-        });
-        if (parent.phone) {
-          await channelService.send({
-            channel: 'WHATSAPP',
+        // One delivery marker per (parent, invoice): the WhatsApp channel now
+        // goes through `createNotification`, so a failed send is recorded
+        // `FAILED`/`PENDING` and retried by the daily sweep instead of being
+        // silently dropped (#1074), and a task triggered twice does not send
+        // twice. `spp-reminder:<invoice.id>` is unique per parent because the
+        // marker's unique key is `(userId, dedupeKey)` and the user is the parent.
+        //
+        // `retryExisting: false`: this job only *creates*. A second trigger in
+        // the same day leaves the retry to the sweep, so it does not spend the
+        // day's attempt quota (#1074).
+        await notificationService.createNotification(
+          {
             userId: parent.id,
-            recipientPhone: parent.phone,
-            type: 'PAYMENT_REMINDER',
-            title: `Tagihan ${invoice.paymentType.name}`,
-            message,
-          });
-        }
+            ...buildSppReminderContent(invoice),
+            dedupeKey: `spp-reminder:${invoice.id}`,
+          },
+          { retryExisting: false }
+        );
         notified++;
       } catch (error) {
         logger.error(`[SppReminder] Failed to notify parent ${parent.id}:`, error);

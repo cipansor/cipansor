@@ -17,13 +17,9 @@ vi.mock('@/lib/prisma', () => ({
 vi.mock('@/modules/notifications/notifications.service', () => ({
   createNotification: vi.fn().mockResolvedValue({ id: 'n1' }),
 }));
-vi.mock('@/modules/notifications/email-sms.service', () => ({
-  notificationService: { send: vi.fn().mockResolvedValue({ success: true }) },
-}));
 
 import { prisma } from '@/lib/prisma';
 import * as notificationService from '@/modules/notifications/notifications.service';
-import { notificationService as channelService } from '@/modules/notifications/email-sms.service';
 import { sendMonthlySppReminders } from './spp-reminder.job';
 import { wibDate } from '@/utils/wib';
 
@@ -31,7 +27,6 @@ const mockFindMany = prisma.invoice.findMany as unknown as ReturnType<typeof vi.
 const mockCreateNotification = notificationService.createNotification as unknown as ReturnType<
   typeof vi.fn
 >;
-const mockSend = channelService.send as unknown as ReturnType<typeof vi.fn>;
 
 function invoice(overrides: Record<string, unknown> = {}) {
   return {
@@ -44,10 +39,7 @@ function invoice(overrides: Record<string, unknown> = {}) {
     student: {
       id: 's1',
       user: { name: 'Ahmad' },
-      parents: [
-        { parent: { id: 'p1', name: 'Bapak Ahmad', phone: '+6281234567890' } },
-        { parent: { id: 'p2', name: 'Ibu Ahmad', phone: null } },
-      ],
+      parents: [{ parent: { id: 'p1' } }, { parent: { id: 'p2' } }],
     },
     ...overrides,
   };
@@ -56,24 +48,33 @@ function invoice(overrides: Record<string, unknown> = {}) {
 describe('sendMonthlySppReminders', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('notifies every linked parent in-app and via WhatsApp when a phone exists', async () => {
+  it('notifies every linked parent in-app and via WhatsApp through the delivery marker', async () => {
     mockFindMany.mockResolvedValue([invoice()]);
 
     const result = await sendMonthlySppReminders(new Date('2026-07-01'));
 
     expect(result).toEqual({ invoices: 1, notified: 2 });
-    // In-app for both parents
+    // Both parents get the in-app row *and* the WhatsApp channel through the
+    // same keyed call, so a failed WhatsApp is recorded and retryable (#1074).
     expect(mockCreateNotification).toHaveBeenCalledTimes(2);
     expect(mockCreateNotification.mock.calls.map((c) => c[0].userId).sort()).toEqual(['p1', 'p2']);
-    expect(mockCreateNotification.mock.calls[0][0].link).toBe('/parent/finance');
-    // WhatsApp only for the parent with a phone number
-    expect(mockSend).toHaveBeenCalledTimes(1);
-    expect(mockSend.mock.calls[0][0]).toMatchObject({
-      channel: 'WHATSAPP',
-      recipientPhone: '+6281234567890',
-    });
-    expect(mockSend.mock.calls[0][0].message).toContain('SPP');
-    expect(mockSend.mock.calls[0][0].message).toContain('Ahmad');
+    for (const call of mockCreateNotification.mock.calls) {
+      expect(call[0].link).toBe('/parent/finance');
+      expect(call[0].channels).toEqual(['IN_APP', 'WHATSAPP']);
+      expect(call[0].dedupeKey).toBe('spp-reminder:inv-1');
+    }
+  });
+
+  it('keys each parent’s marker per invoice so a rerun does not double-send', async () => {
+    // The dedupe key is what makes the task idempotent: `createNotification`
+    // suppresses a second call for the same (parent, invoice), so triggering the
+    // job twice does not remind a parent twice (#1074).
+    mockFindMany.mockResolvedValue([invoice({ id: 'inv-9' })]);
+
+    await sendMonthlySppReminders(new Date('2026-07-01'));
+
+    const keys = mockCreateNotification.mock.calls.map((c) => c[0].dedupeKey);
+    expect(keys).toEqual(['spp-reminder:inv-9', 'spp-reminder:inv-9']);
   });
 
   it('targets a half-open month [start, end) for unpaid invoices', async () => {
@@ -142,8 +143,8 @@ describe('sendMonthlySppReminders', () => {
 
       await sendMonthlySppReminders(new Date('2026-07-01'));
 
-      expect(mockSend.mock.calls[0][0].message).toContain('10/7/2026');
-      expect(mockSend.mock.calls[0][0].message).not.toContain('9/7/2026');
+      expect(mockCreateNotification.mock.calls[0][0].message).toContain('10/7/2026');
+      expect(mockCreateNotification.mock.calls[0][0].message).not.toContain('9/7/2026');
     } finally {
       if (prevTz === undefined) delete process.env.TZ;
       else process.env.TZ = prevTz;
