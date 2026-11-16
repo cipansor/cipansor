@@ -106,9 +106,11 @@ pertentangan itu dilaporkan sebagai issue.
     `acknowledge.yml`; automation lain melakukannya dari promptnya.
 15. **Issue: komentar dulu, body saat `ready`.** Selama issue belum `ready`,
     triase, kriteria, dan pertanyaan terbuka ditulis sebagai
-    **komentar** — percakapan kerja. **Body** issue hanya diperbarui saat bot
-    memasang `ready`: ringkasan final ditulis ke body di bawah penanda tetap
-    (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. PR berbeda — putusan
+    **komentar** — percakapan kerja, dengan penanda tetap `<!-- sdlc:triase -->`
+    (pemeriksa "belum dijawab" mengenali komentar triase lewat penanda itu, atau
+    lewat judul kontrak `## Triase` untuk komentar lama). **Body** issue hanya
+    diperbarui saat bot memasang `ready`: ringkasan final ditulis ke body di
+    bawah penanda tetap (mis. `<!-- sdlc:triase -->`), diperbarui di tempat. PR berbeda — putusan
     tinjauan dan hasil QA ditulis ke **body** PR di bawah penanda (mis.
     `<!-- sdlc:gerbang -->`), karena PR sudah artefak yang selesai. Setiap body
     dibuka dengan basmalah.

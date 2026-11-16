@@ -476,7 +476,14 @@ not available`, `Failed to get execution context`) adalah masalah kapasitas
       "sasaran hanya dari riwayat body/komentar" (salah — jalur label `on_label`/
       `--relabel`/`--type-conflict` mendispatch tanpa mengubah riwayat itu, jadi
       aturan sasaran harus memilih kandidat yang **keadaan labelnya** menuntut
-      rekonsiliasi: tanpa tipe, tanpa prioritas, atau lebih dari satu tipe).
+      rekonsiliasi: tanpa tipe, tanpa prioritas, atau lebih dari satu tipe), lalu
+      putaran-16 "penanda wajib di komentar triase nonfinal" (koreksi dari
+      putaran-15: instruksi penulisan lama hanya mewajibkan komentar `## Triase`
+      **tanpa** penanda, sehingga pemeriksa `triage_answered` yang menuntut penanda
+      menolak jawaban sah → retry palsu sampai batas percobaan; perbaikan:
+      instruksi penulisan **kini mewajibkan** `<!-- sdlc:triase -->` pada komentar
+      nonfinal, dan pemeriksa **menerima dua bentuk** — penanda **atau** judul
+      kontrak `## Triase` — di jembatan maupun di aturan sasaran).
       Pelajaran: jangan kunci aturan pada **artefak** (teks penanda di diff/body,
       bentuk `diff`, atau `issue.body`); kunci pada **peristiwa semantik** (apakah
       isi triase berubah), dibaca dari baris yang berubah dengan pembuka+pemisah

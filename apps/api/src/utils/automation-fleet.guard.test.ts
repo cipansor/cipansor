@@ -313,6 +313,16 @@ case "$*" in
       printf '[{"user":{"login":"%s"},"updated_at":"%s","body":%s}]\\n' \\
         "\${GH_STUB_NONFLEET_LOGIN:-reporter}" "\${GH_STUB_NONFLEET_AT:-2026-01-01T00:00:00Z}" \\
         "$(printf '%s' "$GH_STUB_NONFLEET" | jq -c -Rs .)"
+    elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = "legacy" ]; then
+      # A contract-shaped triage comment written before the marker rule: the
+      # "## Triase" heading with no "<!-- sdlc:triase" marker. triage_answered
+      # must still count it, or a finished run is retried to the attempt cap
+      # (#877 review, "triase nonfinal sah memicu retry palsu").
+      printf '[{"user":{"login":"cipansor-bot"},"body":"## Triase"}]\\n'
+    elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = "noise" ]; then
+      # Another bot's notice, authored cipansor-bot but carrying neither the
+      # marker nor the heading: it must NOT count as a triage answer.
+      printf '[{"user":{"login":"cipansor-bot"},"body":"Label dicabut <!-- label-guard:revoked -->"}]\\n'
     elif [ "\${GH_STUB_TRIAGE_ANSWER:-1}" = 1 ]; then
       # triage_answered reads this same listing (no --jq). The marker comment is
       # authored by the bot, so the activity signal still excludes it; its
@@ -2945,12 +2955,18 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toMatch(/jangan re-dispatch issue itu/);
     // #877 review, "pemberitahuan label menutupi balasan pelapor": a label-guard
     // (or other bot) comment posted as `cipansor-bot` is not a triage answer.
-    // Only a marker-carrying triage comment may count as a response in the time
-    // comparison, or a guard notice after the reporter would filter the
-    // reporter's unanswered reply.
-    expect(out).toMatch(/hanya\*\* komentar ber-penanda triase/);
-    expect(out).toMatch(/komentar triase ber-penanda `<!-- sdlc:triase`/);
+    // A triage comment counts by its marker OR its contract heading, or a guard
+    // notice after the reporter would filter the reporter's unanswered reply.
+    expect(out).toMatch(/ber-penanda\*\* `<!-- sdlc:triase`/);
+    expect(out).toMatch(/membuka dengan judul kontrak `## Triase`/);
     expect(out).toMatch(/label-guard/);
+    // #877 review, "triase nonfinal sah memicu retry palsu": the writing
+    // contract once asked only for a `## Triase` comment, so a comment written
+    // under it carries no marker. Requiring the marker alone rejected it and
+    // retried a finished run, so the rule accepts BOTH shapes — and the writing
+    // contract now requires the marker, so the ambiguity cannot recur.
+    expect(out).toMatch(/judul kontrak `## Triase`/);
+    expect(out).toMatch(/berjudul `## Triase`/);
     // #877 review, "perubahan label gagal menemukan sasaran triase": a label
     // change does not move the comment/body history, so the target rule must
     // also select a candidate whose label STATE needs reconciliation (no type,
@@ -3993,6 +4009,43 @@ describe('issue-triage-bridge.sh', () => {
     );
     expect(calls).toContain('DISPATCH');
     expect(kv['triage-sweep-818']).toMatchObject({ run: 'run-1', attempt: 1 });
+  });
+
+  it('finalises a completed run whose issue carries only a contract-shaped triage comment', () => {
+    // #877 review, "triase nonfinal sah memicu retry palsu": the writing
+    // contract once asked only for a `## Triase` comment, so a comment written
+    // under it carries no `<!-- sdlc:triase` marker. Requiring the marker alone
+    // rejected that legitimate answer and retried a finished run to the attempt
+    // cap. The heading counts too, so the checkpoint finalises without a retry.
+    const { calls, kv } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: 'legacy',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).not.toContain('DISPATCH');
+    expect(kv['triage-sweep-818']).toEqual({ signal: signal('edited'), run: '' });
+  });
+
+  it('still retries a completed run whose issue shows only another bot notice', () => {
+    // The counterpart: a `cipansor-bot` comment that carries NEITHER the marker
+    // nor the `## Triase` heading (a label-guard notice) is not a triage answer,
+    // so the run must still be retried — the broadening must not swallow it.
+    const { calls } = runBridge(
+      {
+        GH_STUB_SEARCH: '2026-10-14T02:14:15Z 818',
+        GH_STUB_BODY: 'edited',
+        GH_STUB_TRIAGE_ANSWER: 'noise',
+        KV_SEED: { 'triage-sweep-818': { signal: signal('edited'), run: 'run-x' } },
+        CURL_STUB_RUNS: '{"runs":[{"id":"run-x","status":"COMPLETED"}]}',
+      },
+      ['--sweep']
+    );
+    expect(calls).toContain('DISPATCH');
   });
 
   it('finalises an unanswered completed run at the attempt cap, without retrying forever', () => {

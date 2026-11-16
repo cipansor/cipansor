@@ -489,24 +489,44 @@ run_status() { # run_status <run-id>
   done
 }
 
-# Whether the issue already shows a triage answer. The marker `<!-- sdlc:triase`
-# is written only by the triage owner — into the body for a FINAL triage and into
-# a comment for a non-final one — so its presence (in either) is what proves an
-# answer exists. A completed run is only trusted to have answered its
-# checkpoint's issue when this holds (#877 review, "issue asal terlantar setelah
-# salah sasaran"): the dispatch names no issue (`POST /dispatch` has no request
-# body), so a run can triage a DIFFERENT issue than the checkpoint's, and
-# `COMPLETED` alone would then finalise a checkpoint whose own issue was never
-# answered — stranding it, because the sweep only re-dispatches when the activity
-# signal changes. A read failure prints 1 (trust the run) so a hiccup does not
-# re-dispatch every sweep.
+# Whether the issue already shows a triage answer. A completed run is only
+# trusted to have answered its checkpoint's issue when this holds (#877 review,
+# "issue asal terlantar setelah salah sasaran"): the dispatch names no issue
+# (`POST /dispatch` has no request body), so a run can triage a DIFFERENT issue
+# than the checkpoint's, and `COMPLETED` alone would then finalise a checkpoint
+# whose own issue was never answered — stranding it, because the sweep only
+# re-dispatches when the activity signal changes.
+#
+# The triage owner writes only two things: the FINAL triage in the body under the
+# marker `<!-- sdlc:triase -->`, and a NON-FINAL triage as a comment. Every
+# triage comment now carries the marker too (the writing instructions require
+# it), but a comment written before that rule opens with the contract's
+# `## Triase` heading instead. Both count — requiring the marker alone would
+# reject a legitimate contract-shaped comment and retry a finished run (#877
+# review, "triase nonfinal sah memicu retry palsu"). Other bots' comments
+# (label-guard, basmalah, the sweeps) carry neither, so they still never count.
+#
+# A read failure prints 1 (trust the run) so a hiccup does not re-dispatch every
+# sweep.
 triage_answered() { # triage_answered <number>; prints 1 when an answer is present
   n="$1"
   body=$(gh api "repos/$REPO/issues/$n" 2>/dev/null) || { printf '1'; return 0; }
-  case "$body" in *"<!-- sdlc:triase"*) printf '1'; return 0 ;; esac
+  if printf '%s' "$body" \
+    | jq -e '(.body // "") | (contains("<!-- sdlc:triase") or test("(?m)^## Triase"))' \
+      >/dev/null 2>&1; then
+    printf '1'; return 0
+  fi
   comments=$(gh api --paginate "repos/$REPO/issues/$n/comments?per_page=100" 2>/dev/null) \
     || { printf '1'; return 0; }
-  case "$comments" in *"<!-- sdlc:triase"*) printf '1'; return 0 ;; esac
+  # A listing that is not a JSON array is an unreadable read, not "no answer":
+  # a hiccup must not re-dispatch every sweep.
+  printf '%s' "$comments" | jq -e 'type == "array"' >/dev/null 2>&1 \
+    || { printf '1'; return 0; }
+  if printf '%s' "$comments" \
+    | jq -e '[.[] | select((.user.login // "") == "cipansor-bot") | select((.body // "") | (contains("<!-- sdlc:triase") or test("(?m)^## Triase")))] | length > 0' \
+      >/dev/null 2>&1; then
+    printf '1'; return 0
+  fi
   printf '0'
 }
 
