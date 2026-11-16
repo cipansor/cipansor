@@ -264,7 +264,10 @@ export async function deleteGrade(req: Request, res: Response, next: NextFunctio
 export async function bulkCreateGrades(req: Request, res: Response, next: NextFunction) {
   try {
     const data = bulkCreateGradesSchema.parse(req.body);
-    const result = await assessmentService.bulkCreateGrades(data as BulkCreateGradesInput, actorOf(req));
+    const result = await assessmentService.bulkCreateGrades(
+      data as BulkCreateGradesInput,
+      actorOf(req)
+    );
     res.status(201).json({ success: true, data: { count: result } });
   } catch (error) {
     next(error);
@@ -326,7 +329,10 @@ export async function getReportCardById(req: Request, res: Response, next: NextF
 export async function createReportCard(req: Request, res: Response, next: NextFunction) {
   try {
     const data = createReportCardSchema.parse(req.body);
-    const reportCard = await assessmentService.createReportCard(data as CreateReportCardInput, actorOf(req));
+    const reportCard = await assessmentService.createReportCard(
+      data as CreateReportCardInput,
+      actorOf(req)
+    );
     res.status(201).json({ success: true, data: reportCard });
   } catch (error) {
     next(error);

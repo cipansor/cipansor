@@ -149,8 +149,7 @@ export async function teachingRelations(
       for (const r of rooms) {
         const covered = assignments.some(
           (a) =>
-            a.dormitoryId === r.room.dormitoryId &&
-            (a.roomId === null || a.roomId === r.room.id)
+            a.dormitoryId === r.room.dormitoryId && (a.roomId === null || a.roomId === r.room.id)
         );
         if (covered) state.musyrif.add(r.studentId);
       }

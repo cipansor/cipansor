@@ -63,7 +63,9 @@ describe('write-scope', () => {
 
   it('assertStudentsWritable accepts a santri reached only through a relation', async () => {
     vi.mocked(prisma.student.findMany).mockResolvedValue([{ id: 's-in' }] as any);
-    const viaRelation = vi.fn(async (ids: string[]) => new Set(ids.includes('s-teach') ? ['s-teach'] : []));
+    const viaRelation = vi.fn(
+      async (ids: string[]) => new Set(ids.includes('s-teach') ? ['s-teach'] : [])
+    );
 
     await expect(
       assertStudentsWritable(['s-in', 's-teach'], unitAdmin, viaRelation)

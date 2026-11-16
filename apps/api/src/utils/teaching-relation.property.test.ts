@@ -38,6 +38,7 @@ const stateArb: fc.Arbitrary<TeachingState> = fc.record({
 
 describe('Property 10: teaching relations', () => {
   it('maps every id to exactly the relations its sets name, and no other id', () => {
+    // Feature: web-api-reconnect-phase-2, Property 10: Relasi pengajaran dan penulis ibadah
     fc.assert(
       fc.property(stateArb, (state) => {
         const relations = teachingRelationsFromState(state);
@@ -56,19 +57,20 @@ describe('Property 10: teaching relations', () => {
           if (state.homeroom.has(id)) expected.add('HOMEROOM');
           expect(relations.get(id)).toEqual(expected);
         }
-      })
+      }),
+      { numRuns: 100 }
     );
   });
 
   it('a grade needs (a), (b) or (c); a report card any relation', () => {
+    // Feature: web-api-reconnect-phase-2, Property 10: Relasi pengajaran dan penulis ibadah
     fc.assert(
       fc.property(setOf, (ids) => {
         const r = new Set<TeachingRelation>([...ids] as TeachingRelation[]);
-        expect(mayWriteGradeVia(r)).toBe(
-          r.has('SUBJECT') || r.has('HALAQOH') || r.has('MUSYRIF')
-        );
+        expect(mayWriteGradeVia(r)).toBe(r.has('SUBJECT') || r.has('HALAQOH') || r.has('MUSYRIF'));
         expect(mayWriteReportCardVia(r)).toBe(r.size > 0);
-      })
+      }),
+      { numRuns: 100 }
     );
   });
 });
@@ -83,9 +85,7 @@ describe('relation (b) regardless of Halaqoh state (R32.20)', () => {
     ] as any);
     // The query must not filter on the Halaqoh's isActive/deletedAt; the mock
     // returns the enrolment regardless, mirroring that.
-    vi.mocked(prisma.takhosusEnrollment.findMany).mockResolvedValue([
-      { studentId: 's1' },
-    ] as any);
+    vi.mocked(prisma.takhosusEnrollment.findMany).mockResolvedValue([{ studentId: 's1' }] as any);
     vi.mocked(prisma.musyrif.findFirst).mockResolvedValue(null);
     vi.mocked(prisma.class.findMany).mockResolvedValue([] as any);
 

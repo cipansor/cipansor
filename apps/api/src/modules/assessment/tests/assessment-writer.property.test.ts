@@ -1,6 +1,10 @@
 import { describe, it, expect } from 'vitest';
 import fc from 'fast-check';
-import { isPenulisPenilaian, type AssessmentTarget, type TeacherSubjectFact } from '../assessment-writer';
+import {
+  isPenulisPenilaian,
+  type AssessmentTarget,
+  type TeacherSubjectFact,
+} from '../assessment-writer';
 import type { TeachingRelation } from '@/utils/teaching-relation';
 import type { WriteActor } from '@/utils/write-scope';
 
@@ -58,18 +62,18 @@ const examTargetArb: fc.Arbitrary<AssessmentTarget> = fc.record({
 
 describe('Property 9: Penulis_Penilaian', () => {
   it('Super_Admin writes any record of any unit', () => {
+    // Feature: web-api-reconnect-phase-2, Property 9: Penulis_Penilaian
     fc.assert(
-      fc.property(
-        fc.oneof(gradeTargetArb, reportTargetArb, examTargetArb),
-        (target) => {
-          const actor: WriteActor = { sub: 'u1', roleCode: 'SUPER_ADMIN', unitId: null };
-          expect(isPenulisPenilaian(actor, target)).toBe(true);
-        }
-      )
+      fc.property(fc.oneof(gradeTargetArb, reportTargetArb, examTargetArb), (target) => {
+        const actor: WriteActor = { sub: 'u1', roleCode: 'SUPER_ADMIN', unitId: null };
+        expect(isPenulisPenilaian(actor, target)).toBe(true);
+      }),
+      { numRuns: 100 }
     );
   });
 
   it('an Admin_Unit or Kepala_Unit writes any record of its own unit, none of another', () => {
+    // Feature: web-api-reconnect-phase-2, Property 9: Penulis_Penilaian
     fc.assert(
       fc.property(
         fc.constantFrom('SMPIT_ADMIN', 'SMPIT_KEPALA_SEKOLAH', 'PESANTREN_PENGASUH'),
@@ -82,11 +86,13 @@ describe('Property 9: Penulis_Penilaian', () => {
           const targetUnit = target.kind === 'EXAM' ? target.unitId : target.studentUnitId;
           expect(isPenulisPenilaian(actor, target)).toBe(targetUnit === unitId);
         }
-      )
+      ),
+      { numRuns: 100 }
     );
   });
 
   it('a teacher-level account needs the relation: (d) alone never writes a grade', () => {
+    // Feature: web-api-reconnect-phase-2, Property 9: Penulis_Penilaian
     fc.assert(
       fc.property(
         fc.constantFrom('SMPIT_GURU', 'MUSYRIF', 'MUHAFIDZ', 'USTADZ'),
@@ -102,11 +108,13 @@ describe('Property 9: Penulis_Penilaian', () => {
             relations.has('SUBJECT') || relations.has('HALAQOH') || relations.has('MUSYRIF');
           expect(isPenulisPenilaian(actor, target)).toBe(expected);
         }
-      )
+      ),
+      { numRuns: 100 }
     );
   });
 
   it('a report card is writable through any relation, including (d)', () => {
+    // Feature: web-api-reconnect-phase-2, Property 9: Penulis_Penilaian
     fc.assert(
       fc.property(
         fc.constantFrom('SMPIT_GURU', 'MUSYRIF', 'MUHAFIDZ', 'USTADZ'),
@@ -120,11 +128,13 @@ describe('Property 9: Penulis_Penilaian', () => {
           };
           expect(isPenulisPenilaian(actor, target)).toBe(relations.size > 0);
         }
-      )
+      ),
+      { numRuns: 100 }
     );
   });
 
   it('an exam needs an active TeacherSubject for its subject and class (or all classes) in its unit', () => {
+    // Feature: web-api-reconnect-phase-2, Property 9: Penulis_Penilaian
     fc.assert(
       fc.property(
         fc.constantFrom('SMPIT_GURU', 'MUSYRIF', 'MUHAFIDZ', 'USTADZ'),
@@ -140,11 +150,13 @@ describe('Property 9: Penulis_Penilaian', () => {
           );
           expect(isPenulisPenilaian(actor, target)).toBe(expected);
         }
-      )
+      ),
+      { numRuns: 100 }
     );
   });
 
   it('never grants a write from cross-unit read breadth: a teacher of another unit is refused', () => {
+    // Feature: web-api-reconnect-phase-2, Property 9: Penulis_Penilaian
     fc.assert(
       fc.property(fc.constantFrom('MUSYRIF', 'MUHAFIDZ', 'USTADZ', 'SMPIT_GURU'), (roleCode) => {
         const actor: WriteActor = { sub: 'u1', roleCode, unitId: 'unit-a' };
@@ -154,7 +166,8 @@ describe('Property 9: Penulis_Penilaian', () => {
           relations: new Set(),
         };
         expect(isPenulisPenilaian(actor, target)).toBe(false);
-      })
+      }),
+      { numRuns: 100 }
     );
   });
 });

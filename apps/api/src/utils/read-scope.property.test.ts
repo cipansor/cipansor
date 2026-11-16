@@ -45,22 +45,21 @@ const examArb: fc.Arbitrary<ExamRow> = fc.record({
 function matches(where: Prisma.ExamWhereInput, exam: ExamRow): boolean {
   if (where.unitId && exam.unitId !== where.unitId) return false;
   if (where.id && 'in' in (where.id as object)) {
-    return ((where.id as { in: string[] }).in).includes(exam.id);
+    return (where.id as { in: string[] }).in.includes(exam.id);
   }
-  const classFilter = where.class as
-    | { enrollments?: { some?: { status?: string } } }
-    | undefined;
+  const classFilter = where.class as { enrollments?: { some?: { status?: string } } } | undefined;
   if (classFilter?.enrollments?.some) {
     const some = classFilter.enrollments.some;
     // The class filter is an active-enrolment filter; the santri itself is
     // narrowed by studentScope, which this in-memory model does not carry.
-    return exam.enrollments.some((e) => (!some.status || e.status === some.status));
+    return exam.enrollments.some((e) => !some.status || e.status === some.status);
   }
   return true;
 }
 
 describe('Property 24: exam read list is only within scope', () => {
   it('a santri/wali sees only exams of classes their santri is actively in; unit and cross-unit actors see by unit', () => {
+    // Feature: web-api-reconnect-phase-2, Property 24: Daftar baca hanya dalam cakupan
     fc.assert(
       fc.property(fc.constantFrom(...ACTORS), fc.array(examArb), (actor, exams) => {
         const where = examReadWhere(actor);
@@ -78,7 +77,8 @@ describe('Property 24: exam read list is only within scope', () => {
           // A unit actor sees only their own unit.
           for (const e of seen) expect(e.unitId).toBe(actor.unitId);
         }
-      })
+      }),
+      { numRuns: 100 }
     );
   });
 

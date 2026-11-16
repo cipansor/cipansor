@@ -55,6 +55,7 @@ describe('Property 7: write scope', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('studentWriteWhere never widens by seesAllUnits — only the unit, or the read scope of a santri/wali', () => {
+    // Feature: web-api-reconnect-phase-2, Property 7: Cakupan tulis
     fc.assert(
       fc.property(actorArb, (actor) => {
         const where = studentWriteWhere(actor);
@@ -63,11 +64,13 @@ describe('Property 7: write scope', () => {
         else if (actor.roleCode === 'SMPIT_SISWA') expect(key).toBe('userId');
         else if (actor.roleCode === 'SMPIT_ORANG_TUA') expect(key).toBe('parents');
         else expect(where).toEqual(actor.unitId ? { unitId: actor.unitId } : { id: { in: [] } });
-      })
+      }),
+      { numRuns: 100 }
     );
   });
 
   it('assertStudentsWritable accepts exactly the santri the actor may write, and rejects the rest', async () => {
+    // Feature: web-api-reconnect-phase-2, Property 7: Cakupan tulis
     await fc.assert(
       fc.asyncProperty(actorArb, fc.subarray(STUDENTS.map((s) => s.id)), async (actor, ids) => {
         const writable = new Set(
@@ -81,11 +84,13 @@ describe('Property 7: write scope', () => {
         const promise = assertStudentsWritable(ids, actor);
         if (reachable) await expect(promise).resolves.toBeUndefined();
         else await expect(promise).rejects.toThrow(/not found/i);
-      })
+      }),
+      { numRuns: 100 }
     );
   });
 
   it('assertUnitWritable accepts the actor’s own unit (any for Super_Admin) and rejects others', () => {
+    // Feature: web-api-reconnect-phase-2, Property 7: Cakupan tulis
     fc.assert(
       fc.property(actorArb, fc.constantFrom(...UNITS), (actor, unitId) => {
         const expected =
@@ -93,7 +98,8 @@ describe('Property 7: write scope', () => {
         const run = () => assertUnitWritable(actor, unitId, 'Exam');
         if (expected) expect(run).not.toThrow();
         else expect(run).toThrow(/not found/i);
-      })
+      }),
+      { numRuns: 100 }
     );
   });
 });
@@ -102,10 +108,14 @@ describe('Property 8: all or nothing', () => {
   beforeEach(() => vi.clearAllMocks());
 
   it('one target out of reach refuses the whole request — nothing is written', async () => {
+    // Feature: web-api-reconnect-phase-2, Property 8: Semua atau tidak sama sekali
     await fc.assert(
       fc.asyncProperty(
         actorArb,
-        fc.subarray(STUDENTS.map((s) => s.id), { minLength: 1 }),
+        fc.subarray(
+          STUDENTS.map((s) => s.id),
+          { minLength: 1 }
+        ),
         async (actor, ids) => {
           const writable = new Set(
             STUDENTS.filter((s) => matches(studentWriteWhere(actor), s)).map((s) => s.id)
@@ -120,7 +130,8 @@ describe('Property 8: all or nothing', () => {
           if (allReachable) await expect(promise).resolves.toBeUndefined();
           else await expect(promise).rejects.toThrow(/not found/i);
         }
-      )
+      ),
+      { numRuns: 100 }
     );
   });
 

@@ -22,7 +22,7 @@ vi.mock('@/lib/prisma', () => ({
     musyrif: { findFirst: vi.fn() },
     class: { findUnique: vi.fn(), findMany: vi.fn() },
     subject: { findUnique: vi.fn() },
-    exam: { findUnique: vi.fn() },
+    exam: { findUnique: vi.fn(), findFirst: vi.fn(), findMany: vi.fn(), count: vi.fn() },
     grade: { findUnique: vi.fn() },
     reportCard: { findUnique: vi.fn() },
   },
@@ -58,7 +58,9 @@ beforeEach(() => {
 
   // A santri exists in unit A only; the teacher rows exist but grant no
   // relation (empty TeacherSubject, no TakhosusEnrollment, no Musyrif).
-  vi.mocked(prisma.student.findMany).mockResolvedValue([{ id: ST, unitId: 'unit-a', enrollments: [] }] as any);
+  vi.mocked(prisma.student.findMany).mockResolvedValue([
+    { id: ST, unitId: 'unit-a', enrollments: [] },
+  ] as any);
   vi.mocked(prisma.teacher.findFirst).mockResolvedValue({ id: 't-1', unitId: 'unit-a' } as any);
   vi.mocked(prisma.teacherSubject.findMany).mockResolvedValue([] as any);
   vi.mocked(prisma.takhosusEnrollment.findMany).mockResolvedValue([] as any);
@@ -89,13 +91,18 @@ const CLS = '66666666-6666-4666-8666-666666666666';
 const YR = '77777777-7777-4777-8777-777777777777';
 const GRADER = '88888888-8888-4888-8888-888888888888';
 
-const send = (who: Who, method: 'patch' | 'delete' | 'post', path: string, body?: object) => {
+const send = (
+  who: Who,
+  method: 'get' | 'patch' | 'delete' | 'post',
+  path: string,
+  body?: object
+) => {
   const req = request(app)[method](path).set('Authorization', `Bearer ${who}`);
   return body ? req.send(body) : req;
 };
 
 describe('R13.5 — out-of-scope writes answer 404 like a missing id', () => {
-  const WRITES: Array<[string, 'patch' | 'delete' | 'post', string, object]> = [
+  const WRITES: Array<[string, 'get' | 'patch' | 'delete' | 'post', string, object]> = [
     ['update exam', 'patch', `/assessment/exams/${EX}`, { title: 'Ujian baru' }],
     ['delete exam', 'delete', `/assessment/exams/${EX}`, {}],
     ['update exam status', 'patch', `/assessment/exams/${EX}/status`, { status: 'SCHEDULED' }],
@@ -111,10 +118,13 @@ describe('R13.5 — out-of-scope writes answer 404 like a missing id', () => {
     expect(res.status).toBe(404);
   });
 
-  it.each(WRITES)('%s — a Guru of the same unit with no relation is 404', async (_name, method, path, body) => {
-    const res = await send('guruSameUnit', method, path, body);
-    expect(res.status).toBe(404);
-  });
+  it.each(WRITES)(
+    '%s — a Guru of the same unit with no relation is 404',
+    async (_name, method, path, body) => {
+      const res = await send('guruSameUnit', method, path, body);
+      expect(res.status).toBe(404);
+    }
+  );
 });
 
 describe('R25.9 — out-of-scope creates answer 404 and change nothing', () => {
@@ -151,6 +161,38 @@ describe('R25.9 — out-of-scope creates answer 404 and change nothing', () => {
       academicYearId: YR,
       semester: 1,
     });
+    expect(res.status).toBe(404);
+  });
+});
+
+describe('R25.9 — GET /assessment/exams lists only in-scope exams', () => {
+  it('a unit-B teacher does not see unit-A exams', async () => {
+    vi.mocked(prisma.exam.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.exam.count).mockResolvedValue(0 as any);
+    await send('guruOtherUnit', 'get', '/assessment/exams');
+    const where = vi.mocked(prisma.exam.findMany).mock.calls[0][0]!.where as any;
+    expect(where.unitId).toBe('unit-b');
+  });
+
+  it('a unit-A teacher sees only unit-A exams', async () => {
+    vi.mocked(prisma.exam.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.exam.count).mockResolvedValue(0 as any);
+    await send('guruSameUnit', 'get', '/assessment/exams');
+    const where = vi.mocked(prisma.exam.findMany).mock.calls[0][0]!.where as any;
+    expect(where.unitId).toBe('unit-a');
+  });
+});
+
+describe('R25.9 — GET /assessment/exams/:id and analytics are 404 out of scope', () => {
+  it('an exam of another unit answers 404 for the detail', async () => {
+    vi.mocked(prisma.exam.findFirst).mockResolvedValue(null as any);
+    const res = await send('guruOtherUnit', 'get', `/assessment/exams/${EX}`);
+    expect(res.status).toBe(404);
+  });
+
+  it('an exam of another unit answers 404 for the analytics', async () => {
+    vi.mocked(prisma.exam.findFirst).mockResolvedValue(null as any);
+    const res = await send('guruOtherUnit', 'get', `/assessment/exams/${EX}/analytics`);
     expect(res.status).toBe(404);
   });
 });

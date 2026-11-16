@@ -61,7 +61,9 @@ export async function getExams(
   const skip = (page - 1) * limit;
 
   const where: Prisma.ExamWhereInput = { ...examReadWhere(actor) };
-  if (unitId) where.unitId = unitId;
+  // A request may narrow to a unit, never widen past the read scope: the
+  // scope's own unit wins when it pins one (R25.7).
+  if (unitId) where.unitId = where.unitId ?? unitId;
   if (academicYearId) where.academicYearId = academicYearId;
   if (subjectId) where.subjectId = subjectId;
   if (classId) where.classId = classId;
@@ -1035,7 +1037,9 @@ export async function generateClassReportCards(
   // Generate for each student concurrently
   // Using Promise.all is efficient for typical class sizes (30-40)
   const results = await Promise.all(
-    enrollments.map((e) => generateReportCard(e.studentId, classId, academicYearId, semester, actor))
+    enrollments.map((e) =>
+      generateReportCard(e.studentId, classId, academicYearId, semester, actor)
+    )
   );
 
   return results.filter((r): r is ReportCard => r !== null);
