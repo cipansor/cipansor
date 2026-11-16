@@ -216,8 +216,15 @@ $MARK"
   # never removes a label, and a trusted removal is always a maintainer's decision.
   if [ "$LINK" = unlinked ]; then
     if ! gh issue comment "$dup" --repo "$REPO" --body "$BODY" >/dev/null 2>&1; then
+      # A silent failure: the issue is a duplicate but never gets its link or its
+      # label, and a green step hides it. `exit` (not `continue`) ends the run
+      # non-zero — under `set -eu` an `exit` inside this pipeline's `while` body
+      # aborts the whole script (the subshell's status becomes the pipeline's and
+      # the top-level `set -e` stops on it) — so the failure is visible (a red run;
+      # nothing re-dispatches it automatically). Nothing was written, so the next
+      # scheduled sweep retries from a clean state (#984).
       echo "::error::could not post the link on #$dup; nothing written, the next sweep retries."
-      continue
+      exit 1
     fi
   fi
   if ! gh issue edit "$dup" --repo "$REPO" --add-label duplicate >/dev/null 2>&1; then
