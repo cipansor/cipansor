@@ -1,6 +1,6 @@
 "use client";
 
-import React, { Suspense, useState } from "react";
+import React, { Suspense, useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { usePublicKeyStatus } from "@/hooks/use-correspondence";
 import {
@@ -96,14 +96,27 @@ const REVOCATION_CODE_COPY: Record<
 };
 
 function PublicKeyStatusContent() {
+  const inputRef = useRef<HTMLInputElement>(null);
   const [fingerprint, setFingerprint] = useState("");
   const [submitted, setSubmitted] = useState("");
 
   const { data, isLoading, isError } = usePublicKeyStatus(submitted);
 
+  // A controlled input loses text typed before React hydrates: on Safari/WebKit
+  // over a slow connection the visitor types while the HTML is interactive but
+  // the component is not, the DOM keeps the text, the state never saw it, and
+  // the button stays disabled under a filled-looking box (#852). The input
+  // below is therefore uncontrolled; this reads whatever is in it on mount so
+  // the button's enabled state matches what the visitor sees.
+  useEffect(() => {
+    if (inputRef.current) setFingerprint(inputRef.current.value);
+  }, []);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    setSubmitted(fingerprint.trim());
+    const value = (inputRef.current?.value ?? fingerprint).trim();
+    setFingerprint(value);
+    setSubmitted(value);
   };
 
   const copy = data ? STATUS_COPY[data.status] : null;
@@ -149,7 +162,8 @@ function PublicKeyStatusContent() {
                 <Input
                   id="fingerprint"
                   name="fingerprint"
-                  value={fingerprint}
+                  ref={inputRef}
+                  defaultValue=""
                   onChange={(e) => setFingerprint(e.target.value)}
                   placeholder="AB:CD:EF:12:34:…"
                   autoComplete="off"

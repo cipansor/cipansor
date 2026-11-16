@@ -76,6 +76,20 @@ export async function waitForToast(
 }
 
 /**
+ * Dismiss every visible toast and wait for them to clear.
+ *
+ * A sonner toast pauses its own auto-dismiss timer while the pointer rests on
+ * it, and the toaster is anchored bottom-right — right where a form's submit
+ * button sits. After a save the pointer is left hovering the success toast, so
+ * it never leaves, keeps covering the button, and the *next* click lands on the
+ * toast instead of the button (WebKit, #852). Move the pointer off it first.
+ */
+export async function dismissToasts(page: Page, timeout = 12000) {
+  await page.mouse.move(0, 0);
+  await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, { timeout });
+}
+
+/**
  * Fill form fields by label
  */
 export async function fillForm(page: Page, fields: Record<string, string>) {

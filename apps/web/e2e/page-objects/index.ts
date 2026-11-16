@@ -291,9 +291,33 @@ export class LoginPage {
     await injectSession(this.page, session);
     await this.page.goto("/dashboard");
 
-    const currentURL = this.page.url();
-    if (currentURL.includes("/login")) {
-      throw new Error(`Login failed - redirected to login: ${currentURL}`);
+    // One URL read is not enough: the app shell bounces to /login for a beat
+    // before the store rehydrates and /auth/me answers, so under WebKit load
+    // the read landed mid-bounce and threw while the very next moment showed
+    // the dashboard (the ~5 "Login failed - redirected to login" failures per
+    // run, #852). Wait for the session to actually settle — the dashboard
+    // content rendering — and only then judge the URL.
+    //
+    // ProtectedRoute renders nothing while `isAuthenticated` is still false
+    // (cold start), so `#main-content` appearing is the signal that the store
+    // has rehydrated and the authenticated page is on screen. The login form
+    // renders `#main-content` too, but a settled bounce lands on `/login`,
+    // which the timeout below reports rather than mistaking for success.
+    try {
+      await this.page.waitForFunction(
+        () =>
+          window.location.pathname !== "/login" &&
+          document.querySelector("#main-content") !== null,
+        undefined,
+        { timeout: 15_000 },
+      );
+    } catch (error) {
+      if (this.page.url().includes("/login")) {
+        throw new Error(
+          `Login failed - redirected to login: ${this.page.url()}`,
+        );
+      }
+      throw error;
     }
   }
 }

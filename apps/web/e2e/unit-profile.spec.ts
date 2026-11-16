@@ -6,7 +6,11 @@ import {
   type AuthSession,
 } from "./helpers/auth-api";
 import { isProductionApi } from "./helpers/api-env";
-import { waitForLoadingComplete, waitForToast } from "./helpers/page-helpers";
+import {
+  waitForLoadingComplete,
+  waitForToast,
+  dismissToasts,
+} from "./helpers/page-helpers";
 import { DEMO_ACCOUNTS } from "../../../packages/shared/src/types/demo-accounts";
 import type { UnitSummary } from "../../../packages/shared/src/types/unit";
 
@@ -159,7 +163,6 @@ test("the unit's admin records the official name and operating permit, which doc
   await page.getByLabel("Tanggal Izin Operasional").fill("2019-05-02");
   await page.getByRole("button", { name: "Simpan Perubahan" }).click();
   await waitForToast(page, /Unit berhasil diperbarui/);
-
   await expect(page).toHaveURL(new RegExp(`/units/${unitId}$`));
   await expect(page.getByTestId("unit-official-name")).toHaveText(
     "SMP IT Pesantren Cipansor",
@@ -176,12 +179,84 @@ test("the unit's admin records the official name and operating permit, which doc
   await expect(page.getByRole("heading", { level: 1 })).toHaveText(unit.name);
 
   // Cleared again from the form: an emptied field is sent as null.
+  //
+  // Two WebKit traps had to be cleared to reach the second save (#852): the
+  // success toast is anchored over the *Simpan Perubahan* button and, because
+  // the pointer is left resting on it after the click, sonner never lets it
+  // auto-dismiss — so the next click hit the toast and no submit ever fired.
+  // Dismiss it, then wait for the Edit URL before filling, or the fill lands on
+  // the previous page's detached inputs.
+  await dismissToasts(page);
   await page.getByRole("link", { name: "Edit Unit" }).click();
+  await expect(page).toHaveURL(new RegExp(`/units/${unitId}/edit$`));
   await page.getByLabel("Nomor Izin Operasional").fill("");
   await page.getByLabel("Tanggal Izin Operasional").fill("");
   await page.getByRole("button", { name: "Simpan Perubahan" }).click();
   await waitForToast(page, /Unit berhasil diperbarui/);
+  await expect(page).toHaveURL(new RegExp(`/units/${unitId}$`));
   await expect(page.getByTestId("unit-permit")).toHaveText("Belum diisi");
+});
+
+test("a half-filled permit date is refused, not saved as a cleared one (#852)", async ({
+  page,
+}) => {
+  // A stored date to lose, if the partial edit is mistaken for a full clear.
+  await apiRequest(admin, "PATCH", `/units/${unitId}`, {
+    operatingPermitNumber: "503/0671/Kep.07/DPMPTSP/2019",
+    operatingPermitDate: "2019-05-02",
+  });
+
+  await injectSession(page, admin);
+  await page.goto(`/units/${unitId}/edit`);
+  await waitForLoadingComplete(page);
+  const dateInput = page.getByLabel("Tanggal Izin Operasional");
+  await expect(dateInput).toHaveValue("2019-05-02");
+
+  // Delete only the day segment: month and year stay on screen, but the DOM
+  // value is "" and `validity.badInput` is true — the state the form used to
+  // mistake for a deliberate clear.
+  await dateInput.focus();
+  await page.keyboard.press("Home");
+  await page.keyboard.press("Delete");
+  expect(await dateInput.inputValue()).toBe("");
+  expect(
+    await dateInput.evaluate(
+      (el) => (el as HTMLInputElement).validity.badInput,
+    ),
+  ).toBe(true);
+
+  await page.getByRole("button", { name: "Simpan Perubahan" }).click();
+
+  // Refused with a field error, and the stored date is untouched.
+  await expect(
+    page.getByText("Lengkapi tanggal izin operasional"),
+  ).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/units/${unitId}/edit$`));
+  const { data: afterPartial } = await apiRequest<{
+    data: { operatingPermitDate: string | null };
+  }>(admin, "GET", `/units/${unitId}`);
+  expect(
+    afterPartial.operatingPermitDate,
+    "a partial date must not clear the stored one",
+  ).not.toBeNull();
+
+  // Completing it drops the error and saves the new date.
+  await dateInput.fill("2020-01-15");
+  await expect(page.getByText("Lengkapi tanggal izin operasional")).toHaveCount(
+    0,
+  );
+  await page.getByRole("button", { name: "Simpan Perubahan" }).click();
+  await waitForToast(page, /Unit berhasil diperbarui/);
+  const { data: afterComplete } = await apiRequest<{
+    data: { operatingPermitDate: string | null };
+  }>(admin, "GET", `/units/${unitId}`);
+  expect(afterComplete.operatingPermitDate?.slice(0, 10)).toBe("2020-01-15");
+
+  // Leave the unit as the other tests expect to find it (permit "Belum diisi").
+  await apiRequest(admin, "PATCH", `/units/${unitId}`, {
+    operatingPermitNumber: null,
+    operatingPermitDate: null,
+  });
 });
 
 test("the statistics are the unit's counts", async ({ page }) => {
