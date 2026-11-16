@@ -643,12 +643,23 @@ function invoiceIdOf(dedupeKey: string): string | null {
  * has expired (a run killed mid-send left the channel wedged). A channel at the
  * cap stays `FAILED` and is never claimed again; an active `RETRYING` lease is
  * left to its owner — the atomic claim would refuse it anyway (#1074).
+ *
+ * A channel that was *never claimed* — unset, with a `skip` decision recorded
+ * while the channel policy forbade it — is owed again once the policy allows it
+ * (review finding on #1074). The first attempt recorded `channels.skip[channel]`
+ * without touching `channels[channel]`, so without this the daily sweep never
+ * re-attempted it and the reminder was lost for good once the admin re-enabled
+ * the channel, even while the bill was still inside its reminder window. Only a
+ * channel the policy now allows counts; a still-blocked one stays skipped. The
+ * marker only ever carries a `skip` entry for a channel its reminder kind
+ * requests, so this never revives a channel the kind does not send.
  */
-function hasRetryableChannel(channels: unknown, now: Date): boolean {
+function hasRetryableChannel(channels: unknown, now: Date, policy: ChannelPolicy): boolean {
   if (!channels || typeof channels !== 'object') return false;
   const map = channels as Record<string, unknown>;
   const attempts = (map._attempts ?? {}) as Record<string, unknown>;
   const claims = (map._claims ?? {}) as Record<string, unknown>;
+  const skips = (map.skip ?? {}) as Record<string, unknown>;
   return RETRYABLE_CHANNELS.some((channel) => {
     if (Number(attempts[channel] ?? 0) >= MAX_CHANNEL_ATTEMPTS) return false;
     const state = map[channel];
@@ -657,6 +668,9 @@ function hasRetryableChannel(channels: unknown, now: Date): boolean {
       const claim = Number(claims[channel] ?? 0);
       return now.getTime() - claim >= CHANNEL_CLAIM_LEASE_MS;
     }
+    // Never claimed, but blocked by policy on the first attempt: owed once the
+    // policy allows it again.
+    if (state === undefined) return policy[channel] && skips[channel] !== undefined;
     return false;
   });
 }
@@ -714,6 +728,11 @@ export async function retryDueReminderChannels(now: Date = new Date()): Promise<
   const today = todayWib(now);
   const scanFrom = dayOf(shiftWibDay(today, -RETRY_SCAN_WINDOW_DAYS));
 
+  // The current channel policy decides whether a channel blocked on its first
+  // attempt is owed again: the sweep must re-attempt a channel the admin has
+  // since re-enabled, or the reminder is lost for good (review finding on #1074).
+  const policy = await getChannelPolicy();
+
   // Paginate the whole window with a stable cursor. A single capped page let
   // finished markers — which stop updating, so they kept sorting first — fill
   // it and starve the ones behind them (review finding on #1074). `createdAt`
@@ -738,7 +757,7 @@ export async function retryDueReminderChannels(now: Date = new Date()): Promise<
 
   let retried = 0;
   for (const marker of markers) {
-    if (!hasRetryableChannel(marker.channels, now)) continue;
+    if (!hasRetryableChannel(marker.channels, now, policy)) continue;
     const kind = reminderKindOf(marker.dedupeKey);
     const invoiceId = invoiceIdOf(marker.dedupeKey);
     if (!kind || !invoiceId) continue;

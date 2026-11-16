@@ -591,6 +591,72 @@ describe('retryDueReminderChannels — the sweep retries a marker past the windo
     expect(dispatchExternal()).not.toHaveBeenCalled();
   });
 
+  it('retries a channel the policy blocked on the first attempt once it is re-enabled (#1074)', async () => {
+    // The first attempt ran while EMAIL was disabled: `markChannelPolicySkipped`
+    // recorded `skip.EMAIL` and left `EMAIL` unset. The sweep used to ignore a
+    // marker whose only external channel carried just a `skip`, so once the
+    // admin re-enabled EMAIL the reminder was never sent — even while the bill
+    // was still inside its window.
+    markerPage([
+      {
+        id: 'm-policy-on',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-policy-on',
+        channels: { skip: { EMAIL: 1750000000000 } },
+      },
+    ]);
+    (prisma.invoice.findUnique as any).mockResolvedValue(paymentInvoice());
+    // EMAIL is allowed again.
+    (prisma.setting.findFirst as any).mockResolvedValue({
+      value: { EMAIL: true, SMS: true, WHATSAPP: true },
+    });
+    markerAlreadyClaimed();
+
+    const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
+
+    expect(retried).toBe(1);
+    expect(dispatchExternal()).toHaveBeenCalledWith(expect.objectContaining({ channel: 'EMAIL' }));
+  });
+
+  it('leaves a policy-blocked channel alone while the policy still blocks it (#1074)', async () => {
+    // Same marker, but EMAIL is still disabled: the sweep must not invent a send
+    // for a channel the policy forbids.
+    markerPage([
+      {
+        id: 'm-policy-off',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-policy-off',
+        channels: { skip: { EMAIL: 1750000000000 } },
+      },
+    ]);
+    (prisma.setting.findFirst as any).mockResolvedValue({
+      value: { EMAIL: false, SMS: true, WHATSAPP: true },
+    });
+
+    const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
+
+    expect(retried).toBe(0);
+    expect(dispatchExternal()).not.toHaveBeenCalled();
+  });
+
+  it('does not revive an unclaimed channel the policy never blocked (#1074)', async () => {
+    // A bare unset channel with no `skip` decision is not owed: only a policy
+    // block leaves the channel unclaimed yet still due.
+    markerPage([
+      {
+        id: 'm-unset',
+        userId: 'u-1',
+        dedupeKey: 'payment-reminder:inv-unset',
+        channels: {},
+      },
+    ]);
+
+    const retried = await retryDueReminderChannels(new Date('2026-07-10T01:00:00.000Z'));
+
+    expect(retried).toBe(0);
+    expect(dispatchExternal()).not.toHaveBeenCalled();
+  });
+
   it('recovers a RETRYING claim whose lease has lapsed (#1074)', async () => {
     // A run killed mid-send leaves the channel RETRYING; past the lease the
     // sweep must offer it again, or the SPP reminder is wedged until it ages
