@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { UserRole } from '@prisma/client';
+import { MEALS_ATTENDANCE_WRITER_ROLE_CODES, MEALS_MANAGER_ROLE_CODES } from '@cipansor/shared';
 import { mealsController } from './meals.controller';
 import { authenticate, authorize } from '@/middleware/auth';
 
@@ -7,6 +8,14 @@ const router = Router();
 
 // All routes require authentication
 router.use(authenticate);
+
+// Who may change menus and record attendance. The routes used to admit the
+// legacy `UserRole.UNIT_ADMIN` bucket, which expands to the yayasan organs as
+// well — the Pengawas, whose permission list is read-only, could create a menu
+// for any unit and edit or delete another unit's (CWE-863). These lists name
+// the writers directly; a role is added here, never inherited from a bucket.
+const menuWriters = authorize(...MEALS_MANAGER_ROLE_CODES);
+const attendanceWriters = authorize(...MEALS_ATTENDANCE_WRITER_ROLE_CODES);
 
 // ======================
 // MEAL SCHEDULE ROUTES
@@ -33,25 +42,13 @@ router.get(
 );
 
 // POST /meals/schedules - Create meal schedule
-router.post(
-  '/schedules',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  mealsController.createSchedule.bind(mealsController)
-);
+router.post('/schedules', menuWriters, mealsController.createSchedule.bind(mealsController));
 
 // PUT /meals/schedules/:id - Update meal schedule
-router.put(
-  '/schedules/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  mealsController.updateSchedule.bind(mealsController)
-);
+router.put('/schedules/:id', menuWriters, mealsController.updateSchedule.bind(mealsController));
 
 // DELETE /meals/schedules/:id - Delete meal schedule
-router.delete(
-  '/schedules/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  mealsController.deleteSchedule.bind(mealsController)
-);
+router.delete('/schedules/:id', menuWriters, mealsController.deleteSchedule.bind(mealsController));
 
 // ======================
 // MENU ROUTES
@@ -91,32 +88,16 @@ router.get(
 );
 
 // POST /meals/menus - Create menu
-router.post(
-  '/menus',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  mealsController.createMenu.bind(mealsController)
-);
+router.post('/menus', menuWriters, mealsController.createMenu.bind(mealsController));
 
 // POST /meals/menus/bulk - Bulk create menus
-router.post(
-  '/menus/bulk',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  mealsController.bulkCreateMenus.bind(mealsController)
-);
+router.post('/menus/bulk', menuWriters, mealsController.bulkCreateMenus.bind(mealsController));
 
 // PUT /meals/menus/:id - Update menu
-router.put(
-  '/menus/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  mealsController.updateMenu.bind(mealsController)
-);
+router.put('/menus/:id', menuWriters, mealsController.updateMenu.bind(mealsController));
 
 // DELETE /meals/menus/:id - Delete menu
-router.delete(
-  '/menus/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  mealsController.deleteMenu.bind(mealsController)
-);
+router.delete('/menus/:id', menuWriters, mealsController.deleteMenu.bind(mealsController));
 
 // ======================
 // ATTENDANCE ROUTES
@@ -132,21 +113,21 @@ router.get(
 // POST /meals/attendance - Record single attendance
 router.post(
   '/attendance',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
+  attendanceWriters,
   mealsController.recordAttendance.bind(mealsController)
 );
 
 // POST /meals/attendance/bulk - Bulk record attendance
 router.post(
   '/attendance/bulk',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
+  attendanceWriters,
   mealsController.bulkRecordAttendance.bind(mealsController)
 );
 
 // PUT /meals/attendance/:id - Update attendance record
 router.put(
   '/attendance/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
+  attendanceWriters,
   mealsController.updateAttendance.bind(mealsController)
 );
 

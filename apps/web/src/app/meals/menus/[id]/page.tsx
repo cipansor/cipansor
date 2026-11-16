@@ -57,6 +57,7 @@ import { Separator } from "@/components/ui/separator";
 import {
   useMealMenu,
   useDeleteMealMenu,
+  useCanManageMeals,
   MealType,
   MEAL_TYPE_LABELS,
   MEAL_DAY_TYPE_LABELS,
@@ -86,6 +87,7 @@ export default function MenuDetailPage() {
   // Queries
   const { data: menu, isLoading, error } = useMealMenu(id);
   const deleteMutation = useDeleteMealMenu();
+  const canManage = useCanManageMeals();
 
   // Handle delete
   const handleDelete = async () => {
@@ -199,20 +201,24 @@ ${menu.calories ? `\n🔥 Kalori: ${menu.calories} kkal` : ""}
               <Copy className="h-4 w-4 mr-2" />
               Salin
             </Button>
-            <Button variant="outline" size="sm" asChild>
-              <Link href={`/meals/menus/${id}/edit`}>
-                <Edit className="h-4 w-4 mr-2" />
-                Edit
-              </Link>
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              onClick={() => setShowDeleteDialog(true)}
-            >
-              <Trash2 className="h-4 w-4 mr-2" />
-              Hapus
-            </Button>
+            {canManage && (
+              <>
+                <Button variant="outline" size="sm" asChild>
+                  <Link href={`/meals/menus/${id}/edit`}>
+                    <Edit className="h-4 w-4 mr-2" />
+                    Edit
+                  </Link>
+                </Button>
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setShowDeleteDialog(true)}
+                >
+                  <Trash2 className="h-4 w-4 mr-2" />
+                  Hapus
+                </Button>
+              </>
+            )}
           </div>
         </div>
 

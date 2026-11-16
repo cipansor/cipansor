@@ -239,10 +239,16 @@ export class MealsController {
 
   async getStatistics(req: Request, res: Response, next: NextFunction) {
     try {
-      const unitId = (req.query.unitId as string) || req.user!.unitId || '';
+      const user = {
+        sub: req.user!.sub,
+        role: req.user!.role,
+        roleCode: req.user!.roleCode,
+        unitId: req.user!.unitId,
+      };
+      const unitId = req.query.unitId as string | undefined;
       const startDate = req.query.startDate as string | undefined;
       const endDate = req.query.endDate as string | undefined;
-      const stats = await mealsService.getStatistics(unitId, startDate, endDate);
+      const stats = await mealsService.getStatistics(user, unitId, startDate, endDate);
       res.json({ data: stats });
     } catch (error) {
       next(error);

@@ -1,11 +1,12 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
-import { UserRole, Gender, UnitType } from '@prisma/client';
+import { Gender, UnitType } from '@prisma/client';
 import { currentAccreditations } from '@/modules/units';
 import { unitDocumentName } from '@cipansor/shared';
+import { actorReachesUnit, writeUnitScopeFor, type UnitActor } from '@/utils/resolve-unit-id';
 
 // User type from JwtPayload
-interface AuthenticatedUser {
+interface AuthenticatedUser extends UnitActor {
   sub: string;
   role: string;
   unitId: string | null;
@@ -146,15 +147,7 @@ class DapodikService {
     options: DapodikExportOptions,
     currentUser: AuthenticatedUser
   ): Promise<DapodikStudentData[]> {
-    // Validate unit access
-    if (currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'UNIT_ADMIN') {
-      throw Errors.forbidden('Tidak memiliki akses export Dapodik');
-    }
-
-    const unitId = options.unitId || currentUser.unitId;
-    if (!unitId) {
-      throw Errors.badRequest('Unit ID wajib diisi');
-    }
+    const unitId = writeUnitScopeFor(currentUser, options.unitId);
 
     const students = await prisma.student.findMany({
       where: {
@@ -216,14 +209,7 @@ class DapodikService {
     options: DapodikExportOptions,
     currentUser: AuthenticatedUser
   ): Promise<DapodikTeacherData[]> {
-    if (currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'UNIT_ADMIN') {
-      throw Errors.forbidden('Tidak memiliki akses export Dapodik');
-    }
-
-    const unitId = options.unitId || currentUser.unitId;
-    if (!unitId) {
-      throw Errors.badRequest('Unit ID wajib diisi');
-    }
+    const unitId = writeUnitScopeFor(currentUser, options.unitId);
 
     // Use Teacher model instead of generic Employee
     const teachers = await prisma.teacher.findMany({
@@ -275,14 +261,7 @@ class DapodikService {
     options: DapodikExportOptions,
     currentUser: AuthenticatedUser
   ): Promise<DapodikRombelData[]> {
-    if (currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'UNIT_ADMIN') {
-      throw Errors.forbidden('Tidak memiliki akses export Dapodik');
-    }
-
-    const unitId = options.unitId || currentUser.unitId;
-    if (!unitId) {
-      throw Errors.badRequest('Unit ID wajib diisi');
-    }
+    const unitId = writeUnitScopeFor(currentUser, options.unitId);
 
     const classes = await prisma.class.findMany({
       where: {
@@ -324,8 +303,8 @@ class DapodikService {
     unitId: string,
     currentUser: AuthenticatedUser
   ): Promise<DapodikSekolahData> {
-    if (currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'UNIT_ADMIN') {
-      throw Errors.forbidden('Tidak memiliki akses export Dapodik');
+    if (!actorReachesUnit(currentUser, unitId)) {
+      throw Errors.forbidden('Tidak memiliki akses ke unit ini');
     }
 
     const unit = await prisma.unit.findUnique({
@@ -380,8 +359,8 @@ class DapodikService {
 
   // Get export summary for validation
   async getExportSummary(unitId: string, currentUser: AuthenticatedUser) {
-    if (currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'UNIT_ADMIN') {
-      throw Errors.forbidden('Tidak memiliki akses');
+    if (!actorReachesUnit(currentUser, unitId)) {
+      throw Errors.forbidden('Tidak memiliki akses ke unit ini');
     }
 
     const [studentCount, teacherCount, classCount] = await Promise.all([
@@ -430,8 +409,8 @@ class DapodikService {
 
   // Validate data before export
   async validateData(unitId: string, currentUser: AuthenticatedUser) {
-    if (currentUser.role !== 'SUPER_ADMIN' && currentUser.role !== 'UNIT_ADMIN') {
-      throw Errors.forbidden('Tidak memiliki akses');
+    if (!actorReachesUnit(currentUser, unitId)) {
+      throw Errors.forbidden('Tidak memiliki akses ke unit ini');
     }
 
     const issues: {
