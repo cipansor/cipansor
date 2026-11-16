@@ -28,7 +28,6 @@ import {
 import { ExamAnalyticsData } from '@cipansor/shared';
 import { Errors } from '@/middleware/error';
 import type { WriteActor } from '@/utils/write-scope';
-import { assertStudentsWritable } from '@/utils/write-scope';
 import {
   actorExamSubjects,
   assertExamWritable,

@@ -13,23 +13,6 @@ import type { WriteActor } from '@/utils/write-scope';
 // pure, so the rule is checked directly without a database.
 
 const UNITS = ['unit-a', 'unit-b'];
-const ACTOR_ROLES = [
-  'SUPER_ADMIN',
-  'SMPIT_ADMIN',
-  'SMPIT_KEPALA_SEKOLAH',
-  'PESANTREN_PENGASUH',
-  'SMPIT_GURU',
-  'MUSYRIF',
-  'MUHAFIDZ',
-  'USTADZ',
-];
-
-const actorArb: fc.Arbitrary<WriteActor> = fc.record({
-  sub: fc.constant('u1'),
-  roleCode: fc.constantFrom(...ACTOR_ROLES),
-  unitId: fc.option(fc.constantFrom(...UNITS), { nil: null }),
-});
-
 const relationsArb = fc
   .subarray(['SUBJECT', 'HALAQOH', 'MUSYRIF', 'HOMEROOM'] as TeachingRelation[])
   .map((r) => new Set(r));
