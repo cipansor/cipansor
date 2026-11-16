@@ -339,8 +339,8 @@ describe('duplicate-detect.sh', () => {
 
   it('exits non-zero when the link comment fails, so the step is not green (#984)', () => {
     // An `::error::` on its own left the step green: the loop continued, the
-    // script printed "Done." and exited 0, so `automation-retry` never saw the
-    // silent failure. The error path now ends the run non-zero.
+    // script printed "Done." and exited 0, so the silent failure was never
+    // surfaced as a failed run. The error path now ends the run non-zero.
     const failed = run({
       GH_STUB_ISSUES: issues([
         { number: 800, title: `${WATCH}38324975861 failed` },

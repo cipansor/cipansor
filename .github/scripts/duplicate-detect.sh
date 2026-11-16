@@ -220,9 +220,9 @@ $MARK"
       # label, and a green step hides it. `exit` (not `continue`) ends the run
       # non-zero — under `set -eu` an `exit` inside this pipeline's `while` body
       # aborts the whole script (the subshell's status becomes the pipeline's and
-      # the top-level `set -e` stops on it) — so the failure is visible and
-      # `automation-retry` can re-dispatch it. Nothing was written, so the next
-      # run retries from a clean state (#984).
+      # the top-level `set -e` stops on it) — so the failure is visible (a red run;
+      # nothing re-dispatches it automatically). Nothing was written, so the next
+      # scheduled sweep retries from a clean state (#984).
       echo "::error::could not post the link on #$dup; nothing written, the next sweep retries."
       exit 1
     fi
