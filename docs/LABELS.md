@@ -187,24 +187,35 @@ detect` workflow: when two **open** issues share a title once normalised
     description, the linked issue, the whole diff and every comment when it runs
     on `ready_for_review` (or on the CI-green dispatch), so an edit needs no
     separate automation — and a trigger would fight `basmalah.yml`, which PATCHes
-    the body as `github-actions[bot]`. For issues, an edit is caught by the
-    **triage bridge** below rather than by a trigger on `issues.edited`.
+    the body as `github-actions[bot]`. For issues, an edit is answered by the
+    **triage bridge** below, which since #1084 hooks `issues.edited` directly
+    (its anti-loop guard ignores the fleet's own body PATCHes).
 
-11. **The triage bridge re-triages after another automation responds.** A bot
-    applying a type or priority label, `label-guard` revoking a label a person
-    applied and leaving the issue with no type or no priority (#838 — the guard
-    calls the bridge's `--relabel` mode in the same run, because its own removal
-    is made with the automatic `GITHUB_TOKEN` and GitHub starts no workflow for
-    an event that token creates), or a not-yet-`ready` issue gaining
-    activity (an edited description or a new comment) newer than its last
-    triage, dispatches the triage owner — deterministically, from
-    `.github/scripts/issue-triage-bridge.sh`, and idempotently (a checkpoint in
-    the automation KV store per type+priority state, and one per activity
-    timestamp). A dispatch deferred while the pool was full is queued with its
+11. **The triage bridge re-triages after another automation responds or after
+    new issue activity.** A bot applying a type or priority label, `label-guard`
+    revoking a label a person applied and leaving the issue with no type or no
+    priority (#838 — the guard calls the bridge's `--relabel` mode in the same
+    run, because its own removal is made with the automatic `GITHUB_TOKEN` and
+    GitHub starts no workflow for an event that token creates), a **new comment**
+    on an issue, or an **edited issue body**, dispatches the triage owner —
+    deterministically, from `.github/scripts/issue-triage-bridge.sh`, and
+    idempotently (a checkpoint in the automation KV store per type+priority
+    state, and one per activity timestamp). Since #1084 the workflow itself hooks
+    `issue_comment.created` and `issues.edited`, so a maintainer's reply is
+    answered at once instead of waiting for the hourly sweep; the sweep stays as
+    the safety net for an event the workflow missed or one that arrived while the
+    pool was full. A dispatch deferred while the pool was full is queued with its
     first-deferral time and the sweep takes the oldest wait first, so a deferred
-    issue cannot starve behind fresh activity (#872). This is why
-    nothing needs to fire on `issues.edited`: the bridge polls and the label
-    event is the hook.
+    issue cannot starve behind fresh activity (#872); a maintainer's reply does
+    **not** jump the `MAX_INFLIGHT` cap (owner decision 2026-11-13: exceeding it
+    makes the sandbox pool unstable), it is queued like any other candidate.
+
+    `ready` and `in-progress` issues are out of triage scope on every path
+    (#1083): both end the triage episode, so a new comment or an edited body does
+    not restart it. `blocked` is deliberately **not** exempt — it is a state a
+    person sets, not an episode end. The one way back in for a `ready`/
+    `in-progress` issue is a maintainer's `@cipansor-bot` mention, which asks for
+    a specific correction and may change the type, priority or readiness.
 
 12. **Only `cipansor-bot` labels.** Every label in the taxonomy above is the
     bot's to apply. A protected label added by any other account is removed by
@@ -278,6 +289,14 @@ detect` workflow: when two **open** issues share a title once normalised
     through the `Acknowledge` workflow, the rest from their own prompts — so a
     person can see the automation is working before the answer lands.
 
+15. **A closed issue carries no lifecycle label.** `ready` and `in-progress`
+    describe an *open* issue's place in the pipeline; a closed issue is neither,
+    so `lifecycle-cleanup.sh` releases both the moment it closes (and sweeps the
+    backlog daily). `stale`, `question`, `duplicate` and the type/priority labels
+    stay as the record of why it closed. The removal is made by `cipansor-bot`,
+    so `label-guard.sh` never restores it. Before this rule existed, 136 closed
+    issues still carried `ready`/`in-progress` (#1083).
+
 ## Which automation owns which label
 
 | Automation            | Trigger                                                           | Labels it sets                                                                                                                                     |
@@ -289,6 +308,7 @@ detect` workflow: when two **open** issues share a title once normalised
 | `duplicate-detect.sh` | issue opened / jadwal harian                                      | `duplicate` (deterministik, `duplicate-detect.yml`) bila dua issue terbuka berjudul sama setelah dinormalkan                                       |
 | `pr-duplicate.sh`     | jadwal harian                                                     | `duplicate-pr` (kandidat, tidak menutup) bila dua PR terbuka menutup issue yang sama                                                               |
 | `stale-sweep.sh`      | jadwal harian                                                     | `stale` pada issue menganggur, lalu menutupnya `not planned` (deterministik, `stale-sweep.yml`)                                                    |
+| `lifecycle-cleanup.sh` | issue closed / jadwal harian                                     | melepas `ready` dan `in-progress` dari issue yang ditutup (deterministik, `lifecycle-cleanup.yml`)                                                 |
 | `Gerbang tinjau PR`   | PR ready for review, or CI-green dispatch                         | tidak ada — ia meninjau (termasuk QA) atau menyetujui                                                                                              |
 | `Pemburu bug`         | daily cron 09:00 WIB                                              | membuka issue `bug` berbukti, satu prioritas; **kerentanan → draf advisory privat** (bukan issue publik)                                           |
 | `Pemindai standar`    | weekly cron                                                       | membuka issue dengan tipe, prioritas, `question`                                                                                                   |
@@ -299,9 +319,11 @@ The deterministic consequences are GitHub Actions workflows
 `duplicate-sweep.yml`,
 `stale-sweep.yml`, `docs-drift.yml`, `label-guard.yml`,
 `basmalah.yml`,
-`acknowledge.yml`, `issue-triage-bridge.yml`), not automations: they must fire every time and cost
+`acknowledge.yml`, `issue-triage-bridge.yml`, `lifecycle-cleanup.yml`), not automations: they must fire every time and cost
 no tokens. `label-guard.yml` enforces rule 12, `basmalah.yml` rule 13,
 `acknowledge.yml` rule 14, and `issue-triage-bridge.yml` rule 11.
+`lifecycle-cleanup.yml` enforces rule 4: `ready` and `in-progress` describe an
+open issue, so both are released when it closes.
 
 ## The self-comment loop guard
 
