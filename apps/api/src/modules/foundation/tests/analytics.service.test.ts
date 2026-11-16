@@ -3,14 +3,16 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     journalEntry: { aggregate: vi.fn(), groupBy: vi.fn() },
-    unit: { findMany: vi.fn() },
-    student: { groupBy: vi.fn() },
+    unit: { findMany: vi.fn(), count: vi.fn() },
+    student: { groupBy: vi.fn(), count: vi.fn() },
     accountCode: { findMany: vi.fn() },
+    userRoleAssignment: { count: vi.fn() },
+    registrant: { count: vi.fn() },
   },
 }));
 
 import { prisma } from '@/lib/prisma';
-import { getFinancialOverview } from '../analytics.service';
+import { getExecutiveSummary, getFinancialOverview } from '../analytics.service';
 
 // The yayasan "Ringkasan Keuangan" month window used to be built from the
 // server clock (`new Date(y, m + 1, 0)` → midnight UTC of the last day), so a
@@ -32,6 +34,10 @@ beforeEach(() => {
   vi.mocked(prisma.unit.findMany).mockResolvedValue([] as never);
   vi.mocked(prisma.student.groupBy).mockResolvedValue([] as never);
   vi.mocked(prisma.accountCode.findMany).mockResolvedValue([] as never);
+  vi.mocked(prisma.unit.count).mockResolvedValue(0 as never);
+  vi.mocked(prisma.student.count).mockResolvedValue(0 as never);
+  vi.mocked(prisma.userRoleAssignment.count).mockResolvedValue(0 as never);
+  vi.mocked(prisma.registrant.count).mockResolvedValue(0 as never);
 });
 
 afterEach(() => {
@@ -100,5 +106,54 @@ describe('getFinancialOverview trend and rollover', () => {
     const december = monthWindows().find((w) => w.gte.toISOString() === '2025-11-30T17:00:00.000Z');
     expect(december).toBeTruthy();
     expect(december!.lte.toISOString()).toBe('2025-12-31T16:59:59.999Z');
+  });
+});
+
+// The executive summary's student growth counted "students last month" with
+// `new Date(); setMonth(getMonth() - 1)`. `setMonth` keeps the day-of-month and
+// JS rolls the overflow forward, so on the 29th–31st the baseline landed in the
+// *current* month (31 March → 3 March): students created this month were counted
+// as already there and the growth shrank or went negative. The baseline is the
+// start of the previous WIB calendar month, which also rolls the year correctly.
+const growthBaseline = () => {
+  const calls = vi.mocked(prisma.student.count).mock.calls as Array<
+    [{ where: { createdAt?: { lt: Date } } }]
+  >;
+  return calls.find((c) => c[0]?.where?.createdAt)![0].where.createdAt!.lt;
+};
+
+describe('getExecutiveSummary student growth baseline', () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it('is the start of the previous WIB month on the 31st, not a day in this one', async () => {
+    vi.useFakeTimers();
+    // 31 March 2026 09:00 WIB (02:00Z) — the issue's reproduction instant.
+    vi.setSystemTime(new Date('2026-03-31T02:00:00.000Z'));
+
+    await getExecutiveSummary();
+
+    expect(growthBaseline()?.toISOString()).toBe('2026-01-31T17:00:00.000Z');
+  });
+
+  it('rolls over the year boundary in WIB (31 January → start of December)', async () => {
+    vi.useFakeTimers();
+    // 31 January 2026 09:00 WIB (02:00Z).
+    vi.setSystemTime(new Date('2026-01-31T02:00:00.000Z'));
+
+    await getExecutiveSummary();
+
+    expect(growthBaseline()?.toISOString()).toBe('2025-11-30T17:00:00.000Z');
+  });
+
+  it('uses the WIB month in the first hours of the 1st, not the previous UTC month', async () => {
+    vi.useFakeTimers();
+    // 1 April 2026 02:00 WIB (31 March 19:00Z) — WIB already April.
+    vi.setSystemTime(new Date('2026-03-31T19:00:00.000Z'));
+
+    await getExecutiveSummary();
+
+    expect(growthBaseline()?.toISOString()).toBe('2026-02-28T17:00:00.000Z');
   });
 });

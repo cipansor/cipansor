@@ -51,13 +51,21 @@ export async function getExecutiveSummary(): Promise<FoundationExecutiveSummary>
   });
 
   // Calculate growth based on students created in the last month
-  const oneMonthAgo = new Date();
-  oneMonthAgo.setMonth(oneMonthAgo.getMonth() - 1);
+  const now = new Date();
+  // The baseline is the start of the previous WIB calendar month, not
+  // `setMonth(-1)` on the server clock: `setMonth` keeps the day-of-month and
+  // JS rolls the overflow forward, so on the 29th–31st the baseline landed in
+  // the *current* month (31 March → 3 March) and students created this month
+  // were counted as already there. The container also runs UTC, so a WIB
+  // boundary is needed for the month and the year to roll correctly.
+  const { year, month } = wibMonthYear(now);
+  const prevMonth = month === 0 ? { year: year - 1, month: 11 } : { year, month: month - 1 };
+  const { start: startOfLastMonth } = wibMonthRange(prevMonth.year, prevMonth.month);
 
   const studentsLastMonth = await prisma.student.count({
     where: {
       status: STUDENT_STATUS.ACTIVE,
-      createdAt: { lt: oneMonthAgo },
+      createdAt: { lt: startOfLastMonth },
     },
   });
 
