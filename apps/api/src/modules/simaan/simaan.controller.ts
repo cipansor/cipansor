@@ -112,7 +112,11 @@ export const getStudentSummary = async (req: Request, res: Response, next: NextF
     // the caller's reach (404, so the answer does not confirm the id) before
     // reading their exam scores and juz coverage.
     await assertStudentInScope(studentId, req.user!);
-    const query = { studentId, ...req.query } as any;
+    // The URL's `studentId` must win over `req.query`: `{ studentId, ...req.query }`
+    // let a `?studentId=<other>` replace the id that was just scope-checked, so a
+    // santri could read another santri's scores and juz coverage (#954). Same
+    // order as `murojaah`/`wallet` — spread the query, then pin the path value.
+    const query = { ...req.query, studentId } as any;
     const summary = await simaanService.getStudentSummary(query);
     res.json(ApiResponse.success(summary));
   } catch (error) {

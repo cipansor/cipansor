@@ -241,3 +241,20 @@ describe('a santri opening an exam', () => {
     });
   });
 });
+
+describe('the simaan summary reads the santri named in the URL', () => {
+  const OWN = '11111111-1111-4111-8111-111111111111';
+  const VICTIM = '22222222-2222-4222-8222-222222222222';
+
+  it('does not let ?studentId= swap the identity the scope check approved', async () => {
+    // The URL carries the caller's own santri (the scope check accepts it); the
+    // query tries to read a different santri. The summary must stay on the URL's
+    // santri, or `assertStudentInScope` is checked against one id while the
+    // service reads another (CWE-863, #954).
+    db.student.findFirst.mockResolvedValueOnce({ id: OWN });
+    const res = await call('get', `/simaan/students/${OWN}/summary?studentId=${VICTIM}`, 'santri');
+
+    expect(res.status).toBe(200);
+    expect(whereOf('simaanExam').where.studentId).toBe(OWN);
+  });
+});
