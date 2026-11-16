@@ -87,20 +87,29 @@ PENDING/TU_APPROVED → REJECTED (dengan alasan)
   pada H-7/H-3/H-1.
 
 WhatsApp lewat transport yang belum dikonfigurasi (mis. `SIMULATOR`) tidak
-benar-benar terkirim. Hanya notifikasi ber-`dedupeKey` (mis. jalur
-`payment-reminder`) yang menyimpan status pengiriman per kanal: transport
-log-only dicatat `PENDING`, kesalahan transport dicatat `FAILED` — keduanya
-bukan `SENT`. Jendela seleksi tugas itu kini rentang **hari WIB**: dari hari
-ini sampai tujuh hari WIB ke depan (batasnya `dayOf(todayWib())` dan
+benar-benar terkirim. Notifikasi ber-`dedupeKey` (kedua jalur pengingat tagihan)
+menyimpan status pengiriman per kanal: transport log-only dicatat `PENDING`,
+kesalahan transport dicatat `FAILED` — keduanya bukan `SENT`. Jendela seleksi
+tugas `payment-reminder` adalah rentang **hari WIB**: dari hari ini sampai tujuh
+hari WIB ke depan (batasnya `dayOf(todayWib())` dan
 `dayOf(shiftWibDay(todayWib(), 7))`), sehingga tagihan yang jatuh tempo pada
-hari berjalan ikut terpilih, bukan terlewat. Percobaan ulangnya terikat jendela
-itu: selama tagihan masih terpilih, run harian berikutnya mencoba kanal yang
-belum `SENT`; begitu tanggal jatuh tempo terlewati, tagihan keluar dari
-seleksi dan status `PENDING`/`FAILED` itu tidak pernah dicoba lagi. Jalur SPP
-bulanan (`jobs/spp-reminder.job.ts`) **tidak** menyimpan status itu sama sekali,
-jadi pengingat yang gagal pada tanggal 1 tidak pernah dicoba ulang; jangan
-menganggapnya terkirim sampai provider disetel, dan kirim ulang secara manual
-bila provider baru diaktifkan setelah tanggal 1.
+hari berjalan ikut terpilih, bukan terlewat. Seleksi itu juga **diurutkan**
+(`orderBy` `dueDate`, lalu `id`) dan **dipaginasi**, jadi `take` tidak lagi
+membuat sebagian tagihan tidak pernah diproses.
+
+Percobaan ulang **tidak lagi terikat jendela seleksi** (#1074). Tugas harian
+lebih dulu menjalankan `retryDueReminderChannels()`, yang menelusuri penanda
+`NotificationDelivery` ber-`payment-reminder:*` dan `spp-reminder:*` dan
+mencoba ulang kanal yang masih `FAILED`/`PENDING` — tanpa memandang apakah
+tagihannya masih di jendela. Batasnya: tagihan yang belum lunas dan tidak
+dibatalkan, berhenti di akhir hari jatuh tempo WIB, dan **paling banyak 3 kali
+kirim per kanal** (penghitung `_attempts` di JSON `channels` penanda, dinaikkan
+`claimChannelForRetry` dalam satu pernyataan atomik; kanal yang mencapai batas
+tetap `FAILED` dan tidak dicoba lagi). Jalur SPP bulanan
+(`jobs/spp-reminder.job.ts`) kini memakai `dedupeKey` `spp-reminder:<invoice.id>`
+lewat `createNotification({ channels: ['IN_APP', 'WHATSAPP'], dedupeKey })`, jadi
+status WhatsApp-nya tersimpan dan dapat diulang oleh sapuan yang sama, dan
+tugas yang dipicu dua kali tidak mengirim ganda.
 
 ## 5. Konfigurasi server (env)
 

@@ -1,10 +1,11 @@
-import { Prisma, NotificationStatus } from '@prisma/client';
+import { Prisma, NotificationStatus, PaymentStatus } from '@prisma/client';
 import { prisma } from '../../lib/prisma';
 import { Errors } from '../../middleware/error';
 import {
   notificationService as channelService,
   type NotificationChannel,
 } from './email-sms.service';
+import { todayWib, dayOf, shiftWibDay } from '../../utils/wib';
 import crypto from 'node:crypto';
 import type {
   CreateNotificationInput,
@@ -75,6 +76,15 @@ export const DELIVERY_IN_FLIGHT = 'RETRYING';
 export const DELIVERY_SENT = 'SENT';
 export const DELIVERY_FAILED = 'FAILED';
 export const DELIVERY_PENDING = 'PENDING';
+
+/**
+ * How many times one channel may be sent for a single marker (#1074). The
+ * count lives in the marker's `channels._attempts[channel]`, incremented by the
+ * same atomic claim that writes `_claims`, so no schema column is needed. A
+ * channel at the cap stays `FAILED` — visible, never retried — instead of
+ * billing a family with the same reminder forever.
+ */
+export const MAX_CHANNEL_ATTEMPTS = 3;
 
 /**
  * How long a `RETRYING` claim stays valid before another run may take it over.
@@ -183,9 +193,18 @@ async function claimChannelForRetry(
                 ${channel}::text,
                 ${claimedAt}::bigint
               )
+          ) ||
+          jsonb_build_object(
+            '_attempts'::text,
+            COALESCE("channels" -> '_attempts', '{}'::jsonb) ||
+              jsonb_build_object(
+                ${channel}::text,
+                (COALESCE((jsonb_extract_path_text("channels", '_attempts', ${channel}::text))::int, 0) + 1)
+              )
           ),
         "updated_at" = now()
     WHERE "id" = ${markerId}
+      AND COALESCE((jsonb_extract_path_text("channels", '_attempts', ${channel}::text))::int, 0) < ${MAX_CHANNEL_ATTEMPTS}
       AND (
         jsonb_extract_path_text("channels", ${channel}::text) IS NULL
         OR jsonb_extract_path_text("channels", ${channel}::text) IN (${DELIVERY_FAILED}, ${DELIVERY_PENDING})
@@ -559,6 +578,123 @@ async function dispatchExternalChannels(
   } catch (error) {
     console.error('External notification dispatch failed:', error);
   }
+}
+
+/** The reminder kinds whose channels the daily sweep may retry (#1074). */
+const RETRYABLE_REMINDER_PREFIXES = ['payment-reminder:', 'spp-reminder:'] as const;
+
+/** External channels a marker can carry a retryable state for. */
+const RETRYABLE_CHANNELS: ExternalChannel[] = ['EMAIL', 'SMS', 'WHATSAPP'];
+
+/** The invoice a reminder marker guards, from its `dedupeKey`. */
+function invoiceIdOf(dedupeKey: string): string | null {
+  const prefix = RETRYABLE_REMINDER_PREFIXES.find((p) => dedupeKey.startsWith(p));
+  if (!prefix) return null;
+  const id = dedupeKey.slice(prefix.length);
+  return id.length > 0 ? id : null;
+}
+
+/**
+ * Whether a marker still owes a send: an external channel left `FAILED`/
+ * `PENDING` whose attempt count has not reached the cap. A channel at the cap
+ * stays `FAILED` and is never claimed again (#1074).
+ */
+function hasRetryableChannel(channels: unknown): boolean {
+  if (!channels || typeof channels !== 'object') return false;
+  const map = channels as Record<string, unknown>;
+  const attempts = (map._attempts ?? {}) as Record<string, unknown>;
+  return RETRYABLE_CHANNELS.some((channel) => {
+    const state = map[channel];
+    if (state !== DELIVERY_FAILED && state !== DELIVERY_PENDING) return false;
+    return Number(attempts[channel] ?? 0) < MAX_CHANNEL_ATTEMPTS;
+  });
+}
+
+/**
+ * Retry the external channels of a reminder that never confirmed, driven by the
+ * delivery marker instead of the day's invoice selection (#1074).
+ *
+ * Before this the retry rode the selection: a channel was re-attempted only
+ * while its invoice was still inside the seven-day window, so a transport
+ * failure on the last attempt (SMTP down, WhatsApp not configured yet) left the
+ * reminder frozen in `FAILED`/`PENDING` forever, and a bill already due dropped
+ * out of the window entirely. This sweep walks the markers of both reminder
+ * kinds, re-sends the channels still `FAILED`/`PENDING` (up to
+ * `MAX_CHANNEL_ATTEMPTS`), and stops once the WIB day the bill is due on has
+ * ended — the point past which "due in N days" would read wrong. A bill that is
+ * paid or cancelled is left alone; the state is read at retry time, so a bill
+ * settled since the first attempt is not reminded again.
+ *
+ * The message is re-read from the in-app row the marker guards, so a retry
+ * carries the same text as the first attempt rather than a rebuilt one. Each
+ * retry goes through `createNotification`, whose per-channel claim keeps two
+ * concurrent runs to one send.
+ */
+export async function retryDueReminderChannels(now: Date = new Date()): Promise<number> {
+  const today = todayWib(now);
+  // A marker is retryable only until its bill's WIB day ends; a marker updated
+  // long before that is either settled or at the attempt cap, so the scan is
+  // bounded to the recent window instead of walking every marker ever written.
+  const scanFrom = dayOf(shiftWibDay(today, -8));
+
+  const markers = await prisma.notificationDelivery.findMany({
+    where: {
+      OR: RETRYABLE_REMINDER_PREFIXES.map((prefix) => ({ dedupeKey: { startsWith: prefix } })),
+      updatedAt: { gte: scanFrom },
+    },
+    select: { userId: true, dedupeKey: true, channels: true },
+    orderBy: { updatedAt: 'asc' },
+    take: 500,
+  });
+
+  let retried = 0;
+  for (const marker of markers) {
+    if (!hasRetryableChannel(marker.channels)) continue;
+    const invoiceId = invoiceIdOf(marker.dedupeKey);
+    if (!invoiceId) continue;
+
+    const invoice = await prisma.invoice.findUnique({
+      where: { id: invoiceId },
+      select: { status: true, dueDate: true },
+    });
+    if (!invoice) continue;
+    if (invoice.status === PaymentStatus.PAID || invoice.status === PaymentStatus.CANCELLED) {
+      continue;
+    }
+    // Stop at the end of the WIB day the bill is due on: from the next run on,
+    // the due day has passed and the reminder text no longer holds.
+    if (invoice.dueDate < dayOf(today)) continue;
+
+    const row = await prisma.notification.findFirst({
+      where: { userId: marker.userId, dedupeKey: marker.dedupeKey },
+      select: { title: true, message: true, type: true, link: true, data: true },
+    });
+    // No in-app row means there is nothing to re-send; the marker alone does
+    // not carry the message. Leave the slot for a future attempt.
+    if (!row) continue;
+
+    const stored = (row.data ?? {}) as {
+      priority?: CreateNotificationInput['priority'];
+      channels?: CreateNotificationInput['channels'];
+      recipientType?: CreateNotificationInput['recipientType'];
+      originalType?: string;
+    };
+
+    await createNotification({
+      userId: marker.userId,
+      title: row.title,
+      message: row.message,
+      type: (stored.originalType ?? row.type) as CreateNotificationInput['type'],
+      priority: stored.priority,
+      channels: stored.channels,
+      recipientType: stored.recipientType,
+      link: row.link ?? undefined,
+      dedupeKey: marker.dedupeKey,
+    });
+    retried++;
+  }
+
+  return retried;
 }
 
 export async function createBulkNotifications(data: CreateBulkNotificationInput) {

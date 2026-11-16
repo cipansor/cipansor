@@ -7,6 +7,7 @@ vi.mock('../../src/lib/prisma', () => {
   const prisma = {
     invoice: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
     },
     notification: {
       findFirst: vi.fn(),
@@ -16,6 +17,7 @@ vi.mock('../../src/lib/prisma', () => {
     notificationDelivery: {
       create: vi.fn(),
       findUnique: vi.fn(),
+      findMany: vi.fn(),
       update: vi.fn(),
     },
     setting: {
@@ -48,6 +50,8 @@ describe('Payment Reminder Performance', () => {
       channels: {},
     } as any);
     vi.mocked(prisma.notificationDelivery.update).mockResolvedValue({} as any);
+    // The #1074 retry sweep runs first; no marker owes a retry here.
+    vi.mocked(prisma.notificationDelivery.findMany).mockResolvedValue([] as any);
     vi.mocked(prisma.setting.findFirst).mockResolvedValue(null as any);
     vi.mocked(prisma.user.findUnique).mockResolvedValue(null as any);
   });
@@ -77,7 +81,11 @@ describe('Payment Reminder Performance', () => {
       },
     }));
 
-    vi.mocked(prisma.invoice.findMany).mockResolvedValue(invoices as any);
+    // One page of 100 then empty: pagination keeps fetching while a full page
+    // comes back, so a mock that always returned the same rows would never stop.
+    vi.mocked(prisma.invoice.findMany)
+      .mockResolvedValueOnce(invoices as any)
+      .mockResolvedValue([] as any);
     // No prior delivery for any invoice, so batching runs the create path.
     vi.mocked(prisma.notification.findFirst).mockResolvedValue(null as any);
     vi.mocked(prisma.notification.create).mockResolvedValue({ id: 'new-notif' } as any);

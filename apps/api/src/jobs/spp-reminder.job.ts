@@ -13,7 +13,6 @@ import { PaymentStatus, NotificationType } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import * as notificationService from '@/modules/notifications/notifications.service';
-import { notificationService as channelService } from '@/modules/notifications/email-sms.service';
 import { wibMonthYear, utcMonthRange } from '@/utils/wib';
 
 const formatter = new Intl.NumberFormat('id-ID', {
@@ -49,7 +48,7 @@ export async function sendMonthlySppReminders(now: Date = new Date()) {
           user: { select: { name: true } },
           parents: {
             select: {
-              parent: { select: { id: true, name: true, phone: true } },
+              parent: { select: { id: true } },
             },
           },
         },
@@ -69,6 +68,12 @@ export async function sendMonthlySppReminders(now: Date = new Date()) {
         `Mohon unggah bukti pembayaran melalui menu Tagihan & Pembayaran.`;
 
       try {
+        // One delivery marker per (parent, invoice): the WhatsApp channel now
+        // goes through `createNotification`, so a failed send is recorded
+        // `FAILED`/`PENDING` and retried by the daily sweep instead of being
+        // silently dropped (#1074), and a task triggered twice does not send
+        // twice. `spp-reminder:<invoice.id>` is unique per parent because the
+        // marker's unique key is `(userId, dedupeKey)` and the user is the parent.
         await notificationService.createNotification({
           userId: parent.id,
           title: `Tagihan ${invoice.paymentType.name} Bulan Ini`,
@@ -76,19 +81,10 @@ export async function sendMonthlySppReminders(now: Date = new Date()) {
           type: NotificationType.PAYMENT,
           link: '/parent/finance',
           priority: 'HIGH',
-          channels: ['IN_APP'],
+          channels: ['IN_APP', 'WHATSAPP'],
           recipientType: 'INDIVIDUAL',
+          dedupeKey: `spp-reminder:${invoice.id}`,
         });
-        if (parent.phone) {
-          await channelService.send({
-            channel: 'WHATSAPP',
-            userId: parent.id,
-            recipientPhone: parent.phone,
-            type: 'PAYMENT_REMINDER',
-            title: `Tagihan ${invoice.paymentType.name}`,
-            message,
-          });
-        }
         notified++;
       } catch (error) {
         logger.error(`[SppReminder] Failed to notify parent ${parent.id}:`, error);

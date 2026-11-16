@@ -26,6 +26,7 @@ vi.mock('../notifications.service', () => ({
   createBulkNotifications: vi.fn(),
   createManyNotifications: vi.fn(),
   clearNotificationDeliveries: vi.fn(),
+  retryDueReminderChannels: vi.fn(async () => 0),
   mapTypeToPrisma: vi.fn(() => ({ dbType: 'PAYMENT' })),
 }));
 
