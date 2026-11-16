@@ -284,6 +284,10 @@ test.describe("SPMB publik per unit", () => {
     await page.getByRole("button", { name: "Selanjutnya" }).click();
     // Step 5 is optional.
     await page.getByRole("button", { name: "Selanjutnya" }).click();
+    // Step 6: the parent/guardian must consent before the form will send the
+    // child's data (UU PDP 27/2022 Pasal 20, 25). The checkbox starts
+    // unchecked, so tick it — the API refuses a submission without it.
+    await page.getByRole("checkbox", { name: /Kebijakan Privasi/ }).check();
     await page.getByRole("button", { name: "Kirim Pendaftaran" }).click();
 
     await expect(page.getByText("Pendaftaran Berhasil!")).toBeVisible();

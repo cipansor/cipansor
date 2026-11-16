@@ -68,6 +68,13 @@ const publicPrefixes = [
   "/wakaf-infaq",
   "/kontak",
   /**
+   * The public, versioned Privacy Policy (UU PDP 27/2022 Pasal 30, 35). Kept in
+   * step with `PUBLIC_PATH_PREFIXES` in lib/host-split.ts (the two lists must
+   * describe the same set; a sync test enforces it). It must be reachable with
+   * no session — it is what the SPMB consent checkbox links to.
+   */
+  "/kebijakan-privasi",
+  /**
    * The path a letter's printed QR used to open.
    *
    * The page itself is gone: a token attests that *some* letter was signed,

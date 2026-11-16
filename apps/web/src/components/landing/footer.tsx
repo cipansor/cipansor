@@ -37,6 +37,7 @@ export function LandingFooter() {
     { label: copy.links.spmb, href: "/public/spmb" },
     { label: copy.links.donate, href: "/wakaf-infaq" },
     { label: copy.links.contact, href: "/kontak" },
+    { label: copy.links.privacy, href: "/kebijakan-privasi" },
   ];
 
   return (

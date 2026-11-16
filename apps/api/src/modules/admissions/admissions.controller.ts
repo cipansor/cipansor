@@ -4,6 +4,7 @@ import {
   createAdmissionPeriodSchema,
   updateAdmissionPeriodSchema,
   createRegistrantSchema,
+  createPublicRegistrantSchema,
   updateRegistrantSchema,
   updateRegistrantScoreSchema,
   updateRegistrantStatusSchema,
@@ -225,8 +226,18 @@ export const createPublicRegistrantDocument = asyncHandler(async (req: Request, 
 });
 
 export const createPublicRegistrant = asyncHandler(async (req: Request, res: Response) => {
-  const data = createRegistrantSchema.parse(req.body);
-  const result = await service.createPublicRegistrantService(data);
+  const {
+    consent: _consent,
+    consentVersion,
+    ...data
+  } = createPublicRegistrantSchema.parse(req.body);
+  // `app.set('trust proxy', 1)` is set, so `req.ip` is the client address behind
+  // the one trusted proxy (nginx), not the proxy's own — the address the
+  // parent's consent actually came from (UU PDP 27/2022 Pasal 21, evidence).
+  const result = await service.createPublicRegistrantService(data, {
+    version: consentVersion,
+    ip: req.ip,
+  });
   res.status(201).json({
     success: true,
     data: result,

@@ -41,6 +41,11 @@ vi.mock('@/lib/prisma', () => ({
       update: vi.fn(),
       updateMany: vi.fn(),
     },
+    // The public form's consent is checked against a published Kebijakan
+    // Privasi version (see `assertVersionExists`).
+    privacyPolicyVersion: {
+      findUnique: vi.fn(),
+    },
     $transaction: vi.fn((cb) => cb(prisma)),
   },
 }));
@@ -646,5 +651,90 @@ describe('Admissions Service', () => {
         crossUnitAdmin
       )
     ).rejects.toThrow('Access to this unit is not allowed');
+  });
+
+  describe('public registrant consent (UU PDP 27/2022 Pasal 20, 25)', () => {
+    const openPeriod = {
+      id: 'p1',
+      unitId: 'u1',
+      registrationFee: 0,
+      academicYear: { name: '2026/2027' },
+      unit: { name: 'SD IT' },
+      isActive: true,
+      startDate: new Date(Date.now() - 86_400_000),
+      endDate: new Date(Date.now() + 86_400_000),
+    };
+
+    const publicData = {
+      admissionPeriodId: 'p1',
+      fullName: 'Anak Publik',
+      gender: 'MALE',
+      birthPlace: 'Bandung',
+      birthDate: new Date('2012-01-01').toISOString(),
+      address: 'Jl. Contoh No. 1',
+      fatherName: 'Ayah',
+      motherName: 'Ibu',
+    } as any;
+
+    it('records the consent time, version and IP on the public path', async () => {
+      vi.mocked(prisma.admissionPeriod.findUnique).mockResolvedValue(openPeriod as any);
+      // The version the registrant read must exist.
+      vi.mocked(prisma.privacyPolicyVersion.findUnique).mockResolvedValue({
+        version: 2,
+      } as any);
+      vi.mocked(prisma.registrant.count).mockResolvedValue(0);
+      (vi.mocked(prisma.registrant.create) as any).mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...data, id: 'r1' })
+      );
+      vi.mocked(prisma.paymentType.findFirst).mockResolvedValue({ id: 'pt1' } as any);
+
+      await service.createPublicRegistrantService(publicData, {
+        version: 2,
+        ip: '203.0.113.7',
+      });
+
+      expect(prisma.registrant.create).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            consentAt: expect.any(Date),
+            consentVersion: '2',
+            consentIp: '203.0.113.7',
+          }),
+        })
+      );
+    });
+
+    it('refuses a consent naming a version that was never published', async () => {
+      vi.mocked(prisma.admissionPeriod.findUnique).mockResolvedValue(openPeriod as any);
+      vi.mocked(prisma.privacyPolicyVersion.findUnique).mockResolvedValue(null as any);
+
+      await expect(
+        service.createPublicRegistrantService(publicData, { version: 99 })
+      ).rejects.toThrow(/Versi kebijakan privasi tidak dikenal/);
+
+      // The row must not be written when the consent is invalid.
+      expect(prisma.registrant.create).not.toHaveBeenCalled();
+    });
+
+    it('does not record a consent on the admin-created path', async () => {
+      vi.mocked(prisma.admissionPeriod.findUnique).mockResolvedValue(openPeriod as any);
+      vi.mocked(prisma.registrant.count).mockResolvedValue(0);
+      (vi.mocked(prisma.registrant.create) as any).mockImplementation(({ data }: any) =>
+        Promise.resolve({ ...data, id: 'r2' })
+      );
+      vi.mocked(prisma.paymentType.findFirst).mockResolvedValue({ id: 'pt1' } as any);
+
+      await service.createRegistrant(publicData, true, {
+        id: 'admin-1',
+        role: 'UNIT_ADMIN',
+        roleCode: 'SDIT_ADMIN',
+        unitId: 'u1',
+      });
+
+      const call = vi.mocked(prisma.registrant.create).mock.calls[0][0] as any;
+      expect(call.data.consentAt).toBeUndefined();
+      expect(call.data.consentVersion).toBeUndefined();
+      expect(call.data.consentIp).toBeUndefined();
+    });
   });
 });

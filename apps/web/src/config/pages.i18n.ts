@@ -118,6 +118,25 @@ export interface PagesContent {
     /** Prefilled WhatsApp message — the greeting is kept in every locale. */
     whatsappMessage: string;
   };
+  privacy: {
+    title: string;
+    /** <title> is built as `${title} — ${legalName}`; only this differs. */
+    metaDescription: string;
+    lead: string;
+    /**
+     * Shown when the foundation has not published a policy version yet. The
+     * page must still resolve — a missing page on the one link the consent
+     * checkbox points at is worse than an honest "not yet".
+     */
+    notPublishedTitle: string;
+    notPublishedBody: string;
+    /** e.g. "Berlaku sejak 1 Januari 2027" — `{date}` is formatted per locale. */
+    effectiveSince: (date: string) => string;
+    versionLabel: (version: number) => string;
+    contactHeading: string;
+    contactBody: string;
+    backToForm: string;
+  };
   article: {
     otherNewsHeading: string;
     /**
@@ -256,6 +275,21 @@ const ID: PagesContent = {
     whatsappCta: "Chat via WhatsApp",
     whatsappMessage:
       "Assalamualaikum, saya ingin bertanya tentang Pesantren Cipansor.",
+  },
+  privacy: {
+    title: "Kebijakan Privasi",
+    metaDescription:
+      "Kebijakan Privasi Yayasan Pesantren Cipansor: data pribadi apa yang kami proses, dasar hukumnya, berapa lama kami simpannya, dan hak Anda sebagai orang tua atau wali.",
+    lead: "Bagaimana Yayasan Pesantren Cipansor memproses data pribadi, terutama data pribadi anak yang mendaftar melalui SPMB.",
+    notPublishedTitle: "Kebijakan Privasi belum diterbitkan",
+    notPublishedBody:
+      "Yayasan belum menerbitkan teks Kebijakan Privasi, sehingga pendaftaran daring belum dapat menerima persetujuan. Silakan hubungi panitia SPMB untuk mendaftar atau menanyakan kebijakan privasi kami.",
+    effectiveSince: (date) => `Berlaku sejak ${date}`,
+    versionLabel: (version) => `Versi ${version}`,
+    contactHeading: "Pertanyaan dan hak Anda",
+    contactBody:
+      "Anda berhak meminta akses, koreksi, atau penghapusan data pribadi anak Anda, dan berhak menarik persetujuan ini kapan saja. Sampaikan permintaan itu kepada panitia SPMB melalui kontak di halaman Kontak.",
+    backToForm: "Kembali ke formulir pendaftaran",
   },
   article: {
     otherNewsHeading: "Berita lainnya",
@@ -402,6 +436,21 @@ const EN: PagesContent = {
     whatsappCta: "Chat on WhatsApp",
     whatsappMessage:
       "Assalamualaikum, I would like to ask about Pesantren Cipansor.",
+  },
+  privacy: {
+    title: "Privacy Policy",
+    metaDescription:
+      "Yayasan Pesantren Cipansor's Privacy Policy: what personal data we process, our lawful basis, how long we keep it, and your rights as a parent or guardian.",
+    lead: "How Yayasan Pesantren Cipansor processes personal data, in particular the personal data of a child registering through SPMB.",
+    notPublishedTitle: "The Privacy Policy has not been published",
+    notPublishedBody:
+      "The foundation has not published the Privacy Policy text yet, so online registration cannot take consent. Please contact the SPMB committee to register or to ask about our privacy policy.",
+    effectiveSince: (date) => `In effect since ${date}`,
+    versionLabel: (version) => `Version ${version}`,
+    contactHeading: "Questions and your rights",
+    contactBody:
+      "You have the right to request access to, correction of, or deletion of your child's personal data, and to withdraw this consent at any time. Send that request to the SPMB committee through the contact details on the Contact page.",
+    backToForm: "Back to the registration form",
   },
   article: {
     otherNewsHeading: "Other news",
@@ -557,6 +606,21 @@ const AR: PagesContent = {
     whatsappHeading: "واتساب",
     whatsappCta: "المحادثة عبر واتساب",
     whatsappMessage: "السلام عليكم، أودّ الاستفسار عن معهد سيبانسور.",
+  },
+  privacy: {
+    title: "سياسة الخصوصية",
+    metaDescription:
+      "سياسة الخصوصية لمؤسسة معهد سيبانسور: البيانات الشخصية التي نعالجها، والأساس القانوني لها، ومدة حفظها، وحقوقكم بصفتكم أولياء أمور.",
+    lead: "كيفية تعامل مؤسسة معهد سيبانسور مع البيانات الشخصية، لا سيّما بيانات الأطفال المتقدّمين عبر التسجيل الإلكتروني (SPMB).",
+    notPublishedTitle: "لم تُنشر سياسة الخصوصية بعد",
+    notPublishedBody:
+      "لم تنشر المؤسسة نصّ سياسة الخصوصية بعد، لذا لا يمكن للتسجيل الإلكتروني تسجيل الموافقة. يُرجى التواصل مع لجنة القبول للتسجيل أو للسؤال عن سياسة الخصوصية.",
+    effectiveSince: (date) => `نافذة منذ ${date}`,
+    versionLabel: (version) => `الإصدار ${version}`,
+    contactHeading: "الأسئلة وحقوقكم",
+    contactBody:
+      "لكم الحق في طلب الوصول إلى بيانات طفلكم الشخصية أو تصحيحها أو حذفها، وفي سحب هذه الموافقة في أي وقت. أرسلوا هذا الطلب إلى لجنة القبول عبر بيانات التواصل في صفحة التواصل.",
+    backToForm: "العودة إلى استمارة التسجيل",
   },
   article: {
     otherNewsHeading: "أخبار أخرى",

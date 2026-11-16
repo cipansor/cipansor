@@ -1033,6 +1033,68 @@ async function main() {
 
   console.log('✅ Users and Teachers created');
 
+  // Kebijakan Privasi publik versi pertama (UU PDP 27/2022 Pasal 30, 35).
+  //
+  // Tanpa satu versi pun, formulir SPMB menolak menerima persetujuan dan
+  // pendaftaran daring tidak dapat dikirim (admissions.service memanggil
+  // assertVersionExists). Versi demo ini memberi lingkungan lokal dan e2e teks
+  // yang bisa dibaca dan disetujui; teks sebenarnya diputuskan yayasan dan
+  // diterbitkan lewat /settings/privacy-policy.
+  const privacyPolicyVersion = await prisma.privacyPolicyVersion.create({
+    data: {
+      version: 1,
+      effectiveAt: new Date('2026-01-01T00:00:00.000Z'),
+      createdById: superAdminUser.id,
+      summaryId:
+        'Yayasan Pesantren Cipansor memproses data pendaftar SPMB untuk keperluan penerimaan murid baru, dengan dasar persetujuan orang tua atau wali dan hanya selama diperlukan.',
+      summaryEn:
+        'Yayasan Pesantren Cipansor processes SPMB applicants’ data to admit new students, on the basis of the parent’s or guardian’s consent and only for as long as it is needed.',
+      summaryAr:
+        'تعالج مؤسسة معهد سيبانسور بيانات المتقدّمين للتسجيل بغرض قبول الطلاب الجدد، بناءً على موافقة وليّ الأمر، وللمدة اللازمة فقط.',
+      bodyId: [
+        'Kebijakan Privasi (contoh untuk lingkungan demo).',
+        '',
+        '1. Pengendali data. Yayasan Pesantren Cipansor, Kadipaten, Kabupaten Tasikmalaya.',
+        '',
+        '2. Data yang diproses. Formulir SPMB mengumpulkan nama, jenis kelamin, tempat dan tanggal lahir, alamat, NIK, nomor Kartu Keluarga, data orang tua/wali, serta dokumen (foto, KTP, Kartu Keluarga, akta kelahiran).',
+        '',
+        '3. Dasar pemrosesan. Persetujuan orang tua atau wali (UU 27/2022 Pasal 20 dan 25), yang dapat ditarik kembali kapan saja.',
+        '',
+        '4. Masa simpan. Data pendaftar yang tidak diterima dihapus setelah proses seleksi selesai; data murid yang diterima disimpan selama menjadi murid dan sesuai kewajiban hukum.',
+        '',
+        '5. Hak subjek data. Akses, koreksi, penghapusan, dan penarikan persetujuan, dengan menghubungi panitia SPMB.',
+      ].join('\n'),
+      bodyEn: [
+        'Privacy Policy (sample for the demo environment).',
+        '',
+        '1. Data controller. Yayasan Pesantren Cipansor, Kadipaten, Tasikmalaya Regency.',
+        '',
+        '2. Data processed. The SPMB form collects name, gender, place and date of birth, address, national ID, family card number, parent/guardian details, and documents (photo, ID card, family card, birth certificate).',
+        '',
+        '3. Lawful basis. The parent’s or guardian’s consent (Law 27/2022 Articles 20 and 25), which may be withdrawn at any time.',
+        '',
+        '4. Retention. Data of applicants who are not admitted is deleted once selection ends; data of admitted students is kept while they are enrolled and as the law requires.',
+        '',
+        '5. Data-subject rights. Access, correction, deletion, and withdrawal of consent, by contacting the SPMB committee.',
+      ].join('\n'),
+      bodyAr: [
+        'سياسة الخصوصية (نموذج لبيئة العرض التجريبي).',
+        '',
+        '١. المتحكّم في البيانات. مؤسسة معهد سيبانسور، كاديفاتين، مقاطعة تاسيكمالايا.',
+        '',
+        '٢. البيانات المعالجة. تجمع استمارة التسجيل الاسم والجنس ومكان وتاريخ الميلاد والعنوان ورقم الهوية ورقم بطاقة الأسرة وبيانات وليّ الأمر والمستندات (الصورة، بطاقة الهوية، بطاقة الأسرة، شهادة الميلاد).',
+        '',
+        '٣. الأساس القانوني. موافقة وليّ الأمر (القانون 27/2022 المادتان 20 و25)، ويمكن سحبها في أي وقت.',
+        '',
+        '٤. مدة الحفظ. تُحذف بيانات المتقدّمين غير المقبولين بعد انتهاء الاختيار؛ وتبقى بيانات الطلاب المقبولين طوال فترة دراستهم ووفقًا لما يقتضيه القانون.',
+        '',
+        '٥. حقوق صاحب البيانات. الوصول والتصحيح والحذف وسحب الموافقة، بالتواصل مع لجنة القبول.',
+      ].join('\n'),
+    },
+  });
+
+  console.log(`✅ Privacy policy v${privacyPolicyVersion.version} published`);
+
   // Create Academic Years (global, not per unit).
   //
   // Derived from the clock, never hardcoded: the literal '2024/2025' that used
