@@ -18,10 +18,19 @@ backlog to [`roadmap.md`](roadmap.md).
   `deploy-watch.yml` checked every deploy against it (#664; watcher deleted 2026-11-11 — the owner watches the Actions tab). SMP IT's accreditation certificate was recorded there on
   2026-09-29 at the user's request, by the SMP admin demo account — which
   therefore now asks for a 2FA code — so the public section shows it.
-- **CodeQL is a required check** on `main` since 2026-09-25 (ruleset rule
-  `code_scanning`, errors and high-or-higher alerts). The user's caveat: it
-  may be dropped if the repository goes private and code scanning would need
-  a paid licence.
+- **CodeQL runs via the repository's *default setup*, and is not (yet) a
+  required check.** The ruleset `main` (id `19429529`) carries only
+  `deletion`, `non_fast_forward`, `pull_request` and `required_status_checks`
+  — there is **no** `code_scanning` rule, so a PR with a high CodeQL alert is
+  not blocked (the required checks are `Build`, `Lint`, `Tests`, `Security`,
+  `E2E Tests (Chromium)`, `PR template reminder`). An earlier note here
+  claimed a `code_scanning` rule "since 2026-09-25" that was never in the
+  ruleset (#914, K29.3). Making it required is a maintainer action (add the
+  `code_scanning` rule to ruleset `19429529`, K29.1); the three ghost workflow
+  entries (`codeql.yml`, `e2e-cleanup.yml`, `mobile-ci.yml`) still show as
+  `active` in the Actions registry although no file exists on any branch
+  (K29.2, also maintainer-only). The user's caveat: code scanning may be
+  dropped if the repository goes private and it would need a paid licence.
 
 ## Waiting on the user
 

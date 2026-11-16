@@ -667,7 +667,7 @@ berkata demikian; itu jujur, dan itu utang (bab 11).
 | Mutu | Skenario (pemicu → respons) | Ukuran / ambang | Bukti | Status |
 |---|---|---|---|---|
 | Keamanan: akses | Rute tulis yang dapat dijangkau tanpa sesi → dijaga Turnstile | 0 rute tulis publik tanpa Turnstile di luar daftar pengecualian beralasan | `public-routes-gated.test.ts` memindai pohon rute | Terbukti (uji di CI) |
-| Keamanan: kode | Perubahan yang memicu peringatan CodeQL tingkat tinggi → tidak dapat digabung ke `main` | 0 peringatan CodeQL tingkat tinggi ke atas yang lolos ke `main` (CodeQL berstatus wajib) | aturan repositori sejak 25 September 2026 (`progress.md`) | Terbukti |
+| Keamanan: kode | Perubahan yang memicu peringatan CodeQL tingkat tinggi → belum diblokir otomatis | 0 peringatan CodeQL tingkat tinggi ke atas yang lolos ke `main`; belum ada ambang yang ditegakkan | CodeQL berjalan lewat *default setup*; ruleset `main` belum memuat aturan `code_scanning`, jadi peringatan tinggi belum memblokir PR (`progress.md`, #914) | Sebagian: belum menjadi pemeriksaan wajib |
 | Keamanan: rantai pasok | Action pihak ketiga memakai tag yang bisa digeser, atau batas bawah `overrides` turun di bawah rilis perbaikan advisory → uji merah | 0 `uses:` pihak ketiga tanpa SHA 40 karakter; 0 batas bawah `overrides` di bawah rilis perbaikan pertama | `github-actions-pinning.guard.test.ts`, `pnpm-supply-chain.guard.test.ts` | Terbukti (uji di CI) |
 | Keterpeliharaan: kontrak | Halaman web memanggil alamat API yang tak ada → uji merah | jumlah panggilan tak terlayani hanya boleh menyusut dari baseline | `web-api-contract.guard.test.ts` | Sebagian: baseline lama belum nol |
 | Keterpeliharaan: rute | Rute berparameter menutupi rute statis → uji merah | 0 rute yang tertutup bayangan | `route-shadowing.guard.test.ts` | Terbukti |
@@ -697,6 +697,7 @@ ditinjau ulang setiap kuartal.
 | Data pribadi | Minimalisasi data pribadi belum merata di seluruh modul. | Sedang–Tinggi | Pilih kolom eksplisit; ditangani per modul; dilacak internal |
 | Integritas skema | Skema dan riwayat migrasi belum sepenuhnya sepakat. | Rendah | Migrasi korektif tersendiri |
 | Pemantauan galat | Belum ada layanan pemantauan galat; pilihan ditunda sampai sebelum peluncuran. | Sedang | Pilih sebelum peluncuran (`progress.md`) |
+| Kontrol kode (CodeQL) | CodeQL berjalan lewat *default setup*, tetapi belum menjadi pemeriksaan wajib: ruleset `main` tidak memuat aturan `code_scanning`, jadi peringatan tingkat tinggi belum memblokir PR walau dua catatan sempat mengklaim sebaliknya. Tiga entri workflow hantu (`codeql.yml`, `e2e-cleanup.yml`, `mobile-ci.yml`) masih tampil `active` di registri Actions meski berkasnya tidak ada di branch mana pun. | Sedang | Maintainer menambahkan aturan `code_scanning` ke ruleset `main` dan menonaktifkan entri hantu (#914) |
 
 # 12. Glosarium
 
