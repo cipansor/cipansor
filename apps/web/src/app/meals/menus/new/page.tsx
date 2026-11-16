@@ -49,13 +49,12 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
+import { Calendar } from "@/components/ui/calendar";
 import {
   Popover,
   PopoverContent,
   PopoverTrigger,
 } from "@/components/ui/popover";
-import { Calendar } from "@/components/ui/calendar";
 import { cn } from "@/lib/utils";
 import { CalendarIcon } from "lucide-react";
 
@@ -63,40 +62,32 @@ import {
   useCreateMealMenu,
   MEAL_TYPES,
   MEAL_TYPE_LABELS,
-  MEAL_DAY_TYPES,
-  MEAL_DAY_TYPE_LABELS,
 } from "@/hooks/use-meals";
 import { useUnits } from "@/hooks/use-units";
+import { createMenuSchema } from "@cipansor/shared";
 
-// Form schema
-const createMenuSchema = z.object({
-  name: z
-    .string()
-    .min(3, "Nama menu minimal 3 karakter")
-    .max(100, "Nama menu maksimal 100 karakter"),
-  description: z.string().optional(),
-  mealType: z.enum(["BREAKFAST", "LUNCH", "DINNER", "SNACK"]),
-  dayType: z.enum(["WEEKDAY", "WEEKEND", "ALL"]),
-  date: z.date({ error: "Tanggal wajib diisi" }),
-  mainDish: z
-    .string()
-    .min(3, "Hidangan utama minimal 3 karakter")
-    .max(100, "Hidangan utama maksimal 100 karakter"),
-  sideDish: z.string().optional(),
-  vegetable: z.string().optional(),
-  soup: z.string().optional(),
-  dessert: z.string().optional(),
-  drink: z.string().optional(),
-  calories: z.coerce.number().optional(),
-  nutritionInfo: z.string().optional(),
-  unitId: z.string().min(1, "Unit wajib dipilih"),
-  isActive: z.boolean(),
-});
+/**
+ * The create contract is @cipansor/shared's `createMenuSchema`, read by the API
+ * too (#1081). Two fields are adapted for the form: the date picker holds a
+ * `Date` (the schema wants "yyyy-MM-dd", so it is formatted on submit), and the
+ * calories input yields a string (`z.coerce.number()` turns "" into 0, so empty
+ * is treated as "not filled").
+ */
+const formSchema = createMenuSchema
+  .omit({ date: true, calories: true })
+  .extend({
+    date: z.date({ error: "Tanggal wajib diisi" }),
+    calories: z.preprocess(
+      (v) =>
+        v === "" || v === null || v === undefined ? undefined : Number(v),
+      z.number().int().positive("Kalori harus bilangan positif").optional(),
+    ),
+  });
 
-type CreateMenuFormValues = z.infer<typeof createMenuSchema>;
+type CreateMenuFormValues = z.infer<typeof formSchema>;
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-const typedResolver = zodResolver(createMenuSchema) as any;
+const typedResolver = zodResolver(formSchema) as any;
 
 export default function NewMenuPage() {
   const router = useRouter();
@@ -109,10 +100,7 @@ export default function NewMenuPage() {
   const form = useForm<CreateMenuFormValues>({
     resolver: typedResolver,
     defaultValues: {
-      name: "",
-      description: "",
       mealType: "BREAKFAST",
-      dayType: "ALL",
       date: new Date(),
       mainDish: "",
       sideDish: "",
@@ -121,9 +109,8 @@ export default function NewMenuPage() {
       dessert: "",
       drink: "",
       calories: undefined,
-      nutritionInfo: "",
+      notes: "",
       unitId: "",
-      isActive: true,
     },
   });
 
@@ -173,50 +160,11 @@ export default function NewMenuPage() {
                   <CardHeader>
                     <CardTitle>Informasi Dasar</CardTitle>
                     <CardDescription>
-                      Nama dan deskripsi menu makanan
+                      Waktu makan dan tanggal menu
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    {/* Name */}
-                    <FormField
-                      control={form.control}
-                      name="name"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Nama Menu</FormLabel>
-                          <FormControl>
-                            <Input
-                              placeholder="Contoh: Menu Senin Minggu 1"
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormDescription>
-                            Nama untuk mengidentifikasi menu ini
-                          </FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    {/* Description */}
-                    <FormField
-                      control={form.control}
-                      name="description"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Deskripsi (Opsional)</FormLabel>
-                          <FormControl>
-                            <Textarea
-                              placeholder="Deskripsi tambahan tentang menu ini..."
-                              {...field}
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <div className="grid gap-4 sm:grid-cols-3">
+                    <div className="grid gap-4 sm:grid-cols-2">
                       {/* Meal Type */}
                       <FormField
                         control={form.control}
@@ -237,35 +185,6 @@ export default function NewMenuPage() {
                                 {MEAL_TYPES.map((type) => (
                                   <SelectItem key={type} value={type}>
                                     {MEAL_TYPE_LABELS[type]}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      {/* Day Type */}
-                      <FormField
-                        control={form.control}
-                        name="dayType"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Tipe Hari</FormLabel>
-                            <Select
-                              onValueChange={field.onChange}
-                              defaultValue={field.value}
-                            >
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Pilih tipe" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {MEAL_DAY_TYPES.map((type) => (
-                                  <SelectItem key={type} value={type}>
-                                    {MEAL_DAY_TYPE_LABELS[type]}
                                   </SelectItem>
                                 ))}
                               </SelectContent>
@@ -462,52 +381,51 @@ export default function NewMenuPage() {
                   </CardContent>
                 </Card>
 
-                {/* Nutrition Card */}
+                {/* Nutrition & Notes Card */}
                 <Card>
                   <CardHeader>
                     <CardTitle className="flex items-center gap-2">
                       <Flame className="h-5 w-5 text-orange-500" />
-                      Informasi Nutrisi
+                      Kalori & Catatan
                     </CardTitle>
                     <CardDescription>
-                      Data kalori dan nutrisi (opsional)
+                      Perkiraan kalori dan catatan menu (opsional)
                     </CardDescription>
                   </CardHeader>
                   <CardContent className="space-y-6">
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      {/* Calories */}
-                      <FormField
-                        control={form.control}
-                        name="calories"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Kalori (kkal)</FormLabel>
-                            <FormControl>
-                              <Input
-                                type="number"
-                                placeholder="Contoh: 500"
-                                {...field}
-                              />
-                            </FormControl>
-                            <FormDescription>
-                              Perkiraan total kalori per porsi
-                            </FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-
-                    {/* Nutrition Info */}
+                    {/* Calories */}
                     <FormField
                       control={form.control}
-                      name="nutritionInfo"
+                      name="calories"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Catatan Nutrisi</FormLabel>
+                          <FormLabel>Kalori (kkal)</FormLabel>
+                          <FormControl>
+                            <Input
+                              type="number"
+                              placeholder="Contoh: 500"
+                              {...field}
+                              value={field.value ?? ""}
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            Perkiraan total kalori per porsi
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    {/* Notes */}
+                    <FormField
+                      control={form.control}
+                      name="notes"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Catatan (Opsional)</FormLabel>
                           <FormControl>
                             <Textarea
-                              placeholder="Contoh: Protein 25g, Karbohidrat 60g, Lemak 15g..."
+                              placeholder="Contoh: bahan, catatan dapur, alergen..."
                               {...field}
                             />
                           </FormControl>
@@ -581,35 +499,6 @@ export default function NewMenuPage() {
                   </CardContent>
                 </Card>
 
-                {/* Status Card */}
-                <Card>
-                  <CardHeader>
-                    <CardTitle>Status</CardTitle>
-                  </CardHeader>
-                  <CardContent>
-                    <FormField
-                      control={form.control}
-                      name="isActive"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-0.5">
-                            <FormLabel className="text-base">Aktif</FormLabel>
-                            <FormDescription>
-                              Menu aktif akan ditampilkan di jadwal
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                  </CardContent>
-                </Card>
-
                 {/* Tips Card */}
                 <Card>
                   <CardHeader>
@@ -620,19 +509,16 @@ export default function NewMenuPage() {
                   </CardHeader>
                   <CardContent className="text-sm text-muted-foreground space-y-2">
                     <p>
-                      • Gunakan nama menu yang deskriptif untuk memudahkan
-                      pencarian
+                      • Satu unit hanya boleh punya satu menu per waktu makan
+                      dan tanggal
                     </p>
                     <p>
                       • Isi informasi kalori untuk membantu monitoring nutrisi
                       santri
                     </p>
                     <p>
-                      • Menu dapat dinonaktifkan sementara tanpa menghapusnya
-                    </p>
-                    <p>
                       • Pastikan hidangan utama dan lauk sesuai dengan standar
-                      gizi
+                      gizi (Isi Piringku)
                     </p>
                   </CardContent>
                 </Card>

@@ -30,13 +30,10 @@ const UNIT = "unit-smp-it";
 const menu = (mealType: MealMenu["mealType"], mainDish: string): MealMenu =>
   ({
     id: `${mealType}-1`,
-    name: `${mealType} menu`,
     mealType,
-    dayType: "ALL",
     date: "2026-10-27",
     mainDish,
     unitId: UNIT,
-    isActive: true,
     createdAt: "2026-10-27T00:00:00Z",
     updatedAt: "2026-10-27T00:00:00Z",
   }) as MealMenu;

@@ -104,7 +104,12 @@ describe('write routes — only a writer reaches them (CWE-863)', () => {
     const res = await request(app)
       .post('/meals/menus')
       .set(asRole({ roleCode: 'YAYASAN_PENGAWAS', unitId: null }))
-      .send({ unitId: 'unit-b', date: '2026-11-01', mealType: 'LUNCH', mainDish: 'Nasi' });
+      .send({
+        unitId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+        date: '2026-11-01',
+        mealType: 'LUNCH',
+        mainDish: 'Nasi',
+      });
 
     expect(res.status).toBe(403);
     expect(spy).not.toHaveBeenCalled();
@@ -139,13 +144,104 @@ describe('write routes — only a writer reaches them (CWE-863)', () => {
   it('menerima admin unit pada POST /meals/menus', async () => {
     const spy = vi.spyOn(mealsService, 'createMenu').mockResolvedValue({ id: 'm-1' } as never);
 
-    const res = await request(app)
-      .post('/meals/menus')
-      .set(asRole())
-      .send({ unitId: 'unit-b', date: '2026-11-01', mealType: 'LUNCH', mainDish: 'Nasi' });
+    const res = await request(app).post('/meals/menus').set(asRole()).send({
+      unitId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      date: '2026-11-01',
+      mealType: 'LUNCH',
+      mainDish: 'Nasi',
+    });
 
     expect(res.status).toBe(201);
     expect(spy).toHaveBeenCalled();
+  });
+
+  it('menjawab 400 (bukan 500) untuk payload formulir lama dengan field bayangan (#1081)', async () => {
+    // Persis bentuk yang dulu dikirim formulir Edit: `name`, `dayType`,
+    // `nutritionInfo` dan `isActive` bukan kolom `MealMenu`. Sebelum validasi
+    // ditambahkan, payload ini sampai ke Prisma dan menjawab 500; sekarang
+    // `validate(updateMenuSchema)` menolaknya di tepi dengan 400.
+    const spy = vi.spyOn(mealsService, 'updateMenu');
+
+    const res = await request(app).put('/meals/menus/m-1').set(asRole()).send({
+      name: 'Menu Senin',
+      dayType: 'ALL',
+      nutritionInfo: 'x',
+      isActive: true,
+      mainDish: 'Nasi Goreng',
+    });
+
+    expect(res.status).toBe(400);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('menjawab 400 untuk tanggal yang salah format (bukan 500)', async () => {
+    const spy = vi.spyOn(mealsService, 'updateMenu');
+
+    const res = await request(app)
+      .put('/meals/menus/m-1')
+      .set(asRole())
+      .send({ date: '2026-11-01T00:00:00.000Z' });
+
+    expect(res.status).toBe(400);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  it('menerima muatan Edit yang sah dan menjawab 200 (bukan 500) (#1081)', async () => {
+    // The other half of the contract: a payload that *is* the Edit form — the
+    // model's own columns — must pass validation and reach the service, so the
+    // fix cannot be a schema that rejects everything.
+    const spy = vi.spyOn(mealsService, 'updateMenu').mockResolvedValue({ id: 'm-1' } as never);
+
+    const res = await request(app).put('/meals/menus/m-1').set(asRole()).send({
+      mealType: 'LUNCH',
+      date: '2026-11-02',
+      mainDish: 'Nasi + Ayam Bakar',
+      sideDish: 'Tumis Kangkung',
+      drink: 'Teh Tawar',
+      calories: 650,
+      notes: 'Alergen: kacang',
+    });
+
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      'm-1',
+      expect.objectContaining({ mainDish: 'Nasi + Ayam Bakar', mealType: 'LUNCH' }),
+      expect.anything()
+    );
+  });
+
+  it('menerima kalori `null` pada PUT sehingga nilai lama dapat dihapus (#1081)', async () => {
+    // Mengosongkan isian kalori di formulir Edit berarti "hapus nilai lama", dan
+    // dikirim sebagai `null`. Skema ubah harus meloloskannya sampai ke layanan;
+    // sebelumnya `null` ditolak sehingga tidak ada cara menghapusnya.
+    const spy = vi.spyOn(mealsService, 'updateMenu').mockResolvedValue({ id: 'm-1' } as never);
+
+    const res = await request(app).put('/meals/menus/m-1').set(asRole()).send({ calories: null });
+
+    expect(res.status).toBe(200);
+    expect(spy).toHaveBeenCalledWith(
+      'm-1',
+      expect.objectContaining({ calories: null }),
+      expect.anything()
+    );
+  });
+
+  it('menolak kalori `null` pada POST — menu baru cukup mengosongkan isian (#1081)', async () => {
+    // `null` hanya bermakna pada pembaruan (menghapus yang sudah ada). Menu baru
+    // tanpa kalori tidak mengirim kolomnya sama sekali, jadi `null` di sini tetap
+    // 400 dan bukan nilai yang disimpan.
+    const spy = vi.spyOn(mealsService, 'createMenu');
+
+    const res = await request(app).post('/meals/menus').set(asRole()).send({
+      unitId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+      date: '2026-11-02',
+      mealType: 'LUNCH',
+      mainDish: 'Nasi',
+      calories: null,
+    });
+
+    expect(res.status).toBe(400);
+    expect(spy).not.toHaveBeenCalled();
   });
 
   it('menerima guru mencatat absensi makan', async () => {
@@ -168,7 +264,12 @@ describe('write routes — only a writer reaches them (CWE-863)', () => {
     const res = await request(app)
       .post('/meals/menus')
       .set(asRole({ roleCode: 'SDIT_SISWA', unitId: 'unit-a' }))
-      .send({ unitId: 'unit-a', date: '2026-11-01', mealType: 'LUNCH', mainDish: 'Nasi' });
+      .send({
+        unitId: '3f2504e0-4f89-41d3-9a0c-0305e82c3301',
+        date: '2026-11-01',
+        mealType: 'LUNCH',
+        mainDish: 'Nasi',
+      });
 
     expect(res.status).toBe(403);
     expect(spy).not.toHaveBeenCalled();

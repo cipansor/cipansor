@@ -18,7 +18,6 @@ import {
   Moon,
   Coffee,
   Flame,
-  Calendar,
   ArrowLeft,
   FileEdit,
 } from "lucide-react";
@@ -65,17 +64,16 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Badge } from "@/components/ui/badge";
 import { Skeleton } from "@/components/ui/skeleton";
 
 import {
   useMealMenus,
   useDeleteMealMenu,
   useCanManageMeals,
+  mealMenuTitle,
   MealType,
   MEAL_TYPE_LABELS,
   MEAL_TYPES,
-  MEAL_DAY_TYPE_LABELS,
 } from "@/hooks/use-meals";
 import { useUnits } from "@/hooks/use-units";
 
@@ -84,13 +82,6 @@ const MEAL_ICONS: Record<MealType, React.ReactNode> = {
   LUNCH: <Sunset className="h-4 w-4" />,
   DINNER: <Moon className="h-4 w-4" />,
   SNACK: <Coffee className="h-4 w-4" />,
-};
-
-const MEAL_COLORS: Record<MealType, string> = {
-  BREAKFAST: "bg-amber-100 text-amber-800",
-  LUNCH: "bg-orange-100 text-orange-800",
-  DINNER: "bg-indigo-100 text-indigo-800",
-  SNACK: "bg-green-100 text-green-800",
 };
 
 export default function MenusPage() {
@@ -109,13 +100,28 @@ export default function MenusPage() {
   const deleteMutation = useDeleteMealMenu();
   const canManage = useCanManageMeals();
 
-  // Filter menus by search
-  const filteredMenus = menus.filter(
-    (menu) =>
-      menu.name?.toLowerCase().includes(search.toLowerCase()) ||
-      menu.mainDish?.toLowerCase().includes(search.toLowerCase()) ||
-      menu.sideDish?.toLowerCase().includes(search.toLowerCase()),
-  );
+  // The title shown for a menu — `MealMenu` has no `name` column, so it is the
+  // meal time and the day, and the dishes are the subtitle.
+  const menuTitle = (menu: (typeof menus)[number]) =>
+    mealMenuTitle(menu, (iso) =>
+      safeFormat(new Date(iso), "EEEE, d MMM yyyy", { locale: localeId }),
+    );
+
+  // Filter menus by search. The old filter read `menu.name`, which the API
+  // never sends, so searching matched nothing (#1081). The dishes are the
+  // searchable text now.
+  const filteredMenus = menus.filter((menu) => {
+    const q = search.toLowerCase();
+    return (
+      menu.mainDish?.toLowerCase().includes(q) ||
+      menu.sideDish?.toLowerCase().includes(q) ||
+      menu.vegetable?.toLowerCase().includes(q) ||
+      menu.soup?.toLowerCase().includes(q) ||
+      menu.dessert?.toLowerCase().includes(q) ||
+      menu.drink?.toLowerCase().includes(q) ||
+      MEAL_TYPE_LABELS[menu.mealType]?.toLowerCase().includes(q)
+    );
+  });
 
   // Handle delete
   const handleDelete = async () => {
@@ -249,12 +255,9 @@ export default function MenusPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Menu</TableHead>
-                    <TableHead>Tipe</TableHead>
-                    <TableHead>Tanggal</TableHead>
                     <TableHead>Hidangan</TableHead>
                     <TableHead>Kalori</TableHead>
                     <TableHead>Unit</TableHead>
-                    <TableHead>Status</TableHead>
                     <TableHead className="w-[70px]"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -263,29 +266,10 @@ export default function MenusPage() {
                     <TableRow key={menu.id}>
                       <TableCell>
                         <div>
-                          <p className="font-medium">{menu.name}</p>
-                          {menu.description && (
-                            <p className="text-sm text-muted-foreground truncate max-w-[200px]">
-                              {menu.description}
-                            </p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant="secondary"
-                          className={`gap-1 ${MEAL_COLORS[menu.mealType]}`}
-                        >
-                          {MEAL_ICONS[menu.mealType]}
-                          {MEAL_TYPE_LABELS[menu.mealType]}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div className="flex items-center gap-2 text-sm">
-                          <Calendar className="h-4 w-4 text-muted-foreground" />
-                          {safeFormat(new Date(menu.date), "d MMM yyyy", {
-                            locale: localeId,
-                          })}
+                          <p className="font-medium">{menuTitle(menu)}</p>
+                          <p className="text-sm text-muted-foreground">
+                            {MEAL_TYPE_LABELS[menu.mealType]}
+                          </p>
                         </div>
                       </TableCell>
                       <TableCell>
@@ -312,13 +296,6 @@ export default function MenusPage() {
                         <span className="text-sm">
                           {menu.unit?.name || "-"}
                         </span>
-                      </TableCell>
-                      <TableCell>
-                        <Badge
-                          variant={menu.isActive ? "default" : "secondary"}
-                        >
-                          {menu.isActive ? "Aktif" : "Nonaktif"}
-                        </Badge>
                       </TableCell>
                       <TableCell>
                         <DropdownMenu>

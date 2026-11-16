@@ -1,5 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { MEALS_MANAGER_ROLE_CODES } from "@cipansor/shared";
+import {
+  MEALS_MANAGER_ROLE_CODES,
+  MEAL_TYPE_VALUES,
+  type CreateMenuInput,
+  type MealMenuDTO,
+  type MealTypeCode,
+  type UpdateMenuInput,
+} from "@cipansor/shared";
 import api from "@/lib/api";
 import { getActiveRoleCode } from "@/lib/rbac";
 import { useAuthStore } from "@/stores/auth";
@@ -15,12 +22,11 @@ export function useCanManageMeals(): boolean {
   return MEALS_MANAGER_ROLE_CODES.includes(getActiveRoleCode(user) ?? "");
 }
 
-// Types
-export type MealType = "BREAKFAST" | "LUNCH" | "DINNER" | "SNACK";
-export type MealDayType = "WEEKDAY" | "WEEKEND" | "ALL";
+// Types — the meal type and the menu shape are @cipansor/shared's, so the web
+// and the API cannot drift apart again (#1081).
+export type MealType = MealTypeCode;
 
-export const MEAL_TYPES: MealType[] = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"];
-export const MEAL_DAY_TYPES: MealDayType[] = ["WEEKDAY", "WEEKEND", "ALL"];
+export const MEAL_TYPES: MealType[] = [...MEAL_TYPE_VALUES];
 
 export const MEAL_TYPE_LABELS: Record<MealType, string> = {
   BREAKFAST: "Sarapan",
@@ -29,35 +35,27 @@ export const MEAL_TYPE_LABELS: Record<MealType, string> = {
   SNACK: "Snack/Camilan",
 };
 
-export const MEAL_DAY_TYPE_LABELS: Record<MealDayType, string> = {
-  WEEKDAY: "Hari Kerja",
-  WEEKEND: "Akhir Pekan",
-  ALL: "Semua Hari",
-};
+/**
+ * A menu as the API returns it — the columns of `MealMenu`, plus its unit.
+ *
+ * The type used to declare `name`, `description`, `dayType`, `nutritionInfo`
+ * and `isActive`, none of which the API ever sent: the list filtered on
+ * `menu.name` (always empty, so search matched nothing) and the detail page
+ * rendered a day-type badge and an active switch from columns that do not
+ * exist (#1081).
+ */
+export type MealMenu = MealMenuDTO;
 
-export interface MealMenu {
-  id: string;
-  name: string;
-  description?: string;
-  mealType: MealType;
-  dayType: MealDayType;
-  date: string;
-  mainDish: string;
-  sideDish?: string;
-  vegetable?: string;
-  soup?: string;
-  dessert?: string;
-  drink?: string;
-  calories?: number;
-  nutritionInfo?: string;
-  unitId: string;
-  unit?: {
-    id: string;
-    name: string;
-  };
-  isActive: boolean;
-  createdAt: string;
-  updatedAt: string;
+/**
+ * The title the UI shows for a menu, since `MealMenu` has no `name` column:
+ * the meal time plus the day and date, with the dishes as the subtitle. Used
+ * by the list, the detail header, the delete dialog and the share text.
+ */
+export function mealMenuTitle(
+  menu: Pick<MealMenu, "mealType" | "date">,
+  formatDate: (iso: string) => string,
+): string {
+  return `${MEAL_TYPE_LABELS[menu.mealType]} · ${formatDate(menu.date)}`;
 }
 
 export interface MealAttendance {
@@ -97,7 +95,6 @@ export function useMealMenus(params?: {
   mealType?: MealType;
   startDate?: string;
   endDate?: string;
-  isActive?: boolean;
 }) {
   return useQuery({
     queryKey: ["meal-menus", params],
@@ -171,7 +168,7 @@ export function useCreateMealMenu() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: Partial<MealMenu>) => {
+    mutationFn: async (data: CreateMenuInput) => {
       const response = await api.post("/meals/menus", data);
       return response.data.data;
     },
@@ -187,18 +184,17 @@ export function useUpdateMealMenu() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: Partial<MealMenu>;
-    }) => {
+    mutationFn: async ({ id, data }: { id: string; data: UpdateMenuInput }) => {
       const response = await api.put(`/meals/menus/${id}`, data);
       return response.data.data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ["meal-menus"] });
+      // The detail page reads `["meal-menu", id]`; without this the page kept
+      // showing the pre-edit values after a save (#1081).
+      queryClient.invalidateQueries({
+        queryKey: ["meal-menu", variables.id],
+      });
       queryClient.invalidateQueries({ queryKey: ["today-menus"] });
       queryClient.invalidateQueries({ queryKey: ["weekly-menus"] });
     },

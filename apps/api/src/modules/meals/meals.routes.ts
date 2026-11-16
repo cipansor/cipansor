@@ -3,6 +3,8 @@ import { UserRole } from '@prisma/client';
 import { MEALS_ATTENDANCE_WRITER_ROLE_CODES, MEALS_MANAGER_ROLE_CODES } from '@cipansor/shared';
 import { mealsController } from './meals.controller';
 import { authenticate, authorize } from '@/middleware/auth';
+import { validate } from '@/middleware/validate';
+import { bulkCreateMenusSchema, createMenuSchema, updateMenuSchema } from './meals.schema';
 
 const router = Router();
 
@@ -88,13 +90,28 @@ router.get(
 );
 
 // POST /meals/menus - Create menu
-router.post('/menus', menuWriters, mealsController.createMenu.bind(mealsController));
+router.post(
+  '/menus',
+  menuWriters,
+  validate(createMenuSchema),
+  mealsController.createMenu.bind(mealsController)
+);
 
 // POST /meals/menus/bulk - Bulk create menus
-router.post('/menus/bulk', menuWriters, mealsController.bulkCreateMenus.bind(mealsController));
+router.post(
+  '/menus/bulk',
+  menuWriters,
+  validate(bulkCreateMenusSchema),
+  mealsController.bulkCreateMenus.bind(mealsController)
+);
 
 // PUT /meals/menus/:id - Update menu
-router.put('/menus/:id', menuWriters, mealsController.updateMenu.bind(mealsController));
+router.put(
+  '/menus/:id',
+  menuWriters,
+  validate(updateMenuSchema),
+  mealsController.updateMenu.bind(mealsController)
+);
 
 // DELETE /meals/menus/:id - Delete menu
 router.delete('/menus/:id', menuWriters, mealsController.deleteMenu.bind(mealsController));
