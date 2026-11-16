@@ -16,7 +16,7 @@
  */
 
 import { useState } from "react";
-import { FileText, Globe, Save, ShieldCheck } from "lucide-react";
+import { Eye, FileText, Globe, Save, ShieldCheck } from "lucide-react";
 import { toast } from "sonner";
 import {
   Card,
@@ -35,8 +35,16 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
   useCreatePrivacyPolicyVersion,
   usePrivacyPolicyCurrent,
+  usePrivacyPolicyVersion,
   usePrivacyPolicyVersions,
 } from "@/hooks/use-privacy-policy";
 
@@ -73,20 +81,35 @@ function formatDate(iso: string): string | null {
   }
 }
 
-/** Today, in the format a `<input type="date">` expects, in WIB. */
-function todayInputValue(): string {
+/**
+ * Now, as a `<input type="datetime-local">` value (`YYYY-MM-DDTHH:mm`) in WIB.
+ *
+ * The default has to be the *current instant*, not noon: a version published at
+ * 08.00 with a noon `effectiveAt` would sit in the future, `getCurrentPolicy`
+ * would keep serving the previous text until 12.00, and the success toast would
+ * claim the new version was already in use. Defaulting to now makes a publish
+ * take effect the moment it is made, which is what the operator expects.
+ */
+function nowInputValue(): string {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Jakarta",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).format(new Date());
-  return parts;
+    hour: "2-digit",
+    minute: "2-digit",
+    hourCycle: "h23",
+  }).formatToParts(new Date());
+  const get = (t: string) => parts.find((p) => p.type === t)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}T${get("hour")}:${get("minute")}`;
 }
 
 export function PrivacyPolicyEditor() {
   const { data: current, isLoading, isError } = usePrivacyPolicyCurrent();
   const { data: versions } = usePrivacyPolicyVersions();
+  // Which history row the admin is reading in full, if any. A published version
+  // is immutable, so opening it is a read — the text is shown as it was.
+  const [openVersion, setOpenVersion] = useState<number | null>(null);
 
   if (isLoading) {
     return (
@@ -189,6 +212,17 @@ export function PrivacyPolicyEditor() {
                       {v.createdBy ? ` · oleh ${v.createdBy.name}` : ""}
                     </p>
                   </div>
+                  {/* A consent points at a version number, so the admin has to
+                        be able to read that exact text again — the row opens the
+                        full id/en/ar body in a read-only dialog. */}
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setOpenVersion(v.version)}
+                  >
+                    <Eye className="mr-1.5 h-4 w-4" aria-hidden="true" />
+                    Lihat teks
+                  </Button>
                 </li>
               ))}
             </ul>
@@ -199,14 +233,99 @@ export function PrivacyPolicyEditor() {
           )}
         </CardContent>
       </Card>
+
+      <VersionDetailDialog
+        version={openVersion}
+        onClose={() => setOpenVersion(null)}
+      />
     </div>
+  );
+}
+
+/**
+ * Read-only view of one published version's full text, in all three languages.
+ *
+ * Nothing here can write: a published version is never edited. The body is plain
+ * text published by the foundation, rendered with preserved line breaks, never
+ * `dangerouslySetInnerHTML`.
+ */
+function VersionDetailDialog({
+  version,
+  onClose,
+}: {
+  version: number | null;
+  onClose: () => void;
+}) {
+  const { data, isLoading, isError } = usePrivacyPolicyVersion(version);
+
+  return (
+    <Dialog open={version !== null} onOpenChange={(open) => !open && onClose()}>
+      <DialogContent className="max-h-[85vh] max-w-3xl overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>
+            {version !== null ? `Versi ${version}` : "Versi"}
+          </DialogTitle>
+          <DialogDescription>
+            Teks yang disetujui pendaftar yang menunjuk nomor ini. Versi lama
+            tidak pernah disunting.
+          </DialogDescription>
+        </DialogHeader>
+
+        {isLoading ? (
+          <Skeleton className="h-64 w-full" />
+        ) : isError || !data ? (
+          <Alert variant="destructive">
+            <ShieldCheck className="h-4 w-4" />
+            <AlertTitle>Gagal memuat versi</AlertTitle>
+            <AlertDescription>
+              Teks versi ini tidak dapat diambil. Tutup lalu coba lagi.
+            </AlertDescription>
+          </Alert>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              Berlaku sejak {formatDate(data.effectiveAt) ?? data.effectiveAt}
+            </p>
+            <Tabs defaultValue="id">
+              <TabsList>
+                {LANGS.map((l) => (
+                  <TabsTrigger key={l.key} value={l.key}>
+                    {l.label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+              {LANGS.map((l) => (
+                <TabsContent
+                  key={l.key}
+                  value={l.key}
+                  className="space-y-3 pt-4"
+                >
+                  <p
+                    className="text-base font-medium leading-relaxed"
+                    dir={l.dir}
+                  >
+                    {data.texts[l.key].summary}
+                  </p>
+                  <div
+                    dir={l.dir}
+                    className="whitespace-pre-wrap text-sm leading-relaxed text-muted-foreground"
+                  >
+                    {data.texts[l.key].body}
+                  </div>
+                </TabsContent>
+              ))}
+            </Tabs>
+          </>
+        )}
+      </DialogContent>
+    </Dialog>
   );
 }
 
 function PublishForm() {
   const create = useCreatePrivacyPolicyVersion();
   const [draft, setDraft] = useState<Draft>(EMPTY);
-  const [effectiveAt, setEffectiveAt] = useState(todayInputValue());
+  const [effectiveAt, setEffectiveAt] = useState(nowInputValue());
 
   const busy = create.isPending;
 
@@ -246,8 +365,9 @@ function PublishForm() {
           en: draft.summaries.en.trim(),
           ar: draft.summaries.ar.trim(),
         },
-        // Noon WIB, so no timezone can move the effective day.
-        effectiveAt: new Date(`${effectiveAt}T12:00:00+07:00`),
+        // The value is a WIB wall-clock time from `<input type="datetime-local">`;
+        // anchor it to +07:00 so the stored instant matches what the operator saw.
+        effectiveAt: new Date(`${effectiveAt}:00+07:00`),
       });
       toast.success(
         `Versi ${created.version} diterbitkan. Halaman publik dan formulir SPMB kini memakainya.`,
@@ -269,10 +389,10 @@ function PublishForm() {
       </CardHeader>
       <CardContent className="space-y-4">
         <div className="max-w-xs space-y-2">
-          <Label htmlFor="effectiveAt">Berlaku sejak</Label>
+          <Label htmlFor="effectiveAt">Berlaku sejak (WIB)</Label>
           <Input
             id="effectiveAt"
-            type="date"
+            type="datetime-local"
             value={effectiveAt}
             onChange={(e) => setEffectiveAt(e.target.value)}
             disabled={busy}

@@ -50,4 +50,23 @@ test.describe("Pengaturan → Kebijakan Privasi (Super Admin)", () => {
       page.getByRole("heading", { name: "Kebijakan Privasi", level: 1 }),
     ).toHaveCount(0);
   });
+
+  test("opens a published version's full text from the history", async ({
+    page,
+  }) => {
+    // A consent names a version number, so the admin must be able to read that
+    // exact text again — read-only, in all three languages.
+    await page.goto("/settings/privacy-policy");
+
+    await page.getByRole("button", { name: "Lihat teks" }).first().click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(
+      dialog.getByRole("heading", { name: /Versi \d+/ }),
+    ).toBeVisible();
+    // The seed's version 1 body is rendered, not an error state.
+    await expect(
+      dialog.getByText(/Kebijakan Privasi \(contoh untuk lingkungan demo\)/),
+    ).toBeVisible();
+  });
 });

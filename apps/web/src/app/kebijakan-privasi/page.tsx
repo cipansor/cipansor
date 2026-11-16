@@ -8,7 +8,10 @@ import { siteConfig } from "@/config/site";
 import { pagesContentFor } from "@/config/pages.i18n";
 import { getServerLocale } from "@/lib/server-locale";
 import { dateFormatterFor } from "@/lib/locale-format";
-import { fetchCurrentPrivacyPolicy } from "@/lib/privacy-policy.server";
+import {
+  fetchCurrentPrivacyPolicy,
+  fetchPrivacyPolicyVersion,
+} from "@/lib/privacy-policy.server";
 import { galleryPhoto } from "@/config/page-photo";
 
 /**
@@ -36,10 +39,24 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default async function KebijakanPrivasiPage() {
+export default async function KebijakanPrivasiPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ version?: string }>;
+}) {
   const locale = await getServerLocale();
   const copy = pagesContentFor(locale).privacy;
-  const policy = await fetchCurrentPrivacyPolicy();
+  // When the SPMB consent link pins a version (`?version=N`), show exactly that
+  // text: the parent then reads, and consents to, the number the form records.
+  // Otherwise show the currently-effective version. Either way a version that is
+  // not published yet (or a stale link) degrades to `null` → "not yet".
+  const { version } = await searchParams;
+  const pinnedVersion =
+    version && /^\d+$/.test(version) ? Number(version) : null;
+  const policy =
+    pinnedVersion !== null
+      ? await fetchPrivacyPolicyVersion(pinnedVersion)
+      : await fetchCurrentPrivacyPolicy();
   // The reader's own language; the policy stores all three. Falls back to
   // Indonesian, which is the language the text is authored in.
   const text = policy?.texts[locale] ?? policy?.texts.id ?? null;

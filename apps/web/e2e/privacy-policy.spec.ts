@@ -52,3 +52,23 @@ test("the privacy policy is reachable without a session", async ({ page }) => {
   await expect(page).not.toHaveURL(/\/login/);
   await expect(page.getByRole("heading", { level: 1 })).toBeVisible();
 });
+
+test("a pinned version shows that exact version, not the current one", async ({
+  page,
+}) => {
+  // The SPMB consent link is `/kebijakan-privasi?version=N`, so a parent reads
+  // the same text the form records. The seed publishes version 1.
+  const copy = pagesContentFor("id").privacy;
+  await page.goto("/kebijakan-privasi?version=1");
+  await expect(page.getByText(copy.versionLabel(1)).first()).toBeVisible();
+});
+
+test("a pinned version that does not exist degrades to the honest 'not yet'", async ({
+  page,
+}) => {
+  // A stale or mistyped link must not crash the one page the consent points at.
+  const copy = pagesContentFor("id").privacy;
+  const response = await page.goto("/kebijakan-privasi?version=999999");
+  expect(response?.status()).toBeLessThan(400);
+  await expect(page.getByText(copy.notPublishedTitle)).toBeVisible();
+});

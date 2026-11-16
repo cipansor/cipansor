@@ -16,6 +16,8 @@ import type {
 
 const CURRENT_KEY = ["privacy-policy", "current"] as const;
 const VERSIONS_KEY = ["privacy-policy", "versions"] as const;
+const versionKey = (version: number) =>
+  ["privacy-policy", "version", version] as const;
 
 /**
  * Versi yang berlaku. `null` = yayasan belum menerbitkan teksnya; halaman
@@ -33,6 +35,25 @@ export function usePrivacyPolicyCurrent(options?: { enabled?: boolean }) {
     },
     staleTime: 30 * 60 * 1000,
     enabled: options?.enabled ?? true,
+  });
+}
+
+/**
+ * Teks lengkap satu versi menurut nomornya, untuk pembaca riwayat admin.
+ *
+ * Kunci cache-nya memuat nomor versi — teks satu versi tidak pernah berubah, jadi
+ * hasilnya tidak pernah basi, dan membuka v2 tidak pernah menyajikan v1.
+ */
+export function usePrivacyPolicyVersion(version: number | null) {
+  return useQuery({
+    queryKey: versionKey(version ?? 0),
+    queryFn: async () => {
+      const response = await api.get<{ data: PrivacyPolicyCurrentDTO | null }>(
+        `/privacy-policy/versions/${version}`,
+      );
+      return response.data.data ?? null;
+    },
+    enabled: version !== null,
   });
 }
 

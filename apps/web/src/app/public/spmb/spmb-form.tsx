@@ -260,6 +260,11 @@ export function SpmbForm({
    * is not a consent — and the API refuses a submission without it.
    */
   const [consent, setConsent] = useState(false);
+  // The version the guardian actually ticked, frozen at that moment. If the
+  // foundation publishes a new version while the form is open, the live value
+  // changes but the consent still names the text the guardian read — the
+  // evidence may not point at text that was never on their screen.
+  const [consentedVersion, setConsentedVersion] = useState<number | null>(null);
   // The policy version the visitor is consenting to. Fetched so the recorded
   // consent names the text actually read, and so the form can explain when the
   // foundation has not published one yet (the API would refuse anyway).
@@ -421,6 +426,11 @@ export function SpmbForm({
         });
         setActiveRegistration(null);
         setFormData(initialFormData);
+        // The consent covered THIS child. Clearing it here — and not while
+        // uploads are still retrying, which is the same registration — keeps a
+        // second child from inheriting a tick the guardian never gave.
+        setConsent(false);
+        setConsentedVersion(null);
         setCurrentStep(0);
       } else {
         toast.error(t.toasts.uploadsStillFailing(failedLabels.join(comma)));
@@ -510,7 +520,9 @@ export function SpmbForm({
       // itself; the version has to come from here because only the browser saw
       // which text was on screen.
       payload.consent = true;
-      payload.consentVersion = privacyPolicy.version;
+      // The version frozen when the guardian ticked the box, not the live one:
+      // a republication mid-form must not silently re-point the consent.
+      payload.consentVersion = consentedVersion ?? privacyPolicy.version;
 
       // POST /admissions/public/registrants answers with the registrant's id,
       // number and upload token. The page used to fall back to a number of
@@ -558,9 +570,13 @@ export function SpmbForm({
         name: formData.fullName,
       });
 
-      // Reset form on full success
+      // Reset form on full success. The guardian's consent goes with it: the
+      // next child on this page must be ticked for afresh, or the record would
+      // show a consent the guardian never gave for that child.
       setActiveRegistration(null);
       setFormData(initialFormData);
+      setConsent(false);
+      setConsentedVersion(null);
       setCurrentStep(0);
     } catch (error: any) {
       // The API's own reason (a full wave, a closed period) is in Indonesian;
@@ -1513,9 +1529,15 @@ export function SpmbForm({
                                 <Checkbox
                                   id="spmb-consent"
                                   checked={consent}
-                                  onCheckedChange={(value) =>
-                                    setConsent(value === true)
-                                  }
+                                  onCheckedChange={(value) => {
+                                    const checked = value === true;
+                                    setConsent(checked);
+                                    // Freeze the version the guardian consents
+                                    // to; clearing the box clears it too.
+                                    setConsentedVersion(
+                                      checked ? privacyPolicy.version : null,
+                                    );
+                                  }}
                                   className="mt-0.5"
                                 />
                                 <Label
@@ -1524,7 +1546,7 @@ export function SpmbForm({
                                 >
                                   {t.confirm.consentBefore}{" "}
                                   <Link
-                                    href="/kebijakan-privasi"
+                                    href={`/kebijakan-privasi?version=${privacyPolicy.version}`}
                                     target="_blank"
                                     rel="noopener noreferrer"
                                     className="font-medium text-primary underline underline-offset-2"

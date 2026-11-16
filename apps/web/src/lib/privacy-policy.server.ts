@@ -21,6 +21,14 @@ export const POLICY_FETCH_TIMEOUT_MS = 3000;
 export const POLICY_REVALIDATE_SECONDS = 300;
 
 /**
+ * How long a single, immutable version may be cached, in seconds.
+ *
+ * A published version is never edited (that is the whole point of versioning),
+ * so its text cannot go stale; one year is effectively "keep it".
+ */
+export const POLICY_VERSION_REVALIDATE_SECONDS = 31_536_000;
+
+/**
  * The currently-effective Kebijakan Privasi, fetched on the server for the
  * public page and for the SPMB form's consent text.
  *
@@ -33,14 +41,43 @@ export const POLICY_REVALIDATE_SECONDS = 300;
  * degrade to `null` rather than a crashed or stalled page.
  */
 export async function fetchCurrentPrivacyPolicy(): Promise<PrivacyPolicyCurrentDTO | null> {
+  return fetchPolicy(
+    `${apiOriginForServer()}/api/privacy-policy/current`,
+    POLICY_REVALIDATE_SECONDS,
+  );
+}
+
+/**
+ * One specific published version, fetched on the server for the public page when
+ * the SPMB consent link pins a number (`/kebijakan-privasi?version=N`).
+ *
+ * The point is that the page a parent reads and the version the form records are
+ * the same number. The current-version read above is cached for
+ * `POLICY_REVALIDATE_SECONDS`, so right after a publication it can still serve
+ * the previous text; a versioned read cannot — that text never changes. A
+ * missing version (or any failure) degrades to `null`, exactly as above.
+ */
+export async function fetchPrivacyPolicyVersion(
+  version: number,
+): Promise<PrivacyPolicyCurrentDTO | null> {
+  return fetchPolicy(
+    `${apiOriginForServer()}/api/privacy-policy/versions/${version}`,
+    // A published version is immutable, so it may be cached for a long time.
+    POLICY_VERSION_REVALIDATE_SECONDS,
+  );
+}
+
+async function fetchPolicy(
+  url: string,
+  revalidateSeconds: number,
+): Promise<PrivacyPolicyCurrentDTO | null> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), POLICY_FETCH_TIMEOUT_MS);
   // Node timers carry `unref`; a pending deadline must not hold the process.
   (timer as unknown as { unref?: () => void }).unref?.();
   try {
-    const origin = apiOriginForServer();
-    const response = await fetch(`${origin}/api/privacy-policy/current`, {
-      next: { revalidate: POLICY_REVALIDATE_SECONDS },
+    const response = await fetch(url, {
+      next: { revalidate: revalidateSeconds },
       signal: controller.signal,
     });
     if (!response.ok) return null;
