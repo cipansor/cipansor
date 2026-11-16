@@ -11,7 +11,11 @@ import * as service from '../assessment.service';
 import { updateExamStatus } from '../assessment.controller';
 
 function call(body: unknown) {
-  const req = { params: { id: 'exam-1' }, body } as unknown as Request;
+  const req = {
+    params: { id: 'exam-1' },
+    body,
+    user: { sub: 'u1', roleCode: 'SUPER_ADMIN', unitId: null },
+  } as unknown as Request;
   const json = vi.fn();
   const res = { json } as unknown as Response;
   const next = vi.fn() as NextFunction & ReturnType<typeof vi.fn>;
@@ -24,7 +28,11 @@ describe('PATCH /assessment/exams/:id/status', () => {
   it('passes a known status to the service', async () => {
     const { req, res, next, json } = call({ status: 'SCHEDULED' });
     await updateExamStatus(req, res, next);
-    expect(service.updateExamStatus).toHaveBeenCalledWith('exam-1', 'SCHEDULED');
+    expect(service.updateExamStatus).toHaveBeenCalledWith('exam-1', 'SCHEDULED', {
+      sub: 'u1',
+      roleCode: 'SUPER_ADMIN',
+      unitId: null,
+    });
     expect(json).toHaveBeenCalledWith({
       success: true,
       data: { id: 'exam-1', status: 'SCHEDULED' },

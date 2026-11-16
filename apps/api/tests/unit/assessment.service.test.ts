@@ -1,14 +1,9 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  createExam,
-  getExams,
-  updateExam,
-  createGrade,
-  generateReportCard,
-} from '../../src/modules/assessment/assessment.service';
+import { createExam, generateReportCard } from '../../src/modules/assessment/assessment.service';
 import { prisma } from '../../src/lib/prisma';
 import { ExamType } from '@cipansor/shared';
 import { Decimal } from '@prisma/client/runtime/client';
+import type { WriteActor } from '../../src/utils/write-scope';
 
 // Mock Prisma
 vi.mock('../../src/lib/prisma', () => ({
@@ -54,10 +49,17 @@ vi.mock('../../src/lib/prisma', () => ({
       findMany: vi.fn(),
       aggregate: vi.fn(),
     },
+    student: { findMany: vi.fn() },
+    class: { findUnique: vi.fn() },
+    subject: { findUnique: vi.fn() },
+    teacher: { findUnique: vi.fn(), findFirst: vi.fn() },
+    teacherSubject: { findMany: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn((callback) => callback(prisma)),
   },
 }));
+
+const SUPER: WriteActor = { sub: 'u1', roleCode: 'SUPER_ADMIN', unitId: null };
 
 describe('Assessment Service', () => {
   beforeEach(() => {
@@ -90,9 +92,13 @@ describe('Assessment Service', () => {
         updatedAt: new Date(),
       };
 
+      vi.mocked(prisma.class.findUnique).mockResolvedValue({ unitId: 'unit-1' } as any);
+      vi.mocked(prisma.subject.findUnique).mockResolvedValue({ unitId: 'unit-1' } as any);
+      vi.mocked(prisma.teacher.findUnique).mockResolvedValue({ unitId: 'unit-1' } as any);
+      vi.mocked(prisma.teacherSubject.findMany).mockResolvedValue([] as any);
       vi.mocked(prisma.exam.create).mockResolvedValue(mockExam as any);
 
-      const result = await createExam(input);
+      const result = await createExam(input, SUPER);
 
       expect(prisma.exam.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -113,6 +119,10 @@ describe('Assessment Service', () => {
       const classId = 'class-1';
       const academicYearId = 'year-1';
       const semester = 1;
+
+      vi.mocked(prisma.student.findMany).mockResolvedValue([
+        { id: studentId, unitId: 'unit-1' },
+      ] as any);
 
       // Mock QueryRaw for subject aggregates
       vi.mocked(prisma.$queryRaw).mockResolvedValue([
@@ -154,7 +164,7 @@ describe('Assessment Service', () => {
         details: [],
       } as any);
 
-      await generateReportCard(studentId, classId, academicYearId, semester);
+      await generateReportCard(studentId, classId, academicYearId, semester, SUPER);
 
       expect(prisma.$queryRaw).toHaveBeenCalled();
       expect(prisma.reportCard.upsert).toHaveBeenCalledWith(

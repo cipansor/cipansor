@@ -1,15 +1,19 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { getExamAnalytics } from './assessment.service';
 import { prisma } from '@/lib/prisma';
+import type { WriteActor } from '@/utils/write-scope';
 
 // Mock prisma
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     exam: {
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
     },
   },
 }));
+
+const SUPER: WriteActor = { sub: 'u1', roleCode: 'SUPER_ADMIN', unitId: null };
 
 describe('Assessment Service - getExamAnalytics', () => {
   beforeEach(() => {
@@ -17,9 +21,9 @@ describe('Assessment Service - getExamAnalytics', () => {
   });
 
   it('should return null if exam is not found', async () => {
-    (prisma.exam.findUnique as any).mockResolvedValue(null);
+    (prisma.exam.findFirst as any).mockResolvedValue(null);
 
-    const result = (await getExamAnalytics('exam-1'))!;
+    const result = (await getExamAnalytics('exam-1', SUPER))!;
     expect(result).toBeNull();
   });
 
@@ -31,9 +35,9 @@ describe('Assessment Service - getExamAnalytics', () => {
       class: { _count: { enrollments: 2 } },
       grades: [],
     };
-    (prisma.exam.findUnique as any).mockResolvedValue(mockExam);
+    (prisma.exam.findFirst as any).mockResolvedValue(mockExam);
 
-    const result = (await getExamAnalytics('exam-1'))!;
+    const result = (await getExamAnalytics('exam-1', SUPER))!;
     expect(result).toMatchObject({
       examId: 'exam-1',
       totalStudents: 2,
@@ -62,9 +66,9 @@ describe('Assessment Service - getExamAnalytics', () => {
       ],
     };
 
-    (prisma.exam.findUnique as any).mockResolvedValue(mockExam);
+    (prisma.exam.findFirst as any).mockResolvedValue(mockExam);
 
-    const result = (await getExamAnalytics('exam-2'))!;
+    const result = (await getExamAnalytics('exam-2', SUPER))!;
     // totalScore = 80 + 60 + 90 + 95 = 325
     // average = 325 / 4 = 81.25
     expect(result).toMatchObject({
