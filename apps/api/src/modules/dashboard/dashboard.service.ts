@@ -29,6 +29,8 @@ import {
   todayWib,
   wibWeekday,
   wibDayStart,
+  wibMonthRange,
+  wibMonthYear,
   wibOverdueCutoff,
 } from '@/utils/wib';
 
@@ -125,14 +127,22 @@ export class DashboardService {
   async getStats(context: DashboardServiceContext): Promise<DashboardStats> {
     const unitFilter = context.unitId ? { unitId: context.unitId } : {};
 
-    // Calculate date for last month comparison
+    // The "last month" baseline is the start of the WIB calendar month, not
+    // `new Date(now.getFullYear(), now.getMonth() - 1, now.getDate())`: that
+    // constructor rolls a day past the target month's length forward (the 31st
+    // becomes the 3rd of the next month), so on the 29th–31st the baseline
+    // landed in the *current* month and every student added this month counted
+    // as "already there last month". It also read the UTC fields of the server
+    // clock, so on 00:00–06:59 WIB it was still yesterday's UTC day. The
+    // container runs UTC; WIB is a fixed +07:00.
     const now = new Date();
-    const lastMonth = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
+    const { year, month } = wibMonthYear(now);
+    const { start: startOfMonth } = wibMonthRange(year, month);
 
     const [
       totalStudents,
       activeStudents,
-      lastMonthStudents,
+      studentsBeforeThisMonth,
       totalTeachers,
       totalClasses,
       totalUnits,
@@ -145,7 +155,7 @@ export class DashboardService {
         where: {
           ...unitFilter,
           status: STUDENT_STATUS.ACTIVE,
-          createdAt: { lte: lastMonth },
+          createdAt: { lt: startOfMonth },
         },
       }),
       prisma.teacher.count({ where: unitFilter }),
@@ -158,8 +168,10 @@ export class DashboardService {
 
     // Calculate student growth percentage
     let studentsGrowth = 0;
-    if (lastMonthStudents > 0) {
-      studentsGrowth = Math.round(((activeStudents - lastMonthStudents) / lastMonthStudents) * 100);
+    if (studentsBeforeThisMonth > 0) {
+      studentsGrowth = Math.round(
+        ((activeStudents - studentsBeforeThisMonth) / studentsBeforeThisMonth) * 100
+      );
     }
 
     // Calculate attendance rate
