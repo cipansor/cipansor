@@ -33,6 +33,8 @@ import {
   useEmployees,
   LEAVE_TYPES,
   LEAVE_TYPE_LABELS,
+  leaveProfileId,
+  leaveProfileRef,
 } from "@/hooks";
 import { useAcademicYears } from "@/hooks/use-academic-years";
 import { useLeaveBalances } from "@/hooks/use-leave-balances";
@@ -78,7 +80,12 @@ export default function NewLeavePage() {
   const createLeaveRequest = useCreateLeaveRequest();
 
   const { data: employeesData } = useEmployees({ status: "ACTIVE" });
-  const employees = employeesData?.data || [];
+  // A leave is filed against a Staff (or Teacher) profile, so an employee who
+  // has neither cannot be chosen — the API would refuse the write. See
+  // leaveProfileId.
+  const employees = (employeesData?.data || []).filter(
+    (e) => leaveProfileId(e) !== null,
+  );
 
   const { data: academicYearsData } = useAcademicYears({ isActive: true });
   const activeAcademicYear = academicYearsData?.data?.[0];
@@ -96,7 +103,9 @@ export default function NewLeavePage() {
   });
 
   const selectedEmployeeId = form.watch("employeeId");
-  const selectedEmployee = employees.find((e) => e.id === selectedEmployeeId);
+  const selectedEmployee = employees.find(
+    (e) => leaveProfileId(e) === selectedEmployeeId,
+  );
   const selectedLeaveType = form.watch("leaveType");
 
   const { data: leaveBalances } = useLeaveBalances(
@@ -114,12 +123,22 @@ export default function NewLeavePage() {
       : 0;
 
   const onSubmit = async (data: LeaveRequestFormData) => {
+    const employee = employees.find(
+      (e) => leaveProfileId(e) === data.employeeId,
+    );
+    if (!employee) {
+      toast.error(
+        "Karyawan tidak ditemukan atau belum punya profil kepegawaian",
+      );
+      return;
+    }
     try {
-      // The API contract is `type` + `staffId`; the form's own names
+      // The API contract is `type` + a profile id (`staffId`, or `teacherId`
+      // for a teacher without a linked Staff row); the form's own names
       // (`leaveType`, `employeeId`) must be mapped, not sent through as-is.
       await createLeaveRequest.mutateAsync({
         type: data.leaveType,
-        staffId: data.employeeId,
+        ...leaveProfileRef(employee),
         startDate: new Date(data.startDate).toISOString(),
         endDate: new Date(data.endDate).toISOString(),
         reason: data.reason,
@@ -180,7 +199,10 @@ export default function NewLeavePage() {
                             </FormControl>
                             <SelectContent>
                               {employees.map((emp) => (
-                                <SelectItem key={emp.id} value={emp.id}>
+                                <SelectItem
+                                  key={emp.id}
+                                  value={leaveProfileId(emp)!}
+                                >
                                   {emp.fullName} - {emp.position}
                                 </SelectItem>
                               ))}

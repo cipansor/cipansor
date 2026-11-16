@@ -233,6 +233,33 @@ export function normalizeEmployee(raw: any): Employee {
   };
 }
 
+/**
+ * The profile id a leave is filed against — the Staff row's id, or, for a
+ * teacher whose Staff row is not linked yet, the Teacher row's id. `Employee.id`
+ * is the *user* id, and the API resolves `staffId`/`teacherId` against the
+ * staff and teacher tables, so a user id is refused (404 "Staff not found").
+ * The Ajukan Cuti form keys its employee `<SelectItem>` on this, never on `id`.
+ * Null when the employee has neither profile.
+ */
+export function leaveProfileId(employee: Employee): string | null {
+  return employee.staffId ?? employee.teacherId ?? null;
+}
+
+/**
+ * The `staffId`/`teacherId` fields POST /hr/leaves expects for an employee. A
+ * teacher id must travel as `teacherId`, not as `staffId`: the API resolves a
+ * `staffId` against the staff table and a `teacherId` through the teacher's
+ * linked staff row, so the two are not interchangeable.
+ */
+export function leaveProfileRef(employee: Employee): {
+  staffId?: string;
+  teacherId?: string;
+} {
+  if (employee.staffId) return { staffId: employee.staffId };
+  if (employee.teacherId) return { teacherId: employee.teacherId };
+  return {};
+}
+
 export interface Department {
   id: string;
   name: string;

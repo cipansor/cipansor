@@ -55,16 +55,6 @@ workers refused on a closed day. Still open:
   evidence) instead of marking it.
 - **Non-teaching staff cannot file leave.** `/hr/leaves/new` is under `/hr`,
   and the `STAFF` bucket in `rbac.ts` opens only `/hr/attendance/me`.
-- **The *Ajukan Cuti* form sends the user id where the API wants a staff id.**
-  `hr/leaves/new` binds each employee `<SelectItem value={emp.id}>`, and
-  `emp.id` is the **user** id (`normalizeEmployee`), then posts it as `staffId`.
-  `createLeave` resolves `staffId` against the `staff` profile (or a teacher's
-  `staffId`), so a user id matches neither. Observed on the running stack
-  2026-11-12: unit admin → 404 "Staff not found"; Super Admin → 500 (foreign
-  key `leaves_staff_id_fkey`); a guru filing for self → 403 ("Anda hanya dapat
-  mengelola cuti milik sendiri"); a non-teaching staff member → 404 "Data
-  kepegawaian Anda belum dibuat…". A guru who leaves the field blank gets 201 —
-  the API auto-fills their own staff row. Tracked in **#1061**.
 - **The employee *Status* filter on `/hr` does not filter, and offers statuses
   the API rejects.** `HRPage` sends `status` to `GET /hr/employees`, but
   `getEmployees` never reads it, so `status=ACTIVE`, `INACTIVE` and `ON_LEAVE`

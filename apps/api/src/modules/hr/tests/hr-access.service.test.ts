@@ -4,15 +4,23 @@ vi.mock('../../../lib/prisma', () => ({
   prisma: {
     staff: { findUnique: vi.fn() },
     teacher: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn() },
   },
 }));
 
 import { prisma } from '../../../lib/prisma';
-import { assertMayManageLeave, assertMayManageStaff, leaveStaffId } from '../hr.service';
+import {
+  assertMayManageLeave,
+  assertMayManageStaff,
+  leaveStaffId,
+  resolveNamedStaffId,
+  USER_ID_AS_STAFF_ID_MESSAGE,
+} from '../hr.service';
 
 const m = prisma as unknown as {
   staff: { findUnique: ReturnType<typeof vi.fn> };
   teacher: { findUnique: ReturnType<typeof vi.fn> };
+  user: { findUnique: ReturnType<typeof vi.fn> };
 };
 
 const SUPER = { sub: 'u-super', roleCode: 'SUPER_ADMIN', role: null, unitId: null };
@@ -83,5 +91,35 @@ describe('leaveStaffId', () => {
 
   it('refuses a leave with neither id', async () => {
     await expect(leaveStaffId({ staffId: null, teacherId: null })).rejects.toThrow(/wajib diisi/i);
+  });
+});
+
+describe('resolveNamedStaffId', () => {
+  it('accepts a Staff profile id', async () => {
+    m.staff.findUnique.mockResolvedValue({ id: 'staff-1' });
+    await expect(resolveNamedStaffId('staff-1')).resolves.toBe('staff-1');
+    // A real staff id never needs the user fallback.
+    expect(m.user.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('turns a user id sent as staffId into a clear 400, not 404 "Staff not found"', async () => {
+    m.staff.findUnique.mockResolvedValue(null);
+    m.user.findUnique.mockResolvedValue({ id: 'user-1' });
+
+    await expect(resolveNamedStaffId('user-1')).rejects.toMatchObject({
+      code: 'BAD_REQUEST',
+      message: USER_ID_AS_STAFF_ID_MESSAGE,
+    });
+  });
+
+  it('keeps the 404 for an id that is neither a staff profile nor a user', async () => {
+    m.staff.findUnique.mockResolvedValue(null);
+    m.user.findUnique.mockResolvedValue(null);
+
+    await expect(resolveNamedStaffId('11111111-1111-4111-8111-111111111111')).rejects.toMatchObject(
+      {
+        code: 'NOT_FOUND',
+      }
+    );
   });
 });
