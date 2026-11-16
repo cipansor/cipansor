@@ -57,4 +57,24 @@ describe('getMonthlyAttributedRevenue — WIB window and buckets', () => {
     const trend = await getMonthlyAttributedRevenue(undefined, 6);
     expect(trend.find((t) => t.month === '2026-03')?.revenue).toBe(50000);
   });
+
+  it('queries from the WIB month start, not UTC midnight', async () => {
+    vi.setSystemTime(new Date('2026-08-15T02:00:00.000Z')); // window 2026-03 … 2026-08
+    // 2026-03-01 00:00 WIB = 2026-02-28T17:00Z. A UTC-midnight bound
+    // (2026-03-01T00:00Z) would drop the first seven WIB hours of the month, but
+    // `mockResolvedValue` ignores the filter, so the bucket tests above cannot
+    // see it — the bound itself must be asserted.
+    const monthStart = new Date('2026-02-28T17:00:00.000Z');
+    await getMonthlyAttributedRevenue(undefined, 6);
+    expect(mocked.payment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ paidAt: { gte: monthStart } }),
+      })
+    );
+    expect(mocked.registrant.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ registrationFeePaidAt: { gte: monthStart } }),
+      })
+    );
+  });
 });
