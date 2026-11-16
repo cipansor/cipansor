@@ -457,7 +457,10 @@ test.describe("Menu Makan — alur Edit menyimpan perubahan (#1081)", () => {
  *
  * Each browser project gets its own dates within the current month — the picker
  * opens on the month of "today" — so the parallel projects never collide on the
- * model's unique (unit, date, meal type) key.
+ * model's unique (unit, date, meal type) key. None of them may be *today*
+ * either: the top-level fixture seeds a BREAKFAST on SD IT for today, the same
+ * unit and meal type the New form defaults to, so a create that landed on today
+ * would answer 409 rather than the 201 the test wants.
  */
 test.describe("Menu Makan — alur Tambah Menu (#1081)", () => {
   test.describe.configure({ mode: "serial" });
@@ -468,8 +471,23 @@ test.describe("Menu Makan — alur Tambah Menu (#1081)", () => {
   let offset = 0;
   let yearMonth = "";
 
-  /** A day of the current month, distinct per project and per test index. */
-  const dayFor = (index: number) => 1 + (((offset % 27) + index * 9) % 27);
+  /**
+   * A day of the current month, distinct per project and per test index. Every
+   * day from today on is pushed one later, so no test ever lands on today — the
+   * top-level block already holds a BREAKFAST on SD IT for today and the New
+   * form defaults to BREAKFAST on SD IT, so a create on today would answer 409,
+   * not 201. The shift is the same for every project, so it cannot make two
+   * projects' days collide.
+   */
+  const today = Number(
+    new Date()
+      .toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" })
+      .slice(8, 10),
+  );
+  const dayFor = (index: number) => {
+    const day = 1 + (((offset % 27) + index * 9) % 27);
+    return day >= today ? day + 1 : day;
+  };
   const isoFor = (index: number) =>
     `${yearMonth}-${String(dayFor(index)).padStart(2, "0")}`;
   const dishFor = (index: number) => `Menu Baru Uji ${offset} ${index}`;
