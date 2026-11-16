@@ -9,6 +9,7 @@ import {
   STUDENT_SAFE_SELECT,
   TEACHER_SAFE_SELECT,
 } from '@/utils/student-scope';
+import { todayWib, wibWeekRange } from '@/utils/wib';
 
 // Status enum
 type MuhadatsahStatus = 'SCHEDULED' | 'COMPLETED' | 'CANCELLED';
@@ -543,13 +544,12 @@ export class MuhadatsahService {
     unitId: string | undefined,
     language: string
   ) {
-    // Find students who don't have a scheduled muhadatsah yet this week
-    const weekStart = new Date();
-    weekStart.setDate(weekStart.getDate() - weekStart.getDay());
-    weekStart.setHours(0, 0, 0, 0);
-
-    const weekEnd = new Date(weekStart);
-    weekEnd.setDate(weekEnd.getDate() + 7);
+    // Students with no muhadatsah scheduled yet this week. "This week" is the
+    // WIB Monday–Sunday week (K2, ISO 8601), the same window as the parent
+    // weekly progress (#916/#917) — not the server clock's week, which on a UTC
+    // container starts on Sunday and lands 07:00 WIB, dropping the Sunday
+    // 00:00–06:59 WIB schedules into the wrong week.
+    const { start: weekStart, end: weekEnd } = wibWeekRange(todayWib());
 
     // Get students who already have muhadatsah this week
     const scheduledThisWeek = await prisma.muhadatsah.findMany({
@@ -557,7 +557,7 @@ export class MuhadatsahService {
         ...readable(currentUser, unitId),
         language,
         status: 'SCHEDULED',
-        scheduledAt: { gte: weekStart, lte: weekEnd },
+        scheduledAt: { gte: weekStart, lt: weekEnd },
       },
       select: { studentId: true, partnerId: true },
     });
