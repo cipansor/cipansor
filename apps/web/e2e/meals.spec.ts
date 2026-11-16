@@ -45,11 +45,13 @@ test.beforeAll(async () => {
   // The seed's own menus use `new Date()`, which lands on the wrong `@db.Date`
   // day between 00:00 and 06:59 WIB — so this spec seeds its own menu for the
   // WIB day, on a unit the seed leaves menu-free, and is deterministic at any
-  // hour. A retry re-runs this setup, so a conflict means it is already there.
+  // hour. `date` is a calendar day ("yyyy-MM-dd"), the contract the create
+  // route validates (#1081). A retry re-runs this setup, so a conflict means it
+  // is already there.
   try {
     await apiRequest(admin, "POST", "/meals/menus", {
       unitId: sd.id,
-      date: `${TODAY_WIB}T00:00:00.000Z`,
+      date: TODAY_WIB,
       mealType: "BREAKFAST",
       mainDish: "Bubur Ayam Spesial",
       drink: "Teh Hangat",
@@ -173,9 +175,12 @@ test.describe("Menu Makan — gerbang tombol per peran di setiap layar", () => {
       0,
     );
     mainDish = `Puding Uji Gerbang ${offset}`;
-    fixtureDate = new Date(
-      Date.UTC(2032, 11, 1) + (offset % 300) * 86_400_000,
-    ).toISOString();
+    // `date` is a calendar day ("yyyy-MM-dd") — the create route's contract
+    // (#1081) — so a full ISO datetime would be a 400, not the 409 this setup
+    // treats as "already there".
+    fixtureDate = new Date(Date.UTC(2032, 11, 1) + (offset % 300) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
 
     writer = await apiLogin(SEED_USERS.adminSdit);
     unitId = writer.user.unitId as string;
@@ -289,5 +294,118 @@ test.describe("Menu Makan — gerbang tombol per peran di setiap layar", () => {
       apiRequest(writer, "GET", `/meals/menus/${menuId}`),
     ).rejects.toThrow(/→ 404/);
     menuId = "";
+  });
+});
+
+/**
+ * The Edit flow, end to end (#1081).
+ *
+ * Saving the Edit form used to answer `500`: the form sent `name`, `dayType`
+ * and `nutritionInfo`, none of which is a column of `MealMenu`, and the service
+ * forwarded the body to Prisma raw. The form now follows the model's columns
+ * (the `@cipansor/shared` contract) and the service maps them one by one, so
+ * the same save must land and the detail page must show the new value.
+ *
+ * Its own fixture (a far-future DINNER on SD IT) keeps it off the other blocks;
+ * the flow runs against a menu it creates and deletes itself, so it is serial
+ * and self-contained.
+ */
+test.describe("Menu Makan — alur Edit menyimpan perubahan (#1081)", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let writer: AuthSession;
+  let unitId = "";
+  let menuId = "";
+  let fixtureDate = "";
+  const originalDish = "Ikan Uji Edit 1081";
+  const editedDish = "Ikan Uji Edit 1081 (diubah)";
+
+  test.beforeAll(async () => {
+    test.skip(
+      await isProductionApi(),
+      "API_URL menunjuk API produksi; uji ini menulis menu, jadi dilewati",
+    );
+    const offset = [...test.info().project.name].reduce(
+      (n, c) => n + c.charCodeAt(0),
+      0,
+    );
+    fixtureDate = new Date(Date.UTC(2033, 6, 1) + (offset % 300) * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+
+    writer = await apiLogin(SEED_USERS.adminSdit);
+    unitId = writer.user.unitId as string;
+    expect(unitId, "the SD IT admin belongs to a unit").toBeTruthy();
+
+    try {
+      const created = await apiRequest<{ data: { id: string } }>(
+        writer,
+        "POST",
+        "/meals/menus",
+        {
+          unitId,
+          date: fixtureDate,
+          mealType: "DINNER",
+          mainDish: originalDish,
+          drink: "Air Hangat",
+        },
+      );
+      menuId = created.data.id;
+    } catch (error) {
+      if (!String(error).includes("409")) throw error;
+      const found = await apiRequest<{
+        data: { id: string; mainDish: string }[];
+      }>(
+        writer,
+        "GET",
+        `/meals/menus?unitId=${unitId}&mealType=DINNER&limit=100`,
+      );
+      menuId = found.data.find((m) => m.mainDish === originalDish)?.id ?? "";
+      expect(menuId, "the leftover fixture is found").toBeTruthy();
+    }
+  });
+
+  test.afterAll(async () => {
+    if (!writer || !menuId) return;
+    await apiRequest(writer, "DELETE", `/meals/menus/${menuId}`).catch(
+      () => undefined,
+    );
+  });
+
+  test("menyimpan Edit menjawab 200 dan detail menampilkan nilai baru", async ({
+    page,
+  }) => {
+    await loginAs(page, "adminSdit");
+
+    // The request must be a 2xx — the whole point of the fix is that it is no
+    // longer a 500.
+    const saved = page.waitForResponse(
+      (r) =>
+        r.url().includes(`/meals/menus/${menuId}`) &&
+        r.request().method() === "PUT",
+    );
+
+    await page.goto(`/meals/menus/${menuId}/edit`);
+
+    // The Edit form has no `name` field any more — it edits the model's columns.
+    const mainDish = page.getByLabel("Hidangan Utama");
+    await expect(mainDish).toHaveValue(originalDish);
+    await mainDish.fill(editedDish);
+    await page.getByRole("button", { name: "Simpan" }).click();
+
+    const response = await saved;
+    expect(response.status()).toBe(200);
+
+    // Back on the detail page, showing the saved value.
+    await page.waitForURL((url) => url.pathname === `/meals/menus/${menuId}`);
+    await expect(page.getByText(editedDish)).toBeVisible();
+
+    // The API agrees, so the assertion is not just the UI's optimism.
+    const reread = await apiRequest<{ data: { mainDish: string } }>(
+      writer,
+      "GET",
+      `/meals/menus/${menuId}`,
+    );
+    expect(reread.data.mainDish).toBe(editedDish);
   });
 });

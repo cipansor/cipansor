@@ -276,7 +276,12 @@ describe('mealsService — peran lintas unit: baca melebar, tulis tetap', () => 
   });
 
   it('admin unit menulis ke unitnya sendiri', async () => {
-    prismaMock.mealMenu.findUnique.mockResolvedValue({ id: 'm-1', unitId: UNIT_A });
+    prismaMock.mealMenu.findUnique.mockResolvedValue({
+      id: 'm-1',
+      unitId: UNIT_A,
+      date: new Date('2026-11-01'),
+      mealType: 'BREAKFAST',
+    });
     prismaMock.mealMenu.update.mockResolvedValue({ id: 'm-1' });
 
     await expect(
@@ -284,5 +289,49 @@ describe('mealsService — peran lintas unit: baca melebar, tulis tetap', () => 
     ).resolves.toMatchObject({
       id: 'm-1',
     });
+  });
+
+  it('hanya meneruskan kolom MealMenu ke Prisma — field bayangan tidak ikut (#1081)', async () => {
+    // Bentuk payload yang dulu dikirim formulir Edit: `name`, `dayType`,
+    // `nutritionInfo` dan `isActive` bukan kolom `MealMenu`, dan `data: input`
+    // meneruskannya apa adanya sehingga Prisma menjawab "Unknown argument"
+    // (500). Sekarang setiap kolom dipetakan satu per satu; yang tidak dikenal
+    // tidak pernah sampai ke `update`.
+    prismaMock.mealMenu.findUnique.mockResolvedValue({
+      id: 'm-1',
+      unitId: UNIT_A,
+      date: new Date('2026-11-01'),
+      mealType: 'BREAKFAST',
+    });
+    prismaMock.mealMenu.update.mockResolvedValue({ id: 'm-1' });
+
+    await mealsService.updateMenu(
+      'm-1',
+      // @ts-expect-error — bentuk lama yang tidak valid, seperti datang dari web
+      { mainDish: 'Soto', name: 'Menu A', dayType: 'ALL', nutritionInfo: 'x', isActive: true },
+      actor()
+    );
+
+    const call = prismaMock.mealMenu.update.mock.calls[0][0];
+    expect(call.data).toEqual({ mainDish: 'Soto' });
+  });
+
+  it('menjawab 409 (bukan 500) saat memindahkan menu ke tanggal yang sudah terisi', async () => {
+    // Memindahkan menu ke (tanggal, waktu makan) yang sudah dipegang menu lain
+    // melanggar @@unique([unitId, date, mealType]); tanpa pemeriksaan lebih
+    // dulu Prisma menjawab 500 mentah.
+    prismaMock.mealMenu.findUnique
+      .mockResolvedValueOnce({
+        id: 'm-1',
+        unitId: UNIT_A,
+        date: new Date('2026-11-01'),
+        mealType: 'BREAKFAST',
+      })
+      .mockResolvedValueOnce({ id: 'm-2' });
+
+    await expect(
+      mealsService.updateMenu('m-1', { date: '2026-11-02' }, actor())
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(prismaMock.mealMenu.update).not.toHaveBeenCalled();
   });
 });

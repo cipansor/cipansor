@@ -25,8 +25,6 @@ import {
   GlassWater,
   Flame,
   AlertCircle,
-  CheckCircle,
-  XCircle,
   Copy,
 } from "lucide-react";
 
@@ -58,9 +56,9 @@ import {
   useMealMenu,
   useDeleteMealMenu,
   useCanManageMeals,
+  mealMenuTitle,
   MealType,
   MEAL_TYPE_LABELS,
-  MEAL_DAY_TYPE_LABELS,
 } from "@/hooks/use-meals";
 
 const MEAL_ICONS: Record<MealType, React.ReactNode> = {
@@ -89,6 +87,14 @@ export default function MenuDetailPage() {
   const deleteMutation = useDeleteMealMenu();
   const canManage = useCanManageMeals();
 
+  // `MealMenu` has no `name` column (#1081); the title is the meal time and the
+  // day, and the dishes are shown as the subtitle.
+  const title = menu
+    ? mealMenuTitle(menu, (iso) =>
+        safeFormat(new Date(iso), "EEEE, d MMMM yyyy", { locale: localeId }),
+      )
+    : "";
+
   // Handle delete
   const handleDelete = async () => {
     try {
@@ -106,7 +112,7 @@ export default function MenuDetailPage() {
     if (!menu) return;
 
     const menuText = `
-📋 ${menu.name}
+📋 ${title}
 📅 ${safeFormat(new Date(menu.date), "EEEE, d MMMM yyyy", { locale: localeId })}
 🕐 ${MEAL_TYPE_LABELS[menu.mealType]}
 
@@ -118,6 +124,7 @@ ${menu.soup ? `• Sup: ${menu.soup}` : ""}
 ${menu.dessert ? `• Buah: ${menu.dessert}` : ""}
 ${menu.drink ? `• Minuman: ${menu.drink}` : ""}
 ${menu.calories ? `\n🔥 Kalori: ${menu.calories} kkal` : ""}
+${menu.notes ? `\n📝 Catatan: ${menu.notes}` : ""}
     `.trim();
 
     navigator.clipboard.writeText(menuText);
@@ -187,13 +194,9 @@ ${menu.calories ? `\n🔥 Kalori: ${menu.calories} kkal` : ""}
             <div>
               <h1 className="text-2xl font-bold flex items-center gap-2">
                 <UtensilsCrossed className="h-6 w-6 text-primary" />
-                {menu.name}
+                {title}
               </h1>
-              <p className="text-muted-foreground">
-                {safeFormat(new Date(menu.date), "EEEE, d MMMM yyyy", {
-                  locale: localeId,
-                })}
-              </p>
+              <p className="text-muted-foreground">{menu.unit?.name}</p>
             </div>
           </div>
           <div className="flex gap-2">
@@ -225,7 +228,7 @@ ${menu.calories ? `\n🔥 Kalori: ${menu.calories} kkal` : ""}
         <div className="grid gap-6 lg:grid-cols-3">
           {/* Main Content */}
           <div className="lg:col-span-2 space-y-6">
-            {/* Menu Type & Status */}
+            {/* Menu Type */}
             <Card>
               <CardContent className="pt-6">
                 <div className="flex flex-wrap gap-3">
@@ -240,23 +243,9 @@ ${menu.calories ? `\n🔥 Kalori: ${menu.calories} kkal` : ""}
                   </Badge>
                   <Badge variant="outline" className="text-base py-1.5 px-3">
                     <Calendar className="h-4 w-4 mr-2" />
-                    {MEAL_DAY_TYPE_LABELS[menu.dayType]}
-                  </Badge>
-                  <Badge
-                    variant={menu.isActive ? "default" : "secondary"}
-                    className="text-base py-1.5 px-3"
-                  >
-                    {menu.isActive ? (
-                      <>
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                        Aktif
-                      </>
-                    ) : (
-                      <>
-                        <XCircle className="h-4 w-4 mr-2" />
-                        Nonaktif
-                      </>
-                    )}
+                    {safeFormat(new Date(menu.date), "EEEE, d MMMM yyyy", {
+                      locale: localeId,
+                    })}
                   </Badge>
                 </div>
               </CardContent>
@@ -361,7 +350,7 @@ ${menu.calories ? `\n🔥 Kalori: ${menu.calories} kkal` : ""}
             </Card>
 
             {/* Nutrition Card */}
-            {(menu.calories || menu.nutritionInfo) && (
+            {menu.calories && (
               <Card>
                 <CardHeader>
                   <CardTitle className="flex items-center gap-2">
@@ -370,44 +359,31 @@ ${menu.calories ? `\n🔥 Kalori: ${menu.calories} kkal` : ""}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-4">
-                  {menu.calories && (
-                    <div className="flex items-center gap-4 p-4 bg-orange-50 rounded-lg">
-                      <div className="h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center">
-                        <Flame className="h-6 w-6 text-orange-600" />
-                      </div>
-                      <div>
-                        <p className="text-sm text-muted-foreground">
-                          Total Kalori
-                        </p>
-                        <p className="text-2xl font-bold text-orange-600">
-                          {menu.calories} kkal
-                        </p>
-                      </div>
+                  <div className="flex items-center gap-4 p-4 bg-orange-50 rounded-lg">
+                    <div className="h-12 w-12 rounded-full bg-orange-100 flex items-center justify-center">
+                      <Flame className="h-6 w-6 text-orange-600" />
                     </div>
-                  )}
-
-                  {menu.nutritionInfo && (
                     <div>
-                      <p className="text-sm font-medium mb-2">
-                        Catatan Nutrisi
+                      <p className="text-sm text-muted-foreground">
+                        Total Kalori
                       </p>
-                      <p className="text-muted-foreground">
-                        {menu.nutritionInfo}
+                      <p className="text-2xl font-bold text-orange-600">
+                        {menu.calories} kkal
                       </p>
                     </div>
-                  )}
+                  </div>
                 </CardContent>
               </Card>
             )}
 
-            {/* Description Card */}
-            {menu.description && (
+            {/* Notes Card */}
+            {menu.notes && (
               <Card>
                 <CardHeader>
-                  <CardTitle>Deskripsi</CardTitle>
+                  <CardTitle>Catatan</CardTitle>
                 </CardHeader>
                 <CardContent>
-                  <p className="text-muted-foreground">{menu.description}</p>
+                  <p className="text-muted-foreground">{menu.notes}</p>
                 </CardContent>
               </Card>
             )}
@@ -493,8 +469,8 @@ ${menu.calories ? `\n🔥 Kalori: ${menu.calories} kkal` : ""}
             <AlertDialogHeader>
               <AlertDialogTitle>Hapus Menu?</AlertDialogTitle>
               <AlertDialogDescription>
-                Anda yakin ingin menghapus menu "{menu.name}"? Tindakan ini
-                tidak dapat dibatalkan.
+                Anda yakin ingin menghapus menu "{title}"? Tindakan ini tidak
+                dapat dibatalkan.
               </AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>

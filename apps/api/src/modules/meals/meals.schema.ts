@@ -1,5 +1,15 @@
 import { z } from 'zod';
 import { partialUpdateSchema } from '@/lib/partial';
+import { bulkCreateMenusSchema, createMenuSchema, updateMenuSchema } from '@cipansor/shared';
+
+// The menu create/update contracts are in @cipansor/shared (#1081), which the
+// web form reads too; only the query, schedule and attendance schemas live
+// here. The old local menu schemas described `mealScheduleId`, `menuItems`,
+// `sideDishes`, `beverage`, `nutritionalInfo`, `isVegetarian` and `allergens`
+// — none of which is a column of `MealMenu` — and were never wired to a route,
+// so the Edit form's payload reached Prisma unchecked and answered 500.
+export { bulkCreateMenusSchema, createMenuSchema, updateMenuSchema };
+export type { BulkCreateMenusInput, CreateMenuInput, UpdateMenuInput } from '@cipansor/shared';
 
 // ======================
 // ENUMS
@@ -47,37 +57,12 @@ export const updateMealScheduleSchema = partialUpdateSchema(createMealScheduleSc
 // ======================
 
 export const listMenusQuerySchema = z.object({
-  mealScheduleId: z.string().uuid().optional(),
   unitId: z.string().uuid().optional(),
   date: z.string().datetime().optional(),
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
   page: z.coerce.number().min(1).default(1),
   limit: z.coerce.number().min(1).max(100).default(20),
-});
-
-export const createMenuSchema = z.object({
-  mealScheduleId: z.string().uuid(),
-  date: z.string().datetime(),
-  menuItems: z.array(z.string()).min(1).describe('List of menu items'),
-  mainDish: z.string().min(1).max(200),
-  sideDishes: z.array(z.string()).optional(),
-  soup: z.string().max(200).optional(),
-  dessert: z.string().max(200).optional(),
-  beverage: z.string().max(200).optional(),
-  calories: z.number().int().positive().optional(),
-  nutritionalInfo: z.record(z.string(), z.any()).optional(),
-  isVegetarian: z.boolean().default(false),
-  allergens: z.array(z.string()).optional(),
-  notes: z.string().max(500).optional(),
-});
-
-export const updateMenuSchema = partialUpdateSchema(createMenuSchema).omit({
-  mealScheduleId: true,
-});
-
-export const bulkCreateMenuSchema = z.object({
-  menus: z.array(createMenuSchema).min(1).max(50),
 });
 
 // ======================
@@ -160,9 +145,6 @@ export type CreateMealScheduleInput = z.infer<typeof createMealScheduleSchema>;
 export type UpdateMealScheduleInput = z.infer<typeof updateMealScheduleSchema>;
 
 export type ListMenusQuery = z.infer<typeof listMenusQuerySchema>;
-export type CreateMenuInput = z.infer<typeof createMenuSchema>;
-export type UpdateMenuInput = z.infer<typeof updateMenuSchema>;
-export type BulkCreateMenuInput = z.infer<typeof bulkCreateMenuSchema>;
 
 export type ListAttendanceQuery = z.infer<typeof listAttendanceQuerySchema>;
 export type RecordAttendanceInput = z.infer<typeof recordAttendanceSchema>;

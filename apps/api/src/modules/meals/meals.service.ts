@@ -1,7 +1,12 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { Prisma, MealType, MealAttendanceStatus } from '@prisma/client';
-import { MEALS_ATTENDANCE_WRITER_ROLE_CODES, MEALS_MANAGER_ROLE_CODES } from '@cipansor/shared';
+import {
+  MEALS_ATTENDANCE_WRITER_ROLE_CODES,
+  MEALS_MANAGER_ROLE_CODES,
+  type CreateMenuInput,
+  type UpdateMenuInput,
+} from '@cipansor/shared';
 import {
   actorReachesUnit,
   actorSeesUnit,
@@ -32,31 +37,6 @@ interface ListMenusQuery {
   endDate?: string;
   page: number;
   limit: number;
-}
-
-interface CreateMenuInput {
-  unitId: string;
-  date: string;
-  mealType: MealType;
-  mainDish: string;
-  sideDish?: string;
-  vegetable?: string;
-  soup?: string;
-  dessert?: string;
-  drink?: string;
-  notes?: string;
-  calories?: number;
-}
-
-interface UpdateMenuInput {
-  mainDish?: string;
-  sideDish?: string;
-  vegetable?: string;
-  soup?: string;
-  dessert?: string;
-  drink?: string;
-  notes?: string;
-  calories?: number;
 }
 
 interface ListAttendanceQuery {
@@ -188,7 +168,7 @@ export class MealsService {
 
     const menu = await prisma.mealMenu.findUnique({
       where: { id },
-      select: { id: true, unitId: true },
+      select: { id: true, unitId: true, date: true, mealType: true },
     });
 
     if (!menu || !actorReachesUnit(currentUser, menu.unitId)) {
@@ -250,11 +230,62 @@ export class MealsService {
    * Update menu
    */
   async updateMenu(id: string, input: UpdateMenuInput, currentUser: AuthenticatedUser) {
-    await this.assertMenuWritable(id, currentUser, MEALS_MANAGER_ROLE_CODES);
+    const current = await this.assertMenuWritable(id, currentUser, MEALS_MANAGER_ROLE_CODES);
+
+    // The body is already limited to the model's columns by
+    // `updateMenuSchema` (#1081), but it is still mapped one field at a time
+    // rather than spread: a raw `data: input` is how `name`, `dayType` and
+    // `nutritionInfo` reached Prisma and answered 500. A partial update must
+    // also leave untouched columns alone — `undefined` does that; `null` does
+    // not, so absent optional fields are dropped rather than nulled.
+    const data: Prisma.MealMenuUpdateInput = {};
+    if (input.mealType !== undefined) data.mealType = input.mealType;
+    if (input.date !== undefined) data.date = new Date(input.date);
+    if (input.mainDish !== undefined) data.mainDish = input.mainDish;
+    if (input.sideDish !== undefined) data.sideDish = input.sideDish;
+    if (input.vegetable !== undefined) data.vegetable = input.vegetable;
+    if (input.soup !== undefined) data.soup = input.soup;
+    if (input.dessert !== undefined) data.dessert = input.dessert;
+    if (input.drink !== undefined) data.drink = input.drink;
+    if (input.notes !== undefined) data.notes = input.notes;
+    if (input.calories !== undefined) data.calories = input.calories;
+
+    // `unitId` in the body is a request, not a grant — the same rule create
+    // applies. A unit admin stays on their own unit whatever the body says.
+    const nextUnitId =
+      input.unitId !== undefined ? writeUnitScopeFor(currentUser, input.unitId) : current.unitId;
+    if (nextUnitId !== current.unitId) {
+      data.unit = { connect: { id: nextUnitId } };
+    }
+
+    // Moving a menu onto a (unit, date, meal type) another menu already holds
+    // would violate `@@unique([unitId, date, mealType])` and surface as a raw
+    // 500. Check first and answer 409, as `createMenu` does.
+    const nextDate = input.date !== undefined ? new Date(input.date) : current.date;
+    const nextMealType = input.mealType ?? current.mealType;
+    const moved =
+      nextUnitId !== current.unitId ||
+      nextDate.getTime() !== current.date.getTime() ||
+      nextMealType !== current.mealType;
+    if (moved) {
+      const clash = await prisma.mealMenu.findUnique({
+        where: {
+          unitId_date_mealType: {
+            unitId: nextUnitId,
+            date: nextDate,
+            mealType: nextMealType,
+          },
+        },
+        select: { id: true },
+      });
+      if (clash && clash.id !== id) {
+        throw Errors.conflict('Menu already exists for this date and meal type');
+      }
+    }
 
     const updated = await prisma.mealMenu.update({
       where: { id },
-      data: input,
+      data,
       include: {
         unit: { select: { id: true, name: true } },
       },
