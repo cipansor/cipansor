@@ -65,8 +65,8 @@ const pengampu = actor('u-pengampu', 'SDIT_GURU');
 const guruLain = actor('u-guru', 'SDIT_GURU');
 const kepala = actor('u-kepala', 'SDIT_KEPALA_SEKOLAH');
 const kepalaMengajar = actor('u-kepala-mengajar', 'SDIT_KEPALA_SEKOLAH');
-const unitAdmin = actor('u-admin', 'SDIT_ADMIN');
-const unitAdminSmp = actor('u-admin-smp', 'SMPIT_ADMIN', SMP);
+const adminUnit = actor('u-admin', 'SDIT_ADMIN');
+const adminUnitSmp = actor('u-admin-smp', 'SMPIT_ADMIN', SMP);
 const guruSmp = actor('u-guru-smp', 'SMPIT_GURU', SMP);
 const superAdmin = actor('u-sa', 'SUPER_ADMIN', null);
 
@@ -109,7 +109,7 @@ describe("who records a class's day", () => {
     ['its wali kelas', wali],
     ['a teacher with a lesson in it', pengampu],
     ['a kepala sekolah who teaches in it', kepalaMengajar],
-    ['its admin unit', unitAdmin],
+    ['its admin unit', adminUnit],
     ['the super admin', superAdmin],
   ])('%s', async (_who, who) => {
     expect(await attendanceService.bulkCreate(register(), who)).toEqual({ created: 2, updated: 0 });
@@ -130,7 +130,7 @@ describe("who records a class's day", () => {
   });
 
   it.each([
-    ['an admin unit of another unit', unitAdminSmp],
+    ['an admin unit of another unit', adminUnitSmp],
     ["another unit's teacher", guruSmp],
   ])('%s does not reach the class: 404', async (_who, who) => {
     expect(await status(attendanceService.bulkCreate(register(), who))).toBe(404);
@@ -160,7 +160,7 @@ describe('the day', () => {
   });
 
   it("cannot be outside the class's academic year", async () => {
-    expect(await status(attendanceService.bulkCreate(register(shift(-90)), unitAdmin))).toBe(400);
+    expect(await status(attendanceService.bulkCreate(register(shift(-90)), adminUnit))).toBe(400);
   });
 });
 
@@ -285,7 +285,7 @@ describe('the classes a user records (GET /attendance/me/classes)', () => {
       unitId: null,
       classes: [],
     });
-    expect(await attendanceService.myClasses(unitAdmin)).toEqual({
+    expect(await attendanceService.myClasses(adminUnit)).toEqual({
       scope: 'UNIT',
       unitId: SD,
       classes: [],

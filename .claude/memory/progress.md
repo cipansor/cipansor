@@ -847,8 +847,8 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   merged 2026-09-27):** until then every teacher, wali kelas and kepala
   sekolah got 403 saving a register (**Mengajar → Absensi → Input
   Kehadiran**; **Wali Kelas → Absensi Harian** called routes that did not
-  exist). Now the class's wali kelas, a teacher with a lesson in it, and the
-  unit's admin unit; the day is a calendar day; saving again corrects it;
+  exist). Now the class's wali kelas, a teacher with a lesson in it, and its
+  admin unit; the day is a calendar day; saving again corrects it;
   `GET /attendance/me/classes` tells the page which registers the user takes.
   Before/after: <https://claude.ai/artifact/7SjEhmVqzSwxxrDvpGardr>.
 - **Behaviour notes (#581):** **Wali Kelas → Catatan Perilaku** lists and

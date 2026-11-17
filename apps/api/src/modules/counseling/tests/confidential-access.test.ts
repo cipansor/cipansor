@@ -79,7 +79,7 @@ describe('who reads a confidential session', () => {
     ["the unit's kepala sekolah", kepala, 'REFERRALS_ONLY'],
     ["another unit's kepala sekolah", kepalaSma, 'NONE'],
     ['another teacher of the unit', guru, 'NONE'],
-    ["the unit's admin unit", adminUnit, 'NONE'],
+    ['its admin unit', adminUnit, 'NONE'],
     ['a yayasan organ', pembina, 'NONE'],
     ['the super admin', superAdmin, 'NONE'],
   ])('%s → %s', (_who, who, expected) => {
