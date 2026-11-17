@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, type Db } from '@/lib/prisma';
 import { activeMusyrifAssignment } from '@/modules/dormitories';
 
 /**
@@ -76,10 +76,11 @@ export const mayWriteReportCardVia = (r: Set<TeachingRelation>): boolean => r.si
  */
 export function teachingRelationReach(
   userId: string,
-  via: (relations: Set<TeachingRelation>) => boolean = mayWriteReportCardVia
+  via: (relations: Set<TeachingRelation>) => boolean = mayWriteReportCardVia,
+  db: Db = prisma
 ): (ids: string[]) => Promise<Set<string>> {
   return async (ids) => {
-    const relations = await teachingRelations(userId, ids);
+    const relations = await teachingRelations(userId, ids, new Date(), db);
     const reached = new Set<string>();
     for (const [id, r] of relations) {
       if (via(r)) reached.add(id);
@@ -95,17 +96,18 @@ export function teachingRelationReach(
 export async function teachingRelations(
   userId: string,
   studentIds: string[],
-  now: Date = new Date()
+  now: Date = new Date(),
+  db: Db = prisma
 ): Promise<Map<string, Set<TeachingRelation>>> {
   const ids = [...new Set(studentIds)];
   if (!ids.length) return new Map();
 
   const [teacher, students] = await Promise.all([
-    prisma.teacher.findFirst({
+    db.teacher.findFirst({
       where: { userId, deletedAt: null },
       select: { id: true, unitId: true },
     }),
-    prisma.student.findMany({
+    db.student.findMany({
       where: { id: { in: ids } },
       select: {
         id: true,
@@ -128,7 +130,7 @@ export async function teachingRelations(
   // (a) SUBJECT — the classes the account teaches, matched to each santri's
   // active classes, plus the all-classes form when the Teacher is in the unit.
   if (teacher) {
-    const subjects = await prisma.teacherSubject.findMany({
+    const subjects = await db.teacherSubject.findMany({
       where: { teacherId: teacher.id, isActive: true },
       select: { classId: true },
     });
@@ -147,7 +149,7 @@ export async function teachingRelations(
 
   // (b) HALAQOH — an ACTIVE enrolment on a Halaqoh the account leads. The
   // Halaqoh's own state is deliberately not consulted (R32.20).
-  const halaqoh = await prisma.takhosusEnrollment.findMany({
+  const halaqoh = await db.takhosusEnrollment.findMany({
     where: {
       studentId: { in: ids },
       status: 'ACTIVE',
@@ -159,17 +161,17 @@ export async function teachingRelations(
 
   // (c) MUSYRIF — an active assignment of the account's Musyrif row covering
   // the santri's active room.
-  const musyrif = await prisma.musyrif.findFirst({
+  const musyrif = await db.musyrif.findFirst({
     where: { userId, isActive: true },
     select: { id: true },
   });
   if (musyrif) {
-    const assignments = await prisma.musyrifAssignment.findMany({
+    const assignments = await db.musyrifAssignment.findMany({
       where: { musyrifId: musyrif.id, ...activeMusyrifAssignment(now) },
       select: { dormitoryId: true, roomId: true },
     });
     if (assignments.length) {
-      const rooms = await prisma.roomAssignment.findMany({
+      const rooms = await db.roomAssignment.findMany({
         where: { studentId: { in: ids }, isActive: true, endedAt: null },
         select: { studentId: true, room: { select: { id: true, dormitoryId: true } } },
       });
@@ -185,7 +187,7 @@ export async function teachingRelations(
 
   // (d) HOMEROOM — the account's Teacher row leads a class the santri is in.
   if (teacher) {
-    const homeroomClasses = await prisma.class.findMany({
+    const homeroomClasses = await db.class.findMany({
       where: { homeroomTeacherId: teacher.id, deletedAt: null },
       select: { id: true },
     });

@@ -1,6 +1,6 @@
 import type { Prisma } from '@prisma/client';
 import { PARENT_ROLE_CODES, STUDENT_ROLE_CODES } from '@cipansor/shared';
-import { prisma } from '@/lib/prisma';
+import { prisma, type Db } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { studentScope } from './student-scope';
 
@@ -74,18 +74,22 @@ export function studentWriteWhere(actor: WriteActor): Prisma.StudentWhereInput {
  * answer read the same as its own missing-id answer — the requirement is 404
  * with the same content as a record that does not exist, not merely 404.
  *
+ * `db` lets a caller inside a transaction pass its `tx` handle, so the scope
+ * read borrows no second connection while the transaction holds one.
+ *
  * Not-found rather than forbidden, so the answer does not confirm the id.
  */
 export async function assertStudentsWritable(
   studentIds: string[],
   actor: WriteActor,
   viaRelation?: (ids: string[]) => Promise<Set<string>>,
-  resource = 'Student'
+  resource = 'Student',
+  db: Db = prisma
 ): Promise<void> {
   const ids = [...new Set(studentIds)];
   if (!ids.length) return;
 
-  const writable = await prisma.student.findMany({
+  const writable = await db.student.findMany({
     where: { AND: [{ id: { in: ids } }, studentWriteWhere(actor)] },
     select: { id: true },
   });

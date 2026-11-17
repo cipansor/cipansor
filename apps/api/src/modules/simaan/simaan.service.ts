@@ -1,4 +1,4 @@
-import { prisma } from '@/lib/prisma';
+import { prisma, type Db } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import { simaanStatusWhere } from '@cipansor/shared';
 import { dayDate, wibDayOf } from '@/utils/wib';
@@ -34,13 +34,15 @@ import type {
 async function assertSimaanStudentWritable(
   studentId: string,
   actor: WriteActor,
-  resource = 'Simaan exam'
+  resource = 'Simaan exam',
+  db: Db = prisma
 ): Promise<void> {
   await assertStudentsWritable(
     [studentId],
     actor,
-    teachingRelationReach(actor.sub, mayWriteGradeVia),
-    resource
+    teachingRelationReach(actor.sub, mayWriteGradeVia, db),
+    resource,
+    db
   );
 }
 
@@ -57,23 +59,27 @@ async function assertSimaanStudentWritable(
  * a relation, which no `where` on the exam can express), then the santri is
  * checked against the caller's write scope.
  */
-async function assertExamWritable(id: string, actor: WriteActor): Promise<void> {
-  const found = await prisma.simaanExam.findFirst({
+async function assertExamWritable(id: string, actor: WriteActor, db: Db = prisma): Promise<void> {
+  const found = await db.simaanExam.findFirst({
     where: { id },
     select: { studentId: true },
   });
   if (!found) throw Errors.notFound('Simaan exam');
-  await assertSimaanStudentWritable(found.studentId, actor);
+  await assertSimaanStudentWritable(found.studentId, actor, 'Simaan exam', db);
 }
 
 /** The examiner row with `id`, or 404 unless its exam's santri is writable. */
-async function assertExaminerWritable(id: string, actor: WriteActor): Promise<void> {
-  const found = await prisma.simaanExaminer.findFirst({
+async function assertExaminerWritable(
+  id: string,
+  actor: WriteActor,
+  db: Db = prisma
+): Promise<void> {
+  const found = await db.simaanExaminer.findFirst({
     where: { id },
     select: { id: true, simaan: { select: { studentId: true } } },
   });
   if (!found) throw Errors.notFound('Examiner');
-  await assertSimaanStudentWritable(found.simaan.studentId, actor, 'Examiner');
+  await assertSimaanStudentWritable(found.simaan.studentId, actor, 'Examiner', db);
 }
 
 type ExamForEffects = { id: string; studentId: string; juzStart: number; juzEnd: number };
@@ -226,7 +232,7 @@ async function findExamInScope(
     select: { id: true, studentId: true, juzStart: true, juzEnd: true, passed: true },
   });
   if (!found) throw Errors.notFound('Simaan exam');
-  await assertSimaanStudentWritable(found.studentId, actor);
+  await assertSimaanStudentWritable(found.studentId, actor, 'Simaan exam', tx);
   return found;
 }
 
