@@ -1,4 +1,5 @@
-# Keep GitHub Actions and the npm/pnpm dependency tree patched automatically.
+# Keep GitHub Actions, the npm/pnpm dependency tree, and the container base
+# images patched automatically.
 version: 2
 updates:
   # GitHub Actions used by the workflows (supply-chain hygiene).
@@ -23,5 +24,53 @@ updates:
     open-pull-requests-limit: 10
     groups:
       # Batch low-risk updates to keep PR noise down.
+      minor-and-patch:
+        update-types: ['minor', 'patch']
+
+  # Container base images in the Dockerfiles. Dependabot reads `FROM` per
+  # directory, so each Dockerfile needs its own entry — a directory with no
+  # entry is a tag nothing watches (how nginx:1.28-alpine aged out, #1128).
+  - package-ecosystem: docker
+    directory: /apps/api
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:31'
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ['minor', 'patch']
+
+  - package-ecosystem: docker
+    directory: /apps/web
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:37'
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ['minor', 'patch']
+
+  - package-ecosystem: docker
+    directory: /deploy/azure/nginx
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:43'
+    open-pull-requests-limit: 5
+    groups:
+      minor-and-patch:
+        update-types: ['minor', 'patch']
+
+  # Service images in the root docker-compose.yml (Postgres, Redis).
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:49'
+    open-pull-requests-limit: 5
+    groups:
       minor-and-patch:
         update-types: ['minor', 'patch']
