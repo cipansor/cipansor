@@ -50,19 +50,16 @@ Ditolak:
 ## Yang mengikat kode
 
 - `apps/api/src/modules/roles/permissions.ts` — `YAYASAN_SEKRETARIS:
-  [...YAYASAN_OVERSIGHT]`. Setiap peran organ baru yang menyentuh tulis harus
+[...YAYASAN_OVERSIGHT]`. Setiap peran organ baru yang menyentuh tulis harus
   lebih dulu membuktikan alurnya ada di daftar asas di atas.
 - Uji: `apps/api/src/modules/roles/tests/student-update-permission.test.ts`
   (matriks + `PUT /students/:id` → 403) dan e2e
   `apps/web/e2e/sekretaris-student-update.spec.ts` (tombol Edit baris hilang).
 
-## Catatan penyebaran (jangan dilewati)
+## Catatan penyebaran
 
-Peta izin di `permissions.ts` adalah **sumber**, tetapi token login membawa
-salinan dari kolom `roles.permissions` di basis data, dan kolom itu hanya ditulis
-`prisma/seed.ts` (seed destruktif, `ALLOW_DESTRUCTIVE_SEED=1`). Tidak ada
-migrasi atau sinkronisasi saat boot yang memperbarui `roles.permissions` pada
-basis data yang sudah ada. Maka perubahan peta ini baru berlaku pada lingkungan
-yang **di-seed ulang** (staging, CI) atau lewat penyegaran peran tersendiri;
-produksi yang tidak di-seed ulang belum ikut berubah sampai itu dijalankan.
-Sampai Model A menggantikan cek per-bucket, ini batas yang diketahui.
+Peta izin di `permissions.ts` adalah sumber di dalam kode. Saat runtime, daftar
+izin yang dibawa token login dibaca dari kolom `roles.permissions` di basis
+data; kolom itu diisi oleh `prisma/seed.ts`. Karena itu setiap perubahan peta
+izin perlu disertai penyegaran peran pada lingkungan yang bersangkutan (lewat
+seed atau sinkronisasi peran) agar berlaku.
