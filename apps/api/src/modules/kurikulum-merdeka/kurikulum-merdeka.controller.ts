@@ -1,5 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { studentScope } from '@/utils/student-scope';
+import { requireUser } from '@/middleware/auth';
+import type { WriteActor } from '@/utils/write-scope';
 import * as kurikulumMerdekaService from './kurikulum-merdeka.service';
 import {
   listLearningOutcomesQuerySchema,
@@ -32,6 +34,12 @@ import {
   createMerdekaResultSchema,
   updateMerdekaResultSchema,
 } from './kurikulum-merdeka.schema';
+
+/** The write actor a service scopes on, from the verified token. */
+function actorOf(req: Request): WriteActor {
+  const u = requireUser(req);
+  return { sub: u.sub, roleCode: u.roleCode, unitId: u.unitId };
+}
 
 // ==================== LEARNING PHASES ====================
 
@@ -433,7 +441,7 @@ export async function getP5Dimensions(req: Request, res: Response, next: NextFun
 export async function getP5Projects(req: Request, res: Response, next: NextFunction) {
   try {
     const query = listP5ProjectsQuerySchema.parse(req.query);
-    const result = await kurikulumMerdekaService.listP5Projects(query);
+    const result = await kurikulumMerdekaService.listP5Projects(query, actorOf(req));
 
     res.json({
       success: true,
@@ -553,7 +561,7 @@ export async function getP5Assessment(req: Request, res: Response, next: NextFun
 export async function postP5Assessment(req: Request, res: Response, next: NextFunction) {
   try {
     const data = createP5AssessmentSchema.parse(req.body);
-    const assessment = await kurikulumMerdekaService.createP5Assessment(data);
+    const assessment = await kurikulumMerdekaService.createP5Assessment(data, actorOf(req));
 
     res.status(201).json({
       success: true,
@@ -569,7 +577,7 @@ export async function putP5Assessment(req: Request, res: Response, next: NextFun
   try {
     const { id } = req.params;
     const data = updateP5AssessmentSchema.parse(req.body);
-    const assessment = await kurikulumMerdekaService.updateP5Assessment(id, data);
+    const assessment = await kurikulumMerdekaService.updateP5Assessment(id, data, actorOf(req));
 
     res.json({
       success: true,
@@ -584,7 +592,7 @@ export async function putP5Assessment(req: Request, res: Response, next: NextFun
 export async function removeP5Assessment(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    await kurikulumMerdekaService.deleteP5Assessment(id);
+    await kurikulumMerdekaService.deleteP5Assessment(id, actorOf(req));
 
     res.json({
       success: true,
@@ -600,7 +608,7 @@ export async function removeP5Assessment(req: Request, res: Response, next: Next
 export async function getMerdekaAssessments(req: Request, res: Response, next: NextFunction) {
   try {
     const query = listMerdekaAssessmentsQuerySchema.parse(req.query);
-    const result = await kurikulumMerdekaService.listMerdekaAssessments(query);
+    const result = await kurikulumMerdekaService.listMerdekaAssessments(query, actorOf(req));
 
     res.json({
       success: true,
@@ -720,7 +728,7 @@ export async function getMerdekaResult(req: Request, res: Response, next: NextFu
 export async function postMerdekaResult(req: Request, res: Response, next: NextFunction) {
   try {
     const data = createMerdekaResultSchema.parse(req.body);
-    const result = await kurikulumMerdekaService.createMerdekaResult(data);
+    const result = await kurikulumMerdekaService.createMerdekaResult(data, actorOf(req));
 
     res.status(201).json({
       success: true,
@@ -736,7 +744,7 @@ export async function putMerdekaResult(req: Request, res: Response, next: NextFu
   try {
     const { id } = req.params;
     const data = updateMerdekaResultSchema.parse(req.body);
-    const result = await kurikulumMerdekaService.updateMerdekaResult(id, data);
+    const result = await kurikulumMerdekaService.updateMerdekaResult(id, data, actorOf(req));
 
     res.json({
       success: true,
@@ -751,7 +759,7 @@ export async function putMerdekaResult(req: Request, res: Response, next: NextFu
 export async function removeMerdekaResult(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    await kurikulumMerdekaService.deleteMerdekaResult(id);
+    await kurikulumMerdekaService.deleteMerdekaResult(id, actorOf(req));
 
     res.json({
       success: true,
@@ -768,6 +776,7 @@ export async function getSummary(req: Request, res: Response, next: NextFunction
   try {
     const { unitId, academicYearId } = req.query as { unitId?: string; academicYearId?: string };
     const summary = await kurikulumMerdekaService.getKurikulumMerdekaSummary(
+      actorOf(req),
       unitId,
       academicYearId
     );

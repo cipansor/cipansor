@@ -1,10 +1,14 @@
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
+import { Errors } from '@/middleware/error';
 import {
   onlyScopedStudents,
   STUDENT_SAFE_SELECT,
   TEACHER_SAFE_SELECT,
 } from '@/utils/student-scope';
+import type { WriteActor } from '@/utils/write-scope';
+import { assertGradesWritable, assertReportCardsWritable } from '@/utils/write-scope';
+import { listUnitScopeFor } from '@/utils/resolve-unit-id';
 import {
   ListLearningOutcomesQueryInput,
   CreateLearningOutcomeInput,
@@ -439,11 +443,15 @@ export function getP5Dimensions() {
 
 // ==================== P5 PROJECTS ====================
 
-export async function listP5Projects(query: ListP5ProjectsQueryInput) {
+export async function listP5Projects(query: ListP5ProjectsQueryInput, actor: WriteActor) {
   const { unitId, academicYearId, themeId, classId, supervisorId, status, page, limit } = query;
 
+  // A `?unitId=` a unit-bound account sends names another unit: it is narrowed
+  // back to the actor's own unit, never widened (R25.7, #1090).
+  const scopedUnitId = listUnitScopeFor(actor, unitId);
+
   const where = {
-    ...(unitId && { unitId }),
+    ...(scopedUnitId && { unitId: scopedUnitId }),
     ...(academicYearId && { academicYearId }),
     ...(themeId && { themeId }),
     ...(classId && { classId }),
@@ -601,7 +609,12 @@ export async function getP5AssessmentById(id: string, scope: Prisma.StudentWhere
   });
 }
 
-export async function createP5Assessment(data: CreateP5AssessmentInput) {
+export async function createP5Assessment(data: CreateP5AssessmentInput, actor: WriteActor) {
+  // A P5 assessment is a santri's record; only an account with a teaching
+  // relation to that santri may write it (the report-card rule: any relation,
+  // including the homeroom teacher, R13.3). A santri of another unit, or one
+  // the actor does not teach, answers 404, as for a missing studentId (#1090).
+  await assertReportCardsWritable(actor, [data.studentId], 'Student');
   return prisma.p5Assessment.create({
     data: {
       projectId: data.projectId,
@@ -619,14 +632,35 @@ export async function createP5Assessment(data: CreateP5AssessmentInput) {
   });
 }
 
-export async function updateP5Assessment(id: string, data: UpdateP5AssessmentInput) {
+export async function updateP5Assessment(
+  id: string,
+  data: UpdateP5AssessmentInput,
+  actor: WriteActor
+) {
+  // An existing P5 assessment of another unit's santri answers 404, not 500
+  // (#1090). The santri is read first so the scope is decided on it, not on
+  // the request.
+  const existing = await prisma.p5Assessment.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('P5 assessment');
+  await assertReportCardsWritable(actor, [existing.studentId], 'P5 assessment');
+
   return prisma.p5Assessment.update({
     where: { id },
     data,
   });
 }
 
-export async function deleteP5Assessment(id: string) {
+export async function deleteP5Assessment(id: string, actor: WriteActor) {
+  const existing = await prisma.p5Assessment.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('P5 assessment');
+  await assertReportCardsWritable(actor, [existing.studentId], 'P5 assessment');
+
   return prisma.p5Assessment.delete({
     where: { id },
   });
@@ -634,12 +668,19 @@ export async function deleteP5Assessment(id: string) {
 
 // ==================== MERDEKA ASSESSMENTS ====================
 
-export async function listMerdekaAssessments(query: ListMerdekaAssessmentsQueryInput) {
+export async function listMerdekaAssessments(
+  query: ListMerdekaAssessmentsQueryInput,
+  actor: WriteActor
+) {
   const { unitId, classId, subjectId, teacherId, academicYearId, category, status, page, limit } =
     query;
 
+  // A `?unitId=` a unit-bound account sends names another unit: it is narrowed
+  // back to the actor's own unit, never widened (R25.7, #1090).
+  const scopedUnitId = listUnitScopeFor(actor, unitId);
+
   const where = {
-    ...(unitId && { unitId }),
+    ...(scopedUnitId && { unitId: scopedUnitId }),
     ...(classId && { classId }),
     ...(subjectId && { subjectId }),
     ...(teacherId && { teacherId }),
@@ -820,7 +861,11 @@ export async function getMerdekaResultById(id: string, scope: Prisma.StudentWher
   });
 }
 
-export async function createMerdekaResult(data: CreateMerdekaResultInput) {
+export async function createMerdekaResult(data: CreateMerdekaResultInput, actor: WriteActor) {
+  // A Merdeka result is a santri's grade; only a Penulis_Penilaian of that
+  // santri may write it. A santri of another unit, or one the actor does not
+  // teach, answers 404, as for a missing studentId (#1090, R13.2).
+  await assertGradesWritable(actor, [data.studentId]);
   return prisma.merdekaAssessmentResult.create({
     data: {
       assessmentId: data.assessmentId,
@@ -835,7 +880,19 @@ export async function createMerdekaResult(data: CreateMerdekaResultInput) {
   });
 }
 
-export async function updateMerdekaResult(id: string, data: UpdateMerdekaResultInput) {
+export async function updateMerdekaResult(
+  id: string,
+  data: UpdateMerdekaResultInput,
+  actor: WriteActor
+) {
+  // An existing result of another unit's santri answers 404, not 500 (#1090).
+  const existing = await prisma.merdekaAssessmentResult.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('Merdeka assessment result');
+  await assertGradesWritable(actor, [existing.studentId], [], 'Merdeka assessment result');
+
   const updateData: Record<string, unknown> = {};
 
   if (data.score !== undefined) updateData.score = data.score;
@@ -852,7 +909,14 @@ export async function updateMerdekaResult(id: string, data: UpdateMerdekaResultI
   });
 }
 
-export async function deleteMerdekaResult(id: string) {
+export async function deleteMerdekaResult(id: string, actor: WriteActor) {
+  const existing = await prisma.merdekaAssessmentResult.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('Merdeka assessment result');
+  await assertGradesWritable(actor, [existing.studentId], [], 'Merdeka assessment result');
+
   return prisma.merdekaAssessmentResult.delete({
     where: { id },
   });
@@ -860,8 +924,15 @@ export async function deleteMerdekaResult(id: string) {
 
 // ==================== SUMMARY & STATISTICS ====================
 
-export async function getKurikulumMerdekaSummary(unitId?: string, academicYearId?: string) {
-  const unitFilter = unitId ? { unitId } : {};
+export async function getKurikulumMerdekaSummary(
+  actor: WriteActor,
+  unitId?: string,
+  academicYearId?: string
+) {
+  // A `?unitId=` a unit-bound account sends names another unit: it is narrowed
+  // back to the actor's own unit, never widened (R25.7, #1090).
+  const scopedUnitId = listUnitScopeFor(actor, unitId);
+  const unitFilter = scopedUnitId ? { unitId: scopedUnitId } : {};
   const yearFilter = academicYearId ? { academicYearId } : {};
 
   const [
@@ -881,7 +952,9 @@ export async function getKurikulumMerdekaSummary(unitId?: string, academicYearId
     prisma.teachingModule.count({ where: { isPublished: true } }),
     prisma.p5Theme.count({ where: { isActive: true } }),
     prisma.p5Project.count({ where: { ...unitFilter, ...yearFilter } }),
-    prisma.p5Assessment.count(),
+    prisma.p5Assessment.count({
+      where: scopedUnitId ? { project: { unitId: scopedUnitId } } : {},
+    }),
     prisma.merdekaAssessment.count({ where: { ...unitFilter, ...yearFilter } }),
     prisma.p5Project.count({ where: { ...unitFilter, ...yearFilter, status: 'ACTIVE' } }),
   ]);
