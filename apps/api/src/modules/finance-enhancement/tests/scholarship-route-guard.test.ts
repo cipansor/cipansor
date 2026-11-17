@@ -27,7 +27,6 @@ vi.mock('../finance-enhancement.service', () => ({
 import { verifyToken } from '@/lib/jwt';
 import { errorHandler } from '@/middleware/error';
 import { financeEnhancementRoutes } from '../index';
-import { financeEnhancementService } from '../finance-enhancement.service';
 
 const app = express();
 app.use(express.json());
