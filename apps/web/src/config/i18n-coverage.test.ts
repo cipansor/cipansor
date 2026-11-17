@@ -11,6 +11,7 @@ import { accreditationContentFor } from "./accreditation.i18n";
 import { spmbContentFor } from "./spmb.i18n";
 import { spmbFormContentFor } from "./spmb-form.i18n";
 import { announcementContentFor } from "./announcement.i18n";
+import { dataRequestContentFor } from "./data-request.i18n";
 import { formatNumber } from "@/lib/locale-format";
 
 /**
@@ -113,6 +114,10 @@ const SURFACES: Array<{ name: string; of: (l: Locale) => unknown }> = [
   { name: "spmb", of: spmbContentFor },
   { name: "spmb form", of: spmbFormContentFor },
   { name: "announcement", of: announcementContentFor },
+  // Permintaan hak subjek data (UU PDP). It is a public page like the others,
+  // so the rule is id/en/ar on it too — and the two it broke without this
+  // entry are the ones a family reads while exercising a legal right.
+  { name: "data request", of: dataRequestContentFor },
   // The public assistant's own strings. They are not a `config/*.i18n.ts`
   // surface — the widget reads them straight off the locale tree — so this is
   // what notices when the greeting or a suggestion is added in one language

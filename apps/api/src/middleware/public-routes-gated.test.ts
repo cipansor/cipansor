@@ -49,6 +49,14 @@ const DELIBERATELY_UNGATED: Record<string, string> = {
     'menulis apa pun ke DB — hanya memvalidasi data yang dikirim pengunjung sendiri. Dijaga ' +
     'publicRegistrantLimiter. Menuntut Turnstile di sini akan gagal-tertutup pada langkah unggah bagi ' +
     'pengunjung yang jaringannya memfilter challenges.cloudflare.com, padahal permintaan ini tidak membuat baris.',
+  'data-subject-requests.routes.ts POST /public/verify':
+    'Langkah KEDUA alur permintaan data pribadi. Permintaannya sendiri hanya dapat lahir dari POST /public ' +
+    'yang sudah dijaga requireTurnstile, jadi tidak ada permintaan yang dapat diverifikasi tanpa satu ' +
+    'tantangan diselesaikan lebih dulu. Yang dijaga di sini adalah dua batas yang mengikat pada barisnya: ' +
+    'DATA_SUBJECT_VERIFICATION_MAX_ATTEMPTS percobaan per permintaan, dan dataSubjectLimiter 5 permintaan ' +
+    'per menit per IP. Menuntut tantangan kedua tepat setelah pemohon menyalin kode dari WhatsApp-nya akan ' +
+    'menggagalkan-tertutup keluarga yang jaringannya memfilter challenges.cloudflare.com, tanpa menutup ' +
+    'penebakan yang sudah dibatasi lima percobaan itu.',
 };
 
 function stripComments(source: string): string {

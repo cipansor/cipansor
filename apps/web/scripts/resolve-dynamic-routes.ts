@@ -237,6 +237,10 @@ const HINTS: Record<string, Hint> = {
     query: { unitId: "unitWithRow" },
   },
   "/settings/roles/[id]": { list: "/roles" },
+  // Daftar kerja petugas PDP hidup di /data-subject-requests; halamannya
+  // dijaga izin PDP_MANAGE, jadi hanya petugas yang ditunjuk yang dapat
+  // membukanya.
+  "/settings/permintaan-data/[id]": { list: "/data-subject-requests" },
   "/spmb/registrations/[id]": { list: "/admissions/registrants" },
   "/student-org/members/[id]": { list: "/student-org" },
   "/talenta/[id]": { list: "/talenta/profiles" },

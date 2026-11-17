@@ -125,6 +125,19 @@ export default async function KebijakanPrivasiPage({
                 {pagesContentFor(locale).contact.title}
               </Link>
             </Button>
+            {/*
+              The route into the DataSubjectRequest flow (UU PDP 27/2022 Pasal
+              30, 40, 43). Until #1111 this page named the right but offered
+              only a contact page: a request left no record and no deadline,
+              which is the gap the flow closes. `/public/*` is public on the
+              apex already (middleware's matcher excludes it), so no host-split
+              change is needed.
+            */}
+            <Button asChild size="sm" className="mt-4 sm:ml-2">
+              <Link href="/public/permintaan-data">
+                {copy.requestLinkLabel}
+              </Link>
+            </Button>
           </CardContent>
         </Card>
 

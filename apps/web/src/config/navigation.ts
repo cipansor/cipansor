@@ -92,6 +92,15 @@ export interface NavItem {
   roles?: string[]; // Legacy role support
   roleCodes?: string[]; // New RoleCode-based permissions
   realms?: string[]; // Realm-based filtering
+  /**
+   * Show this item only to someone holding one of these API permissions.
+   *
+   * Separate from `roleCodes` because a duty is not a role: the personal data
+   * protection officer is appointed by the foundation (UU 27/2022 Pasal 53)
+   * and may hold any role, so no role code can name them. The API gates the
+   * endpoints on the same permission (`PERMISSIONS.PDP_MANAGE`).
+   */
+  permissions?: string[];
   children?: NavItem[];
 }
 
@@ -139,6 +148,41 @@ export function withDutiesHeld(
   held: { homeroom: boolean },
 ): NavGroup[] {
   return navigation.filter((group) => !group.duty || held[group.duty]);
+}
+
+/**
+ * The menu without the items the user has no permission for.
+ *
+ * `roleCodes` cannot express this: the personal data protection officer is an
+ * appointment (UU 27/2022 Pasal 53), not a role, so the officer may sit in any
+ * bucket. `filterNavItemsByRoleCode` therefore leaves a `permissions` item in
+ * every menu it is written into — which is why this runs after it, on the
+ * permission list the API returned with the session.
+ *
+ * An item with no `permissions` is kept, so this changes nothing for the 80-odd
+ * items that do not carry the field. A group left with no items is dropped too:
+ * "Pelindungan Data" holds only permission-gated entries, and an empty group
+ * renders as a collapsible heading over nothing.
+ */
+export function withPermissionsHeld(
+  navigation: NavGroup[],
+  permissions: readonly string[],
+): NavGroup[] {
+  const held = new Set(permissions);
+  const keep = (items: NavItem[]): NavItem[] =>
+    items
+      .filter(
+        (item) =>
+          !item.permissions || item.permissions.some((p) => held.has(p)),
+      )
+      .map((item) =>
+        item.children?.length
+          ? { ...item, children: keep(item.children) }
+          : item,
+      );
+  return navigation
+    .map((group) => ({ ...group, items: keep(group.items) }))
+    .filter((group) => group.items.length > 0);
 }
 
 // Role codes by category for navigation permissions
@@ -781,6 +825,14 @@ const parentNavigation: NavGroup[] = [
         title: "Aduan & Aspirasi",
         href: "/quality/complaints",
         icon: MessageSquareWarning,
+      },
+      {
+        // Hak subjek data wali (UU PDP 27/2022 Pasal 30, 40, 43). Terpisah dari
+        // Aduan: aduan soal layanan, ini soal data pribadi, dan yang kedua
+        // membawa tenggat 3×24 jam yang tidak dimiliki aduan.
+        title: "Permintaan Data Pribadi",
+        href: "/parent/permintaan-data",
+        icon: FileLock2,
       },
     ],
   },
@@ -1750,6 +1802,33 @@ const adminNavigation: NavGroup[] = [
             roles: ["SUPER_ADMIN"],
           },
         ],
+      },
+    ],
+  },
+  {
+    /**
+     * The work queue of the personal data protection officer (UU PDP 27/2022
+     * Pasal 30, 35, 40, 43).
+     *
+     * Its own group, gated by `permissions` rather than `roleCodes`, and that is
+     * the whole point: the officer is appointed by the foundation (Pasal 53)
+     * and may hold any role, so no role code can name them. The API gates the
+     * same endpoints on `PDP_MANAGE`; `withPermissionsHeld` in the sidebar hides
+     * this group — and drops it once empty — for everyone who does not hold it,
+     * so it appears only for the person actually appointed.
+     *
+     * Deliberately NOT a child of Settings: every Settings child is SUPER_ADMIN
+     * only, and the guard test that keeps the Settings parent rendering as a
+     * plain link for unit admins relies on that. An always-present child would
+     * turn it back into a collapsible button opening an empty panel.
+     */
+    title: "Pelindungan Data",
+    items: [
+      {
+        title: "Permintaan Data Pribadi",
+        href: "/settings/permintaan-data",
+        icon: FileLock2,
+        permissions: ["PDP_MANAGE"],
       },
     ],
   },

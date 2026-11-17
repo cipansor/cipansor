@@ -1,0 +1,389 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import * as service from '../data-subject-requests.service';
+import { prisma } from '@/lib/prisma';
+import { notificationService } from '@/modules/notifications';
+
+vi.mock('@/lib/prisma', () => ({
+  prisma: {
+    dataSubjectRequest: {
+      create: vi.fn(),
+      findUnique: vi.fn(),
+      findMany: vi.fn(),
+      count: vi.fn(),
+      update: vi.fn(),
+    },
+    registrant: { findUnique: vi.fn(), update: vi.fn(), updateMany: vi.fn() },
+    student: { findUnique: vi.fn(), update: vi.fn() },
+    studentParent: { findUnique: vi.fn() },
+    user: { findUnique: vi.fn(), update: vi.fn() },
+    registrantDocument: { updateMany: vi.fn() },
+    auditLog: { create: vi.fn() },
+    $transaction: vi.fn(),
+  },
+}));
+
+vi.mock('@/modules/notifications', () => ({
+  notificationService: { send: vi.fn().mockResolvedValue({ success: true }) },
+}));
+
+/** `$transaction(fn)` menjalankan `fn` dengan klien yang sama — cukup untuk uji. */
+function txPassThrough() {
+  vi.mocked(prisma.$transaction).mockImplementation((async (fn: any) => fn(prisma)) as any);
+}
+
+const registrantRow = (over: Record<string, unknown> = {}) => ({
+  id: 'reg-1',
+  fullName: 'Ahmad Fauzi',
+  name: 'Ahmad',
+  registrationNo: 'SPMB-2026-0001',
+  birthDate: new Date('2014-03-05T00:00:00.000Z'),
+  phone: '081200000001',
+  email: 'wali@example.com',
+  parentPhone: '081200000002',
+  parentEmail: 'ayah@example.com',
+  ...over,
+});
+
+const requestRow = (over: Record<string, unknown> = {}) => ({
+  id: 'dsr-1',
+  requestNo: 'DSR-2026-0001',
+  type: 'ACCESS',
+  status: 'RECEIVED',
+  subjectCategory: 'REGISTRANT',
+  subjectLabel: 'Ahmad Fauzi (No. SPMB-2026-0001)',
+  subjectUserId: null,
+  subjectStudentId: null,
+  subjectRegistrantId: 'reg-1',
+  requesterUserId: null,
+  requesterName: 'Siti',
+  requesterContact: '081200000002',
+  requesterRelation: 'Ibu',
+  detail: 'Mohon salinan data pendaftaran anak saya.',
+  rejectionReason: null,
+  dueAt: new Date('2026-11-20T00:00:00.000Z'),
+  completedAt: null,
+  verifiedAt: null,
+  verificationCodeHash: null,
+  verificationExpiresAt: null,
+  verificationAttempts: 0,
+  handledById: null,
+  handledBy: null,
+  subjectStudent: null,
+  subjectRegistrant: null,
+  subjectUser: null,
+  actions: [],
+  createdAt: new Date('2026-11-17T00:00:00.000Z'),
+  updatedAt: new Date('2026-11-17T00:00:00.000Z'),
+  ...over,
+});
+
+describe('data-subject-requests — tenggat', () => {
+  it('akses, koreksi, dan penarikan persetujuan diberi 3×24 jam', () => {
+    const now = new Date('2026-11-17T00:00:00.000Z');
+    for (const type of ['ACCESS', 'RECTIFICATION', 'CONSENT_WITHDRAWAL'] as const) {
+      expect(service.computeDueAt(type, now).toISOString()).toBe('2026-11-20T00:00:00.000Z');
+    }
+  });
+
+  it('penghapusan mengikuti tinjauan retensi, bukan 72 jam', () => {
+    // Pasal 43–44 membatasi penghapusan pada kewajiban retensi, jadi tenggatnya
+    // bukan hitungan jam yang sama dengan akses — permintaan yang masuk Jumat
+    // pun tidak boleh dipaksa selesai dalam tiga hari kalender.
+    const now = new Date('2026-11-17T00:00:00.000Z');
+    const due = service.computeDueAt('ERASURE', now);
+    expect(due.getTime()).toBeGreaterThan(service.computeDueAt('ACCESS', now).getTime());
+    expect(due.toISOString()).toBe('2026-12-17T00:00:00.000Z');
+  });
+});
+
+describe('data-subject-requests — penyamaran kontak', () => {
+  it('menyisakan empat karakter terakhir saja', () => {
+    // Telepon: empat angka terakhir saja. Surel: huruf awal dan domainnya,
+    // sebab justru bagian lokalnya yang mengidentifikasi orang.
+    expect(service.maskContact('081200000078')).toBe('••••••••0078');
+    expect(service.maskContact('ayah@example.com')).toBe('a•••@example.com');
+  });
+
+  it('tidak membocorkan kontak pendek', () => {
+    expect(service.maskContact('0812')).toBe('••••');
+  });
+});
+
+describe('data-subject-requests — pengajuan publik', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    txPassThrough();
+  });
+
+  const input = {
+    type: 'ACCESS' as const,
+    registrationNo: 'SPMB-2026-0001',
+    birthDate: new Date('2014-03-05T00:00:00.000Z'),
+    requesterName: 'Siti Aminah',
+    requesterContact: '081200000002',
+    detail: 'Mohon salinan data pendaftaran anak saya.',
+  };
+
+  it('tidak mengungkap data subjek sebelum verifikasi', async () => {
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValue(registrantRow() as any);
+    vi.mocked(prisma.dataSubjectRequest.count).mockResolvedValue(0);
+    vi.mocked(prisma.dataSubjectRequest.create).mockResolvedValue({
+      requestNo: 'DSR-2026-0001',
+      dueAt: new Date('2026-11-20T00:00:00.000Z'),
+    } as any);
+
+    const result = await service.submitPublicRequest(input);
+
+    expect(Object.keys(result).sort()).toEqual(['dueAt', 'requestNo', 'verificationSentTo']);
+    // Kontak terdaftar disamarkan; nomor pendaftaran dan tanggal lahir tidak
+    // dikembalikan sama sekali.
+    expect(result.verificationSentTo).not.toContain('081200000002');
+  });
+
+  it('mengirim kode ke kontak TERDAFTAR, bukan kontak yang ditulis pemohon', async () => {
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValue(registrantRow() as any);
+    vi.mocked(prisma.dataSubjectRequest.count).mockResolvedValue(0);
+    vi.mocked(prisma.dataSubjectRequest.create).mockResolvedValue({
+      requestNo: 'DSR-2026-0001',
+      dueAt: new Date('2026-11-20T00:00:00.000Z'),
+    } as any);
+
+    await service.submitPublicRequest({ ...input, requesterContact: 'penyerang@example.com' });
+
+    const sent = vi.mocked(notificationService.send).mock.calls[0][0] as any;
+    expect(sent.recipientPhone).toBe('081200000002');
+    expect(JSON.stringify(sent)).not.toContain('penyerang@example.com');
+  });
+
+  it('menjawab galat yang sama untuk nomor tidak ada dan tanggal lahir salah', async () => {
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValueOnce(null as any);
+    const missing = await service.submitPublicRequest(input).catch((e) => e);
+
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValueOnce(
+      registrantRow({ birthDate: new Date('2015-01-01T00:00:00.000Z') }) as any
+    );
+    const wrongDate = await service.submitPublicRequest(input).catch((e) => e);
+
+    // Membedakan keduanya menjadikan endpoint ini alat untuk memeriksa apakah
+    // sebuah nomor pendaftaran benar-benar ada, tanpa perlu memegang datanya.
+    expect(missing.statusCode).toBe(wrongDate.statusCode);
+    expect(missing.message).toBe(wrongDate.message);
+    expect(prisma.dataSubjectRequest.create).not.toHaveBeenCalled();
+  });
+
+  it('menolak permintaan tanpa kontak terdaftar, sebab tidak ada yang dapat diverifikasi', async () => {
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValue(
+      registrantRow({ phone: null, email: null, parentPhone: null, parentEmail: null }) as any
+    );
+
+    await expect(service.submitPublicRequest(input)).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(prisma.dataSubjectRequest.create).not.toHaveBeenCalled();
+  });
+});
+
+describe('data-subject-requests — verifikasi kode', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    txPassThrough();
+  });
+
+  const future = new Date(Date.now() + 10 * 60 * 1000);
+
+  it('menolak kode kedaluwarsa', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        verificationCodeHash: 'a'.repeat(64),
+        verificationExpiresAt: new Date(Date.now() - 1000),
+      }) as any
+    );
+
+    await expect(
+      service.verifyPublicRequest({ requestNo: 'DSR-2026-0001', code: '123456' })
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(prisma.dataSubjectRequest.update).not.toHaveBeenCalled();
+  });
+
+  it('berhenti menerima percobaan setelah batasnya tercapai', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        verificationCodeHash: 'a'.repeat(64),
+        verificationExpiresAt: future,
+        verificationAttempts: 5,
+      }) as any
+    );
+
+    await expect(
+      service.verifyPublicRequest({ requestNo: 'DSR-2026-0001', code: '123456' })
+    ).rejects.toMatchObject({ statusCode: 403 });
+  });
+
+  it('mencatat percobaan yang gagal, sehingga batasnya bermakna', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        verificationCodeHash: 'a'.repeat(64),
+        verificationExpiresAt: future,
+        verificationAttempts: 2,
+      }) as any
+    );
+
+    await expect(
+      service.verifyPublicRequest({ requestNo: 'DSR-2026-0001', code: '000000' })
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(prisma.dataSubjectRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { verificationAttempts: 3 } })
+    );
+  });
+
+  it('membuang kode setelah dipakai, dan tidak menerimanya lagi', async () => {
+    // Hash dibuat dari kode yang sama dengan yang diuji.
+    const crypto = await import('crypto');
+    const hash = crypto.createHash('sha256').update('123456').digest('hex');
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        verificationCodeHash: hash,
+        verificationExpiresAt: future,
+        status: 'RECEIVED',
+      }) as any
+    );
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue({
+      requestNo: 'DSR-2026-0001',
+      status: 'VERIFIED',
+      dueAt: new Date('2026-11-20T00:00:00.000Z'),
+    } as any);
+
+    const result = await service.verifyPublicRequest({
+      requestNo: 'DSR-2026-0001',
+      code: '123456',
+    });
+
+    expect(result.status).toBe('VERIFIED');
+    expect(prisma.dataSubjectRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          status: 'VERIFIED',
+          verificationCodeHash: null,
+          verificationExpiresAt: null,
+        }),
+      })
+    );
+  });
+});
+
+describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    txPassThrough();
+  });
+
+  const actor = { userId: 'officer-1', name: 'Petugas PDP' };
+
+  it('penarikan persetujuan menghentikan pemrosesan tanpa menghapus bukti persetujuan', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({ type: 'CONSENT_WITHDRAWAL', status: 'PROCESSING' }) as any
+    );
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'CONSENT_WITHDRAWAL', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const call = vi.mocked(prisma.registrant.update).mock.calls[0][0] as any;
+    expect(call.data.consentWithdrawnAt).toBeInstanceOf(Date);
+    // Pasal 21 menuntut kemampuan menunjukkan persetujuan pernah ada; kolom
+    // buktinya tidak boleh ikut dihapus.
+    expect(call.data).not.toHaveProperty('consentAt');
+    expect(call.data).not.toHaveProperty('consentVersion');
+  });
+
+  it('penghapusan menghapus penanda langsung dan mempertahankan yang diwajibkan retensi', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        subjectCategory: 'STUDENT',
+        subjectRegistrantId: null,
+        subjectStudentId: 'stu-1',
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: 'https://cdn/foto.jpg',
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const student = vi.mocked(prisma.student.update).mock.calls[0][0] as any;
+    expect(student.data.photoUrl).toBeNull();
+    expect(student.data.parentPhone).not.toContain('0812');
+    // NIS dipertahankan: rapor dan buku induk menunjuknya, dan ia hanya unik
+    // per unit. NISN dibuang karena unik nasional.
+    expect(student.data).not.toHaveProperty('nis');
+    expect(student.data.nisn).toBeNull();
+
+    const user = vi.mocked(prisma.user.update).mock.calls[0][0] as any;
+    expect(user.data.isActive).toBe(false);
+    expect(user.data.passwordHash).toBeNull();
+
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.action).toBe('ERASURE');
+    // Apa yang dihapus DAN apa yang dipertahankan dicatat dengan kata-kata,
+    // supaya batasnya dapat diperiksa, bukan tersembunyi sebagai perilaku.
+    expect(audit.data.newValues.retained).toContain('nilai');
+    expect(audit.data.newValues.erased).toContain('identitas santri');
+  });
+
+  it('permintaan yang sudah selesai tidak dapat diubah lagi', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({ status: 'COMPLETED' }) as any
+    );
+
+    await expect(
+      service.updateStatus('dsr-1', { status: 'PROCESSING' }, actor)
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('permintaan akses yang ditutup menghasilkan salinan data, tanpa menyimpannya', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({ type: 'ACCESS', status: 'PROCESSING' }) as any
+    );
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValue({
+      registrationNo: 'SPMB-2026-0001',
+      fullName: 'Ahmad Fauzi',
+      gender: 'MALE',
+      birthPlace: 'Bandung',
+      birthDate: new Date('2014-03-05T00:00:00.000Z'),
+      address: 'Jl. Contoh 1',
+      phone: '0812',
+      email: 'a@example.com',
+      previousSchool: 'SD Contoh',
+      parentName: 'Bapak',
+      parentPhone: '0813',
+      parentEmail: 'b@example.com',
+      status: 'REGISTERED',
+      consentAt: new Date('2026-01-01T00:00:00.000Z'),
+      consentVersion: 2,
+      consentWithdrawnAt: null,
+      documents: [{ name: 'Akta', type: 'akta', isVerified: true }],
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ACCESS', status: 'COMPLETED' }) as any
+    );
+
+    const result = await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    expect(result.exportPayload).toMatchObject({
+      subjectCategory: 'REGISTRANT',
+      personalData: expect.objectContaining({ registrationNo: 'SPMB-2026-0001' }),
+    });
+    // Dasar pemrosesan ikut diserahkan: Pasal 30 menuntut yang bersangkutan
+    // dapat mengetahui dasar dan tujuan pemrosesan, bukan hanya isinya.
+    expect(JSON.stringify(result.exportPayload)).toContain('Pasal');
+  });
+});

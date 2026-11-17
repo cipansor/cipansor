@@ -62,6 +62,19 @@ export const Errors = {
   validationError: (details: Array<{ field: string; message: string }>) =>
     new ApiError(ErrorCode.VALIDATION_ERROR, 'Validation failed', details),
 
+  /**
+   * A 400 that carries its own sentence, for callers whose message is meant to
+   * be read by the person who sent the request rather than by a developer.
+   *
+   * `validationError` hardcodes "Validation failed" as the top-level message,
+   * which is fine when the per-field details carry the explanation. Some
+   * refusals have no field to attach to — "no registered contact to verify
+   * against" is about the record, not the payload — and there the generic
+   * sentence leaves the caller with nothing actionable.
+   */
+  validation: (message: string, details?: Array<{ field: string; message: string }>) =>
+    new ApiError(ErrorCode.VALIDATION_ERROR, message, details),
+
   unauthorized: (message = 'Authentication required') =>
     new ApiError(ErrorCode.UNAUTHORIZED, message),
 

@@ -12,6 +12,7 @@ import {
   getNavigationForRole,
   getNavigationForRoleCode,
   withDutiesHeld,
+  withPermissionsHeld,
   activeNavHref,
   type NavGroup,
   type NavItem,
@@ -65,9 +66,15 @@ export function Sidebar({ collapsed = false, onToggle }: SidebarProps) {
   const { data: homeroomClasses } = useHomeroomClasses({
     enabled: hasHomeroomGroup,
   });
-  const navigation = withDutiesHeld(roleNavigation, {
-    homeroom: !!homeroomClasses?.some((c) => c.isCurrent),
-  });
+  // The permission filter runs on the session's own permission list, so a
+  // duty-gated item (the PDP officer, UU 27/2022 Pasal 53) appears only for the
+  // person actually appointed — the role code cannot tell who that is.
+  const navigation = withPermissionsHeld(
+    withDutiesHeld(roleNavigation, {
+      homeroom: !!homeroomClasses?.some((c) => c.isCurrent),
+    }),
+    user?.permissions ?? [],
+  );
   const activeHref = activeNavHref(navigation, pathname);
 
   return (

@@ -14,6 +14,9 @@
   "/research/themes/[id]": {
     "reason": "seed.ts creates no ResearchTheme, so no id exists to resolve; only the list page is reachable."
   },
+  "/settings/permintaan-data/[id]": {
+    "reason": "seed.ts creates no DataSubjectRequest, so no id exists to resolve; the officer list page at /settings/permintaan-data is the way in."
+  },
   "/spmb/periods/[id]": {
     "reason": "Resolvable from /admissions/periods (the URL prefix differs from the API path); absent from the committed map until the next resolver run."
   },
