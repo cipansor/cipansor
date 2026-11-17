@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import fc from 'fast-check';
 import type { Prisma } from '@prisma/client';
+import {
+  ALUMNI_ROLE_CODES,
+  KOMITE_ROLE_CODES,
+  PARENT_ROLE_CODES,
+  STUDENT_ROLE_CODES,
+} from '@cipansor/shared';
 
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
@@ -129,8 +135,39 @@ function enrollmentMatches(where: any, e: EnrollmentRow): boolean {
   return true;
 }
 
+/**
+ * The rule of `studentScope`, restated here by hand — the expectation the
+ * `where` is measured against, so the test cannot agree with the code by
+ * construction. A santri: themselves; a wali: their own children; alumni and
+ * komite: none; a cross-unit reader: every santri; anyone else: their own unit,
+ * or none when the token carries no unit.
+ */
+function santriInScope(actor: ScopeActor, s: (typeof SANTRI)[number]): boolean {
+  const code = actor.roleCode ?? '';
+  if (STUDENT_ROLE_CODES.includes(code)) return s.userId === actor.sub;
+  if (PARENT_ROLE_CODES.includes(code)) return s.parentIds.includes(actor.sub);
+  if (ALUMNI_ROLE_CODES.includes(code) || KOMITE_ROLE_CODES.includes(code)) return false;
+  if (seesAllUnits(actor)) return true;
+  return !!actor.unitId && s.unitId === actor.unitId;
+}
+
+/** The rows the rule says the actor may see, applying the same narrowing. */
+function expectedVisible(
+  actor: ScopeActor,
+  filters: { studentId?: string; halaqohId?: string; status?: string },
+  rows: EnrollmentRow[]
+): EnrollmentRow[] {
+  return rows.filter((e) => {
+    if (!santriInScope(actor, byId(e.studentId))) return false;
+    if (filters.studentId && e.studentId !== filters.studentId) return false;
+    if (filters.halaqohId && e.halaqohId !== filters.halaqohId) return false;
+    if (filters.status && e.status !== filters.status) return false;
+    return true;
+  });
+}
+
 describe('Property 24: takhosus enrolment list is only within scope', () => {
-  it('only the santri in scope, whatever studentId/halaqohId ask, and the count matches', () => {
+  it('the where selects exactly the rows the rule says are in scope', () => {
     // Feature: web-api-reconnect-phase-2, Property 24: Daftar baca hanya dalam cakupan
     fc.assert(
       fc.property(
@@ -139,15 +176,18 @@ describe('Property 24: takhosus enrolment list is only within scope', () => {
         fc.option(fc.constantFrom('h1', 'h2'), { nil: undefined }),
         fc.array(enrollmentArb),
         (actor, studentId, halaqohId, rows) => {
-          const where = takhosusEnrollmentWhere(actor, { studentId, halaqohId });
+          const filters = { studentId, halaqohId };
+          const where = takhosusEnrollmentWhere(actor, filters);
           const seen = rows.filter((e) => enrollmentMatches(where, e));
-          // Every visible row is a santri the actor reaches.
+          const expected = expectedVisible(actor, filters, rows);
+
+          // Same set, both directions: nothing extra, nothing missing. This is
+          // what the old count-over-the-same-where could not catch.
+          expect(new Set(seen.map((e) => e.id))).toEqual(new Set(expected.map((e) => e.id)));
+          // Every visible row is a santri the rule reaches.
           for (const e of seen) {
-            if (where.student) expect(studentMatches(byId(e.studentId), where.student)).toBe(true);
+            expect(santriInScope(actor, byId(e.studentId))).toBe(true);
           }
-          // The count over the same `where` equals the rows it returns.
-          const counted = rows.filter((e) => enrollmentMatches(where, e)).length;
-          expect(counted).toBe(seen.length);
         }
       ),
       { numRuns: 100 }

@@ -30,7 +30,6 @@ vi.mock('@/modules/finance-enhancement/period.service', () => ({
 }));
 
 import { verifyToken } from '@/lib/jwt';
-import { prisma } from '@/lib/prisma';
 import { errorHandler } from '@/middleware/error';
 import laundryRoutes from '../laundry.routes';
 

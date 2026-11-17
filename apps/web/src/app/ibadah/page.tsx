@@ -79,6 +79,7 @@ import {
   LEADERBOARD_PERIODS,
   VERIFICATION_STATUSES,
   getCategoryInfo,
+  getTargetUnitLabel,
   getVerificationStatusInfo,
   formatPoints,
   type IbadahCategory,
@@ -654,7 +655,7 @@ export default function IbadahPage() {
                       <div className="flex items-center justify-between text-sm">
                         <span>
                           Target: {target.targetCount}{" "}
-                          {target.targetUnit.toLowerCase()}
+                          {getTargetUnitLabel(target.targetUnit).toLowerCase()}
                         </span>
                         <div className="flex items-center gap-1 text-yellow-600">
                           <Star className="h-4 w-4" />

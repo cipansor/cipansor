@@ -53,6 +53,7 @@ import {
   useIbadahRecords,
   IBADAH_CATEGORIES,
   getCategoryInfo,
+  getTargetUnitLabel,
   type IbadahTarget,
 } from "@/hooks/use-ibadah";
 import { useUnits } from "@/hooks/use-units";
@@ -462,7 +463,9 @@ export default function IbadahCheckInPage() {
                                     <span>
                                       {checkIn?.actualCount || 0} /{" "}
                                       {target.targetCount}{" "}
-                                      {target.targetUnit.toLowerCase()}
+                                      {getTargetUnitLabel(
+                                        target.targetUnit,
+                                      ).toLowerCase()}
                                     </span>
                                     <span className="text-muted-foreground">
                                       {Math.round(progress)}%

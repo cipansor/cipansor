@@ -37,7 +37,6 @@ const prismaMock = vi.hoisted(() => ({
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }));
 
 import { verifyToken } from '@/lib/jwt';
-import { prisma } from '@/lib/prisma';
 import { errorHandler } from '@/middleware/error';
 import ibadahRoutes from '../ibadah.routes';
 

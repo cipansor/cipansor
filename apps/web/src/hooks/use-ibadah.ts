@@ -31,7 +31,8 @@ export interface IbadahTarget {
   bonusPoints: number;
   targetType: TargetType;
   targetCount: number;
-  targetUnit: TargetUnit;
+  /** Null when the target counts something with no unit (see the API schema). */
+  targetUnit: TargetUnit | null;
   isActive: boolean;
   isOptional: boolean;
   sortOrder: number;
@@ -823,7 +824,8 @@ export function getTargetTypeLabel(type: TargetType) {
   return TARGET_TYPES.find((t) => t.value === type)?.label || type;
 }
 
-export function getTargetUnitLabel(unit: TargetUnit) {
+export function getTargetUnitLabel(unit: TargetUnit | null) {
+  if (!unit) return "";
   return TARGET_UNITS.find((u) => u.value === unit)?.label || unit;
 }
 

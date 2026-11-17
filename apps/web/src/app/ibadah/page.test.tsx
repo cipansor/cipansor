@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 /**
  * The Jurnal Ibadah (`/ibadah`) table reads a row's santri from what the API
@@ -135,5 +136,44 @@ describe("Jurnal Ibadah — Total Catatan", () => {
       .closest('[data-slot="card-content"]') as HTMLElement;
     expect(within(totalCard).getByText("0")).toBeInTheDocument();
     expect(screen.queryByText("NaN")).not.toBeInTheDocument();
+  });
+});
+
+// #989 (PR-03): the API allows a target with no `targetUnit` (the column is
+// nullable). The page called `target.targetUnit.toLowerCase()` on it and threw
+// "Cannot read properties of null" — the whole page blanked. A target without a
+// unit now renders without one.
+describe("Jurnal Ibadah — a target with no unit", () => {
+  it("renders a target whose targetUnit is null", async () => {
+    useIbadahRecords.mockReturnValue(recordsResult([], 0));
+    useIbadahTargets.mockReturnValue({
+      data: {
+        data: [
+          {
+            id: "t1",
+            unitId: "u1",
+            name: "Sholat Subuh",
+            category: "SHOLAT",
+            points: 10,
+            bonusPoints: 0,
+            targetType: "DAILY",
+            targetCount: 1,
+            targetUnit: null,
+            isActive: true,
+            isOptional: false,
+            sortOrder: 0,
+            createdAt: "2026-11-16T00:00:00.000Z",
+            updatedAt: "2026-11-16T00:00:00.000Z",
+          },
+        ],
+      },
+      isLoading: false,
+    });
+
+    expect(() => render(<IbadahPage />)).not.toThrow();
+
+    // The target card lives on the "Target Aktif" tab.
+    await userEvent.click(screen.getByRole("tab", { name: "Target Aktif" }));
+    expect(await screen.findByText("Sholat Subuh")).toBeInTheDocument();
   });
 });

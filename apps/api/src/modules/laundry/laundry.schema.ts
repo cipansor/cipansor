@@ -1,19 +1,15 @@
 import { z } from 'zod';
 import { partialUpdateSchema } from '@/lib/partial';
+import { LaundryStatusEnum } from '@cipansor/shared';
 
 // =============================================================================
 // STATUS ENUMS
 // =============================================================================
 
-export const LAUNDRY_STATUS = [
-  'RECEIVED', // Diterima
-  'WASHING', // Sedang dicuci
-  'DRYING', // Sedang dikeringkan
-  'IRONING', // Sedang disetrika
-  'READY', // Siap diambil
-  'DELIVERED', // Sudah diambil
-  'CANCELLED', // Dibatalkan
-] as const;
+// The laundry statuses live once, in `@cipansor/shared` (#989): the API's
+// request validation (`LaundryStatusEnum`) and the transition table the Portal
+// reads derive from the same `LAUNDRY_STATUS_VALUES` there, so a status added
+// to that one list can never be offered by the Portal while the API refuses it.
 
 export const PAYMENT_STATUS = ['UNPAID', 'PAID', 'REFUNDED'] as const;
 export const PAYMENT_METHOD = ['WALLET', 'CASH', 'PENDING'] as const;
@@ -60,7 +56,7 @@ export const CreateTransactionSchema = z.object({
 });
 
 export const UpdateStatusSchema = z.object({
-  status: z.enum(LAUNDRY_STATUS),
+  status: LaundryStatusEnum,
   notes: z.string().optional(),
 });
 
@@ -70,7 +66,7 @@ export const ProcessPaymentSchema = z.object({
 
 export const ListTransactionsQuerySchema = z.object({
   studentId: z.string().uuid().optional(),
-  status: z.enum(LAUNDRY_STATUS).optional(),
+  status: LaundryStatusEnum.optional(),
   paymentStatus: z.enum(PAYMENT_STATUS).optional(),
   startDate: z.string().optional(),
   endDate: z.string().optional(),
@@ -94,7 +90,6 @@ export const TransactionStatsQuerySchema = z.object({
 // TYPE EXPORTS
 // =============================================================================
 
-export type LaundryStatus = (typeof LAUNDRY_STATUS)[number];
 export type PaymentStatus = (typeof PAYMENT_STATUS)[number];
 export type PaymentMethod = (typeof PAYMENT_METHOD)[number];
 export type CreatePricingInput = z.infer<typeof CreatePricingSchema>;
