@@ -1,6 +1,7 @@
 "use client";
 
 import Image from "next/image";
+import Link from "next/link";
 import { siteConfig } from "@/config/site";
 import { LandingNavbar } from "@/components/landing/navbar";
 import { LandingFooter } from "@/components/landing/footer";
@@ -27,11 +28,13 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import {
   usePublicIntakes,
   useCreateRegistration,
   Gender,
 } from "@/hooks/use-admissions";
+import { usePrivacyPolicyCurrent } from "@/hooks/use-privacy-policy";
 import { PublicIntakes } from "@/components/admissions/public-intakes";
 import { formatRupiah } from "@/lib/admission-intake";
 import { QURAN_ABILITIES } from "@cipansor/shared";
@@ -251,6 +254,21 @@ export function SpmbForm({
     registrationToken: string;
     registrationNo: string;
   } | null>(null);
+  /**
+   * UU PDP 27/2022 Pasal 20 dan 25: the parent/guardian consents before the
+   * child's data is sent. The checkbox starts unchecked — a pre-ticked consent
+   * is not a consent — and the API refuses a submission without it.
+   */
+  const [consent, setConsent] = useState(false);
+  // The version the guardian actually ticked, frozen at that moment. If the
+  // foundation publishes a new version while the form is open, the live value
+  // changes but the consent still names the text the guardian read — the
+  // evidence may not point at text that was never on their screen.
+  const [consentedVersion, setConsentedVersion] = useState<number | null>(null);
+  // The policy version the visitor is consenting to. Fetched so the recorded
+  // consent names the text actually read, and so the form can explain when the
+  // foundation has not published one yet (the API would refuse anyway).
+  const { data: privacyPolicy } = usePrivacyPolicyCurrent();
 
   const steps = [
     { id: "student", title: t.steps.student, icon: User },
@@ -408,6 +426,11 @@ export function SpmbForm({
         });
         setActiveRegistration(null);
         setFormData(initialFormData);
+        // The consent covered THIS child. Clearing it here — and not while
+        // uploads are still retrying, which is the same registration — keeps a
+        // second child from inheriting a tick the guardian never gave.
+        setConsent(false);
+        setConsentedVersion(null);
         setCurrentStep(0);
       } else {
         toast.error(t.toasts.uploadsStillFailing(failedLabels.join(comma)));
@@ -424,6 +447,20 @@ export function SpmbForm({
       return handleRetryUpload();
     }
     if (!turnstile.ready) return;
+    // UU PDP 27/2022 Pasal 20 dan 25: without the guardian's consent there is
+    // no lawful basis to send a child's data, so the form stops here rather
+    // than letting the API answer 400. The API enforces the same rule; this is
+    // the message the parent can act on.
+    if (!consent) {
+      toast.error(t.confirm.consentRequired);
+      return;
+    }
+    // No published policy version means there is no text to consent to. The API
+    // refuses such a submission, so say why here instead.
+    if (!privacyPolicy) {
+      toast.error(t.confirm.consentUnavailable);
+      return;
+    }
     setIsSubmitting(true);
     try {
       const admissionPeriodId = chosenIntake?.period.id;
@@ -478,6 +515,15 @@ export function SpmbForm({
 
       if (turnstile.token) payload.turnstileToken = turnstile.token;
 
+      // The guardian's consent, with the policy version they read (UU PDP
+      // 27/2022 Pasal 20, 25). The API records the time and the caller's IP
+      // itself; the version has to come from here because only the browser saw
+      // which text was on screen.
+      payload.consent = true;
+      // The version frozen when the guardian ticked the box, not the live one:
+      // a republication mid-form must not silently re-point the consent.
+      payload.consentVersion = consentedVersion ?? privacyPolicy.version;
+
       // POST /admissions/public/registrants answers with the registrant's id,
       // number and upload token. The page used to fall back to a number of
       // its own ("PSB-" + the time), which no record holds and the tracker
@@ -524,9 +570,13 @@ export function SpmbForm({
         name: formData.fullName,
       });
 
-      // Reset form on full success
+      // Reset form on full success. The guardian's consent goes with it: the
+      // next child on this page must be ticked for afresh, or the record would
+      // show a consent the guardian never gave for that child.
       setActiveRegistration(null);
       setFormData(initialFormData);
+      setConsent(false);
+      setConsentedVersion(null);
       setCurrentStep(0);
     } catch (error: any) {
       // The API's own reason (a full wave, a closed period) is in Indonesian;
@@ -1457,6 +1507,63 @@ export function SpmbForm({
                                 </p>
                               </div>
                             </div>
+                          </CardContent>
+                        </Card>
+
+                        {/* UU PDP 27/2022 Pasal 20 dan 25: persetujuan wali.
+                            The checkbox is the lawful basis, not a formality —
+                            the API refuses the submission without it. The
+                            sentence is split into before/link/after so each
+                            language places the anchor where its grammar puts
+                            it. */}
+                        <Card
+                          className={
+                            privacyPolicy
+                              ? "border-primary/40"
+                              : "border-amber-300 bg-amber-50"
+                          }
+                        >
+                          <CardContent className="pt-4">
+                            {privacyPolicy ? (
+                              <div className="flex items-start gap-3">
+                                <Checkbox
+                                  id="spmb-consent"
+                                  checked={consent}
+                                  onCheckedChange={(value) => {
+                                    const checked = value === true;
+                                    setConsent(checked);
+                                    // Freeze the version the guardian consents
+                                    // to; clearing the box clears it too.
+                                    setConsentedVersion(
+                                      checked ? privacyPolicy.version : null,
+                                    );
+                                  }}
+                                  className="mt-0.5"
+                                />
+                                <Label
+                                  htmlFor="spmb-consent"
+                                  className="text-sm font-normal leading-relaxed cursor-pointer"
+                                >
+                                  {t.confirm.consentBefore}{" "}
+                                  <Link
+                                    href={`/kebijakan-privasi?version=${privacyPolicy.version}`}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="font-medium text-primary underline underline-offset-2"
+                                  >
+                                    {t.confirm.consentLink}
+                                  </Link>
+                                  {t.confirm.consentAfter}
+                                </Label>
+                              </div>
+                            ) : (
+                              <div className="flex items-start gap-3 text-sm">
+                                <AlertCircle className="h-5 w-5 text-amber-600 shrink-0 mt-0.5" />
+                                <p className="text-amber-800">
+                                  {t.confirm.consentUnavailable}
+                                </p>
+                              </div>
+                            )}
                           </CardContent>
                         </Card>
                       </div>

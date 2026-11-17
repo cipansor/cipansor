@@ -44,6 +44,15 @@ export const PUBLIC_PATH_PREFIXES = [
   "/wakaf-infaq",
   "/kontak",
   /**
+   * The public, versioned Privacy Policy (UU PDP 27/2022 Pasal 30, 35).
+   *
+   * Public for a harder reason than the marketing pages: it is the page the SPMB
+   * consent checkbox links to, and a prospective parent must be able to read it
+   * with no session. Behind the login wall the consent would point at nothing a
+   * visitor can open, and the consent itself would be uninformed.
+   */
+  "/kebijakan-privasi",
+  /**
    * Where a letter's printed QR code used to point.
    *
    * Load-bearing in a way the others are not: the URLs are on paper already, in

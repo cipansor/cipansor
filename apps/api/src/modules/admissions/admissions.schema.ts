@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AdmissionStatus } from '@prisma/client';
-import { quranAbilitySchema } from '@cipansor/shared';
+import { quranAbilitySchema, registrantConsentFields } from '@cipansor/shared';
 
 // Admission Period schemas
 // The intake's own fields (period and waves) are a contract with the portal's
@@ -146,6 +146,21 @@ export const trackRegistrantQuerySchema = z.object({
   registrationNo: z.string().min(3).max(50),
   birthDate: z.coerce.date(),
 });
+
+/**
+ * POST /admissions/public/registrants — the public SPMB form.
+ *
+ * The base fields plus the parent/guardian's consent (UU PDP 27/2022 Pasal 20,
+ * 25): this endpoint collects a child's NIK, KK, birth certificate and photo,
+ * so it may not accept a submission without one. The unit's admin POSTing the
+ * same registrant through the authenticated route (`createRegistrantSchema`) is
+ * a different case — they collect the data offline, where the paper form, not
+ * this endpoint, carries the consent — which is why the requirement lives here
+ * and not on the base schema.
+ */
+export const createPublicRegistrantSchema = createRegistrantSchema.extend(registrantConsentFields);
+
+export type CreatePublicRegistrantInput = z.infer<typeof createPublicRegistrantSchema>;
 
 export type CreateRegistrantInput = z.infer<typeof createRegistrantSchema>;
 export type UpdateRegistrantInput = z.infer<typeof updateRegistrantSchema>;

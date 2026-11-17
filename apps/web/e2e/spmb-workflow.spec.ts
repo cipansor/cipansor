@@ -156,6 +156,10 @@ test.describe("SPMB - End-to-End Public Registration & Admin Management", () => 
 
     // Registration — exercises the public (unauthenticated) SPMB create path
     // and returns the single-use registration token used right after.
+    //
+    // The public path requires the parent/guardian's consent (UU PDP 27/2022
+    // Pasal 20, 25), naming a Kebijakan Privasi version that exists. The base
+    // seed publishes version 1, so that is what we consent to.
     const email = `spmb.e2e.${runId}@example.test`;
     const registration = (
       await publicPost("/admissions/public/registrants", {
@@ -172,6 +176,8 @@ test.describe("SPMB - End-to-End Public Registration & Admin Management", () => 
         parentName: `Wali E2E ${runId}`,
         parentPhone: "081234567892",
         parentEmail: `wali.e2e.${runId}@example.test`,
+        consent: true,
+        consentVersion: 1,
       })
     ).data;
 

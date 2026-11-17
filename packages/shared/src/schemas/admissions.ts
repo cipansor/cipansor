@@ -25,6 +25,35 @@ export const parseDocumentSchema = z.object({
 
 export type ParseDocumentRequest = z.infer<typeof parseDocumentSchema>;
 
+/**
+ * Persetujuan orang tua/wali sebelum data pribadi anak dikirim (UU PDP 27/2022
+ * Pasal 20 dan 25). Formulir SPMB publik mengumpulkan NIK, KK, akta, dan foto
+ * anak; Pasal 25 ayat (2) mewajibkan persetujuan orang tua atau wali.
+ *
+ * `consent` adalah `literal(true)`, bukan `boolean()`: sebuah `false` yang
+ * lolos validasi lalu ditolak di service berarti dua tempat yang harus sepakat
+ * selamanya. Di sini, tidak menyetujui berarti permintaannya memang tidak sah
+ * bentuknya, dan API menjawabnya dengan 400 di tepi (preseden
+ * `chatbot.schema.ts`).
+ *
+ * `consentVersion` adalah nomor versi teks Kebijakan Privasi yang benar-benar
+ * dibaca pendaftar. Persetujuan hanya menaungi teks yang dibaca saat itu, jadi
+ * versinya ikut terekam (`Registrant.consentVersion`) dan diperiksa ada.
+ */
+export const registrantConsentFields = {
+  consent: z.literal(true, {
+    error: "Persetujuan orang tua/wali diperlukan sebelum mendaftar",
+  }),
+  consentVersion: z
+    .number({ error: "Versi kebijakan privasi diperlukan" })
+    .int("Versi kebijakan privasi tidak valid")
+    .positive("Versi kebijakan privasi tidak valid"),
+};
+
+export const registrantConsentSchema = z.object(registrantConsentFields);
+
+export type RegistrantConsent = z.infer<typeof registrantConsentSchema>;
+
 export const createPublicRegistrantDocumentSchema = z.object({
   type: z.string().min(1, "Tipe dokumen wajib diisi"),
   url: z.string().optional(),

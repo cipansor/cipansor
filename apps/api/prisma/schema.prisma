@@ -401,6 +401,7 @@ model User {
   recordedMedical                   MedicalRecord[]             @relation("MedicalRecorder")
   givenMedications                  MedicationUsageLog[]        @relation("MedicationGiver")
   createdAnnouncements              Announcement[]              @relation("AnnouncementCreator")
+  privacyPolicyVersions             PrivacyPolicyVersion[]      @relation("PrivacyPolicyAuthor")
   notifications                     Notification[]
   notificationDeliveries            NotificationDelivery[]
   pushSubscriptions                 PushSubscription[]
@@ -2011,6 +2012,21 @@ model Registrant {
   studentId         String?         @map("student_id") // Link ke student jika sudah enrolled (satu santri boleh punya beberapa pendaftaran)
   campaignId        String?         @map("campaign_id")
   source            String?
+  /// Dasar pemrosesan data pribadi anak (UU PDP 27/2022 Pasal 20, 25).
+  ///
+  /// Persetujuan direkam sebagai WAKTU, bukan boolean: Pasal 21 menuntut bukti
+  /// kapan persetujuan sah diberikan, dan presedennya sudah ada di
+  /// `ChatbotEscalation.consentAt`. `consentVersion` menyimpan versi teks
+  /// kebijakan yang dibaca pendaftar saat itu — persetujuan hanya menaungi teks
+  /// yang benar-benar dibacanya, dan menyunting teks lama akan membuat bukti ini
+  /// berbohong (decisions/persetujuan-pengguna.md). `consentIp` mencatat dari
+  /// alamat mana persetujuan datang.
+  ///
+  /// Ketiganya nullable: pendaftar lama dan pendaftar yang dibuat admin unit
+  /// (yang mengumpulkan data secara luring) tidak punya persetujuan digital.
+  consentAt         DateTime?       @map("consent_at")
+  consentVersion    String?         @map("consent_version")
+  consentIp         String?         @map("consent_ip")
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
 
@@ -6871,6 +6887,45 @@ model ChatbotPersona {
   updatedAt DateTime @updatedAt @map("updated_at")
 
   @@map("chatbot_personas")
+}
+
+/// PrivacyPolicyVersion - teks Kebijakan Privasi publik yang BERVERSI.
+///
+/// UU PDP 27/2022 Pasal 30 dan 35 menuntut pemberitahuan privasi yang dapat
+/// dibaca subjek data. Teksnya disimpan di basis data, bukan di kode, karena
+/// isinya — identitas pengendali, kontaknya, masa simpan — diputuskan yayasan
+/// dan belum ada saat kode ini ditulis (decisions/persetujuan-pengguna.md).
+///
+/// BERVERSI, dan versi lama tidak pernah disunting: persetujuan hanya menaungi
+/// teks yang benar-benar dibaca pendaftar saat itu, dan `Registrant.consentVersion`
+/// menunjuk nomor versi ini. Menyunting teks yang sudah disetujui akan membuat
+/// bukti persetujuan berbohong. Super Admin membuat versi baru, bukan mengubah
+/// yang lama. Satu halaman yang sama dipakai SPMB, layar /persetujuan portal
+/// kelak, dan WBS (decisions/pengawasan-dan-rapat-pembina.md).
+model PrivacyPolicyVersion {
+  id          String   @id @default(uuid())
+  /// Nomor versi yang naik satu tiap penerbitan; yang tertinggi = berlaku.
+  version     Int      @unique
+  /// Teks lengkap dalam tiga bahasa situs publik. Ketiganya wajib: halaman
+  /// publik menampilkan bahasa pembaca, dan satu versi tanpa terjemahan berarti
+  /// versi itu tidak dapat dibaca sebagian pengunjung.
+  bodyId      String   @map("body_id") @db.Text
+  bodyEn      String   @map("body_en") @db.Text
+  bodyAr      String   @map("body_ar") @db.Text
+  /// Ringkasannya, untuk ringkasan dan daftar versi di layar admin.
+  summaryId   String   @map("summary_id") @db.Text
+  summaryEn   String   @map("summary_en") @db.Text
+  summaryAr   String   @map("summary_ar") @db.Text
+  /// Kapan versi ini mulai berlaku. Diisi saat diterbitkan; tidak dapat diubah.
+  effectiveAt DateTime @map("effective_at")
+  createdById String   @map("created_by_id")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relations
+  createdBy User @relation("PrivacyPolicyAuthor", fields: [createdById], references: [id])
+
+  @@index([effectiveAt])
+  @@map("privacy_policy_versions")
 }
 
 /// ChatbotUsageDaily — berapa banyak yang benar-benar dibelanjakan asisten

@@ -139,6 +139,19 @@ export interface SpmbFormContent {
     notUploaded: string;
     statementTitle: string;
     statement: string;
+    /**
+     * UU PDP 27/2022 Pasal 20 dan 25: the parent/guardian must consent before
+     * the child's data is sent. The checkbox is not decoration — the API
+     * refuses a submission without it. `consentLink` is the words inside
+     * `consent`, the anchor to the public policy page; the sentence is split so
+     * each language places the link where its grammar puts it.
+     */
+    consentBefore: string;
+    consentLink: string;
+    consentAfter: string;
+    consentRequired: string;
+    /** Shown when the policy page has no published version yet. */
+    consentUnavailable: string;
   };
   actions: {
     previous: string;
@@ -340,6 +353,15 @@ const ID: SpmbFormContent = {
     statementTitle: "Pernyataan:",
     statement:
       "Dengan mengirim formulir ini, saya menyatakan bahwa data yang saya isikan adalah benar dan dapat dipertanggungjawabkan.",
+    consentBefore:
+      "Saya, sebagai orang tua atau wali, menyetujui pemrosesan data pribadi anak saya sebagaimana dijelaskan dalam",
+    consentLink: "Kebijakan Privasi",
+    consentAfter:
+      ", dan saya berhak menarik persetujuan ini kapan saja dengan menghubungi panitia SPMB.",
+    consentRequired:
+      "Persetujuan orang tua atau wali diperlukan sebelum formulir dapat dikirim.",
+    consentUnavailable:
+      "Kebijakan Privasi belum diterbitkan, sehingga pendaftaran belum dapat menerima persetujuan. Silakan hubungi panitia SPMB.",
   },
   actions: {
     previous: "Sebelumnya",
@@ -561,6 +583,15 @@ const EN: SpmbFormContent = {
     statementTitle: "Declaration:",
     statement:
       "By sending this form I declare that the information I have given is true and that I am responsible for it.",
+    consentBefore:
+      "I, as the parent or guardian, consent to the processing of my child's personal data as described in the",
+    consentLink: "Privacy Policy",
+    consentAfter:
+      ", and I may withdraw this consent at any time by contacting the SPMB committee.",
+    consentRequired:
+      "A parent's or guardian's consent is required before the form can be sent.",
+    consentUnavailable:
+      "The Privacy Policy has not been published yet, so the form cannot take consent. Please contact the SPMB committee.",
   },
   actions: {
     previous: "Back",
@@ -773,6 +804,14 @@ const AR: SpmbFormContent = {
     statementTitle: "إقرار:",
     statement:
       "بإرسال هذه الاستمارة أُقرّ بأن البيانات التي أدخلتها صحيحة وأنني مسؤول عنها.",
+    consentBefore:
+      "أنا، بصفتي وليّ الأمر، أوافق على معالجة البيانات الشخصية لطفلي على النحو الموضّح في",
+    consentLink: "سياسة الخصوصية",
+    consentAfter:
+      "، ويحق لي سحب هذه الموافقة في أي وقت بالتواصل مع لجنة القبول.",
+    consentRequired: "موافقة وليّ الأمر مطلوبة قبل إرسال الاستمارة.",
+    consentUnavailable:
+      "لم تُنشر سياسة الخصوصية بعد، لذا لا يمكن للاستمارة تسجيل الموافقة. يُرجى التواصل مع لجنة القبول.",
   },
   actions: {
     previous: "السابق",

@@ -61,6 +61,7 @@ import {
   BookOpenCheck,
   NotebookPen,
   ShieldCheck,
+  FileLock2,
   type LucideIcon,
   PhoneCall,
   CalendarX,
@@ -1734,6 +1735,17 @@ const adminNavigation: NavGroup[] = [
             title: "Riwayat Percakapan",
             href: "/settings/chatbot/percakapan",
             icon: MessagesSquare,
+            roleCodes: ["SUPER_ADMIN"],
+            roles: ["SUPER_ADMIN"],
+          },
+          {
+            // The public, versioned Kebijakan Privasi (UU PDP 27/2022 Pasal 30,
+            // 35) — the text the SPMB consent checkbox links to and that
+            // `Registrant.consentVersion` points at. Super Admin publishes a new
+            // version; no one edits a published one.
+            title: "Kebijakan Privasi",
+            href: "/settings/privacy-policy",
+            icon: FileLock2,
             roleCodes: ["SUPER_ADMIN"],
             roles: ["SUPER_ADMIN"],
           },

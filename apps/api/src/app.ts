@@ -114,6 +114,7 @@ import receptionRoutes from '@/modules/reception/reception.routes';
 import marketingRoutes from '@/modules/marketing/marketing.routes';
 import { announcementRoutes } from '@/modules/announcements';
 import { chatbotRoutes } from '@/modules/chatbot';
+import { privacyPolicyRoutes } from '@/modules/privacy-policy';
 import projectRoutes from '@/modules/project/project.routes';
 
 // New modules
@@ -398,6 +399,7 @@ apiRouter.use('/dashboard', dashboardRoutes);
 apiRouter.use('/reception', receptionRoutes);
 apiRouter.use('/announcements', announcementRoutes);
 apiRouter.use('/chatbot', chatbotRoutes);
+apiRouter.use('/privacy-policy', privacyPolicyRoutes);
 apiRouter.use('/projects', projectRoutes);
 
 // New modules

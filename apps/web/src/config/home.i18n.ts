@@ -104,6 +104,7 @@ export interface HomeContent {
       spmb: string;
       donate: string;
       contact: string;
+      privacy: string;
     };
   };
 }
@@ -203,6 +204,7 @@ const ID: HomeContent = {
       spmb: "Pendaftaran (SPMB)",
       donate: "Wakaf & Infaq",
       contact: "Kontak",
+      privacy: "Kebijakan Privasi",
     },
   },
 };
@@ -304,6 +306,7 @@ const EN: HomeContent = {
       spmb: "Admissions (SPMB)",
       donate: "Wakaf & Infaq",
       contact: "Contact",
+      privacy: "Privacy Policy",
     },
   },
 };
@@ -403,6 +406,7 @@ const AR: HomeContent = {
       spmb: "التسجيل (SPMB)",
       donate: "الوقف والإنفاق",
       contact: "اتصل بنا",
+      privacy: "سياسة الخصوصية",
     },
   },
 };

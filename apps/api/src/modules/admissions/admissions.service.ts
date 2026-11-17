@@ -23,6 +23,9 @@ import {
 } from './admissions.schema';
 import { Errors } from '../../middleware/error';
 import { readsAllUnits } from './admissions.access';
+// The public form's consent must name a Kebijakan Privasi version that exists;
+// the privacy module owns that check (cross-module call through its index).
+import { assertVersionExists } from '../privacy-policy';
 import { calendarDate, wibDayEnd, wibDayStart } from '@/utils/wib';
 
 type AuthUser = { id: string; role: string; roleCode?: string; unitId?: string | null };
@@ -97,6 +100,18 @@ async function assertDocumentUnitAccess(id: string, actor: AuthUser): Promise<vo
 // optional (see `createRegistrantSchema` in ./schema.ts), so there's no need
 // for a separate "extended" interface here.
 type CreateRegistrantExtendedInput = CreateRegistrantInput;
+
+/**
+ * The parent/guardian's recorded consent for the public SPMB form (UU PDP
+ * 27/2022 Pasal 20, 25). `version` is the Kebijakan Privasi version the
+ * registrant actually read; `ip` is where the submission came from. The time is
+ * taken when the row is written, not passed in — the consent and the record are
+ * one fact.
+ */
+export interface RegistrantConsentRecord {
+  version: number;
+  ip?: string | null;
+}
 
 // =====================================
 // ADMISSION PERIOD SERVICE
@@ -476,7 +491,10 @@ export async function getRegistrantById(id: string, actor?: AuthUser) {
   return registrant;
 }
 
-export async function createPublicRegistrantService(data: CreateRegistrantExtendedInput) {
+export async function createPublicRegistrantService(
+  data: CreateRegistrantExtendedInput,
+  consent: RegistrantConsentRecord
+) {
   const period = await prisma.admissionPeriod.findUnique({
     where: { id: data.admissionPeriodId },
     select: { isActive: true, startDate: true, endDate: true },
@@ -491,7 +509,12 @@ export async function createPublicRegistrantService(data: CreateRegistrantExtend
     throw Errors.badRequest('Admission period is not open for registration');
   }
 
-  const registrant = await createRegistrant(data, false);
+  // The consent must name a Kebijakan Privasi version that actually exists.
+  // Without this a caller could send `consent: true` with a made-up version,
+  // and the stored evidence would point at a text nobody could read.
+  await assertVersionExists(consent.version);
+
+  const registrant = await createRegistrant(data, false, undefined, consent);
 
   const crypto = await import('crypto');
   const timestampHex = Date.now().toString(16);
@@ -515,7 +538,8 @@ export async function createPublicRegistrantService(data: CreateRegistrantExtend
 export async function createRegistrant(
   data: CreateRegistrantExtendedInput,
   isAdmin: boolean = true,
-  actor?: AuthUser
+  actor?: AuthUser,
+  consent?: RegistrantConsentRecord
 ) {
   // Race-safety: `generateRegistrationNo` derives the next number from
   // `count(*) + 1`. Under PostgreSQL's default READ COMMITTED isolation,
@@ -528,7 +552,7 @@ export async function createRegistrant(
   let lastError: unknown;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
     try {
-      return await createRegistrantOnce(data, isAdmin, actor);
+      return await createRegistrantOnce(data, isAdmin, actor, consent);
     } catch (err) {
       lastError = err;
       if (
@@ -549,7 +573,8 @@ export async function createRegistrant(
 async function createRegistrantOnce(
   data: CreateRegistrantExtendedInput,
   isAdmin: boolean = true,
-  actor?: AuthUser
+  actor?: AuthUser,
+  consent?: RegistrantConsentRecord
 ) {
   return prisma.$transaction(async (tx) => {
     // Unit scoping for the admin/staff create path: a non-SUPER_ADMIN may only
@@ -705,6 +730,12 @@ async function createRegistrantOnce(
         notes: data.notes,
         source: data.source,
         campaignId: data.campaignId,
+        // Consent is stored only for the public form; an admin-created
+        // registrant has none, and leaving these null says so honestly rather
+        // than recording a consent nobody gave.
+        consentAt: consent ? new Date() : undefined,
+        consentVersion: consent ? String(consent.version) : undefined,
+        consentIp: consent?.ip ?? undefined,
       },
     });
 
