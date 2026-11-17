@@ -44,8 +44,9 @@ dilindungi.
   kepada peran yang tidak berhak.
 - **"Diketahui"** — saat **orang pertama di yayasan** menyadari bahwa suatu
   kegagalan pelindungan mungkin terjadi, **bukan** saat penyebabnya sudah
-  dipastikan. Pasal 46 menghitung tenggat "sejak diketahui", jadi tenggat
-  3×24 jam berjalan dari **waktu temuan** itu — saat pengetahuan pertama ada —
+  dipastikan. Pasal 46 sendiri **tidak menamai** titik awal tenggatnya secara
+  tegas (lihat "Dasar hukum"); prosedur ini memakai tafsir teraman — tenggat
+  3×24 jam berjalan dari **waktu temuan** itu, saat pengetahuan pertama ada,
   **bukan** dari waktu pencatatannya. Mencatat (langkah 2) adalah perbuatan
   administratif: ia mendokumentasikan pengetahuan yang sudah ada dan **tidak
   menggeser** tenggat. Karena itu catatlah secepatnya — dan bila pencatatan
