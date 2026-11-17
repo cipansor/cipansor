@@ -27,6 +27,13 @@ vi.mock('@/lib/prisma', () => ({
       delete: vi.fn(),
     },
     halaqoh: { findUnique: vi.fn().mockResolvedValue(null) },
+    // The pass/progress effects (applyPassEffects/revertPassEffects) run inside
+    // the write's transaction; `create`/`update`/`delete`/`submitScores` now
+    // open one. The transaction handle is this same mocked client.
+    takhosusEnrollment: { findUnique: vi.fn().mockResolvedValue(null) },
+    hafidzStudent: { findUnique: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
+    sanadRecord: { count: vi.fn().mockResolvedValue(0) },
+    $transaction: vi.fn((callback) => callback(prisma)),
   },
 }));
 

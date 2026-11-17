@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import {
   SimaanGradeEnum,
+  SimaanStatusEnum,
   SimaanTypeEnum,
   createSimaanSchema,
   updateSimaanSchema,
@@ -41,6 +42,11 @@ export const listSimaanQuerySchema = z.object({
   passed: z
     .union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
     .optional(),
+  // The derived status the list page shows. Filtered on the server *before*
+  // pagination, using the same rule the web badge reads (`simaanStatusOf`), so
+  // a failed exam (score 40, passed=false) cannot appear under one status in
+  // the badge and another in the filtered list (#1125).
+  status: SimaanStatusEnum.optional(),
   search: z.string().min(1).optional(),
 });
 

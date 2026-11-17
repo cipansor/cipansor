@@ -497,15 +497,19 @@ decision.
   `assertReachesUnit`, `writeUnitScope`) on 2026-09-28; `lingkungan` has the
   same hand-written `isPrivileged` and should move too.
 - **One concept, several modules** (audit 2026-09-25): tahfidz across five
-  modules (`takhosus` re-exposes murojaah, simaan, sanad and halaqoh on the same
-  tables), report cards in five places, lesson plans in three models, P5 in two
+  modules (`takhosus` still re-exposes murojaah, sanad and halaqoh on the same
+  tables; its duplicate simaan *write* surface — a second service, controller
+  and route set that wrote a `status`/`duration` the model does not have — was
+  removed in #1125, so simaan now has one contract and one service), report
+  cards in five places, lesson plans in three models, P5 in two
   modules (the term was retired by Permendikdasmen 13/2025 — now
   _kokurikuler_), chart of accounts and journals in `finance` and
   `finance-enhancement`, two monthly-depreciation implementations
   (`jobs/asset-depreciation.job.ts` runs; `inventory/depreciation.service.ts`
   never did), three daily santri logs (`daily-report`, `ibadah`, `muhasabah`),
   and duplicate pages: `/payroll` + `/hr/payroll`, `/wallet` +
-  `/finance/wallet`, `/tahfidz/simaan` + `/takhosus/simaan`, three certificate
+  `/finance/wallet`, `/tahfidz/simaan` + `/takhosus/simaan` (the two simaan
+  *pages* remain, but both now call the one `/simaan` API), three certificate
   pages. Laporan harian alone has three ways to write one
   (`/daily-report/new`, `/tk/daily-reports/new`, `/tk/daily-reports/create`
   for a class) plus check-in, the wali kelas page and Mutabaah bulk, and two

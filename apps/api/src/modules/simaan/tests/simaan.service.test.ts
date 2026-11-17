@@ -17,6 +17,7 @@ vi.mock('@/lib/prisma', () => ({
       count: vi.fn().mockResolvedValue(0),
       findFirstOrThrow: vi.fn().mockResolvedValue({ id: 'e-1' }),
     },
+    $transaction: vi.fn((callback) => callback(prisma)),
   },
 }));
 

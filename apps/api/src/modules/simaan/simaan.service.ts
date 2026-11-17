@@ -1,5 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
+import { simaanStatusWhere } from '@cipansor/shared';
 import { dayDate, wibDayOf } from '@/utils/wib';
 import { assertStudentInScope, studentScope, type ScopeActor } from '@/utils/student-scope';
 import { Errors } from '@/middleware/error';
@@ -27,12 +28,21 @@ import type {
  * surfaced as a 500 (P2025) rather than 404. Not-found rather than forbidden,
  * so the answer does not confirm the id.
  */
-async function assertExamInScope(id: string, actor: ScopeActor): Promise<void> {
+type ScopedExam = {
+  id: string;
+  studentId: string;
+  juzStart: number;
+  juzEnd: number;
+  passed: boolean;
+};
+
+async function assertExamInScope(id: string, actor: ScopeActor): Promise<ScopedExam> {
   const found = await prisma.simaanExam.findFirst({
     where: { id, student: studentScope(actor) },
-    select: { id: true },
+    select: { id: true, studentId: true, juzStart: true, juzEnd: true, passed: true },
   });
   if (!found) throw Errors.notFound('Simaan exam');
+  return found;
 }
 
 /** The examiner row with `id`, or 404 unless its exam's santri is in scope. */
@@ -42,6 +52,159 @@ async function assertExaminerInScope(id: string, actor: ScopeActor): Promise<voi
     select: { id: true },
   });
   if (!found) throw Errors.notFound('Examiner');
+}
+
+type ExamForEffects = { id: string; studentId: string; juzStart: number; juzEnd: number };
+
+/**
+ * The Takhosus progress a passing simaan moves, and a re-grade or delete undoes.
+ *
+ * This lived only on `/takhosus/simaan/:id/grade` (`updateResult`), so a dialog
+ * that saved `passed: true` through `PATCH /simaan/:id` marked the exam passed
+ * and left the enrollment ACTIVE with no hafidz record — the same exam reaching
+ * two different states depending on the door it came through (#1125). It now
+ * lives here, called from every simaan write, inside the write's transaction.
+ *
+ * Both helpers take the `tx` handle, so the enrollment/hafidz/juz change commits
+ * with the exam row or not at all.
+ */
+async function applyPassEffects(
+  tx: Prisma.TransactionClient,
+  exam: Pick<ExamForEffects, 'studentId' | 'juzStart' | 'juzEnd'>
+): Promise<void> {
+  const enrollment = await tx.takhosusEnrollment.findUnique({
+    where: { studentId: exam.studentId },
+  });
+  if (!enrollment) return;
+
+  // A pass of the whole Qur'an completes the programme.
+  if (exam.juzStart === 1 && exam.juzEnd === 30) {
+    if (enrollment.status !== 'COMPLETED') {
+      await tx.takhosusEnrollment.update({
+        where: { studentId: exam.studentId },
+        data: {
+          status: 'COMPLETED',
+          completedAt: new Date(),
+          currentJuz: 30,
+          completedJuz: enrollment.targetJuz,
+          notes: `Lulus Simaan 30 Juz pada ${new Date().toLocaleDateString()}`,
+        },
+      });
+    }
+    const existingHafidz = await tx.hafidzStudent.findUnique({
+      where: { studentId: exam.studentId },
+      select: { id: true },
+    });
+    if (!existingHafidz) {
+      await tx.hafidzStudent.create({
+        data: {
+          studentId: exam.studentId,
+          completedAt: new Date(),
+          notes: 'Lulus program Takhosus',
+        },
+      });
+    }
+    return;
+  }
+
+  // Advance only on a contiguous pass that covers the student's frontier:
+  // a non-sequential exam (juz 20–25 when currentJuz is 5) must not skip juz.
+  const currentJuz = enrollment.currentJuz || 1;
+  if (exam.juzStart <= currentJuz && exam.juzEnd >= currentJuz) {
+    await tx.takhosusEnrollment.update({
+      where: { studentId: exam.studentId },
+      data: { currentJuz: Math.min(30, exam.juzEnd + 1) },
+    });
+  }
+}
+
+/**
+ * Undo `applyPassEffects` when a passed simaan is re-graded to failed or
+ * deleted. Only reverts when no other passed simaan (or enough sanad records)
+ * still justifies the progress, so a second 30-juz pass is not thrown away.
+ */
+async function revertPassEffects(
+  tx: Prisma.TransactionClient,
+  exam: ExamForEffects,
+  /** A delete has already removed the row — skip the `id: { not: exam.id }` filter. */
+  examAlreadyDeleted = false
+): Promise<void> {
+  const enrollment = await tx.takhosusEnrollment.findUnique({
+    where: { studentId: exam.studentId },
+  });
+  if (!enrollment) return;
+
+  const idFilter = examAlreadyDeleted ? {} : { id: { not: exam.id } };
+
+  if (exam.juzStart === 1 && exam.juzEnd === 30) {
+    const otherPassed30Juz = await tx.simaanExam.findFirst({
+      where: { studentId: exam.studentId, ...idFilter, passed: true, juzStart: 1, juzEnd: 30 },
+      select: { id: true },
+    });
+    if (otherPassed30Juz) return;
+
+    const sanadCount = await tx.sanadRecord.count({ where: { enrollmentId: enrollment.id } });
+    const sanadJustifiesCompletion = sanadCount >= enrollment.targetJuz;
+
+    if (enrollment.status === 'COMPLETED' && !sanadJustifiesCompletion) {
+      const otherPassedExams = await tx.simaanExam.findMany({
+        where: { studentId: exam.studentId, ...idFilter, passed: true },
+        select: { juzEnd: true },
+        orderBy: { juzEnd: 'desc' },
+        take: 1,
+      });
+      const derivedCurrentJuz =
+        otherPassedExams.length > 0 ? Math.min(30, otherPassedExams[0].juzEnd + 1) : 1;
+      // Only clear notes the completion itself wrote; keep a manually edited one.
+      const isAutoGeneratedNote = enrollment.notes?.startsWith('Lulus Simaan 30 Juz pada ');
+
+      await tx.takhosusEnrollment.update({
+        where: { studentId: exam.studentId },
+        data: {
+          status: 'ACTIVE',
+          completedAt: null,
+          currentJuz: derivedCurrentJuz,
+          completedJuz: sanadCount,
+          ...(isAutoGeneratedNote && { notes: null }),
+        },
+      });
+    }
+
+    if (!sanadJustifiesCompletion) {
+      await tx.hafidzStudent.deleteMany({ where: { studentId: exam.studentId } });
+    }
+    return;
+  }
+
+  if (enrollment.currentJuz === Math.min(30, exam.juzEnd + 1)) {
+    const otherPassedExams = await tx.simaanExam.findMany({
+      where: { studentId: exam.studentId, ...idFilter, passed: true },
+      select: { juzEnd: true },
+      orderBy: { juzEnd: 'desc' },
+      take: 1,
+    });
+    const derivedCurrentJuz =
+      otherPassedExams.length > 0 ? Math.min(30, otherPassedExams[0].juzEnd + 1) : 1;
+
+    await tx.takhosusEnrollment.update({
+      where: { studentId: exam.studentId },
+      data: { currentJuz: derivedCurrentJuz },
+    });
+  }
+}
+
+/** The scoped exam a write targets, or 404 — read inside the write's transaction. */
+async function findExamInScope(
+  tx: Prisma.TransactionClient,
+  id: string,
+  actor: ScopeActor
+): Promise<ExamForEffects & { passed: boolean }> {
+  const found = await tx.simaanExam.findFirst({
+    where: { id, student: studentScope(actor) },
+    select: { id: true, studentId: true, juzStart: true, juzEnd: true, passed: true },
+  });
+  if (!found) throw Errors.notFound('Simaan exam');
+  return found;
 }
 
 export const simaanService = {
@@ -61,6 +224,7 @@ export const simaanService = {
       dateFrom,
       dateTo,
       passed,
+      status,
       search,
     } = query;
 
@@ -79,6 +243,14 @@ export const simaanService = {
     if (halaqohId) where.halaqohId = halaqohId;
     if (simaanType) where.simaanType = simaanType;
     if (passed !== undefined) where.passed = passed;
+
+    // The derived status, on the same rule the web badge reads. It is pushed
+    // into `AND` (not a bare `OR`) because `search` also writes `where.OR`; two
+    // top-level `OR` keys would silently drop one of them.
+    if (status) {
+      const existingAnd = where.AND ? (Array.isArray(where.AND) ? where.AND : [where.AND]) : [];
+      where.AND = [...existingAnd, simaanStatusWhere(status)];
+    }
 
     if (dateFrom || dateTo) {
       where.examDate = {};
@@ -175,45 +347,53 @@ export const simaanService = {
     await assertStudentInScope(data.studentId, context);
 
     const examDate = dayDate(data.examDate);
+    const passed = data.passed || false;
 
-    const record = await prisma.simaanExam.create({
-      data: {
-        studentId: data.studentId,
-        enrollmentId: data.enrollmentId,
-        halaqohId: data.halaqohId,
-        simaanType: data.simaanType,
-        examDate,
-        sessionNumber: data.sessionNumber || 1,
-        totalSessions: data.totalSessions || 1,
-        juzStart: data.juzStart,
-        juzEnd: data.juzEnd,
-        overallScore: data.overallScore,
-        tajwidScore: data.tajwidScore,
-        fashohaScore: data.fashohaScore,
-        tartilScore: data.tartilScore,
-        grade: data.grade,
-        passed: data.passed || false,
-        notes: data.notes,
-        recommendations: data.recommendations,
-        examiners:
-          data.examinerIds && data.examinerIds.length > 0
-            ? {
-                create: data.examinerIds.map((examinerId) => ({
-                  examinerId,
-                })),
-              }
-            : undefined,
-      },
-      include: {
-        student: { select: { id: true, user: { select: { name: true } } } },
-        halaqoh: { select: { id: true, name: true } },
-        examiners: {
-          include: { examiner: { select: { id: true, name: true } } },
+    return prisma.$transaction(async (tx) => {
+      const record = await tx.simaanExam.create({
+        data: {
+          studentId: data.studentId,
+          enrollmentId: data.enrollmentId,
+          halaqohId: data.halaqohId,
+          simaanType: data.simaanType,
+          examDate,
+          sessionNumber: data.sessionNumber || 1,
+          totalSessions: data.totalSessions || 1,
+          juzStart: data.juzStart,
+          juzEnd: data.juzEnd,
+          overallScore: data.overallScore,
+          tajwidScore: data.tajwidScore,
+          fashohaScore: data.fashohaScore,
+          tartilScore: data.tartilScore,
+          grade: data.grade,
+          passed,
+          notes: data.notes,
+          recommendations: data.recommendations,
+          examiners:
+            data.examinerIds && data.examinerIds.length > 0
+              ? {
+                  create: data.examinerIds.map((examinerId) => ({
+                    examinerId,
+                  })),
+                }
+              : undefined,
         },
-      },
-    });
+        include: {
+          student: { select: { id: true, user: { select: { name: true } } } },
+          halaqoh: { select: { id: true, name: true } },
+          examiners: {
+            include: { examiner: { select: { id: true, name: true } } },
+          },
+        },
+      });
 
-    return record;
+      // A form that creates the exam already passed moves the Takhosus progress
+      // here too — otherwise the same `passed: true` produced a completed
+      // enrollment through the grade endpoint and nothing through this one.
+      if (passed) await applyPassEffects(tx, record);
+
+      return record;
+    });
   },
 
   // ============================================
@@ -221,35 +401,54 @@ export const simaanService = {
   // ============================================
 
   async update(id: string, data: UpdateSimaanInput, context: ScopeActor) {
-    await assertExamInScope(id, context);
+    return prisma.$transaction(async (tx) => {
+      const before = await findExamInScope(tx, id, context);
+      const nowPassed = data.passed !== undefined ? data.passed : before.passed;
 
-    const record = await prisma.simaanExam.update({
-      where: { id },
-      data: {
-        ...(data.simaanType && { simaanType: data.simaanType }),
-        ...(data.examDate && { examDate: dayDate(data.examDate) }),
-        ...(data.sessionNumber !== undefined && { sessionNumber: data.sessionNumber }),
-        ...(data.totalSessions !== undefined && { totalSessions: data.totalSessions }),
-        ...(data.juzStart !== undefined && { juzStart: data.juzStart }),
-        ...(data.juzEnd !== undefined && { juzEnd: data.juzEnd }),
-        ...(data.overallScore !== undefined && { overallScore: data.overallScore }),
-        ...(data.tajwidScore !== undefined && { tajwidScore: data.tajwidScore }),
-        ...(data.fashohaScore !== undefined && { fashohaScore: data.fashohaScore }),
-        ...(data.tartilScore !== undefined && { tartilScore: data.tartilScore }),
-        ...(data.grade !== undefined && { grade: data.grade }),
-        ...(data.passed !== undefined && { passed: data.passed }),
-        ...(data.notes !== undefined && { notes: data.notes }),
-        ...(data.recommendations !== undefined && { recommendations: data.recommendations }),
-      },
-      include: {
-        student: { select: { id: true, user: { select: { name: true } } } },
-        examiners: {
-          include: { examiner: { select: { id: true, name: true } } },
+      const record = await tx.simaanExam.update({
+        where: { id },
+        data: {
+          ...(data.simaanType && { simaanType: data.simaanType }),
+          ...(data.examDate && { examDate: dayDate(data.examDate) }),
+          ...(data.sessionNumber !== undefined && { sessionNumber: data.sessionNumber }),
+          ...(data.totalSessions !== undefined && { totalSessions: data.totalSessions }),
+          ...(data.juzStart !== undefined && { juzStart: data.juzStart }),
+          ...(data.juzEnd !== undefined && { juzEnd: data.juzEnd }),
+          ...(data.overallScore !== undefined && { overallScore: data.overallScore }),
+          ...(data.tajwidScore !== undefined && { tajwidScore: data.tajwidScore }),
+          ...(data.fashohaScore !== undefined && { fashohaScore: data.fashohaScore }),
+          ...(data.tartilScore !== undefined && { tartilScore: data.tartilScore }),
+          ...(data.grade !== undefined && { grade: data.grade }),
+          ...(data.passed !== undefined && { passed: data.passed }),
+          ...(data.notes !== undefined && { notes: data.notes }),
+          ...(data.recommendations !== undefined && { recommendations: data.recommendations }),
         },
-      },
-    });
+        include: {
+          student: { select: { id: true, user: { select: { name: true } } } },
+          examiners: {
+            include: { examiner: { select: { id: true, name: true } } },
+          },
+        },
+      });
 
-    return record;
+      // The juz range can change in the same PATCH; the effects must run against
+      // the range that now stands, and a reverted pass must undo the old one.
+      if (nowPassed && !before.passed) {
+        await applyPassEffects(tx, record);
+      } else if (!nowPassed && before.passed) {
+        await revertPassEffects(tx, {
+          ...before,
+          juzStart: record.juzStart,
+          juzEnd: record.juzEnd,
+        });
+      } else if (nowPassed) {
+        // Still passed, but the covered range may have moved — reconcile both.
+        await revertPassEffects(tx, before);
+        await applyPassEffects(tx, record);
+      }
+
+      return record;
+    });
   },
 
   // ============================================
@@ -257,9 +456,12 @@ export const simaanService = {
   // ============================================
 
   async delete(id: string, context: ScopeActor) {
-    await assertExamInScope(id, context);
-    await prisma.simaanExam.delete({ where: { id } });
-    return { message: 'Simaan exam deleted successfully' };
+    return prisma.$transaction(async (tx) => {
+      const before = await findExamInScope(tx, id, context);
+      await tx.simaanExam.delete({ where: { id } });
+      if (before.passed) await revertPassEffects(tx, before, true);
+      return { message: 'Simaan exam deleted successfully' };
+    });
   },
 
   // ============================================
@@ -312,29 +514,39 @@ export const simaanService = {
   // ============================================
 
   async submitScores(data: SubmitScoresInput, context: ScopeActor) {
-    await assertExamInScope(data.simaanId, context);
+    return prisma.$transaction(async (tx) => {
+      const before = await findExamInScope(tx, data.simaanId, context);
 
-    const record = await prisma.simaanExam.update({
-      where: { id: data.simaanId },
-      data: {
-        overallScore: data.overallScore,
-        tajwidScore: data.tajwidScore,
-        fashohaScore: data.fashohaScore,
-        tartilScore: data.tartilScore,
-        grade: data.grade,
-        passed: data.passed,
-        notes: data.notes,
-        recommendations: data.recommendations,
-      },
-      include: {
-        student: { select: { id: true, user: { select: { name: true } } } },
-        examiners: {
-          include: { examiner: { select: { id: true, name: true } } },
+      const record = await tx.simaanExam.update({
+        where: { id: data.simaanId },
+        data: {
+          overallScore: data.overallScore,
+          tajwidScore: data.tajwidScore,
+          fashohaScore: data.fashohaScore,
+          tartilScore: data.tartilScore,
+          grade: data.grade,
+          passed: data.passed,
+          notes: data.notes,
+          recommendations: data.recommendations,
         },
-      },
-    });
+        include: {
+          student: { select: { id: true, user: { select: { name: true } } } },
+          examiners: {
+            include: { examiner: { select: { id: true, name: true } } },
+          },
+        },
+      });
 
-    return record;
+      // Grading is the same write surface as create/update: a pass here must
+      // move the enrollment and hafidz record, a re-grade to failed must undo it.
+      if (data.passed && !before.passed) {
+        await applyPassEffects(tx, record);
+      } else if (!data.passed && before.passed) {
+        await revertPassEffects(tx, before);
+      }
+
+      return record;
+    });
   },
 
   // ============================================

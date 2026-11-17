@@ -16,7 +16,9 @@ import {
   useDeleteSimaan,
   SimaanExam,
   SIMAAN_TYPES,
+  SIMAAN_STATUS_LABELS,
   simaanExamStatus,
+  type SimaanStatus,
   type SimaanTypeCode,
 } from "@/hooks/use-simaan";
 import { useClasses } from "@/hooks/use-classes";
@@ -58,10 +60,7 @@ import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
 import { getEffectiveRole } from "@/lib/rbac";
 
-const STATUS_LABELS: Record<string, string> = {
-  SCHEDULED: "Terjadwal",
-  COMPLETED: "Selesai",
-};
+const STATUS_LABELS: Record<string, string> = SIMAAN_STATUS_LABELS;
 
 const STATUS_COLORS: Record<string, string> = {
   SCHEDULED: "bg-blue-100 text-blue-800",
@@ -91,14 +90,11 @@ export default function SimaanListPage() {
     page,
     limit: pageSize,
     search: search || undefined,
-    // The model has no `status` column: a simaan is scheduled until it is
-    // graded, so the filter maps onto the `passed` flag the API does serve.
-    passed:
-      statusFilter === "COMPLETED"
-        ? true
-        : statusFilter === "SCHEDULED"
-          ? false
-          : undefined,
+    // The derived status the API filters on, using the same rule the badge
+    // below reads (`simaanStatusOf`). The old filter mapped onto `passed`, so a
+    // failed exam (score 40, passed=false) showed a "Selesai" badge yet was
+    // listed under "Terjadwal" and hidden from "Selesai" (#1125).
+    status: (statusFilter as SimaanStatus | "") || undefined,
     simaanType: examTypeFilter || undefined,
     // classId not supported in filters currently
     dateFrom: dateRange?.from

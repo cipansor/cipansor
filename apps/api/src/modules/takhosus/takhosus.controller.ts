@@ -7,11 +7,10 @@ import {
   dashboardService,
 } from './takhosus.service';
 import { murojaahService } from './murojaah.service';
-import { simaanService } from './simaan.service';
 import { targetService } from './target.service';
 import { ApiResponse } from '@/utils/response';
 import { requireUser, requireStudentId } from '@/middleware/auth';
-import { listMurojaahQuerySchema, listSimaanQuerySchema } from './takhosus.schema';
+import { listMurojaahQuerySchema } from './takhosus.schema';
 
 // =====================================
 // HALAQOH CONTROLLER
@@ -484,57 +483,6 @@ export const murojaahController = {
   },
 };
 
-// =====================================
-// SIMAAN CONTROLLER
-// =====================================
-
-export const simaanController = {
-  async list(req: Request, res: Response, next: NextFunction) {
-    try {
-      const result = await simaanService.findAll(listSimaanQuerySchema.parse(req.query));
-      res.json(ApiResponse.success(result.exams, 'Simaan exams retrieved', result.pagination));
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  async getById(req: Request, res: Response, next: NextFunction) {
-    try {
-      const exam = await simaanService.findById(req.params.id);
-      res.json(ApiResponse.success(exam));
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  async create(req: Request, res: Response, next: NextFunction) {
-    try {
-      const exam = await simaanService.create(req.body, requireUser(req).id);
-      res.status(201).json(ApiResponse.success(exam, 'Simaan exam scheduled'));
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  async updateResult(req: Request, res: Response, next: NextFunction) {
-    try {
-      const exam = await simaanService.updateResult(req.params.id, req.body);
-      res.json(ApiResponse.success(exam, 'Simaan result updated'));
-    } catch (error) {
-      next(error);
-    }
-  },
-
-  async delete(req: Request, res: Response, next: NextFunction) {
-    try {
-      await simaanService.delete(req.params.id);
-      res.json(ApiResponse.success(null, 'Simaan exam deleted'));
-    } catch (error) {
-      next(error);
-    }
-  },
-};
-
 export default {
   halaqoh: halaqohController,
   enrollment: enrollmentController,
@@ -543,5 +491,4 @@ export default {
   progress: progressController,
   dashboard: dashboardController,
   murojaah: murojaahController,
-  simaan: simaanController,
 };

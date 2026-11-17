@@ -3,11 +3,15 @@ import { api } from "@/lib/api";
 import {
   SIMAAN_GRADE_VALUES,
   SIMAAN_GRADE_LABELS,
+  SIMAAN_STATUS_LABELS,
+  SIMAAN_STATUS_VALUES,
   SIMAAN_TYPE_VALUES,
   SIMAAN_TYPE_LABELS,
   SIMAAN_TYPES,
+  simaanStatusOf,
   type CreateSimaanInput,
   type SimaanGradeCode,
+  type SimaanStatusCode,
   type SimaanTypeCode,
   type UpdateSimaanInput,
 } from "@cipansor/shared";
@@ -22,8 +26,10 @@ export {
   SIMAAN_TYPES,
   SIMAAN_GRADE_VALUES,
   SIMAAN_GRADE_LABELS,
+  SIMAAN_STATUS_VALUES,
+  SIMAAN_STATUS_LABELS,
 };
-export type { SimaanTypeCode, SimaanGradeCode };
+export type { SimaanTypeCode, SimaanGradeCode, SimaanStatusCode };
 
 const GRADE_COLORS: Record<SimaanGradeCode, string> = {
   MUMTAZ: "bg-green-100 text-green-800",
@@ -104,19 +110,22 @@ export interface SimaanFilters {
   dateFrom?: string;
   dateTo?: string;
   passed?: boolean;
+  status?: SimaanStatusCode;
 }
 
 /**
  * A simaan's state, read from the record rather than a column the model does
  * not have. It is scheduled until it is graded (`passed` or a score), then
- * complete — the same rule the detail page and the edit guard use.
+ * complete — the same rule the detail page and the edit guard use, and the same
+ * rule the API's list filter applies (`simaanStatusOf` in @cipansor/shared), so
+ * a filtered list and the badge on its rows cannot disagree (#1125).
  */
-export type SimaanStatus = "SCHEDULED" | "COMPLETED";
+export type SimaanStatus = SimaanStatusCode;
 
 export function simaanExamStatus(
   exam: Pick<SimaanExam, "passed" | "overallScore">,
 ): SimaanStatus {
-  return exam.passed || exam.overallScore != null ? "COMPLETED" : "SCHEDULED";
+  return simaanStatusOf(exam);
 }
 
 /** The create payload — the shared contract the API validates against (#1024). */

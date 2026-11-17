@@ -75,6 +75,49 @@ const optionalText = (max: number) =>
   z.string().trim().max(max, `Maksimal ${max} karakter`).optional();
 
 /**
+ * A simaan's state, derived from the record — the model has no `status` column.
+ * *Selesai* means graded: a pass, or any score at all (0 included). *Terjadwal*
+ * is neither. The API's list filter and the web's badge read this one rule, so
+ * a filtered list and the badge on its rows cannot disagree — before, the list
+ * page filtered on `passed` while the badge used "has a score", so a failed
+ * exam (score 40, `passed=false`) appeared under *Terjadwal* with a *Selesai*
+ * badge and vanished from *Selesai* (#1125).
+ */
+export const SIMAAN_STATUS_VALUES = ["SCHEDULED", "COMPLETED"] as const;
+export type SimaanStatusCode = (typeof SIMAAN_STATUS_VALUES)[number];
+
+export const SimaanStatusEnum = z.enum(SIMAAN_STATUS_VALUES);
+
+/** Every label a person reads is Indonesian. */
+export const SIMAAN_STATUS_LABELS: Record<SimaanStatusCode, string> = {
+  SCHEDULED: "Terjadwal",
+  COMPLETED: "Selesai",
+};
+
+export function simaanStatusOf(exam: {
+  passed: boolean;
+  overallScore?: number | null;
+}): SimaanStatusCode {
+  return exam.passed || exam.overallScore != null ? "COMPLETED" : "SCHEDULED";
+}
+
+/**
+ * The same rule as a Prisma `where` fragment, so the server filters on exactly
+ * what `simaanStatusOf` derives — applied *before* pagination, unlike a filter
+ * the client does after fetching a page. A plain object, so this module stays
+ * free of any Prisma import.
+ */
+export function simaanStatusWhere(
+  status: SimaanStatusCode,
+):
+  | { passed: boolean; overallScore: null }
+  | { OR: Array<Record<string, unknown>> } {
+  return status === "COMPLETED"
+    ? { OR: [{ passed: true }, { overallScore: { not: null } }] }
+    : { passed: false, overallScore: null };
+}
+
+/**
  * The create contract. Every field is a column of `SimaanExam` (plus the
  * `examinerIds` that become its `SimaanExaminer` rows), and `.strict()` rejects
  * anything else, so a form that follows it cannot send a field Prisma will

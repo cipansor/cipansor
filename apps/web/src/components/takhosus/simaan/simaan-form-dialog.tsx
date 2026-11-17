@@ -59,7 +59,15 @@ import { useUsers } from "@/hooks/use-users";
  * did not have, and `grade: ""`; now the date is "yyyy-MM-dd", the type is the
  * shared enum, and an empty grade is omitted on create and sent as `null` on
  * update (to clear a value that is already there).
+ *
+ * The score fields are `nullable`, not just `optional`: a `z.coerce.number()`
+ * turns a `null` from the loaded record into `0`, so editing the notes of an
+ * ungraded simaan used to save four zeroes over four blanks (#1125). An empty
+ * input holds `null` here, and `onSubmit` keeps it `null` on update (clear) and
+ * drops it on create (the column stays blank).
  */
+const CLEAR_GRADE = "__none__";
+
 const formSchema = z
   .object({
     simaanType: SimaanTypeEnum,
@@ -68,11 +76,11 @@ const formSchema = z
     totalSessions: z.coerce.number().int().min(1),
     juzStart: z.coerce.number().int().min(1).max(30),
     juzEnd: z.coerce.number().int().min(1).max(30),
-    overallScore: z.coerce.number().min(0).max(100).optional(),
-    tajwidScore: z.coerce.number().min(0).max(100).optional(),
-    fashohaScore: z.coerce.number().min(0).max(100).optional(),
-    tartilScore: z.coerce.number().min(0).max(100).optional(),
-    grade: SimaanGradeEnum.optional(),
+    overallScore: z.coerce.number().min(0).max(100).nullable().optional(),
+    tajwidScore: z.coerce.number().min(0).max(100).nullable().optional(),
+    fashohaScore: z.coerce.number().min(0).max(100).nullable().optional(),
+    tartilScore: z.coerce.number().min(0).max(100).nullable().optional(),
+    grade: SimaanGradeEnum.nullable().optional(),
     passed: z.boolean(),
     notes: z.string().max(2000).optional(),
     recommendations: z.string().max(2000).optional(),
@@ -123,11 +131,13 @@ export function SimaanFormDialog({
       totalSessions: initialData?.totalSessions || 1,
       juzStart: initialData?.juzStart || 1,
       juzEnd: initialData?.juzEnd || 1,
-      overallScore: initialData?.overallScore,
-      tajwidScore: initialData?.tajwidScore,
-      fashohaScore: initialData?.fashohaScore,
-      tartilScore: initialData?.tartilScore,
-      grade: initialData?.grade ?? undefined,
+      // `?? null`, not `|| undefined`: an ungraded record keeps its blanks blank
+      // through a save instead of turning them into zeroes.
+      overallScore: initialData?.overallScore ?? null,
+      tajwidScore: initialData?.tajwidScore ?? null,
+      fashohaScore: initialData?.fashohaScore ?? null,
+      tartilScore: initialData?.tartilScore ?? null,
+      grade: initialData?.grade ?? null,
       passed: initialData?.passed || false,
       notes: initialData?.notes || "",
       recommendations: initialData?.recommendations || "",
@@ -136,27 +146,35 @@ export function SimaanFormDialog({
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
-      // An empty grade is omitted on create and sent as `null` on update, so
-      // the shared contract never sees `""` (which it would reject).
-      const grade = values.grade ?? undefined;
       if (initialData) {
+        // Update sends the whole form; the nullable columns carry `null` to
+        // clear a value, and the shared contract accepts `null` for each. An
+        // empty grade maps to `null` too — this is how the dialog clears it.
         await updateSimaan.mutateAsync({
           id: initialData.id,
           data: {
             ...values,
             examDate: format(values.examDate, "yyyy-MM-dd"),
-            grade: grade ?? null,
+            grade: values.grade ?? null,
           },
         });
         toast.success("Data simaan berhasil diperbarui");
       } else {
+        // Create never sends `null`: an ungraded simaan omits the scores (the
+        // columns default to blank), and an empty grade is omitted.
+        const { overallScore, tajwidScore, fashohaScore, tartilScore, grade } =
+          values;
         await createSimaan.mutateAsync({
           studentId,
           enrollmentId,
           halaqohId,
           ...values,
           examDate: format(values.examDate, "yyyy-MM-dd"),
-          grade,
+          overallScore: overallScore ?? undefined,
+          tajwidScore: tajwidScore ?? undefined,
+          fashohaScore: fashohaScore ?? undefined,
+          tartilScore: tartilScore ?? undefined,
+          grade: grade ?? undefined,
           examinerIds: [],
         });
         toast.success("Jadwal simaan berhasil dibuat");
@@ -327,12 +345,12 @@ export function SimaanFormDialog({
                           min={0}
                           max={100}
                           {...field}
-                          value={field.value || ""}
+                          value={field.value ?? ""}
                           onChange={(e) =>
                             field.onChange(
-                              e.target.value
-                                ? parseFloat(e.target.value)
-                                : undefined,
+                              e.target.value === ""
+                                ? null
+                                : parseFloat(e.target.value),
                             )
                           }
                         />
@@ -353,12 +371,12 @@ export function SimaanFormDialog({
                           min={0}
                           max={100}
                           {...field}
-                          value={field.value || ""}
+                          value={field.value ?? ""}
                           onChange={(e) =>
                             field.onChange(
-                              e.target.value
-                                ? parseFloat(e.target.value)
-                                : undefined,
+                              e.target.value === ""
+                                ? null
+                                : parseFloat(e.target.value),
                             )
                           }
                         />
@@ -379,12 +397,38 @@ export function SimaanFormDialog({
                           min={0}
                           max={100}
                           {...field}
-                          value={field.value || ""}
+                          value={field.value ?? ""}
                           onChange={(e) =>
                             field.onChange(
-                              e.target.value
-                                ? parseFloat(e.target.value)
-                                : undefined,
+                              e.target.value === ""
+                                ? null
+                                : parseFloat(e.target.value),
+                            )
+                          }
+                        />
+                      </FormControl>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="tartilScore"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Tartil</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={0}
+                          max={100}
+                          {...field}
+                          value={field.value ?? ""}
+                          onChange={(e) =>
+                            field.onChange(
+                              e.target.value === ""
+                                ? null
+                                : parseFloat(e.target.value),
                             )
                           }
                         />
@@ -400,8 +444,10 @@ export function SimaanFormDialog({
                     <FormItem>
                       <FormLabel>Predikat</FormLabel>
                       <Select
-                        onValueChange={field.onChange}
-                        value={field.value || undefined}
+                        onValueChange={(value) =>
+                          field.onChange(value === CLEAR_GRADE ? null : value)
+                        }
+                        value={field.value ?? undefined}
                       >
                         <FormControl>
                           <SelectTrigger>
@@ -414,6 +460,9 @@ export function SimaanFormDialog({
                               {grade.label}
                             </SelectItem>
                           ))}
+                          <SelectItem value={CLEAR_GRADE}>
+                            Kosongkan predikat
+                          </SelectItem>
                         </SelectContent>
                       </Select>
                       <FormMessage />

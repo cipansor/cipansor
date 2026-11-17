@@ -32,6 +32,11 @@ type Simaan = {
   juzStart: number;
   juzEnd: number;
   notes?: string | null;
+  overallScore?: number | null;
+  tajwidScore?: number | null;
+  fashohaScore?: number | null;
+  tartilScore?: number | null;
+  passed?: boolean;
 };
 
 const API_URL = process.env.API_URL || "http://localhost:3001/api";
@@ -370,5 +375,255 @@ test.describe("Simaan — alur ketiga formulir", () => {
     expect(after.data.juzStart).toBe(2);
     expect(after.data.juzEnd).toBe(4);
     expect(after.data.notes).toBe("e2e dialog — sesudah");
+  });
+});
+
+/**
+ * The review's two web-observable findings on PR #1125.
+ *
+ * (1) A `z.coerce.number()` in the dialog's schema read a `null` score from the
+ *     loaded record as `0`, so editing the notes of an ungraded simaan wrote
+ *     four zeroes over four blanks. (2) The list page filtered on `passed`
+ *     while the badge used "has a score", so a failed exam (score 40,
+ *     passed=false) showed a "Selesai" badge yet was hidden from "Selesai" and
+ *     listed under "Terjadwal". Both drive the real pages/API and read the
+ *     record back.
+ */
+test.describe("Simaan — catatan tanpa nilai, dan status turunan", () => {
+  let session: AuthSession;
+  let studentId: string;
+  let studentName: string;
+  let enrollmentId: string;
+  let takhosusStudentId: string;
+  let takhosusStudentName: string;
+  const created: string[] = [];
+
+  test.beforeAll(async () => {
+    session = await apiLogin(SEED_USERS.superAdmin);
+    const students = await apiRequest<{
+      data: { id: string; user: { name: string } }[];
+    }>(session, "GET", "/students?limit=1");
+    studentId = students.data[0].id;
+    studentName = students.data[0].user.name;
+
+    const enrollments = await apiRequest<{
+      data: { id: string; studentId: string }[];
+    }>(session, "GET", "/takhosus/enrollment?limit=1");
+    enrollmentId = enrollments.data[0].id;
+    takhosusStudentId = enrollments.data[0].studentId;
+    const enrolled = await apiRequest<{ data: { user: { name: string } } }>(
+      session,
+      "GET",
+      `/students/${takhosusStudentId}`,
+    );
+    takhosusStudentName = enrolled.data.user.name;
+  });
+
+  test.afterAll(async () => {
+    for (const id of created) {
+      await apiRequest(session, "DELETE", `/simaan/${id}`).catch(() => {});
+    }
+  });
+
+  test("editing an ungraded simaan keeps its four scores blank", async ({
+    page,
+  }) => {
+    test.skip(await isProductionApi(), "writes a record");
+
+    const seeded = await postSimaan(session, {
+      studentId: takhosusStudentId,
+      simaanType: "BIN_NAZHR",
+      examDate: todayWib(),
+      juzStart: 2,
+      juzEnd: 4,
+      notes: "e2e null-score — sebelum",
+      examinerIds: [],
+    });
+    created.push(seeded.data.id);
+
+    await injectSession(page, session);
+    await gotoAuthedPage(
+      page,
+      `/takhosus/enrollment/${enrollmentId}`,
+      takhosusStudentName,
+    );
+    await page.getByRole("tab", { name: "Riwayat Simaan" }).click();
+    await page
+      .locator("tr", { hasText: "Juz 2-4" })
+      .getByRole("button")
+      .first()
+      .click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    // Change only the notes; every score input is left empty.
+    await dialog.getByLabel("Catatan").fill("e2e null-score — sesudah");
+    await dialog.getByRole("button", { name: "Simpan" }).click();
+    await waitForToast(page, "Data simaan berhasil diperbarui");
+
+    // Read it back: the four ungraded scores must still be blank, not zero.
+    const after = await apiRequest<{ data: Simaan }>(
+      session,
+      "GET",
+      `/simaan/${seeded.data.id}`,
+    );
+    expect(after.data.notes).toBe("e2e null-score — sesudah");
+    expect(after.data.overallScore).toBeNull();
+    expect(after.data.tajwidScore).toBeNull();
+    expect(after.data.fashohaScore).toBeNull();
+    expect(after.data.tartilScore).toBeNull();
+  });
+
+  test("a failed exam (score, passed=false) is Selesai on the server and the page", async ({
+    page,
+  }) => {
+    test.skip(await isProductionApi(), "writes a record");
+
+    const seeded = await postSimaan(session, {
+      studentId,
+      simaanType: "TASMI",
+      examDate: todayWib(),
+      juzStart: 6,
+      juzEnd: 6,
+      notes: "e2e status — gagal",
+      examinerIds: [],
+    });
+    created.push(seeded.data.id);
+
+    // Grade it below the pass mark: `passed=false` but a score is present.
+    await apiRequest(session, "POST", "/simaan/scores", {
+      simaanId: seeded.data.id,
+      overallScore: 40,
+      grade: "RASIB",
+      passed: false,
+    });
+
+    // The server agrees with the badge: Selesai is "passed OR a score".
+    const completed = await apiRequest<{ data: Simaan[] }>(
+      session,
+      "GET",
+      "/simaan?status=COMPLETED&limit=100",
+    );
+    expect(completed.data.some((e) => e.id === seeded.data.id)).toBe(true);
+
+    const scheduled = await apiRequest<{ data: Simaan[] }>(
+      session,
+      "GET",
+      "/simaan?status=SCHEDULED&limit=100",
+    );
+    expect(scheduled.data.some((e) => e.id === seeded.data.id)).toBe(false);
+
+    // And the page: filtering on Selesai keeps the row on screen. The student
+    // is the first seeded one, so the filter cannot page the row away.
+    await injectSession(page, session);
+    await gotoAuthedPage(page, "/tahfidz/simaan", "Ujian Simaan");
+    await page.getByPlaceholder("Cari nama santri...").fill(studentName);
+    await page
+      .locator('button[role="combobox"]')
+      .filter({ hasText: "Semua Status" })
+      .click();
+    await page.getByRole("option", { name: "Selesai" }).click();
+    const row = page.locator("tr", { hasText: studentName }).first();
+    await expect(row).toBeVisible();
+    await expect(row.getByText("Selesai")).toBeVisible();
+  });
+});
+
+/**
+ * A passing simaan moves the Takhosus progress no matter which door it came
+ * through. It used to move only on `/takhosus/simaan/:id/grade`, so the same
+ * `passed: true` saved through `PATCH /simaan/:id` left the enrollment ACTIVE
+ * with no hafidz record (#1125). This creates its own santri + enrollment so it
+ * touches no seeded progress, then drives the write through the simaan API.
+ */
+test.describe("Simaan — kelulusan memperbarui progres di setiap jalur", () => {
+  let session: AuthSession;
+  let studentId: string;
+  let enrollmentId: string | null = null;
+  let examId: string | null = null;
+
+  test.beforeAll(async () => {
+    session = await apiLogin(SEED_USERS.superAdmin);
+    const students = await apiRequest<{ data: { id: string }[] }>(
+      session,
+      "GET",
+      "/students?limit=100",
+    );
+    // A santri with no enrollment, so the created one is ours to remove.
+    for (const s of students.data) {
+      const existing = await apiRequest<{ data: unknown[] }>(
+        session,
+        "GET",
+        `/takhosus/enrollment?studentId=${s.id}`,
+      ).catch(() => ({ data: [] }));
+      if (!existing.data || existing.data.length === 0) {
+        studentId = s.id;
+        break;
+      }
+    }
+    const halaqohs = await apiRequest<{ data: { id: string }[] }>(
+      session,
+      "GET",
+      "/takhosus/halaqoh?limit=1",
+    );
+    const enrollment = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/takhosus/enrollment",
+      { studentId, halaqohId: halaqohs.data[0].id, targetJuz: 30 },
+    );
+    enrollmentId = enrollment.data.id;
+  });
+
+  test.afterAll(async () => {
+    if (examId)
+      await apiRequest(session, "DELETE", `/simaan/${examId}`).catch(() => {});
+    if (enrollmentId)
+      await apiRequest(
+        session,
+        "DELETE",
+        `/takhosus/enrollment/${enrollmentId}`,
+      ).catch(() => {});
+  });
+
+  test("PATCH passed:true completes the enrollment and reverting undoes it", async () => {
+    test.skip(await isProductionApi(), "writes records");
+
+    const exam = await postSimaan(session, {
+      studentId,
+      simaanType: "KHATAM",
+      examDate: todayWib(),
+      juzStart: 1,
+      juzEnd: 30,
+      examinerIds: [],
+    });
+    examId = exam.data.id;
+
+    const before = await apiRequest<{ data: { status: string } }>(
+      session,
+      "GET",
+      `/takhosus/enrollment/${enrollmentId}`,
+    );
+    expect(before.data.status).not.toBe("COMPLETED");
+
+    // The dialog's own path: a plain PATCH that flips `passed`.
+    await apiRequest(session, "PATCH", `/simaan/${examId}`, { passed: true });
+
+    const after = await apiRequest<{ data: { status: string } }>(
+      session,
+      "GET",
+      `/takhosus/enrollment/${enrollmentId}`,
+    );
+    expect(after.data.status).toBe("COMPLETED");
+
+    // Reverting must undo it, so the two paths cannot leave different states.
+    await apiRequest(session, "PATCH", `/simaan/${examId}`, { passed: false });
+
+    const reverted = await apiRequest<{ data: { status: string } }>(
+      session,
+      "GET",
+      `/takhosus/enrollment/${enrollmentId}`,
+    );
+    expect(reverted.data.status).not.toBe("COMPLETED");
   });
 });

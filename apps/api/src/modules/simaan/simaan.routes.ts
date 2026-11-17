@@ -53,6 +53,14 @@ const router: Router = Router();
  *         name: passed
  *         schema:
  *           type: boolean
+ *       - in: query
+ *         name: status
+ *         description: >-
+ *           The derived state: COMPLETED is a pass or any score, SCHEDULED is
+ *           neither. Applied before pagination, the same rule the web badge reads.
+ *         schema:
+ *           type: string
+ *           enum: [SCHEDULED, COMPLETED]
  *     responses:
  *       200:
  *         description: List of simaan exams

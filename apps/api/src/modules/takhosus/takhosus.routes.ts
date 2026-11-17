@@ -7,7 +7,6 @@ import {
   targetController,
   dashboardController,
   murojaahController,
-  simaanController,
 } from './takhosus.controller';
 import { authenticate, authorize } from '@/middleware/auth';
 import { UserRole } from '@prisma/client';
@@ -22,8 +21,6 @@ import {
   createTargetSchema,
   createMurojaahSchema,
   updateMurojaahSchema,
-  createSimaanSchema,
-  updateSimaanResultSchema,
 } from './takhosus.schema';
 
 const router = Router();
@@ -221,36 +218,6 @@ router.delete(
   '/murojaah/:id',
   authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
   murojaahController.delete
-);
-
-// =====================================
-// SIMAAN ROUTES
-// =====================================
-
-router.get(
-  '/simaan',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
-  simaanController.list
-);
-
-router.post(
-  '/simaan',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
-  validate(createSimaanSchema),
-  simaanController.create
-);
-
-router.put(
-  '/simaan/:id/grade',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER),
-  validate(updateSimaanResultSchema),
-  simaanController.updateResult
-);
-
-router.delete(
-  '/simaan/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  simaanController.delete
 );
 
 export default router;

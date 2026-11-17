@@ -8,7 +8,6 @@ import {
   MurojaahRecord,
   SimaanExam,
   TakhosusDashboardStats,
-  type SimaanTypeCode,
 } from "@cipansor/shared";
 
 // Define input types locally if not available in @cipansor/shared,
@@ -35,17 +34,6 @@ export interface CreateMurojaahInput {
     ayahNumber?: number;
     description?: string;
   }[];
-}
-
-export interface CreateSimaanInput {
-  studentId: string;
-  simaanType: SimaanTypeCode;
-  examDate: string;
-  juzStart: number;
-  juzEnd: number;
-  sessionNumber?: number;
-  totalSessions?: number;
-  notes?: string;
 }
 
 // Re-export shared types for component usage
@@ -88,26 +76,6 @@ export function useMurojaahRecords(params: {
   });
 }
 
-export function useSimaanExams(params: {
-  page?: number;
-  limit?: number;
-  studentId?: string;
-  halaqohId?: string;
-}) {
-  return useQuery({
-    queryKey: ["takhosus", "simaan", params],
-    queryFn: async () => {
-      const { data } = await api.get<PaginatedResponse<SimaanExam>>(
-        "/takhosus/simaan",
-        {
-          params,
-        },
-      );
-      return data;
-    },
-  });
-}
-
 export function useCreateMurojaah() {
   const queryClient = useQueryClient();
   return useMutation({
@@ -118,19 +86,6 @@ export function useCreateMurojaah() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["takhosus", "murojaah"] });
       queryClient.invalidateQueries({ queryKey: ["takhosus", "dashboard"] });
-    },
-  });
-}
-
-export function useCreateSimaan() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: async (data: CreateSimaanInput) => {
-      const { data: response } = await api.post("/takhosus/simaan", data);
-      return response.data;
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["takhosus", "simaan"] });
     },
   });
 }
