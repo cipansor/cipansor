@@ -262,7 +262,12 @@ const EXPLICIT_PERMISSIONS: Record<string, Permission[]> = {
   YAYASAN_PEMBINA: YAYASAN_OVERSIGHT,
   YAYASAN_PENGAWAS: YAYASAN_OVERSIGHT,
   YAYASAN_ANGGOTA: YAYASAN_OVERSIGHT,
-  YAYASAN_SEKRETARIS: [...YAYASAN_OVERSIGHT, P.USER_VIEW, P.STUDENT_UPDATE],
+  // Sekretaris Pengurus is oversight too (keputusan pemilik 2026-11-16, #1020):
+  // organ yayasan writes only through its own lanes (asas tulis organ, #991),
+  // and changing santri data is not one of them. The Sekretaris still *sees*
+  // the roster through STUDENT_VIEW in YAYASAN_OVERSIGHT. P.USER_VIEW dropped
+  // with it — it was already in YAYASAN_OVERSIGHT.
+  YAYASAN_SEKRETARIS: [...YAYASAN_OVERSIGHT],
   YAYASAN_BENDAHARA: [...YAYASAN_OVERSIGHT, P.FINANCE_MANAGE],
 
   PESANTREN_PENGASUH: [...UNIT_LEADERSHIP, ...PENGASUHAN],

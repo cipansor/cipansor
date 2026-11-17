@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 
 const { layoutProps, useStudents, granted } = vi.hoisted(() => ({
   layoutProps: { current: {} as Record<string, unknown> },
@@ -76,5 +77,35 @@ describe("student roster", () => {
     granted.current = new Set(["STUDENT_VIEW", "STUDENT_CREATE"]);
     render(<StudentsPage />);
     expect(screen.getByText("Add Student")).toBeDefined();
+  });
+
+  /**
+   * The row's Edit entry is the web half of #1020: the Sekretaris keeps the
+   * read (the roster and View stay) but the write is gone. `usePermission` is
+   * driven by the token's permission list, which the API fills from the role's
+   * matrix — so this asserts the page's own gating, and the API test proves the
+   * matrix no longer hands the Sekretaris `STUDENT_UPDATE`.
+   */
+  it("shows the row Edit only when the role holds STUDENT_UPDATE", async () => {
+    const user = userEvent.setup();
+    const openMenu = async () => {
+      const row = screen.getAllByRole("row")[1];
+      const buttons = within(row).getAllByRole("button");
+      await user.click(buttons[buttons.length - 1]);
+    };
+
+    // Sekretaris Pengurus: STUDENT_VIEW only, no STUDENT_UPDATE.
+    granted.current = new Set(["STUDENT_VIEW"]);
+    const { unmount } = render(<StudentsPage />);
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "View" })).toBeDefined();
+    expect(screen.queryByRole("menuitem", { name: "Edit" })).toBeNull();
+    unmount();
+
+    // A role that may edit santri still gets the entry.
+    granted.current = new Set(["STUDENT_VIEW", "STUDENT_UPDATE"]);
+    render(<StudentsPage />);
+    await openMenu();
+    expect(screen.getByRole("menuitem", { name: "Edit" })).toBeDefined();
   });
 });

@@ -134,7 +134,8 @@ menu. Tabel ini ikut basi setiap kali menu berubah.
 - `pimpinan-pesantren-kiai.md` — Kiai, tanpa Direktur;
 - `unit-vs-asrama-vs-takhosus.md` — apa itu unit;
 - `struktur-organisasi-dan-identitas.md` — unit Pesantren, satu pohon organisasi maks 3 tingkat, jabatan terpisah dari pemegangnya, OU/grup Google;
-- `pengawasan-dan-rapat-pembina.md` — pemberhentian sementara Pengurus (Ps. 43), WBS, keputusan rapat Pembina.
+- `pengawasan-dan-rapat-pembina.md` — pemberhentian sementara Pengurus (Ps. 43), WBS, keputusan rapat Pembina;
+- `izin-tulis-organ-yayasan.md` — asas tulis organ: organ yayasan menulis hanya lewat alur kewenangannya (#991); Sekretaris Pengurus kehilangan `STUDENT_UPDATE` (#1020).
 
 Pasal-pasal Anggaran Dasar yayasan yang dibaca sistem — kuorum rapat tiap organ, siapa bertindak untuk organ (Ketua Umum **bersama** satu Pengurus lain), pemberhentian sementara, laporan tahunan — ada di [`anggaran-dasar.md`](anggaran-dasar.md) (akta pendirian 2012; akta perubahan belum diketahui).
 
