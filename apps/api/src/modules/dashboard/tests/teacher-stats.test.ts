@@ -16,7 +16,7 @@ vi.mock('@/lib/dashboard-metrics', () => ({
 }));
 
 import { prisma } from '@/lib/prisma';
-import { dashboardService } from './dashboard.service';
+import { dashboardService } from '../dashboard.service';
 
 const mocked = prisma as unknown as {
   class: { findMany: ReturnType<typeof vi.fn> };
