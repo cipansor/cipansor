@@ -144,6 +144,40 @@ function expectNoWrite() {
   }
 }
 
+/**
+ * The exact answer a successful write gives — a create is 201, an update or
+ * delete is 200 — and the Prisma call that proves the row was written. A
+ * looser `not.toContain([400,404,500])` would also accept a 401/403 refusal, so
+ * a scope check that wrongly rejected a legitimate writer would still pass.
+ */
+const db = prisma as unknown as Record<string, Record<string, ReturnType<typeof vi.fn>>>;
+const SUCCESS: Record<'post' | 'put' | 'delete', { status: number; fn: () => number }> = {
+  post: {
+    status: 201,
+    fn: () =>
+      db.p5Assessment.create.mock.calls.length +
+      db.merdekaAssessmentResult.create.mock.calls.length,
+  },
+  put: {
+    status: 200,
+    fn: () =>
+      db.p5Assessment.update.mock.calls.length +
+      db.merdekaAssessmentResult.update.mock.calls.length,
+  },
+  delete: {
+    status: 200,
+    fn: () =>
+      db.p5Assessment.delete.mock.calls.length +
+      db.merdekaAssessmentResult.delete.mock.calls.length,
+  },
+};
+
+/** The write ran: the exact success status, and exactly one row written. */
+function expectWrote(res: { status: number }, method: 'post' | 'put' | 'delete') {
+  expect(res.status).toBe(SUCCESS[method].status);
+  expect(SUCCESS[method].fn()).toBeGreaterThan(0);
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(verifyToken).mockImplementation(((token: string) => {
@@ -234,12 +268,12 @@ describe('#1090 — out-of-scope grade and P5 writes answer 404 like a missing i
 describe('#1090 — a Penulis_Penilaian still writes', () => {
   it.each(WRITES)('%s — a unit admin of the santri unit is allowed', async (_n, m, p, b) => {
     const res = await send('adminUnitA', m, p, b);
-    expect([400, 404, 500]).not.toContain(res.status);
+    expectWrote(res, m);
   });
 
   it.each(WRITES)('%s — Super Admin is allowed', async (_n, m, p, b) => {
     const res = await send('superAdmin', m, p, b);
-    expect([400, 404, 500]).not.toContain(res.status);
+    expectWrote(res, m);
   });
 
   // A P5 assessment follows the report-card rule: any relation, including the
@@ -254,7 +288,7 @@ describe('#1090 — a Penulis_Penilaian still writes', () => {
       studentId: ST,
       assessedById: ASSESSOR,
     });
-    expect([400, 404, 500]).not.toContain(res.status);
+    expectWrote(res, 'post');
     expect(prisma.p5Assessment.create).toHaveBeenCalled();
   });
 });
