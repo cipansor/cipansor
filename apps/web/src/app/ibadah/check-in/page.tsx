@@ -78,9 +78,12 @@ export default function IbadahCheckInPage() {
   // Queries
   const { data: units = [] } = useUnits({ limit: 100 });
 
+  // 100 is the API's ceiling for `GET /students` (shared
+  // `listStudentsQuerySchema`). Asking for 500 made every request 400, so the
+  // santri dropdown stayed empty and no target could ever be listed.
   const { data: studentsData } = useStudents({
     unitId: selectedUnit || undefined,
-    limit: 500,
+    limit: 100,
   });
   const students = studentsData?.data || [];
 

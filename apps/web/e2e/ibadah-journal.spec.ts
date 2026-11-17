@@ -147,7 +147,6 @@ test.describe("Jurnal Ibadah — baris dan total dari API", () => {
           "GET",
           "/ibadah/records?limit=20",
         );
-        const total = records.meta.pagination.total;
         const row = records.data.find((r) => r.studentId === student.id);
         expect(
           row,
@@ -157,10 +156,17 @@ test.describe("Jurnal Ibadah — baris dan total dari API", () => {
         const name = row!.student!.user!.name;
         const nis = row!.student!.nis;
 
+        // Read the total from the response the page itself fetches, so the
+        // assertion cannot race another spec inserting a record in parallel.
+        const recordsResponse = page.waitForResponse(
+          (r) => r.url().includes("/ibadah/records") && r.status() === 200,
+        );
         await page.goto("/ibadah");
         await expect(
           page.getByRole("heading", { name: "Jurnal Ibadah Harian" }),
         ).toBeVisible();
+        const total = (await (await recordsResponse).json()).meta.pagination
+          .total;
 
         // The row prints the santri's name — not the "-" the old field produced.
         const cell = page.getByRole("cell", { name }).first();
@@ -178,4 +184,114 @@ test.describe("Jurnal Ibadah — baris dan total dari API", () => {
       }
     });
   }
+});
+
+/**
+ * #989 (PR-03): the API allows a target with no `targetUnit` — the column is
+ * nullable and `createTargetSchema` makes the field optional. Both the Jurnal
+ * Ibadah page ("Target Aktif" tab) and the check-in page called
+ * `target.targetUnit.toLowerCase()` on it and threw
+ * "Cannot read properties of null", blanking the whole page. This walks the
+ * two real surfaces with such a target.
+ */
+test.describe("Jurnal Ibadah — target tanpa satuan", () => {
+  test("tab Target Aktif dan halaman check-in merender target tanpa satuan", async ({
+    page,
+  }) => {
+    const writer = await apiLogin(account(WRITER_ROLE));
+
+    const students = await apiRequest<{ data: StudentRow[] }>(
+      writer,
+      "GET",
+      "/students?limit=1",
+    );
+    const student = students.data[0];
+    if (!student) {
+      throw new Error(
+        "the writer reaches no santri — the seed is missing a santri for this scope",
+      );
+    }
+
+    // The check-in page's santri list is filtered by the chosen unit, so pick
+    // the santri's own unit by name.
+    const units = await apiRequest<{ data: { id: string; name: string }[] }>(
+      writer,
+      "GET",
+      "/units?limit=100",
+    );
+    const unit = units.data.find((u) => u.id === student.unitId);
+    if (!unit) {
+      throw new Error(
+        `the writer reaches no unit ${student.unitId} — the seed is missing it`,
+      );
+    }
+
+    // `targetUnit` is deliberately omitted: the API stores it as NULL.
+    const name = `E2E Target Tanpa Satuan ${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const target = await apiRequest<{ data: { id: string } }>(
+      writer,
+      "POST",
+      "/ibadah/targets",
+      {
+        unitId: student.unitId,
+        name,
+        category: "TILAWAH",
+        targetType: "DAILY",
+        targetCount: 1,
+        points: 10,
+      },
+    );
+    const targetId = target.data.id;
+    const targetName = name;
+
+    try {
+      await signIn(page, WRITER_ROLE);
+
+      // 1. The Jurnal Ibadah "Target Aktif" tab — the card renders, with no
+      //    unit printed after the count, instead of blanking the page.
+      await page.goto("/ibadah");
+      await expect(
+        page.getByRole("heading", { name: "Jurnal Ibadah Harian" }),
+      ).toBeVisible();
+      await page.getByRole("tab", { name: "Target Aktif" }).click();
+      const card = page
+        .locator('[data-slot="card"]', { hasText: targetName })
+        .first();
+      await expect(card).toBeVisible();
+      await expect(card).toContainText("Target: 1");
+
+      // 2. The check-in page — pick the santri's unit and the santri, then the
+      //    target list renders (it only draws once a santri is chosen).
+      await page.goto("/ibadah/check-in");
+      await expect(
+        page.getByRole("heading", { name: "Check-in Ibadah Harian" }),
+      ).toBeVisible();
+
+      await page
+        .locator('button[role="combobox"]')
+        .filter({ hasText: "Pilih Unit" })
+        .first()
+        .click();
+      await page
+        .getByRole("option", { name: unit.name, exact: true })
+        .first()
+        .click();
+
+      await page
+        .locator('button[role="combobox"]')
+        .filter({ hasText: "Pilih Santri" })
+        .first()
+        .click();
+      await page
+        .getByRole("option", { name: new RegExp(`\\(${student.nis}\\)`) })
+        .first()
+        .click();
+
+      await expect(page.getByText(targetName)).toBeVisible();
+    } finally {
+      await apiRequest(writer, "DELETE", `/ibadah/targets/${targetId}`).catch(
+        () => undefined,
+      );
+    }
+  });
 });
