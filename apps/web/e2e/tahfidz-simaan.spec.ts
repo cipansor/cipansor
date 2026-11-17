@@ -534,15 +534,21 @@ test.describe("Simaan — catatan tanpa nilai, dan status turunan", () => {
  * through. It used to move only on `/takhosus/simaan/:id/grade`, so the same
  * `passed: true` saved through `PATCH /simaan/:id` left the enrollment ACTIVE
  * with no hafidz record (#1125). This creates its own santri + enrollment so it
- * touches no seeded progress, then drives the write through the simaan API.
+ * touches no seeded progress, then drives the write through the enrollment
+ * dialog itself and checks the page moves without a reload.
  */
 test.describe("Simaan — kelulusan memperbarui progres di setiap jalur", () => {
   let session: AuthSession;
   let studentId: string;
   let enrollmentId: string | null = null;
   let examId: string | null = null;
+  let takhosusStudentName = "";
 
   test.beforeAll(async () => {
+    // The setup itself writes (it enrolls a santri), so it must not run against
+    // production either — `test.skip` inside each case runs *after* `beforeAll`,
+    // so it cannot prevent that write. Nothing to clean up when we bail here.
+    if (await isProductionApi()) return;
     session = await apiLogin(SEED_USERS.superAdmin);
     const students = await apiRequest<{ data: { id: string }[] }>(
       session,
@@ -566,13 +572,15 @@ test.describe("Simaan — kelulusan memperbarui progres di setiap jalur", () => 
       "GET",
       "/takhosus/halaqoh?limit=1",
     );
-    const enrollment = await apiRequest<{ data: { id: string } }>(
-      session,
-      "POST",
-      "/takhosus/enrollment",
-      { studentId, halaqohId: halaqohs.data[0].id, targetJuz: 30 },
-    );
+    const enrollment = await apiRequest<{
+      data: { id: string; student?: { user?: { name?: string } } };
+    }>(session, "POST", "/takhosus/enrollment", {
+      studentId,
+      halaqohId: halaqohs.data[0].id,
+      targetJuz: 30,
+    });
     enrollmentId = enrollment.data.id;
+    takhosusStudentName = enrollment.data.student?.user?.name ?? "";
   });
 
   test.afterAll(async () => {
@@ -586,9 +594,12 @@ test.describe("Simaan — kelulusan memperbarui progres di setiap jalur", () => 
       ).catch(() => {});
   });
 
-  test("PATCH passed:true completes the enrollment and reverting undoes it", async () => {
+  test("marking the 30-juz exam lulus in the dialog updates the page", async ({
+    page,
+  }) => {
     test.skip(await isProductionApi(), "writes records");
 
+    // The enrollment we created is fresh: 0 of 30 juz, status Aktif.
     const exam = await postSimaan(session, {
       studentId,
       simaanType: "KHATAM",
@@ -599,16 +610,37 @@ test.describe("Simaan — kelulusan memperbarui progres di setiap jalur", () => 
     });
     examId = exam.data.id;
 
-    const before = await apiRequest<{ data: { status: string } }>(
-      session,
-      "GET",
+    await injectSession(page, session);
+    await gotoAuthedPage(
+      page,
       `/takhosus/enrollment/${enrollmentId}`,
+      takhosusStudentName,
     );
-    expect(before.data.status).not.toBe("COMPLETED");
 
-    // The dialog's own path: a plain PATCH that flips `passed`.
-    await apiRequest(session, "PATCH", `/simaan/${examId}`, { passed: true });
+    // Nothing passed yet: the progress card reads 0 of 30.
+    await expect(page.getByText(/^0 dari 30 juz selesai/)).toBeVisible();
 
+    await page.getByRole("tab", { name: "Riwayat Simaan" }).click();
+    await page
+      .locator("tr", { hasText: "Juz 1-30" })
+      .first()
+      .getByRole("button")
+      .first()
+      .click();
+
+    // The dialog's own path: tick Lulus Ujian and save. This is the write that
+    // used to mark the exam passed and leave the enrollment ACTIVE.
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Lulus Ujian").check();
+    await dialog.getByRole("button", { name: "Simpan" }).click();
+    await waitForToast(page, "Data simaan berhasil diperbarui");
+
+    // Without a reload, the page's progress must move — the mutation
+    // invalidates the Takhosus keys the enrollment page reads (#1125).
+    await expect(page.getByText(/^30 dari 30 juz selesai/)).toBeVisible();
+
+    // And the server agrees: the enrollment is COMPLETED.
     const after = await apiRequest<{ data: { status: string } }>(
       session,
       "GET",
@@ -616,8 +648,19 @@ test.describe("Simaan — kelulusan memperbarui progres di setiap jalur", () => 
     );
     expect(after.data.status).toBe("COMPLETED");
 
-    // Reverting must undo it, so the two paths cannot leave different states.
-    await apiRequest(session, "PATCH", `/simaan/${examId}`, { passed: false });
+    // Reverting undoes it, again without a reload.
+    await page
+      .locator("tr", { hasText: "Juz 1-30" })
+      .first()
+      .getByRole("button")
+      .first()
+      .click();
+    const again = page.getByRole("dialog");
+    await expect(again).toBeVisible();
+    await again.getByLabel("Lulus Ujian").uncheck();
+    await again.getByRole("button", { name: "Simpan" }).click();
+    await waitForToast(page, "Data simaan berhasil diperbarui");
+    await expect(page.getByText(/^0 dari 30 juz selesai/)).toBeVisible();
 
     const reverted = await apiRequest<{ data: { status: string } }>(
       session,

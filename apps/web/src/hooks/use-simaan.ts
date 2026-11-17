@@ -1,4 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 import {
   SIMAAN_GRADE_VALUES,
@@ -171,6 +172,19 @@ export const simaanKeys = {
   upcoming: () => [...simaanKeys.all, "upcoming"] as const,
 };
 
+/**
+ * A simaan write can move the Takhosus progress on the server: a pass completes
+ * the enrollment and writes a hafidz record, a re-grade or delete undoes it.
+ * The dialog lives on the enrollment page, which reads those through the
+ * Takhosus keys below — invalidating only `["simaan"]` left its status and
+ * progress stale until a manual reload (#1125).
+ */
+function invalidateTakhosusProgress(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ["takhosus", "enrollment"] });
+  queryClient.invalidateQueries({ queryKey: ["takhosus", "progress"] });
+  queryClient.invalidateQueries({ queryKey: ["takhosus", "dashboard"] });
+}
+
 // Hooks
 
 export function useSimaanExams(filters: SimaanFilters = {}) {
@@ -210,6 +224,7 @@ export function useCreateSimaan() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: simaanKeys.all });
+      invalidateTakhosusProgress(queryClient);
     },
   });
 }
@@ -231,6 +246,7 @@ export function useUpdateSimaan() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: simaanKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: simaanKeys.lists() });
+      invalidateTakhosusProgress(queryClient);
     },
   });
 }
@@ -245,6 +261,7 @@ export function useDeleteSimaan() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: simaanKeys.all });
+      invalidateTakhosusProgress(queryClient);
     },
   });
 }
@@ -270,6 +287,7 @@ export function useSubmitSimaanScores() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: simaanKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: simaanKeys.lists() });
+      invalidateTakhosusProgress(queryClient);
     },
   });
 }

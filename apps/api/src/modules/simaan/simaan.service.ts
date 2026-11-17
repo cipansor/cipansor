@@ -431,18 +431,22 @@ export const simaanService = {
         },
       });
 
-      // The juz range can change in the same PATCH; the effects must run against
-      // the range that now stands, and a reverted pass must undo the old one.
+      // The effects must follow the pass, not every edit. A record that stays
+      // passed over an unchanged range needs no reconciliation — running it on a
+      // notes-only edit deleted and recreated the hafidz record, wiping its
+      // custom notes and resetting `completedAt` to the edit's date (#1125).
       if (nowPassed && !before.passed) {
         await applyPassEffects(tx, record);
       } else if (!nowPassed && before.passed) {
-        await revertPassEffects(tx, {
-          ...before,
-          juzStart: record.juzStart,
-          juzEnd: record.juzEnd,
-        });
-      } else if (nowPassed) {
-        // Still passed, but the covered range may have moved — reconcile both.
+        // Undo the pass that *was* standing, against the range it covered — a
+        // PATCH that both un-passes and corrects 1–30 to a partial range must
+        // still revoke the completion the old 1–30 pass justified.
+        await revertPassEffects(tx, before);
+      } else if (
+        nowPassed &&
+        (before.juzStart !== record.juzStart || before.juzEnd !== record.juzEnd)
+      ) {
+        // Still passed, but the covered range moved — reconcile both.
         await revertPassEffects(tx, before);
         await applyPassEffects(tx, record);
       }

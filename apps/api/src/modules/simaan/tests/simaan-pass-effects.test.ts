@@ -174,6 +174,40 @@ describe('update flipping passed — effects apply and revert', () => {
     );
     expect(hafidzDelete).toHaveBeenCalledWith({ where: { studentId: 's-1' } });
   });
+
+  it('editing only the notes of a passed exam touches no progress', async () => {
+    examFindFirstReturns({ passed: true, juzStart: 1, juzEnd: 30 });
+    enrollmentFind.mockResolvedValue({ ...enrollment, status: 'COMPLETED' } as never);
+
+    await simaanService.update('e-1', { notes: 'catatan diperbaiki' }, guru);
+
+    // A notes-only edit keeps the pass over the same 1–30 range: the hafidz
+    // record and its custom notes, `completedAt` and the progress must stand.
+    expect(hafidzDelete).not.toHaveBeenCalled();
+    expect(hafidzCreate).not.toHaveBeenCalled();
+    expect(enrollmentUpdate).not.toHaveBeenCalled();
+  });
+
+  it('un-passing while shrinking the range still revokes the old completion', async () => {
+    examFindFirstReturns({ passed: true, juzStart: 1, juzEnd: 30 });
+    enrollmentFind.mockResolvedValue({ ...enrollment, status: 'COMPLETED' } as never);
+    vi.mocked(prisma.simaanExam.update).mockResolvedValue({
+      id: 'e-1',
+      studentId: 's-1',
+      juzStart: 1,
+      juzEnd: 10,
+    } as never);
+
+    await simaanService.update('e-1', { passed: false, juzStart: 1, juzEnd: 10 }, guru);
+
+    // The revert runs against the range that *was* passed (1–30), so the
+    // completion the old pass justified is revoked — not left standing because
+    // the new range is partial.
+    expect(enrollmentUpdate).toHaveBeenCalledWith(
+      expect.objectContaining({ data: expect.objectContaining({ status: 'ACTIVE' }) })
+    );
+    expect(hafidzDelete).toHaveBeenCalledWith({ where: { studentId: 's-1' } });
+  });
 });
 
 describe('submitScores with passed: true — the same effects', () => {
