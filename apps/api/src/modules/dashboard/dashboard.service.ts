@@ -32,6 +32,7 @@ import {
   wibMonthRange,
   wibMonthYear,
   wibOverdueCutoff,
+  wibYearBounds,
 } from '@/utils/wib';
 
 import { memorizedJuz } from '@/modules/tahfidz/quran-surahs';
@@ -114,6 +115,32 @@ export interface TeacherDashboard extends TeacherDashboardStats {
 
 export interface PeriodParams {
   period?: 'week' | 'month' | 'year';
+}
+
+/**
+ * The lower bound of a dashboard period card, on the WIB calendar.
+ *
+ * `month` and `year` are the WIB calendar month/year `now` falls in, built
+ * through `wibMonthRange`/`wibYearBounds` — not `new Date(now.getFullYear(),
+ * now.getMonth(), 1)`. The container runs UTC, so that constructor produced
+ * midnight UTC: 07:00 WIB on the 1st, dropping every entry made 00:00–06:59 WIB
+ * on the 1st, and on the first morning of the month it read the *previous* UTC
+ * month (the previous UTC year in January), so the window held the whole month
+ * before. `week` stays a rolling 7×24h window (decided: not a calendar week),
+ * so it is left as an instant count back from `now`.
+ */
+function dashboardPeriodStart(now: Date, period: PeriodParams['period']): Date {
+  switch (period) {
+    case 'week':
+      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    case 'year':
+      return wibYearBounds(now).start;
+    case 'month':
+    default: {
+      const { year, month } = wibMonthYear(now);
+      return wibMonthRange(year, month).start;
+    }
+  }
 }
 
 /**
@@ -375,20 +402,7 @@ export class DashboardService {
    */
   async getTahfidzStats(context: DashboardServiceContext, params: PeriodParams = {}) {
     const period = params.period || 'month';
-    const now = new Date();
-    let periodStart: Date;
-
-    switch (period) {
-      case 'week':
-        periodStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'year':
-        periodStart = new Date(now.getFullYear(), 0, 1);
-        break;
-      case 'month':
-      default:
-        periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    }
+    const periodStart = dashboardPeriodStart(new Date(), period);
 
     const unitFilter = context.unitId
       ? { student: studentInUnitAt(context.unitId, new Date()) }
@@ -489,20 +503,7 @@ export class DashboardService {
    */
   async getViolationRewardStats(context: DashboardServiceContext, params: PeriodParams = {}) {
     const period = params.period || 'month';
-    const now = new Date();
-    let periodStart: Date;
-
-    switch (period) {
-      case 'week':
-        periodStart = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-        break;
-      case 'year':
-        periodStart = new Date(now.getFullYear(), 0, 1);
-        break;
-      case 'month':
-      default:
-        periodStart = new Date(now.getFullYear(), now.getMonth(), 1);
-    }
+    const periodStart = dashboardPeriodStart(new Date(), period);
 
     const unitFilter = context.unitId
       ? { student: studentInUnitAt(context.unitId, new Date()) }
