@@ -240,9 +240,13 @@ export async function createLeave(req: Request, res: Response, next: NextFunctio
     const data = createLeaveSchema.parse(req.body);
     const user = req.user!;
 
-    // Auto-fill the applicant when creating for self. One person is one Staff
-    // identity, so a guru's leave is filed against their Staff row too.
-    if (!data.staffId && !data.teacherId) {
+    if (data.staffId) {
+      // A user id sent where a Staff profile id belongs gets a clear 400, not
+      // the ambiguous 404 "Staff not found" the guard would raise (#1061).
+      data.staffId = await service.resolveNamedStaffId(data.staffId);
+    } else if (!data.teacherId) {
+      // Auto-fill the applicant when creating for self. One person is one Staff
+      // identity, so a guru's leave is filed against their Staff row too.
       data.staffId = await service.resolveStaffIdForUser(user.sub);
     }
     // Filing for someone else is an admin action, and an admin stays in their unit.
