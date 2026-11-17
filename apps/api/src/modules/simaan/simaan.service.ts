@@ -1,7 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import { dayDate, wibDayOf } from '@/utils/wib';
-import { studentScope, type ScopeActor } from '@/utils/student-scope';
+import { assertStudentInScope, studentScope, type ScopeActor } from '@/utils/student-scope';
+import { Errors } from '@/middleware/error';
 import type {
   ListSimaanQuery,
   CreateSimaanInput,
@@ -16,6 +17,32 @@ import type {
 // ============================================
 // Simaan Service
 // ============================================
+
+/**
+ * The exam with `id`, or 404 when it is not one the caller may touch.
+ *
+ * Every write goes through here: `update`/`delete` used to run
+ * `prisma.simaanExam.update({ where: { id } })` unscoped, so a teacher could
+ * change or delete another unit's exam by guessing its id, and a missing id
+ * surfaced as a 500 (P2025) rather than 404. Not-found rather than forbidden,
+ * so the answer does not confirm the id.
+ */
+async function assertExamInScope(id: string, actor: ScopeActor): Promise<void> {
+  const found = await prisma.simaanExam.findFirst({
+    where: { id, student: studentScope(actor) },
+    select: { id: true },
+  });
+  if (!found) throw Errors.notFound('Simaan exam');
+}
+
+/** The examiner row with `id`, or 404 unless its exam's santri is in scope. */
+async function assertExaminerInScope(id: string, actor: ScopeActor): Promise<void> {
+  const found = await prisma.simaanExaminer.findFirst({
+    where: { id, simaan: { student: studentScope(actor) } },
+    select: { id: true },
+  });
+  if (!found) throw Errors.notFound('Examiner');
+}
 
 export const simaanService = {
   // ============================================
@@ -141,7 +168,12 @@ export const simaanService = {
   // CREATE
   // ============================================
 
-  async create(data: CreateSimaanInput) {
+  async create(data: CreateSimaanInput, context: ScopeActor) {
+    // The santri named in the body must be one the caller may see, or a teacher
+    // could file an exam against another unit's santri by its id (404, not 403,
+    // so the answer does not confirm the id).
+    await assertStudentInScope(data.studentId, context);
+
     const examDate = dayDate(data.examDate);
 
     const record = await prisma.simaanExam.create({
@@ -188,7 +220,9 @@ export const simaanService = {
   // UPDATE
   // ============================================
 
-  async update(id: string, data: UpdateSimaanInput) {
+  async update(id: string, data: UpdateSimaanInput, context: ScopeActor) {
+    await assertExamInScope(id, context);
+
     const record = await prisma.simaanExam.update({
       where: { id },
       data: {
@@ -222,8 +256,8 @@ export const simaanService = {
   // DELETE
   // ============================================
 
-  async delete(id: string) {
-    await prisma.simaanExam.findUniqueOrThrow({ where: { id } });
+  async delete(id: string, context: ScopeActor) {
+    await assertExamInScope(id, context);
     await prisma.simaanExam.delete({ where: { id } });
     return { message: 'Simaan exam deleted successfully' };
   },
@@ -232,8 +266,8 @@ export const simaanService = {
   // EXAMINER MANAGEMENT
   // ============================================
 
-  async addExaminer(data: CreateExaminerInput) {
-    await prisma.simaanExam.findUniqueOrThrow({ where: { id: data.simaanId } });
+  async addExaminer(data: CreateExaminerInput, context: ScopeActor) {
+    await assertExamInScope(data.simaanId, context);
 
     const examiner = await prisma.simaanExaminer.create({
       data: {
@@ -250,7 +284,9 @@ export const simaanService = {
     return examiner;
   },
 
-  async updateExaminer(id: string, data: UpdateExaminerInput) {
+  async updateExaminer(id: string, data: UpdateExaminerInput, context: ScopeActor) {
+    await assertExaminerInScope(id, context);
+
     const examiner = await prisma.simaanExaminer.update({
       where: { id },
       data: {
@@ -265,8 +301,8 @@ export const simaanService = {
     return examiner;
   },
 
-  async deleteExaminer(id: string) {
-    await prisma.simaanExaminer.findUniqueOrThrow({ where: { id } });
+  async deleteExaminer(id: string, context: ScopeActor) {
+    await assertExaminerInScope(id, context);
     await prisma.simaanExaminer.delete({ where: { id } });
     return { message: 'Examiner removed successfully' };
   },
@@ -275,7 +311,9 @@ export const simaanService = {
   // SUBMIT SCORES
   // ============================================
 
-  async submitScores(data: SubmitScoresInput) {
+  async submitScores(data: SubmitScoresInput, context: ScopeActor) {
+    await assertExamInScope(data.simaanId, context);
+
     const record = await prisma.simaanExam.update({
       where: { id: data.simaanId },
       data: {
@@ -390,10 +428,16 @@ export const simaanService = {
   // HALAQOH RECORDS
   // ============================================
 
-  async getHalaqohRecords(query: HalaqohSimaanQuery) {
+  async getHalaqohRecords(query: HalaqohSimaanQuery, context: ScopeActor) {
     const { halaqohId, page = 1, limit = 20, dateFrom, dateTo } = query;
 
-    const where: Prisma.SimaanExamWhereInput = { halaqohId };
+    // A halaqoh's records are about its santri, so the caller's santri scope
+    // applies on top of the halaqoh filter — an unrestricted read listed every
+    // unit's exam scores for a halaqoh id the caller did not belong to.
+    const where: Prisma.SimaanExamWhereInput = {
+      halaqohId,
+      student: studentScope(context),
+    };
 
     if (dateFrom || dateTo) {
       where.examDate = {};

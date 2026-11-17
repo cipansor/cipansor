@@ -35,7 +35,12 @@ export const listSimaanQuerySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
-  passed: z.coerce.boolean().optional(),
+  // `z.coerce.boolean()` reads the string "false" as true (non-empty), so the
+  // status filter's "Terjadwal" (passed=false) would return the graded exams
+  // instead. Parse the query string explicitly, as `curriculum.schema.ts` does.
+  passed: z
+    .union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
+    .optional(),
   search: z.string().min(1).optional(),
 });
 

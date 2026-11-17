@@ -40,7 +40,7 @@ export const getSimaanById = async (req: Request, res: Response, next: NextFunct
 
 export const createSimaan = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const record = await simaanService.create(req.body);
+    const record = await simaanService.create(req.body, req.user!);
     res.status(201).json(ApiResponse.success(record, 'Simaan exam created successfully'));
   } catch (error) {
     next(error);
@@ -50,7 +50,7 @@ export const createSimaan = async (req: Request, res: Response, next: NextFuncti
 export const updateSimaan = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const record = await simaanService.update(id, req.body);
+    const record = await simaanService.update(id, req.body, req.user!);
     res.json(ApiResponse.success(record, 'Simaan exam updated successfully'));
   } catch (error) {
     next(error);
@@ -60,7 +60,7 @@ export const updateSimaan = async (req: Request, res: Response, next: NextFuncti
 export const deleteSimaan = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const result = await simaanService.delete(id);
+    const result = await simaanService.delete(id, req.user!);
     res.json(ApiResponse.success(result));
   } catch (error) {
     next(error);
@@ -69,7 +69,7 @@ export const deleteSimaan = async (req: Request, res: Response, next: NextFuncti
 
 export const addExaminer = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const examiner = await simaanService.addExaminer(req.body);
+    const examiner = await simaanService.addExaminer(req.body, req.user!);
     res.status(201).json(ApiResponse.success(examiner, 'Examiner added successfully'));
   } catch (error) {
     next(error);
@@ -79,7 +79,7 @@ export const addExaminer = async (req: Request, res: Response, next: NextFunctio
 export const updateExaminer = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const examiner = await simaanService.updateExaminer(id, req.body);
+    const examiner = await simaanService.updateExaminer(id, req.body, req.user!);
     res.json(ApiResponse.success(examiner, 'Examiner updated successfully'));
   } catch (error) {
     next(error);
@@ -89,7 +89,7 @@ export const updateExaminer = async (req: Request, res: Response, next: NextFunc
 export const deleteExaminer = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const result = await simaanService.deleteExaminer(id);
+    const result = await simaanService.deleteExaminer(id, req.user!);
     res.json(ApiResponse.success(result));
   } catch (error) {
     next(error);
@@ -98,7 +98,7 @@ export const deleteExaminer = async (req: Request, res: Response, next: NextFunc
 
 export const submitScores = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const record = await simaanService.submitScores(req.body);
+    const record = await simaanService.submitScores(req.body, req.user!);
     res.json(ApiResponse.success(record, 'Scores submitted successfully'));
   } catch (error) {
     next(error);
@@ -128,7 +128,7 @@ export const getHalaqohRecords = async (req: Request, res: Response, next: NextF
   try {
     const { halaqohId } = req.params;
     const query = { halaqohId, ...req.query } as any;
-    const result = await simaanService.getHalaqohRecords(query);
+    const result = await simaanService.getHalaqohRecords(query, req.user!);
     res.json(ApiResponse.success(result));
   } catch (error) {
     next(error);

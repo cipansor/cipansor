@@ -127,7 +127,7 @@ export function SimaanFormDialog({
       tajwidScore: initialData?.tajwidScore,
       fashohaScore: initialData?.fashohaScore,
       tartilScore: initialData?.tartilScore,
-      grade: initialData?.grade,
+      grade: initialData?.grade ?? undefined,
       passed: initialData?.passed || false,
       notes: initialData?.notes || "",
       recommendations: initialData?.recommendations || "",

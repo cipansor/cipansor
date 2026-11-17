@@ -7,7 +7,7 @@ import {
   type AuthSession,
 } from "./helpers/auth-api";
 import { isProductionApi } from "./helpers/api-env";
-import { gotoAuthedPage } from "./helpers/page-helpers";
+import { gotoAuthedPage, waitForToast } from "./helpers/page-helpers";
 
 /**
  * Tahfidz → Jadwal Simaan → Jadwalkan / Ubah (#1024).
@@ -188,5 +188,187 @@ test.describe("Simaan - jadwalkan dan ubah", () => {
         juzEnd: 1,
       }),
     ).rejects.toThrow(/→ 400/);
+  });
+});
+
+/**
+ * The three forms themselves — driven through the browser, not by posting a
+ * body straight at the API. The cases above read the contract; these read the
+ * *forms*, so a page whose `onSubmit` stops agreeing with the contract fails
+ * here. The one that matters most is the edit form's `dirtyFields` guard: the
+ * #1024 regression overwrote a juz 21–25 range with 1–1 because the form
+ * resent every field on save.
+ */
+test.describe("Simaan — alur ketiga formulir", () => {
+  let session: AuthSession;
+  let studentId: string;
+  let studentName: string;
+  let enrollmentId: string;
+  let takhosusStudentId: string;
+  let takhosusStudentName: string;
+  const created: string[] = [];
+
+  test.beforeAll(async () => {
+    session = await apiLogin(SEED_USERS.superAdmin);
+
+    // A santri the super admin reaches, for the create form's own picker.
+    // The raw API nests the display name under `user` (the `useStudents` hook
+    // flattens it; this call reads the API directly).
+    const students = await apiRequest<{
+      data: { id: string; user: { name: string } }[];
+    }>(session, "GET", "/students?limit=1");
+    studentId = students.data[0].id;
+    studentName = students.data[0].user.name;
+
+    // The Takhosus dialog lives on the enrollment detail page and lists the
+    // exams of the enrolled santri. There is one seeded enrollment.
+    const enrollments = await apiRequest<{
+      data: { id: string; studentId: string }[];
+    }>(session, "GET", "/takhosus/enrollment?limit=1");
+    enrollmentId = enrollments.data[0].id;
+    takhosusStudentId = enrollments.data[0].studentId;
+    const enrolled = await apiRequest<{ data: { user: { name: string } } }>(
+      session,
+      "GET",
+      `/students/${takhosusStudentId}`,
+    );
+    takhosusStudentName = enrolled.data.user.name;
+  });
+
+  test.afterAll(async () => {
+    for (const id of created) {
+      await apiRequest(session, "DELETE", `/simaan/${id}`).catch(() => {});
+    }
+  });
+
+  test("the Jadwalkan form saves from the page, not a posted body", async ({
+    page,
+  }) => {
+    test.skip(await isProductionApi(), "writes a record");
+    await injectSession(page, session);
+    await gotoAuthedPage(page, "/tahfidz/simaan/new", "Jadwalkan Ujian Simaan");
+
+    // Santri picker — the page's own `useStudents`, not a posted id.
+    await page
+      .locator('button[role="combobox"]')
+      .filter({ hasText: "Pilih santri" })
+      .click();
+    await page.getByRole("option", { name: new RegExp(studentName) }).click();
+
+    // Jenis Ujian is a card grid; the default is Bin Nazhr, pick Tasmi to prove
+    // the choice reaches the contract.
+    await page.getByText("Tasmi (Setoran)").click();
+
+    // At least one penguji: the checkbox's onClick lives on its row, so click
+    // the teacher's name (the row), which is what a person does.
+    await page.getByText("Pengajar").first().click();
+
+    await page.getByRole("button", { name: "Jadwalkan Ujian" }).click();
+    await waitForToast(page, "Ujian simaan berhasil dijadwalkan");
+
+    // The page routes back to the list; the new row shows the shared type label.
+    await expect(
+      page.getByRole("heading", { name: "Ujian Simaan", level: 1 }),
+    ).toBeVisible();
+    await expect(
+      page.getByText("Tasmi (Setoran)", { exact: false }).first(),
+    ).toBeVisible();
+  });
+
+  test("the edit form sends only the changed field, keeping the juz range", async ({
+    page,
+  }) => {
+    test.skip(await isProductionApi(), "writes a record");
+
+    // Seed a record with a juz range that the #1024 regression overwrote.
+    const seeded = await postSimaan(session, {
+      studentId,
+      simaanType: "TASMI",
+      examDate: todayWib(),
+      juzStart: 21,
+      juzEnd: 25,
+      notes: "e2e dirtyFields — sebelum",
+      examinerIds: [],
+    });
+    created.push(seeded.data.id);
+
+    await injectSession(page, session);
+    await gotoAuthedPage(
+      page,
+      `/tahfidz/simaan/${seeded.data.id}/edit`,
+      "Edit Ujian Simaan",
+    );
+
+    // Change only the notes. `dirtyFields` must then send `{ notes }` alone —
+    // a form that resends `juzStart`/`juzEnd` silently rewrites 21–25 to 1–1.
+    await page.getByLabel("Catatan").fill("e2e dirtyFields — sesudah");
+    await page.getByRole("button", { name: "Simpan Perubahan" }).click();
+
+    await expect(
+      page.getByRole("heading", { name: "Detail Ujian Simaan", level: 1 }),
+    ).toBeVisible();
+
+    // Read the record back through the API: the range must be intact.
+    const after = await apiRequest<{ data: Simaan }>(
+      session,
+      "GET",
+      `/simaan/${seeded.data.id}`,
+    );
+    expect(after.data.juzStart).toBe(21);
+    expect(after.data.juzEnd).toBe(25);
+    expect(after.data.notes).toBe("e2e dirtyFields — sesudah");
+
+    // And the detail page shows the coverage that range means.
+    await expect(page.getByText(/Juz 21.25/)).toBeVisible();
+  });
+
+  test("the Takhosus dialog edits the record through its own form", async ({
+    page,
+  }) => {
+    test.skip(await isProductionApi(), "writes a record");
+
+    // One exam for the enrolled santri, so the dialog has a row to open.
+    const seeded = await postSimaan(session, {
+      studentId: takhosusStudentId,
+      simaanType: "BIN_NAZHR",
+      examDate: todayWib(),
+      juzStart: 2,
+      juzEnd: 4,
+      notes: "e2e dialog — sebelum",
+      examinerIds: [],
+    });
+    created.push(seeded.data.id);
+
+    await injectSession(page, session);
+    await gotoAuthedPage(
+      page,
+      `/takhosus/enrollment/${enrollmentId}`,
+      takhosusStudentName,
+    );
+
+    // Riwayat Simaan tab → the row's edit (pencil) button opens the dialog.
+    await page.getByRole("tab", { name: "Riwayat Simaan" }).click();
+    await page
+      .locator("tr", { hasText: "Juz 2-4" })
+      .getByRole("button")
+      .first()
+      .click();
+
+    const dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByLabel("Catatan").fill("e2e dialog — sesudah");
+    await dialog.getByRole("button", { name: "Simpan" }).click();
+    await waitForToast(page, "Data simaan berhasil diperbarui");
+
+    // The dialog's `onSubmit` sends the whole form; the juz range it loaded
+    // must be the one it saves back, and the notes must reach the record.
+    const after = await apiRequest<{ data: Simaan }>(
+      session,
+      "GET",
+      `/simaan/${seeded.data.id}`,
+    );
+    expect(after.data.juzStart).toBe(2);
+    expect(after.data.juzEnd).toBe(4);
+    expect(after.data.notes).toBe("e2e dialog — sesudah");
   });
 });

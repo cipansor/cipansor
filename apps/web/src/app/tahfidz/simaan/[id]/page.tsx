@@ -28,7 +28,11 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { toast } from "sonner";
-import { useSimaanExam, useDeleteSimaan } from "@/hooks/use-simaan";
+import {
+  useSimaanExam,
+  useDeleteSimaan,
+  simaanExamStatus,
+} from "@/hooks/use-simaan";
 import { SIMAAN_TYPE_LABELS, simaanCoverageLabel } from "@cipansor/shared";
 
 import { id } from "date-fns/locale";
@@ -45,34 +49,24 @@ import {
   AlertTriangle,
   Award,
   FileText,
-  Play,
 } from "lucide-react";
 
-type ExamStatus = "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+type ExamStatus = "SCHEDULED" | "COMPLETED";
 
 const statusLabels: Record<ExamStatus, string> = {
   SCHEDULED: "Terjadwal",
-  IN_PROGRESS: "Sedang Berlangsung",
   COMPLETED: "Selesai",
-  CANCELLED: "Dibatalkan",
 };
 
 const StatusBadge = ({ status }: { status: ExamStatus }) => {
-  const variants: Record<
-    ExamStatus,
-    "default" | "secondary" | "destructive" | "outline"
-  > = {
+  const variants: Record<ExamStatus, "default" | "outline"> = {
     SCHEDULED: "outline",
-    IN_PROGRESS: "secondary",
     COMPLETED: "default",
-    CANCELLED: "destructive",
   };
 
   const icons: Record<ExamStatus, React.ReactNode> = {
     SCHEDULED: <Clock className="h-3 w-3 mr-1" />,
-    IN_PROGRESS: <Play className="h-3 w-3 mr-1" />,
     COMPLETED: <CheckCircle className="h-3 w-3 mr-1" />,
-    CANCELLED: <AlertTriangle className="h-3 w-3 mr-1" />,
   };
 
   return (
@@ -141,9 +135,12 @@ export default function SimaanDetailPage({
     );
   }
 
-  const status = (exam as any).status || "SCHEDULED";
-  const canEdit = status === "SCHEDULED" || status === "IN_PROGRESS";
-  const canDelete = status === "SCHEDULED";
+  // The model has no `status` column: a simaan is scheduled until it is graded,
+  // then complete. Deriving it from the record keeps the badge truthful, and
+  // `canEdit` in step with the edit page, which refuses a `passed` exam.
+  const status: ExamStatus = simaanExamStatus(exam);
+  const canEdit = !exam.passed;
+  const canDelete = !exam.passed;
 
   return (
     <MainLayout>
@@ -246,7 +243,7 @@ export default function SimaanDetailPage({
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Status</span>
-                  <StatusBadge status={status as ExamStatus} />
+                  <StatusBadge status={status} />
                 </div>
 
                 <div className="flex items-center justify-between">
@@ -287,8 +284,7 @@ export default function SimaanDetailPage({
               <CardDescription>Nilai dan predikat dari penguji</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Use local variables/defaults since shared type lacks status/finalScore */}
-              {status === "COMPLETED" || exam.overallScore !== undefined ? (
+              {status === "COMPLETED" ? (
                 <>
                   {/* Final Score */}
                   <div className="text-center py-6 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 rounded-lg">
@@ -337,11 +333,7 @@ export default function SimaanDetailPage({
                 <div className="text-center py-12">
                   <Clock className="mx-auto h-12 w-12 text-muted-foreground" />
                   <p className="mt-4 text-muted-foreground">
-                    {status === "SCHEDULED"
-                      ? "Ujian belum dimulai"
-                      : status === "IN_PROGRESS"
-                        ? "Ujian sedang berlangsung"
-                        : "Ujian dibatalkan"}
+                    Ujian belum dinilai
                   </p>
                 </div>
               )}

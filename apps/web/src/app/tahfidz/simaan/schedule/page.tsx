@@ -9,6 +9,7 @@ import {
   useUpcomingSimaan,
   SimaanExam,
   SIMAAN_TYPES,
+  simaanExamStatus,
 } from "@/hooks/use-simaan";
 import { useClasses } from "@/hooks/use-classes";
 import {
@@ -54,23 +55,16 @@ import { getEffectiveRole } from "@/lib/rbac";
 const examTypeLabel = (type: string) =>
   SIMAAN_TYPES.find((t) => t.value === type)?.label || type;
 
-// Status colors
+// Status colors — the record has no `status` column, so a simaan is read as
+// scheduled until it is graded, then complete.
 const STATUS_COLORS: Record<string, string> = {
   SCHEDULED: "bg-blue-100 text-blue-800",
-  IN_PROGRESS: "bg-yellow-100 text-yellow-800",
   COMPLETED: "bg-green-100 text-green-800",
-  CANCELLED: "bg-red-100 text-red-800",
-  FAILED: "bg-red-100 text-red-800",
-  PASSED: "bg-green-100 text-green-800",
 };
 
 const STATUS_LABELS: Record<string, string> = {
   SCHEDULED: "Terjadwal",
-  IN_PROGRESS: "Berlangsung",
   COMPLETED: "Selesai",
-  CANCELLED: "Dibatalkan",
-  FAILED: "Tidak Lulus",
-  PASSED: "Lulus",
 };
 
 export default function SimaanSchedulePage() {
@@ -226,11 +220,10 @@ export default function SimaanSchedulePage() {
                             <div className="text-right">
                               <Badge
                                 className={
-                                  STATUS_COLORS[exam.status || "SCHEDULED"]
+                                  STATUS_COLORS[simaanExamStatus(exam)]
                                 }
                               >
-                                {STATUS_LABELS[exam.status || "SCHEDULED"] ||
-                                  exam.status}
+                                {STATUS_LABELS[simaanExamStatus(exam)]}
                               </Badge>
                               {/* {exam.duration && (
                                 <p className="text-sm text-muted-foreground mt-2 flex items-center gap-1">

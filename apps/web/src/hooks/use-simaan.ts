@@ -72,7 +72,6 @@ export interface SimaanExam {
   fashohaScore?: number;
   tartilScore?: number;
   grade?: SimaanGradeCode;
-  status?: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
   passed: boolean;
   notes?: string;
   recommendations?: string;
@@ -105,7 +104,19 @@ export interface SimaanFilters {
   dateFrom?: string;
   dateTo?: string;
   passed?: boolean;
-  status?: string;
+}
+
+/**
+ * A simaan's state, read from the record rather than a column the model does
+ * not have. It is scheduled until it is graded (`passed` or a score), then
+ * complete — the same rule the detail page and the edit guard use.
+ */
+export type SimaanStatus = "SCHEDULED" | "COMPLETED";
+
+export function simaanExamStatus(
+  exam: Pick<SimaanExam, "passed" | "overallScore">,
+): SimaanStatus {
+  return exam.passed || exam.overallScore != null ? "COMPLETED" : "SCHEDULED";
 }
 
 /** The create payload — the shared contract the API validates against (#1024). */

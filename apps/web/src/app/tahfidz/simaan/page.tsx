@@ -16,6 +16,7 @@ import {
   useDeleteSimaan,
   SimaanExam,
   SIMAAN_TYPES,
+  simaanExamStatus,
   type SimaanTypeCode,
 } from "@/hooks/use-simaan";
 import { useClasses } from "@/hooks/use-classes";
@@ -44,9 +45,7 @@ import {
   Plus,
   BookOpen,
   CheckCircle,
-  Clock,
   Play,
-  XCircle,
   Calendar,
   Users,
   Award,
@@ -61,23 +60,17 @@ import { getEffectiveRole } from "@/lib/rbac";
 
 const STATUS_LABELS: Record<string, string> = {
   SCHEDULED: "Terjadwal",
-  IN_PROGRESS: "Berlangsung",
   COMPLETED: "Selesai",
-  CANCELLED: "Dibatalkan",
 };
 
 const STATUS_COLORS: Record<string, string> = {
   SCHEDULED: "bg-blue-100 text-blue-800",
-  IN_PROGRESS: "bg-yellow-100 text-yellow-800",
   COMPLETED: "bg-green-100 text-green-800",
-  CANCELLED: "bg-red-100 text-red-800",
 };
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
   SCHEDULED: <Calendar className="h-3 w-3" />,
-  IN_PROGRESS: <Play className="h-3 w-3" />,
   COMPLETED: <CheckCircle className="h-3 w-3" />,
-  CANCELLED: <XCircle className="h-3 w-3" />,
 };
 
 export default function SimaanListPage() {
@@ -98,7 +91,14 @@ export default function SimaanListPage() {
     page,
     limit: pageSize,
     search: search || undefined,
-    status: statusFilter || undefined,
+    // The model has no `status` column: a simaan is scheduled until it is
+    // graded, so the filter maps onto the `passed` flag the API does serve.
+    passed:
+      statusFilter === "COMPLETED"
+        ? true
+        : statusFilter === "SCHEDULED"
+          ? false
+          : undefined,
     simaanType: examTypeFilter || undefined,
     // classId not supported in filters currently
     dateFrom: dateRange?.from
@@ -179,10 +179,10 @@ export default function SimaanListPage() {
       ),
     },
     {
-      accessorKey: "status",
+      id: "status",
       header: "Status",
       cell: ({ row }) => {
-        const status = row.original.status || "SCHEDULED";
+        const status = simaanExamStatus(row.original);
         return (
           <Badge className={cn("font-normal gap-1", STATUS_COLORS[status])}>
             {STATUS_ICONS[status]}
@@ -237,7 +237,7 @@ export default function SimaanListPage() {
               <Eye className="mr-2 h-4 w-4" />
               Lihat Detail
             </DropdownMenuItem>
-            {(row.original.status === "SCHEDULED" || !row.original.status) && (
+            {!row.original.passed && (
               <>
                 <DropdownMenuItem
                   onClick={() =>
@@ -257,18 +257,8 @@ export default function SimaanListPage() {
                 </DropdownMenuItem>
               </>
             )}
-            {row.original.status === "IN_PROGRESS" && (
-              <DropdownMenuItem
-                onClick={() =>
-                  router.push(`/tahfidz/simaan/${row.original.id}/score`)
-                }
-              >
-                <Award className="mr-2 h-4 w-4" />
-                Input Nilai
-              </DropdownMenuItem>
-            )}
             <DropdownMenuSeparator />
-            {(row.original.status === "SCHEDULED" || !row.original.status) && (
+            {!row.original.passed && (
               <DropdownMenuItem
                 className="text-destructive"
                 onClick={() => setDeleteId(row.original.id)}
