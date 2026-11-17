@@ -65,6 +65,7 @@ Ditulis dan dirawat bersama kode; berubah saat kode berubah.
 | [`deploy-azure.md`](./deploy-azure.md) | rencana dan langkah pindah dari VM tunggal ke Azure App Service |
 | [`MOBILE_API.md`](./MOBILE_API.md) | kontrak API untuk aplikasi Android portal orang tua (autentikasi bearer, endpoint, FCM) |
 | [`EMAIL_SETUP.md`](./EMAIL_SETUP.md) | cara sistem mengirim email (Gmail API): langkah persis penyiapan kredensial |
+| [`PROSEDUR-KEGAGALAN-PDP.md`](./PROSEDUR-KEGAGALAN-PDP.md) | prosedur notifikasi kegagalan pelindungan data pribadi (UU PDP Pasal 46): alur temukan→catat→nilai→beri tahu ≤3×24 jam→pulihkan→tinjau, kanal per penerima, dan templat pemberitahuan |
 
 ## 3. Rencana dan desain — belum tentu jadi
 
