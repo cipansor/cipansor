@@ -118,9 +118,10 @@ describe('Property 7: write scope', () => {
       fc.asyncProperty(actorArb, fc.constantFrom(...UNITS), async (actor, named) => {
         txCreate.mockClear();
         txAccountFindMany.mockReset();
-        // Every account the journal names belongs to the journal's unit.
+        // Both accounts are shared rows (`unitId: null`), which any unit may post
+        // to — the same shape an account created through the app has.
         txAccountFindMany.mockImplementation(async (args: any) =>
-          (args.where.id.in as string[]).map((id: string) => ({ id }))
+          (args.where.id.in as string[]).map((id: string) => ({ id, unitId: null }))
         );
 
         const promise = createManualJournal({
@@ -145,7 +146,9 @@ describe('Property 7: write scope', () => {
         await promise;
         const units = txCreate.mock.calls.map(([arg]) => arg.data.unitId);
         expect(units).toEqual([expected, expected]);
-        expect(txAccountFindMany.mock.calls[0][0].where.unitId).toBe(expected);
+        // The account lookup names the accounts, not the unit: a shared row is
+        // usable by any unit, so ownership is decided per row, not in the `where`.
+        expect(txAccountFindMany.mock.calls[0][0].where.id.in).toEqual(['kas', 'pendapatan']);
       }),
       { numRuns: 60 }
     );
@@ -200,21 +203,22 @@ describe('Property 8: all or nothing', () => {
     );
 
     const owned = ['acc-own-1', 'acc-own-2', 'acc-own-3', 'acc-own-4'];
+    const rows = owned.map((id) => ({ id, unitId: 'unit-a' }));
+    rows.push({ id: 'acc-other', unitId: 'unit-other' }); // another unit's account
     const actor: WriteActor = { sub: 'u-sd', roleCode: 'SDIT_ADMIN', unitId: 'unit-a' };
 
     await fc.assert(
       fc.asyncProperty(
         fc.subarray(owned, { minLength: 2, maxLength: 2 }),
-        fc.constantFrom('acc-other', 'acc-shared'),
+        fc.constantFrom('acc-other', 'acc-missing'),
         async (ownIds, foreignId) => {
           txCreate.mockClear();
           // The journal is balanced and names two accounts, one of which the
-          // unit does not own; the mock answers like the database — only the
-          // rows whose id is both asked for and owned by the unit.
+          // unit may not post to (another unit's, or one that does not exist).
+          // The mock answers like the database — the rows that exist, with
+          // their owning unit; the service decides usability from `unitId`.
           txAccountFindMany.mockImplementation(async (args: any) =>
-            (args.where.id.in as string[])
-              .filter((id: string) => owned.includes(id))
-              .map((id: string) => ({ id }))
+            rows.filter((r) => (args.where.id.in as string[]).includes(r.id))
           );
 
           const promise = createManualJournal({

@@ -149,16 +149,24 @@ export async function createManualJournal(data: {
       throw new Error(`Journal is not balanced. Debit: ${totalDebit}, Credit: ${totalCredit}`);
     }
 
-    // Every account must exist and belong to the journal's unit — a shared row
-    // (`unitId: null`) is not enough (#988, R26.8). One bad line refuses the whole
-    // request with 404, the same answer as for an account that does not exist, so
-    // no partial journal is written.
+    // Every account must exist and be usable by the journal's unit: its own, or
+    // a shared foundation-wide row (`unitId: null`) that any unit may post to —
+    // the chart of accounts is one shared catalog (`AccountCode.code` is
+    // globally unique, so rows are not per-unit), the same rule `createBudget`
+    // applies. An account pinned to another unit refuses the whole request with
+    // 404, the same answer as for an account that does not exist, so no partial
+    // journal is written (#988, R26.8).
     const accountIds = [...new Set(data.entries.map((e) => e.accountId))];
-    const owned = await tx.accountCode.findMany({
-      where: { id: { in: accountIds }, unitId },
-      select: { id: true },
+    const accounts = await tx.accountCode.findMany({
+      where: { id: { in: accountIds } },
+      select: { id: true, unitId: true },
     });
-    if (owned.length !== accountIds.length) throw Errors.notFound('AccountCode');
+    const usable = new Set(
+      accounts.filter((a) => a.unitId === null || a.unitId === unitId).map((a) => a.id)
+    );
+    if (accountIds.some((accountId) => !usable.has(accountId))) {
+      throw Errors.notFound('AccountCode');
+    }
 
     const referenceId = crypto.randomUUID(); // Group ID for manual entry
 

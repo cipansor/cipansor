@@ -418,12 +418,11 @@ export async function updateInvoice(actor: WriteActor, id: string, data: UpdateI
       ...(data.amount && { amount: new Prisma.Decimal(data.amount) }),
       ...(data.dueDate && { dueDate: dayDate(data.dueDate) }),
     },
+    // The response carries the santri's columns, so it reads them with a
+    // `select` of the screen's fields, never `include: { student }` — which
+    // sent NIK, No. KK and the parents' data (R24.10, #988).
     include: {
-      student: {
-        include: {
-          user: { select: { id: true, name: true } },
-        },
-      },
+      student: { select: INVOICE_STUDENT_SELECT },
       paymentType: { select: { id: true, name: true, code: true } },
     },
   });

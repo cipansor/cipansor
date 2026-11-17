@@ -38,6 +38,7 @@ vi.mock('../accounting-config.service', () => ({
 vi.mock('@/lib/event-bus', () => ({ eventBus: { emit: vi.fn() } }));
 
 import { prisma } from '../../../lib/prisma';
+import { expectNoSensitiveStudentFields } from '../../../../tests/helpers/sensitive-fields';
 import {
   createPayment,
   getStudentFinanceSummary,
@@ -105,6 +106,24 @@ describe('updateInvoice menolak tagihan unit lain', () => {
     await updateInvoice(adminSd, 'inv-sd', { amount: 1000 });
 
     expect(db.invoice.update).toHaveBeenCalledTimes(1);
+  });
+
+  it('jawaban perubahan membaca kolom santri dengan select, bukan include (R24.10)', async () => {
+    db.invoice.findUnique.mockResolvedValue({ id: 'inv-sd', paymentType: { unitId: SD } });
+    db.invoice.update.mockImplementation(async (args: any) => ({
+      id: 'inv-sd',
+      student: { id: 's1', nis: 'SD-1', unitId: SD, user: { id: 'u1', name: 'Fulan' } },
+      ...args.data,
+    }));
+
+    const result = await updateInvoice(adminSd, 'inv-sd', {});
+
+    // The santri relation is read with a `select`, never `include` — `include`
+    // would carry NIK, No. KK and the parents' data into the response.
+    const studentArg = db.invoice.update.mock.calls[0][0].include.student;
+    expect(studentArg.select).toBeDefined();
+    expect(studentArg.include).toBeUndefined();
+    expectNoSensitiveStudentFields(result);
   });
 
   it('Super_Admin menulis unit mana pun', async () => {
