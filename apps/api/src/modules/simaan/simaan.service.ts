@@ -2,7 +2,9 @@ import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import { simaanStatusWhere } from '@cipansor/shared';
 import { dayDate, wibDayOf } from '@/utils/wib';
-import { assertStudentInScope, studentScope, type ScopeActor } from '@/utils/student-scope';
+import { studentScope, type ScopeActor } from '@/utils/student-scope';
+import { assertStudentsWritable, type WriteActor } from '@/utils/write-scope';
+import { mayWriteGradeVia, teachingRelationReach } from '@/utils/teaching-relation';
 import { Errors } from '@/middleware/error';
 import type {
   ListSimaanQuery,
@@ -20,38 +22,58 @@ import type {
 // ============================================
 
 /**
- * The exam with `id`, or 404 when it is not one the caller may touch.
- *
- * Every write goes through here: `update`/`delete` used to run
- * `prisma.simaanExam.update({ where: { id } })` unscoped, so a teacher could
- * change or delete another unit's exam by guessing its id, and a missing id
- * surfaced as a 500 (P2025) rather than 404. Not-found rather than forbidden,
- * so the answer does not confirm the id.
+ * 404 unless `actor` may *write* a simaan of `studentId` (owner decision
+ * 2026-11-09, #1025): Super Admin any santri, everyone else a santri of their
+ * own unit, or one reached through a Relasi_Pengajaran (a)–(c). The read
+ * breadth a cross-unit account has (`seesAllUnits`) is deliberately not
+ * consulted — a musyrif who reads every unit writes only their own, or a santri
+ * they teach. Relation (d) (wali kelas) is not a simaan relation, so
+ * `mayWriteGradeVia` excludes it, as it does for grades (R13.2). Not-found
+ * rather than forbidden, so the answer does not confirm the santri.
  */
-type ScopedExam = {
-  id: string;
-  studentId: string;
-  juzStart: number;
-  juzEnd: number;
-  passed: boolean;
-};
-
-async function assertExamInScope(id: string, actor: ScopeActor): Promise<ScopedExam> {
-  const found = await prisma.simaanExam.findFirst({
-    where: { id, student: studentScope(actor) },
-    select: { id: true, studentId: true, juzStart: true, juzEnd: true, passed: true },
-  });
-  if (!found) throw Errors.notFound('Simaan exam');
-  return found;
+async function assertSimaanStudentWritable(
+  studentId: string,
+  actor: WriteActor,
+  resource = 'Simaan exam'
+): Promise<void> {
+  await assertStudentsWritable(
+    [studentId],
+    actor,
+    teachingRelationReach(actor.sub, mayWriteGradeVia),
+    resource
+  );
 }
 
-/** The examiner row with `id`, or 404 unless its exam's santri is in scope. */
-async function assertExaminerInScope(id: string, actor: ScopeActor): Promise<void> {
+/**
+ * The exam with `id`, or 404 when it is missing *or* its santri is outside the
+ * caller's write reach — the same answer for both, so the id is not confirmed.
+ * For writes that do not open a transaction (`addExaminer`); the transactional
+ * writes read the row inside their transaction instead (`findExamInScope`).
+ *
+ * `update`/`delete` used to run `prisma.simaanExam.update({ where: { id } })`
+ * unscoped, so a teacher could change or delete another unit's exam by guessing
+ * its id, and a missing id surfaced as a 500 (P2025) rather than 404. The lookup
+ * reads the row by id alone (a write must reach a santri of another unit through
+ * a relation, which no `where` on the exam can express), then the santri is
+ * checked against the caller's write scope.
+ */
+async function assertExamWritable(id: string, actor: WriteActor): Promise<void> {
+  const found = await prisma.simaanExam.findFirst({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!found) throw Errors.notFound('Simaan exam');
+  await assertSimaanStudentWritable(found.studentId, actor);
+}
+
+/** The examiner row with `id`, or 404 unless its exam's santri is writable. */
+async function assertExaminerWritable(id: string, actor: WriteActor): Promise<void> {
   const found = await prisma.simaanExaminer.findFirst({
-    where: { id, simaan: { student: studentScope(actor) } },
-    select: { id: true },
+    where: { id },
+    select: { id: true, simaan: { select: { studentId: true } } },
   });
   if (!found) throw Errors.notFound('Examiner');
+  await assertSimaanStudentWritable(found.simaan.studentId, actor, 'Examiner');
 }
 
 type ExamForEffects = { id: string; studentId: string; juzStart: number; juzEnd: number };
@@ -197,13 +219,14 @@ async function revertPassEffects(
 async function findExamInScope(
   tx: Prisma.TransactionClient,
   id: string,
-  actor: ScopeActor
+  actor: WriteActor
 ): Promise<ExamForEffects & { passed: boolean }> {
   const found = await tx.simaanExam.findFirst({
-    where: { id, student: studentScope(actor) },
+    where: { id },
     select: { id: true, studentId: true, juzStart: true, juzEnd: true, passed: true },
   });
   if (!found) throw Errors.notFound('Simaan exam');
+  await assertSimaanStudentWritable(found.studentId, actor);
   return found;
 }
 
@@ -340,11 +363,12 @@ export const simaanService = {
   // CREATE
   // ============================================
 
-  async create(data: CreateSimaanInput, context: ScopeActor) {
-    // The santri named in the body must be one the caller may see, or a teacher
-    // could file an exam against another unit's santri by its id (404, not 403,
-    // so the answer does not confirm the id).
-    await assertStudentInScope(data.studentId, context);
+  async create(data: CreateSimaanInput, context: WriteActor) {
+    // The santri named in the body must be one the caller may *write* — their
+    // own unit, or one reached through a Relasi_Pengajaran (a)–(c); Super Admin
+    // any. A teacher filing an exam against another unit's santri by its id is
+    // refused (404, not 403, so the answer does not confirm the id).
+    await assertSimaanStudentWritable(data.studentId, context);
 
     const examDate = dayDate(data.examDate);
     const passed = data.passed || false;
@@ -400,7 +424,7 @@ export const simaanService = {
   // UPDATE
   // ============================================
 
-  async update(id: string, data: UpdateSimaanInput, context: ScopeActor) {
+  async update(id: string, data: UpdateSimaanInput, context: WriteActor) {
     return prisma.$transaction(async (tx) => {
       const before = await findExamInScope(tx, id, context);
       const nowPassed = data.passed !== undefined ? data.passed : before.passed;
@@ -459,7 +483,7 @@ export const simaanService = {
   // DELETE
   // ============================================
 
-  async delete(id: string, context: ScopeActor) {
+  async delete(id: string, context: WriteActor) {
     return prisma.$transaction(async (tx) => {
       const before = await findExamInScope(tx, id, context);
       await tx.simaanExam.delete({ where: { id } });
@@ -472,8 +496,8 @@ export const simaanService = {
   // EXAMINER MANAGEMENT
   // ============================================
 
-  async addExaminer(data: CreateExaminerInput, context: ScopeActor) {
-    await assertExamInScope(data.simaanId, context);
+  async addExaminer(data: CreateExaminerInput, context: WriteActor) {
+    await assertExamWritable(data.simaanId, context);
 
     const examiner = await prisma.simaanExaminer.create({
       data: {
@@ -490,8 +514,8 @@ export const simaanService = {
     return examiner;
   },
 
-  async updateExaminer(id: string, data: UpdateExaminerInput, context: ScopeActor) {
-    await assertExaminerInScope(id, context);
+  async updateExaminer(id: string, data: UpdateExaminerInput, context: WriteActor) {
+    await assertExaminerWritable(id, context);
 
     const examiner = await prisma.simaanExaminer.update({
       where: { id },
@@ -507,8 +531,8 @@ export const simaanService = {
     return examiner;
   },
 
-  async deleteExaminer(id: string, context: ScopeActor) {
-    await assertExaminerInScope(id, context);
+  async deleteExaminer(id: string, context: WriteActor) {
+    await assertExaminerWritable(id, context);
     await prisma.simaanExaminer.delete({ where: { id } });
     return { message: 'Examiner removed successfully' };
   },
@@ -517,7 +541,7 @@ export const simaanService = {
   // SUBMIT SCORES
   // ============================================
 
-  async submitScores(data: SubmitScoresInput, context: ScopeActor) {
+  async submitScores(data: SubmitScoresInput, context: WriteActor) {
     return prisma.$transaction(async (tx) => {
       const before = await findExamInScope(tx, data.simaanId, context);
 

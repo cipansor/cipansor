@@ -70,13 +70,17 @@ export function studentWriteWhere(actor: WriteActor): Prisma.StudentWhereInput {
  * the ids not already writable by unit and returns the subset it reaches, so a
  * santri of another unit is writable only through a relation that says so.
  *
- * Not-found rather than forbidden, so the answer does not confirm the id — the
- * same shape as the answer for an id that does not exist.
+ * `resource` names the answer's subject so a caller can make the out-of-scope
+ * answer read the same as its own missing-id answer — the requirement is 404
+ * with the same content as a record that does not exist, not merely 404.
+ *
+ * Not-found rather than forbidden, so the answer does not confirm the id.
  */
 export async function assertStudentsWritable(
   studentIds: string[],
   actor: WriteActor,
-  viaRelation?: (ids: string[]) => Promise<Set<string>>
+  viaRelation?: (ids: string[]) => Promise<Set<string>>,
+  resource = 'Student'
 ): Promise<void> {
   const ids = [...new Set(studentIds)];
   if (!ids.length) return;
@@ -92,7 +96,7 @@ export async function assertStudentsWritable(
     for (const id of await viaRelation(rest)) allowed.add(id);
   }
 
-  if (ids.some((id) => !allowed.has(id))) throw Errors.notFound('Student');
+  if (ids.some((id) => !allowed.has(id))) throw Errors.notFound(resource);
 }
 
 /**

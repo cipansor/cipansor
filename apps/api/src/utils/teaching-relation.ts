@@ -62,6 +62,33 @@ export const mayWriteGradeVia = (r: Set<TeachingRelation>): boolean =>
 export const mayWriteReportCardVia = (r: Set<TeachingRelation>): boolean => r.size > 0;
 
 /**
+ * A `viaRelation` callback for `assertStudentsWritable` (`utils/write-scope.ts`):
+ * given the ids a write rule could not reach by unit, the subset the account
+ * reaches through a Relasi_Pengajaran (a)–(d). This is the relation reach a
+ * requirement grants over a santri of another unit — the simaan write surface
+ * (#1025) reaches a santri through (a)–(c), the rapor pesantren write surface
+ * through any relation including (d), and the caller's own unit alone would
+ * refuse them.
+ *
+ * `via` decides which relations count, defaulting to every relation (the report
+ * card rule, R13.3). A score-shaped write passes `mayWriteGradeVia`, so a
+ * homeroom teacher alone — relation (d) — cannot reach it (R13.2).
+ */
+export function teachingRelationReach(
+  userId: string,
+  via: (relations: Set<TeachingRelation>) => boolean = mayWriteReportCardVia
+): (ids: string[]) => Promise<Set<string>> {
+  return async (ids) => {
+    const relations = await teachingRelations(userId, ids);
+    const reached = new Set<string>();
+    for (const [id, r] of relations) {
+      if (via(r)) reached.add(id);
+    }
+    return reached;
+  };
+}
+
+/**
  * The relation of `userId` with each of `studentIds`, read at request time.
  * A santri with no relation is absent from the map.
  */

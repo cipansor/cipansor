@@ -1,207 +1,266 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ScopeActor } from '@/utils/student-scope';
+import type { WriteActor } from '@/utils/write-scope';
 
-// The simaan write surface used to run unscoped: `create` took a `studentId`
-// from the body with no check, `update`/`delete` ran `prisma.simaanExam.update({
-// where: { id } })`, and the examiner/scores endpoints reached an exam by its
-// id alone. A teacher could file, edit or delete another unit's exam by its id,
-// and a missing id surfaced as a 500 (P2025) rather than 404. These tests drive
-// the real service and read the `where` that reaches Prisma — the write must
-// carry the caller's santri scope, and an out-of-scope id must answer 404.
+// #1025 — the simaan write surface must follow the yayasan write-scope rule
+// (owner decision 2026-11-09): Super Admin for any unit, every other account
+// for its own unit or a santri it reaches through a Relasi_Pengajaran (a)–(c).
+//
+// It used to run on the *read* scope (`studentScope`): a musyrif/ustadz who
+// reads across units (seesAllUnits) could file, edit or delete another unit's
+// exam, because read breadth was taken as write authority (R13.8), and a
+// teacher with a genuine relation to a santri of another unit could not write
+// at all. A record outside the caller's write reach now answers 404 with the
+// same content as one that does not exist. These tests drive the real service;
+// the prisma mock answers from a small fixture, so the scope decision is what
+// is under test.
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
-    student: { findFirst: vi.fn() },
+const STUDENTS: Record<string, { id: string; unitId: string; enrollments: { classId: string }[] }> =
+  {
+    's-smp': { id: 's-smp', unitId: 'unit-smp', enrollments: [{ classId: 'c-smp' }] },
+    's-other': { id: 's-other', unitId: 'unit-other', enrollments: [{ classId: 'c-other' }] },
+  };
+
+/** Whether a fixture santri matches a `studentWriteWhere` filter. */
+function inScope(student: { unitId: string }, scope: Record<string, any>): boolean {
+  if (Object.keys(scope).length === 0) return true;
+  if (scope.id?.in?.length === 0) return false;
+  if (scope.unitId) return student.unitId === scope.unitId;
+  return false;
+}
+
+vi.mock('@/lib/prisma', () => {
+  const prisma: any = {
+    student: {
+      // Two shapes reach this mock: the write-scope check (`where.AND`) and the
+      // relation read inside `teachingRelations` (`where.id.in`).
+      findMany: vi.fn(async (args: any) => {
+        const where = args?.where ?? {};
+        if (Array.isArray(where.AND)) {
+          const ids: string[] = where.AND[0]?.id?.in ?? [];
+          const scope = where.AND[1] ?? {};
+          return ids
+            .map((id) => STUDENTS[id])
+            .filter(Boolean)
+            .filter((s) => inScope(s!, scope))
+            .map((s) => ({ id: s!.id }));
+        }
+        const ids: string[] = where.id?.in ?? [];
+        return ids.map((id) => STUDENTS[id]).filter(Boolean);
+      }),
+    },
+    teacher: { findFirst: vi.fn().mockResolvedValue({ id: 't-1', unitId: 'unit-smp' }) },
+    teacherSubject: { findMany: vi.fn().mockResolvedValue([]) },
+    takhosusEnrollment: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findUnique: vi.fn().mockResolvedValue(null),
+    },
+    musyrif: { findFirst: vi.fn().mockResolvedValue(null) },
+    class: { findMany: vi.fn().mockResolvedValue([]) },
+    hafidzStudent: { findUnique: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
+    sanadRecord: { count: vi.fn().mockResolvedValue(0) },
+    halaqoh: { findUnique: vi.fn().mockResolvedValue(null) },
     simaanExam: {
       findFirst: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
       count: vi.fn().mockResolvedValue(0),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
+      create: vi.fn().mockResolvedValue({
+        id: 'e-new',
+        studentId: 's-smp',
+        juzStart: 1,
+        juzEnd: 1,
+      }),
+      update: vi.fn().mockResolvedValue({ id: 'e-smp' }),
+      delete: vi.fn().mockResolvedValue({ id: 'e-smp' }),
     },
     simaanExaminer: {
       findFirst: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
+      create: vi.fn().mockResolvedValue({ id: 'x-new' }),
+      update: vi.fn().mockResolvedValue({ id: 'x-1' }),
+      delete: vi.fn().mockResolvedValue({ id: 'x-1' }),
     },
-    halaqoh: { findUnique: vi.fn().mockResolvedValue(null) },
-    // The pass/progress effects (applyPassEffects/revertPassEffects) run inside
-    // the write's transaction; `create`/`update`/`delete`/`submitScores` now
-    // open one. The transaction handle is this same mocked client.
-    takhosusEnrollment: { findUnique: vi.fn().mockResolvedValue(null) },
-    hafidzStudent: { findUnique: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
-    sanadRecord: { count: vi.fn().mockResolvedValue(0) },
-    $transaction: vi.fn((callback) => callback(prisma)),
-  },
-}));
+    $transaction: vi.fn((cb: any) => cb(prisma)),
+  };
+  return { prisma };
+});
 
 import { prisma } from '@/lib/prisma';
 import { simaanService } from '../simaan.service';
 
-const guru: ScopeActor = { sub: 'u-guru', roleCode: 'SMPIT_GURU', unitId: 'unit-smp' };
-const ketua: ScopeActor = { sub: 'u-ketua', roleCode: 'YAYASAN_KETUA', unitId: null };
+const guruSmp: WriteActor = { sub: 'u-guru', roleCode: 'SMPIT_GURU', unitId: 'unit-smp' };
+// A Pembaca_Lintas_Unit: reads every unit (seesAllUnits), so it must NOT get
+// write breadth from that (R13.8).
+const musyrif: WriteActor = { sub: 'u-musyrif', roleCode: 'MUSYRIF', unitId: 'unit-smp' };
+const superAdmin: WriteActor = { sub: 'u-super', roleCode: 'SUPER_ADMIN', unitId: null };
 
-const studentFindFirst = vi.mocked(prisma.student.findFirst);
 const examFindFirst = vi.mocked(prisma.simaanExam.findFirst);
 const examinerFindFirst = vi.mocked(prisma.simaanExaminer.findFirst);
+const examCreate = vi.mocked(prisma.simaanExam.create);
+const examUpdate = vi.mocked(prisma.simaanExam.update);
+const examDelete = vi.mocked(prisma.simaanExam.delete);
+const examinerCreate = vi.mocked(prisma.simaanExaminer.create);
+const examinerUpdate = vi.mocked(prisma.simaanExaminer.update);
+const examinerDelete = vi.mocked(prisma.simaanExaminer.delete);
+const takhosusFindMany = vi.mocked(prisma.takhosusEnrollment.findMany);
 
 const notFound = { code: 'NOT_FOUND' };
 
+/** The exam row `findExamInScope`/`assertExamWritable` reads, for `studentId`. */
+const examRow = (studentId: string) => ({
+  id: 'e-1',
+  studentId,
+  juzStart: 1,
+  juzEnd: 1,
+  passed: false,
+});
+
 beforeEach(() => {
   vi.clearAllMocks();
-  studentFindFirst.mockResolvedValue({ id: 's-1' } as never);
-  examFindFirst.mockResolvedValue({ id: 'e-1' } as never);
-  examinerFindFirst.mockResolvedValue({ id: 'x-1' } as never);
-  vi.mocked(prisma.simaanExam.create).mockResolvedValue({ id: 'e-new' } as never);
-  vi.mocked(prisma.simaanExam.update).mockResolvedValue({ id: 'e-1' } as never);
-  vi.mocked(prisma.simaanExam.delete).mockResolvedValue({ id: 'e-1' } as never);
-  vi.mocked(prisma.simaanExaminer.create).mockResolvedValue({ id: 'x-new' } as never);
-  vi.mocked(prisma.simaanExaminer.update).mockResolvedValue({ id: 'x-1' } as never);
-  vi.mocked(prisma.simaanExaminer.delete).mockResolvedValue({ id: 'x-1' } as never);
+  vi.mocked(prisma.teacher.findFirst).mockResolvedValue({ id: 't-1', unitId: 'unit-smp' } as never);
+  vi.mocked(prisma.teacherSubject.findMany).mockResolvedValue([] as never);
+  takhosusFindMany.mockResolvedValue([] as never);
+  vi.mocked(prisma.musyrif.findFirst).mockResolvedValue(null as never);
+  vi.mocked(prisma.class.findMany).mockResolvedValue([] as never);
+  examFindFirst.mockResolvedValue(examRow('s-smp') as never);
+  examinerFindFirst.mockResolvedValue({ id: 'x-1', simaan: { studentId: 's-smp' } } as never);
 });
 
-describe('simaanService.create — the santri must be in the caller’s scope', () => {
-  const body = {
-    studentId: 's-1',
-    simaanType: 'BIN_NAZHR' as const,
-    examDate: '2026-11-20',
-    juzStart: 1,
-    juzEnd: 1,
-  };
+const createBody = (studentId: string) => ({
+  studentId,
+  simaanType: 'BIN_NAZHR' as const,
+  examDate: '2026-11-20',
+  juzStart: 1,
+  juzEnd: 1,
+});
 
-  it('checks the santri against the caller’s scope before creating', async () => {
-    await simaanService.create(body, guru);
+describe('simaanService.create — the santri must be in the caller’s write reach', () => {
+  it('scopes the santri check by the caller’s unit, and creates', async () => {
+    await simaanService.create(createBody('s-smp'), guruSmp);
 
-    expect(studentFindFirst.mock.calls[0][0]?.where).toEqual({
-      AND: [{ id: 's-1' }, { unitId: 'unit-smp' }],
-    });
-    expect(prisma.simaanExam.create).toHaveBeenCalled();
+    const where = vi.mocked(prisma.student.findMany).mock.calls[0][0]?.where as any;
+    expect(where).toEqual({ AND: [{ id: { in: ['s-smp'] } }, { unitId: 'unit-smp' }] });
+    expect(examCreate).toHaveBeenCalled();
   });
 
-  it('a yayasan account reaches every santri', async () => {
-    await simaanService.create(body, ketua);
+  it('Super Admin reaches a santri of any unit', async () => {
+    await simaanService.create(createBody('s-other'), superAdmin);
 
-    expect(studentFindFirst.mock.calls[0][0]?.where).toEqual({
-      AND: [{ id: 's-1' }, {}],
-    });
+    const where = vi.mocked(prisma.student.findMany).mock.calls[0][0]?.where as any;
+    expect(where).toEqual({ AND: [{ id: { in: ['s-other'] } }, {}] });
+    expect(examCreate).toHaveBeenCalled();
   });
 
-  it('refuses a santri out of scope with 404 and creates nothing', async () => {
-    studentFindFirst.mockResolvedValue(null as never);
+  it('a cross-unit reader with no relation is refused 404 (R13.8)', async () => {
+    // On the pre-fix code the read scope widened with `seesAllUnits`, so this
+    // account wrote the exam; the write scope must not.
+    await expect(simaanService.create(createBody('s-other'), musyrif)).rejects.toMatchObject(
+      notFound
+    );
+    expect(examCreate).not.toHaveBeenCalled();
+  });
 
-    await expect(simaanService.create(body, guru)).rejects.toMatchObject(notFound);
-    expect(prisma.simaanExam.create).not.toHaveBeenCalled();
+  it('reaches a santri of another unit through a relation (b) — a Halaqoh it leads', async () => {
+    takhosusFindMany.mockResolvedValue([{ studentId: 's-other' }] as never);
+
+    await simaanService.create(createBody('s-other'), guruSmp);
+
+    expect(examCreate).toHaveBeenCalled();
+  });
+
+  it('refuses a santri with no relation to the caller, and creates nothing', async () => {
+    await expect(simaanService.create(createBody('s-other'), guruSmp)).rejects.toMatchObject(
+      notFound
+    );
+    expect(examCreate).not.toHaveBeenCalled();
   });
 });
 
-describe('simaanService.update — scoped lookup, then 404 on a foreign id', () => {
-  it('scopes the lookup by the caller’s santri, not by id alone', async () => {
-    await simaanService.update('e-1', { notes: 'x' }, guru);
+describe('simaanService.update — the exam’s santri must be writable', () => {
+  it('reads the row by id, checks its santri, then updates', async () => {
+    await simaanService.update('e-1', { notes: 'x' }, guruSmp);
 
-    expect(examFindFirst.mock.calls[0][0]?.where).toEqual({
-      id: 'e-1',
-      student: { unitId: 'unit-smp' },
-    });
-    expect(prisma.simaanExam.update).toHaveBeenCalled();
+    expect(examFindFirst.mock.calls[0][0]?.where).toEqual({ id: 'e-1' });
+    expect(examUpdate).toHaveBeenCalled();
   });
 
-  it('answers 404 and writes nothing for an out-of-scope id', async () => {
+  it('answers 404 and writes nothing for another unit’s exam', async () => {
+    examFindFirst.mockResolvedValue(examRow('s-other') as never);
+
+    await expect(simaanService.update('e-other', { notes: 'x' }, guruSmp)).rejects.toMatchObject(
+      notFound
+    );
+    expect(examUpdate).not.toHaveBeenCalled();
+  });
+
+  it('the out-of-scope 404 reads like a missing id', async () => {
+    examFindFirst.mockResolvedValue(examRow('s-other') as never);
+    const outOfScope = await simaanService.update('e-1', { notes: 'x' }, guruSmp).catch((e) => e);
     examFindFirst.mockResolvedValue(null as never);
+    const absent = await simaanService.update('e-1', { notes: 'x' }, guruSmp).catch((e) => e);
 
-    await expect(simaanService.update('e-x', { notes: 'x' }, guru)).rejects.toMatchObject(notFound);
-    expect(prisma.simaanExam.update).not.toHaveBeenCalled();
+    expect(outOfScope.code).toBe('NOT_FOUND');
+    expect(absent.code).toBe('NOT_FOUND');
+    expect(absent.message).toBe(outOfScope.message);
   });
 });
 
-describe('simaanService.delete — scoped lookup, then 404 on a foreign id', () => {
-  it('scopes the lookup by the caller’s santri', async () => {
-    await simaanService.delete('e-1', guru);
-
-    expect(examFindFirst.mock.calls[0][0]?.where).toEqual({
-      id: 'e-1',
-      student: { unitId: 'unit-smp' },
-    });
-    expect(prisma.simaanExam.delete).toHaveBeenCalled();
+describe('simaanService.delete — the exam’s santri must be writable', () => {
+  it('checks the santri, then deletes', async () => {
+    await simaanService.delete('e-1', guruSmp);
+    expect(examDelete).toHaveBeenCalled();
   });
 
-  it('answers 404 and deletes nothing for an out-of-scope id', async () => {
-    examFindFirst.mockResolvedValue(null as never);
+  it('answers 404 and deletes nothing for another unit’s exam', async () => {
+    examFindFirst.mockResolvedValue(examRow('s-other') as never);
 
-    await expect(simaanService.delete('e-x', guru)).rejects.toMatchObject(notFound);
-    expect(prisma.simaanExam.delete).not.toHaveBeenCalled();
+    await expect(simaanService.delete('e-other', guruSmp)).rejects.toMatchObject(notFound);
+    expect(examDelete).not.toHaveBeenCalled();
   });
 });
 
-describe('simaanService.submitScores — scoped lookup, then 404', () => {
+describe('simaanService.submitScores — the exam’s santri must be writable', () => {
   const scores = { simaanId: 'e-1', overallScore: 80, grade: 'JAYYID' as const, passed: true };
 
-  it('scopes the exam lookup by the caller’s santri', async () => {
-    await simaanService.submitScores(scores, guru);
-
-    expect(examFindFirst.mock.calls[0][0]?.where).toEqual({
-      id: 'e-1',
-      student: { unitId: 'unit-smp' },
-    });
-    expect(prisma.simaanExam.update).toHaveBeenCalled();
+  it('checks the santri, then writes the scores', async () => {
+    await simaanService.submitScores(scores, guruSmp);
+    expect(examUpdate).toHaveBeenCalled();
   });
 
-  it('answers 404 and writes nothing for an out-of-scope exam', async () => {
-    examFindFirst.mockResolvedValue(null as never);
+  it('answers 404 and writes nothing for another unit’s exam', async () => {
+    examFindFirst.mockResolvedValue(examRow('s-other') as never);
 
-    await expect(simaanService.submitScores(scores, guru)).rejects.toMatchObject(notFound);
-    expect(prisma.simaanExam.update).not.toHaveBeenCalled();
+    await expect(simaanService.submitScores(scores, guruSmp)).rejects.toMatchObject(notFound);
+    expect(examUpdate).not.toHaveBeenCalled();
   });
 });
 
 describe('simaanService examiner management — scoped to the exam’s santri', () => {
-  it('addExaminer scopes the parent exam before creating', async () => {
-    await simaanService.addExaminer({ simaanId: 'e-1', examinerId: 'u-1' }, guru);
+  it('addExaminer checks the parent exam’s santri before creating', async () => {
+    await simaanService.addExaminer({ simaanId: 'e-1', examinerId: 'u-1' }, guruSmp);
 
-    expect(examFindFirst.mock.calls[0][0]?.where).toEqual({
-      id: 'e-1',
-      student: { unitId: 'unit-smp' },
-    });
-    expect(prisma.simaanExaminer.create).toHaveBeenCalled();
+    expect(examFindFirst.mock.calls[0][0]?.where).toEqual({ id: 'e-1' });
+    expect(examinerCreate).toHaveBeenCalled();
   });
 
-  it('updateExaminer scopes through its exam’s santri', async () => {
-    await simaanService.updateExaminer('x-1', { score: 90 }, guru);
+  it('addExaminer refuses another unit’s exam with 404 and creates nothing', async () => {
+    examFindFirst.mockResolvedValue({ studentId: 's-other' } as never);
 
-    expect(examinerFindFirst.mock.calls[0][0]?.where).toEqual({
-      id: 'x-1',
-      simaan: { student: { unitId: 'unit-smp' } },
-    });
-    expect(prisma.simaanExaminer.update).toHaveBeenCalled();
+    await expect(
+      simaanService.addExaminer({ simaanId: 'e-other', examinerId: 'u-1' }, guruSmp)
+    ).rejects.toMatchObject(notFound);
+    expect(examinerCreate).not.toHaveBeenCalled();
   });
 
-  it('deleteExaminer scopes through its exam’s santri', async () => {
-    await simaanService.deleteExaminer('x-1', guru);
+  it('updateExaminer checks the exam’s santri through the examiner row', async () => {
+    await simaanService.updateExaminer('x-1', { score: 90 }, guruSmp);
 
-    expect(examinerFindFirst.mock.calls[0][0]?.where).toEqual({
-      id: 'x-1',
-      simaan: { student: { unitId: 'unit-smp' } },
-    });
-    expect(prisma.simaanExaminer.delete).toHaveBeenCalled();
+    expect(examinerFindFirst.mock.calls[0][0]?.where).toEqual({ id: 'x-1' });
+    expect(examinerUpdate).toHaveBeenCalled();
   });
 
-  it('deleteExaminer answers 404 and deletes nothing for a foreign examiner', async () => {
-    examinerFindFirst.mockResolvedValue(null as never);
+  it('deleteExaminer refuses an examiner of another unit’s exam with 404', async () => {
+    examinerFindFirst.mockResolvedValue({ id: 'x-9', simaan: { studentId: 's-other' } } as never);
 
-    await expect(simaanService.deleteExaminer('x-x', guru)).rejects.toMatchObject(notFound);
-    expect(prisma.simaanExaminer.delete).not.toHaveBeenCalled();
-  });
-});
-
-describe('simaanService.getHalaqohRecords — the halaqoh is still the caller’s santri', () => {
-  it('carries the unit scope alongside the halaqoh filter', async () => {
-    vi.mocked(prisma.simaanExam.findMany).mockResolvedValue([] as never);
-    vi.mocked(prisma.simaanExam.count).mockResolvedValue(0 as never);
-
-    await simaanService.getHalaqohRecords({ halaqohId: 'h-1', page: 1, limit: 20 }, guru);
-
-    const where = vi.mocked(prisma.simaanExam.findMany).mock.calls[0][0]?.where;
-    expect(where).toMatchObject({ halaqohId: 'h-1', student: { unitId: 'unit-smp' } });
+    await expect(simaanService.deleteExaminer('x-9', guruSmp)).rejects.toMatchObject(notFound);
+    expect(examinerDelete).not.toHaveBeenCalled();
   });
 });
