@@ -2,33 +2,36 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { MedicalRecordType } from '@cipansor/shared';
 
 // Create mock functions and hoist them
-const { mockMedicalRecord, mockMedication, mockMedicationUsageLog } = vi.hoisted(() => {
-  return {
-    mockMedicalRecord: {
-      findMany: vi.fn(),
-      count: vi.fn(),
-      findUnique: vi.fn(),
-      findFirst: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-      groupBy: vi.fn(),
-    },
-    mockMedication: {
-      findMany: vi.fn(),
-      count: vi.fn(),
-      findUnique: vi.fn(),
-      create: vi.fn(),
-      update: vi.fn(),
-      delete: vi.fn(),
-    },
-    mockMedicationUsageLog: {
-      findMany: vi.fn(),
-      count: vi.fn(),
-      create: vi.fn(),
-    },
-  };
-});
+const { mockMedicalRecord, mockMedication, mockMedicationUsageLog, mockStudent } = vi.hoisted(
+  () => {
+    return {
+      mockStudent: { findFirst: vi.fn() },
+      mockMedicalRecord: {
+        findMany: vi.fn(),
+        count: vi.fn(),
+        findUnique: vi.fn(),
+        findFirst: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+        groupBy: vi.fn(),
+      },
+      mockMedication: {
+        findMany: vi.fn(),
+        count: vi.fn(),
+        findUnique: vi.fn(),
+        create: vi.fn(),
+        update: vi.fn(),
+        delete: vi.fn(),
+      },
+      mockMedicationUsageLog: {
+        findMany: vi.fn(),
+        count: vi.fn(),
+        create: vi.fn(),
+      },
+    };
+  }
+);
 
 // Mock the Prisma Client constructor
 // `importOriginal` rather than a hand-listed enum map: the service graph now
@@ -63,6 +66,7 @@ vi.mock('../../../../src/lib/prisma', () => {
       medicalRecord: mockMedicalRecord,
       medication: mockMedication,
       medicationUsageLog: mockMedicationUsageLog,
+      student: mockStudent,
       $transaction: vi.fn((callback) =>
         callback({
           medicalRecord: mockMedicalRecord,
@@ -80,6 +84,9 @@ import * as service from '../../../../src/modules/health/health.service';
 describe('Health Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The santri is inside the caller's Cakupan_Santri unless a case says
+    // otherwise (R27.8).
+    mockStudent.findFirst.mockResolvedValue({ id: 'student-1' });
   });
 
   describe('getMedicalRecords', () => {
@@ -156,7 +163,7 @@ describe('Health Service', () => {
 
       mockMedicalRecord.create.mockResolvedValue(mockCreated);
 
-      const result = await service.createMedicalRecord(input as any, 'staff-1');
+      const result = await service.createMedicalRecord(input as any, 'staff-1', {});
 
       expect(result.id).toBe('1');
       expect(result.temperature).toBe(38.5);

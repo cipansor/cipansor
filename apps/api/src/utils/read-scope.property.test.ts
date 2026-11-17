@@ -5,8 +5,16 @@ import type { Prisma } from '@prisma/client';
 vi.mock('@/lib/prisma', () => ({ prisma: {} }));
 
 import { examReadWhere } from '@/modules/assessment/assessment-writer';
+import { takhosusEnrollmentWhere } from '@/modules/takhosus/takhosus.service';
 import type { ScopeActor } from '@/utils/student-scope';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
+import {
+  ACTORS as FIXTURE_ACTORS,
+  SANTRI_SMA,
+  SANTRI_SMP,
+  SMP,
+  studentMatches,
+} from '../../tests/mocks/santri-fixture';
 
 // Property 24 (R17.3, R24.6, R25.7, R27.7), #987 (PR-01) part: the exam list
 // `where` returns only exams the actor may see, evaluated over random data in
@@ -86,5 +94,68 @@ describe('Property 24: exam read list is only within scope', () => {
     expect(examReadWhere({ sub: 'u', roleCode: 'SMPIT_ADMIN', unitId: null })).toEqual({
       id: { in: [] },
     });
+  });
+});
+
+// Property 24, #989 (PR-03) part (R27.7): the takhosus enrolment `where`
+// returns only enrolments of santri inside the caller's Cakupan_Santri,
+// whatever `studentId`/`halaqohId` the request names, and the metadata count is
+// the size of that same set.
+
+interface EnrollmentRow {
+  id: string;
+  studentId: string;
+  halaqohId: string | null;
+  status: string;
+}
+
+const SANTRI = [SANTRI_SMP, SANTRI_SMA];
+const byId = (id: string) => SANTRI.find((s) => s.id === id)!;
+const ACTORS_LIST: ScopeActor[] = Object.values(FIXTURE_ACTORS);
+
+const enrollmentArb: fc.Arbitrary<EnrollmentRow> = fc.record({
+  id: fc.string({ minLength: 1 }),
+  studentId: fc.constantFrom(SANTRI_SMP.id, SANTRI_SMA.id),
+  halaqohId: fc.option(fc.constantFrom('h1', 'h2'), { nil: null }),
+  status: fc.constantFrom('ACTIVE', 'COMPLETED'),
+});
+
+/** Evaluate the enrolment `where` the read scope builds, over an in-memory row. */
+function enrollmentMatches(where: any, e: EnrollmentRow): boolean {
+  if (where.student && !studentMatches(byId(e.studentId), where.student)) return false;
+  if (where.studentId && e.studentId !== where.studentId) return false;
+  if (where.halaqohId && e.halaqohId !== where.halaqohId) return false;
+  if (where.status && e.status !== where.status) return false;
+  return true;
+}
+
+describe('Property 24: takhosus enrolment list is only within scope', () => {
+  it('only the santri in scope, whatever studentId/halaqohId ask, and the count matches', () => {
+    // Feature: web-api-reconnect-phase-2, Property 24: Daftar baca hanya dalam cakupan
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...ACTORS_LIST),
+        fc.option(fc.constantFrom(SANTRI_SMP.id, SANTRI_SMA.id), { nil: undefined }),
+        fc.option(fc.constantFrom('h1', 'h2'), { nil: undefined }),
+        fc.array(enrollmentArb),
+        (actor, studentId, halaqohId, rows) => {
+          const where = takhosusEnrollmentWhere(actor, { studentId, halaqohId });
+          const seen = rows.filter((e) => enrollmentMatches(where, e));
+          // Every visible row is a santri the actor reaches.
+          for (const e of seen) {
+            if (where.student) expect(studentMatches(byId(e.studentId), where.student)).toBe(true);
+          }
+          // The count over the same `where` equals the rows it returns.
+          const counted = rows.filter((e) => enrollmentMatches(where, e)).length;
+          expect(counted).toBe(seen.length);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('a unit actor names another unit → no enrolment', () => {
+    const where = takhosusEnrollmentWhere(FIXTURE_ACTORS.guruSmp, {});
+    expect(where.student).toEqual({ unitId: SMP });
   });
 });

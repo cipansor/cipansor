@@ -94,7 +94,8 @@ export async function createMedicalRecord(req: Request, res: Response, next: Nex
     const data = createMedicalRecordSchema.parse(req.body);
     const record = await service.createMedicalRecord(
       data as CreateMedicalRecordInput,
-      req.user!.sub
+      req.user!.sub,
+      studentScope(req.user!)
     );
     res.status(201).json({ success: true, data: record });
   } catch (error) {

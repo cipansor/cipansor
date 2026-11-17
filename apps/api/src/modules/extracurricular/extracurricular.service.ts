@@ -15,6 +15,7 @@ import type {
   ListAchievementsQuery,
 } from './extracurricular.schema';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { assertStudentInScope, type ScopeActor } from '@/utils/student-scope';
 import { EXTRACURRICULAR_CATEGORIES, type PublicExtracurricular } from '@cipansor/shared';
 
 /**
@@ -875,23 +876,14 @@ export class ExtracurricularService {
   // =================
 
   /**
-   * Get student's extracurricular activities
+   * Get student's extracurricular activities. The santri must be inside the
+   * caller's Cakupan_Santri (`studentScope`): a santri their own, a wali their
+   * children's, a cross-unit staff member every unit's, anyone else their own
+   * unit's (R27.4). A santri outside it is answered 404, the same as one that
+   * does not exist — not the 403 the old unit check returned (R27.5).
    */
-  async getStudentExtracurriculars(
-    studentId: string,
-    currentUser: { role: string; unitId: string | null }
-  ) {
-    const student = await prisma.student.findUnique({
-      where: { id: studentId, deletedAt: null },
-    });
-
-    if (!student) {
-      throw Errors.notFound('Student not found');
-    }
-
-    if (currentUser.role !== UserRole.SUPER_ADMIN && student.unitId !== currentUser.unitId) {
-      throw Errors.forbidden('Access denied');
-    }
+  async getStudentExtracurriculars(studentId: string, actor: ScopeActor) {
+    await assertStudentInScope(studentId, actor);
 
     const enrollments = await prisma.extracurricularEnrollment.findMany({
       where: { studentId },

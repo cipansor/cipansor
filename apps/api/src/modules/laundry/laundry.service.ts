@@ -11,6 +11,9 @@ import { seesAllUnits } from '../../utils/resolve-unit-id';
 import { todayWib, wibDayStart, wibDayEnd } from '../../utils/wib';
 
 import { studentScope, type ScopeActor } from '../../utils/student-scope';
+import { unitWritable, type WriteActor } from '../../utils/write-scope';
+import { Errors } from '../../middleware/error';
+import { laundryTransitionAllowed, type LaundryStatusCode } from '@cipansor/shared';
 import { getAccountOrFallback, ACCOUNT_MAPPING_KEYS } from '../finance/accounting-config.service';
 import { isPeriodOpen } from '../finance-enhancement/period.service';
 import type {
@@ -448,27 +451,28 @@ export const transactionService = {
     });
   },
 
-  async updateStatus(id: string, unitId: string, userId: string, data: UpdateStatusInput) {
+  /**
+   * Move a transaction along the status flow. The caller must reach it — it
+   * exists, is inside `laundryReadScope`, and (unless Super_Admin) belongs to
+   * the token's unit; anything else is answered 404, the same body as a
+   * transaction that does not exist (R27.9). A move outside the flow is 409,
+   * naming the current and the requested status (R27.10). Super_Admin reaches
+   * any unit and needs no unit on the token (R27.11).
+   */
+  async updateStatus(id: string, actor: WriteActor & ScopeActor, data: UpdateStatusInput) {
+    const userId = actor.sub;
     const transaction = await prisma.laundryTransaction.findFirst({
-      where: { id, unitId },
+      where: { id, ...laundryReadScope(actor) },
     });
 
-    if (!transaction) {
-      throw new Error('Transaksi tidak ditemukan');
+    if (!transaction || !unitWritable(actor, transaction.unitId)) {
+      throw Errors.notFound('Transaksi');
     }
 
-    // Validate status flow
-    const validTransitions: Record<string, string[]> = {
-      RECEIVED: ['WASHING', 'CANCELLED'],
-      WASHING: ['DRYING', 'CANCELLED'],
-      DRYING: ['IRONING', 'READY', 'CANCELLED'],
-      IRONING: ['READY', 'CANCELLED'],
-      READY: ['DELIVERED', 'CANCELLED'],
-    };
-
-    const allowedStatuses = validTransitions[transaction.status] || [];
-    if (!allowedStatuses.includes(data.status)) {
-      throw new Error(`Status tidak dapat diubah dari ${transaction.status} ke ${data.status}`);
+    const unitId = transaction.unitId;
+    const current = transaction.status as LaundryStatusCode;
+    if (!laundryTransitionAllowed(current, data.status)) {
+      throw Errors.conflict(`Status tidak dapat diubah dari ${current} ke ${data.status}`);
     }
 
     return prisma.$transaction(async (tx) => {

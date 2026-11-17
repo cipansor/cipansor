@@ -161,10 +161,14 @@ describe('Laundry Accounting Integration', () => {
       },
     ]);
 
-    await transactionService.updateStatus(transactionId, unitId, userId, {
-      status: 'CANCELLED',
-      notes: 'Cancel test',
-    });
+    await transactionService.updateStatus(
+      transactionId,
+      { sub: userId, roleCode: 'SMPIT_ADMIN', unitId },
+      {
+        status: 'CANCELLED',
+        notes: 'Cancel test',
+      }
+    );
 
     // Verify reversing journal entries
     expect(prisma.journalEntry.create).toHaveBeenCalledTimes(2);

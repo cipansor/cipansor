@@ -1,5 +1,7 @@
+import { ADMIN_ROLE_CODES, KEPALA_UNIT_ROLE_CODES } from '@cipansor/shared';
 import { prisma } from '@/lib/prisma';
 import { activeMusyrifAssignment } from '@/modules/dormitories';
+import { isCrossUnitWriter, unitWritable, type WriteActor } from '@/utils/write-scope';
 
 /**
  * Relasi_Pengajaran — the relation between an account and a santri that lets
@@ -60,6 +62,32 @@ export const mayWriteGradeVia = (r: Set<TeachingRelation>): boolean =>
 
 /** Report cards may be written through any relation, including (d) (R13.3). */
 export const mayWriteReportCardVia = (r: Set<TeachingRelation>): boolean => r.size > 0;
+
+/** Ibadah notes may be written through any relation, including (d) (R27.2). */
+export const mayWriteIbadahVia = (r: Set<TeachingRelation>): boolean => r.size > 0;
+
+/**
+ * Penulis_Catatan_Ibadah — whether `actor` may write a santri's ibadah notes
+ * (#989, R27.2). The owner's decision of 2026-11-09 narrowed this: only a
+ * Super_Admin writes another unit's notes. Everyone else needs the santri's own
+ * unit (an Admin_Unit or Kepala_Unit of that unit), or a Relasi_Pengajaran with
+ * the santri — relation (d), wali kelas, included (R32.20 for (b)).
+ *
+ * Pure: the santri's unit and the actor's relations are passed in, so the rule
+ * can be tested directly. A unit leader writes their whole unit and no other,
+ * exactly as `isPenulisPenilaian` decides for a grade.
+ */
+export function isPenulisIbadah(
+  actor: WriteActor,
+  studentUnitId: string,
+  relations: Set<TeachingRelation>
+): boolean {
+  if (isCrossUnitWriter(actor)) return true;
+  const isUnitLeader =
+    ADMIN_ROLE_CODES.includes(actor.roleCode) || KEPALA_UNIT_ROLE_CODES.includes(actor.roleCode);
+  if (isUnitLeader) return unitWritable(actor, studentUnitId);
+  return mayWriteIbadahVia(relations);
+}
 
 /**
  * The relation of `userId` with each of `studentIds`, read at request time.

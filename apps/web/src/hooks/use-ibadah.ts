@@ -61,12 +61,16 @@ export interface IbadahRecord {
   createdAt: string;
   updatedAt: string;
   target?: IbadahTarget;
+  /**
+   * What the API actually sends for a record's santri (`ibadah.service.ts`
+   * selects `id`, `nis` and `user.name` only — never the santri's identity
+   * fields). The Jurnal Ibadah page reads the name from `user.name`.
+   */
   student?: {
     id: string;
-    name: string;
     nis: string;
+    user?: { name: string };
     class?: { name: string };
-    dormRoom?: { name: string };
   };
   verifiedBy?: {
     id: string;

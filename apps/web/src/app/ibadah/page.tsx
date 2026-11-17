@@ -471,12 +471,18 @@ export default function IbadahPage() {
                           </TableCell>
                           <TableCell>
                             <div>
+                              {/* The API sends the santri's name under
+                                  `student.user.name` (#732, #989). */}
                               <p className="font-medium">
-                                {record.student?.name || "-"}
+                                {record.student?.user?.name || "-"}
                               </p>
                               <p className="text-xs text-muted-foreground">
-                                {record.student?.nis} •{" "}
-                                {record.student?.class?.name}
+                                {[
+                                  record.student?.nis,
+                                  record.student?.class?.name,
+                                ]
+                                  .filter(Boolean)
+                                  .join(" • ")}
                               </p>
                             </div>
                           </TableCell>

@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { extracurricularController } from './extracurricular.controller';
 import { authenticate, authorize } from '@/middleware/auth';
 import { UserRole } from '@prisma/client';
+import { STUDENT_ROLE_CODES } from '@cipansor/shared';
 
 const router = Router();
 
@@ -138,10 +139,17 @@ router.delete(
 // STUDENT & STATISTICS
 // ======================
 
-// Get student's extracurriculars
+// Get student's extracurriculars. A santri reaches their own enrolment (R27.4);
+// the service answers 404 for a santri outside the caller's scope (R27.5).
 router.get(
   '/students/:studentId',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.TEACHER, UserRole.PARENT),
+  authorize(
+    UserRole.SUPER_ADMIN,
+    UserRole.UNIT_ADMIN,
+    UserRole.TEACHER,
+    UserRole.PARENT,
+    ...STUDENT_ROLE_CODES
+  ),
   extracurricularController.getStudentExtracurriculars.bind(extracurricularController)
 );
 

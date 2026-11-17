@@ -81,13 +81,13 @@ export const getRecord = asyncHandler(async (req: Request, res: Response) => {
 
 /** POST /api/ibadah/records */
 export const createRecord = asyncHandler(async (req: Request, res: Response) => {
-  const record = await service.createRecord(req.body);
+  const record = await service.createRecord(req.body, req.user!);
   res.status(201).json(ApiResponse.success(record, 'Record created successfully'));
 });
 
 /** PUT /api/ibadah/records/:id */
 export const updateRecord = asyncHandler(async (req: Request, res: Response) => {
-  const record = await service.updateRecord(req.params.id, req.body);
+  const record = await service.updateRecord(req.params.id, req.body, req.user!);
   res.json(ApiResponse.success(record, 'Record updated successfully'));
 });
 
@@ -99,7 +99,7 @@ export const deleteRecord = asyncHandler(async (req: Request, res: Response) => 
 
 /** POST /api/ibadah/records/bulk */
 export const bulkCreateRecords = asyncHandler(async (req: Request, res: Response) => {
-  const records = await service.bulkCreateRecords(req.body);
+  const records = await service.bulkCreateRecords(req.body, req.user!);
   res.status(201).json(ApiResponse.success(records, 'Records created successfully'));
 });
 

@@ -127,6 +127,7 @@ export const enrollmentController = {
       const result = await enrollmentService.findAll({
         page: Number(page),
         limit: Number(limit),
+        actor: req.user!,
         halaqohId: halaqohId as string,
         status: status as string,
         studentId: studentId as string,
@@ -380,7 +381,7 @@ export const progressController = {
    */
   async getStudentProgress(req: Request, res: Response, next: NextFunction) {
     try {
-      const progress = await progressService.getStudentProgress(req.params.studentId);
+      const progress = await progressService.getStudentProgress(req.params.studentId, req.user!);
 
       if (!progress) {
         return res.status(404).json(ApiResponse.error('Student not enrolled in Takhosus program'));

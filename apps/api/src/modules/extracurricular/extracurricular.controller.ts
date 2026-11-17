@@ -229,8 +229,7 @@ export class ExtracurricularController {
   async getStudentExtracurriculars(req: Request, res: Response, next: NextFunction) {
     try {
       const { studentId } = req.params;
-      const user = req.user as AuthenticatedUser;
-      const result = await extracurricularService.getStudentExtracurriculars(studentId, user);
+      const result = await extracurricularService.getStudentExtracurriculars(studentId, req.user!);
       res.json({ data: result });
     } catch (error) {
       next(error);

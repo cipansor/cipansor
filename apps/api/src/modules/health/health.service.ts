@@ -122,7 +122,32 @@ export async function getMedicalRecordById(id: string, scope: Prisma.StudentWher
   } as unknown as MedicalRecord;
 }
 
-export async function createMedicalRecord(data: CreateMedicalRecordInput, recordedById: string) {
+/**
+ * 404 unless `studentId` is a santri inside `scope` — the same body as a santri
+ * that does not exist, so the id is not confirmed (R27.8).
+ */
+async function assertStudentInScope(
+  studentId: string,
+  scope: Prisma.StudentWhereInput
+): Promise<void> {
+  const found = await prisma.student.findFirst({
+    where: { AND: [{ id: studentId }, scope] },
+    select: { id: true },
+  });
+  if (!found) throw Errors.notFound('Student');
+}
+
+export async function createMedicalRecord(
+  data: CreateMedicalRecordInput,
+  recordedById: string,
+  scope: Prisma.StudentWhereInput
+) {
+  // Every caller — the nurse with HEALTH_MANAGE included — records a visit
+  // only for a santri inside its own Cakupan_Santri; the scope *is* the write
+  // range here, which is what lets a PERAWAT record for a santri of any unit
+  // (R27.8, R27.13). `studentWriteWhere` is deliberately not consulted.
+  await assertStudentInScope(data.studentId, scope);
+
   const {
     status,
     temperature,

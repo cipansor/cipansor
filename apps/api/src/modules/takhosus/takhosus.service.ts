@@ -1,6 +1,12 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma, TakhosusStatus, HalaqohDay } from '@prisma/client';
 import {
+  assertStudentInScope,
+  onlyScopedStudents,
+  studentScope,
+  type ScopeActor,
+} from '@/utils/student-scope';
+import {
   CreateHalaqohInput,
   UpdateHalaqohInput,
   CreateEnrollmentInput,
@@ -139,6 +145,25 @@ export const halaqohService = {
 // ENROLLMENT SERVICE
 // =====================================
 
+/**
+ * The takhosus enrolments a reader may see: only the santri inside the
+ * caller's Cakupan_Santri (`studentScope`), whatever `studentId` or
+ * `halaqohId` the request names — those narrow inside the scope, never widen
+ * it (R27.7). The list and its metadata count both use this `where`.
+ */
+export function takhosusEnrollmentWhere(
+  actor: ScopeActor,
+  filters: { halaqohId?: string; status?: string; studentId?: string } = {}
+): Prisma.TakhosusEnrollmentWhereInput {
+  const { halaqohId, status, studentId } = filters;
+  return {
+    ...onlyScopedStudents(studentScope(actor)),
+    ...(halaqohId && { halaqohId }),
+    ...(status && { status: status as TakhosusStatus }),
+    ...(studentId && { studentId }),
+  };
+}
+
 export const enrollmentService = {
   /**
    * Get all enrollments with pagination
@@ -146,18 +171,17 @@ export const enrollmentService = {
   async findAll(params: {
     page: number;
     limit: number;
+    actor: ScopeActor;
     halaqohId?: string;
     status?: string;
     studentId?: string;
   }) {
-    const { page, limit, halaqohId, status, studentId } = params;
+    const { page, limit, actor, halaqohId, status, studentId } = params;
     const skip = (page - 1) * limit;
 
-    const where = {
-      ...(halaqohId && { halaqohId }),
-      ...(status && { status: status as TakhosusStatus }),
-      ...(studentId && { studentId }),
-    };
+    // Only the santri the caller reaches, whatever `studentId`/`halaqohId` ask
+    // for; the count below is over the same set (R27.7).
+    const where = takhosusEnrollmentWhere(actor, { halaqohId, status, studentId });
 
     const [data, total] = await Promise.all([
       prisma.takhosusEnrollment.findMany({
@@ -805,9 +829,13 @@ export const sanadService = {
 
 export const progressService = {
   /**
-   * Get student's takhosus progress
+   * Get student's takhosus progress. A santri outside the caller's
+   * Cakupan_Santri is answered 404, the same as one that does not exist
+   * (R27.6).
    */
-  async getStudentProgress(studentId: string) {
+  async getStudentProgress(studentId: string, actor?: ScopeActor) {
+    if (actor) await assertStudentInScope(studentId, actor);
+
     const enrollment = await prisma.takhosusEnrollment.findUnique({
       where: { studentId },
       include: {
