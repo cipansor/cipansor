@@ -31,6 +31,7 @@ import {
   wibDayStart,
   wibMonthRange,
   wibMonthYear,
+  wibMonthKey,
   wibOverdueCutoff,
   wibYearBounds,
 } from '@/utils/wib';
@@ -597,11 +598,14 @@ export class DashboardService {
       },
     });
 
-    // Group by month
+    // Group by month — on the WIB calendar. `recordedAt` is a real instant, so
+    // `toISOString().slice(0, 7)` read the UTC month: a setoran made 00:00–06:59
+    // WIB on the 1st (still the previous UTC month) landed in the previous
+    // month's bucket, splitting a WIB month across two groups.
     const monthlyMap = new Map<string, { ayahCount: number; students: Set<string> }>();
 
     records.forEach((record) => {
-      const monthKey = record.recordedAt.toISOString().slice(0, 7); // YYYY-MM
+      const monthKey = wibMonthKey(record.recordedAt); // YYYY-MM, WIB
       if (!monthlyMap.has(monthKey)) {
         monthlyMap.set(monthKey, { ayahCount: 0, students: new Set() });
       }

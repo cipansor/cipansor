@@ -146,3 +146,23 @@ describe('the Pelanggaran & Penghargaan card bounds its period on the WIB calend
     expect(violationSince().getTime()).toBe(now.getTime() - 7 * 24 * 60 * 60 * 1000);
   });
 });
+
+describe('the monthly tahfidz progress groups by the WIB month', () => {
+  it('keeps an early-morning 1st setoran in its own WIB month, not the previous one', async () => {
+    // Read on 15 Nov 2026 10:00 WIB. One setoran at 1 Nov 03:00 WIB is stored as
+    // 2026-10-31T20:00Z (UTC month October); another on 20 Nov 09:00 WIB.
+    vi.setSystemTime(new Date('2026-11-15T03:00:00.000Z'));
+    prismaMock.tahfidzRecord.findMany.mockResolvedValue([
+      { recordedAt: new Date('2026-10-31T20:00:00.000Z'), totalAyah: 10, studentId: 's1' },
+      { recordedAt: new Date('2026-11-20T02:00:00.000Z'), totalAyah: 5, studentId: 's1' },
+      { recordedAt: new Date('2026-11-20T03:00:00.000Z'), totalAyah: 7, studentId: 's2' },
+    ]);
+
+    const stats = await dashboardService.getTahfidzStats({}, { period: 'month' });
+
+    // One WIB bucket for November, not a stray "2026-10" plus "2026-11".
+    expect(stats.monthlyProgress).toEqual([
+      { month: '2026-11', totalAyat: 22, ayahCount: 22, studentCount: 2 },
+    ]);
+  });
+});
