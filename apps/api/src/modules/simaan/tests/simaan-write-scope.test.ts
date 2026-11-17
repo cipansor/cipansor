@@ -147,7 +147,6 @@ const superAdmin: WriteActor = { sub: 'u-super', roleCode: 'SUPER_ADMIN', unitId
 
 const examFindFirst = vi.mocked(prisma.simaanExam.findFirst);
 const examinerFindFirst = vi.mocked(prisma.simaanExaminer.findFirst);
-const examCreate = vi.mocked(prisma.simaanExam.create);
 const examinerCreate = vi.mocked(prisma.simaanExaminer.create);
 const examinerUpdate = vi.mocked(prisma.simaanExaminer.update);
 const examinerDelete = vi.mocked(prisma.simaanExaminer.delete);
