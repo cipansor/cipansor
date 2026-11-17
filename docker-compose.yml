@@ -281,7 +281,7 @@ services:
 
   # Redis Cache (optional, for future scaling)
   redis:
-    image: redis:7-alpine
+    image: redis:8-alpine
     container_name: cipansor-redis
     restart: unless-stopped
     logging: *default-logging
