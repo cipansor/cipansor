@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { UserRole } from '@prisma/client';
+import { FINANCE_UNIT_ROLE_CODES, UNIT_ADMIN_ROLE_CODES } from '@cipansor/shared';
 import * as controller from './finance.controller';
 import { bosController } from './bos.controller';
 import * as accountingController from './accounting.controller';
@@ -306,11 +307,7 @@ router.get(
  *       200:
  *         description: Invoice updated
  */
-router.put(
-  '/invoices/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  controller.updateInvoice
-);
+router.put('/invoices/:id', authorize(...FINANCE_UNIT_ROLE_CODES), controller.updateInvoice);
 
 /**
  * @swagger
@@ -411,7 +408,7 @@ router.get(
  */
 router.post(
   '/payments',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.STAFF),
+  authorize(UserRole.SUPER_ADMIN, ...UNIT_ADMIN_ROLE_CODES, UserRole.STAFF),
   controller.createPayment
 );
 
@@ -1096,7 +1093,7 @@ router.get(
  */
 router.post(
   '/accounting/journals',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  authorize(...FINANCE_UNIT_ROLE_CODES),
   validate(createJournalSchema),
   accountingController.createJournal
 );

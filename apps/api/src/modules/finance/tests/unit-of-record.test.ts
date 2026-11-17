@@ -82,7 +82,11 @@ afterEach(() => {
 
 describe('createPayment', () => {
   it('jurnal kas dan pendapatan dicatat di unit TAGIHAN (SD IT), bukan unit santri sekarang', async () => {
-    await createPayment({ invoiceId: 'inv-1', amount: 350000, method: 'CASH' } as never, 'kasir');
+    await createPayment(
+      { sub: 'kasir', roleCode: 'SUPER_ADMIN', unitId: null },
+      { invoiceId: 'inv-1', amount: 350000, method: 'CASH' } as never,
+      'kasir'
+    );
 
     expect(getAccountOrFallback).toHaveBeenCalledWith(SD, 'CASH', '1101', 'Kas');
     expect(db.journalEntry.create).toHaveBeenCalledTimes(2);
@@ -92,7 +96,11 @@ describe('createPayment', () => {
   });
 
   it('event pembayaran menyebut unit penerima = unit tagihan', async () => {
-    await createPayment({ invoiceId: 'inv-1', amount: 350000, method: 'CASH' } as never, 'kasir');
+    await createPayment(
+      { sub: 'kasir', roleCode: 'SUPER_ADMIN', unitId: null },
+      { invoiceId: 'inv-1', amount: 350000, method: 'CASH' } as never,
+      'kasir'
+    );
 
     expect(eventBus.emit).toHaveBeenCalledWith(
       'finance:payment-received',
@@ -137,7 +145,11 @@ describe('laporan dan antrean per unit menyaring lewat jenis bayar', () => {
       { studentId: 's1', unitId: SMP, nis: 'SMP-0099' },
     ]);
 
-    const hasil = await getStudentOutstandingBalances(SD);
+    const hasil = await getStudentOutstandingBalances(SD, {
+      sub: 'tu-sd',
+      roleCode: 'SDIT_TATA_USAHA',
+      unitId: SD,
+    });
 
     expect(db.invoice.findMany.mock.calls[0][0].where.paymentType).toEqual({ unitId: SD });
     expect(hasil).toEqual([

@@ -1,4 +1,7 @@
 import { prisma } from '@/lib/prisma';
+import { Errors } from '@/middleware/error';
+import { actorSeesUnit } from '@/utils/resolve-unit-id';
+import type { ScopeActor } from '@/utils/student-scope';
 import {
   AccountCode,
   CreateAccountCodeInput,
@@ -346,14 +349,34 @@ export class FinanceEnhancementService {
     return this.mapToScholarship(scholarship);
   }
 
+  /**
+   * 404 unless the scholarship exists and belongs to a unit the actor may read —
+   * the same answer for a program that does not exist and one in another unit, so
+   * a guessed id says nothing about that unit (#988, R26.9). Returns the program's
+   * unit so callers can reuse it.
+   */
+  async assertScholarshipVisible(id: string, actor: ScopeActor): Promise<string> {
+    const scholarship = await prisma.scholarship.findUnique({
+      where: { id },
+      select: { unitId: true },
+    });
+    if (!scholarship || !actorSeesUnit(actor, scholarship.unitId)) {
+      throw Errors.notFound('Scholarship');
+    }
+    return scholarship.unitId;
+  }
+
   async getScholarshipRecipients(
     id: string,
     params: {
       status?: string;
       page: number;
       limit: number;
-    }
+    },
+    actor: ScopeActor
   ): Promise<SharedPaginatedResponse<ScholarshipRecipient>> {
+    await this.assertScholarshipVisible(id, actor);
+
     const { status, page, limit } = params;
 
     const whereClause: Prisma.ScholarshipRecipientWhereInput = { scholarshipId: id };
@@ -362,13 +385,28 @@ export class FinanceEnhancementService {
     const [data, total] = await Promise.all([
       prisma.scholarshipRecipient.findMany({
         where: whereClause,
-        include: {
+        // Only what the screen shows: id, name, NIS and the active class. The
+        // old `include: { student }` sent every santri column — NIK, No. KK and
+        // the parents' NIK and income (#988, R26.11, R24.10).
+        select: {
+          id: true,
+          scholarshipId: true,
+          studentId: true,
+          academicYearId: true,
+          startDate: true,
+          endDate: true,
+          notes: true,
+          status: true,
+          createdAt: true,
+          updatedAt: true,
           student: {
-            include: {
+            select: {
+              id: true,
+              nis: true,
               user: { select: { name: true } },
               enrollments: {
                 where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
-                include: { class: { select: { name: true } } },
+                select: { class: { select: { name: true } } },
                 take: 1,
               },
             },
@@ -394,6 +432,15 @@ export class FinanceEnhancementService {
         },
       },
     };
+  }
+
+  /** Scoring criteria of a scholarship the actor may read (#988, R26.9). */
+  async getScholarshipCriteria(id: string, actor: ScopeActor) {
+    await this.assertScholarshipVisible(id, actor);
+    return prisma.scholarshipCriterion.findMany({
+      where: { scholarshipId: id },
+      orderBy: { createdAt: 'asc' },
+    });
   }
 
   async assignScholarship(input: AssignScholarshipInput): Promise<ScholarshipRecipient> {

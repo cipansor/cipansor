@@ -2,6 +2,7 @@ import { Router } from 'express';
 import { authenticate, authorize, isSuperAdmin } from '@/middleware/auth';
 import { validate } from '@/middleware/validate';
 import { RoleCode } from '@prisma/client';
+import { FINANCE_UNIT_ROLE_CODES, GOVERNANCE_ROLE_CODES } from '@cipansor/shared';
 import { financeEnhancementController } from './finance-enhancement.controller';
 import {
   createAccountCodeSchema,
@@ -79,7 +80,11 @@ router.post(
 
 router.get('/scholarships/:id', financeEnhancementController.getScholarshipById);
 
-router.get('/scholarships/:id/recipients', financeEnhancementController.getScholarshipRecipients);
+router.get(
+  '/scholarships/:id/recipients',
+  authorize(...FINANCE_UNIT_ROLE_CODES, ...GOVERNANCE_ROLE_CODES),
+  financeEnhancementController.getScholarshipRecipients
+);
 
 router.post(
   '/scholarship-recipients',
@@ -89,7 +94,11 @@ router.post(
 );
 
 // Scholarship scoring (criteria + automated assessment from PR #313)
-router.get('/scholarships/:id/criteria', financeEnhancementController.getScholarshipCriteria);
+router.get(
+  '/scholarships/:id/criteria',
+  authorize(...FINANCE_UNIT_ROLE_CODES, ...GOVERNANCE_ROLE_CODES),
+  financeEnhancementController.getScholarshipCriteria
+);
 router.post(
   '/scholarships/:id/criteria',
   financeAdmin(),
