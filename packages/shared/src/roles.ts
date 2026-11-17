@@ -90,6 +90,16 @@ export const PESANTREN_LEADER_ROLE_CODES: readonly string[] = [
 ];
 
 /**
+ * Kepala unit — the head of a unit: the four sekolah heads (Kepala Sekolah)
+ * and the Pimpinan Pesantren (Kiai). The glossary's Kepala_Unit. Distinct from
+ * PRINCIPAL_ROLE_CODES, which is the sekolah heads alone (#987).
+ */
+export const KEPALA_UNIT_ROLE_CODES: readonly string[] = [
+  ...PRINCIPAL_ROLE_CODES,
+  ...PESANTREN_LEADER_ROLE_CODES,
+];
+
+/**
  * Roles that make a second factor mandatory (decided 2026-09-28, decision
  * `autentikasi-2fa-dan-sandi`): system administrators, the yayasan's organs,
  * and the head of every unit — the four kepala sekolah and the Pimpinan

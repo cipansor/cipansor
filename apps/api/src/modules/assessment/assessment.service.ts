@@ -26,12 +26,25 @@ import {
   TEACHER_SAFE_SELECT,
 } from '@/utils/student-scope';
 import { ExamAnalyticsData } from '@cipansor/shared';
+import { Errors } from '@/middleware/error';
+import type { WriteActor } from '@/utils/write-scope';
+import {
+  actorExamSubjects,
+  assertExamWritable,
+  assertGradesWritable,
+  assertReportCardsWritable,
+  examReadWhere,
+  isPenulisPenilaian,
+} from './assessment-writer';
 
 // =====================================
 // EXAM SERVICES
 // =====================================
 
-export async function getExams(query: ExamQuery): Promise<SharedPaginatedResponse<Exam>> {
+export async function getExams(
+  query: ExamQuery,
+  actor: WriteActor
+): Promise<SharedPaginatedResponse<Exam>> {
   const {
     page,
     limit,
@@ -47,8 +60,10 @@ export async function getExams(query: ExamQuery): Promise<SharedPaginatedRespons
   } = query;
   const skip = (page - 1) * limit;
 
-  const where: Prisma.ExamWhereInput = {};
-  if (unitId) where.unitId = unitId;
+  const where: Prisma.ExamWhereInput = { ...examReadWhere(actor) };
+  // A request may narrow to a unit, never widen past the read scope: the
+  // scope's own unit wins when it pins one (R25.7).
+  if (unitId) where.unitId = where.unitId ?? unitId;
   if (academicYearId) where.academicYearId = academicYearId;
   if (subjectId) where.subjectId = subjectId;
   if (classId) where.classId = classId;
@@ -93,10 +108,11 @@ export async function getExams(query: ExamQuery): Promise<SharedPaginatedRespons
 
 export async function getExamById(
   id: string,
-  scope: Prisma.StudentWhereInput
+  scope: Prisma.StudentWhereInput,
+  actor: WriteActor
 ): Promise<Exam | null> {
-  const exam = await prisma.exam.findUnique({
-    where: { id },
+  const exam = await prisma.exam.findFirst({
+    where: { AND: [{ id }, examReadWhere(actor)] },
     include: {
       unit: { select: { id: true, name: true } },
       academicYear: { select: { id: true, name: true } },
@@ -118,10 +134,53 @@ export async function getExamById(
   return mapToExam(exam);
 }
 
-export async function createExam(data: CreateExamInput): Promise<Exam> {
+export async function createExam(data: CreateExamInput, actor: WriteActor): Promise<Exam> {
+  // The record is written to the actor's own unit; only Super_Admin names one
+  // (R25.1, R25.2). A non-Super_Admin never writes another unit, whatever the
+  // body says.
+  const unitId = actor.roleCode === 'SUPER_ADMIN' ? (data.unitId ?? actor.unitId) : actor.unitId;
+  if (!unitId) throw Errors.badRequest('Pilih unit');
+  const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true } });
+  if (!unit) throw Errors.badRequest('Pilih unit');
+
+  // The class and subject must be in that unit, and the actor must be a
+  // Penulis_Penilaian of the exam — otherwise 404, as for a class that is not
+  // there (R25.3).
+  const cls = await prisma.class.findUnique({
+    where: { id: data.classId },
+    select: { unitId: true },
+  });
+  const subject = await prisma.subject.findUnique({
+    where: { id: data.subjectId },
+    select: { unitId: true },
+  });
+  if (!cls || !subject || cls.unitId !== unitId || subject.unitId !== unitId) {
+    throw Errors.notFound('Class');
+  }
+  // The pengampu may belong to another unit: `assignTeacherToSubject` accepts a
+  // teacher of any unit as long as the class is in the subject's unit, so
+  // requiring the teacher's own unit here refused a valid cross-unit assignment.
+  // Only existence is checked; the class/subject unit and the Penulis_Penilaian
+  // rule below carry the authority.
+  const teacher = await prisma.teacher.findUnique({
+    where: { id: data.teacherId },
+    select: { id: true },
+  });
+  if (!teacher) throw Errors.notFound('Teacher');
+
+  const actorSubjects = await actorExamSubjects(actor);
+  const allowed = isPenulisPenilaian(actor, {
+    kind: 'EXAM',
+    unitId,
+    subjectId: data.subjectId,
+    classId: data.classId,
+    actorSubjects,
+  });
+  if (!allowed) throw Errors.notFound('Class');
+
   const exam = await prisma.exam.create({
     data: {
-      unitId: data.unitId,
+      unitId,
       academicYearId: data.academicYearId,
       subjectId: data.subjectId,
       classId: data.classId,
@@ -147,9 +206,12 @@ export async function createExam(data: CreateExamInput): Promise<Exam> {
   return mapToExam(exam);
 }
 
-export async function getExamAnalytics(id: string): Promise<ExamAnalyticsData | null> {
-  const exam = await prisma.exam.findUnique({
-    where: { id },
+export async function getExamAnalytics(
+  id: string,
+  actor: WriteActor
+): Promise<ExamAnalyticsData | null> {
+  const exam = await prisma.exam.findFirst({
+    where: { AND: [{ id }, examReadWhere(actor)] },
     include: {
       grades: {
         include: {
@@ -268,7 +330,12 @@ export async function getExamAnalytics(id: string): Promise<ExamAnalyticsData | 
   };
 }
 
-export async function updateExam(id: string, data: UpdateExamInput): Promise<Exam> {
+export async function updateExam(
+  id: string,
+  data: UpdateExamInput,
+  actor: WriteActor
+): Promise<Exam> {
+  await assertExamWritable(actor, id);
   const updateData: Prisma.ExamUpdateInput = {};
 
   if (data.title) updateData.title = data.title;
@@ -295,14 +362,20 @@ export async function updateExam(id: string, data: UpdateExamInput): Promise<Exa
   return mapToExam(exam);
 }
 
-export async function deleteExam(id: string): Promise<Exam> {
+export async function deleteExam(id: string, actor: WriteActor): Promise<Exam> {
+  await assertExamWritable(actor, id);
   // First delete all grades for this exam to ensure referential integrity
   await prisma.grade.deleteMany({ where: { examId: id } });
   const exam = await prisma.exam.delete({ where: { id } });
   return mapToExam(exam);
 }
 
-export async function updateExamStatus(id: string, status: string): Promise<Exam> {
+export async function updateExamStatus(
+  id: string,
+  status: string,
+  actor: WriteActor
+): Promise<Exam> {
+  await assertExamWritable(actor, id);
   const exam = await prisma.exam.update({
     where: { id },
     data: { status: status as any },
@@ -376,7 +449,8 @@ export async function getGradeById(
   return mapToGrade(grade);
 }
 
-export async function createGrade(data: CreateGradeInput): Promise<Grade> {
+export async function createGrade(data: CreateGradeInput, actor: WriteActor): Promise<Grade> {
+  await assertGradesWritable(actor, [data.studentId], data.examId ? [data.examId] : []);
   const percentage = (data.score / (data.maxScore ?? 100)) * 100;
   const letterGrade = calculateLetterGrade(percentage);
 
@@ -432,18 +506,31 @@ export async function createGrade(data: CreateGradeInput): Promise<Grade> {
   return mapToGrade(grade);
 }
 
-export async function updateGrade(id: string, data: UpdateGradeInput): Promise<Grade> {
+export async function updateGrade(
+  id: string,
+  data: UpdateGradeInput,
+  actor: WriteActor
+): Promise<Grade> {
+  // A grade of another unit, or of a santri the actor does not teach, answers
+  // 404 — as does an id that does not exist (R13.2). This used to answer 500.
+  const existing = await prisma.grade.findUnique({
+    where: { id },
+    select: { studentId: true, score: true, maxScore: true },
+  });
+  if (!existing) throw Errors.notFound('Grade');
+  // R13.2/R13.6: an existing grade is written through the actor's relation with
+  // its santri alone — the exam is not re-checked here (that is a create-time
+  // rule, R25.4).
+  await assertGradesWritable(actor, [existing.studentId], [], 'Grade');
+
   const updateData: Prisma.GradeUpdateInput = {};
 
   if (data.notes !== undefined) updateData.notes = data.notes;
 
   // If scores change, we need to recalculate percentage and letter grade
   if (data.score !== undefined || data.maxScore !== undefined) {
-    const existingGrade = await prisma.grade.findUnique({ where: { id } });
-    if (!existingGrade) throw new Error('Grade not found');
-
-    const score = data.score !== undefined ? data.score : Number(existingGrade.score);
-    const maxScore = data.maxScore !== undefined ? data.maxScore : Number(existingGrade.maxScore);
+    const score = data.score !== undefined ? data.score : Number(existing.score);
+    const maxScore = data.maxScore !== undefined ? data.maxScore : Number(existing.maxScore);
 
     const percentage = (score / maxScore) * 100;
 
@@ -467,12 +554,29 @@ export async function updateGrade(id: string, data: UpdateGradeInput): Promise<G
   return mapToGrade(grade);
 }
 
-export async function deleteGrade(id: string): Promise<Grade> {
+export async function deleteGrade(id: string, actor: WriteActor): Promise<Grade> {
+  const existing = await prisma.grade.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('Grade');
+  await assertGradesWritable(actor, [existing.studentId], [], 'Grade');
+
   const grade = await prisma.grade.delete({ where: { id } });
   return mapToGrade(grade);
 }
 
-export async function bulkCreateGrades(data: BulkCreateGradesInput): Promise<number> {
+export async function bulkCreateGrades(
+  data: BulkCreateGradesInput,
+  actor: WriteActor
+): Promise<number> {
+  // Every santri and every exam is checked before anything is written, so a
+  // request that names one target out of reach changes nothing (R25.4).
+  await assertGradesWritable(
+    actor,
+    data.grades.map((g) => g.studentId),
+    data.examId ? [data.examId] : []
+  );
   const maxScore = data.maxScore ?? 100;
 
   if (data.examId) {
@@ -653,7 +757,11 @@ export async function getReportCardById(
   return mapToReportCard(reportCard);
 }
 
-export async function createReportCard(data: CreateReportCardInput): Promise<ReportCard> {
+export async function createReportCard(
+  data: CreateReportCardInput,
+  actor: WriteActor
+): Promise<ReportCard> {
+  await assertReportCardsWritable(actor, [data.studentId]);
   const reportCard = await prisma.reportCard.create({
     data: {
       studentId: data.studentId,
@@ -675,8 +783,16 @@ export async function createReportCard(data: CreateReportCardInput): Promise<Rep
 
 export async function updateReportCard(
   id: string,
-  data: UpdateReportCardInput
+  data: UpdateReportCardInput,
+  actor: WriteActor
 ): Promise<ReportCard> {
+  const existing = await prisma.reportCard.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('ReportCard');
+  await assertReportCardsWritable(actor, [existing.studentId], 'ReportCard');
+
   const updateData: Prisma.ReportCardUpdateInput = {};
 
   if (data.teacherNotes !== undefined) updateData.teacherNotes = data.teacherNotes;
@@ -704,7 +820,14 @@ export async function updateReportCard(
   return mapToReportCard(reportCard);
 }
 
-export async function deleteReportCard(id: string): Promise<ReportCard> {
+export async function deleteReportCard(id: string, actor: WriteActor): Promise<ReportCard> {
+  const existing = await prisma.reportCard.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('ReportCard');
+  await assertReportCardsWritable(actor, [existing.studentId], 'ReportCard');
+
   // Delete details first
   await prisma.reportCardDetail.deleteMany({ where: { reportCardId: id } });
   const reportCard = await prisma.reportCard.delete({ where: { id } });
@@ -715,8 +838,10 @@ export async function generateReportCard(
   studentId: string,
   classId: string,
   academicYearId: string,
-  semester: number
+  semester: number,
+  actor: WriteActor
 ): Promise<ReportCard | null> {
+  await assertReportCardsWritable(actor, [studentId]);
   // Optimization: Use Promise.all to fetch data concurrently
   // Optimization: Use database aggregation instead of in-memory loop for subject averages
 
@@ -896,7 +1021,8 @@ export async function generateReportCard(
 export async function generateClassReportCards(
   classId: string,
   academicYearId: string,
-  semester: number
+  semester: number,
+  actor: WriteActor
 ): Promise<ReportCard[]> {
   // Get all active students in class
   const enrollments = await prisma.classEnrollment.findMany({
@@ -904,16 +1030,32 @@ export async function generateClassReportCards(
     select: { studentId: true },
   });
 
+  // The whole class is checked before any card is written, so one santri out
+  // of reach leaves the request with nothing changed (R25.5).
+  await assertReportCardsWritable(
+    actor,
+    enrollments.map((e) => e.studentId)
+  );
+
   // Generate for each student concurrently
   // Using Promise.all is efficient for typical class sizes (30-40)
   const results = await Promise.all(
-    enrollments.map((e) => generateReportCard(e.studentId, classId, academicYearId, semester))
+    enrollments.map((e) =>
+      generateReportCard(e.studentId, classId, academicYearId, semester, actor)
+    )
   );
 
   return results.filter((r): r is ReportCard => r !== null);
 }
 
-export async function publishReportCard(id: string): Promise<ReportCard> {
+export async function publishReportCard(id: string, actor: WriteActor): Promise<ReportCard> {
+  const existing = await prisma.reportCard.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('ReportCard');
+  await assertReportCardsWritable(actor, [existing.studentId], 'ReportCard');
+
   const reportCard = await prisma.reportCard.update({
     where: { id },
     data: { isPublished: true, publishedAt: new Date() },

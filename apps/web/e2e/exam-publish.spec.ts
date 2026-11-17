@@ -3,9 +3,10 @@ import {
   apiLogin,
   apiRequest,
   injectSession,
-  SEED_USERS,
+  type AuthSession,
 } from "./helpers/auth-api";
 import { gotoAuthedPage, waitForToast } from "./helpers/page-helpers";
+import { DEMO_ACCOUNTS } from "../../../packages/shared/src/types/demo-accounts";
 
 /**
  * Publishing an exam from its detail page (`/assessment/[id]`).
@@ -16,11 +17,60 @@ import { gotoAuthedPage, waitForToast } from "./helpers/page-helpers";
  * invalidated; only this spec proves a guru can press the button and see the
  * same page change. It creates a real DRAFT exam through the API, publishes it
  * through the UI, and removes it afterwards.
+ *
+ * Since #987 an exam may only be created by a Penulis_Penilaian of it: a guru
+ * of the record's unit with an active TeacherSubject for its subject *and*
+ * class (R25.3). The seeded `smpit.guru` persona is the one guru who teaches a
+ * lesson in SMP IT 7A, so the exam is built from their own TeacherSubject —
+ * the first subject/class the lists happen to return (SD IT 1A for another
+ * persona) is not in scope and would 404.
  */
+async function guruWhoTeachesAClass(): Promise<{
+  session: AuthSession;
+  teacherId: string;
+  subjectId: string;
+  classId: string;
+}> {
+  const guru = DEMO_ACCOUNTS.find(
+    (a) => a.email === "smpit.guru@cipansor.or.id",
+  );
+  if (!guru) throw new Error("seeded smpit.guru persona required");
+  const session = await apiLogin({
+    email: guru.email,
+    password: guru.password,
+  });
+  const me = session.user as { id: string };
+
+  const { data: teachers } = await apiRequest<{
+    data: Array<{ id: string; userId: string | null }>;
+  }>(session, "GET", "/hr/teachers?limit=100");
+  const teacherRecord = teachers.find((t) => t.userId === me.id);
+  if (!teacherRecord) throw new Error("the guru's own Teacher record required");
+
+  const { data: assignments } = await apiRequest<{
+    data: Array<{ subjectId: string; classId: string | null }>;
+  }>(session, "GET", `/curriculum/teachers/${teacherRecord.id}/subjects`);
+  const scoped = assignments.find((a) => a.classId);
+  if (!scoped || !scoped.classId)
+    throw new Error("the guru teaches no class (TeacherSubject required)");
+
+  return {
+    session,
+    teacherId: teacherRecord.id,
+    subjectId: scoped.subjectId,
+    classId: scoped.classId,
+  };
+}
+
 test.describe("Terbitkan penilaian dari halaman detail", () => {
   test("status dan tombol berubah setelah Publikasikan", async ({ page }) => {
     test.setTimeout(120_000);
-    const teacher = await apiLogin(SEED_USERS.teacher);
+    const {
+      session: teacher,
+      teacherId,
+      subjectId,
+      classId,
+    } = await guruWhoTeachesAClass();
     const me = teacher.user as { id: string; unitId: string };
 
     const { data: years } = await apiRequest<{
@@ -28,18 +78,6 @@ test.describe("Terbitkan penilaian dari halaman detail", () => {
     }>(teacher, "GET", "/academic-years?limit=100");
     const year = years.find((y) => y.isActive);
     expect(year, "an active academic year").toBeTruthy();
-
-    const { data: subjects } = await apiRequest<{
-      data: Array<{ id: string }>;
-    }>(teacher, "GET", "/curriculum/subjects?limit=1");
-    const { data: classes } = await apiRequest<{
-      data: Array<{ id: string }>;
-    }>(teacher, "GET", "/classes?limit=1");
-    const { data: teachers } = await apiRequest<{
-      data: Array<{ id: string; userId: string | null }>;
-    }>(teacher, "GET", "/hr/teachers?limit=100");
-    const teacherRecord = teachers.find((t) => t.userId === me.id);
-    expect(teacherRecord, "the teacher's own record").toBeTruthy();
 
     // Create through the API (which sets SCHEDULED) and drop it to DRAFT, the
     // one state that shows the Publikasikan button.
@@ -50,9 +88,9 @@ test.describe("Terbitkan penilaian dari halaman detail", () => {
       {
         unitId: me.unitId,
         academicYearId: year!.id,
-        subjectId: subjects[0].id,
-        classId: classes[0].id,
-        teacherId: teacherRecord!.id,
+        subjectId,
+        classId,
+        teacherId,
         type: "DAILY_TEST",
         title: `Uji terbit ${Date.now()}`,
         scheduledAt: new Date().toISOString(),

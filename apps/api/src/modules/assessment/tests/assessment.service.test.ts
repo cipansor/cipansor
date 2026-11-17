@@ -1,22 +1,18 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import {
-  createExam,
-  getExams,
-  updateExam,
-  createGrade,
-  generateReportCard,
-} from '../../src/modules/assessment/assessment.service';
-import { prisma } from '../../src/lib/prisma';
+import { createExam, generateReportCard, getExamAnalytics } from '../assessment.service';
+import { prisma } from '@/lib/prisma';
 import { ExamType } from '@cipansor/shared';
 import { Decimal } from '@prisma/client/runtime/client';
+import type { WriteActor } from '@/utils/write-scope';
 
 // Mock Prisma
-vi.mock('../../src/lib/prisma', () => ({
+vi.mock('@/lib/prisma', () => ({
   prisma: {
     exam: {
       findMany: vi.fn(),
       count: vi.fn(),
       findUnique: vi.fn(),
+      findFirst: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
       delete: vi.fn(),
@@ -54,10 +50,18 @@ vi.mock('../../src/lib/prisma', () => ({
       findMany: vi.fn(),
       aggregate: vi.fn(),
     },
+    student: { findMany: vi.fn() },
+    unit: { findUnique: vi.fn() },
+    class: { findUnique: vi.fn() },
+    subject: { findUnique: vi.fn() },
+    teacher: { findUnique: vi.fn(), findFirst: vi.fn() },
+    teacherSubject: { findMany: vi.fn() },
     $queryRaw: vi.fn(),
     $transaction: vi.fn((callback) => callback(prisma)),
   },
 }));
+
+const SUPER: WriteActor = { sub: 'u1', roleCode: 'SUPER_ADMIN', unitId: null };
 
 describe('Assessment Service', () => {
   beforeEach(() => {
@@ -90,9 +94,14 @@ describe('Assessment Service', () => {
         updatedAt: new Date(),
       };
 
+      vi.mocked(prisma.unit.findUnique).mockResolvedValue({ id: 'unit-1' } as any);
+      vi.mocked(prisma.class.findUnique).mockResolvedValue({ unitId: 'unit-1' } as any);
+      vi.mocked(prisma.subject.findUnique).mockResolvedValue({ unitId: 'unit-1' } as any);
+      vi.mocked(prisma.teacher.findUnique).mockResolvedValue({ unitId: 'unit-1' } as any);
+      vi.mocked(prisma.teacherSubject.findMany).mockResolvedValue([] as any);
       vi.mocked(prisma.exam.create).mockResolvedValue(mockExam as any);
 
-      const result = await createExam(input);
+      const result = await createExam(input, SUPER);
 
       expect(prisma.exam.create).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -113,6 +122,10 @@ describe('Assessment Service', () => {
       const classId = 'class-1';
       const academicYearId = 'year-1';
       const semester = 1;
+
+      vi.mocked(prisma.student.findMany).mockResolvedValue([
+        { id: studentId, unitId: 'unit-1' },
+      ] as any);
 
       // Mock QueryRaw for subject aggregates
       vi.mocked(prisma.$queryRaw).mockResolvedValue([
@@ -154,7 +167,7 @@ describe('Assessment Service', () => {
         details: [],
       } as any);
 
-      await generateReportCard(studentId, classId, academicYearId, semester);
+      await generateReportCard(studentId, classId, academicYearId, semester, SUPER);
 
       expect(prisma.$queryRaw).toHaveBeenCalled();
       expect(prisma.reportCard.upsert).toHaveBeenCalledWith(
@@ -164,6 +177,84 @@ describe('Assessment Service', () => {
           }),
         })
       );
+    });
+  });
+
+  describe('getExamAnalytics', () => {
+    it('should return null if exam is not found', async () => {
+      vi.mocked(prisma.exam.findFirst).mockResolvedValue(null);
+
+      const result = (await getExamAnalytics('exam-1', SUPER))!;
+      expect(result).toBeNull();
+    });
+
+    it('should return zeros for analytics if no grades exist', async () => {
+      const mockExam = {
+        id: 'exam-1',
+        passingScore: 70,
+        maxScore: 100,
+        class: { _count: { enrollments: 2 } },
+        grades: [],
+      };
+      vi.mocked(prisma.exam.findFirst).mockResolvedValue(mockExam as any);
+
+      const result = (await getExamAnalytics('exam-1', SUPER))!;
+      expect(result).toMatchObject({
+        examId: 'exam-1',
+        totalStudents: 2,
+        gradedCount: 0,
+        averageScore: 0,
+        highestScore: 0,
+        lowestScore: 0,
+        passCount: 0,
+        failCount: 0,
+        passRate: 0,
+      });
+      expect(result.scoreDistribution).toHaveLength(5);
+    });
+
+    it('should correctly calculate analytics with valid grades', async () => {
+      const mockExam = {
+        id: 'exam-2',
+        passingScore: 75,
+        maxScore: 100,
+        class: { _count: { enrollments: 4 } },
+        grades: [
+          { studentId: 's1', score: 80, student: { user: { name: 'Alice' } } },
+          { studentId: 's2', score: 60, student: { user: { name: 'Bob' } } },
+          { studentId: 's3', score: 90, student: { user: { name: 'Charlie' } } },
+          { studentId: 's4', score: 95, student: { user: { name: 'David' } } },
+        ],
+      };
+
+      vi.mocked(prisma.exam.findFirst).mockResolvedValue(mockExam as any);
+
+      const result = (await getExamAnalytics('exam-2', SUPER))!;
+      // totalScore = 80 + 60 + 90 + 95 = 325
+      // average = 325 / 4 = 81.25
+      expect(result).toMatchObject({
+        examId: 'exam-2',
+        totalStudents: 4,
+        gradedCount: 4,
+        averageScore: 81.25,
+        highestScore: 95,
+        lowestScore: 60,
+        passCount: 3, // 80, 90, 95
+        failCount: 1, // 60
+        passRate: 75, // 3 / 4 * 100
+      });
+
+      // David: 95, Charlie: 90, Alice: 80, Bob: 60
+      expect(result.topStudents[0].studentName).toBe('David');
+      expect(result.topStudents[0].score).toBe(95);
+
+      // Distribution
+      const d90_100 = result.scoreDistribution.find((d) => d.range === '90-100%');
+      expect(d90_100?.count).toBe(2); // Charlie and David
+      const d60_69 = result.scoreDistribution.find((d) => d.range === '60-69%');
+      expect(d60_69?.count).toBe(1); // Bob
+      const d80_89 = result.scoreDistribution.find((d) => d.range === '80-89%');
+      expect(d80_89?.count).toBe(1); // Alice
     });
   });
 });

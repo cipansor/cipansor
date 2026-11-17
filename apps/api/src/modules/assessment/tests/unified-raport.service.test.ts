@@ -1,8 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { prisma } from '@/lib/prisma';
-import RaportMerdekaService from './raport-merdeka.service';
-import * as raporPesantrenService from '../rapor-pesantren/rapor-pesantren.service';
-import { UnifiedRaportService } from './unified-raport.service';
+import RaportMerdekaService from '../raport-merdeka.service';
+import * as raporPesantrenService from '../../rapor-pesantren/rapor-pesantren.service';
+import { UnifiedRaportService } from '../unified-raport.service';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -16,13 +16,13 @@ vi.mock('@/lib/prisma', () => ({
   },
 }));
 
-vi.mock('./raport-merdeka.service', () => ({
+vi.mock('../raport-merdeka.service', () => ({
   default: {
     generateRaportMerdeka: vi.fn(),
   },
 }));
 
-vi.mock('../rapor-pesantren/rapor-pesantren.service', () => ({
+vi.mock('../../rapor-pesantren/rapor-pesantren.service', () => ({
   generateRaporPesantren: vi.fn(),
 }));
 

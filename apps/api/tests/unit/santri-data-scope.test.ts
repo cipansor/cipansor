@@ -234,9 +234,17 @@ describe('health records', () => {
 
 describe('a santri opening an exam', () => {
   it('receives only their own grade with it', async () => {
-    db.exam.findUnique.mockResolvedValueOnce({ id: 'e-1', grades: [] });
+    db.exam.findFirst.mockResolvedValueOnce({ id: 'e-1', grades: [] });
     await call('get', '/assessment/exams/e-1', 'santri');
-    expect(whereOf('exam', 'findUnique').include.grades.where).toEqual({
+    const where = whereOf('exam', 'findFirst').where as {
+      AND: [object, { class: { enrollments: { some: object } } }];
+    };
+    // The exam itself is narrowed to the classes the santri is actively in…
+    expect(where.AND[1]).toEqual({
+      class: { enrollments: { some: { status: 'active', student: { userId: 'u-santri' } } } },
+    });
+    // …and its grades to the santri's own row.
+    expect(whereOf('exam', 'findFirst').include.grades.where).toEqual({
       student: { userId: 'u-santri' },
     });
   });

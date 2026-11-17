@@ -89,6 +89,7 @@
     "babel-plugin-react-compiler": "1.0.0",
     "eslint": "^10",
     "eslint-config-next": "16.4.6",
+    "fast-check": "4.10.2",
     "jsdom": "^31.0.1",
     "otplib": "13.6.0",
     "tailwindcss": "^4",
