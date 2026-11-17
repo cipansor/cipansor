@@ -20,7 +20,7 @@ const router = Router();
 // All routes require authentication
 router.use(authenticate);
 
-// Teachers, kepala sekolah and unit operators reach the write routes; which
+// Teachers, kepala sekolah and admin units reach the write routes; which
 // classes each records is the class's relation to them, in the service
 // (attendance.access.ts).
 const recorders = authorize(...ATTENDANCE_RECORDER_ROUTE_ROLE_CODES);
@@ -30,7 +30,7 @@ const recorders = authorize(...ATTENDANCE_RECORDER_ROUTE_ROLE_CODES);
  * /api/attendance/me/classes:
  *   get:
  *     summary: The classes whose daily register the caller takes
- *     description: ALL for the super admin, UNIT for a unit's operator, otherwise the current academic year's classes the caller is wali kelas of or teaches in.
+ *     description: ALL for the super admin, UNIT for an admin unit, otherwise the current academic year's classes the caller is wali kelas of or teaches in.
  *     tags: [Attendance]
  *     security:
  *       - bearerAuth: []
@@ -209,7 +209,7 @@ router.get('/:id', validateParams(attendanceIdParamSchema), controller.getById);
  * @swagger
  * /api/attendance:
  *   post:
- *     summary: Record one pupil's day (the class's wali kelas, a teacher with a lesson in it, or the unit's operator)
+ *     summary: Record one pupil's day (the class's wali kelas, a teacher with a lesson in it, or its admin unit)
  *     tags: [Attendance]
  *     security:
  *       - bearerAuth: []
@@ -369,7 +369,7 @@ router.post(
  * @swagger
  * /api/attendance/{id}:
  *   delete:
- *     summary: Delete an attendance record (the unit's operator)
+ *     summary: Delete an attendance record (an admin unit)
  *     tags: [Attendance]
  *     security:
  *       - bearerAuth: []

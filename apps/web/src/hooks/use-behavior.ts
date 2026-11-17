@@ -5,7 +5,7 @@ import type { HomeroomNote, HomeroomNoteInput } from "@cipansor/shared";
 
 /**
  * A class's notes, newest first, as its wali kelas and the unit's kepala
- * sekolah and operator read them. Each says whether the caller may change it.
+ * sekolah and admin unit read them. Each says whether the caller may change it.
  */
 export function useBehaviorRecords(classId?: string) {
   return useQuery({

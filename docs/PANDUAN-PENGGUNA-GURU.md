@@ -66,8 +66,7 @@ sehingga kelompok itu bisa muncul dan hilang sesuai penugasan Anda.
 
 **Tujuan.** Mencatat kehadiran santri satu kelas untuk satu tanggal.
 
-**Siapa.** Wali kelas dari kelas itu, guru yang mengajar di kelas itu, dan operator
-unit. Guru lain tidak dapat mengisi.
+**Siapa.** Wali kelas dari kelas itu, guru yang mengajar di kelas itu, dan admin unit. Guru lain tidak dapat mengisi.
 
 **Jalur menu.** Wali Kelas → Absensi Harian (`/attendance/record`). Guru
 pengampu yang bukan wali kelas: Mengajar → Absensi (`/attendance`), lalu klik

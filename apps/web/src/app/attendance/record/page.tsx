@@ -96,7 +96,7 @@ function RecordAttendanceContent() {
       }))
     : classesData?.data || [];
 
-  // An operator records their own unit only; a teacher starts on their own
+  // An admin unit records their own unit only; a teacher starts on their own
   // class (listed first), unless the link named another one they record.
   useEffect(() => {
     if (unitScoped && recorder?.unitId && !unitId) {
@@ -317,8 +317,8 @@ function RecordAttendanceContent() {
                 <AlertTitle>Tidak ada kelas untuk dicatat</AlertTitle>
                 <AlertDescription>
                   Absensi harian dicatat oleh wali kelas, guru yang mengajar di
-                  kelas itu, dan operator unit. Anda belum menjadi wali kelas
-                  atau mengajar di kelas mana pun tahun ajaran ini.
+                  kelas itu, dan admin unit. Anda belum menjadi wali kelas atau
+                  mengajar di kelas mana pun tahun ajaran ini.
                 </AlertDescription>
               </Alert>
             )}

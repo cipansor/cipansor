@@ -112,7 +112,7 @@ export function useClassAttendance(classId: string, date: string) {
 
 /**
  * The classes whose daily register the signed-in user takes: every class
- * (super admin), every class of their unit (its operator), or the ones they
+ * (super admin), every class of their unit (its admin unit), or the ones they
  * are wali kelas of or teach in this academic year.
  */
 export function useAttendanceRecorderScope() {

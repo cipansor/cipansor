@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Who reaches a class's homeroom data (decided 2026-09-26): its wali kelas —
 // the teacher on `Class.homeroomTeacherId` — who writes notes while the
-// class's academic year is the current one; the kepala sekolah and operator of
-// its unit and the super admin, who read. Another teacher of the same unit,
+// class's academic year is the current one; the kepala sekolah and its admin
+// unit and the super admin, who read. Another teacher of the same unit,
 // and anyone of another unit, gets 404, as for a class that does not exist.
 
 vi.mock('@/lib/prisma', () => {
@@ -64,7 +64,7 @@ const wali = { sub: 'u-wali', role: 'TEACHER', roleCode: 'SDIT_GURU', unitId: SD
 const waliLama = { sub: 'u-wali-lama', role: 'TEACHER', roleCode: 'SDIT_GURU', unitId: SD };
 const guruLain = { sub: 'u-guru', role: 'TEACHER', roleCode: 'SDIT_GURU', unitId: SD };
 const kepala = { sub: 'u-kepala', role: 'TEACHER', roleCode: 'SDIT_KEPALA_SEKOLAH', unitId: SD };
-const operator = { sub: 'u-admin', role: 'UNIT_ADMIN', roleCode: 'SDIT_ADMIN', unitId: SD };
+const adminUnit = { sub: 'u-admin', role: 'UNIT_ADMIN', roleCode: 'SDIT_ADMIN', unitId: SD };
 const superAdmin = { sub: 'u-sa', role: 'SUPER_ADMIN', roleCode: 'SUPER_ADMIN', unitId: null };
 const kepalaSmp = {
   sub: 'u-kepala-smp',
@@ -112,7 +112,7 @@ describe('a class', () => {
 
   it.each([
     ['the kepala sekolah', kepala],
-    ['the operator', operator],
+    ['the admin unit', adminUnit],
     ['the super admin', superAdmin],
   ])('%s of its unit reads, and does not write', async (_who, actor) => {
     const access = await classAccess('c-1a', actor);

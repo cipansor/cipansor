@@ -1638,7 +1638,7 @@ const adminNavigation: NavGroup[] = [
         icon: IdCard,
       },
       {
-        // A unit's operator broadcasts to its unit; Super Admin writes no
+        // An admin unit broadcasts to its unit; Super Admin writes no
         // content (decisions/siaran-pengumuman.md).
         title: "Pengumuman",
         href: "/announcements",

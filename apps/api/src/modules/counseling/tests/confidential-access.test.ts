@@ -38,7 +38,7 @@ const guruBkSma = actor('u-bk-sma', 'SMAQ_GURU_BK', SMA);
 const kepala = actor('u-kepala', 'SMPIT_KEPALA_SEKOLAH', SMP);
 const kepalaSma = actor('u-kepala-sma', 'SMAQ_KEPALA_SEKOLAH', SMA);
 const guru = actor('u-guru', 'SMPIT_GURU', SMP);
-const operator = actor('u-admin', 'SMPIT_ADMIN', SMP);
+const adminUnit = actor('u-admin', 'SMPIT_ADMIN', SMP);
 const pembina = actor('u-pembina', 'YAYASAN_PEMBINA', null);
 const superAdmin = actor('u-sa', 'SUPER_ADMIN', null);
 
@@ -79,7 +79,7 @@ describe('who reads a confidential session', () => {
     ["the unit's kepala sekolah", kepala, 'REFERRALS_ONLY'],
     ["another unit's kepala sekolah", kepalaSma, 'NONE'],
     ['another teacher of the unit', guru, 'NONE'],
-    ["the unit's operator", operator, 'NONE'],
+    ["the unit's admin unit", adminUnit, 'NONE'],
     ['a yayasan organ', pembina, 'NONE'],
     ['the super admin', superAdmin, 'NONE'],
   ])('%s → %s', (_who, who, expected) => {
@@ -132,7 +132,7 @@ describe('reading one session', () => {
   });
 
   it('anyone else is told it does not exist (404)', async () => {
-    for (const who of [guru, operator, pembina, superAdmin]) {
+    for (const who of [guru, adminUnit, pembina, superAdmin]) {
       db.counselingSession.findUnique.mockResolvedValue(secret());
       await expect(counselingService.getSessionById('s-1', who)).rejects.toMatchObject({
         statusCode: 404,
@@ -205,7 +205,7 @@ describe('the counts', () => {
   it('count what the caller is sent, not what is withheld from them', async () => {
     const groupBy = vi.fn().mockResolvedValue([]);
     (db.counselingSession as Record<string, unknown>).groupBy = groupBy;
-    await counselingService.getStatistics(operator);
+    await counselingService.getStatistics(adminUnit);
     expect(db.counselingSession.count.mock.calls[0][0].where).toEqual({
       unitId: SMP,
       AND: [{ OR: [{ isConfidential: false }, { counselor: { userId: 'u-admin' } }] }],

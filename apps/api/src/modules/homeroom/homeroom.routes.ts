@@ -14,7 +14,7 @@ const router = Router();
 // All routes require authentication
 router.use(authenticate);
 
-// Teachers, and the unit's kepala sekolah and operator. Which classes each
+// Teachers, and the unit's kepala sekolah and admin unit. Which classes each
 // reaches is the class's wali kelas relation, in the service
 // (homeroom.access.ts): the wali kelas reads and writes, the overseers read.
 const homeroomRoles = authorize(...HOMEROOM_ROUTE_ROLE_CODES);

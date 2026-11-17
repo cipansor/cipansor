@@ -274,8 +274,8 @@ function StudentDetailPageContent() {
         <Alert>
           <AlertTitle>Siswa tidak ditemukan</AlertTitle>
           <AlertDescription>
-            Data siswa dibuka oleh wali kelasnya serta kepala sekolah dan
-            operator unitnya.
+            Data siswa dibuka oleh wali kelasnya serta kepala sekolah dan admin
+            unitnya.
           </AlertDescription>
         </Alert>
       </div>

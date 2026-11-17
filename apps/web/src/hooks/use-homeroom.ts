@@ -450,7 +450,7 @@ export function useSendParentMessage() {
 
 /**
  * The pupils of a class, as the homeroom API lists them to its wali kelas and
- * the unit's kepala sekolah and operator (404 to anyone else).
+ * the unit's kepala sekolah and admin unit (404 to anyone else).
  */
 export function useHomeroomClassStudents(classId?: string) {
   return useQuery({

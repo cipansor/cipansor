@@ -242,7 +242,7 @@ workers refused on a closed day. Still open:
   **Jalankan** button behind `useTriggerScheduledTask`) gets no user-guide card
   yet: #875 recorded it as deferred until the menu exists (golden rule #11
   needs a menu path).
-- **A unit's operator sees every unit's subjects.** _Classes → Mata
+- **An admin unit sees every unit's subjects.** _Classes → Mata
   Pelajaran & Jadwal_ for Admin SD IT lists SMP IT's subjects (seen
   2026-09-28), and its _Tanpa Guru Pengampu_ card counts them.
 - **Small wrong labels and filters seen 2026-09-28:** the Kehadiran list

@@ -3196,7 +3196,7 @@ async function main() {
   // The Guru SMP IT persona teaches one lesson in 7A without being its wali
   // kelas, so the demo has a teacher who takes a class's register by teaching
   // in it (2026-09-27: daily attendance is recorded by the wali kelas, a
-  // teacher with a lesson in the class, or the unit's operator).
+  // teacher with a lesson in the class, or its admin unit).
   const smpGuruPersona = await prisma.teacher.findFirst({
     where: { user: { email: 'smpit.guru@cipansor.or.id' }, deletedAt: null },
     select: { id: true },
