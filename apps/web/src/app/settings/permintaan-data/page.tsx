@@ -52,15 +52,18 @@ export default function DataSubjectRequestsPage() {
   const [status, setStatus] = useState<string>("ALL");
   const [type, setType] = useState<string>("ALL");
   const [openOnly, setOpenOnly] = useState(true);
+  const [page, setPage] = useState(1);
 
   const { data, isLoading } = useDataSubjectRequests({
     status: status === "ALL" ? undefined : (status as DataSubjectRequestStatus),
     type: type === "ALL" ? undefined : (type as DataSubjectRequestType),
     openOnly,
+    page,
     limit: 50,
   });
 
   const rows = data?.data ?? [];
+  const totalPages = data?.pagination?.totalPages ?? 1;
 
   return (
     <MainLayout allowedPermissions={[PERMISSIONS.PDP_MANAGE]}>
@@ -77,7 +80,13 @@ export default function DataSubjectRequestsPage() {
         </div>
 
         <div className="flex flex-wrap gap-4">
-          <Select value={status} onValueChange={(val) => setStatus(val)}>
+          <Select
+            value={status}
+            onValueChange={(val) => {
+              setStatus(val);
+              setPage(1);
+            }}
+          >
             <SelectTrigger className="w-[200px]" aria-label="Saring status">
               <SelectValue placeholder="Status" />
             </SelectTrigger>
@@ -91,7 +100,13 @@ export default function DataSubjectRequestsPage() {
             </SelectContent>
           </Select>
 
-          <Select value={type} onValueChange={(val) => setType(val)}>
+          <Select
+            value={type}
+            onValueChange={(val) => {
+              setType(val);
+              setPage(1);
+            }}
+          >
             <SelectTrigger className="w-[220px]" aria-label="Saring jenis">
               <SelectValue placeholder="Jenis permintaan" />
             </SelectTrigger>
@@ -108,7 +123,10 @@ export default function DataSubjectRequestsPage() {
           <Button
             type="button"
             variant={openOnly ? "default" : "outline"}
-            onClick={() => setOpenOnly((v) => !v)}
+            onClick={() => {
+              setOpenOnly((v) => !v);
+              setPage(1);
+            }}
             aria-pressed={openOnly}
           >
             Hanya yang belum selesai
@@ -203,6 +221,34 @@ export default function DataSubjectRequestsPage() {
             </TableBody>
           </Table>
         </div>
+
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between">
+            <p className="text-sm text-muted-foreground">
+              Halaman {page} dari {totalPages}
+            </p>
+            <div className="flex gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                disabled={page <= 1}
+              >
+                Sebelumnya
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+                disabled={page >= totalPages}
+              >
+                Berikutnya
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </MainLayout>
   );

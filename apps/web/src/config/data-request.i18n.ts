@@ -1,4 +1,5 @@
 import type { Locale } from "@/locales";
+import type { DataSubjectRequestType } from "@cipansor/shared";
 
 /**
  * Permintaan hak subjek data (UU 27/2022 Pasal 30, 32, 33, 40, 43–44), di tiga
@@ -34,6 +35,15 @@ export interface DataRequestContent {
     heading: string;
     intro: string;
     type: string;
+    /**
+     * Pilihan jenis permintaan, satu per bahasa.
+     *
+     * Sebelumnya keempat pilihan ini diambil dari
+     * `DATA_SUBJECT_REQUEST_TYPE_LABELS`, yang seluruhnya berbahasa Indonesia —
+     * sehingga pemilih bahasa Inggris atau Arab tetap membaca "Akses dan
+     * salinan data". Nilai enumnya tetap sama; yang diterjemahkan hanya labelnya.
+     */
+    typeLabels: Record<DataSubjectRequestType, string>;
     registrationNo: string;
     registrationNoPlaceholder: string;
     birthDate: string;
@@ -103,6 +113,12 @@ const ID: DataRequestContent = {
     intro:
       "Isi data pendaftaran anak Anda. Sebagai bukti bahwa Anda benar keluarga pendaftar, kami kirim kode verifikasi ke kontak yang sudah terdaftar pada data pendaftaran — bukan ke kontak yang Anda tuliskan di sini.",
     type: "Jenis permintaan",
+    typeLabels: {
+      ACCESS: "Akses dan salinan data",
+      RECTIFICATION: "Perbaikan data",
+      CONSENT_WITHDRAWAL: "Penarikan persetujuan",
+      ERASURE: "Penghapusan data",
+    },
     registrationNo: "Nomor pendaftaran SPMB",
     registrationNoPlaceholder: "mis. SPMB-2026-000123",
     birthDate: "Tanggal lahir pendaftar",
@@ -178,6 +194,12 @@ const EN: DataRequestContent = {
     intro:
       "Enter your child's registration details. To show that you really are the registrant's family, we send a verification code to the contact already on file for the registration — not to the contact you type here.",
     type: "Type of request",
+    typeLabels: {
+      ACCESS: "Access and a copy of the data",
+      RECTIFICATION: "Correction of the data",
+      CONSENT_WITHDRAWAL: "Withdrawal of consent",
+      ERASURE: "Erasure of the data",
+    },
     registrationNo: "SPMB registration number",
     registrationNoPlaceholder: "e.g. SPMB-2026-000123",
     birthDate: "Registrant's date of birth",
@@ -252,6 +274,12 @@ const AR: DataRequestContent = {
     intro:
       "أدخلوا بيانات تسجيل ابنكم. ولإثبات أنكم فعلًا من أسرة المتقدّم، نرسل رمز تحقق إلى بيانات التواصل المسجَّلة في طلب التسجيل — لا إلى بيانات التواصل التي تكتبونها هنا.",
     type: "نوع الطلب",
+    typeLabels: {
+      ACCESS: "الوصول إلى البيانات ونسخة منها",
+      RECTIFICATION: "تصحيح البيانات",
+      CONSENT_WITHDRAWAL: "سحب الموافقة",
+      ERASURE: "حذف البيانات",
+    },
     registrationNo: "رقم التسجيل في SPMB",
     registrationNoPlaceholder: "مثال: SPMB-2026-000123",
     birthDate: "تاريخ ميلاد المتقدّم",

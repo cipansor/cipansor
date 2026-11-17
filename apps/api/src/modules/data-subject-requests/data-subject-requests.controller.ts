@@ -2,7 +2,6 @@ import { Request, Response } from 'express';
 import { asyncHandler } from '@/middleware/error';
 import { requireUser } from '@/middleware/auth';
 import { ApiResponse } from '@/utils/response';
-import { prisma } from '@/lib/prisma';
 import * as service from './data-subject-requests.service';
 import {
   createGuardianDataSubjectRequestSchema,
@@ -64,7 +63,7 @@ export const submit = asyncHandler(async (req: Request, res: Response) => {
   const data = createGuardianDataSubjectRequestSchema.parse(req.body);
   const created = await service.submitGuardianRequest(data, {
     userId: user.sub,
-    name: await actorName(user.sub),
+    name: await service.resolveActorName(user.sub),
     hasPdpPermission: (user.permissions ?? []).includes(PERMISSIONS.PDP_MANAGE),
   });
   res.status(201).json(ApiResponse.success(created, 'Permintaan Anda tercatat'));
@@ -105,7 +104,7 @@ export const updateStatus = asyncHandler(async (req: Request, res: Response) => 
   const data = updateDataSubjectRequestStatusSchema.parse(req.body);
   const result = await service.updateStatus(id, data, {
     userId: user.sub,
-    name: await actorName(user.sub),
+    name: await service.resolveActorName(user.sub),
   });
   // Salinan data untuk permintaan akses ikut dikembalikan sekali di sini, ke
   // petugas yang menutupnya — bukan disimpan di mana pun.
@@ -118,9 +117,3 @@ export const updateStatus = asyncHandler(async (req: Request, res: Response) => 
     )
   );
 });
-
-/** Nama aktor untuk riwayat tindakan; nama adalah bagian dari buktinya. */
-async function actorName(userId: string): Promise<string> {
-  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-  return user?.name ?? 'Petugas';
-}

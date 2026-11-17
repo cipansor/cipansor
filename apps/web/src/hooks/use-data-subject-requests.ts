@@ -140,10 +140,12 @@ export function useDataSubjectRequests(
       });
       return {
         data: response.data.data ?? [],
-        // The envelope carries pagination under `meta`, matching the other
-        // list hooks (use-dashboard-enhancement.ts). `data.pagination` never
-        // existed and would have been `undefined` at runtime.
-        pagination: response.data.meta?.pagination,
+        // Pagination sits at the TOP level of the envelope: the controller
+        // passes it as `ApiResponse.success(data, message, pagination)`, which
+        // spreads it onto `pagination`. Reading `meta.pagination` (as this hook
+        // once did) always returned `undefined`, so the list could never show a
+        // page control.
+        pagination: response.data.pagination,
       };
     },
   });

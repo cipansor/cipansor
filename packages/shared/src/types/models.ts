@@ -37,6 +37,15 @@ export interface ApiResponse<T = unknown> {
   data: T;
   message?: string;
   error?: ApiError;
+  /**
+   * Pagination, at the top level — the shape `ApiResponse.success(data, message,
+   * pagination)` actually returns (`apps/api/src/utils/response.ts`).
+   *
+   * `meta.pagination` is the other envelope some modules use; both are declared
+   * so a client can read either without guessing. Reading the wrong one
+   * silently yields `undefined`, which is how a list once lost its page control.
+   */
+  pagination?: Pagination;
   meta?: {
     pagination?: Pagination;
   };

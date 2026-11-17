@@ -3,9 +3,8 @@ import { Request, Response, NextFunction } from 'express';
 
 import * as controller from '../data-subject-requests.controller';
 import * as service from '../data-subject-requests.service';
-import { prisma } from '@/lib/prisma';
-
 vi.mock('../data-subject-requests.service', () => ({
+  resolveActorName: vi.fn().mockResolvedValue('Petugas PDP'),
   submitPublicRequest: vi.fn(),
   verifyPublicRequest: vi.fn(),
   submitGuardianRequest: vi.fn(),
@@ -13,10 +12,6 @@ vi.mock('../data-subject-requests.service', () => ({
   listRequests: vi.fn(),
   getRequest: vi.fn(),
   updateStatus: vi.fn(),
-}));
-
-vi.mock('@/lib/prisma', () => ({
-  prisma: { user: { findUnique: vi.fn() } },
 }));
 
 /**
@@ -76,7 +71,7 @@ const summary = (over: Record<string, unknown> = {}) => ({
 describe('data-subject-requests controller — permukaan publik', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: 'Petugas PDP' } as any);
+    vi.mocked(service.resolveActorName).mockResolvedValue('Petugas PDP');
   });
 
   it('menjawab 202, bukan 201: permintaannya belum selesai, masih menunggu verifikasi', async () => {
@@ -143,7 +138,7 @@ describe('data-subject-requests controller — permukaan publik', () => {
 describe('data-subject-requests controller — permukaan portal', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: 'Siti Aminah' } as any);
+    vi.mocked(service.resolveActorName).mockResolvedValue('Siti Aminah');
   });
 
   it('memakai identitas dari sesi, bukan dari body', async () => {
@@ -198,7 +193,7 @@ describe('data-subject-requests controller — permukaan portal', () => {
 describe('data-subject-requests controller — permukaan petugas', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    vi.mocked(prisma.user.findUnique).mockResolvedValue({ name: 'Petugas PDP' } as any);
+    vi.mocked(service.resolveActorName).mockResolvedValue('Petugas PDP');
   });
 
   it('mengembalikan halaman beserta totalnya', async () => {

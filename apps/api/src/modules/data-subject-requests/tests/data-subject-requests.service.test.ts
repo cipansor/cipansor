@@ -19,6 +19,9 @@ vi.mock('@/lib/prisma', () => ({
     registrantDocument: { updateMany: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
+    // `FOR UPDATE` mengunci baris lewat `$executeRaw`; mock harus punya
+    // permukaannya, karena `tx` di sini adalah klien yang sama.
+    $executeRaw: vi.fn().mockResolvedValue(0),
   },
 }));
 
@@ -272,6 +275,52 @@ describe('data-subject-requests — verifikasi kode', () => {
   });
 });
 
+describe('data-subject-requests — daftar petugas', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(prisma.dataSubjectRequest.findMany).mockResolvedValue([] as any);
+    vi.mocked(prisma.dataSubjectRequest.count).mockResolvedValue(0 as any);
+  });
+
+  /** Penyaring yang benar-benar dikirim ke Prisma. */
+  const whereOf = () => vi.mocked(prisma.dataSubjectRequest.findMany).mock.calls[0][0]!.where;
+
+  it('memakai status yang dipilih petugas, bukan menggantinya dengan "belum selesai"', async () => {
+    // Sebelumnya `openOnly` menimpa pilihan status, sehingga memilih "Diterima"
+    // tetap menampilkan "Diproses".
+    await service.listRequests({ status: 'RECEIVED', openOnly: true, page: 1, limit: 50 });
+    expect(whereOf()).toMatchObject({ status: 'RECEIVED' });
+  });
+
+  it('mengosongkan hasil untuk kombinasi yang tidak punya irisan', async () => {
+    // Status terminal bersama "hanya yang belum selesai" tidak beririsan:
+    // jawabannya daftar kosong, bukan daftar yang membantah penyaringnya.
+    await service.listRequests({ status: 'COMPLETED', openOnly: true, page: 1, limit: 50 });
+    expect(whereOf()).toMatchObject({ status: { in: [] } });
+  });
+
+  it('membatasi permintaan terlambat pada yang belum selesai', async () => {
+    await service.listRequests({ overdueOnly: true, page: 1, limit: 50 });
+    expect(whereOf()).toMatchObject({
+      status: { notIn: ['COMPLETED', 'REJECTED'] },
+      dueAt: { lt: expect.any(Date) },
+    });
+  });
+
+  it('menggabungkan status pilihan dengan penyaring terlambat, bukan memilih salah satu', async () => {
+    await service.listRequests({
+      status: 'PROCESSING',
+      overdueOnly: true,
+      page: 1,
+      limit: 50,
+    });
+    expect(whereOf()).toMatchObject({
+      status: 'PROCESSING',
+      dueAt: { lt: expect.any(Date) },
+    });
+  });
+});
+
 describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -280,9 +329,50 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
 
   const actor = { userId: 'officer-1', name: 'Petugas PDP' };
 
+  it('menolak menutup permintaan publik yang belum terverifikasi', async () => {
+    // Permintaan publik tanpa `requesterUserId` dan tanpa `verifiedAt`: siapa
+    // pun boleh mengisi nomor pendaftaran orang lain, jadi efek penutupan
+    // (penghapusan, penyerahan salinan) tidak boleh berjalan atas namanya
+    // sebelum kepemilikan kontaknya terbukti (Pasal 33).
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'PROCESSING', requesterUserId: null }) as any
+    );
+
+    await expect(
+      service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor)
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(prisma.dataSubjectRequest.update).not.toHaveBeenCalled();
+  });
+
+  it('menutup permintaan publik yang sudah terverifikasi', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        // RECTIFICATION tidak punya efek samping saat ditutup; yang diuji di
+        // sini adalah gerbang verifikasinya, bukan pekerjaan penghapusan.
+        type: 'RECTIFICATION',
+        status: 'PROCESSING',
+        requesterUserId: null,
+        verifiedAt: new Date('2026-11-18T00:00:00.000Z'),
+      }) as any
+    );
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'RECTIFICATION', status: 'COMPLETED' }) as any
+    );
+
+    await expect(
+      service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor)
+    ).resolves.toBeTruthy();
+  });
+
   it('penarikan persetujuan menghentikan pemrosesan tanpa menghapus bukti persetujuan', async () => {
     vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
-      requestRow({ type: 'CONSENT_WITHDRAWAL', status: 'PROCESSING' }) as any
+      requestRow({
+        type: 'CONSENT_WITHDRAWAL',
+        status: 'PROCESSING',
+        // Diajukan lewat portal oleh pemohon yang sudah masuk: identitasnya
+        // sudah terbukti, jadi tidak ada langkah verifikasi kode yang menahan.
+        requesterUserId: 'usr-1',
+      }) as any
     );
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'CONSENT_WITHDRAWAL', status: 'COMPLETED' }) as any
@@ -303,6 +393,7 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       requestRow({
         type: 'ERASURE',
         status: 'PROCESSING',
+        requesterUserId: 'usr-1',
         subjectCategory: 'STUDENT',
         subjectRegistrantId: null,
         subjectStudentId: 'stu-1',
@@ -351,7 +442,7 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
 
   it('permintaan akses yang ditutup menghasilkan salinan data, tanpa menyimpannya', async () => {
     vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
-      requestRow({ type: 'ACCESS', status: 'PROCESSING' }) as any
+      requestRow({ type: 'ACCESS', status: 'PROCESSING', requesterUserId: 'usr-1' }) as any
     );
     vi.mocked(prisma.registrant.findUnique).mockResolvedValue({
       registrationNo: 'SPMB-2026-0001',

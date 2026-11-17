@@ -67,7 +67,9 @@ test.describe.configure({ mode: "serial" });
 
 test.describe("Hak subjek data pribadi", () => {
   const stamp = Date.now().toString(36);
-  const cleanup: Array<{ id: string; session: AuthSession }> = [];
+  // Yang dibutuhkan pembersihan hanyalah id: penutupannya dijalankan sebagai
+  // petugas, bukan sebagai pembuat permintaan (lihat `afterAll`).
+  const cleanup: string[] = [];
 
   test.beforeAll(async () => {
     test.skip(
@@ -77,9 +79,14 @@ test.describe("Hak subjek data pribadi", () => {
   });
 
   test.afterAll(async () => {
-    for (const { id, session } of cleanup) {
+    // Ditutup sebagai PETUGAS, bukan sebagai pembuatnya. Wali pembuat permintaan
+    // tidak memegang `PDP_MANAGE`, jadi penutupan dengan sesinya dijawab 403 dan
+    // — karena galatnya ditelan `catch` — permintaannya tetap terbuka setelah
+    // uji selesai. Petugas yang boleh menutup adalah pemegang izinnya.
+    const officer = await apiLogin(SEED_USERS.superAdmin);
+    for (const id of cleanup) {
       await apiRequest(
-        session,
+        officer,
         "PATCH",
         `/data-subject-requests/${id}/status`,
         {
@@ -135,7 +142,7 @@ test.describe("Hak subjek data pribadi", () => {
     )) as { data?: Array<{ id: string; requestNo: string }> };
     const created = (mine.data ?? []).find((r) => r.requestNo === requestNo);
     expect(created, "permintaan wali harus tercatat di API").toBeTruthy();
-    cleanup.push({ id: created!.id, session: wali });
+    cleanup.push(created!.id);
   });
 
   test("pendaftar SPMB mengajukan lewat formulir publik; kode yang salah ditolak", async ({
@@ -200,7 +207,7 @@ test.describe("Hak subjek data pribadi", () => {
       created!.status,
       "kode yang salah tidak boleh memindahkan status",
     ).toBe("RECEIVED");
-    cleanup.push({ id: created!.id, session: officer });
+    cleanup.push(created!.id);
   });
 
   test("petugas menyaring daftar kerja dan memindahkan status", async ({
@@ -221,7 +228,7 @@ test.describe("Hak subjek data pribadi", () => {
     )) as { data?: { id: string; requestNo: string } };
     expect(created.data?.id).toBeTruthy();
     const id = created.data!.id;
-    cleanup.push({ id, session: officer });
+    cleanup.push(id);
 
     await injectSession(page, officer);
     await page.goto("/settings/permintaan-data", {

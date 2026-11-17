@@ -292,6 +292,14 @@ export interface DataSubjectRequestSummaryDTO {
   subjectCategory: DataSubjectCategory;
   subjectLabel: string;
   requesterName: string;
+  /**
+   * Alasan penolakan, bila permintaan ditolak (Pasal 33).
+   *
+   * Ikut pada ringkasan karena pemohon membacanya dari daftar miliknya sendiri:
+   * rincian lengkap hanya terbuka bagi petugas, jadi tanpa kolom ini pemohon
+   * yang ditolak tidak pernah tahu apa yang perlu dilengkapinya.
+   */
+  rejectionReason?: string | null;
   dueAt: string;
   completedAt?: string | null;
   overdue: boolean;

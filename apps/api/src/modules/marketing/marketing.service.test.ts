@@ -120,6 +120,7 @@ describe('Marketing Service', () => {
       expect(prisma.registrant.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
+            consentWithdrawnAt: null,
             status: {
               in: ['REGISTERED', 'DOCUMENT_CHECK', 'TEST_SCHEDULED', 'TEST_COMPLETED'],
             },
@@ -143,7 +144,10 @@ describe('Marketing Service', () => {
       expect(prisma.marketingInteraction.findMany).toHaveBeenCalledWith({
         where: expect.objectContaining({
           nextActionDate: { gte: expect.any(Date) },
-          registrant: { admissionPeriod: { unitId: 'unit-1' } },
+          registrant: expect.objectContaining({
+            consentWithdrawnAt: null,
+            admissionPeriod: { unitId: 'unit-1' },
+          }),
         }),
         orderBy: { nextActionDate: 'asc' },
         take: 5,

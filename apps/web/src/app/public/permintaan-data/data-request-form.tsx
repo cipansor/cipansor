@@ -37,7 +37,6 @@ import { dirFor, type Locale } from "@/locales";
 import { dateFormatterFor } from "@/lib/locale-format";
 import {
   DATA_SUBJECT_REQUEST_TYPES,
-  DATA_SUBJECT_REQUEST_TYPE_LABELS,
   type DataSubjectRequestType,
   type PublicDataSubjectRequestCreatedDTO,
   type PublicDataSubjectRequestVerifiedDTO,
@@ -257,7 +256,7 @@ export function DataRequestForm({ locale }: { locale: Locale }) {
                         <SelectContent>
                           {DATA_SUBJECT_REQUEST_TYPES.map((value) => (
                             <SelectItem key={value} value={value}>
-                              {DATA_SUBJECT_REQUEST_TYPE_LABELS[value]}
+                              {t.form.typeLabels[value]}
                             </SelectItem>
                           ))}
                         </SelectContent>

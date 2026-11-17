@@ -143,8 +143,18 @@ export const getDashboardStats = async (unitId?: string) => {
   };
 };
 
+/**
+ * Pendaftar yang persetujuannya masih berlaku.
+ *
+ * Penarikan persetujuan (UU PDP 27/2022 Pasal 40) berarti pemrosesan
+ * pemasaran harus benar-benar berhenti — bukan sekadar dicatat waktunya. Baris
+ * pendaftar yang sudah menarik persetujuannya tidak boleh lagi muncul sebagai
+ * prospek atau kontak tindak lanjut.
+ */
+const marketingConsentHeld: Prisma.RegistrantWhereInput = { consentWithdrawnAt: null };
+
 export const getRecentLeads = async (unitId?: string, limit: number = 5) => {
-  const where: Prisma.RegistrantWhereInput = {};
+  const where: Prisma.RegistrantWhereInput = { ...marketingConsentHeld };
   if (unitId) {
     where.admissionPeriod = { unitId };
   }
@@ -168,6 +178,7 @@ export const getRecentLeads = async (unitId?: string, limit: number = 5) => {
 
 export const getHighPriorityLeads = async (unitId?: string, limit: number = 10) => {
   const where: Prisma.RegistrantWhereInput = {
+    ...marketingConsentHeld,
     // Leads still in the admission funnel (not yet accepted/rejected/enrolled)
     status: {
       in: [
@@ -219,7 +230,7 @@ export const getHighPriorityLeads = async (unitId?: string, limit: number = 10) 
 };
 
 export const getUpcomingFollowUps = async (unitId?: string, limit: number = 5) => {
-  const whereRegistrant: Prisma.RegistrantWhereInput = {};
+  const whereRegistrant: Prisma.RegistrantWhereInput = { ...marketingConsentHeld };
   if (unitId) {
     whereRegistrant.admissionPeriod = { unitId };
   }

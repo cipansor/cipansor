@@ -1,9 +1,11 @@
 import crypto from 'crypto';
+import fs from 'fs/promises';
 import { Prisma, type DataSubjectRequest } from '@prisma/client';
 import { prisma } from '@/lib/prisma';
 import { logger } from '@/lib/logger';
 import { Errors } from '@/middleware/error';
 import { notificationService } from '@/modules/notifications';
+import { uploadPathFromUrl } from '@/utils/letter-uploaded-file';
 import {
   DATA_SUBJECT_REQUEST_DUE_HOURS,
   DATA_SUBJECT_REQUEST_ERASURE_DEFAULT_DAYS,
@@ -53,6 +55,11 @@ type DsrWithRelations = Prisma.DataSubjectRequestGetPayload<{ include: typeof DS
 
 /** Status yang mengakhiri alur; pengingat tenggat berhenti di sini. */
 const CLOSED_STATUSES = ['COMPLETED', 'REJECTED'] as const;
+
+/** Apakah sebuah status menutup alur — dipakai penyaring daftar dan penutupan. */
+function isClosed(status: string): boolean {
+  return (CLOSED_STATUSES as readonly string[]).includes(status);
+}
 
 /**
  * Tenggat pemenuhan untuk satu jenis permintaan.
@@ -136,28 +143,6 @@ export function maskContact(contact: string): string {
   return `${'•'.repeat(trimmed.length - 4)}${trimmed.slice(-4)}`;
 }
 
-/** Label subjek yang disimpan pada baris, mis. `"Ahmad Fauzi (NIS 2024001)"`. */
-function buildSubjectLabel(row: {
-  subjectCategory: string;
-  subjectStudent?: { nis: string; user: { name: string } } | null;
-  subjectRegistrant?: { fullName: string; name: string; registrationNo: string } | null;
-  subjectUser?: { name: string; email: string } | null;
-}): string {
-  if (row.subjectCategory === 'STUDENT' && row.subjectStudent) {
-    return `${row.subjectStudent.user.name} (NIS ${row.subjectStudent.nis})`;
-  }
-  if (row.subjectCategory === 'REGISTRANT' && row.subjectRegistrant) {
-    const name = row.subjectRegistrant.fullName || row.subjectRegistrant.name;
-    return `${name} (No. ${row.subjectRegistrant.registrationNo})`;
-  }
-  if (row.subjectCategory === 'GUARDIAN' && row.subjectUser) {
-    return `${row.subjectUser.name} (${row.subjectUser.email})`;
-  }
-  // Subjek sudah dihapus, atau label dibangun dari data yang tidak lengkap.
-  // Penanda tanpa data pribadi, bukan galat: barisnya tetap harus terbaca.
-  return 'Subjek tidak lagi tersedia';
-}
-
 function readActions(row: { actions: Prisma.JsonValue }): DataSubjectRequestAction[] {
   const raw = row.actions;
   if (!Array.isArray(raw)) return [];
@@ -165,8 +150,7 @@ function readActions(row: { actions: Prisma.JsonValue }): DataSubjectRequestActi
 }
 
 function toDTO(row: DsrWithRelations, now: Date = new Date()): DataSubjectRequestDTO {
-  const overdue =
-    !CLOSED_STATUSES.includes(row.status as (typeof CLOSED_STATUSES)[number]) && row.dueAt < now;
+  const overdue = !isClosed(row.status) && row.dueAt < now;
   return {
     id: row.id,
     requestNo: row.requestNo,
@@ -191,8 +175,7 @@ function toDTO(row: DsrWithRelations, now: Date = new Date()): DataSubjectReques
 }
 
 function toSummaryDTO(row: DsrWithRelations, now: Date = new Date()): DataSubjectRequestSummaryDTO {
-  const overdue =
-    !CLOSED_STATUSES.includes(row.status as (typeof CLOSED_STATUSES)[number]) && row.dueAt < now;
+  const overdue = !isClosed(row.status) && row.dueAt < now;
   return {
     id: row.id,
     requestNo: row.requestNo,
@@ -201,6 +184,7 @@ function toSummaryDTO(row: DsrWithRelations, now: Date = new Date()): DataSubjec
     subjectCategory: row.subjectCategory,
     subjectLabel: row.subjectLabel,
     requesterName: row.requesterName,
+    rejectionReason: row.rejectionReason ?? null,
     dueAt: row.dueAt.toISOString(),
     completedAt: row.completedAt?.toISOString() ?? null,
     overdue,
@@ -257,54 +241,17 @@ async function assertCanActForStudent(
 }
 
 /**
- * Cocokkan pendaftar SPMB dengan pemohon.
+ * Nama petugas untuk riwayat tindakan.
  *
- * Yang dicocokkan adalah kontak yang SUDAH ada pada baris pendaftaran, bukan
- * kontak yang dituliskan pemohon — kontak yang dituliskan pemohon justru yang
- * sedang diragukan. Untuk permintaan publik faktor keduanya adalah tanggal
- * lahir (lihat `submitPublicRequest`); di sini, untuk pemohon yang sudah punya
- * akun, kecocokan email atau telepon sudah cukup untuk menentukan pendaftaran
- * mana yang dimaksud.
+ * Dibaca di layanan, bukan di controller: controller hanya membawa identitas
+ * sesi, dan satu-satunya lapisan yang menyentuh Prisma adalah layanan
+ * (`apps/api/AGENTS.md`). Nama adalah bagian dari bukti tindakan, jadi ia tetap
+ * tercatat meskipun penggunanya sudah tidak ada — karena itu ada pengganti yang
+ * dapat dibaca, bukan string kosong.
  */
-async function resolveRegistrantForUser(
-  registrantId: string,
-  actorUserId: string,
-  hasPdpPermission: boolean
-) {
-  const registrant = await prisma.registrant.findUnique({
-    where: { id: registrantId },
-    select: {
-      id: true,
-      registrationNo: true,
-      fullName: true,
-      name: true,
-      email: true,
-      phone: true,
-      parentEmail: true,
-      parentPhone: true,
-      studentId: true,
-    },
-  });
-  if (!registrant) throw Errors.notFound('Pendaftar');
-
-  if (!hasPdpPermission) {
-    const user = await prisma.user.findUnique({
-      where: { id: actorUserId },
-      select: { email: true, phone: true },
-    });
-    const contacts = [user?.email, user?.phone].filter(Boolean) as string[];
-    const onFile = [
-      registrant.email,
-      registrant.phone,
-      registrant.parentEmail,
-      registrant.parentPhone,
-    ].filter(Boolean) as string[];
-    if (!contacts.some((c) => onFile.includes(c))) {
-      throw Errors.forbidden('Pendaftaran ini tidak terhubung dengan akun Anda');
-    }
-  }
-
-  return registrant;
+export async function resolveActorName(userId: string): Promise<string> {
+  const user = await prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
+  return user?.name ?? 'Petugas';
 }
 
 /**
@@ -473,7 +420,19 @@ export async function submitPublicRequest(
     });
   });
 
-  await sendVerificationCode(contact, code, created.requestNo);
+  const delivered = await sendVerificationCode(contact, code, created.requestNo);
+  if (!delivered) {
+    // Baris yang dibuat dibuang kembali: permintaan tanpa kode yang terkirim
+    // adalah permintaan yang tidak dapat diverifikasi siapa pun, dan
+    // membiarkannya berarti keluarga melihat "kode terkirim" sementara tidak
+    // ada kode yang pernah tiba. Pemohon mengulang dari awal, dengan kontak
+    // terdaftar yang benar-benar dapat dijangkau.
+    await prisma.dataSubjectRequest.deleteMany({ where: { requestNo: created.requestNo } });
+    throw Errors.validation(
+      'Kode verifikasi tidak dapat dikirim ke kontak yang terdaftar pada data pendaftaran. ' +
+        'Coba lagi sebentar lagi, atau hubungi panitia SPMB untuk memperbarui kontaknya.'
+    );
+  }
 
   return {
     requestNo: created.requestNo,
@@ -488,80 +447,93 @@ export async function submitPublicRequest(
  * Percobaan dibatasi dan dihitung pada baris: tanpa batas, enam angka dapat
  * ditebak dengan mencoba terus, dan verifikasi yang dapat ditebak sama saja
  * dengan tidak ada verifikasi — justru ia yang membuka data anak orang lain.
- * Hitungannya naik SEBELUM kode dibandingkan, sehingga percobaan yang gagal
- * karena galat lain pun tetap tercatat.
+ *
+ * **Hitungannya naik secara atomik, di dalam transaksi, di bawah kunci baris.**
+ * Menghitung dari nilai yang dibaca sebelum transaksi membuat percobaan yang
+ * berjalan bersamaan sama-sama melihat angka lama dan menulis angka yang sama:
+ * lima percobaan menjadi lima kali lebih banyak, dan batasnya hanya berlaku
+ * bagi penyerang yang mencoba satu per satu. `FOR UPDATE` menyerialkan
+ * pembacaan dan penulisan, sehingga setiap percobaan benar-benar menambah satu.
  */
 export async function verifyPublicRequest(
   input: VerifyPublicDataSubjectRequestInput
 ): Promise<PublicDataSubjectRequestVerifiedDTO> {
   const now = new Date();
-  const row = await prisma.dataSubjectRequest.findUnique({
-    where: { requestNo: input.requestNo },
-    select: {
-      id: true,
-      requestNo: true,
-      status: true,
-      dueAt: true,
-      type: true,
-      verificationCodeHash: true,
-      verificationExpiresAt: true,
-      verificationAttempts: true,
-      actions: true,
-    },
-  });
 
   const invalid = Errors.validation('Kode verifikasi tidak berlaku', [
     { field: 'code', message: 'Kode verifikasi salah atau sudah kedaluwarsa' },
   ]);
-  if (!row || !row.verificationCodeHash) throw invalid;
-  if (row.status !== 'RECEIVED') throw invalid;
-  if (!row.verificationExpiresAt || row.verificationExpiresAt < now) throw invalid;
-  if (row.verificationAttempts >= DATA_SUBJECT_VERIFICATION_MAX_ATTEMPTS) {
-    throw Errors.forbidden(
-      'Batas percobaan verifikasi tercapai. Hubungi petugas pelindungan data pribadi.'
-    );
-  }
 
-  const attempts = row.verificationAttempts + 1;
-  const ok = codeMatches(input.code, row.verificationCodeHash);
+  return prisma.$transaction(async (tx) => {
+    // Kunci barisnya lebih dulu: `$executeRaw` karena kunci mengembalikan
+    // `void`, yang tidak dapat dideserialkan `$queryRaw`.
+    await tx.$executeRaw`SELECT id FROM data_subject_requests WHERE request_no = ${input.requestNo} FOR UPDATE`;
 
-  if (!ok) {
-    await prisma.dataSubjectRequest.update({
-      where: { id: row.id },
-      data: { verificationAttempts: attempts },
+    const row = await tx.dataSubjectRequest.findUnique({
+      where: { requestNo: input.requestNo },
+      select: {
+        id: true,
+        requestNo: true,
+        status: true,
+        dueAt: true,
+        type: true,
+        verificationCodeHash: true,
+        verificationExpiresAt: true,
+        verificationAttempts: true,
+        actions: true,
+      },
     });
-    throw invalid;
-  }
 
-  const actions = readActions(row as { actions: Prisma.JsonValue });
-  actions.push({
-    at: now.toISOString(),
-    byId: null,
-    byName: 'Pemohon (verifikasi mandiri)',
-    from: 'RECEIVED',
-    to: 'VERIFIED',
+    if (!row || !row.verificationCodeHash) throw invalid;
+    if (row.status !== 'RECEIVED') throw invalid;
+    if (!row.verificationExpiresAt || row.verificationExpiresAt < now) throw invalid;
+    if (row.verificationAttempts >= DATA_SUBJECT_VERIFICATION_MAX_ATTEMPTS) {
+      throw Errors.forbidden(
+        'Batas percobaan verifikasi tercapai. Hubungi petugas pelindungan data pribadi.'
+      );
+    }
+
+    const attempts = row.verificationAttempts + 1;
+    const ok = codeMatches(input.code, row.verificationCodeHash);
+
+    if (!ok) {
+      await tx.dataSubjectRequest.update({
+        where: { id: row.id },
+        data: { verificationAttempts: attempts },
+      });
+      throw invalid;
+    }
+
+    const actions = readActions(row as { actions: Prisma.JsonValue });
+    actions.push({
+      at: now.toISOString(),
+      byId: null,
+      byName: 'Pemohon (verifikasi mandiri)',
+      from: 'RECEIVED',
+      to: 'VERIFIED',
+    });
+
+    const updated = await tx.dataSubjectRequest.update({
+      where: { id: row.id },
+      data: {
+        status: 'VERIFIED',
+        verifiedAt: now,
+        verificationAttempts: attempts,
+        // Kode dibuang setelah dipakai. Ia tidak punya kegunaan kedua, dan
+        // hash yang tertinggal hanya menambah satu rahasia untuk dijaga.
+        verificationCodeHash: null,
+        verificationExpiresAt: null,
+        actions: actions as unknown as Prisma.InputJsonValue,
+      },
+      select: { requestNo: true, status: true, dueAt: true },
+    });
+
+    return {
+      requestNo: updated.requestNo,
+      status: updated.status,
+      dueAt: updated.dueAt.toISOString(),
+    };
   });
-
-  const updated = await prisma.dataSubjectRequest.update({
-    where: { id: row.id },
-    data: {
-      status: 'VERIFIED',
-      verifiedAt: now,
-      verificationAttempts: attempts,
-      // Kode dibuang setelah dipakai. Ia tidak punya kegunaan kedua, dan
-      // hash yang tertinggal hanya menambah satu rahasia untuk dijaga.
-      verificationCodeHash: null,
-      verificationExpiresAt: null,
-      actions: actions as unknown as Prisma.InputJsonValue,
-    },
-    select: { requestNo: true, status: true, dueAt: true },
-  });
-
-  return {
-    requestNo: updated.requestNo,
-    status: updated.status,
-    dueAt: updated.dueAt.toISOString(),
-  };
 }
 
 /** Daftar untuk petugas pelindungan data pribadi. */
@@ -571,12 +543,27 @@ export async function listRequests(query: ListDataSubjectRequestsQuery): Promise
 }> {
   const now = new Date();
   const where: Prisma.DataSubjectRequestWhereInput = {};
-  if (query.status) where.status = query.status;
+  // Penyaring saling MEMBATASI (AND), bukan saling menggantikan. Sebelumnya
+  // `openOnly` menimpa `status` yang dipilih petugas, sehingga memilih
+  // "Diterima" tetap menampilkan "Diproses" — dan memilih "Selesai" malah
+  // menampilkan permintaan terbuka.
   if (query.type) where.type = query.type;
   if (query.subjectCategory) where.subjectCategory = query.subjectCategory;
-  if (query.openOnly) where.status = { notIn: [...CLOSED_STATUSES] };
-  if (query.overdueOnly) {
+
+  // Status: penyaring yang dipilih petugaslah yang berlaku. "Hanya yang belum
+  // selesai" dan "terlambat" hanya MEMBATASI pilihannya — memilih status
+  // terminal bersamanya berarti irisannya kosong, bukan daftar yang membantah
+  // penyaringnya.
+  if (query.status) {
+    where.status = query.openOnly && isClosed(query.status) ? { in: [] } : query.status;
+  } else if (query.openOnly || query.overdueOnly) {
+    // Tanpa status yang dipilih, kedua penyaring itu menyiratkan "belum
+    // selesai": permintaan yang sudah ditutup bukan lagi pekerjaan yang
+    // menunggu, dan yang terlambat pun hanya bermakna selama masih terbuka.
     where.status = { notIn: [...CLOSED_STATUSES] };
+  }
+
+  if (query.overdueOnly) {
     where.dueAt = { lt: now };
   }
 
@@ -622,6 +609,21 @@ export async function listMyRequests(userId: string): Promise<DataSubjectRequest
  * dijalankan saat menutup bergantung jenisnya: penarikan persetujuan benar-benar
  * menghentikan pemrosesan, penghapusan benar-benar menghapus apa yang boleh
  * dihapus, dan akses menghasilkan salinan data yang diserahkan ke pemohon.
+ *
+ * **Dua penjaga yang tidak boleh hilang.**
+ *
+ * 1. *Permintaan publik harus terverifikasi lebih dahulu.* Efek samping
+ *    menutup — menghapus identitas, menyerahkan salinan data — tidak boleh
+ *    berjalan atas permintaan yang kepemilikan kontaknya belum terbukti.
+ *    Pemeriksaan status terminal saja tidak menutup itu: `RECEIVED` bukan
+ *    status terminal, jadi permintaan anonim dapat dieksekusi. `verifiedAt`
+ *    yang menjadi syaratnya (Pasal 33).
+ * 2. *Barisnya dikunci dan dibaca ulang di dalam transaksi.* Membaca status dan
+ *    riwayat sebelum transaksi membuat dua petugas yang menutup bersamaan
+ *    sama-sama melihat `PROCESSING`, lalu masing-masing menulis array
+ *    penggantinya: penutupan yang sudah berhasil tertimpa, atau riwayat
+ *    tindakan pertama hilang. `FOR UPDATE` menyerialkan keduanya, sehingga yang
+ *    kedua melihat status yang sudah berubah dan ditolak sebagai konflik.
  */
 export async function updateStatus(
   id: string,
@@ -629,57 +631,81 @@ export async function updateStatus(
   actor: { userId: string; name: string }
 ): Promise<{ request: DataSubjectRequestDTO; exportPayload?: unknown }> {
   const now = new Date();
-  const existing = await prisma.dataSubjectRequest.findUnique({
-    where: { id },
-    include: DSR_INCLUDE,
-  });
-  if (!existing) throw Errors.notFound('Permintaan');
-
-  if (CLOSED_STATUSES.includes(existing.status as (typeof CLOSED_STATUSES)[number])) {
-    throw Errors.conflict('Permintaan ini sudah selesai dan tidak dapat diubah lagi');
-  }
-
-  const actions = readActions(existing);
-  actions.push({
-    at: now.toISOString(),
-    byId: actor.userId,
-    byName: actor.name,
-    from: existing.status,
-    to: input.status,
-    note: input.note,
-  });
-
   let exportPayload: unknown;
 
-  const updated = await prisma.$transaction(async (tx) => {
+  const { updated, filesToDelete } = await prisma.$transaction(async (tx) => {
+    // Kunci barisnya lebih dulu. `$executeRaw` (bukan `$queryRaw`): kunci
+    // mengembalikan `void`, yang tidak dapat dideserialkan `$queryRaw`.
+    await tx.$executeRaw`SELECT id FROM data_subject_requests WHERE id = ${id} FOR UPDATE`;
+
+    const existing = await tx.dataSubjectRequest.findUnique({
+      where: { id },
+      include: DSR_INCLUDE,
+    });
+    if (!existing) throw Errors.notFound('Permintaan');
+
+    if (isClosed(existing.status)) {
+      throw Errors.conflict('Permintaan ini sudah selesai dan tidak dapat diubah lagi');
+    }
+
+    // Permintaan publik belum membuktikan siapa pemohonnya sampai kode yang
+    // dikirim ke kontak terdaftar diverifikasi.
+    if (!existing.requesterUserId && !existing.verifiedAt && input.status === 'COMPLETED') {
+      throw Errors.conflict(
+        'Permintaan publik harus diverifikasi lebih dahulu sebelum dapat diselesaikan'
+      );
+    }
+
+    const actions = readActions(existing);
+    actions.push({
+      at: now.toISOString(),
+      byId: actor.userId,
+      byName: actor.name,
+      from: existing.status,
+      to: input.status,
+      note: input.note,
+    });
+
+    let erasedFiles: string[] = [];
     if (input.status === 'COMPLETED') {
       if (existing.type === 'CONSENT_WITHDRAWAL') {
         await withdrawConsent(tx, existing, now);
       }
       if (existing.type === 'ERASURE') {
-        await executeErasure(tx, existing, actor, now);
+        erasedFiles = await executeErasure(tx, existing, actor, now);
       }
       if (existing.type === 'ACCESS') {
         exportPayload = await buildSubjectDataExport(existing);
       }
     }
 
-    return tx.dataSubjectRequest.update({
+    const row = await tx.dataSubjectRequest.update({
       where: { id },
       data: {
         status: input.status,
         rejectionReason: input.status === 'REJECTED' ? (input.note ?? null) : null,
-        completedAt: CLOSED_STATUSES.includes(input.status as (typeof CLOSED_STATUSES)[number])
-          ? now
-          : null,
+        completedAt: isClosed(input.status) ? now : null,
         handledById: input.handledById ?? existing.handledById ?? actor.userId,
         actions: actions as unknown as Prisma.InputJsonValue,
       },
       include: DSR_INCLUDE,
     });
+
+    return { updated: row, filesToDelete: erasedFiles };
   });
 
-  await notifyRequester(updated, `Permintaan ${updated.requestNo} kini ${input.status}`);
+  // Berkas dihapus SETELAH transaksi dikukuhkan: menghapus berkas tidak dapat
+  // dibatalkan, jadi ia tidak boleh berjalan di dalam transaksi yang mungkin
+  // gagal dan meninggalkan baris yang masih menunjuk berkas yang sudah lenyap.
+  if (filesToDelete.length) {
+    await deleteStoredFiles(filesToDelete, updated.requestNo);
+  }
+
+  await notifyRequester(
+    updated,
+    `Permintaan ${updated.requestNo} kini ${input.status}`,
+    input.status === 'REJECTED' ? (input.note ?? null) : null
+  );
   return { request: toDTO(updated, now), exportPayload };
 }
 
@@ -724,20 +750,34 @@ async function withdrawConsent(
  * menghapus barisnya akan menghapus riwayat nilai, pembayaran, dan kehadiran
  * yang bukan milik pemohon untuk diputuskan. Yang hilang adalah kemampuan
  * menghubungkan baris itu dengan orangnya: nama, alamat, kontak, foto, NISN,
- * dan berkas identitas.
+ * **NIK/KK/akta, dan identitas ayah, ibu, serta wali** — semuanya kolom
+ * terpisah pada `Student`, sehingga mengosongkan nama saja meninggalkan orang
+ * yang masih dapat dikenali lewat nomor identitasnya.
+ *
+ * **Berkasnya ikut dihapus, bukan hanya URL-nya.** Mengosongkan `photoUrl` atau
+ * `fileUrl` menghentikan penunjuknya, tetapi berkasnya tetap ada di
+ * `public/uploads` — dan `/uploads` menyajikannya kepada setiap akun yang sudah
+ * masuk (`uploadsAuth` adalah autentikasi, bukan otorisasi). Siapa pun yang
+ * menyimpan URL lama masih dapat mengambilnya. Karena itu jalur berkasnya
+ * dikembalikan ke pemanggil untuk dihapus setelah transaksi ini dikukuhkan:
+ * penghapusan berkas tidak dapat dibatalkan, jadi ia tidak boleh berjalan di
+ * dalam transaksi yang mungkin gagal.
  *
  * Batas ini dicatat pada tindakan, dengan kata-kata, supaya keputusan itu
  * dapat diperiksa — bukan tersembunyi sebagai perilaku yang kebetulan.
+ *
+ * @returns URL berkas yang harus dihapus dari penyimpanan setelah commit.
  */
 async function executeErasure(
   tx: Prisma.TransactionClient,
   request: DsrWithRelations,
   actor: { userId: string; name: string },
   now: Date
-): Promise<void> {
+): Promise<string[]> {
   const marker = `Data dihapus (UU PDP, ${request.requestNo})`;
   const erased: string[] = [];
   const retained: string[] = [];
+  const filesToDelete: string[] = [];
 
   if (request.subjectStudentId) {
     const student = await tx.student.findUnique({
@@ -745,6 +785,7 @@ async function executeErasure(
       select: { id: true, userId: true, photoUrl: true },
     });
     if (student) {
+      if (student.photoUrl) filesToDelete.push(student.photoUrl);
       await tx.student.update({
         where: { id: student.id },
         data: {
@@ -752,11 +793,39 @@ async function executeErasure(
           parentName: marker,
           parentPhone: marker,
           parentEmail: null,
+          birthPlace: marker,
           photoUrl: null,
           // NISN unik nasional dan tidak dapat dipertahankan sebagai penanda:
           // dua penghapusan akan bertabrakan. NIS dipertahankan karena rapor
           // dan buku induk menunjuknya, dan ia hanya unik per unit.
           nisn: null,
+          // Nomor identitas: NIK, KK, akta. Masing-masing kolom tersendiri, dan
+          // masing-masing cukup untuk mengenali anaknya kembali.
+          nik: null,
+          noKK: null,
+          noAkta: null,
+          // Identitas ayah, ibu, dan wali — nama maupun nomor identitasnya.
+          fatherName: null,
+          fatherNik: null,
+          fatherBirthPlace: null,
+          fatherBirthDate: null,
+          fatherPhone: null,
+          motherName: null,
+          motherNik: null,
+          motherBirthPlace: null,
+          motherBirthDate: null,
+          motherPhone: null,
+          guardianName: null,
+          guardianNik: null,
+          guardianRelation: null,
+          guardianPhone: null,
+          // Alamat rinci dan data kesejahteraan yang menunjuk rumah tangganya.
+          rt: null,
+          rw: null,
+          postalCode: null,
+          kipNumber: null,
+          specialNeeds: null,
+          livingWith: null,
         },
       });
       await tx.user.update({
@@ -771,7 +840,19 @@ async function executeErasure(
           deletedAt: now,
         },
       });
-      erased.push('identitas santri', 'identitas akun', 'foto', 'NISN');
+      erased.push(
+        'identitas santri',
+        'NIK',
+        'nomor KK',
+        'nomor akta',
+        'identitas ayah',
+        'identitas ibu',
+        'identitas wali',
+        'alamat',
+        'identitas akun',
+        'foto',
+        'NISN'
+      );
       retained.push('NIS', 'nilai', 'kehadiran', 'keuangan', 'riwayat unit');
     }
   }
@@ -795,8 +876,15 @@ async function executeErasure(
     });
     // Berkas identitas pendaftar (KTP/KK/akta) tidak punya kegunaan setelah
     // pendaftarannya tidak lagi dihubungkan dengan orangnya. Berkasnya
-    // dihapus; barisnya dipertahankan tanpa `fileUrl` supaya riwayat unggahan
-    // tetap terbaca.
+    // dihapus dari penyimpanan; barisnya dipertahankan tanpa `fileUrl` supaya
+    // riwayat unggahan tetap terbaca.
+    const documents = await tx.registrantDocument.findMany({
+      where: { registrantId: request.subjectRegistrantId },
+      select: { fileUrl: true },
+    });
+    for (const doc of documents) {
+      if (doc.fileUrl) filesToDelete.push(doc.fileUrl);
+    }
     await tx.registrantDocument.updateMany({
       where: { registrantId: request.subjectRegistrantId },
       data: { fileUrl: null, notes: null },
@@ -834,7 +922,12 @@ async function executeErasure(
       action: 'ERASURE',
       entity: 'DataSubjectRequest',
       entityId: request.id,
-      newValues: { erased, retained, executedAt: now.toISOString() } as Prisma.InputJsonValue,
+      newValues: {
+        erased,
+        retained,
+        filesDeleted: filesToDelete.length,
+        executedAt: now.toISOString(),
+      } as Prisma.InputJsonValue,
     },
   });
 
@@ -842,8 +935,37 @@ async function executeErasure(
     requestNo: request.requestNo,
     erased,
     retained,
+    filesToDelete: filesToDelete.length,
     byUserId: actor.userId,
   });
+
+  return filesToDelete;
+}
+
+/**
+ * Hapus berkas unggahan yang ditunjuk sebuah URL, setelah transaksinya
+ * dikukuhkan.
+ *
+ * Hanya jalur di dalam direktori unggahan yang pernah disentuh
+ * (`uploadPathFromUrl` menolak yang lain), dan kegagalannya dicatat tanpa
+ * membatalkan penghapusan yang sudah tercatat: barisnya sudah tidak menunjuk
+ * berkasnya lagi, dan berkas yatim yang tersisa adalah temuan yang harus
+ * terlihat, bukan galat yang harus menyembunyikan keberhasilan penghapusan.
+ */
+async function deleteStoredFiles(fileUrls: string[], requestNo: string): Promise<void> {
+  for (const url of fileUrls) {
+    const filePath = uploadPathFromUrl(url);
+    if (!filePath) continue;
+    try {
+      await fs.unlink(filePath);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;
+      logger.warn('[PDP] Berkas identitas gagal dihapus dari penyimpanan', {
+        requestNo,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
 }
 
 /**
@@ -1017,9 +1139,14 @@ async function notifyRequester(
     requesterContact: string;
     type: string;
   },
-  title: string
+  title: string,
+  rejectionReason: string | null = null
 ): Promise<void> {
-  const message = `Permintaan ${DATA_SUBJECT_REQUEST_TYPE_LABELS[request.type as DataSubjectRequestType] ?? request.type} dengan nomor ${request.requestNo}.`;
+  const base = `Permintaan ${DATA_SUBJECT_REQUEST_TYPE_LABELS[request.type as DataSubjectRequestType] ?? request.type} dengan nomor ${request.requestNo}.`;
+  // Alasan penolakan ikut dikirim: Pasal 33 mengizinkan penolakan, tetapi
+  // pemohon yang hanya tahu "ditolak" tidak dapat memperbaiki apa pun. Ia
+  // ditulis di sini, bukan hanya disimpan untuk petugas.
+  const message = rejectionReason ? `${base} Alasan: ${rejectionReason}` : base;
   try {
     if (request.requesterUserId) {
       await notificationService.send({
@@ -1049,15 +1176,24 @@ async function notifyRequester(
   }
 }
 
-/** Kirim kode verifikasi ke kontak yang sudah terdaftar pada data subjek. */
+/**
+ * Kirim kode verifikasi ke kontak yang sudah terdaftar pada data subjek.
+ *
+ * Mengembalikan `true` bila pengirimannya benar-benar berhasil. Ini bukan
+ * formalitas: `notificationService.send` mengembalikan `success: false` alih-alih
+ * melempar, sehingga `try/catch` saja melewatkan penolakan transport — dan
+ * formulir yang menyatakan "kode terkirim" kepada keluarga yang tidak pernah
+ * menerimanya meninggalkan mereka tanpa cara memverifikasi. Pemanggil memakai
+ * hasil ini untuk memilih: laporkan tujuan pengiriman, atau minta kontak lain.
+ */
 async function sendVerificationCode(
   contact: string,
   code: string,
   requestNo: string
-): Promise<void> {
+): Promise<boolean> {
   const channel = contact.includes('@') ? 'EMAIL' : 'WHATSAPP';
   try {
-    await notificationService.send({
+    const result = await notificationService.send({
       channel,
       recipientEmail: channel === 'EMAIL' ? contact : undefined,
       recipientPhone: channel === 'WHATSAPP' ? contact : undefined,
@@ -1066,11 +1202,13 @@ async function sendVerificationCode(
       title: 'Kode verifikasi permintaan data pribadi',
       message: `Kode verifikasi Anda: ${code}. Berlaku ${DATA_SUBJECT_VERIFICATION_TTL_MINUTES} menit. Jangan bagikan kode ini kepada siapa pun. Nomor permintaan: ${requestNo}.`,
     });
+    return result.success;
   } catch (error) {
     logger.error('[PDP] Kode verifikasi gagal dikirim', {
       requestNo,
       error: error instanceof Error ? error.message : String(error),
     });
+    return false;
   }
 }
 

@@ -228,19 +228,20 @@ export default function ParentDataRequestPage() {
                 <TableHead>Subjek</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Tenggat</TableHead>
+                <TableHead>Keterangan</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {mineLoading ? (
                 <TableRow>
-                  <TableCell colSpan={5}>
+                  <TableCell colSpan={6}>
                     <Skeleton className="h-4 w-full" />
                   </TableCell>
                 </TableRow>
               ) : (mine ?? []).length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={5}
+                    colSpan={6}
                     className="py-8 text-center text-muted-foreground"
                   >
                     Belum ada permintaan.
@@ -285,6 +286,9 @@ export default function ParentDataRequestPage() {
                         )}
                         {safeFormat(row.dueAt, "d MMM yyyy HH:mm")}
                       </span>
+                    </TableCell>
+                    <TableCell className="text-sm text-muted-foreground">
+                      {row.rejectionReason ?? "—"}
                     </TableCell>
                   </TableRow>
                 ))

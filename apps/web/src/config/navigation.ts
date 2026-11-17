@@ -1805,23 +1805,30 @@ const adminNavigation: NavGroup[] = [
       },
     ],
   },
+];
+
+/**
+ * The work queue of the personal data protection officer (UU PDP 27/2022
+ * Pasal 30, 35, 40, 43).
+ *
+ * Gated by `permissions` rather than `roleCodes`, and that is the whole point:
+ * the officer is appointed by the foundation (Pasal 53) and may hold any role,
+ * so no role code can name them. The API gates the same endpoints on
+ * `PDP_MANAGE`; `withPermissionsHeld` in the sidebar hides this group — and
+ * drops it once empty — for everyone who does not hold it, so it appears only
+ * for the person actually appointed.
+ *
+ * It lives OUTSIDE `adminNavigation` and is appended to EVERY role's menu in
+ * `getNavigationForRoleCode`, because the appointment is independent of the
+ * role: a guru or a tata usaha staff member given `PDP_MANAGE` must get the
+ * link too, and a group that only exists in `adminNavigation` is unreachable
+ * for them — `withPermissionsHeld` can only remove items, never add a group
+ * that was never selected. It is deliberately NOT a child of Settings: every
+ * Settings child is SUPER_ADMIN only, and the guard test that keeps the
+ * Settings parent rendering as a plain link for unit admins relies on that.
+ */
+const pdpNavigation: NavGroup[] = [
   {
-    /**
-     * The work queue of the personal data protection officer (UU PDP 27/2022
-     * Pasal 30, 35, 40, 43).
-     *
-     * Its own group, gated by `permissions` rather than `roleCodes`, and that is
-     * the whole point: the officer is appointed by the foundation (Pasal 53)
-     * and may hold any role, so no role code can name them. The API gates the
-     * same endpoints on `PDP_MANAGE`; `withPermissionsHeld` in the sidebar hides
-     * this group — and drops it once empty — for everyone who does not hold it,
-     * so it appears only for the person actually appointed.
-     *
-     * Deliberately NOT a child of Settings: every Settings child is SUPER_ADMIN
-     * only, and the guard test that keeps the Settings parent rendering as a
-     * plain link for unit admins relies on that. An always-present child would
-     * turn it back into a collapsible button opening an empty panel.
-     */
     title: "Pelindungan Data",
     items: [
       {
@@ -2357,10 +2364,14 @@ function filterNavItemsByRoleCode(
 }
 
 /**
- * Get navigation for a specific role code
- * Uses the new RoleCode-based system
+ * The role's own menu, before the appointment-based groups are added.
+ *
+ * Split out so `getNavigationForRoleCode` can append the personal data
+ * protection group to EVERY role's menu: the officer is appointed, not
+ * appointed by role, so the group must be able to appear for a guru or a staff
+ * member exactly as it does for an admin.
  */
-export function getNavigationForRoleCode(roleCode: string): NavGroup[] {
+function baseNavigationForRoleCode(roleCode: string): NavGroup[] {
   if (!roleCode) return [];
 
   // Super Admin gets the admin navigation, less what is kept for other roles
@@ -2470,6 +2481,20 @@ export function getNavigationForRoleCode(roleCode: string): NavGroup[] {
       ],
     },
   ];
+}
+
+/**
+ * The menu a role code sees, with the appointment-based groups added.
+ *
+ * `Pelindungan Data` (PDP officer) rides on every role's menu and is filtered
+ * back out by `withPermissionsHeld` unless the person actually holds
+ * `PDP_MANAGE` — see `pdpNavigation`. It is appended here rather than placed in
+ * `adminNavigation` because a permission an admin menu happens to contain is
+ * invisible to a guru or a staff member who holds it.
+ */
+export function getNavigationForRoleCode(roleCode: string): NavGroup[] {
+  if (!roleCode) return [];
+  return [...baseNavigationForRoleCode(roleCode), ...pdpNavigation];
 }
 
 /**
