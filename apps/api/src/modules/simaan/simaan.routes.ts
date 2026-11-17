@@ -48,7 +48,7 @@ const router: Router = Router();
  *         name: simaanType
  *         schema:
  *           type: string
- *           enum: [JUZ_AMMA, ONE_JUZ, FIVE_JUZ, TEN_JUZ, FULL_QURAN]
+ *           enum: [BIN_NAZHR, BIL_GHAIB, TAHDIR, TASMI, KHATAM]
  *       - in: query
  *         name: passed
  *         schema:

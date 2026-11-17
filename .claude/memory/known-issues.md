@@ -163,8 +163,8 @@ workers refused on a closed day. Still open:
   (Alumni page, answers "Alumni not found"; the route is `/alumni/events/list`),
   `GET /duty-roster/statistics` and `GET /extracurricular/achievements`
   (#1011 tightens `served()` and fixes them). A body the route's schema
-  refuses is not seen either: the simaan forms reach `PATCH /simaan/:id` and
-  `POST /simaan` and are refused with 400 (#1024).
+  refuses is not seen either (the simaan forms were refused with 400 this way
+  until #1024 unified their contract with the API).
 - **An extracurricular's members, attendance and achievements do not work**
   (found 2026-10-04; the extracurricular itself — create, edit, list,
   detail — was fixed in the same week). On the detail page the _Anggota_,

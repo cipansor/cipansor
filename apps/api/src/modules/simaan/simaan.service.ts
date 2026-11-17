@@ -1,5 +1,5 @@
 import { prisma } from '@/lib/prisma';
-import { Prisma, SimaanType } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { dayDate, wibDayOf } from '@/utils/wib';
 import { studentScope, type ScopeActor } from '@/utils/student-scope';
 import type {
@@ -50,7 +50,7 @@ export const simaanService = {
     if (studentId) where.studentId = studentId;
     if (enrollmentId) where.enrollmentId = enrollmentId;
     if (halaqohId) where.halaqohId = halaqohId;
-    if (simaanType) where.simaanType = simaanType as SimaanType;
+    if (simaanType) where.simaanType = simaanType;
     if (passed !== undefined) where.passed = passed;
 
     if (dateFrom || dateTo) {
@@ -149,7 +149,7 @@ export const simaanService = {
         studentId: data.studentId,
         enrollmentId: data.enrollmentId,
         halaqohId: data.halaqohId,
-        simaanType: data.simaanType as SimaanType,
+        simaanType: data.simaanType,
         examDate,
         sessionNumber: data.sessionNumber || 1,
         totalSessions: data.totalSessions || 1,
@@ -164,12 +164,10 @@ export const simaanService = {
         notes: data.notes,
         recommendations: data.recommendations,
         examiners:
-          data.examiners && data.examiners.length > 0
+          data.examinerIds && data.examinerIds.length > 0
             ? {
-                create: data.examiners.map((e) => ({
-                  examinerId: e.examinerId,
-                  score: e.score,
-                  notes: e.notes,
+                create: data.examinerIds.map((examinerId) => ({
+                  examinerId,
                 })),
               }
             : undefined,
@@ -194,8 +192,8 @@ export const simaanService = {
     const record = await prisma.simaanExam.update({
       where: { id },
       data: {
-        ...(data.simaanType && { simaanType: data.simaanType as SimaanType }),
-        ...(data.examDate && { examDate: new Date(data.examDate) }),
+        ...(data.simaanType && { simaanType: data.simaanType }),
+        ...(data.examDate && { examDate: dayDate(data.examDate) }),
         ...(data.sessionNumber !== undefined && { sessionNumber: data.sessionNumber }),
         ...(data.totalSessions !== undefined && { totalSessions: data.totalSessions }),
         ...(data.juzStart !== undefined && { juzStart: data.juzStart }),
@@ -317,7 +315,7 @@ export const simaanService = {
     }
 
     if (simaanType) {
-      where.simaanType = simaanType as SimaanType;
+      where.simaanType = simaanType;
     }
 
     const records = await prisma.simaanExam.findMany({

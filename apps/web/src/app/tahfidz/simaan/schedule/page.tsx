@@ -8,6 +8,7 @@ import {
   useSimaanExams,
   useUpcomingSimaan,
   SimaanExam,
+  SIMAAN_TYPES,
 } from "@/hooks/use-simaan";
 import { useClasses } from "@/hooks/use-classes";
 import {
@@ -49,14 +50,9 @@ import {
 import { id as idLocale } from "date-fns/locale";
 import { getEffectiveRole } from "@/lib/rbac";
 
-// Exam type labels
-const EXAM_TYPE_LABELS: Record<string, string> = {
-  JUZ_30: "Juz 30",
-  JUZ_1_15: "Juz 1-15",
-  JUZ_16_30: "Juz 16-30",
-  FULL_30_JUZ: "30 Juz",
-  CUSTOM: "Kustom",
-};
+// The values and Indonesian labels live in @cipansor/shared (#1024).
+const examTypeLabel = (type: string) =>
+  SIMAAN_TYPES.find((t) => t.value === type)?.label || type;
 
 // Status colors
 const STATUS_COLORS: Record<string, string> = {
@@ -217,8 +213,7 @@ export default function SimaanSchedulePage() {
                                 </p>
                                 <div className="flex items-center gap-2 mt-2">
                                   <Badge variant="outline">
-                                    {EXAM_TYPE_LABELS[exam.simaanType] ||
-                                      exam.simaanType}
+                                    {examTypeLabel(exam.simaanType)}
                                   </Badge>
                                   {exam.juzStart && exam.juzEnd && (
                                     <span className="text-sm text-muted-foreground">
@@ -311,7 +306,7 @@ export default function SimaanSchedulePage() {
                           {exam.student?.user?.name || "Santri"}
                         </h4>
                         <p className="text-sm text-muted-foreground">
-                          {EXAM_TYPE_LABELS[exam.simaanType] || exam.simaanType}
+                          {examTypeLabel(exam.simaanType)}
                           {/* {exam.location && ` • ${exam.location}`} */}
                         </p>
                       </div>

@@ -7,6 +7,7 @@ import { z } from "zod";
 import { format } from "date-fns";
 import { CalendarIcon } from "lucide-react";
 import { toast } from "sonner";
+import { SimaanTypeEnum, SimaanGradeEnum } from "@cipansor/shared";
 
 import { Button } from "@/components/ui/button";
 import {
@@ -52,22 +53,29 @@ import {
 } from "@/hooks/use-simaan";
 import { useUsers } from "@/hooks/use-users";
 
+/**
+ * The dialog edits a `SimaanExam` — the same fields the API's shared contract
+ * has (#1024). It used to send an ISO datetime, a `SIMAAN_TYPES` value the API
+ * did not have, and `grade: ""`; now the date is "yyyy-MM-dd", the type is the
+ * shared enum, and an empty grade is omitted on create and sent as `null` on
+ * update (to clear a value that is already there).
+ */
 const formSchema = z
   .object({
-    simaanType: z.string(),
+    simaanType: SimaanTypeEnum,
     examDate: z.date(),
-    sessionNumber: z.coerce.number().min(1),
-    totalSessions: z.coerce.number().min(1),
-    juzStart: z.coerce.number().min(1).max(30),
-    juzEnd: z.coerce.number().min(1).max(30),
+    sessionNumber: z.coerce.number().int().min(1),
+    totalSessions: z.coerce.number().int().min(1),
+    juzStart: z.coerce.number().int().min(1).max(30),
+    juzEnd: z.coerce.number().int().min(1).max(30),
     overallScore: z.coerce.number().min(0).max(100).optional(),
     tajwidScore: z.coerce.number().min(0).max(100).optional(),
     fashohaScore: z.coerce.number().min(0).max(100).optional(),
     tartilScore: z.coerce.number().min(0).max(100).optional(),
-    grade: z.string().optional(),
+    grade: SimaanGradeEnum.optional(),
     passed: z.boolean(),
-    notes: z.string().optional(),
-    recommendations: z.string().optional(),
+    notes: z.string().max(2000).optional(),
+    recommendations: z.string().max(2000).optional(),
   })
   .refine((data) => data.juzEnd >= data.juzStart, {
     message: "Juz Akhir harus lebih besar atau sama dengan Juz Awal",
@@ -107,7 +115,7 @@ export function SimaanFormDialog({
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      simaanType: initialData?.simaanType || "ONE_JUZ",
+      simaanType: initialData?.simaanType || "BIN_NAZHR",
       examDate: initialData?.examDate
         ? new Date(initialData.examDate)
         : new Date(),
@@ -119,7 +127,7 @@ export function SimaanFormDialog({
       tajwidScore: initialData?.tajwidScore,
       fashohaScore: initialData?.fashohaScore,
       tartilScore: initialData?.tartilScore,
-      grade: initialData?.grade || "",
+      grade: initialData?.grade,
       passed: initialData?.passed || false,
       notes: initialData?.notes || "",
       recommendations: initialData?.recommendations || "",
@@ -128,12 +136,16 @@ export function SimaanFormDialog({
 
   const onSubmit = async (values: z.infer<typeof formSchema>) => {
     try {
+      // An empty grade is omitted on create and sent as `null` on update, so
+      // the shared contract never sees `""` (which it would reject).
+      const grade = values.grade ?? undefined;
       if (initialData) {
         await updateSimaan.mutateAsync({
           id: initialData.id,
           data: {
             ...values,
-            examDate: values.examDate.toISOString(),
+            examDate: format(values.examDate, "yyyy-MM-dd"),
+            grade: grade ?? null,
           },
         });
         toast.success("Data simaan berhasil diperbarui");
@@ -143,7 +155,8 @@ export function SimaanFormDialog({
           enrollmentId,
           halaqohId,
           ...values,
-          examDate: values.examDate.toISOString(),
+          examDate: format(values.examDate, "yyyy-MM-dd"),
+          grade,
           examinerIds: [],
         });
         toast.success("Jadwal simaan berhasil dibuat");

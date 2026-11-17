@@ -1,38 +1,43 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import {
+  SIMAAN_GRADE_VALUES,
+  SIMAAN_GRADE_LABELS,
+  SIMAAN_TYPE_VALUES,
+  SIMAAN_TYPE_LABELS,
+  SIMAAN_TYPES,
+  type CreateSimaanInput,
+  type SimaanGradeCode,
+  type SimaanTypeCode,
+  type UpdateSimaanInput,
+} from "@cipansor/shared";
 
-// Enums
-export const SIMAAN_TYPES = [
-  { value: "BIN_NAZHR", label: "Bin Nazhr (Melihat Mushaf)" },
-  { value: "BIL_GHAIB", label: "Bil Ghaib (Hafalan)" },
-  { value: "TAHDIR", label: "Tahdir (Persiapan)" },
-  { value: "TASMI", label: "Tasmi (Setoran)" },
-  { value: "KHATAM", label: "Khatam 30 Juz" },
-] as const;
+// The simaan values and Indonesian labels live once in @cipansor/shared
+// (`schemas/simaan.ts`), read by the API too (#1024); re-exported here so the
+// existing `@/hooks/use-simaan` imports keep working. Only the grade badge
+// colours are presentational and stay here.
+export {
+  SIMAAN_TYPE_VALUES,
+  SIMAAN_TYPE_LABELS,
+  SIMAAN_TYPES,
+  SIMAAN_GRADE_VALUES,
+  SIMAAN_GRADE_LABELS,
+};
+export type { SimaanTypeCode, SimaanGradeCode };
 
-export const SIMAAN_GRADES = [
-  {
-    value: "MUMTAZ",
-    label: "Mumtaz (Istimewa)",
-    color: "bg-green-100 text-green-800",
-  },
-  {
-    value: "JAYYID_JIDDAN",
-    label: "Jayyid Jiddan (Sangat Baik)",
-    color: "bg-blue-100 text-blue-800",
-  },
-  {
-    value: "JAYYID",
-    label: "Jayyid (Baik)",
-    color: "bg-yellow-100 text-yellow-800",
-  },
-  {
-    value: "MAQBUL",
-    label: "Maqbul (Cukup)",
-    color: "bg-orange-100 text-orange-800",
-  },
-  { value: "RASIB", label: "Rasib (Kurang)", color: "bg-red-100 text-red-800" },
-] as const;
+const GRADE_COLORS: Record<SimaanGradeCode, string> = {
+  MUMTAZ: "bg-green-100 text-green-800",
+  JAYYID_JIDDAN: "bg-blue-100 text-blue-800",
+  JAYYID: "bg-yellow-100 text-yellow-800",
+  MAQBUL: "bg-orange-100 text-orange-800",
+  RASIB: "bg-red-100 text-red-800",
+};
+
+export const SIMAAN_GRADES = SIMAAN_GRADE_VALUES.map((value) => ({
+  value,
+  label: SIMAAN_GRADE_LABELS[value],
+  color: GRADE_COLORS[value],
+}));
 
 // Types matching Backend Schema
 export interface SimaanExaminer {
@@ -56,7 +61,7 @@ export interface SimaanExam {
   studentId: string;
   enrollmentId?: string;
   halaqohId?: string;
-  simaanType: "JUZ_AMMA" | "ONE_JUZ" | "FIVE_JUZ" | "TEN_JUZ" | "FULL_QURAN";
+  simaanType: SimaanTypeCode;
   examDate: string; // ISO Date
   sessionNumber: number;
   totalSessions: number;
@@ -66,7 +71,7 @@ export interface SimaanExam {
   tajwidScore?: number;
   fashohaScore?: number;
   tartilScore?: number;
-  grade?: "MUMTAZ" | "JAYYID_JIDDAN" | "JAYYID" | "MAQBUL" | "RASIB";
+  grade?: SimaanGradeCode;
   status?: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
   passed: boolean;
   notes?: string;
@@ -96,44 +101,25 @@ export interface SimaanFilters {
   enrollmentId?: string;
   halaqohId?: string;
   unitId?: string;
-  simaanType?: string;
+  simaanType?: SimaanTypeCode;
   dateFrom?: string;
   dateTo?: string;
   passed?: boolean;
   status?: string;
 }
 
-export interface CreateSimaanData {
-  studentId: string;
-  enrollmentId?: string;
-  halaqohId?: string;
-  simaanType: string;
-  examDate: string;
-  sessionNumber?: number;
-  totalSessions?: number;
-  juzStart: number;
-  juzEnd: number;
-  overallScore?: number;
-  tajwidScore?: number;
-  fashohaScore?: number;
-  tartilScore?: number;
-  grade?: string;
-  passed?: boolean;
-  notes?: string;
-  recommendations?: string;
-  examinerIds: string[];
-}
+/** The create payload — the shared contract the API validates against (#1024). */
+export type CreateSimaanData = CreateSimaanInput;
 
-export type UpdateSimaanData = Partial<
-  Omit<CreateSimaanData, "studentId" | "examinerIds">
->;
+/** The update payload — the shared contract the API validates against (#1024). */
+export type UpdateSimaanData = UpdateSimaanInput;
 
 export interface SubmitScoresData {
   overallScore: number;
   tajwidScore?: number;
   fashohaScore?: number;
   tartilScore?: number;
-  grade: string;
+  grade: SimaanGradeCode;
   passed: boolean;
   notes?: string;
   recommendations?: string;
@@ -259,29 +245,6 @@ export function useSubmitSimaanScores() {
         simaanId: id,
         ...data,
       });
-      return response.data;
-    },
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: simaanKeys.detail(id) });
-      queryClient.invalidateQueries({ queryKey: simaanKeys.lists() });
-    },
-  });
-}
-
-export function useCompleteSimaan() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: { passed: boolean; notes?: string };
-    }) => {
-      // Completing a simaan is recording its result: `passed` and the notes
-      // are fields of the record (`PATCH /simaan/:id`).
-      const response = await api.patch(`/simaan/${id}`, data);
       return response.data;
     },
     onSuccess: (_, { id }) => {

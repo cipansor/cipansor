@@ -15,6 +15,8 @@ import {
   useSimaanExams,
   useDeleteSimaan,
   SimaanExam,
+  SIMAAN_TYPES,
+  type SimaanTypeCode,
 } from "@/hooks/use-simaan";
 import { useClasses } from "@/hooks/use-classes";
 import { Badge } from "@/components/ui/badge";
@@ -78,14 +80,6 @@ const STATUS_ICONS: Record<string, React.ReactNode> = {
   CANCELLED: <XCircle className="h-3 w-3" />,
 };
 
-const EXAM_TYPE_LABELS: Record<string, string> = {
-  JUZ_AMMA: "Juz Amma",
-  ONE_JUZ: "1 Juz",
-  FIVE_JUZ: "5 Juz",
-  TEN_JUZ: "10 Juz",
-  FULL_QURAN: "30 Juz",
-};
-
 export default function SimaanListPage() {
   const router = useRouter();
   const { user } = useAuthStore();
@@ -93,7 +87,7 @@ export default function SimaanListPage() {
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [examTypeFilter, setExamTypeFilter] = useState<string>("");
+  const [examTypeFilter, setExamTypeFilter] = useState<SimaanTypeCode | "">("");
   const [classFilter, setClassFilter] = useState<string>("");
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -179,7 +173,8 @@ export default function SimaanListPage() {
       cell: ({ row }) => (
         <Badge variant="outline" className="font-normal">
           <BookOpen className="h-3 w-3 mr-1" />
-          {EXAM_TYPE_LABELS[row.original.simaanType]}
+          {SIMAAN_TYPES.find((t) => t.value === row.original.simaanType)
+            ?.label || row.original.simaanType}
         </Badge>
       ),
     },
@@ -327,15 +322,18 @@ export default function SimaanListPage() {
             </SelectContent>
           </Select>
 
-          <Select value={examTypeFilter} onValueChange={setExamTypeFilter}>
+          <Select
+            value={examTypeFilter}
+            onValueChange={(v) => setExamTypeFilter(v as SimaanTypeCode | "")}
+          >
             <SelectTrigger className="bg-background/50 backdrop-blur-sm border-muted-foreground/20">
               <SelectValue placeholder="Semua Jenis" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="">Semua Jenis</SelectItem>
-              {Object.entries(EXAM_TYPE_LABELS).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
+              {SIMAAN_TYPES.map((type) => (
+                <SelectItem key={type.value} value={type.value}>
+                  {type.label}
                 </SelectItem>
               ))}
             </SelectContent>

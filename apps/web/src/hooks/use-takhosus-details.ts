@@ -8,6 +8,7 @@ import {
   MurojaahRecord,
   SimaanExam,
   TakhosusDashboardStats,
+  type SimaanTypeCode,
 } from "@cipansor/shared";
 
 // Define input types locally if not available in @cipansor/shared,
@@ -38,7 +39,7 @@ export interface CreateMurojaahInput {
 
 export interface CreateSimaanInput {
   studentId: string;
-  simaanType: "BIN_NAZHR" | "BIL_GHAIB" | "TAHDIR" | "TASMI" | "KHATAM";
+  simaanType: SimaanTypeCode;
   examDate: string;
   juzStart: number;
   juzEnd: number;

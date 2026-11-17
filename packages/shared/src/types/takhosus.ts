@@ -1,5 +1,7 @@
 // Takhosus Shared Types
 
+import type { SimaanGradeCode, SimaanTypeCode } from "../schemas/simaan";
+
 export interface Halaqoh {
   id: string;
   unitId: string;
@@ -110,7 +112,7 @@ export interface SimaanExam {
   enrollmentId?: string | null;
   halaqohId?: string | null;
   halaqoh?: { id: string; name: string };
-  simaanType: "BIN_NAZHR" | "BIL_GHAIB" | "TAHDIR" | "TASMI" | "KHATAM";
+  simaanType: SimaanTypeCode;
   examDate: Date;
   sessionNumber: number;
   totalSessions: number;
@@ -120,7 +122,7 @@ export interface SimaanExam {
   tajwidScore?: number | null;
   fashohaScore?: number | null;
   tartilScore?: number | null;
-  grade?: string | null;
+  grade?: SimaanGradeCode | null;
   passed: boolean;
   notes?: string | null;
   recommendations?: string | null;
