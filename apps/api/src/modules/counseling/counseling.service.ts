@@ -73,7 +73,7 @@ interface AuthenticatedUser {
  * of its unit. The unit's kepala sekolah sees that it exists and its
  * referrals; its content — description, summary, recommendations, psychology
  * data and notes — is withheld. Nobody else receives it: not other teachers,
- * not the operator, not the yayasan organs, not the super admin. Health and
+ * not the admin unit, not the yayasan organs, not the super admin. Health and
  * children's data are specific personal data (UU 27/2022 Ps. 4). The unit and
  * cross-unit rules above still decide who reads non-confidential sessions.
  */

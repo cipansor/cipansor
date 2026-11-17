@@ -1,7 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Who records a class's daily register (2026-09-27): its wali kelas, a
-// teacher with a lesson in it, the operator of its unit, and the super admin.
+// teacher with a lesson in it, its admin unit, and the super admin.
 // The kepala sekolah records only where they are one of those. A class of
 // another unit is 404; one of the caller's own unit they have no part in is
 // 403. The day is a calendar day inside the class's academic year, not after
@@ -65,8 +65,8 @@ const pengampu = actor('u-pengampu', 'SDIT_GURU');
 const guruLain = actor('u-guru', 'SDIT_GURU');
 const kepala = actor('u-kepala', 'SDIT_KEPALA_SEKOLAH');
 const kepalaMengajar = actor('u-kepala-mengajar', 'SDIT_KEPALA_SEKOLAH');
-const operator = actor('u-admin', 'SDIT_ADMIN');
-const operatorSmp = actor('u-admin-smp', 'SMPIT_ADMIN', SMP);
+const adminUnit = actor('u-admin', 'SDIT_ADMIN');
+const adminUnitSmp = actor('u-admin-smp', 'SMPIT_ADMIN', SMP);
 const guruSmp = actor('u-guru-smp', 'SMPIT_GURU', SMP);
 const superAdmin = actor('u-sa', 'SUPER_ADMIN', null);
 
@@ -109,7 +109,7 @@ describe("who records a class's day", () => {
     ['its wali kelas', wali],
     ['a teacher with a lesson in it', pengampu],
     ['a kepala sekolah who teaches in it', kepalaMengajar],
-    ["the unit's operator", operator],
+    ['its admin unit', adminUnit],
     ['the super admin', superAdmin],
   ])('%s', async (_who, who) => {
     expect(await attendanceService.bulkCreate(register(), who)).toEqual({ created: 2, updated: 0 });
@@ -124,13 +124,13 @@ describe("who records a class's day", () => {
     await expect(refused).rejects.toMatchObject({
       statusCode: 403,
       message:
-        'Absensi kelas ini dicatat oleh wali kelasnya, guru yang mengajar di kelas itu, atau operator unit',
+        'Absensi kelas ini dicatat oleh wali kelasnya, guru yang mengajar di kelas itu, atau admin unit',
     });
     expect(db.attendance.upsert).not.toHaveBeenCalled();
   });
 
   it.each([
-    ["another unit's operator", operatorSmp],
+    ['an admin unit of another unit', adminUnitSmp],
     ["another unit's teacher", guruSmp],
   ])('%s does not reach the class: 404', async (_who, who) => {
     expect(await status(attendanceService.bulkCreate(register(), who))).toBe(404);
@@ -160,7 +160,7 @@ describe('the day', () => {
   });
 
   it("cannot be outside the class's academic year", async () => {
-    expect(await status(attendanceService.bulkCreate(register(shift(-90)), operator))).toBe(400);
+    expect(await status(attendanceService.bulkCreate(register(shift(-90)), adminUnit))).toBe(400);
   });
 });
 
@@ -279,13 +279,13 @@ describe("one pupil's day", () => {
 });
 
 describe('the classes a user records (GET /attendance/me/classes)', () => {
-  it('the super admin: any class; an operator: their unit', async () => {
+  it('the super admin: any class; an admin unit: its own unit', async () => {
     expect(await attendanceService.myClasses(superAdmin)).toEqual({
       scope: 'ALL',
       unitId: null,
       classes: [],
     });
-    expect(await attendanceService.myClasses(operator)).toEqual({
+    expect(await attendanceService.myClasses(adminUnit)).toEqual({
       scope: 'UNIT',
       unitId: SD,
       classes: [],

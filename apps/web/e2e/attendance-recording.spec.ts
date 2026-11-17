@@ -330,10 +330,10 @@ test("the register reminder's link opens that class's register", async ({
   page,
 }) => {
   // The reminder 30 minutes after a class's first lesson links to
-  // /attendance/record?classId=…. The unit's operator records every class of
+  // /attendance/record?classId=…. The admin unit records every class of
   // the unit and starts on none, so the class shown comes from the link.
-  const operator = await apiLogin(SEED_USERS.adminSdit);
-  await injectSession(page, operator);
+  const adminUnit = await apiLogin(SEED_USERS.adminSdit);
+  await injectSession(page, adminUnit);
   await page.goto(`/attendance/record?classId=${class1A}`);
   await waitForLoadingComplete(page);
   await expect(page.getByRole("combobox", { name: "Kelas" })).toContainText(

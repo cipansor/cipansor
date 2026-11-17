@@ -67,7 +67,7 @@ Pada 2026-09-25 jumlahnya **0**, sejalan dengan uji kontrak menu↔RBAC
 | Keluarga | Kode peran | Dasbor · bucket | Siapa di yayasan |
 |---|---|---|---|
 | Super Admin | `SUPER_ADMIN` | `/dashboard` · SUPER_ADMIN | Pengelola sistem: akun, peran, kunci TTE. **Bukan** organ — tidak mengesahkan dokumen yayasan dan tidak mencabut naskah. |
-| Admin unit (TK, SD) | `TKQ_ADMIN`, `SDIT_ADMIN` | `/dashboard` · UNIT_ADMIN | Operator sistem unit; menyusun RKA Unit. |
+| Admin unit (TK, SD) | `TKQ_ADMIN`, `SDIT_ADMIN` | `/dashboard` · UNIT_ADMIN | Administrator akun & peran unit; menyusun RKA Unit. |
 | Admin unit (SMP, SMA) | `SMPIT_ADMIN`, `SMAQ_ADMIN` | sama | Sama; menunya berbeda dari TK/SD pada butir yang ber-`roleCodes`. |
 | Organ yayasan | `YAYASAN_PEMBINA`, `_KETUA`, `_SEKRETARIS`, `_BENDAHARA`, `_ANGGOTA`, `_PENGAWAS` | `/dashboard` · UNIT_ADMIN | Pembina, Pengurus, Pengawas (UU 16/2001) — skill `tata-kelola-yayasan`. Lingkup seluruh yayasan. |
 | Kepala sekolah | `*_KEPALA_SEKOLAH` | `/dashboard` · TEACHER | Kepala unit: menyusun RKA Unit, menandatangani naskah unit, atasan penilai PK guru. |
@@ -129,9 +129,9 @@ yang ditawarkan ke seseorang terbaca di `GET /announcements/compose`.
 
 Hal yang sama berlaku untuk **data perwalian** dan **absensi harian**
 (#579, #580). Data perwalian sebuah kelas dibaca oleh wali kelasnya, serta
-kepala sekolah dan operator unitnya; guru lain mendapat 404. Absensi harian
+kepala sekolah dan admin unitnya; guru lain mendapat 404. Absensi harian
 sebuah kelas dicatat oleh wali kelasnya, guru yang punya jadwal di kelas itu,
-dan operator unit; kepala sekolah membaca. Untuk "bisakah guru X mengisi
+dan admin unit; kepala sekolah membaca. Untuk "bisakah guru X mengisi
 absensi kelas Y", lihat `GET /attendance/me/classes` atas nama guru itu.
 
 ## Celah yang diketahui

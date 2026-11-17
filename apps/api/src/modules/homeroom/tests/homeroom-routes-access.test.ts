@@ -4,7 +4,7 @@ import request from 'supertest';
 
 // Who reaches the homeroom routes at all: teachers — whether one is the wali
 // kelas of a class is the service's question (homeroom-access.test.ts) — and a
-// unit's kepala sekolah and operator. The yayasan organs, tata usaha,
+// unit's kepala sekolah and admin unit. The yayasan organs, tata usaha,
 // treasurers, pupils and their wali do not.
 
 vi.mock('@/lib/jwt', () => ({ verifyToken: vi.fn() }));

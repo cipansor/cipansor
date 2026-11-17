@@ -10,7 +10,7 @@ import {
 /**
  * Who reaches a class's homeroom data (decided 2026-09-26): its wali kelas
  * (`Class.homeroomTeacherId`), who also writes while the class's academic
- * year is the current one; the kepala sekolah and the operator of its unit,
+ * year is the current one; the kepala sekolah and its admin unit,
  * and the super admin, who read. Nobody else — another teacher of the same
  * unit included — receives it: 404, as for a class that does not exist.
  */

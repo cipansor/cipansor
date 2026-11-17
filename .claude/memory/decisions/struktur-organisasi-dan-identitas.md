@@ -54,7 +54,7 @@ Microsoft for Nonprofits yayasan.
    menjadi simpul di pohon yang sama, tidak menumpang di SMP IT.
 3. **Model A bertahap, tetapi menyeluruh — tak ada yang boleh terlewat.**
    Satu fungsi per PR: Bendahara dulu (satu peran berlingkup unit, diputuskan
-   2026-09-25), lalu Guru, Kepala Sekolah, Admin/Operator, TU, Komite,
+   2026-09-25), lalu Guru, Kepala Sekolah, Admin, TU, Komite,
    Orang Tua, Siswa, Guru BK, Alumni. Lingkup unit menjadi satu pintu yang
    membaca pohon organisasi; semua daftar peran pindah ke `@cipansor/shared`;
    `Realm` dihapus paling akhir. **Kelengkapannya dijaga uji penjaga dengan

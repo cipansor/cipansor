@@ -63,7 +63,7 @@ backlog to [`roadmap.md`](roadmap.md).
   timed assignment (Model A; wakasek is no longer a role code —
   `decisions/peran-dan-tugas-tambahan.md`), `PESANTREN_ADMIN` (needs a
   pesantren unit first — every pesantren role is scoped to SMP IT today), a
-  Panitia SPMB assignment that expires, and the "Admin" → "Operator" label.
+  Panitia SPMB assignment that expires.
 - One Bendahara role with a unit scope waits for Model A (decided 2026-09-25).
 - **The public assistant on staging** — the user decided (2026-10-09) on a
   key of staging's own with a cost cap, provisioned through a temporary cloud
@@ -838,7 +838,7 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
 - **Wali kelas is a relation, not a role (#579, merged and on staging
   2026-09-27):** the _Wali Kelas_ menu group shows for the wali kelas of a
   class this academic year (`Class.homeroomTeacherId`); a class's homeroom
-  data is read by its wali kelas and the unit's kepala sekolah and operator,
+  data is read by its wali kelas and the unit's kepala sekolah and admin unit,
   written by the wali kelas in the current year, 404 to other teachers; notes
   are changed by their author only; responses carry five pupil columns. The TK
   wali kelas persona now holds TK A. Before/after:
@@ -847,8 +847,8 @@ vi.fn>`), and `e-office-retention.spec.ts`'s unit-scope case registered its
   merged 2026-09-27):** until then every teacher, wali kelas and kepala
   sekolah got 403 saving a register (**Mengajar → Absensi → Input
   Kehadiran**; **Wali Kelas → Absensi Harian** called routes that did not
-  exist). Now the class's wali kelas, a teacher with a lesson in it, and the
-  unit's operator; the day is a calendar day; saving again corrects it;
+  exist). Now the class's wali kelas, a teacher with a lesson in it, and its
+  admin unit; the day is a calendar day; saving again corrects it;
   `GET /attendance/me/classes` tells the page which registers the user takes.
   Before/after: <https://claude.ai/artifact/7SjEhmVqzSwxxrDvpGardr>.
 - **Behaviour notes (#581):** **Wali Kelas → Catatan Perilaku** lists and

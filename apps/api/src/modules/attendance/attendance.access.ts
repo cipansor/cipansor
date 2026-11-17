@@ -10,7 +10,7 @@ import {
 /**
  * Who records a class's daily attendance (2026-09-27): the class's wali kelas
  * (`Class.homeroomTeacherId`), a teacher with a lesson in it (an active
- * `Schedule`), the operator of its unit, and the super admin. The kepala
+ * `Schedule`), its admin unit, and the super admin. The kepala
  * sekolah reads the unit's register, and records only where they are one of
  * the above.
  *
@@ -74,7 +74,7 @@ export async function assertMayRecord(classId: string, day: string, actor: Atten
   }
   if (!standing) {
     throw Errors.forbidden(
-      'Absensi kelas ini dicatat oleh wali kelasnya, guru yang mengajar di kelas itu, atau operator unit'
+      'Absensi kelas ini dicatat oleh wali kelasnya, guru yang mengajar di kelas itu, atau admin unit'
     );
   }
 

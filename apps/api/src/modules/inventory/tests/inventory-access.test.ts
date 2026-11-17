@@ -60,7 +60,7 @@ const get = (path: string, who?: string) => {
 
 describe('inventory access', () => {
   it.each(['/inventory', '/inventory/categories', '/inventory/maintenance'])(
-    'staff and the unit operator can read %s',
+    'staff and the admin unit can read %s',
     async (path) => {
       for (const who of ['tu', 'admin']) {
         const res = await get(path, who);

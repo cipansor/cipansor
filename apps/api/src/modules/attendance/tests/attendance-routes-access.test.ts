@@ -3,7 +3,7 @@ import express from 'express';
 import request from 'supertest';
 
 // Who reaches the attendance write routes at all: teachers, pesantren
-// educators, the Kiai, kepala sekolah and unit operators — which classes each
+// educators, the Kiai, kepala sekolah and admin units — which classes each
 // records is the service's question (attendance-recording.test.ts). The
 // yayasan organs, tata usaha, treasurers, pupils and wali do not. Until
 // 2026-09-27 the routes let admins only, so no teacher could save a register.

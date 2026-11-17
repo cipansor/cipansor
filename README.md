@@ -78,7 +78,7 @@ peran:
 | ---------------------- | -------------------------------------------------------------------------------- |
 | Super Admin            | pengelola sistem: akun, peran, kunci tanda tangan elektronik                     |
 | Organ yayasan          | Pembina, Pengurus (Ketua, Sekretaris, Bendahara, anggota), Pengawas              |
-| Admin unit             | operator sistem tiap sekolah                                                     |
+| Admin unit             | administrator akun & peran unit tiap sekolah                                     |
 | Kepala sekolah         | kepala unit: RKA unit, penanda tangan naskah unit, atasan penilai                |
 | Guru                   | guru mata pelajaran, wali kelas, guru BK                                         |
 | Pimpinan Pesantren     | Kiai, kepala unit pesantren                                                      |

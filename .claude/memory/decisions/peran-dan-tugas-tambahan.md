@@ -43,7 +43,7 @@ relasinya, bukan perannya.
    Juga #575. Perilakunya menyusul:
    - menu Wali Kelas tampil hanya bagi wali kelas sebuah kelas di tahun ajaran aktif;
    - dasbor kelas, catatan murid dan perilaku dibuka oleh wali kelas kelas itu,
-     dan dibaca kepala sekolah serta operator unitnya.
+     dan dibaca kepala sekolah serta admin unitnya.
 3. **Guru BK tetap peran** (fungsi, bukan tugas tambahan). Ia hanya ada di SMP IT
    dan SMA Qur'an; di TK dan SD, wali kelas yang membimbing.
 4. **Sesi konseling bertanda rahasia** (#574):
@@ -52,7 +52,7 @@ relasinya, bukan perannya.
    |---|---|
    | konselor sesi itu, guru BK unit | seluruhnya; boleh mengubah |
    | kepala sekolah unit | bahwa sesi itu ada, kategori, status, jadwal, dan **rujukannya**; judul, isi, catatan dan observasi tidak; tidak boleh mengubah |
-   | selain itu — guru lain, operator, organ yayasan, super admin, unit lain | tidak dikirim; halamannya 404 |
+   | selain itu — guru lain, admin unit, organ yayasan, super admin, unit lain | tidak dikirim; halamannya 404 |
 
    Wali membaca yang dibagikan kepadanya lewat portal orang tua. Dasarnya: data
    kesehatan dan data anak adalah data pribadi yang bersifat spesifik (UU

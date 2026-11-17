@@ -14,7 +14,7 @@ import { AttendanceStatus } from "../types/enums";
  *
  * Who records a class's day is a relation, decided per class by the API
  * (`attendance.access.ts`): the class's wali kelas, a teacher with a lesson
- * in the class, and the operator of its unit. The kepala sekolah reads — and
+ * in the class, and its admin unit. The kepala sekolah reads — and
  * records only where they are one of the above. These are the role codes that
  * may reach the write routes at all.
  */
@@ -96,7 +96,7 @@ export interface AttendanceRecorderClass {
 /**
  * GET /attendance/me/classes — which classes the caller records:
  * `ALL` — any class (super admin); `UNIT` — any class of `unitId` (the unit's
- * operator); `ASSIGNED` — the classes listed, of the current academic year
+ * admin unit); `ASSIGNED` — the classes listed, of the current academic year
  * (empty for someone who records none).
  */
 export interface AttendanceRecorderScope {

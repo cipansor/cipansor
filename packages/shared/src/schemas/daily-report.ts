@@ -23,7 +23,7 @@ import {
 /**
  * Who keeps a pupil's daily report: the people who spend the day with them —
  * their teachers and the unit's kepala sekolah, the pesantren's educators for
- * boarders — and the unit's operator for corrections. Each is held to the
+ * boarders — and its admin unit for corrections. Each is held to the
  * pupils they may see (`studentScope` in the API).
  */
 export const DAILY_REPORT_STAFF_ROLE_CODES: readonly string[] = [

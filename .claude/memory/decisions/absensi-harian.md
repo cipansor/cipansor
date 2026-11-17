@@ -1,6 +1,6 @@
 # absensi-harian
 
-> Keputusan pengguna 2026-09-27 — register harian diisi di kelas oleh wali kelas atau guru yang mengajar di kelas itu (operator unit cadangan); satu halaman; tindak lanjut otomatis dengan pemilik yang sudah ada (wali kelas untuk murid harian, musyrif untuk santri mukim); tanpa guru piket. 2026-09-28: parameter tanda pola
+> Keputusan pengguna 2026-09-27 — register harian diisi di kelas oleh wali kelas atau guru yang mengajar di kelas itu (admin unit cadangan); satu halaman; tindak lanjut otomatis dengan pemilik yang sudah ada (wali kelas untuk murid harian, musyrif untuk santri mukim); tanpa guru piket. 2026-09-28: parameter tanda pola
 
 **Pertanyaan pengguna:** "Apa memang perlu ada guru piket? Apa tidak sebaiknya
 pakai otomatis saja dari sistem?" Jawabannya: sebagian besar otomatis, tetapi
@@ -10,7 +10,7 @@ satu langkah tetap butuh orang, dan orang itu sudah ada.
 
 | Langkah | Siapa atau apa |
 |---|---|
-| Mengisi register kelas, sekali di awal hari | wali kelas, guru yang punya jadwal di kelas itu, operator unit (#580) |
+| Mengisi register kelas, sekali di awal hari | wali kelas, guru yang punya jadwal di kelas itu, admin unit (#580) |
 | Izin yang disetujui dan kunjungan UKS | mengisi register otomatis dengan Izin/Sakit (sudah berjalan) |
 | Kelas belum mengisi register 30 menit sesudah jam pertama | sistem mengingatkan guru jam itu dan wali kelas |
 | Murid ditandai Alpa atau Terlambat | sistem memberi tahu walinya seketika (wali bisa menjawab atau mengajukan izin); santri mukim → **musyrifnya juga**, seketika |

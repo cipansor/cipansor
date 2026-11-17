@@ -173,10 +173,7 @@ items before 2026-09-25 is in the history of this file and of
      (`20261010130000_pesantren_unit`);
    - a Panitia SPMB assignment that expires — needs writers of `expires_at`,
      which `decommissioned-modules.guard.test.ts` forbids today, so the guard
-     changes in the same PR;
-   - relabel "Admin" → "Operator": role names in the seed ("Admin TK Qur'an", …),
-     `ROLE_LABELS` on the profile page, the SPMB page copy — plus a small data
-     migration for the stored names.
+     changes in the same PR.
 2. **Model A — a permission per feature plus a data scope.** Replaces the legacy
    buckets (`STAFF`, `UNIT_ADMIN`, …) and the per-page `allowedRoles` lists
    with one contract. The five bendahara codes become **one Bendahara role with
@@ -187,7 +184,7 @@ items before 2026-09-25 is in the history of this file and of
    gate, not a filter. Decide case by case, never by find-and-replace.
    **How, decided 2026-09-29** (`decisions/struktur-organisasi-dan-identitas.md`):
    step by step but complete — one function per PR (Bendahara, Guru, Kepala
-   Sekolah, Admin/Operator, TU, Komite, Orang Tua, Siswa, Guru BK, Alumni);
+   Sekolah, Admin, TU, Komite, Orang Tua, Siswa, Guru BK, Alumni);
    first a guard whose baseline only shrinks (per-unit role literals,
    `UserRole` buckets, role lists outside `@cipansor/shared`, unit scope read
    outside one door), and "done" is that baseline at zero. Alongside it: one

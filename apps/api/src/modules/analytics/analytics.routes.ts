@@ -17,7 +17,7 @@ router.use(authenticate);
 router.use(isStaffMember);
 
 // The exports are the full rows (santri identity, invoices), so they are for
-// the people who answer for them: Super Admin, the unit's operator and the
+// the people who answer for them: Super Admin, its admin unit and the
 // yayasan board, and the kepala sekolah. A unit's account exports its own unit.
 const exporter = authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, ...PRINCIPAL_ROLE_CODES);
 

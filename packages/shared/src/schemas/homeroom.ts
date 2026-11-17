@@ -13,7 +13,7 @@ import {
  *
  * Who reaches the homeroom routes at all: teachers — whether a teacher is the
  * wali kelas of a class is decided per class by the API — and the unit's
- * kepala sekolah and operator, who read. The yayasan organs, tata usaha,
+ * kepala sekolah and admin unit, who read. The yayasan organs, tata usaha,
  * bendahara, students and wali are not here.
  */
 export const HOMEROOM_ROUTE_ROLE_CODES: readonly string[] = [
@@ -27,7 +27,7 @@ export const HOMEROOM_ROUTE_ROLE_CODES: readonly string[] = [
  * What an account may do with one class's homeroom data:
  * - `HOMEROOM` — the class's wali kelas: reads, and writes notes while the
  *   class's academic year is the current one;
- * - `OVERSEER` — the kepala sekolah and the operator of the class's unit, and
+ * - `OVERSEER` — the kepala sekolah and the class's admin unit, and
  *   the super admin: read.
  * Anyone else does not reach the class (404).
  */
