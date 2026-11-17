@@ -183,8 +183,14 @@ export function useUpdateDataSubjectRequestStatus() {
       >(`/data-subject-requests/${input.id}/status`, input.payload);
       return response.data.data;
     },
-    onSuccess: () => {
+    onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: LIST_KEY });
+      // Halaman rinciannya juga: tanpa ini lencana statusnya tetap yang lama
+      // sampai dimuat ulang, dan petugas yang baru memindahkan status melihat
+      // layar yang membantah tindakannya sendiri.
+      queryClient.invalidateQueries({
+        queryKey: ["data-subject-requests", "detail", variables.id],
+      });
     },
   });
 }
