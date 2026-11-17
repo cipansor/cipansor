@@ -25,20 +25,26 @@ import {
 } from "@/components/ui/select";
 import { SearchableSelect } from "@/components/ui/searchable-select";
 import { useStudents } from "@/hooks/use-students";
-import { useTeachers } from "@/hooks/use-teachers";
+import { useTeachers, type Teacher } from "@/hooks/use-teachers";
 import { useCreateSimaan, SIMAAN_TYPES } from "@/hooks/use-simaan";
+import { SimaanTypeEnum } from "@cipansor/shared";
 import { toast } from "sonner";
 
 import { MainLayout } from "@/components/layout";
-const formSchema = z.object({
-  studentId: z.string().min(1, "Santri harus dipilih"),
-  simaanType: z.string().min(1, "Jenis simaan harus dipilih"),
-  examDate: z.string().min(1, "Tanggal ujian harus diisi"),
-  juzStart: z.coerce.number().min(1).max(30),
-  juzEnd: z.coerce.number().min(1).max(30),
-  examinerId: z.string().min(1, "Penguji harus dipilih"),
-  notes: z.string().optional(),
-});
+const formSchema = z
+  .object({
+    studentId: z.string().min(1, "Santri harus dipilih"),
+    simaanType: SimaanTypeEnum,
+    examDate: z.string().min(1, "Tanggal ujian harus diisi"),
+    juzStart: z.coerce.number().min(1).max(30),
+    juzEnd: z.coerce.number().min(1).max(30),
+    examinerId: z.string().min(1, "Penguji harus dipilih"),
+    notes: z.string().optional(),
+  })
+  .refine((data) => data.juzEnd >= data.juzStart, {
+    message: "Juz akhir harus lebih besar atau sama dengan juz awal",
+    path: ["juzEnd"],
+  });
 
 function CreateSimaanPageContent() {
   const router = useRouter();
@@ -59,7 +65,7 @@ function CreateSimaanPageContent() {
     resolver: zodResolver(formSchema),
     defaultValues: {
       studentId: "",
-      simaanType: "",
+      simaanType: "BIN_NAZHR",
       examDate: "",
       juzStart: 1,
       juzEnd: 1,
@@ -75,18 +81,21 @@ function CreateSimaanPageContent() {
       label: `${s.user?.name} (${s.nis})`,
     })) || [];
 
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const teacherOptions =
-    teachersData?.data?.map((t: any) => ({
-      value: t.id,
-      label: t.user?.name,
+    teachersData?.data?.map((t: Teacher) => ({
+      // `SimaanExaminer.examinerId` references `users.id`, not the Teacher row.
+      value: t.userId,
+      label: t.user?.name ?? "",
     })) || [];
 
   function onSubmit(values: z.infer<typeof formSchema>) {
+    // `examinerId` is a form field only; the API contract takes `examinerIds`
+    // and is strict, so it must not be forwarded.
+    const { examinerId, ...rest } = values;
     createSimaan(
       {
-        ...values,
-        examinerIds: [values.examinerId],
+        ...rest,
+        examinerIds: [examinerId],
       },
       {
         onSuccess: () => {

@@ -5,7 +5,6 @@ import { z } from 'zod';
 // ============================================
 
 export const MurojaahTypeEnum = z.enum(['YAUMIYAH', 'USBUIYAH', 'SYAHRIYAH', 'TASMI']);
-export const SimaanTypeEnum = z.enum(['BIN_NAZHR', 'BIL_GHAIB', 'TAHDIR', 'TASMI', 'KHATAM']);
 
 // ============================================
 // Murojaah Schemas
@@ -47,46 +46,6 @@ export const listMurojaahQuerySchema = z.object({
   startDate: z.string().datetime().optional(),
   endDate: z.string().datetime().optional(),
   type: MurojaahTypeEnum.optional(),
-});
-
-// ============================================
-// Simaan Schemas
-// ============================================
-
-export const createSimaanSchema = z.object({
-  studentId: z.string().uuid(),
-  examDate: z.string().datetime(),
-  simaanType: SimaanTypeEnum,
-  juzStart: z.number().int().min(1).max(30),
-  juzEnd: z.number().int().min(1).max(30),
-  durationMinutes: z.number().int().min(0).optional(),
-  examinerIds: z.array(z.string().uuid()).min(1),
-  notes: z.string().optional(),
-  startJuz: z.number().optional(),
-  endJuz: z.number().optional(),
-  examType: z.string().optional(), // JUZ_30, etc.
-});
-
-export const updateSimaanResultSchema = z.object({
-  overallScore: z.number().min(0).max(100),
-  tajwidScore: z.number().min(0).max(100).optional(),
-  fashohaScore: z.number().min(0).max(100).optional(),
-  tartilScore: z.number().min(0).max(100).optional(),
-  grade: z.string().optional(),
-  passed: z.boolean(),
-  notes: z.string().optional(),
-  recommendations: z.string().optional(),
-});
-
-export const listSimaanQuerySchema = z.object({
-  page: z.coerce.number().min(1).default(1),
-  limit: z.coerce.number().min(1).max(100).default(20),
-  studentId: z.string().uuid().optional(),
-  unitId: z.string().uuid().optional(),
-  classId: z.string().uuid().optional(),
-  startDate: z.string().datetime().optional(),
-  endDate: z.string().datetime().optional(),
-  status: z.enum(['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'PASSED', 'FAILED']).optional(),
 });
 
 // ============================================
@@ -156,10 +115,6 @@ export const updateTargetSchema = createTargetSchema.partial();
 export type CreateMurojaahInput = z.infer<typeof createMurojaahSchema>;
 export type UpdateMurojaahInput = z.infer<typeof updateMurojaahSchema>;
 export type ListMurojaahQuery = z.infer<typeof listMurojaahQuerySchema>;
-
-export type CreateSimaanInput = z.infer<typeof createSimaanSchema>;
-export type UpdateSimaanResultInput = z.infer<typeof updateSimaanResultSchema>;
-export type ListSimaanQuery = z.infer<typeof listSimaanQuerySchema>;
 
 export type CreateSanadInput = z.infer<typeof createSanadSchema>;
 export type UpdateSanadInput = z.infer<typeof updateSanadSchema>;

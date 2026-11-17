@@ -153,8 +153,8 @@ workers refused on a closed day. Still open:
   (Alumni page, answers "Alumni not found"; the route is `/alumni/events/list`),
   `GET /duty-roster/statistics` and `GET /extracurricular/achievements`
   (#1011 tightens `served()` and fixes them). A body the route's schema
-  refuses is not seen either: the simaan forms reach `PATCH /simaan/:id` and
-  `POST /simaan` and are refused with 400 (#1024).
+  refuses is not seen either (the simaan forms were refused with 400 this way
+  until #1024 unified their contract with the API).
 - **An extracurricular's members, attendance and achievements do not work**
   (found 2026-10-04; the extracurricular itself — create, edit, list,
   detail — was fixed in the same week). On the detail page the _Anggota_,
@@ -487,15 +487,19 @@ decision.
   `assertReachesUnit`, `writeUnitScope`) on 2026-09-28; `lingkungan` has the
   same hand-written `isPrivileged` and should move too.
 - **One concept, several modules** (audit 2026-09-25): tahfidz across five
-  modules (`takhosus` re-exposes murojaah, simaan, sanad and halaqoh on the same
-  tables), report cards in five places, lesson plans in three models, P5 in two
+  modules (`takhosus` still re-exposes murojaah, sanad and halaqoh on the same
+  tables; its duplicate simaan *write* surface — a second service, controller
+  and route set that wrote a `status`/`duration` the model does not have — was
+  removed in #1125, so simaan now has one contract and one service), report
+  cards in five places, lesson plans in three models, P5 in two
   modules (the term was retired by Permendikdasmen 13/2025 — now
   _kokurikuler_), chart of accounts and journals in `finance` and
   `finance-enhancement`, two monthly-depreciation implementations
   (`jobs/asset-depreciation.job.ts` runs; `inventory/depreciation.service.ts`
   never did), three daily santri logs (`daily-report`, `ibadah`, `muhasabah`),
   and duplicate pages: `/payroll` + `/hr/payroll`, `/wallet` +
-  `/finance/wallet`, `/tahfidz/simaan` + `/takhosus/simaan`, three certificate
+  `/finance/wallet`, `/tahfidz/simaan` + `/takhosus/simaan` (the two simaan
+  *pages* remain, but both now call the one `/simaan` API), three certificate
   pages. Laporan harian alone has three ways to write one
   (`/daily-report/new`, `/tk/daily-reports/new`, `/tk/daily-reports/create`
   for a class) plus check-in, the wali kelas page and Mutabaah bulk, and two

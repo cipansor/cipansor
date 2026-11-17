@@ -31,8 +31,9 @@ import { toast } from "sonner";
 import {
   useSimaanExam,
   useDeleteSimaan,
-  useCompleteSimaan,
+  simaanExamStatus,
 } from "@/hooks/use-simaan";
+import { SIMAAN_TYPE_LABELS, simaanCoverageLabel } from "@cipansor/shared";
 
 import { id } from "date-fns/locale";
 import {
@@ -41,7 +42,6 @@ import {
   User,
   Users,
   BookOpen,
-  Star,
   Edit,
   Trash2,
   CheckCircle,
@@ -49,53 +49,24 @@ import {
   AlertTriangle,
   Award,
   FileText,
-  Play,
-  MapPin,
 } from "lucide-react";
 
-type ExamType = "JUZ_30" | "JUZ_PILIHAN" | "FULL_QURAN" | "CUSTOM";
-type ExamStatus = "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
-
-const examTypeLabels: Record<ExamType, string> = {
-  JUZ_30: "Juz 30 (Juz 'Amma)",
-  JUZ_PILIHAN: "Juz Pilihan",
-  FULL_QURAN: "30 Juz (Full Quran)",
-  CUSTOM: "Custom",
-};
-
-const examTypeBadgeVariant: Record<
-  ExamType,
-  "default" | "secondary" | "destructive" | "outline"
-> = {
-  JUZ_30: "secondary",
-  JUZ_PILIHAN: "default",
-  FULL_QURAN: "destructive",
-  CUSTOM: "outline",
-};
+type ExamStatus = "SCHEDULED" | "COMPLETED";
 
 const statusLabels: Record<ExamStatus, string> = {
   SCHEDULED: "Terjadwal",
-  IN_PROGRESS: "Sedang Berlangsung",
   COMPLETED: "Selesai",
-  CANCELLED: "Dibatalkan",
 };
 
 const StatusBadge = ({ status }: { status: ExamStatus }) => {
-  const variants: Record<
-    ExamStatus,
-    "default" | "secondary" | "destructive" | "outline"
-  > = {
+  const variants: Record<ExamStatus, "default" | "outline"> = {
     SCHEDULED: "outline",
-    IN_PROGRESS: "secondary",
     COMPLETED: "default",
-    CANCELLED: "destructive",
   };
 
   const icons: Record<ExamStatus, React.ReactNode> = {
     SCHEDULED: <Clock className="h-3 w-3 mr-1" />,
-    IN_PROGRESS: <Play className="h-3 w-3 mr-1" />,
     COMPLETED: <CheckCircle className="h-3 w-3 mr-1" />,
-    CANCELLED: <AlertTriangle className="h-3 w-3 mr-1" />,
   };
 
   return (
@@ -119,7 +90,6 @@ export default function SimaanDetailPage({
 
   const { data: exam, isLoading, error } = useSimaanExam(resolvedParams.id);
   const deleteMutation = useDeleteSimaan();
-  const finalizeMutation = useCompleteSimaan();
 
   const handleDelete = async () => {
     try {
@@ -128,21 +98,6 @@ export default function SimaanDetailPage({
       router.push("/tahfidz/simaan");
     } catch {
       toast.error("Gagal menghapus data ujian simaan");
-    }
-  };
-
-  const handleFinalize = async () => {
-    try {
-      await finalizeMutation.mutateAsync({
-        id: resolvedParams.id,
-        data: {
-          passed: true,
-          notes: "Finalized by user",
-        },
-      });
-      toast.success("Ujian simaan berhasil diselesaikan");
-    } catch {
-      toast.error("Gagal menyelesaikan ujian simaan");
     }
   };
 
@@ -180,10 +135,12 @@ export default function SimaanDetailPage({
     );
   }
 
-  const status = (exam as any).status || "SCHEDULED";
-  const canEdit = status === "SCHEDULED" || status === "IN_PROGRESS";
-  const canFinalize = status === "IN_PROGRESS";
-  const canDelete = status === "SCHEDULED";
+  // The model has no `status` column: a simaan is scheduled until it is graded,
+  // then complete. Deriving it from the record keeps the badge truthful, and
+  // `canEdit` in step with the edit page, which refuses a `passed` exam.
+  const status: ExamStatus = simaanExamStatus(exam);
+  const canEdit = !exam.passed;
+  const canDelete = !exam.passed;
 
   return (
     <MainLayout>
@@ -216,34 +173,7 @@ export default function SimaanDetailPage({
                 Edit
               </Button>
             )}
-            {canFinalize && (
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="default">
-                    <CheckCircle className="mr-2 h-4 w-4" />
-                    Selesaikan
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>
-                      Selesaikan Ujian Simaan?
-                    </AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Tindakan ini akan menyelesaikan ujian simaan dan tidak
-                      dapat dibatalkan. Pastikan semua penguji telah memberikan
-                      nilai.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Batal</AlertDialogCancel>
-                    <AlertDialogAction onClick={handleFinalize}>
-                      Ya, Selesaikan
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
-            )}
+
             {canDelete && (
               <AlertDialog>
                 <AlertDialogTrigger asChild>
@@ -313,16 +243,13 @@ export default function SimaanDetailPage({
               <div className="space-y-4">
                 <div className="flex items-center justify-between">
                   <span className="text-muted-foreground">Status</span>
-                  <StatusBadge status={status as ExamStatus} />
+                  <StatusBadge status={status} />
                 </div>
 
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Tipe Ujian</span>
-                  <Badge
-                    variant={examTypeBadgeVariant[exam.simaanType as ExamType]}
-                  >
-                    {examTypeLabels[exam.simaanType as ExamType] ||
-                      exam.simaanType}
+                  <span className="text-muted-foreground">Jenis Simaan</span>
+                  <Badge variant="secondary">
+                    {SIMAAN_TYPE_LABELS[exam.simaanType] || exam.simaanType}
                   </Badge>
                 </div>
 
@@ -337,14 +264,10 @@ export default function SimaanDetailPage({
                   </span>
                 </div>
 
-                {/* exam.location is not available in shared type */}
-                {/* exam.startSurah is not available in shared type */}
-                {/* exam.endSurah is not available in shared type */}
-
                 <div className="flex items-center justify-between">
-                  <span className="text-muted-foreground">Juz</span>
+                  <span className="text-muted-foreground">Cakupan Juz</span>
                   <span className="font-medium">
-                    Juz {exam.juzStart} - {exam.juzEnd}
+                    {simaanCoverageLabel(exam.juzStart, exam.juzEnd)}
                   </span>
                 </div>
               </div>
@@ -361,8 +284,7 @@ export default function SimaanDetailPage({
               <CardDescription>Nilai dan predikat dari penguji</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              {/* Use local variables/defaults since shared type lacks status/finalScore */}
-              {status === "COMPLETED" || exam.overallScore !== undefined ? (
+              {status === "COMPLETED" ? (
                 <>
                   {/* Final Score */}
                   <div className="text-center py-6 bg-gradient-to-br from-green-50 to-emerald-50 dark:from-green-950/30 dark:to-emerald-950/30 rounded-lg">
@@ -411,11 +333,7 @@ export default function SimaanDetailPage({
                 <div className="text-center py-12">
                   <Clock className="mx-auto h-12 w-12 text-muted-foreground" />
                   <p className="mt-4 text-muted-foreground">
-                    {status === "SCHEDULED"
-                      ? "Ujian belum dimulai"
-                      : status === "IN_PROGRESS"
-                        ? "Ujian sedang berlangsung"
-                        : "Ujian dibatalkan"}
+                    Ujian belum dinilai
                   </p>
                 </div>
               )}

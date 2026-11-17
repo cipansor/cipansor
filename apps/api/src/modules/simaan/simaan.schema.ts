@@ -1,10 +1,20 @@
 import { z } from 'zod';
+import {
+  SimaanGradeEnum,
+  SimaanStatusEnum,
+  SimaanTypeEnum,
+  createSimaanSchema,
+  updateSimaanSchema,
+} from '@cipansor/shared';
 
-// ============================================
-// Enums
-// ============================================
-
-export const SimaanTypeEnum = z.enum(['JUZ_AMMA', 'ONE_JUZ', 'FIVE_JUZ', 'TEN_JUZ', 'FULL_QURAN']);
+// The simaan create/update contract is in @cipansor/shared (#1024), which the
+// web forms read too; only the query, examiner and scoring schemas live here.
+// The old local `SimaanTypeEnum` (`JUZ_AMMA`, `ONE_JUZ`, …) disagreed with the
+// Prisma `SimaanType` enum the three forms sent (`BIN_NAZHR`, …), so every save
+// was answered 400. Prisma is the source of truth for DB enums (AGENTS.md rule
+// 2); `simaan-contract.guard.test.ts` pins the shared list to it.
+export { SimaanTypeEnum, createSimaanSchema, updateSimaanSchema };
+export type { CreateSimaanInput, UpdateSimaanInput } from '@cipansor/shared';
 
 // ============================================
 // Query Schemas
@@ -26,7 +36,17 @@ export const listSimaanQuerySchema = z.object({
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/)
     .optional(),
-  passed: z.coerce.boolean().optional(),
+  // `z.coerce.boolean()` reads the string "false" as true (non-empty), so the
+  // status filter's "Terjadwal" (passed=false) would return the graded exams
+  // instead. Parse the query string explicitly, as `curriculum.schema.ts` does.
+  passed: z
+    .union([z.boolean(), z.enum(['true', 'false']).transform((v) => v === 'true')])
+    .optional(),
+  // The derived status the list page shows. Filtered on the server *before*
+  // pagination, using the same rule the web badge reads (`simaanStatusOf`), so
+  // a failed exam (score 40, passed=false) cannot appear under one status in
+  // the badge and another in the filtered list (#1125).
+  status: SimaanStatusEnum.optional(),
   search: z.string().min(1).optional(),
 });
 
@@ -58,7 +78,7 @@ export const halaqohSimaanQuerySchema = z.object({
 });
 
 // ============================================
-// Create/Update Schemas
+// Examiner Schemas
 // ============================================
 
 export const createExaminerSchema = z.object({
@@ -73,65 +93,6 @@ export const createExaminerForSimaanSchema = z.object({
   score: z.number().min(0).max(100).optional(),
   notes: z.string().max(1000).optional(),
 });
-
-export const createSimaanSchema = z
-  .object({
-    studentId: z.string().uuid(),
-    enrollmentId: z.string().uuid().optional(),
-    halaqohId: z.string().uuid().optional(),
-    simaanType: SimaanTypeEnum,
-    examDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    sessionNumber: z.number().int().min(1).default(1),
-    totalSessions: z.number().int().min(1).default(1),
-    juzStart: z.number().int().min(1).max(30),
-    juzEnd: z.number().int().min(1).max(30),
-    overallScore: z.number().min(0).max(100).optional(),
-    tajwidScore: z.number().min(0).max(100).optional(),
-    fashohaScore: z.number().min(0).max(100).optional(),
-    tartilScore: z.number().min(0).max(100).optional(),
-    grade: z.enum(['MUMTAZ', 'JAYYID_JIDDAN', 'JAYYID', 'MAQBUL', 'RASIB']).optional(),
-    passed: z.boolean().default(false),
-    notes: z.string().max(2000).optional(),
-    recommendations: z.string().max(2000).optional(),
-    examiners: z.array(createExaminerForSimaanSchema).optional(),
-  })
-  .refine((data) => data.juzEnd >= data.juzStart, {
-    message: 'juzEnd must be greater than or equal to juzStart',
-    path: ['juzEnd'],
-  });
-
-export const updateSimaanSchema = z
-  .object({
-    simaanType: SimaanTypeEnum.optional(),
-    examDate: z
-      .string()
-      .regex(/^\d{4}-\d{2}-\d{2}$/)
-      .optional(),
-    sessionNumber: z.number().int().min(1).optional(),
-    totalSessions: z.number().int().min(1).optional(),
-    juzStart: z.number().int().min(1).max(30).optional(),
-    juzEnd: z.number().int().min(1).max(30).optional(),
-    overallScore: z.number().min(0).max(100).nullable().optional(),
-    tajwidScore: z.number().min(0).max(100).nullable().optional(),
-    fashohaScore: z.number().min(0).max(100).nullable().optional(),
-    tartilScore: z.number().min(0).max(100).nullable().optional(),
-    grade: z.enum(['MUMTAZ', 'JAYYID_JIDDAN', 'JAYYID', 'MAQBUL', 'RASIB']).nullable().optional(),
-    passed: z.boolean().optional(),
-    notes: z.string().max(2000).nullable().optional(),
-    recommendations: z.string().max(2000).nullable().optional(),
-  })
-  .refine(
-    (data) => {
-      if (data.juzStart !== undefined && data.juzEnd !== undefined) {
-        return data.juzEnd >= data.juzStart;
-      }
-      return true;
-    },
-    {
-      message: 'juzEnd must be greater than or equal to juzStart',
-      path: ['juzEnd'],
-    }
-  );
 
 export const updateExaminerSchema = z.object({
   score: z.number().min(0).max(100).nullable().optional(),
@@ -148,7 +109,7 @@ export const submitScoresSchema = z.object({
   tajwidScore: z.number().min(0).max(100).optional(),
   fashohaScore: z.number().min(0).max(100).optional(),
   tartilScore: z.number().min(0).max(100).optional(),
-  grade: z.enum(['MUMTAZ', 'JAYYID_JIDDAN', 'JAYYID', 'MAQBUL', 'RASIB']),
+  grade: SimaanGradeEnum,
   passed: z.boolean(),
   notes: z.string().max(2000).optional(),
   recommendations: z.string().max(2000).optional(),
@@ -159,8 +120,6 @@ export const submitScoresSchema = z.object({
 // ============================================
 
 export type ListSimaanQuery = z.infer<typeof listSimaanQuerySchema>;
-export type CreateSimaanInput = z.infer<typeof createSimaanSchema>;
-export type UpdateSimaanInput = z.infer<typeof updateSimaanSchema>;
 export type CreateExaminerInput = z.infer<typeof createExaminerSchema>;
 export type UpdateExaminerInput = z.infer<typeof updateExaminerSchema>;
 export type SubmitScoresInput = z.infer<typeof submitScoresSchema>;

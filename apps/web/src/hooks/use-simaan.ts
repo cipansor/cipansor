@@ -1,38 +1,50 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { QueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
+import {
+  SIMAAN_GRADE_VALUES,
+  SIMAAN_GRADE_LABELS,
+  SIMAAN_STATUS_LABELS,
+  SIMAAN_STATUS_VALUES,
+  SIMAAN_TYPE_VALUES,
+  SIMAAN_TYPE_LABELS,
+  SIMAAN_TYPES,
+  simaanStatusOf,
+  type CreateSimaanInput,
+  type SimaanGradeCode,
+  type SimaanStatusCode,
+  type SimaanTypeCode,
+  type UpdateSimaanInput,
+} from "@cipansor/shared";
 
-// Enums
-export const SIMAAN_TYPES = [
-  { value: "BIN_NAZHR", label: "Bin Nazhr (Melihat Mushaf)" },
-  { value: "BIL_GHAIB", label: "Bil Ghaib (Hafalan)" },
-  { value: "TAHDIR", label: "Tahdir (Persiapan)" },
-  { value: "TASMI", label: "Tasmi (Setoran)" },
-  { value: "KHATAM", label: "Khatam 30 Juz" },
-] as const;
+// The simaan values and Indonesian labels live once in @cipansor/shared
+// (`schemas/simaan.ts`), read by the API too (#1024); re-exported here so the
+// existing `@/hooks/use-simaan` imports keep working. Only the grade badge
+// colours are presentational and stay here.
+export {
+  SIMAAN_TYPE_VALUES,
+  SIMAAN_TYPE_LABELS,
+  SIMAAN_TYPES,
+  SIMAAN_GRADE_VALUES,
+  SIMAAN_GRADE_LABELS,
+  SIMAAN_STATUS_VALUES,
+  SIMAAN_STATUS_LABELS,
+};
+export type { SimaanTypeCode, SimaanGradeCode, SimaanStatusCode };
 
-export const SIMAAN_GRADES = [
-  {
-    value: "MUMTAZ",
-    label: "Mumtaz (Istimewa)",
-    color: "bg-green-100 text-green-800",
-  },
-  {
-    value: "JAYYID_JIDDAN",
-    label: "Jayyid Jiddan (Sangat Baik)",
-    color: "bg-blue-100 text-blue-800",
-  },
-  {
-    value: "JAYYID",
-    label: "Jayyid (Baik)",
-    color: "bg-yellow-100 text-yellow-800",
-  },
-  {
-    value: "MAQBUL",
-    label: "Maqbul (Cukup)",
-    color: "bg-orange-100 text-orange-800",
-  },
-  { value: "RASIB", label: "Rasib (Kurang)", color: "bg-red-100 text-red-800" },
-] as const;
+const GRADE_COLORS: Record<SimaanGradeCode, string> = {
+  MUMTAZ: "bg-green-100 text-green-800",
+  JAYYID_JIDDAN: "bg-blue-100 text-blue-800",
+  JAYYID: "bg-yellow-100 text-yellow-800",
+  MAQBUL: "bg-orange-100 text-orange-800",
+  RASIB: "bg-red-100 text-red-800",
+};
+
+export const SIMAAN_GRADES = SIMAAN_GRADE_VALUES.map((value) => ({
+  value,
+  label: SIMAAN_GRADE_LABELS[value],
+  color: GRADE_COLORS[value],
+}));
 
 // Types matching Backend Schema
 export interface SimaanExaminer {
@@ -56,7 +68,7 @@ export interface SimaanExam {
   studentId: string;
   enrollmentId?: string;
   halaqohId?: string;
-  simaanType: "JUZ_AMMA" | "ONE_JUZ" | "FIVE_JUZ" | "TEN_JUZ" | "FULL_QURAN";
+  simaanType: SimaanTypeCode;
   examDate: string; // ISO Date
   sessionNumber: number;
   totalSessions: number;
@@ -66,8 +78,7 @@ export interface SimaanExam {
   tajwidScore?: number;
   fashohaScore?: number;
   tartilScore?: number;
-  grade?: "MUMTAZ" | "JAYYID_JIDDAN" | "JAYYID" | "MAQBUL" | "RASIB";
-  status?: "SCHEDULED" | "IN_PROGRESS" | "COMPLETED" | "CANCELLED";
+  grade?: SimaanGradeCode;
   passed: boolean;
   notes?: string;
   recommendations?: string;
@@ -96,44 +107,40 @@ export interface SimaanFilters {
   enrollmentId?: string;
   halaqohId?: string;
   unitId?: string;
-  simaanType?: string;
+  simaanType?: SimaanTypeCode;
   dateFrom?: string;
   dateTo?: string;
   passed?: boolean;
-  status?: string;
+  status?: SimaanStatusCode;
 }
 
-export interface CreateSimaanData {
-  studentId: string;
-  enrollmentId?: string;
-  halaqohId?: string;
-  simaanType: string;
-  examDate: string;
-  sessionNumber?: number;
-  totalSessions?: number;
-  juzStart: number;
-  juzEnd: number;
-  overallScore?: number;
-  tajwidScore?: number;
-  fashohaScore?: number;
-  tartilScore?: number;
-  grade?: string;
-  passed?: boolean;
-  notes?: string;
-  recommendations?: string;
-  examinerIds: string[];
+/**
+ * A simaan's state, read from the record rather than a column the model does
+ * not have. It is scheduled until it is graded (`passed` or a score), then
+ * complete — the same rule the detail page and the edit guard use, and the same
+ * rule the API's list filter applies (`simaanStatusOf` in @cipansor/shared), so
+ * a filtered list and the badge on its rows cannot disagree (#1125).
+ */
+export type SimaanStatus = SimaanStatusCode;
+
+export function simaanExamStatus(
+  exam: Pick<SimaanExam, "passed" | "overallScore">,
+): SimaanStatus {
+  return simaanStatusOf(exam);
 }
 
-export type UpdateSimaanData = Partial<
-  Omit<CreateSimaanData, "studentId" | "examinerIds">
->;
+/** The create payload — the shared contract the API validates against (#1024). */
+export type CreateSimaanData = CreateSimaanInput;
+
+/** The update payload — the shared contract the API validates against (#1024). */
+export type UpdateSimaanData = UpdateSimaanInput;
 
 export interface SubmitScoresData {
   overallScore: number;
   tajwidScore?: number;
   fashohaScore?: number;
   tartilScore?: number;
-  grade: string;
+  grade: SimaanGradeCode;
   passed: boolean;
   notes?: string;
   recommendations?: string;
@@ -164,6 +171,19 @@ export const simaanKeys = {
   detail: (id: string) => [...simaanKeys.details(), id] as const,
   upcoming: () => [...simaanKeys.all, "upcoming"] as const,
 };
+
+/**
+ * A simaan write can move the Takhosus progress on the server: a pass completes
+ * the enrollment and writes a hafidz record, a re-grade or delete undoes it.
+ * The dialog lives on the enrollment page, which reads those through the
+ * Takhosus keys below — invalidating only `["simaan"]` left its status and
+ * progress stale until a manual reload (#1125).
+ */
+function invalidateTakhosusProgress(queryClient: QueryClient) {
+  queryClient.invalidateQueries({ queryKey: ["takhosus", "enrollment"] });
+  queryClient.invalidateQueries({ queryKey: ["takhosus", "progress"] });
+  queryClient.invalidateQueries({ queryKey: ["takhosus", "dashboard"] });
+}
 
 // Hooks
 
@@ -204,6 +224,7 @@ export function useCreateSimaan() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: simaanKeys.all });
+      invalidateTakhosusProgress(queryClient);
     },
   });
 }
@@ -225,6 +246,7 @@ export function useUpdateSimaan() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: simaanKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: simaanKeys.lists() });
+      invalidateTakhosusProgress(queryClient);
     },
   });
 }
@@ -239,6 +261,7 @@ export function useDeleteSimaan() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: simaanKeys.all });
+      invalidateTakhosusProgress(queryClient);
     },
   });
 }
@@ -264,29 +287,7 @@ export function useSubmitSimaanScores() {
     onSuccess: (_, { id }) => {
       queryClient.invalidateQueries({ queryKey: simaanKeys.detail(id) });
       queryClient.invalidateQueries({ queryKey: simaanKeys.lists() });
-    },
-  });
-}
-
-export function useCompleteSimaan() {
-  const queryClient = useQueryClient();
-
-  return useMutation({
-    mutationFn: async ({
-      id,
-      data,
-    }: {
-      id: string;
-      data: { passed: boolean; notes?: string };
-    }) => {
-      // Completing a simaan is recording its result: `passed` and the notes
-      // are fields of the record (`PATCH /simaan/:id`).
-      const response = await api.patch(`/simaan/${id}`, data);
-      return response.data;
-    },
-    onSuccess: (_, { id }) => {
-      queryClient.invalidateQueries({ queryKey: simaanKeys.detail(id) });
-      queryClient.invalidateQueries({ queryKey: simaanKeys.lists() });
+      invalidateTakhosusProgress(queryClient);
     },
   });
 }

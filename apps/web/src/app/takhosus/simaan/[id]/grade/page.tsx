@@ -32,6 +32,7 @@ import {
   useSubmitSimaanScores,
   SIMAAN_GRADES,
 } from "@/hooks/use-simaan";
+import { SimaanGradeEnum } from "@cipansor/shared";
 import { toast } from "sonner";
 import { DetailItem } from "@/components/shared/detail-item";
 import { Separator } from "@/components/ui/separator";
@@ -42,7 +43,7 @@ const formSchema = z.object({
   fashohaScore: z.coerce.number().min(0).max(100),
   tartilScore: z.coerce.number().min(0).max(100),
   overallScore: z.coerce.number().min(0).max(100),
-  grade: z.string().min(1, "Predikat harus dipilih"),
+  grade: SimaanGradeEnum,
   passed: z.boolean(),
   notes: z.string().optional(),
   recommendations: z.string().optional(),
@@ -60,7 +61,7 @@ function GradeSimaanPageContent({ params }: { params: { id: string } }) {
       fashohaScore: 0,
       tartilScore: 0,
       overallScore: 0,
-      grade: "",
+      grade: undefined,
       passed: false,
       notes: "",
       recommendations: "",
@@ -75,7 +76,7 @@ function GradeSimaanPageContent({ params }: { params: { id: string } }) {
         fashohaScore: exam.fashohaScore || 0,
         tartilScore: exam.tartilScore || 0,
         overallScore: exam.overallScore || 0,
-        grade: exam.grade || "",
+        grade: exam.grade || undefined,
         passed: exam.passed,
         notes: exam.notes || "",
         recommendations: exam.recommendations || "",

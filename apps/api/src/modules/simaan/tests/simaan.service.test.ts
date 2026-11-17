@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { ScopeActor } from '@/utils/student-scope';
+import { listSimaanQuerySchema } from '../simaan.schema';
 
 // The simaan read surface took the caller's scope from nothing: `findAll`
 // built its `where` from a raw `query.unitId`, `findById` looked the exam up
@@ -16,6 +17,7 @@ vi.mock('@/lib/prisma', () => ({
       count: vi.fn().mockResolvedValue(0),
       findFirstOrThrow: vi.fn().mockResolvedValue({ id: 'e-1' }),
     },
+    $transaction: vi.fn((callback) => callback(prisma)),
   },
 }));
 
@@ -109,5 +111,26 @@ describe('simaanService.getUpcomingExams — the window is also the caller’s s
     await simaanService.getUpcomingExams(guru, 'halaqoh-1', 7);
 
     expect(whereOf()).toMatchObject({ halaqohId: 'halaqoh-1', student: { unitId: 'unit-smp' } });
+  });
+});
+
+describe('listSimaanQuerySchema — `passed` reads the query string as a boolean', () => {
+  // The list page's status filter maps "Terjadwal" onto `passed=false`. With
+  // `z.coerce.boolean()` that string is non-empty, so it parsed to `true` and
+  // the filter returned the graded exams instead — the opposite of the choice.
+  it('parses the string "false" as false', () => {
+    expect(listSimaanQuerySchema.parse({ passed: 'false' }).passed).toBe(false);
+  });
+
+  it('parses the string "true" as true', () => {
+    expect(listSimaanQuerySchema.parse({ passed: 'true' }).passed).toBe(true);
+  });
+
+  it('leaves `passed` unset when it is absent', () => {
+    expect(listSimaanQuerySchema.parse({}).passed).toBeUndefined();
+  });
+
+  it('still rejects a value that is not a boolean', () => {
+    expect(listSimaanQuerySchema.safeParse({ passed: 'yes' }).success).toBe(false);
   });
 });

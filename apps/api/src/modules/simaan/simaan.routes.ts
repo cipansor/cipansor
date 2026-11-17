@@ -48,11 +48,19 @@ const router: Router = Router();
  *         name: simaanType
  *         schema:
  *           type: string
- *           enum: [JUZ_AMMA, ONE_JUZ, FIVE_JUZ, TEN_JUZ, FULL_QURAN]
+ *           enum: [BIN_NAZHR, BIL_GHAIB, TAHDIR, TASMI, KHATAM]
  *       - in: query
  *         name: passed
  *         schema:
  *           type: boolean
+ *       - in: query
+ *         name: status
+ *         description: >-
+ *           The derived state: COMPLETED is a pass or any score, SCHEDULED is
+ *           neither. Applied before pagination, the same rule the web badge reads.
+ *         schema:
+ *           type: string
+ *           enum: [SCHEDULED, COMPLETED]
  *     responses:
  *       200:
  *         description: List of simaan exams

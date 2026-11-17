@@ -15,6 +15,11 @@ import {
   useSimaanExams,
   useDeleteSimaan,
   SimaanExam,
+  SIMAAN_TYPES,
+  SIMAAN_STATUS_LABELS,
+  simaanExamStatus,
+  type SimaanStatus,
+  type SimaanTypeCode,
 } from "@/hooks/use-simaan";
 import { useClasses } from "@/hooks/use-classes";
 import { Badge } from "@/components/ui/badge";
@@ -42,9 +47,7 @@ import {
   Plus,
   BookOpen,
   CheckCircle,
-  Clock,
   Play,
-  XCircle,
   Calendar,
   Users,
   Award,
@@ -57,33 +60,16 @@ import { cn } from "@/lib/utils";
 import { DateRange } from "react-day-picker";
 import { getEffectiveRole } from "@/lib/rbac";
 
-const STATUS_LABELS: Record<string, string> = {
-  SCHEDULED: "Terjadwal",
-  IN_PROGRESS: "Berlangsung",
-  COMPLETED: "Selesai",
-  CANCELLED: "Dibatalkan",
-};
+const STATUS_LABELS: Record<string, string> = SIMAAN_STATUS_LABELS;
 
 const STATUS_COLORS: Record<string, string> = {
   SCHEDULED: "bg-blue-100 text-blue-800",
-  IN_PROGRESS: "bg-yellow-100 text-yellow-800",
   COMPLETED: "bg-green-100 text-green-800",
-  CANCELLED: "bg-red-100 text-red-800",
 };
 
 const STATUS_ICONS: Record<string, React.ReactNode> = {
   SCHEDULED: <Calendar className="h-3 w-3" />,
-  IN_PROGRESS: <Play className="h-3 w-3" />,
   COMPLETED: <CheckCircle className="h-3 w-3" />,
-  CANCELLED: <XCircle className="h-3 w-3" />,
-};
-
-const EXAM_TYPE_LABELS: Record<string, string> = {
-  JUZ_AMMA: "Juz Amma",
-  ONE_JUZ: "1 Juz",
-  FIVE_JUZ: "5 Juz",
-  TEN_JUZ: "10 Juz",
-  FULL_QURAN: "30 Juz",
 };
 
 export default function SimaanListPage() {
@@ -93,7 +79,7 @@ export default function SimaanListPage() {
   const [pageSize, setPageSize] = useState(10);
   const [search, setSearch] = useState("");
   const [statusFilter, setStatusFilter] = useState<string>("");
-  const [examTypeFilter, setExamTypeFilter] = useState<string>("");
+  const [examTypeFilter, setExamTypeFilter] = useState<SimaanTypeCode | "">("");
   const [classFilter, setClassFilter] = useState<string>("");
   const [dateRange, setDateRange] = useState<DateRange | undefined>();
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -104,7 +90,11 @@ export default function SimaanListPage() {
     page,
     limit: pageSize,
     search: search || undefined,
-    status: statusFilter || undefined,
+    // The derived status the API filters on, using the same rule the badge
+    // below reads (`simaanStatusOf`). The old filter mapped onto `passed`, so a
+    // failed exam (score 40, passed=false) showed a "Selesai" badge yet was
+    // listed under "Terjadwal" and hidden from "Selesai" (#1125).
+    status: (statusFilter as SimaanStatus | "") || undefined,
     simaanType: examTypeFilter || undefined,
     // classId not supported in filters currently
     dateFrom: dateRange?.from
@@ -179,15 +169,16 @@ export default function SimaanListPage() {
       cell: ({ row }) => (
         <Badge variant="outline" className="font-normal">
           <BookOpen className="h-3 w-3 mr-1" />
-          {EXAM_TYPE_LABELS[row.original.simaanType]}
+          {SIMAAN_TYPES.find((t) => t.value === row.original.simaanType)
+            ?.label || row.original.simaanType}
         </Badge>
       ),
     },
     {
-      accessorKey: "status",
+      id: "status",
       header: "Status",
       cell: ({ row }) => {
-        const status = row.original.status || "SCHEDULED";
+        const status = simaanExamStatus(row.original);
         return (
           <Badge className={cn("font-normal gap-1", STATUS_COLORS[status])}>
             {STATUS_ICONS[status]}
@@ -242,7 +233,7 @@ export default function SimaanListPage() {
               <Eye className="mr-2 h-4 w-4" />
               Lihat Detail
             </DropdownMenuItem>
-            {(row.original.status === "SCHEDULED" || !row.original.status) && (
+            {!row.original.passed && (
               <>
                 <DropdownMenuItem
                   onClick={() =>
@@ -262,18 +253,8 @@ export default function SimaanListPage() {
                 </DropdownMenuItem>
               </>
             )}
-            {row.original.status === "IN_PROGRESS" && (
-              <DropdownMenuItem
-                onClick={() =>
-                  router.push(`/tahfidz/simaan/${row.original.id}/score`)
-                }
-              >
-                <Award className="mr-2 h-4 w-4" />
-                Input Nilai
-              </DropdownMenuItem>
-            )}
             <DropdownMenuSeparator />
-            {(row.original.status === "SCHEDULED" || !row.original.status) && (
+            {!row.original.passed && (
               <DropdownMenuItem
                 className="text-destructive"
                 onClick={() => setDeleteId(row.original.id)}
@@ -327,15 +308,18 @@ export default function SimaanListPage() {
             </SelectContent>
           </Select>
 
-          <Select value={examTypeFilter} onValueChange={setExamTypeFilter}>
+          <Select
+            value={examTypeFilter}
+            onValueChange={(v) => setExamTypeFilter(v as SimaanTypeCode | "")}
+          >
             <SelectTrigger className="bg-background/50 backdrop-blur-sm border-muted-foreground/20">
               <SelectValue placeholder="Semua Jenis" />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="">Semua Jenis</SelectItem>
-              {Object.entries(EXAM_TYPE_LABELS).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
+              {SIMAAN_TYPES.map((type) => (
+                <SelectItem key={type.value} value={type.value}>
+                  {type.label}
                 </SelectItem>
               ))}
             </SelectContent>

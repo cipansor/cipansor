@@ -5,6 +5,11 @@ import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@/lib/zod-resolver";
 import { z } from "zod";
+import {
+  SimaanTypeEnum,
+  SIMAAN_TYPE_LABELS,
+  type UpdateSimaanInput,
+} from "@cipansor/shared";
 import { MainLayout } from "@/components/layout";
 import { PageHeader } from "@/components/shared";
 import { Button } from "@/components/ui/button";
@@ -54,24 +59,34 @@ import {
   AlertTriangle,
 } from "lucide-react";
 
-const formSchema = z.object({
-  examDate: z.date({
-    error: "Tanggal ujian wajib diisi",
-  }),
-  examType: z.enum(["JUZ_30", "JUZ_PILIHAN", "FULL_QURAN", "CUSTOM"], {
-    error: "Tipe ujian wajib dipilih",
-  }),
-  startSurah: z.string().optional(),
-  startAyat: z.coerce.number().min(1).optional(),
-  endSurah: z.string().optional(),
-  endAyat: z.coerce.number().min(1).optional(),
-  totalJuz: z.coerce.number().min(1).max(30).optional(),
-  location: z.string().optional(),
-  notes: z.string().optional(),
-  status: z
-    .enum(["SCHEDULED", "IN_PROGRESS", "COMPLETED", "CANCELLED"])
-    .optional(),
-});
+/**
+ * Only the columns `SimaanExam` actually has are on this form (#1024). The old
+ * form carried `startSurah`/`startAyat`/`endSurah`/`endAyat`, `location` and
+ * `status` — none of which is a column — and sent `juzStart: 1` with the juz
+ * count as `juzEnd`, so saving silently overwrote the real range. The fields
+ * below are the ones the user changes; `onSubmit` sends only the ones they
+ * touched, so an untouched juz range or notes stay as they were.
+ */
+const formSchema = z
+  .object({
+    examDate: z.date({ error: "Tanggal ujian wajib diisi" }),
+    simaanType: SimaanTypeEnum,
+    juzStart: z.coerce
+      .number()
+      .int()
+      .min(1, "Minimal juz 1")
+      .max(30, "Maksimal juz 30"),
+    juzEnd: z.coerce
+      .number()
+      .int()
+      .min(1, "Minimal juz 1")
+      .max(30, "Maksimal juz 30"),
+    notes: z.string().max(2000, "Maksimal 2000 karakter").optional(),
+  })
+  .refine((data) => data.juzEnd >= data.juzStart, {
+    message: "Juz akhir harus lebih besar atau sama dengan juz awal",
+    path: ["juzEnd"],
+  });
 
 type FormData = z.infer<typeof formSchema>;
 
@@ -89,44 +104,47 @@ export default function EditSimaanPage({
   const form = useForm<FormData>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      examType: "JUZ_30",
-      startAyat: 1,
+      simaanType: "BIN_NAZHR",
+      juzStart: 1,
+      juzEnd: 1,
+      notes: "",
     },
   });
-
-  const selectedType = form.watch("examType");
 
   // Populate form when data is loaded
   useEffect(() => {
     if (exam) {
       form.reset({
         examDate: new Date(exam.examDate),
-        examType: exam.simaanType as any,
-        startSurah: "", // Placeholder
-        startAyat: 1, // Placeholder
-        endSurah: "", // Placeholder
-        endAyat: 1, // Placeholder
-        totalJuz: exam.juzEnd - exam.juzStart + 1, // Approximate
-        location: "", // Placeholder
+        simaanType: exam.simaanType,
+        juzStart: exam.juzStart,
+        juzEnd: exam.juzEnd,
         notes: exam.notes || "",
-        status: "SCHEDULED", // Default
       });
     }
   }, [exam, form]);
 
   const onSubmit = async (data: FormData) => {
+    // Send only the fields the user actually changed. `dirtyFields` is reset
+    // by `form.reset` above, so it tracks edits against the loaded record.
+    const dirty = form.formState.dirtyFields;
+    const payload: UpdateSimaanInput = {};
+    if (dirty.examDate) payload.examDate = format(data.examDate, "yyyy-MM-dd");
+    if (dirty.simaanType) payload.simaanType = data.simaanType;
+    if (dirty.juzStart) payload.juzStart = data.juzStart;
+    if (dirty.juzEnd) payload.juzEnd = data.juzEnd;
+    // An emptied notes field clears the column (the API accepts `null`).
+    if (dirty.notes) payload.notes = data.notes ? data.notes : null;
+
+    if (Object.keys(payload).length === 0) {
+      toast.info("Tidak ada perubahan untuk disimpan");
+      return;
+    }
+
     try {
       await updateMutation.mutateAsync({
         id: resolvedParams.id,
-        data: {
-          examDate: data.examDate.toISOString(),
-          simaanType: data.examType as any, // Map to correct enum value
-          // startSurah, etc. might not be in the update type directly if they are virtual or mapped
-          juzStart: 1, // Placeholder
-          juzEnd: data.totalJuz || 1, // Placeholder
-          notes: data.notes,
-          // status is not typically updated here directly unless exposed in UpdateSimaanData
-        },
+        data: payload,
       });
       toast.success("Data ujian simaan berhasil diperbarui");
       router.push(`/tahfidz/simaan/${resolvedParams.id}`);
@@ -166,8 +184,6 @@ export default function EditSimaanPage({
     );
   }
 
-  // Check if editable
-  // Use passed boolean as proxy or assume editable
   if (exam.passed) {
     return (
       <MainLayout>
@@ -261,30 +277,25 @@ export default function EditSimaanPage({
                   {/* Exam Type */}
                   <FormField
                     control={form.control}
-                    name="examType"
+                    name="simaanType"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Tipe Ujian *</FormLabel>
+                        <FormLabel>Jenis Simaan *</FormLabel>
                         <Select
                           onValueChange={field.onChange}
                           value={field.value}
                         >
                           <FormControl>
                             <SelectTrigger>
-                              <SelectValue placeholder="Pilih tipe ujian" />
+                              <SelectValue placeholder="Pilih jenis simaan" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
-                            <SelectItem value="JUZ_30">
-                              Juz 30 (Juz &apos;Amma)
-                            </SelectItem>
-                            <SelectItem value="JUZ_PILIHAN">
-                              Juz Pilihan
-                            </SelectItem>
-                            <SelectItem value="FULL_QURAN">
-                              30 Juz (Full Quran)
-                            </SelectItem>
-                            <SelectItem value="CUSTOM">Custom</SelectItem>
+                            {SimaanTypeEnum.options.map((value) => (
+                              <SelectItem key={value} value={value}>
+                                {SIMAAN_TYPE_LABELS[value]}
+                              </SelectItem>
+                            ))}
                           </SelectContent>
                         </Select>
                         <FormMessage />
@@ -292,136 +303,35 @@ export default function EditSimaanPage({
                     )}
                   />
 
-                  {/* Status */}
+                  {/* Juz range */}
                   <FormField
                     control={form.control}
-                    name="status"
+                    name="juzStart"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Status</FormLabel>
-                        <Select
-                          onValueChange={field.onChange}
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger>
-                              <SelectValue placeholder="Pilih status" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            <SelectItem value="SCHEDULED">Terjadwal</SelectItem>
-                            <SelectItem value="IN_PROGRESS">
-                              Sedang Berlangsung
-                            </SelectItem>
-                            <SelectItem value="CANCELLED">
-                              Dibatalkan
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-
-                  {/* Location */}
-                  <FormField
-                    control={form.control}
-                    name="location"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Lokasi</FormLabel>
+                        <FormLabel>Juz Awal *</FormLabel>
                         <FormControl>
-                          <Input
-                            placeholder="Contoh: Masjid Al-Hikmah"
-                            {...field}
-                          />
+                          <Input type="number" min={1} max={30} {...field} />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="juzEnd"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Juz Akhir *</FormLabel>
+                        <FormControl>
+                          <Input type="number" min={1} max={30} {...field} />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
                   />
                 </div>
-
-                {/* Conditional Fields based on exam type */}
-                {(selectedType === "JUZ_PILIHAN" ||
-                  selectedType === "CUSTOM") && (
-                  <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
-                    <FormField
-                      control={form.control}
-                      name="startSurah"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Surah Mulai</FormLabel>
-                          <FormControl>
-                            <Input placeholder="Al-Fatihah" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="startAyat"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Ayat Mulai</FormLabel>
-                          <FormControl>
-                            <Input type="number" min={1} {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="endSurah"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Surah Akhir</FormLabel>
-                          <FormControl>
-                            <Input placeholder="An-Nas" {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-
-                    <FormField
-                      control={form.control}
-                      name="endAyat"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Ayat Akhir</FormLabel>
-                          <FormControl>
-                            <Input type="number" min={1} {...field} />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                )}
-
-                {selectedType === "JUZ_PILIHAN" && (
-                  <FormField
-                    control={form.control}
-                    name="totalJuz"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Total Juz</FormLabel>
-                        <FormControl>
-                          <Input type="number" min={1} max={30} {...field} />
-                        </FormControl>
-                        <FormDescription>
-                          Jumlah juz yang akan diujikan
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                )}
 
                 {/* Notes */}
                 <FormField
@@ -437,6 +347,9 @@ export default function EditSimaanPage({
                           {...field}
                         />
                       </FormControl>
+                      <FormDescription>
+                        Kosongkan untuk menghapus catatan.
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}

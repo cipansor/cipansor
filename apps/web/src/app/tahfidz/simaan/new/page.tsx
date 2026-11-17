@@ -2,8 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useForm } from "react-hook-form";
-import { zodResolver } from "@hookform/resolvers/zod";
+import { zodResolver } from "@/lib/zod-resolver";
 import { z } from "zod";
+import {
+  SimaanTypeEnum,
+  SIMAAN_TYPE_LABELS,
+  type SimaanTypeCode,
+} from "@cipansor/shared";
 import { MainLayout } from "@/components/layout";
 import { PageHeader } from "@/components/shared";
 import { useCreateSimaan } from "@/hooks/use-simaan";
@@ -60,37 +65,34 @@ import { useAuthStore } from "@/stores/auth";
 import { cn } from "@/lib/utils";
 import { useState } from "react";
 
-const EXAM_TYPES = [
-  { value: "JUZ_30", label: "Juz 30", description: "Juz Amma (Juz 30)" },
-  { value: "JUZ_1_15", label: "Juz 1-15", description: "15 Juz Pertama" },
-  { value: "JUZ_16_30", label: "Juz 16-30", description: "15 Juz Terakhir" },
-  { value: "FULL_30_JUZ", label: "30 Juz", description: "Al-Quran 30 Juz" },
-  { value: "CUSTOM", label: "Custom", description: "Pilih rentang sendiri" },
-];
+const EXAM_TYPES: { value: SimaanTypeCode; label: string }[] =
+  SimaanTypeEnum.options.map((value) => ({
+    value,
+    label: SIMAAN_TYPE_LABELS[value],
+  }));
 
 const simaanSchema = z
   .object({
     studentId: z.string().min(1, "Santri wajib dipilih"),
     examDate: z.date({ error: "Tanggal wajib diisi" }),
-    examType: z.string().min(1, "Jenis ujian wajib dipilih"),
-    startJuz: z.number().min(1).max(30).optional(),
-    endJuz: z.number().min(1).max(30).optional(),
-    duration: z.number().min(15, "Minimal 15 menit"),
-    notes: z.string().optional(),
+    simaanType: SimaanTypeEnum,
+    juzStart: z.coerce
+      .number()
+      .int()
+      .min(1, "Minimal juz 1")
+      .max(30, "Maksimal juz 30"),
+    juzEnd: z.coerce
+      .number()
+      .int()
+      .min(1, "Minimal juz 1")
+      .max(30, "Maksimal juz 30"),
+    notes: z.string().max(2000, "Maksimal 2000 karakter").optional(),
     examinerIds: z.array(z.string()).min(1, "Minimal 1 penguji"),
   })
-  .refine(
-    (data) => {
-      if (data.examType === "CUSTOM") {
-        return data.startJuz && data.endJuz && data.endJuz >= data.startJuz;
-      }
-      return true;
-    },
-    {
-      message: "Juz akhir harus lebih besar atau sama dengan juz awal",
-      path: ["endJuz"],
-    },
-  );
+  .refine((data) => data.juzEnd >= data.juzStart, {
+    message: "Juz akhir harus lebih besar atau sama dengan juz awal",
+    path: ["juzEnd"],
+  });
 
 type SimaanFormData = z.infer<typeof simaanSchema>;
 
@@ -114,28 +116,26 @@ export default function CreateSimaanPage() {
     defaultValues: {
       studentId: "",
       examDate: new Date(),
-      examType: "JUZ_30",
-      startJuz: undefined,
-      endJuz: undefined,
-      duration: 60,
+      simaanType: "BIN_NAZHR",
+      juzStart: 1,
+      juzEnd: 1,
       notes: "",
       examinerIds: [],
     },
   });
 
-  const watchExamType = form.watch("examType");
   const watchExaminerIds = form.watch("examinerIds");
 
   const onSubmit = async (data: SimaanFormData) => {
     try {
       await createMutation.mutateAsync({
-        ...data,
+        studentId: data.studentId,
+        simaanType: data.simaanType,
         examDate: format(data.examDate, "yyyy-MM-dd"),
-        simaanType: data.examType,
-        juzStart: data.examType === "CUSTOM" ? data.startJuz || 1 : 1, // Logic to determine juz
-        juzEnd: data.examType === "CUSTOM" ? data.endJuz || 1 : 1, // Logic to determine juz
-        sessionNumber: 1, // Default or add to form
-        totalSessions: 1, // Default or add to form
+        juzStart: data.juzStart,
+        juzEnd: data.juzEnd,
+        notes: data.notes,
+        examinerIds: data.examinerIds,
       });
       toast.success("Ujian simaan berhasil dijadwalkan");
       router.push("/tahfidz/simaan");
@@ -270,21 +270,49 @@ export default function CreateSimaanPage() {
 
                 <FormField
                   control={form.control}
-                  name="duration"
+                  name="juzStart"
                   render={({ field }) => (
                     <FormItem>
-                      <FormLabel>Durasi (menit) *</FormLabel>
+                      <FormLabel>Juz Awal *</FormLabel>
                       <FormControl>
                         <Input
                           type="number"
-                          min={15}
+                          min={1}
+                          max={30}
                           {...field}
                           onChange={(e) =>
-                            field.onChange(parseInt(e.target.value) || 60)
+                            field.onChange(parseInt(e.target.value) || 1)
                           }
                         />
                       </FormControl>
-                      <FormDescription>Estimasi waktu ujian</FormDescription>
+                      <FormDescription>
+                        Juz pertama yang diujikan
+                      </FormDescription>
+                      <FormMessage />
+                    </FormItem>
+                  )}
+                />
+
+                <FormField
+                  control={form.control}
+                  name="juzEnd"
+                  render={({ field }) => (
+                    <FormItem>
+                      <FormLabel>Juz Akhir *</FormLabel>
+                      <FormControl>
+                        <Input
+                          type="number"
+                          min={1}
+                          max={30}
+                          {...field}
+                          onChange={(e) =>
+                            field.onChange(parseInt(e.target.value) || 1)
+                          }
+                        />
+                      </FormControl>
+                      <FormDescription>
+                        Juz terakhir yang diujikan
+                      </FormDescription>
                       <FormMessage />
                     </FormItem>
                   )}
@@ -300,13 +328,13 @@ export default function CreateSimaanPage() {
                   Jenis Ujian
                 </CardTitle>
                 <CardDescription>
-                  Pilih materi yang akan diujikan
+                  Pilih cara simaan dilaksanakan
                 </CardDescription>
               </CardHeader>
               <CardContent className="space-y-6">
                 <FormField
                   control={form.control}
-                  name="examType"
+                  name="simaanType"
                   render={({ field }) => (
                     <FormItem>
                       <FormControl>
@@ -323,9 +351,6 @@ export default function CreateSimaanPage() {
                               onClick={() => field.onChange(type.value)}
                             >
                               <p className="font-medium">{type.label}</p>
-                              <p className="text-sm text-muted-foreground">
-                                {type.description}
-                              </p>
                             </div>
                           ))}
                         </div>
@@ -334,57 +359,6 @@ export default function CreateSimaanPage() {
                     </FormItem>
                   )}
                 />
-
-                {watchExamType === "CUSTOM" && (
-                  <div className="grid gap-4 md:grid-cols-2">
-                    <FormField
-                      control={form.control}
-                      name="startJuz"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Juz Awal *</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              min={1}
-                              max={30}
-                              {...field}
-                              onChange={(e) =>
-                                field.onChange(
-                                  parseInt(e.target.value) || undefined,
-                                )
-                              }
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={form.control}
-                      name="endJuz"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Juz Akhir *</FormLabel>
-                          <FormControl>
-                            <Input
-                              type="number"
-                              min={1}
-                              max={30}
-                              {...field}
-                              onChange={(e) =>
-                                field.onChange(
-                                  parseInt(e.target.value) || undefined,
-                                )
-                              }
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  </div>
-                )}
               </CardContent>
             </Card>
 
@@ -412,19 +386,21 @@ export default function CreateSimaanPage() {
                         <div className="space-y-3 p-4">
                           {teachers?.data?.map((teacher) => (
                             <div
-                              key={teacher.id}
+                              key={teacher.userId}
                               className={cn(
                                 "flex items-center gap-3 p-2 rounded-lg cursor-pointer transition-colors",
-                                watchExaminerIds.includes(teacher.id)
+                                watchExaminerIds.includes(teacher.userId)
                                   ? "bg-primary/10"
                                   : "hover:bg-muted/50",
                               )}
-                              onClick={() => toggleExaminer(teacher.id)}
+                              onClick={() => toggleExaminer(teacher.userId)}
                             >
                               <Checkbox
-                                checked={watchExaminerIds.includes(teacher.id)}
+                                checked={watchExaminerIds.includes(
+                                  teacher.userId,
+                                )}
                                 onCheckedChange={() =>
-                                  toggleExaminer(teacher.id)
+                                  toggleExaminer(teacher.userId)
                                 }
                               />
                               <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center">
