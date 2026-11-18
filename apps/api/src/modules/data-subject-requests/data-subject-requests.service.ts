@@ -766,13 +766,31 @@ async function withdrawConsent(
 }
 
 /**
+ * Jenis dokumen santri yang merupakan arsip akademik dan masih wajib disimpan.
+ *
+ * Rapor dan ijazah (dan piagam) adalah catatan akademik yang diwajibkan
+ * retensi — sama seperti nilai dan kehadiran yang dipertahankan pada barisnya.
+ * Penghapusan memutus kemampuan menghubungkan dokumen dengan orangnya, bukan
+ * menghapus arsipnya; karena itu jenis ini tidak dikosongkan maupun dihapus.
+ */
+const RETAINED_STUDENT_DOCUMENT_TYPES = ['REPORT_CARD', 'DIPLOMA', 'CERTIFICATE'] as const;
+
+/**
+ * Jenis dokumen pendaftar yang merupakan arsip akademik.
+ *
+ * `RegistrantDocument.type` adalah string bebas (bukan enum), dan nilainya
+ * huruf kecil — lihat `createRegistrantDocumentSchema`.
+ */
+const RETAINED_REGISTRANT_DOCUMENT_TYPES = ['rapor', 'ijazah'] as const;
+
+/**
  * Hapus penanda langsung satu baris `Student` beserta berkasnya.
  *
  * Dipakai dari dua arah — subjek `STUDENT` langsung, dan subjek `REGISTRANT`
  * yang pendaftarannya sudah menjadi santri — karena identitas pada `Student`
  * dan `Registrant` adalah orang yang sama. Berkas pada `StudentDocument`
- * (akta, KK, KTP orang tua, rapor, pas foto) ikut dikumpulkan untuk dihapus;
- * `fileUrl`-nya tidak boleh dibiarkan menunjuk berkas yang seharusnya hilang.
+ * (akta, KK, KTP orang tua, pas foto) ikut dikumpulkan untuk dihapus; arsip
+ * akademik (rapor, ijazah) TIDAK — keduanya dibedakan menurut `documentType`.
  */
 async function eraseStudent(
   tx: Prisma.TransactionClient,
@@ -831,19 +849,24 @@ async function eraseStudent(
     },
   });
 
-  // Berkas dokumen santri: `fileUrl`-nya wajib (kolom non-null), jadi tidak
-  // dapat dikosongkan. Berkasnya dihapus dari penyimpanan, penunjuknya
-  // diarahkan ke nilai kosong, dan barisnya ditandai terhapus supaya tidak ada
-  // lagi URL hidup yang menunjuk berkas yang sudah lenyap.
+  // Berkas dokumen santri yang boleh dihapus: akta, KK, KTP orang tua, pas
+  // foto. Rapor dan ijazah dikecualikan — keduanya arsip akademik yang masih
+  // wajib disimpan, dan `fileUrl`-nya kolom non-null sehingga penunjuknya
+  // dibiarkan utuh. Predikat yang sama dipakai untuk memilih dan memperbarui,
+  // supaya dokumen yang dipertahankan tidak ikut kehilangan penunjuknya.
+  const removableDocuments = {
+    studentId: student.id,
+    documentType: { notIn: [...RETAINED_STUDENT_DOCUMENT_TYPES] },
+  };
   const documents = await tx.studentDocument.findMany({
-    where: { studentId: student.id },
+    where: removableDocuments,
     select: { fileUrl: true },
   });
   for (const doc of documents) {
     if (doc.fileUrl) outcome.files.push(doc.fileUrl);
   }
   await tx.studentDocument.updateMany({
-    where: { studentId: student.id },
+    where: removableDocuments,
     data: { fileUrl: '', deletedAt: now },
   });
 
@@ -871,10 +894,17 @@ async function eraseStudent(
     'alamat',
     'identitas akun',
     'foto',
-    'berkas dokumen santri',
+    'berkas dokumen identitas',
     'NISN'
   );
-  outcome.retained.push('NIS', 'nilai', 'kehadiran', 'keuangan', 'riwayat unit');
+  outcome.retained.push(
+    'NIS',
+    'nilai',
+    'kehadiran',
+    'keuangan',
+    'riwayat unit',
+    'arsip akademik (rapor, ijazah)'
+  );
   return outcome;
 }
 
@@ -885,6 +915,9 @@ async function eraseStudent(
  * tetap ada setelah pendaftarannya menjadi santri (`Registrant.studentId`).
  * Karena itu penghapusan subjek `STUDENT` merambat ke sini juga, bukan hanya
  * ke `Student` — kalau tidak, satu salinan utuh tertinggal terbaca.
+ *
+ * Berkas identitas (KTP/KK/akta) dihapus; arsip akademik (rapor, ijazah) tetap
+ * dipertahankan, sama seperti pada `StudentDocument`.
  */
 async function eraseRegistrant(
   tx: Prisma.TransactionClient,
@@ -908,23 +941,32 @@ async function eraseRegistrant(
       notes: null,
     },
   });
-  // Berkas identitas pendaftar (KTP/KK/akta) tidak punya kegunaan setelah
-  // pendaftarannya tidak lagi dihubungkan dengan orangnya. Berkasnya
-  // dihapus dari penyimpanan; barisnya dipertahankan tanpa `fileUrl` supaya
-  // riwayat unggahan tetap terbaca.
+  // Berkas identitas pendaftar tidak punya kegunaan setelah pendaftarannya
+  // tidak lagi dihubungkan dengan orangnya. Berkasnya dihapus dari penyimpanan;
+  // barisnya dipertahankan tanpa `fileUrl` supaya riwayat unggahan tetap
+  // terbaca. Rapor dan ijazah dikecualikan karena masih wajib disimpan.
+  const removableDocuments = {
+    registrantId,
+    type: { notIn: [...RETAINED_REGISTRANT_DOCUMENT_TYPES] },
+  };
   const documents = await tx.registrantDocument.findMany({
-    where: { registrantId },
+    where: removableDocuments,
     select: { fileUrl: true },
   });
   for (const doc of documents) {
     if (doc.fileUrl) outcome.files.push(doc.fileUrl);
   }
   await tx.registrantDocument.updateMany({
-    where: { registrantId },
+    where: removableDocuments,
     data: { fileUrl: null, notes: null },
   });
   outcome.erased.push('identitas pendaftar', 'berkas identitas');
-  outcome.retained.push('nomor pendaftaran', 'status seleksi', 'keuangan');
+  outcome.retained.push(
+    'nomor pendaftaran',
+    'status seleksi',
+    'keuangan',
+    'arsip akademik (rapor, ijazah)'
+  );
   return outcome;
 }
 
