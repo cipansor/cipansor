@@ -75,9 +75,30 @@ const isBackported = (name, version, range) =>
 //
 // The braces 3.0.3 entry (GHSA-vfj7-8cjw-p6xm, until 2026-11-03) is gone: the
 // advisory was withdrawn on 2026-10-23 and the npm bulk endpoint no longer
-// returns it, so the waiver matched nothing (#953). The list is empty and waits
-// for the next dev-only advisory that genuinely has no patched release.
-const ACCEPTED_RISKS = [];
+// returns it, so the waiver matched nothing (#953).
+const ACCEPTED_RISKS = [
+  // GHSA-fc5q-39xc-vjpf (2026-11-17): ReDoS via single-branch repeated
+  // extglobs. No patched release exists — 4.0.7 is the newest and the advisory
+  // reports `first_patched_version: null` — so an `overrides` floor cannot
+  // clear it. Both installed lines are waived below. Dev-only: reached through
+  // `tsc-alias` (api) and `eslint-config-next` / `@typescript-eslint/*` (web),
+  // never a runtime path, and the ReDoS needs attacker-controlled glob
+  // patterns, which no build tool takes from input.
+  {
+    name: "picomatch",
+    version: "2.3.2",
+    advisory: "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+    until: "2026-12-17",
+    note: "picomatch ReDoS (GHSA-fc5q-39xc-vjpf) — dev-only via tsc-alias / eslint-config-next; no patched release yet.",
+  },
+  {
+    name: "picomatch",
+    version: "4.0.7",
+    advisory: "https://github.com/advisories/GHSA-fc5q-39xc-vjpf",
+    until: "2026-12-17",
+    note: "picomatch ReDoS (GHSA-fc5q-39xc-vjpf) — dev-only via eslint-config-next; no patched release yet.",
+  },
+];
 
 const levelArgIdx = process.argv.indexOf("--audit-level");
 const threshold =
