@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import * as raporService from '../../../../src/modules/rapor-pesantren/rapor-pesantren.service';
-import { prisma } from '../../../../src/lib/prisma';
+import * as raporService from '../rapor-pesantren.service';
+import { prisma } from '@/lib/prisma';
 
 // Mock prisma and other external dependencies
 vi.mock('@/lib/prisma', () => ({
