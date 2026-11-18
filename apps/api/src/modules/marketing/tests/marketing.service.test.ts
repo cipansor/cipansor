@@ -1,9 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { prisma } from '../../lib/prisma';
-import marketingService from './marketing.service';
+import { prisma } from '@/lib/prisma';
+import marketingService from '../marketing.service';
 
 // Mock all external dependencies
-vi.mock('../../lib/prisma', () => ({
+vi.mock('@/lib/prisma', () => ({
   prisma: {
     marketingCampaign: {
       create: vi.fn(),

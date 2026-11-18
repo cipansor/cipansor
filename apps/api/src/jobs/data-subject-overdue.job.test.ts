@@ -78,4 +78,24 @@ describe('runDataSubjectOverdueReminder', () => {
 
     expect(await runDataSubjectOverdueReminder()).toEqual({ overdue: 1, reminded: 1 });
   });
+
+  it('mengecualikan penunjukan yang sudah kedaluwarsa (CWE-863)', async () => {
+    // `isActive` saja tidak cukup: penunjukan yang lewat masa berlakunya masih
+    // tersimpan aktif sampai ada yang menonaktifkannya, sedangkan hak aksesnya
+    // sudah dicabut `auth.service`. Nomor permintaan dan tenggatnya tidak boleh
+    // dikirim lewat surel kepada orang yang tidak lagi berwenang.
+    vi.mocked(prisma.dataSubjectRequest.findMany).mockResolvedValue([overdueRow] as any);
+    const now = new Date('2026-11-20T00:00:00.000Z');
+
+    await runDataSubjectOverdueReminder(now);
+
+    expect(prisma.userRoleAssignment.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({
+          isActive: true,
+          OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+        }),
+      })
+    );
+  });
 });

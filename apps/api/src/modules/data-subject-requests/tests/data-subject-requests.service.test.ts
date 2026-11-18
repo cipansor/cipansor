@@ -2,6 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as service from '../data-subject-requests.service';
 import { prisma } from '@/lib/prisma';
 import { notificationService } from '@/modules/notifications';
+import fs from 'fs/promises';
+
+vi.mock('fs/promises', () => ({ default: { unlink: vi.fn() } }));
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -16,7 +19,8 @@ vi.mock('@/lib/prisma', () => ({
     student: { findUnique: vi.fn(), update: vi.fn() },
     studentParent: { findUnique: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn() },
-    registrantDocument: { updateMany: vi.fn() },
+    registrantDocument: { updateMany: vi.fn(), findMany: vi.fn(), count: vi.fn() },
+    studentDocument: { count: vi.fn() },
     auditLog: { create: vi.fn() },
     $transaction: vi.fn(),
     // `FOR UPDATE` mengunci baris lewat `$executeRaw`; mock harus punya
@@ -240,6 +244,36 @@ describe('data-subject-requests — verifikasi kode', () => {
     );
   });
 
+  it('kenaikan hitungan bertahan walau kode salah (galat dilempar setelah commit)', async () => {
+    // Galat yang dilempar DARI DALAM `$transaction` membatalkan kenaikan
+    // `verificationAttempts`, sehingga batas lima percobaan tidak pernah
+    // tersimpan dan kode dapat ditebak selama masa berlakunya. Uji ini
+    // memastikan penulisan itu terjadi di dalam transaksi yang DIKUKUHKAN:
+    // transaksinya mengembalikan penanda, galatnya menyusul di luar.
+    let committed = false;
+    vi.mocked(prisma.$transaction).mockImplementation((async (fn: any) => {
+      const result = await fn(prisma);
+      committed = true;
+      return result;
+    }) as any);
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        verificationCodeHash: 'a'.repeat(64),
+        verificationExpiresAt: future,
+        verificationAttempts: 0,
+      }) as any
+    );
+
+    await expect(
+      service.verifyPublicRequest({ requestNo: 'DSR-2026-0001', code: '000000' })
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(committed, 'transaksi harus dikukuhkan, bukan dibatalkan oleh throw').toBe(true);
+    expect(prisma.dataSubjectRequest.update).toHaveBeenCalledWith(
+      expect.objectContaining({ data: { verificationAttempts: 1 } })
+    );
+  });
+
   it('membuang kode setelah dipakai, dan tidak menerimanya lagi', async () => {
     // Hash dibuat dari kode yang sama dengan yang diuji.
     const crypto = await import('crypto');
@@ -428,6 +462,63 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     // supaya batasnya dapat diperiksa, bukan tersembunyi sebagai perilaku.
     expect(audit.data.newValues.retained).toContain('nilai');
     expect(audit.data.newValues.erased).toContain('identitas santri');
+  });
+
+  it('tidak menghapus berkas yang masih ditunjuk baris lain (CWE-639)', async () => {
+    // Penyerang menempelkan URL unggahan orang lain pada dokumennya sendiri,
+    // lalu meminta penghapusan. Berkasnya masih ditunjuk baris lain, jadi
+    // penghapusan harus dilewati — kalau tidak, petugas menghapus data korban.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: 'https://portal.cipansor.or.id/uploads/berkas-korban.pdf',
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+    // Masih ada satu baris (mis. dokumen korban) yang menunjuk berkas yang sama.
+    vi.mocked(prisma.studentDocument.count).mockResolvedValue(1);
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    expect(fs.unlink).not.toHaveBeenCalled();
+  });
+
+  it('menghapus berkas yang sudah tidak ditunjuk siapa pun', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: 'https://portal.cipansor.or.id/uploads/foto-santri.jpg',
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+    vi.mocked(prisma.studentDocument.count).mockResolvedValue(0);
+    vi.mocked(fs.unlink).mockResolvedValue(undefined as never);
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    expect(fs.unlink).toHaveBeenCalledTimes(1);
   });
 
   it('permintaan yang sudah selesai tidak dapat diubah lagi', async () => {

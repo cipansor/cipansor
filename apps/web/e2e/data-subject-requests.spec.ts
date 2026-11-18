@@ -266,6 +266,74 @@ test.describe("Hak subjek data pribadi", () => {
     ).toBeVisible({ timeout: 15000 });
   });
 
+  test("petugas menelusuri halaman kedua daftar (paginasi)", async ({
+    page,
+  }) => {
+    const officer = await apiLogin(SEED_USERS.superAdmin);
+
+    // Lebih dari satu halaman (limit 50). Dibuat lewat API supaya uji ini tidak
+    // bergantung pada isi seed, lalu dibersihkan `afterAll`.
+    for (let i = 0; i < 51; i++) {
+      const created = (await apiRequest(
+        officer,
+        "POST",
+        "/data-subject-requests",
+        {
+          type: "RECTIFICATION",
+          subjectCategory: "GUARDIAN",
+          detail: `Halaman daftar (e2e ${stamp} #${i})`,
+        },
+      )) as { data?: { id: string } };
+      expect(created.data?.id).toBeTruthy();
+      cleanup.push(created.data!.id);
+    }
+
+    await injectSession(page, officer);
+    await page.goto("/settings/permintaan-data", {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(
+      page.getByRole("heading", { name: "Permintaan Data Pribadi" }),
+    ).toBeVisible();
+
+    // Halaman pertama: tombol Berikutnya hidup, Sebelumnya mati.
+    await expect(page.getByText(/Halaman 1 dari/)).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(
+      page.getByRole("button", { name: "Berikutnya" }),
+    ).toBeEnabled();
+    await expect(
+      page.getByRole("button", { name: "Sebelumnya" }),
+    ).toBeDisabled();
+
+    await page.getByRole("button", { name: "Berikutnya" }).click();
+    await expect(page.getByText(/Halaman 2 dari/)).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(
+      page.getByRole("button", { name: "Sebelumnya" }),
+    ).toBeEnabled();
+
+    await page.getByRole("button", { name: "Sebelumnya" }).click();
+    await expect(page.getByText(/Halaman 1 dari/)).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Mengganti penyaring mengembalikan daftar ke halaman pertama — kalau tidak,
+    // hasil penyaring yang lebih sedikit dapat tampak kosong karena masih di
+    // halaman kedua.
+    await page.getByRole("button", { name: "Berikutnya" }).click();
+    await expect(page.getByText(/Halaman 2 dari/)).toBeVisible({
+      timeout: 15000,
+    });
+    await page.getByLabel("Saring status").click();
+    await page.getByRole("option", { name: "Diterima" }).click();
+    await expect(page.getByText(/Halaman 1 dari/)).toBeVisible({
+      timeout: 15000,
+    });
+  });
+
   test("akun tanpa PDP_MANAGE ditolak dari daftar petugas", async ({
     page,
   }) => {

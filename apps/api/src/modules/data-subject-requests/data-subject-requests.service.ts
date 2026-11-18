@@ -454,6 +454,13 @@ export async function submitPublicRequest(
  * lima percobaan menjadi lima kali lebih banyak, dan batasnya hanya berlaku
  * bagi penyerang yang mencoba satu per satu. `FOR UPDATE` menyerialkan
  * pembacaan dan penulisan, sehingga setiap percobaan benar-benar menambah satu.
+ *
+ * **Galatnya dilempar SETELAH transaksi dikukuhkan, bukan dari dalamnya.**
+ * `throw` di dalam `$transaction` membatalkan seluruh transaksi — termasuk
+ * kenaikan `verificationAttempts` yang baru saja ditulis untuk percobaan yang
+ * gagal. Akibatnya batas lima percobaan tidak pernah tersimpan, dan penyerang
+ * dapat menebak kode selama masa berlakunya. Karena itu transaksinya
+ * mengembalikan penanda hasil, dan galatnya dilempar setelah commit.
  */
 export async function verifyPublicRequest(
   input: VerifyPublicDataSubjectRequestInput
@@ -464,76 +471,93 @@ export async function verifyPublicRequest(
     { field: 'code', message: 'Kode verifikasi salah atau sudah kedaluwarsa' },
   ]);
 
-  return prisma.$transaction(async (tx) => {
-    // Kunci barisnya lebih dulu: `$executeRaw` karena kunci mengembalikan
-    // `void`, yang tidak dapat dideserialkan `$queryRaw`.
-    await tx.$executeRaw`SELECT id FROM data_subject_requests WHERE request_no = ${input.requestNo} FOR UPDATE`;
+  const outcome = await prisma.$transaction(
+    async (
+      tx
+    ): Promise<
+      | { kind: 'invalid' }
+      | { kind: 'forbidden' }
+      | { kind: 'ok'; value: PublicDataSubjectRequestVerifiedDTO }
+    > => {
+      // Kunci barisnya lebih dulu: `$executeRaw` karena kunci mengembalikan
+      // `void`, yang tidak dapat dideserialkan `$queryRaw`.
+      await tx.$executeRaw`SELECT id FROM data_subject_requests WHERE request_no = ${input.requestNo} FOR UPDATE`;
 
-    const row = await tx.dataSubjectRequest.findUnique({
-      where: { requestNo: input.requestNo },
-      select: {
-        id: true,
-        requestNo: true,
-        status: true,
-        dueAt: true,
-        type: true,
-        verificationCodeHash: true,
-        verificationExpiresAt: true,
-        verificationAttempts: true,
-        actions: true,
-      },
-    });
-
-    if (!row || !row.verificationCodeHash) throw invalid;
-    if (row.status !== 'RECEIVED') throw invalid;
-    if (!row.verificationExpiresAt || row.verificationExpiresAt < now) throw invalid;
-    if (row.verificationAttempts >= DATA_SUBJECT_VERIFICATION_MAX_ATTEMPTS) {
-      throw Errors.forbidden(
-        'Batas percobaan verifikasi tercapai. Hubungi petugas pelindungan data pribadi.'
-      );
-    }
-
-    const attempts = row.verificationAttempts + 1;
-    const ok = codeMatches(input.code, row.verificationCodeHash);
-
-    if (!ok) {
-      await tx.dataSubjectRequest.update({
-        where: { id: row.id },
-        data: { verificationAttempts: attempts },
+      const row = await tx.dataSubjectRequest.findUnique({
+        where: { requestNo: input.requestNo },
+        select: {
+          id: true,
+          requestNo: true,
+          status: true,
+          dueAt: true,
+          type: true,
+          verificationCodeHash: true,
+          verificationExpiresAt: true,
+          verificationAttempts: true,
+          actions: true,
+        },
       });
-      throw invalid;
+
+      if (!row || !row.verificationCodeHash) return { kind: 'invalid' };
+      if (row.status !== 'RECEIVED') return { kind: 'invalid' };
+      if (!row.verificationExpiresAt || row.verificationExpiresAt < now) return { kind: 'invalid' };
+      if (row.verificationAttempts >= DATA_SUBJECT_VERIFICATION_MAX_ATTEMPTS) {
+        return { kind: 'forbidden' };
+      }
+
+      const attempts = row.verificationAttempts + 1;
+      const ok = codeMatches(input.code, row.verificationCodeHash);
+
+      if (!ok) {
+        await tx.dataSubjectRequest.update({
+          where: { id: row.id },
+          data: { verificationAttempts: attempts },
+        });
+        return { kind: 'invalid' };
+      }
+
+      const actions = readActions(row as { actions: Prisma.JsonValue });
+      actions.push({
+        at: now.toISOString(),
+        byId: null,
+        byName: 'Pemohon (verifikasi mandiri)',
+        from: 'RECEIVED',
+        to: 'VERIFIED',
+      });
+
+      const updated = await tx.dataSubjectRequest.update({
+        where: { id: row.id },
+        data: {
+          status: 'VERIFIED',
+          verifiedAt: now,
+          verificationAttempts: attempts,
+          // Kode dibuang setelah dipakai. Ia tidak punya kegunaan kedua, dan
+          // hash yang tertinggal hanya menambah satu rahasia untuk dijaga.
+          verificationCodeHash: null,
+          verificationExpiresAt: null,
+          actions: actions as unknown as Prisma.InputJsonValue,
+        },
+        select: { requestNo: true, status: true, dueAt: true },
+      });
+
+      return {
+        kind: 'ok',
+        value: {
+          requestNo: updated.requestNo,
+          status: updated.status,
+          dueAt: updated.dueAt.toISOString(),
+        },
+      };
     }
+  );
 
-    const actions = readActions(row as { actions: Prisma.JsonValue });
-    actions.push({
-      at: now.toISOString(),
-      byId: null,
-      byName: 'Pemohon (verifikasi mandiri)',
-      from: 'RECEIVED',
-      to: 'VERIFIED',
-    });
-
-    const updated = await tx.dataSubjectRequest.update({
-      where: { id: row.id },
-      data: {
-        status: 'VERIFIED',
-        verifiedAt: now,
-        verificationAttempts: attempts,
-        // Kode dibuang setelah dipakai. Ia tidak punya kegunaan kedua, dan
-        // hash yang tertinggal hanya menambah satu rahasia untuk dijaga.
-        verificationCodeHash: null,
-        verificationExpiresAt: null,
-        actions: actions as unknown as Prisma.InputJsonValue,
-      },
-      select: { requestNo: true, status: true, dueAt: true },
-    });
-
-    return {
-      requestNo: updated.requestNo,
-      status: updated.status,
-      dueAt: updated.dueAt.toISOString(),
-    };
-  });
+  if (outcome.kind === 'invalid') throw invalid;
+  if (outcome.kind === 'forbidden') {
+    throw Errors.forbidden(
+      'Batas percobaan verifikasi tercapai. Hubungi petugas pelindungan data pribadi.'
+    );
+  }
+  return outcome.value;
 }
 
 /** Daftar untuk petugas pelindungan data pribadi. */
@@ -951,12 +975,62 @@ async function executeErasure(
  * membatalkan penghapusan yang sudah tercatat: barisnya sudah tidak menunjuk
  * berkasnya lagi, dan berkas yatim yang tersisa adalah temuan yang harus
  * terlihat, bukan galat yang harus menyembunyikan keberhasilan penghapusan.
+ *
+ * **Sebuah berkas hanya dihapus bila tidak ada baris LAIN yang masih
+ * menunjuknya (CWE-639).** `RegistrantDocument.fileUrl` menerima URL pilihan
+ * pendaftar lewat unggahan publik, dan `uploadPathFromUrl` hanya memeriksa
+ * bentuk jalur — bukan pemiliknya. Tanpa pemeriksaan ini, seorang penyerang
+ * dapat menempelkan URL unggahan orang lain pada dokumennya sendiri, lalu
+ * meminta penghapusan: petugas yang menyelesaikannya akan menghapus berkas
+ * korban. Karena transaksi di atas sudah mengosongkan penunjuk milik subjek
+ * yang dihapus, keberadaan penunjuk lain setelah commit berarti berkas itu
+ * bukan (hanya) miliknya — dan penghapusan dilewati.
  */
+async function uploadStillReferenced(url: string): Promise<boolean> {
+  for (const { model, field } of urlColumns()) {
+    // Nama delegasi Prisma = nama model dengan huruf pertama kecil.
+    const delegate = model.charAt(0).toLowerCase() + model.slice(1);
+    const client = (
+      prisma as unknown as Record<string, { count?: (args: unknown) => Promise<number> }>
+    )[delegate];
+    // Model tanpa `count` (tidak mungkin pada klien yang tergenerasi) dilewati,
+    // bukan dianggap "tidak menunjuk": satu galat tak terduga di sini berarti
+    // berkas yang tidak boleh hilang ikut terhapus.
+    if (typeof client?.count !== 'function') continue;
+    const count = await client.count({ where: { [field]: url } });
+    if (count > 0) return true;
+  }
+  return false;
+}
+
+/**
+ * Setiap kolom String bernama `…Url` pada skema, dari katalog Prisma (DMMF).
+ *
+ * Ditemukan dari skema, bukan dari daftar yang ditulis tangan: daftar tangan
+ * akan ketinggalan setiap kali sebuah model baru menambah kolom URL — dan
+ * justru pada kolom yang terlupa itulah berkas orang lain menempel.
+ */
+function urlColumns(): Array<{ model: string; field: string }> {
+  return Prisma.dmmf.datamodel.models.flatMap((model) =>
+    model.fields
+      .filter(
+        (field) => field.kind === 'scalar' && field.type === 'String' && /Url$/.test(field.name)
+      )
+      .map((field) => ({ model: model.name, field: field.name }))
+  );
+}
+
 async function deleteStoredFiles(fileUrls: string[], requestNo: string): Promise<void> {
   for (const url of fileUrls) {
     const filePath = uploadPathFromUrl(url);
     if (!filePath) continue;
     try {
+      if (await uploadStillReferenced(url)) {
+        logger.warn('[PDP] Berkas masih ditunjuk baris lain; penghapusan dilewati', {
+          requestNo,
+        });
+        continue;
+      }
       await fs.unlink(filePath);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code === 'ENOENT') continue;

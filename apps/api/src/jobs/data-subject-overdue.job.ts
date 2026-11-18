@@ -29,15 +29,27 @@ export const DSR_LIST_LINK = '/settings/permintaan-data';
  * Izin hidup pada baris `Role.permissions` (JSON) dan diberikan lewat
  * penunjukan, jadi keanggotaannya dibaca dari peran yang memuatnya — bukan dari
  * daftar kode peran yang ditulis ulang di sini.
+ *
+ * **Penunjukan yang sudah kedaluwarsa tidak ikut.** `isActive` saja tidak
+ * cukup: sebuah penunjukan dengan `expiresAt` yang sudah lewat masih tersimpan
+ * `isActive` sampai ada yang menonaktifkannya, sedangkan `auth.service`
+ * (`activeRoleWhere`) sudah mengecualikannya dari hak akses. Memakai
+ * `isActive` tanpa batas masa berlaku berarti mengirim nomor permintaan dan
+ * tenggatnya lewat surel kepada orang yang tidak lagi berwenang menerimanya
+ * (CWE-863). Penyaringnya disamakan dengan milik autentikasi.
  */
-export async function pdpOfficerUserIds(): Promise<string[]> {
+export async function pdpOfficerUserIds(now = new Date()): Promise<string[]> {
   const roles = await prisma.role.findMany({
     where: { isActive: true, permissions: { array_contains: 'PDP_MANAGE' } },
     select: { id: true },
   });
   if (roles.length === 0) return [];
   const assignments = await prisma.userRoleAssignment.findMany({
-    where: { roleId: { in: roles.map((r) => r.id) }, isActive: true },
+    where: {
+      roleId: { in: roles.map((r) => r.id) },
+      isActive: true,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+    },
     select: { userId: true },
     distinct: ['userId'],
   });
@@ -56,7 +68,7 @@ export async function runDataSubjectOverdueReminder(
   });
   if (overdue.length === 0) return { overdue: 0, reminded: 0 };
 
-  const officerIds = await pdpOfficerUserIds();
+  const officerIds = await pdpOfficerUserIds(now);
   if (officerIds.length === 0) {
     logger.warn('[PDP] Permintaan lewat tenggat tanpa petugas pemegang PDP_MANAGE', {
       overdue: overdue.length,
