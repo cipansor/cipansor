@@ -38,7 +38,10 @@ vi.mock('@/lib/prisma', () => ({
     },
     auditLog: { create: vi.fn() },
     role: { findMany: vi.fn().mockResolvedValue([]) },
-    userRoleAssignment: { findMany: vi.fn().mockResolvedValue([]) },
+    userRoleAssignment: {
+      findMany: vi.fn().mockResolvedValue([]),
+      findFirst: vi.fn().mockResolvedValue(null),
+    },
     $transaction: vi.fn(),
     // `FOR UPDATE` mengunci baris lewat `$executeRaw`; mock harus punya
     // permukaannya, karena `tx` di sini adalah klien yang sama.
@@ -1042,13 +1045,52 @@ describe('data-subject-requests — penemuan lanjutan', () => {
       actor
     );
 
-    const scrubbed = vi
+    // SETIAP pembaruan yang membawa `actions` diperiksa, bukan hanya yang
+    // pertama: jalur penghapusan menulis riwayat dua kali (penyapuan di dalam
+    // `executeErasure`, lalu pembaruan status), dan penulisan terakhir itulah
+    // yang menentukan apa yang benar-benar tersimpan.
+    const actionsWritten = vi
       .mocked(prisma.dataSubjectRequest.update)
-      .mock.calls.map((c) => c[0] as any)
-      .find((c) => Array.isArray(c.data.actions) && c.where.id === 'dsr-1');
-    expect(scrubbed, 'riwayat harus ditulis ulang tanpa catatan PII').toBeTruthy();
-    expect(JSON.stringify(scrubbed.data.actions)).not.toContain('Budi');
-    expect(JSON.stringify(scrubbed.data.actions)).not.toContain('081234567890');
+      .mock.calls.map((c) => (c[0] as any).data.actions)
+      .filter(Array.isArray);
+    expect(actionsWritten.length).toBeGreaterThan(0);
+    for (const actions of actionsWritten) {
+      expect(JSON.stringify(actions)).not.toContain('Budi');
+      expect(JSON.stringify(actions)).not.toContain('081234567890');
+    }
+  });
+
+  it('mengirim pemberitahuan penghapusan ke kontak asli pemohon publik', async () => {
+    // Baris permintaan dianonimkan saat penghapusan, termasuk kontaknya.
+    // Notifikasi penutupan harus tetap ditujukan ke kontak ASLI yang dipakai
+    // saat mengajukan — kalau memakai nilai tersimpan yang sudah menjadi "—",
+    // pemohon tidak pernah tahu permintaannya selesai.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: null,
+        verifiedAt: new Date('2026-11-18T00:00:00.000Z'),
+        requesterContact: 'wali@example.com',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const sent = vi.mocked(notificationService.send).mock.calls[0][0] as any;
+    expect(sent.channel).toBe('EMAIL');
+    expect(sent.recipientEmail).toBe('wali@example.com');
   });
 
   // ---------- A3: pemasaran mengabaikan penarikan persetujuan ----------
@@ -1140,6 +1182,36 @@ describe('data-subject-requests — penemuan lanjutan', () => {
         actor
       )
     ).rejects.toMatchObject({ statusCode: 400 });
+  });
+
+  it('menerima petugas penangan yang memegang PDP_MANAGE, lewat kueri yang menyasar satu pengguna', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'RECTIFICATION',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+      }) as any
+    );
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({ id: 'user-9' } as any);
+    vi.mocked(prisma.userRoleAssignment.findFirst).mockResolvedValue({ id: 'assign-1' } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'RECTIFICATION', status: 'PROCESSING' }) as any
+    );
+
+    await service.updateStatus(
+      'dsr-1',
+      { status: 'PROCESSING', handledById: '00000000-0000-0000-0000-000000000009' },
+      actor
+    );
+
+    // Kueri menyasar `handledById` saja; memuat seluruh daftar petugas di dalam
+    // transaksi yang sudah menahan baris permintaan hanya memboroskan.
+    expect(prisma.userRoleAssignment.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ userId: '00000000-0000-0000-0000-000000000009' }),
+      })
+    );
+    expect(prisma.role.findMany).not.toHaveBeenCalled();
   });
 
   // ---------- B3: nomor permintaan memakai tahun Jakarta ----------

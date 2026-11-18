@@ -334,6 +334,73 @@ test.describe("Hak subjek data pribadi", () => {
     });
   });
 
+  test("petugas membuka permintaan publik belum terverifikasi: hanya verifikasi luring atau tolak, lalu Diproses dan Selesai terbuka", async ({
+    page,
+  }) => {
+    const officer = await apiLogin(SEED_USERS.superAdmin);
+    const registrant = await firstRegistrant(officer);
+
+    // Permintaan publik nyata lewat API: ia berstatus RECEIVED tanpa
+    // `verifiedAt`, yaitu cabang yang membatasi pilihan status.
+    const created = (await apiRequest(
+      officer,
+      "POST",
+      "/data-subject-requests/public",
+      {
+        type: "RECTIFICATION",
+        registrationNo: registrant.registrationNo,
+        birthDate: registrant.birthDate,
+        requesterName: `Pemohon publik e2e ${stamp}`,
+        requesterContact: "pemohon.publik.e2e@example.com",
+        detail: `Perbaiki ejaan nama (e2e publik ${stamp})`,
+      },
+    )) as { data?: { requestNo: string } };
+    const requestNo = created.data?.requestNo;
+    expect(requestNo, "permintaan publik harus dibuat").toBeTruthy();
+
+    const list = (await apiRequest(
+      officer,
+      "GET",
+      "/data-subject-requests?limit=100",
+    )) as { data?: Array<{ id: string; requestNo: string }> };
+    const row = (list.data ?? []).find((r) => r.requestNo === requestNo);
+    expect(row, "permintaan publik harus tercatat").toBeTruthy();
+    const id = row!.id;
+    cleanup.push(id);
+
+    await injectSession(page, officer);
+    await page.goto(`/settings/permintaan-data/${id}`, {
+      waitUntil: "domcontentloaded",
+    });
+    await expect(
+      page.getByRole("heading", { name: "Perbaikan data" }),
+    ).toBeVisible({ timeout: 15000 });
+
+    // Permintaan publik yang belum terverifikasi: memindahkannya ke Diproses
+    // memutus langkah verifikasi, jadi pilihannya hanya verifikasi luring atau
+    // tolak. Diproses dan Selesai tidak ditawarkan.
+    await page.getByLabel("Status berikutnya").click();
+    await expect(
+      page.getByRole("option", { name: "Terverifikasi" }),
+    ).toBeVisible();
+    await expect(page.getByRole("option", { name: "Ditolak" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "Diproses" })).toHaveCount(0);
+    await expect(page.getByRole("option", { name: "Selesai" })).toHaveCount(0);
+
+    // Verifikasi luring: petugas membuktikan identitas lewat kanal lain.
+    await page.getByRole("option", { name: "Terverifikasi" }).click();
+    await page.getByRole("button", { name: "Simpan status" }).click();
+    await expect(page.getByText("Status permintaan diperbarui")).toBeVisible({
+      timeout: 15000,
+    });
+
+    // Setelah terverifikasi, seluruh pilihan kembali: permintaannya tidak lagi
+    // menggantung pada langkah verifikasi.
+    await page.getByLabel("Status berikutnya").click();
+    await expect(page.getByRole("option", { name: "Diproses" })).toBeVisible();
+    await expect(page.getByRole("option", { name: "Selesai" })).toBeVisible();
+  });
+
   test("akun tanpa PDP_MANAGE ditolak dari daftar petugas", async ({
     page,
   }) => {

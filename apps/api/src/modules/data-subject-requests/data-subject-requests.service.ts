@@ -817,94 +817,113 @@ export async function updateStatus(
   const now = new Date();
   let exportPayload: unknown;
 
-  const { updated, filesToDelete, isPublicUnverified } = await prisma.$transaction(async (tx) => {
-    // Kunci barisnya lebih dulu. `$executeRaw` (bukan `$queryRaw`): kunci
-    // mengembalikan `void`, yang tidak dapat dideserialkan `$queryRaw`.
-    await tx.$executeRaw`SELECT id FROM data_subject_requests WHERE id = ${id} FOR UPDATE`;
+  const { updated, filesToDelete, isPublicUnverified, notifyContact } = await prisma.$transaction(
+    async (tx) => {
+      // Kunci barisnya lebih dulu. `$executeRaw` (bukan `$queryRaw`): kunci
+      // mengembalikan `void`, yang tidak dapat dideserialkan `$queryRaw`.
+      await tx.$executeRaw`SELECT id FROM data_subject_requests WHERE id = ${id} FOR UPDATE`;
 
-    const existing = await tx.dataSubjectRequest.findUnique({
-      where: { id },
-      include: DSR_INCLUDE,
-    });
-    if (!existing) throw Errors.notFound('Permintaan');
+      const existing = await tx.dataSubjectRequest.findUnique({
+        where: { id },
+        include: DSR_INCLUDE,
+      });
+      if (!existing) throw Errors.notFound('Permintaan');
 
-    if (isClosed(existing.status)) {
-      throw Errors.conflict('Permintaan ini sudah selesai dan tidak dapat diubah lagi');
-    }
-
-    // Petugas yang dicatat sebagai penangan harus benar-benar ada dan benar-benar
-    // memegang `PDP_MANAGE` lewat penunjukan aktif; tanpa pemeriksaan ini, id
-    // yang salah menghasilkan galat kunci asing (500) alih-alih 400.
-    if (input.handledById) {
-      await assertPdpOfficer(input.handledById, now);
-    }
-
-    // Permintaan publik belum membuktikan siapa pemohonnya sampai kode yang
-    // dikirim ke kontak terdaftar diverifikasi.
-    const isPublicUnverified = !existing.requesterUserId && !existing.verifiedAt;
-
-    if (isPublicUnverified && input.status !== 'REJECTED' && input.status !== 'VERIFIED') {
-      throw Errors.conflict(
-        'Permintaan publik yang belum diverifikasi hanya dapat ditolak atau diverifikasi luring. ' +
-          'Status lain akan memutus langkah verifikasinya.'
-      );
-    }
-
-    const actions = readActions(existing);
-    actions.push({
-      at: now.toISOString(),
-      byId: actor.userId,
-      byName: actor.name,
-      from: existing.status,
-      to: input.status,
-      note: input.note,
-    });
-
-    let erasedFiles: string[] = [];
-    if (input.status === 'COMPLETED') {
-      if (existing.type === 'CONSENT_WITHDRAWAL') {
-        await withdrawConsent(tx, existing, now);
+      if (isClosed(existing.status)) {
+        throw Errors.conflict('Permintaan ini sudah selesai dan tidak dapat diubah lagi');
       }
-      if (existing.type === 'ERASURE') {
-        erasedFiles = await executeErasure(tx, existing, actor, now);
-        // Catatan penutupan ditulis SETELAH `executeErasure` menimpa catatan
-        // lama, jadi ia belum ikut tersapu. Catatan itu dapat memuat nama atau
-        // alamat yang baru saja dihapus; yang tersisa hanyalah penandanya,
-        // sementara perpindahan status dan waktunya tetap tercatat.
-        const last = actions[actions.length - 1];
-        if (last.note) {
-          actions[actions.length - 1] = {
-            ...last,
-            note: `Catatan dihapus bersama permintaan ${existing.requestNo} (UU PDP).`,
-          };
+
+      // Petugas yang dicatat sebagai penangan harus benar-benar ada dan benar-benar
+      // memegang `PDP_MANAGE` lewat penunjukan aktif; tanpa pemeriksaan ini, id
+      // yang salah menghasilkan galat kunci asing (500) alih-alih 400.
+      if (input.handledById) {
+        await assertPdpOfficer(input.handledById, now);
+      }
+
+      // Permintaan publik belum membuktikan siapa pemohonnya sampai kode yang
+      // dikirim ke kontak terdaftar diverifikasi.
+      const isPublicUnverified = !existing.requesterUserId && !existing.verifiedAt;
+
+      if (isPublicUnverified && input.status !== 'REJECTED' && input.status !== 'VERIFIED') {
+        throw Errors.conflict(
+          'Permintaan publik yang belum diverifikasi hanya dapat ditolak atau diverifikasi luring. ' +
+            'Status lain akan memutus langkah verifikasinya.'
+        );
+      }
+
+      const actions = readActions(existing);
+      actions.push({
+        at: now.toISOString(),
+        byId: actor.userId,
+        byName: actor.name,
+        from: existing.status,
+        to: input.status,
+        note: input.note,
+      });
+
+      let erasedFiles: string[] = [];
+      if (input.status === 'COMPLETED') {
+        if (existing.type === 'CONSENT_WITHDRAWAL') {
+          await withdrawConsent(tx, existing, now);
+        }
+        if (existing.type === 'ERASURE') {
+          erasedFiles = await executeErasure(tx, existing, actor, now);
+          // `executeErasure` menyapu riwayat yang ADA DI BASIS DATA, tetapi
+          // tindakan penutupan baru saja ditambahkan ke array di memori ini di
+          // atasnya — dan pembaruan status di bawah yang menang. Seluruh array
+          // disapu di sini, bukan hanya tindakan terakhir, supaya catatan
+          // penutupan (yang justru paling sering memuat nama) dan nama pemohon
+          // pada tindakan pembuka tidak ditulis kembali.
+          for (let i = 0; i < actions.length; i++) {
+            const action = actions[i];
+            if (action.note) {
+              actions[i] = {
+                ...action,
+                note: `Catatan dihapus bersama permintaan ${existing.requestNo} (UU PDP).`,
+              };
+            }
+            if (action.from === null) {
+              actions[i] = {
+                ...actions[i],
+                byName: `Pemohon dihapus (${existing.requestNo})`,
+              };
+            }
+          }
+        }
+        if (existing.type === 'ACCESS') {
+          exportPayload = await buildSubjectDataExport(tx, existing);
         }
       }
-      if (existing.type === 'ACCESS') {
-        exportPayload = await buildSubjectDataExport(tx, existing);
-      }
+
+      const row = await tx.dataSubjectRequest.update({
+        where: { id },
+        data: {
+          status: input.status,
+          rejectionReason: input.status === 'REJECTED' ? (input.note ?? null) : null,
+          completedAt: isClosed(input.status) ? now : null,
+          // Verifikasi luring yang eksplisit: petugas yang membuktikan identitas
+          // lewat kanal lain (tatap muka, dokumen) menandai `VERIFIED` dan
+          // mencatat metodenya pada `note` — bukti verifikasi, bukan sekadar
+          // status. `VERIFIED` yang datang dari kode mandiri sudah diisi
+          // `verifyPublicRequest`, jadi tidak ditimpa.
+          verifiedAt:
+            input.status === 'VERIFIED' ? (existing.verifiedAt ?? now) : existing.verifiedAt,
+          handledById: input.handledById ?? existing.handledById ?? actor.userId,
+          actions: actions as unknown as Prisma.InputJsonValue,
+        },
+        include: DSR_INCLUDE,
+      });
+
+      // Kontak yang dipakai untuk memberi tahu pemohon. Untuk penghapusan, baris
+      // permintaan sudah dianonimkan di dalam transaksi (`requesterContact`
+      // menjadi "—"), jadi nilai tersimpan itu tidak lagi dapat dipakai sebagai
+      // tujuan; kontak ASLI yang dibaca sebelum anonimisasi dibawa keluar.
+      const notifyContact =
+        existing.type === 'ERASURE' ? existing.requesterContact : row.requesterContact;
+
+      return { updated: row, filesToDelete: erasedFiles, isPublicUnverified, notifyContact };
     }
-
-    const row = await tx.dataSubjectRequest.update({
-      where: { id },
-      data: {
-        status: input.status,
-        rejectionReason: input.status === 'REJECTED' ? (input.note ?? null) : null,
-        completedAt: isClosed(input.status) ? now : null,
-        // Verifikasi luring yang eksplisit: petugas yang membuktikan identitas
-        // lewat kanal lain (tatap muka, dokumen) menandai `VERIFIED` dan
-        // mencatat metodenya pada `note` — bukti verifikasi, bukan sekadar
-        // status. `VERIFIED` yang datang dari kode mandiri sudah diisi
-        // `verifyPublicRequest`, jadi tidak ditimpa.
-        verifiedAt:
-          input.status === 'VERIFIED' ? (existing.verifiedAt ?? now) : existing.verifiedAt,
-        handledById: input.handledById ?? existing.handledById ?? actor.userId,
-        actions: actions as unknown as Prisma.InputJsonValue,
-      },
-      include: DSR_INCLUDE,
-    });
-
-    return { updated: row, filesToDelete: erasedFiles, isPublicUnverified };
-  });
+  );
 
   // Berkas dihapus SETELAH transaksi dikukuhkan: menghapus berkas tidak dapat
   // dibatalkan, jadi ia tidak boleh berjalan di dalam transaksi yang mungkin
@@ -918,7 +937,7 @@ export async function updateStatus(
   // terbukti milik keluarga: itu memberi tahu orang yang mungkin bukan
   // pemohonnya apa yang perlu dilengkapi. Cukup pesan generik.
   await notifyRequester(
-    updated,
+    { ...updated, requesterContact: notifyContact },
     `Permintaan ${updated.requestNo} kini ${statusLabel}`,
     input.status === 'REJECTED' && !isPublicUnverified ? (input.note ?? null) : null
   );

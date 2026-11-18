@@ -42,8 +42,23 @@ export async function pdpOfficerUserIds(now = new Date()): Promise<string[]> {
   return assignments.map((a) => a.userId);
 }
 
-/** Apakah pengguna ini memegang `PDP_MANAGE` lewat penunjukan aktif. */
+/**
+ * Apakah pengguna ini memegang `PDP_MANAGE` lewat penunjukan aktif.
+ *
+ * Membaca penunjukan pengguna itu saja, bukan seluruh daftar petugas: pemanggil
+ * yang sudah memegang satu `userId` (mis. `assertPdpOfficer` di dalam transaksi
+ * yang menahan baris permintaan dengan `FOR UPDATE`) tidak perlu memuat semua
+ * petugas hanya untuk memutuskan satu orang.
+ */
 export async function isPdpOfficer(userId: string, now = new Date()): Promise<boolean> {
-  const officerIds = await pdpOfficerUserIds(now);
-  return officerIds.includes(userId);
+  const assignment = await prisma.userRoleAssignment.findFirst({
+    where: {
+      userId,
+      isActive: true,
+      OR: [{ expiresAt: null }, { expiresAt: { gt: now } }],
+      role: { isActive: true, permissions: { array_contains: 'PDP_MANAGE' } },
+    },
+    select: { id: true },
+  });
+  return assignment !== null;
 }
