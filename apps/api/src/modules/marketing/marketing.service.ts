@@ -128,7 +128,15 @@ export const getDashboardStats = async (unitId?: string) => {
   // 2. Campaign Performance. Jumlah pendaftar pun disaring persetujuannya:
   // menghitung baris yang sudah menariknya sebagai hasil kampanye adalah
   // pemrosesan lanjutan atas data itu.
-  const campaigns = await prisma.marketingCampaign.findMany({
+  //
+  // Peringkatnya dihitung di sini, dari jumlah TERSARING, bukan lewat
+  // `orderBy: { registrants: { _count } }`. Penyaring `where` pada `_count`
+  // hanya mengubah angka yang dikembalikan, bukan jumlah yang dipakai Prisma
+  // untuk mengurutkan — dengan lebih dari lima kampanye, lima teratas menurut
+  // jumlah SELURUH pendaftar bisa menyisihkan kampanye yang justru punya
+  // prospek aktif lebih banyak. Jadi seluruh kampanye cakupan dibaca, dihitung
+  // tersaringnya, diurutkan, baru diambil lima.
+  const allCampaigns = await prisma.marketingCampaign.findMany({
     where: unitId ? { unitId } : {},
     select: {
       id: true,
@@ -139,13 +147,10 @@ export const getDashboardStats = async (unitId?: string) => {
         select: { registrants: { where: marketingConsentHeld } },
       },
     },
-    take: 5,
-    orderBy: {
-      registrants: {
-        _count: 'desc',
-      },
-    },
   });
+  const campaigns = allCampaigns
+    .sort((a, b) => b._count.registrants - a._count.registrants)
+    .slice(0, 5);
 
   // 3. Conversion Rates (Registered vs Accepted) by Source
   // This is complex, simplified here

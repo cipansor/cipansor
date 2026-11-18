@@ -126,6 +126,47 @@ describe('Marketing Service', () => {
         consentWithdrawnAt: null,
       });
     });
+
+    it('memeringkat lima kampanye teratas dari jumlah pendaftar TERSARING, bukan jumlah total', async () => {
+      // Prisma tidak dapat mengurutkan relasi `_count` menurut penyaringnya:
+      // `orderBy.registrants._count` memakai jumlah SELURUH pendaftar. Kalau
+      // pemeringkatan diserahkan ke basis data, lima kampanye teratas bisa
+      // terpilih dari jumlah total sementara angka yang ditampilkan sudah
+      // tersaring — kampanye dengan prospek aktif lebih banyak terbuang.
+      // Karena itu layanan harus membaca seluruh kampanye cakupan, mengurutkan
+      // menurut jumlah tersaring, baru mengambil lima.
+      vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
+      // Enam kampanye: total pendaftar A–E = 100, F = 50 (F terkecil menurut
+      // total), tetapi jumlah TERSARING F = 50 sedangkan A–E hanya 1.
+      const withFiltered = (name: string, registrants: number) => ({
+        id: name,
+        name,
+        code: name,
+        budget: 1000,
+        _count: { registrants },
+      });
+      vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([
+        withFiltered('A', 1),
+        withFiltered('B', 1),
+        withFiltered('C', 1),
+        withFiltered('D', 1),
+        withFiltered('E', 1),
+        withFiltered('F', 50),
+      ] as any);
+
+      const result = await marketingService.getDashboardStats('unit-1');
+
+      // F memimpin meski total pendaftarnya terkecil; satu kampanye bernilai 1
+      // tersisih karena hanya lima yang diambil.
+      expect(result.topCampaigns.map((c) => c.name)).toEqual(['F', 'A', 'B', 'C', 'D']);
+      expect(result.topCampaigns[0].registrants).toBe(50);
+
+      // Pemeringkatan tidak diserahkan ke basis data (yang tak bisa menyaring
+      // `_count`): kueri tidak boleh membawa `orderBy`/`take` yang salah itu.
+      const args = vi.mocked(prisma.marketingCampaign.findMany).mock.calls[0][0] as any;
+      expect(args.orderBy).toBeUndefined();
+      expect(args.take).toBeUndefined();
+    });
   });
 
   describe('getHighPriorityLeads', () => {
