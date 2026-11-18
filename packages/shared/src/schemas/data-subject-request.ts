@@ -276,6 +276,15 @@ export interface DataSubjectRequestDTO {
   dueAt: string;
   completedAt?: string | null;
   verifiedAt?: string | null;
+  /**
+   * Diajukan lewat formulir publik, bukan oleh akun yang sudah masuk.
+   *
+   * Petugas memakainya untuk menyusun pilihan status: permintaan publik yang
+   * belum terverifikasi hanya boleh ditolak atau diverifikasi luring — bukan
+   * dipindahkan ke `PROCESSING`, sebab perpindahan itu memutus langkah
+   * verifikasinya dan meninggalkan permintaan yang tidak dapat diselesaikan.
+   */
+  isPublic: boolean;
   /** Sudah lewat tenggat dan belum selesai. Dihitung peladen, bukan layar. */
   overdue: boolean;
   handledBy?: { id: string; name: string } | null;

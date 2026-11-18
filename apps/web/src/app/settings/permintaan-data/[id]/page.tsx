@@ -63,6 +63,15 @@ export default function DataSubjectRequestDetailPage() {
   const [failure, setFailure] = useState<string | null>(null);
   const [exportPayload, setExportPayload] = useState<unknown>(null);
 
+  // Permintaan publik yang belum terverifikasi hanya boleh ditolak atau
+  // diverifikasi luring. Peladen menolak status lain (memindahkannya memutus
+  // langkah verifikasi), jadi pilihannya dibatasi di sini alih-alih
+  // menawarkan langkah yang pasti dijawab 409.
+  const unverifiedPublic = !!data?.isPublic && !data?.verifiedAt;
+  const selectableStatuses: DataSubjectRequestStatus[] = unverifiedPublic
+    ? ["VERIFIED", "REJECTED"]
+    : [...DATA_SUBJECT_REQUEST_STATUSES];
+
   const submit = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!id || !nextStatus) return;
@@ -240,7 +249,7 @@ export default function DataSubjectRequestDetailPage() {
                           <SelectValue placeholder="Pilih status" />
                         </SelectTrigger>
                         <SelectContent>
-                          {DATA_SUBJECT_REQUEST_STATUSES.map((value) => (
+                          {selectableStatuses.map((value) => (
                             <SelectItem key={value} value={value}>
                               {DATA_SUBJECT_REQUEST_STATUS_LABELS[value]}
                             </SelectItem>
