@@ -9,6 +9,7 @@ import { uploadPathFromUrl } from '@/utils/letter-uploaded-file';
 import {
   DATA_SUBJECT_REQUEST_DUE_HOURS,
   DATA_SUBJECT_REQUEST_ERASURE_DEFAULT_DAYS,
+  DATA_SUBJECT_REQUEST_STATUS_LABELS,
   DATA_SUBJECT_REQUEST_TYPE_LABELS,
   DATA_SUBJECT_VERIFICATION_CODE_LENGTH,
   DATA_SUBJECT_VERIFICATION_MAX_ATTEMPTS,
@@ -89,8 +90,8 @@ export function computeDueAt(type: DataSubjectRequestType, now: Date = new Date(
  *
  * Dihitung dari jumlah baris tahun berjalan, bukan dari urutan basis data.
  * Perlombaan antara dua permintaan pada detik yang sama diselesaikan oleh
- * batasan unik `request_no`: yang kalah menerima galat dan mencoba ulang,
- * bukan diam-diam mendapat nomor yang sudah dipakai orang lain.
+ * batasan unik `request_no`: yang kalah menerima P2002 dan pengajuan itu gagal
+ * dengan 500 — pemohon mengulang dari awal. (Belum ada retry di sisi peladen.)
  */
 async function nextRequestNo(now: Date): Promise<string> {
   const year = now.getFullYear();
@@ -725,9 +726,10 @@ export async function updateStatus(
     await deleteStoredFiles(filesToDelete, updated.requestNo);
   }
 
+  const statusLabel = DATA_SUBJECT_REQUEST_STATUS_LABELS[input.status] ?? input.status;
   await notifyRequester(
     updated,
-    `Permintaan ${updated.requestNo} kini ${input.status}`,
+    `Permintaan ${updated.requestNo} kini ${statusLabel}`,
     input.status === 'REJECTED' ? (input.note ?? null) : null
   );
   return { request: toDTO(updated, now), exportPayload };

@@ -398,6 +398,26 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     ).resolves.toBeTruthy();
   });
 
+  it('memberi tahu pemohon dengan label status berbahasa Indonesia, bukan nilai mesin', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'RECTIFICATION',
+        status: 'PROCESSING',
+        requesterUserId: 'user-1',
+      }) as any
+    );
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'RECTIFICATION', status: 'REJECTED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'REJECTED', note: 'Dokumen kurang' }, actor);
+
+    const sent = vi.mocked(notificationService.send).mock.calls[0][0] as any;
+    expect(sent.title).toBe('Permintaan DSR-2026-0001 kini Ditolak');
+    expect(sent.title).not.toContain('REJECTED');
+    expect(sent.message).toContain('Alasan: Dokumen kurang');
+  });
+
   it('penarikan persetujuan menghentikan pemrosesan tanpa menghapus bukti persetujuan', async () => {
     vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
       requestRow({

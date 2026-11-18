@@ -77,6 +77,13 @@ export async function runDataSubjectOverdueReminder(
   }
 
   const day = now.toISOString().slice(0, 10);
+  const dueLabel = (dueAt: Date) =>
+    dueAt.toLocaleDateString('id-ID', {
+      day: 'numeric',
+      month: 'long',
+      year: 'numeric',
+      timeZone: 'Asia/Jakarta',
+    });
   const sends = overdue.flatMap((request) =>
     officerIds.map((userId) =>
       createNotification({
@@ -85,7 +92,7 @@ export async function runDataSubjectOverdueReminder(
         priority: 'HIGH',
         title: `Permintaan data pribadi ${request.requestNo} lewat tenggat`,
         message:
-          `Permintaan ${request.requestNo} melewati tenggat ${request.dueAt.toISOString()} ` +
+          `Permintaan ${request.requestNo} melewati tenggat ${dueLabel(request.dueAt)} ` +
           'dan belum selesai. Buka daftar permintaan data pribadi untuk menindaklanjutinya.',
         channels: ['IN_APP', 'EMAIL'],
         link: DSR_LIST_LINK,

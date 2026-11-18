@@ -79,6 +79,18 @@ describe('runDataSubjectOverdueReminder', () => {
     expect(await runDataSubjectOverdueReminder()).toEqual({ overdue: 1, reminded: 1 });
   });
 
+  it('menulis tenggat dengan tanggal berbahasa Indonesia, bukan ISO mentah', async () => {
+    vi.mocked(prisma.dataSubjectRequest.findMany).mockResolvedValue([
+      { ...overdueRow, dueAt: new Date('2026-11-18T00:00:00.000Z') },
+    ] as any);
+
+    await runDataSubjectOverdueReminder(new Date('2026-11-20T00:00:00.000Z'));
+
+    const message = vi.mocked(createNotification).mock.calls[0][0].message as string;
+    expect(message).toContain('18 November 2026');
+    expect(message).not.toContain('2026-11-18T00:00:00.000Z');
+  });
+
   it('mengecualikan penunjukan yang sudah kedaluwarsa (CWE-863)', async () => {
     // `isActive` saja tidak cukup: penunjukan yang lewat masa berlakunya masih
     // tersimpan aktif sampai ada yang menonaktifkannya, sedangkan hak aksesnya
