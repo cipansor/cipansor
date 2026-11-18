@@ -22,6 +22,7 @@ import {
 } from '@cipansor/shared';
 import { prisma } from '@/lib/prisma';
 import { ApiError, ErrorCode, Errors } from '@/middleware/error';
+import { wibMonthRange, wibMonthYear } from '@/utils/wib';
 import { boardersOfMusyrif } from '@/modules/dormitories';
 import {
   announcementDeliveryCounts,
@@ -367,7 +368,8 @@ export async function getById(actor: AnnouncementActor, id: string) {
 export async function stats(actor: AnnouncementActor): Promise<AnnouncementStatsDTO> {
   const now = new Date();
   const board = await boardOf(actor, now);
-  const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+  const { year, month } = wibMonthYear(now);
+  const startOfMonth = wibMonthRange(year, month).start;
   const [total, active, urgent, thisMonth] = await Promise.all([
     prisma.announcement.count({ where: board }),
     prisma.announcement.count({ where: { AND: [board, live(now)] } }),
