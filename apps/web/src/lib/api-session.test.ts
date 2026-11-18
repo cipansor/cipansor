@@ -91,6 +91,23 @@ describe("a 401", () => {
     await expect(api.get("/auth/me")).rejects.toBeInstanceOf(AxiosError);
     expect(location.href).toBe("http://localhost/dashboard");
   });
+
+  it("does not refresh a request that left anonymously, even if a session lands before its 401", async () => {
+    // The e2e flake this pins (#1144): the login screen fires /auth/me with no
+    // session; the test then injects one, and only then does that anonymous
+    // 401 arrive. Judged by the cookie at error time it looks like a lost
+    // session, so the client refreshes — rotating the shared refresh token and
+    // logging out every other worker. It must judge by the state at send time.
+    const refresh = vi.spyOn(axios, "post").mockResolvedValue({} as never);
+    api.defaults.adapter = (config) => {
+      // The sign-in sets the session while this anonymous request is in flight.
+      document.cookie = `${CSRF}=abc; path=/`;
+      return Promise.reject(failWith(401, config));
+    };
+
+    await expect(api.get("/auth/me")).rejects.toBeInstanceOf(AxiosError);
+    expect(refresh).not.toHaveBeenCalled();
+  });
 });
 
 describe("dropLegacySessionTokens", () => {

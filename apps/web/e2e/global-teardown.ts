@@ -12,10 +12,11 @@ async function globalTeardown(config: FullConfig) {
   console.log("🧹 Starting E2E Test Global Teardown...");
 
   // NOTE: .auth/ session/storageState files are deliberately KEPT (dir is
-  // gitignored). global-setup revalidates them against /auth/me on the next
-  // run and reuses tokens that still work — deleting them here forced a fresh
-  // admin 2FA login on every run/iteration, which trips the strict 2FA rate
-  // limiter (10/15min) during local iterative runs.
+  // gitignored). global-setup revalidates the stored sessions by rotating them
+  // against /auth/refresh on the next run and reuses the ones that still work —
+  // deleting them here forced a fresh admin 2FA login on every run/iteration,
+  // which trips the 2FA rate limiter (default 10/15min) during local iterative
+  // runs.
 
   // Clean up old screenshots (keep only last 100)
   const screenshotsDir = path.join(__dirname, "../test-results/screenshots");

@@ -1,11 +1,15 @@
 import * as fs from "fs";
 import * as path from "path";
 import {
-  apiLogin,
-  buildStorageState,
+  apiLoginNew,
+  refreshSession,
   SEED_USERS,
+  sessionKey,
+  sessionsFileFor,
+  writeSessionsFile,
   type AuthSession,
 } from "./helpers/auth-api";
+import { E2E_WORKERS } from "./helpers/workers";
 
 /**
  * Playwright Global Setup for Cipansor E2E Tests
@@ -22,17 +26,9 @@ const apiURL = process.env.API_URL || "http://localhost:3001/api";
 // The health endpoint is mounted at the server root (/health), not under /api.
 const healthURL = `${apiURL.replace(/\/api\/?$/, "")}/health`;
 
-// Roles to pre-authenticate → storageState file name (under apps/web/.auth).
-const ROLE_FILES: Record<keyof typeof SEED_USERS, string> = {
-  superAdmin: "superAdmin",
-  adminSdit: "adminSdit",
-  teacher: "teacher",
-  parent: "parent",
-  student: "student",
-  ketuaPengurus: "ketuaPengurus",
-  pengawas: "pengawas",
-  pembina: "pembina",
-};
+// Roles to pre-authenticate (each gets a `.auth/<role>.json` mirror and a
+// per-worker entry in `.auth/sessions.w<N>.json`).
+const ROLES = Object.keys(SEED_USERS) as (keyof typeof SEED_USERS)[];
 
 async function globalSetup() {
   console.log("🚀 Starting E2E Test Global Setup...");
@@ -68,57 +64,72 @@ async function globalSetup() {
     console.warn("⚠️ Frontend is not accessible:", error);
   }
 
-  // 3. Pre-authenticate roles via the API and persist storageState, plus a raw
-  //    session cache (sessions.json) that loginAs/apiLogin in every worker
-  //    reads — so the whole run performs each login (and admin 2FA) at most
-  //    once instead of per-worker, which trips the strict 2FA rate limiter.
-  //    Sessions from a previous run are reused when their token still works
-  //    (verified against /auth/me), so iterative local runs usually perform
-  //    ZERO 2FA logins and never approach the limiter.
-  const sessionsFile = path.join(authDir, "sessions.json");
-  let previous: Record<string, AuthSession> = {};
-  try {
-    previous = JSON.parse(fs.readFileSync(sessionsFile, "utf8"));
-  } catch {
-    /* no previous sessions */
-  }
-  fs.rmSync(sessionsFile, { force: true }); // workers only ever see verified sessions
-
-  const sessionStillValid = async (session: AuthSession): Promise<boolean> => {
+  // 3. Pre-authenticate roles via the API and persist storageState, plus one
+  //    raw session store per worker (`.auth/sessions.w<N>.json`) that
+  //    loginAs/apiLogin in that worker reads — so the whole run performs each
+  //    login (and admin 2FA) once per role per worker instead of once per test,
+  //    which trips the 2FA limiter. Sessions from a previous run are reused
+  //    only by rotating them against `/auth/refresh`, so iterative local runs
+  //    usually perform ZERO 2FA logins and never approach the limiter.
+  //
+  //    One store per worker, not one shared file (#1144): the API rotates a
+  //    refresh token on first use and deletes the presented row, so a session
+  //    two workers both held was revoked the moment either refreshed — the
+  //    other was answered 401 and bounced to `/login` mid-test.
+  const previous: Record<string, AuthSession>[] = [];
+  for (let worker = 0; worker < E2E_WORKERS; worker++) {
     try {
-      const res = await fetch(`${apiURL}/auth/me`, {
-        headers: { authorization: `Bearer ${session.accessToken}` },
-      });
-      return res.ok;
+      previous[worker] = JSON.parse(
+        fs.readFileSync(sessionsFileFor(worker), "utf8"),
+      );
     } catch {
-      return false;
+      previous[worker] = {};
     }
+    fs.rmSync(sessionsFileFor(worker), { force: true }); // workers only see verified sessions
+  }
+
+  // A stored session is reused only by *rotating* it against `/auth/refresh`,
+  // which also proves it still works. It cannot be validated with `/auth/me`
+  // and kept as-is: the API deletes a refresh token the moment it is used, so
+  // the stored one is dead even while its access token still answers (#1144).
+  const reusableSession = async (
+    session: AuthSession | undefined,
+  ): Promise<AuthSession | null> => {
+    if (!session) return null;
+    return refreshSession(session);
   };
 
   if (backendAvailable) {
-    console.log("🔐 Pre-authenticating roles via API...");
-    const sessions: Record<string, AuthSession> = {};
-    for (const [role, file] of Object.entries(ROLE_FILES)) {
-      try {
-        const user = SEED_USERS[role as keyof typeof SEED_USERS];
-        const reusable = previous[user.email];
-        const session =
-          reusable && (await sessionStillValid(reusable))
-            ? reusable
-            : await apiLogin(user);
-        sessions[user.email] = session;
-        fs.writeFileSync(
-          path.join(authDir, `${file}.json`),
-          JSON.stringify(buildStorageState(session), null, 2),
-        );
-        console.log(
-          `✅ Saved storageState for ${role}${session === reusable ? " (reused)" : ""}`,
-        );
-      } catch (error) {
-        console.warn(`⚠️ Failed to pre-authenticate ${role}:`, error);
-      }
+    console.log(
+      `🔐 Pre-authenticating roles via API (${E2E_WORKERS} worker sessions each)...`,
+    );
+    const stores: Record<string, AuthSession>[] = [];
+    for (let worker = 0; worker < E2E_WORKERS; worker++) {
+      stores[worker] = {};
     }
-    fs.writeFileSync(sessionsFile, JSON.stringify(sessions, null, 2));
+    for (const role of ROLES) {
+      const user = SEED_USERS[role];
+      for (let worker = 0; worker < E2E_WORKERS; worker++) {
+        const key = sessionKey(user.email);
+        try {
+          const session =
+            (await reusableSession(previous[worker][key])) ??
+            (await apiLoginNew(user));
+          stores[worker][key] = session;
+        } catch (error) {
+          console.warn(
+            `⚠️ Failed to pre-authenticate ${role} (worker ${worker}):`,
+            error,
+          );
+        }
+      }
+      console.log(`✅ Saved sessions for ${role}`);
+    }
+    for (let worker = 0; worker < E2E_WORKERS; worker++) {
+      // Worker 0 also (re)writes the `.auth/<role>.json` mirrors, so a stored
+      // session and the storageState a spec reads never diverge (#1144).
+      writeSessionsFile(worker, stores[worker]);
+    }
   } else {
     console.log("⚠️ Skipping pre-authentication (backend unavailable).");
   }

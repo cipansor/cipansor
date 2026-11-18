@@ -719,20 +719,49 @@ loosely mis-attributes runs. -->
     concurrent-reload timing the test relies on slips; it retried green. Cause
     not pinned yet (the serialization itself is correct — this is timing).
 
-- **Chromium (a required check) reports ~5 flakes per full run, a different set
-  each time** — `attendance-module`, `dashboard-refresh`, `lingkungan`,
-  `student-management`, `tahfidz-dashboard`, `tk-module`, `integration-flows`,
-  `auth` across base `b9876b2` (run 44039571200), the #1104 branch (run
-  44228606033) and `main` `5c1cf7ce` (run 44229198619); all retried green. It
-  reads as load-bound suite noise, not one defect, so a new name each run is
-  expected — do not chase it as a regression. (This is why #1104 flipped
-  firefox to a gate without trying to zero Chromium's count: retries absorb a
-  flake, and a real failure still reddens the job.)
+- **Chromium flake (the login bounce) — root cause found and fixed in #1144.**
+  It used to report ~5 flakes per full run, a different set each time
+  (`attendance-module`, `dashboard-refresh`, `lingkungan`, `student-management`,
+  `tahfidz-dashboard`, `tk-module`, `integration-flows`, `auth`), all retried
+  green. It was **not** load noise: every worker shared one cached session per
+  role (`.auth/sessions.json`), so they held the same refresh token, and the API
+  rotates that token on first use (`auth.service.ts` deletes the presented row).
+  Whichever worker refreshed first revoked the session for all the others, whose
+  next `/auth/refresh` answered 401, cleared the cookies and bounced to
+  `/login` — the "Login failed - redirected to login" failure. A spurious
+  refresh from the login screen's anonymous `/auth/me` (its 401 handled after
+  the test injected a session) fired the rotation. Fixed in the harness (one
+  session store per worker, `.auth/sessions.w<N>.json`) and in the client
+  (`api.ts` decides "session lost, refresh" from whether a session existed when
+  the request *left*, not from the cookie at error time). A/B on the named
+  flake set (`--repeat-each=3`, `--retries=0`, 2026-11-18): **client fix alone
+  passed** (0 failures) and **harness alone still failed** (24 "Login failed"),
+  so the spurious refresh is the trigger and the shared rotating credential the
+  amplifier — both are kept. Regression: `e2e/session-isolation.spec.ts` and
+  `src/lib/api-session.test.ts`. Follow-up (review of PR #1147): the
+  `.auth/<role>.json` storageState mirrors that `test.use({ storageState })`
+  specs read were written once by global-setup and never moved when worker 0's
+  session rotated, so a mirror-reading spec (e.g. `finance-integration`) could
+  still refresh with a deleted token — a 15-minute access token on a local
+  stack is what makes that refresh fire (CI's 7-day token hides it). The mirror
+  write now lives in `writeSessionsFile`, the one place a stored session
+  changes, so worker 0's rotation keeps it in step; regression in
+  `e2e/helpers/auth-api.test.ts`.
 
 - **`teacher-management.spec.ts` skips all 12 of its tests** ("Teachers page
   not available"): the page it looks for does not exist (HR employees is on
   the broken-calls list). It is green because it asserts nothing; rewrite it
   when the employees page is wired.
+- **`certificates-download.spec.ts:241`** — a separate classification from the
+  login-bounce flake above (#1144): this spec does **not** use the shared
+  rotating session, and its trace showed a healthy session (`GET /api/auth/me`
+  200) yet `GET /api/certificates/<id>` **404** right after the row was created,
+  plus two `TimeoutError: page.waitForEvent: Timeout 10000ms exceeded while
+  waiting for event "download"` at the same lines. That is a test defect
+  (a read that races its own create; a download wait that is not tied to the
+  response), not the rotating-credential race — fix it with its own regression
+  or narrow it here with the trace as evidence. Not reproduced in the #1144
+  verification runs (three full local Chromium runs, 2026-11-18).
 - **Two e2e specs fail at random under the full suite and pass alone.**
   `certificates.spec.ts` (preview/print number, lines 118 and 153 on
   different runs) failed after its retry in two full Chromium runs on

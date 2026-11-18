@@ -5,9 +5,14 @@ import { toast } from "sonner";
 // interceptor. Best-effort aggregation calls (the role dashboards fire several
 // parallel requests the user may not be authorised for) set this so a 403/404
 // on one of them doesn't spam "missing permission" / "route not found".
+//
+// `_hadSession` is set by the request interceptor and read by the 401 handler:
+// it records whether a session existed when the request *left*, which is the
+// only correct moment to decide if a 401 means "lost session, refresh".
 declare module "axios" {
   export interface AxiosRequestConfig {
     skipErrorToast?: boolean;
+    _hadSession?: boolean;
   }
 }
 import {
@@ -120,13 +125,21 @@ const UNSAFE_METHODS = new Set(["post", "put", "patch", "delete"]);
 // carries a session cookie without a matching header — the cross-site forgery
 // the cookie would otherwise permit. There is no Authorization header any
 // more: the bearer lives in the HttpOnly cookie, invisible to this code.
+//
+// It also records, per request, whether a session existed when the request was
+// *sent* (`_hadSession`). The 401 handler needs that: the CSRF cookie appears
+// the instant a sign-in sets the session, so a request that left anonymously —
+// the public pages, or the `/auth/me` the login screen fires before anyone has
+// signed in — and answers 401 only after cookies have landed would otherwise
+// look like a session that had been lost, and trigger a refresh for nothing.
 api.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
     if (typeof window === "undefined") return config;
+    const csrf = readCookie("cipansor_csrf");
+    config._hadSession = csrf !== null;
     const method = (config.method ?? "get").toLowerCase();
-    if (UNSAFE_METHODS.has(method)) {
-      const csrf = readCookie("cipansor_csrf");
-      if (csrf) config.headers["x-csrf-token"] = csrf;
+    if (UNSAFE_METHODS.has(method) && csrf) {
+      config.headers["x-csrf-token"] = csrf;
     }
     return config;
   },
@@ -238,10 +251,11 @@ api.interceptors.response.use(
       // it would spend the per-IP auth rate limit on every anonymous page, and
       // its refusal could land after a sign-in has set the cookies.
       //
-      // The readable CSRF cookie is set with every session and cleared with
-      // it — the one trace of the HttpOnly session that script can see. Read
-      // it before the refresh: a refused refresh clears it in its own response.
-      if (readCookie("cipansor_csrf") === null) {
+      // Judged from `_hadSession`, recorded when the request *left*, not from
+      // the cookie now: a session that appeared while the request was in
+      // flight belongs to a sign-in that raced it, and its 401 says nothing
+      // about that new session.
+      if (!originalRequest._hadSession) {
         return Promise.reject(error);
       }
 
