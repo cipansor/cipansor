@@ -696,6 +696,22 @@ loosely mis-attributes runs. -->
   a navigation does not yield a usable document), not Chromium's particular
   symptom (a thrown error). WebKit and Firefox return the empty placeholder
   instead, which is the same broken read.
+- **Firefox still has two low-rate flakes outside the three #1104 named**
+  (measured 2026-11-17, two full local runs of `--project=firefox`, 748 tests
+  each). They retry green and never redden the job, so #1104 flipped firefox to
+  a gate anyway (a flake is not a failure); the entries stay so the next reader
+  knows they are known, not new:
+  - **Login bounce** (`loginAndWaitForDashboard`, `page-objects/index.ts`): once
+    per run a spec lands on `/login?redirect=…` and throws "Login failed -
+    redirected to login" (`student-management.spec.ts:272` in CI run
+    44015043403; `tahfidz-dashboard.spec.ts:45` locally). The #852 wait for
+    `#main-content` narrowed it but did not remove it — the bounce outlives the
+    15 s wait under load.
+  - **`tahfidz-simaan.spec.ts:597`** (added by #1125): a sonner toast left over
+    from the previous test in the file intercepts the row button's click
+    (`subtree intercepts pointer events`), and under `--repeat-each` the
+    `beforeAll` enrollment insert can 409 ("field already exists"). The spec
+    should `dismissToasts` before the row click and make its setup idempotent.
 
 - **`teacher-management.spec.ts` skips all 12 of its tests** ("Teachers page
   not available"): the page it looks for does not exist (HR employees is on

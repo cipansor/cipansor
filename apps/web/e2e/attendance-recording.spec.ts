@@ -416,6 +416,13 @@ test("a pupil marked Alpa today: their wali is told at once, and only once", asy
 
   await expect.poll(alpaNotices, { timeout: 15_000 }).toBe(before + 1);
 
+  // A successful save sends the app to the register with `router.push`. That
+  // client-side navigation is still committing when this test would otherwise
+  // `goto` straight back to the form, and Firefox aborts the in-flight one
+  // (`NS_BINDING_ABORTED`). Let it land first.
+  await expect(page).toHaveURL(/\/attendance$/);
+  await waitForLoadingComplete(page);
+
   // The same day saved again, the mark unchanged: no second notice.
   await page.goto("/attendance/record");
   await waitForLoadingComplete(page);
