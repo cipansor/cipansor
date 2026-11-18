@@ -831,10 +831,11 @@ export const progressService = {
   /**
    * Get student's takhosus progress. A santri outside the caller's
    * Cakupan_Santri is answered 404, the same as one that does not exist
-   * (R27.6).
+   * (R27.6). `actor` is required: a caller that forgets it must not silently
+   * skip the scope check.
    */
-  async getStudentProgress(studentId: string, actor?: ScopeActor) {
-    if (actor) await assertStudentInScope(studentId, actor);
+  async getStudentProgress(studentId: string, actor: ScopeActor) {
+    await assertStudentInScope(studentId, actor);
 
     const enrollment = await prisma.takhosusEnrollment.findUnique({
       where: { studentId },

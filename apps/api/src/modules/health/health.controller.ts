@@ -19,7 +19,7 @@ import {
   queryPrescriptionSchema,
 } from './health.schema';
 import { Errors } from '../../middleware/error';
-import { studentScope } from '@/utils/student-scope';
+import { assertStudentInScope, studentScope } from '@/utils/student-scope';
 import {
   MedicalRecordType,
   CreateMedicalRecordInput,
@@ -92,10 +92,12 @@ export async function getMedicalRecordById(req: Request, res: Response, next: Ne
 export async function createMedicalRecord(req: Request, res: Response, next: NextFunction) {
   try {
     const data = createMedicalRecordSchema.parse(req.body);
+    // The scope *is* the write range: a nurse with HEALTH_MANAGE records for a
+    // santri of any unit, a unit admin only for its own (R27.8, R27.13).
+    await assertStudentInScope(data.studentId, req.user!);
     const record = await service.createMedicalRecord(
       data as CreateMedicalRecordInput,
-      req.user!.sub,
-      studentScope(req.user!)
+      req.user!.sub
     );
     res.status(201).json({ success: true, data: record });
   } catch (error) {

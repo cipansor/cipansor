@@ -97,6 +97,19 @@ describe('R27.13 — a HEALTH_MANAGE holder records a visit for an in-scope sant
     expect(res.status).toBe(201);
     expect(prismaMock.medicalRecord.create).toHaveBeenCalled();
   });
+
+  it('the nurse’s scope carries no unit clause — that is what widens it across units', async () => {
+    // Pins the widening itself, not just its 201: `studentScope(PERAWAT)` is
+    // `{}` (seesAllUnits), so the controller builds `AND: [{ id }, {}]` and the
+    // santri's unit never narrows it. A unit admin, by contrast, gets its own
+    // unit as the second clause.
+    await post('perawat');
+    expect(prismaMock.student.findFirst.mock.calls[0][0].where.AND[1]).toEqual({});
+
+    prismaMock.student.findFirst.mockClear();
+    await post('adminSmp');
+    expect(prismaMock.student.findFirst.mock.calls[0][0].where.AND[1]).toEqual({ unitId: SMP });
+  });
 });
 
 describe('R27.8 — a santri outside the caller’s Cakupan_Santri is 404 and nothing is saved', () => {

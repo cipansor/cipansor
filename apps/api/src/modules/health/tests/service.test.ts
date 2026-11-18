@@ -36,8 +36,6 @@ const prismaMock = vi.hoisted(() => ({
   studentParent: {
     findMany: vi.fn(),
   },
-  // `createMedicalRecord` checks the santri is inside the caller's scope before
-  // writing (R27.8); the default lets every case below pass.
   student: {
     findFirst: vi.fn(),
   },
@@ -57,15 +55,9 @@ import * as healthService from '../health.service';
 import { attendanceService } from '@/modules/attendance/attendance.service';
 import { eventBus } from '@/lib/event-bus';
 
-/** The nurse's scope: any santri of the units they serve. */
-const SCOPE = {};
-
 describe('Health Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    // The santri is inside the caller's Cakupan_Santri unless a case says
-    // otherwise (R27.8).
-    vi.mocked(prismaMock.student.findFirst).mockResolvedValue({ id: 'std-1' } as any);
   });
 
   describe('getMedicalRecords', () => {
@@ -126,7 +118,7 @@ describe('Health Service', () => {
 
       vi.mocked(prismaMock.medicalRecord.create).mockResolvedValue(mockRecord as any);
 
-      const result = await healthService.createMedicalRecord(dto, 'user-1', SCOPE);
+      const result = await healthService.createMedicalRecord(dto, 'user-1');
 
       expect(prismaMock.medicalRecord.create).toHaveBeenCalled();
       expect(attendanceService.recordFromIntegration).not.toHaveBeenCalled();
@@ -166,7 +158,7 @@ describe('Health Service', () => {
 
       prismaMock.medicalRecord.create.mockResolvedValue(mockCreated as any);
 
-      const result = await healthService.createMedicalRecord(input as any, 'staff-1', SCOPE);
+      const result = await healthService.createMedicalRecord(input as any, 'staff-1');
 
       expect(result.id).toBe('1');
       expect(result.temperature).toBe(38.5);
@@ -201,7 +193,7 @@ describe('Health Service', () => {
         classId: 'cls-1',
       } as any);
 
-      await healthService.createMedicalRecord(dto, 'user-1', SCOPE);
+      await healthService.createMedicalRecord(dto, 'user-1');
 
       expect(prismaMock.classEnrollment.findFirst).toHaveBeenCalledWith({
         where: { studentId: 'std-1', status: 'active' },
@@ -236,7 +228,7 @@ describe('Health Service', () => {
         { parentId: 'parent-1' },
       ] as any);
 
-      await healthService.createMedicalRecord(dto, 'user-1', SCOPE);
+      await healthService.createMedicalRecord(dto, 'user-1');
 
       expect(prismaMock.studentParent.findMany).toHaveBeenCalledWith({
         where: { studentId: 'std-1' },

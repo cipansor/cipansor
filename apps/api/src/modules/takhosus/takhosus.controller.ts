@@ -401,7 +401,7 @@ export const progressController = {
     try {
       const studentId = await requireStudentId(req);
 
-      const progress = await progressService.getStudentProgress(studentId);
+      const progress = await progressService.getStudentProgress(studentId, req.user!);
 
       if (!progress) {
         return res.status(404).json(ApiResponse.error('You are not enrolled in Takhosus program'));
