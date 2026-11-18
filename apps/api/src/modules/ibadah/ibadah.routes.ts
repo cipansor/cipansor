@@ -53,7 +53,9 @@ router.post(
 );
 
 // ==================== DAILY CHECK-IN ====================
-router.post('/check-in', validate(dailyCheckInSchema), controller.dailyCheckIn);
+// The fourth ibadah write: gated `isTeacherOrAbove` like the three above, and
+// the service narrows to the santri the caller may write (R27.1–R27.2).
+router.post('/check-in', isTeacherOrAbove, validate(dailyCheckInSchema), controller.dailyCheckIn);
 
 // ==================== LEADERBOARD ====================
 router.get('/leaderboard', controller.getLeaderboard);

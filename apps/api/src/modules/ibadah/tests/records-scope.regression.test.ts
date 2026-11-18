@@ -17,7 +17,7 @@ vi.mock('@/lib/redis', () => ({
 }));
 
 const prismaMock = vi.hoisted(() => ({
-  student: { findFirst: vi.fn(), findMany: vi.fn() },
+  student: { findFirst: vi.fn(), findUnique: vi.fn(), findMany: vi.fn() },
   teacher: { findFirst: vi.fn() },
   teacherSubject: { findMany: vi.fn() },
   takhosusEnrollment: { findMany: vi.fn() },
@@ -82,13 +82,16 @@ beforeEach(() => {
   // The santri is an SMP IT santri; the target belongs to their unit and is
   // active. No teaching relation exists unless a case sets one.
   prismaMock.student.findFirst.mockResolvedValue({ id: SANTRI, unitId: SMP });
+  prismaMock.student.findUnique.mockResolvedValue({ id: SANTRI, unitId: SMP });
   prismaMock.student.findMany.mockResolvedValue([{ id: SANTRI, unitId: SMP, enrollments: [] }]);
   prismaMock.teacher.findFirst.mockResolvedValue({ id: 't-1', unitId: SMP });
   prismaMock.teacherSubject.findMany.mockResolvedValue([]);
   prismaMock.takhosusEnrollment.findMany.mockResolvedValue([]);
   prismaMock.musyrif.findFirst.mockResolvedValue(null);
   prismaMock.class.findMany.mockResolvedValue([]);
-  prismaMock.dailyIbadahTarget.findMany.mockResolvedValue([{ id: TARGET, points: 10 }]);
+  prismaMock.dailyIbadahTarget.findMany.mockResolvedValue([
+    { id: TARGET, points: 10, name: 'Tilawah Harian', category: 'TILAWAH' },
+  ]);
   prismaMock.dailyIbadahRecord.create.mockResolvedValue({ id: RECORD });
   prismaMock.dailyIbadahRecord.upsert.mockResolvedValue({ id: RECORD });
   prismaMock.dailyIbadahRecord.findUnique.mockResolvedValue({
@@ -220,5 +223,60 @@ describe('R27.2 — a Super_Admin writes any unit (201)', () => {
     prismaMock.dailyIbadahTarget.findMany.mockResolvedValue([{ id: TARGET, points: 10 }]);
     const res = await send('superAdmin', 'post', '/ibadah/records', CREATE_BODY);
     expect(res.status).toBe(201);
+  });
+});
+
+// The fourth ibadah write, `POST /ibadah/check-in`, was left unguarded: it took
+// `studentId` from the body and upserted for that santri with no role, unit or
+// relation check, so any authenticated account could write any unit's santri.
+// It is now gated and scoped like the three above.
+const CHECKIN_BODY = { studentId: SANTRI, date: DATE, sholatSubuh: 'JAMAAH' };
+const CHECKIN = ['daily check-in', 'post', '/ibadah/check-in', CHECKIN_BODY] as const;
+
+describe('R27.1 — the daily check-in refuses a caller below isTeacherOrAbove with 403', () => {
+  it.each([
+    ['a santri', 'student'],
+    ['a wali', 'parent'],
+    ['a TU_Unit', 'tuUnit'],
+    ['an Organ_Yayasan', 'yayasan'],
+  ] as const)('%s is 403 before any lookup', async (_label, who) => {
+    const res = await send(who, CHECKIN[1], CHECKIN[2], CHECKIN[3]);
+    expect(res.status).toBe(403);
+    expect(prismaMock.student.findUnique).not.toHaveBeenCalled();
+    expectNoWrite();
+  });
+});
+
+describe('R27.2 — the daily check-in refuses a santri outside the caller’s reach with 404', () => {
+  it.each([
+    ['another unit’s Admin_Unit', 'adminSma'],
+    ['a Guru of the santri’s unit with no relation', 'guruSmp'],
+  ] as const)('%s is 404, and nothing is written', async (_label, who) => {
+    const res = await send(who, CHECKIN[1], CHECKIN[2], CHECKIN[3]);
+    expect(res.status).toBe(404);
+    expectNoWrite();
+  });
+
+  it('a missing santri is 404 with the same body as one out of reach', async () => {
+    const outOfScope = await send('adminSma', CHECKIN[1], CHECKIN[2], CHECKIN[3]);
+    prismaMock.student.findUnique.mockResolvedValue(null);
+    const absent = await send('adminSma', CHECKIN[1], CHECKIN[2], CHECKIN[3]);
+    expect(outOfScope.status).toBe(404);
+    expect(absent.status).toBe(404);
+    expect(absent.body).toEqual(outOfScope.body);
+  });
+
+  it('an Admin_Unit of the santri’s unit is allowed, and writes (200)', async () => {
+    const res = await send('adminSmp', CHECKIN[1], CHECKIN[2], CHECKIN[3]);
+    expect(res.status).toBe(200);
+    expect(prismaMock.dailyIbadahRecord.upsert).toHaveBeenCalled();
+  });
+
+  it('a Super_Admin writes another unit’s santri (200)', async () => {
+    prismaMock.student.findUnique.mockResolvedValue({ id: SANTRI, unitId: SMA });
+    prismaMock.student.findMany.mockResolvedValue([{ id: SANTRI, unitId: SMA, enrollments: [] }]);
+    const res = await send('superAdmin', CHECKIN[1], CHECKIN[2], CHECKIN[3]);
+    expect(res.status).toBe(200);
+    expect(prismaMock.dailyIbadahRecord.upsert).toHaveBeenCalled();
   });
 });

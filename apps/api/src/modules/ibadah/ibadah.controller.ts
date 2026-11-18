@@ -115,7 +115,7 @@ export const verifyRecords = asyncHandler(async (req: Request, res: Response) =>
 
 /** POST /api/ibadah/check-in */
 export const dailyCheckIn = asyncHandler(async (req: Request, res: Response) => {
-  const result = await service.dailyCheckIn(req.body);
+  const result = await service.dailyCheckIn(req.body, req.user!);
   res.json(ApiResponse.success(result, 'Check-in completed successfully'));
 });
 

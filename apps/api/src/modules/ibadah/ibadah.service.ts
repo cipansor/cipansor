@@ -404,18 +404,22 @@ const SHOLAT_WAJIB_TARGETS = [
 const SHOLAT_SUNNAH_TARGETS = ['Sholat Tahajud', 'Sholat Dhuha', 'Sholat Rawatib'];
 const OTHER_TARGETS = ['Tilawah Harian', 'Dzikir Pagi', 'Dzikir Petang', 'Puasa Sunnah', 'Sedekah'];
 
-export async function dailyCheckIn(data: DailyCheckInInput) {
+export async function dailyCheckIn(data: DailyCheckInInput, actor: WriteActor) {
   const { studentId, date, ...checkInData } = data;
 
   // Get student's unit
   const student = await prisma.student.findUnique({
     where: { id: studentId },
-    select: { unitId: true },
+    select: { id: true, unitId: true },
   });
 
   if (!student) {
-    throw new Error('Student not found');
+    throw Errors.notFound('Student');
   }
+
+  // The fourth ibadah write, scoped like the other three (R27.2): 404 for a
+  // santri outside the caller's reach, before any record is written.
+  await assertIbadahWriter(actor, [student.id]);
 
   // Get all active targets for the unit
   const targets = await prisma.dailyIbadahTarget.findMany({
