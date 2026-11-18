@@ -44,15 +44,13 @@ import {
 
 /** Baris dengan relasi yang dibutuhkan pemetaan DTO. */
 const DSR_INCLUDE = {
-  subjectStudent: { include: { user: { select: { name: true } } } },
-  subjectRegistrant: {
-    select: { fullName: true, name: true, registrationNo: true },
-  },
-  subjectUser: { select: { name: true, email: true } },
   handledBy: { select: { id: true, name: true } },
 } satisfies Prisma.DataSubjectRequestInclude;
 
 type DsrWithRelations = Prisma.DataSubjectRequestGetPayload<{ include: typeof DSR_INCLUDE }>;
+
+/** Apa yang dihapus, apa yang dipertahankan, dan berkas apa yang harus di-unlink. */
+type ErasureOutcome = { erased: string[]; retained: string[]; files: string[] };
 
 /** Status yang mengakhiri alur; pengingat tenggat berhenti di sini. */
 const CLOSED_STATUSES = ['COMPLETED', 'REJECTED'] as const;
@@ -768,6 +766,169 @@ async function withdrawConsent(
 }
 
 /**
+ * Hapus penanda langsung satu baris `Student` beserta berkasnya.
+ *
+ * Dipakai dari dua arah — subjek `STUDENT` langsung, dan subjek `REGISTRANT`
+ * yang pendaftarannya sudah menjadi santri — karena identitas pada `Student`
+ * dan `Registrant` adalah orang yang sama. Berkas pada `StudentDocument`
+ * (akta, KK, KTP orang tua, rapor, pas foto) ikut dikumpulkan untuk dihapus;
+ * `fileUrl`-nya tidak boleh dibiarkan menunjuk berkas yang seharusnya hilang.
+ */
+async function eraseStudent(
+  tx: Prisma.TransactionClient,
+  studentId: string,
+  marker: string,
+  now: Date
+): Promise<ErasureOutcome> {
+  const outcome: ErasureOutcome = { erased: [], retained: [], files: [] };
+  const student = await tx.student.findUnique({
+    where: { id: studentId },
+    select: { id: true, userId: true, photoUrl: true },
+  });
+  if (!student) return outcome;
+
+  if (student.photoUrl) outcome.files.push(student.photoUrl);
+  await tx.student.update({
+    where: { id: student.id },
+    data: {
+      address: marker,
+      parentName: marker,
+      parentPhone: marker,
+      parentEmail: null,
+      birthPlace: marker,
+      photoUrl: null,
+      // NISN unik nasional dan tidak dapat dipertahankan sebagai penanda:
+      // dua penghapusan akan bertabrakan. NIS dipertahankan karena rapor
+      // dan buku induk menunjuknya, dan ia hanya unik per unit.
+      nisn: null,
+      // Nomor identitas: NIK, KK, akta. Masing-masing kolom tersendiri, dan
+      // masing-masing cukup untuk mengenali anaknya kembali.
+      nik: null,
+      noKK: null,
+      noAkta: null,
+      // Identitas ayah, ibu, dan wali — nama maupun nomor identitasnya.
+      fatherName: null,
+      fatherNik: null,
+      fatherBirthPlace: null,
+      fatherBirthDate: null,
+      fatherPhone: null,
+      motherName: null,
+      motherNik: null,
+      motherBirthPlace: null,
+      motherBirthDate: null,
+      motherPhone: null,
+      guardianName: null,
+      guardianNik: null,
+      guardianRelation: null,
+      guardianPhone: null,
+      // Alamat rinci dan data kesejahteraan yang menunjuk rumah tangganya.
+      rt: null,
+      rw: null,
+      postalCode: null,
+      kipNumber: null,
+      specialNeeds: null,
+      livingWith: null,
+    },
+  });
+
+  // Berkas dokumen santri: `fileUrl`-nya wajib (kolom non-null), jadi tidak
+  // dapat dikosongkan. Berkasnya dihapus dari penyimpanan, penunjuknya
+  // diarahkan ke nilai kosong, dan barisnya ditandai terhapus supaya tidak ada
+  // lagi URL hidup yang menunjuk berkas yang sudah lenyap.
+  const documents = await tx.studentDocument.findMany({
+    where: { studentId: student.id },
+    select: { fileUrl: true },
+  });
+  for (const doc of documents) {
+    if (doc.fileUrl) outcome.files.push(doc.fileUrl);
+  }
+  await tx.studentDocument.updateMany({
+    where: { studentId: student.id },
+    data: { fileUrl: '', deletedAt: now },
+  });
+
+  await tx.user.update({
+    where: { id: student.userId },
+    data: {
+      name: marker,
+      email: `dihapus-${student.userId}@invalid.local`,
+      phone: null,
+      passwordHash: null,
+      fcmToken: null,
+      isActive: false,
+      deletedAt: now,
+    },
+  });
+
+  outcome.erased.push(
+    'identitas santri',
+    'NIK',
+    'nomor KK',
+    'nomor akta',
+    'identitas ayah',
+    'identitas ibu',
+    'identitas wali',
+    'alamat',
+    'identitas akun',
+    'foto',
+    'berkas dokumen santri',
+    'NISN'
+  );
+  outcome.retained.push('NIS', 'nilai', 'kehadiran', 'keuangan', 'riwayat unit');
+  return outcome;
+}
+
+/**
+ * Hapus penanda langsung satu baris `Registrant` beserta berkasnya.
+ *
+ * Baris `Registrant` menyimpan salinan penuh data anak dan orang tuanya, dan
+ * tetap ada setelah pendaftarannya menjadi santri (`Registrant.studentId`).
+ * Karena itu penghapusan subjek `STUDENT` merambat ke sini juga, bukan hanya
+ * ke `Student` — kalau tidak, satu salinan utuh tertinggal terbaca.
+ */
+async function eraseRegistrant(
+  tx: Prisma.TransactionClient,
+  registrantId: string,
+  marker: string
+): Promise<ErasureOutcome> {
+  const outcome: ErasureOutcome = { erased: [], retained: [], files: [] };
+  await tx.registrant.update({
+    where: { id: registrantId },
+    data: {
+      fullName: marker,
+      name: marker,
+      address: marker,
+      phone: null,
+      email: null,
+      parentName: marker,
+      parentPhone: marker,
+      parentEmail: null,
+      parentOccupation: null,
+      birthPlace: marker,
+      notes: null,
+    },
+  });
+  // Berkas identitas pendaftar (KTP/KK/akta) tidak punya kegunaan setelah
+  // pendaftarannya tidak lagi dihubungkan dengan orangnya. Berkasnya
+  // dihapus dari penyimpanan; barisnya dipertahankan tanpa `fileUrl` supaya
+  // riwayat unggahan tetap terbaca.
+  const documents = await tx.registrantDocument.findMany({
+    where: { registrantId },
+    select: { fileUrl: true },
+  });
+  for (const doc of documents) {
+    if (doc.fileUrl) outcome.files.push(doc.fileUrl);
+  }
+  await tx.registrantDocument.updateMany({
+    where: { registrantId },
+    data: { fileUrl: null, notes: null },
+  });
+  outcome.erased.push('identitas pendaftar', 'berkas identitas');
+  outcome.retained.push('nomor pendaftaran', 'status seleksi', 'keuangan');
+  return outcome;
+}
+
+/**
  * Jalankan penghapusan (Pasal 43–44), sejauh yang boleh dihapus.
  *
  * **Yang dihapus adalah penanda langsung, bukan barisnya.** Baris santri,
@@ -805,118 +966,45 @@ async function executeErasure(
   const retained: string[] = [];
   const filesToDelete: string[] = [];
 
+  const absorb = (outcome: ErasureOutcome) => {
+    erased.push(...outcome.erased);
+    retained.push(...outcome.retained);
+    filesToDelete.push(...outcome.files);
+  };
+
   if (request.subjectStudentId) {
-    const student = await tx.student.findUnique({
-      where: { id: request.subjectStudentId },
-      select: { id: true, userId: true, photoUrl: true },
+    absorb(await eraseStudent(tx, request.subjectStudentId, marker, now));
+    // Tautan dua arah: pendaftaran SPMB yang menghantarkan santri ini masuk
+    // (`Registrant.studentId`) menyimpan salinan penuh data anak dan orang
+    // tuanya. Mengosongkan `Student` saja meninggalkan salinan itu terbaca,
+    // jadi setiap pendaftaran yang menunjuk santri ini ikut dihapus.
+    const registrations = await tx.registrant.findMany({
+      where: { studentId: request.subjectStudentId },
+      select: { id: true },
     });
-    if (student) {
-      if (student.photoUrl) filesToDelete.push(student.photoUrl);
-      await tx.student.update({
-        where: { id: student.id },
-        data: {
-          address: marker,
-          parentName: marker,
-          parentPhone: marker,
-          parentEmail: null,
-          birthPlace: marker,
-          photoUrl: null,
-          // NISN unik nasional dan tidak dapat dipertahankan sebagai penanda:
-          // dua penghapusan akan bertabrakan. NIS dipertahankan karena rapor
-          // dan buku induk menunjuknya, dan ia hanya unik per unit.
-          nisn: null,
-          // Nomor identitas: NIK, KK, akta. Masing-masing kolom tersendiri, dan
-          // masing-masing cukup untuk mengenali anaknya kembali.
-          nik: null,
-          noKK: null,
-          noAkta: null,
-          // Identitas ayah, ibu, dan wali — nama maupun nomor identitasnya.
-          fatherName: null,
-          fatherNik: null,
-          fatherBirthPlace: null,
-          fatherBirthDate: null,
-          fatherPhone: null,
-          motherName: null,
-          motherNik: null,
-          motherBirthPlace: null,
-          motherBirthDate: null,
-          motherPhone: null,
-          guardianName: null,
-          guardianNik: null,
-          guardianRelation: null,
-          guardianPhone: null,
-          // Alamat rinci dan data kesejahteraan yang menunjuk rumah tangganya.
-          rt: null,
-          rw: null,
-          postalCode: null,
-          kipNumber: null,
-          specialNeeds: null,
-          livingWith: null,
-        },
-      });
-      await tx.user.update({
-        where: { id: student.userId },
-        data: {
-          name: marker,
-          email: `dihapus-${student.userId}@invalid.local`,
-          phone: null,
-          passwordHash: null,
-          fcmToken: null,
-          isActive: false,
-          deletedAt: now,
-        },
-      });
-      erased.push(
-        'identitas santri',
-        'NIK',
-        'nomor KK',
-        'nomor akta',
-        'identitas ayah',
-        'identitas ibu',
-        'identitas wali',
-        'alamat',
-        'identitas akun',
-        'foto',
-        'NISN'
-      );
-      retained.push('NIS', 'nilai', 'kehadiran', 'keuangan', 'riwayat unit');
+    for (const registration of registrations) {
+      absorb(await eraseRegistrant(tx, registration.id, marker));
     }
   }
 
   if (request.subjectRegistrantId) {
-    await tx.registrant.update({
+    const registration = await tx.registrant.findUnique({
       where: { id: request.subjectRegistrantId },
-      data: {
-        fullName: marker,
-        name: marker,
-        address: marker,
-        phone: null,
-        email: null,
-        parentName: marker,
-        parentPhone: marker,
-        parentEmail: null,
-        parentOccupation: null,
-        birthPlace: marker,
-        notes: null,
-      },
+      select: { studentId: true },
     });
-    // Berkas identitas pendaftar (KTP/KK/akta) tidak punya kegunaan setelah
-    // pendaftarannya tidak lagi dihubungkan dengan orangnya. Berkasnya
-    // dihapus dari penyimpanan; barisnya dipertahankan tanpa `fileUrl` supaya
-    // riwayat unggahan tetap terbaca.
-    const documents = await tx.registrantDocument.findMany({
-      where: { registrantId: request.subjectRegistrantId },
-      select: { fileUrl: true },
-    });
-    for (const doc of documents) {
-      if (doc.fileUrl) filesToDelete.push(doc.fileUrl);
+    absorb(await eraseRegistrant(tx, request.subjectRegistrantId, marker));
+    // Arah sebaliknya: pendaftaran yang sudah menjadi santri menunjuk baris
+    // `Student`, dan baris itu memegang identitas yang sama.
+    if (registration?.studentId) {
+      absorb(await eraseStudent(tx, registration.studentId, marker, now));
+      const siblings = await tx.registrant.findMany({
+        where: { studentId: registration.studentId, id: { not: request.subjectRegistrantId } },
+        select: { id: true },
+      });
+      for (const sibling of siblings) {
+        absorb(await eraseRegistrant(tx, sibling.id, marker));
+      }
     }
-    await tx.registrantDocument.updateMany({
-      where: { registrantId: request.subjectRegistrantId },
-      data: { fileUrl: null, notes: null },
-    });
-    erased.push('identitas pendaftar', 'berkas identitas');
-    retained.push('nomor pendaftaran', 'status seleksi', 'keuangan');
   }
 
   if (request.subjectUserId) {

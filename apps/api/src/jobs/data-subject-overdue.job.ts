@@ -1,8 +1,7 @@
 /**
  * Pengingat tenggat permintaan hak subjek data (UU 27/2022 Pasal 30, 32, 40, 43).
  *
- * Deskripsi PR #1140 menyebut notifikasi keterlambatan kepada penangan, tetapi
- * yang ada hanyalah `overdueOnly` — sebuah penyaring BACAAN daftar. Tenggatnya
+ * Halaman daftar punya `overdueOnly`, tetapi itu hanya penyaring BACAAN: tenggat
  * tidak pernah memicu apa pun dengan sendirinya, sehingga permintaan yang lewat
  * 3×24 jam hanya terlihat kalau kebetulan ada petugas membuka daftarnya.
  *

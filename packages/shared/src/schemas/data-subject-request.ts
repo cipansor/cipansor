@@ -5,10 +5,10 @@ import { z } from "zod";
  *
  * Pasal 30 memberi subjek data hak akses dan koreksi, Pasal 40 hak menarik
  * persetujuan, Pasal 43 hak penghapusan, dan Pasal 32 menuntut akses atas
- * salinan data dalam 3×24 jam. Sebelum #1111 yayasan hanya mengumumkan hak itu
- * di teks Kebijakan Privasi dan menunjuk kontak panitia SPMB secara manual:
- * tidak ada tenggat, tidak ada catatan, tidak ada cara tahu permintaan mana
- * yang hampir lewat.
+ * salinan data dalam 3×24 jam. Sebelum alur ini ada, yayasan hanya mengumumkan
+ * hak itu di teks Kebijakan Privasi dan menunjuk kontak panitia SPMB secara
+ * manual: tidak ada tenggat, tidak ada catatan, tidak ada cara tahu permintaan
+ * mana yang hampir lewat.
  *
  * Kontrak ini hidup sekali, di sini. Peladen memvalidasi dengannya di tepi dan
  * web membangun formulirnya dari tipe yang sama, sehingga kedua sisi tidak
@@ -98,7 +98,8 @@ export const DATA_SUBJECT_REQUEST_DUE_HOURS = 72;
  * Yang dihapus adalah data yang tidak wajib disimpan; arsip akademik santri dan
  * alumni (buku induk, rapor, ijazah, Dapodik/EMIS) dipertahankan selama masa
  * retensinya. Karena itu tenggatnya adalah tanggal tinjauan retensi, bukan
- * hitungan jam — dan tanggal itu ditetapkan pemanggil, bukan dikarang di sini.
+ * hitungan jam — dan angkanya hidup di satu tempat, di bawah ini, supaya
+ * tenggat tidak dikarang ulang di setiap pemanggil.
  */
 export const DATA_SUBJECT_REQUEST_ERASURE_DEFAULT_DAYS = 30;
 
