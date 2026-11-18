@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import type { ScopeActor } from '@/utils/student-scope';
+import type { WriteActor } from '@/utils/write-scope';
 
 // A passing simaan moves the student's Takhosus progress — completing the
 // programme on a 30-juz pass, advancing `currentJuz` on a partial one — and a
@@ -13,7 +13,11 @@ import type { ScopeActor } from '@/utils/student-scope';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    student: { findFirst: vi.fn() },
+    student: { findFirst: vi.fn(), findMany: vi.fn() },
+    teacher: { findFirst: vi.fn() },
+    teacherSubject: { findMany: vi.fn().mockResolvedValue([]) },
+    musyrif: { findFirst: vi.fn().mockResolvedValue(null) },
+    class: { findMany: vi.fn().mockResolvedValue([]) },
     simaanExam: {
       findFirst: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
@@ -24,7 +28,11 @@ vi.mock('@/lib/prisma', () => ({
     },
     simaanExaminer: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn(), delete: vi.fn() },
     halaqoh: { findUnique: vi.fn().mockResolvedValue(null) },
-    takhosusEnrollment: { findUnique: vi.fn(), update: vi.fn() },
+    takhosusEnrollment: {
+      findUnique: vi.fn(),
+      findMany: vi.fn().mockResolvedValue([]),
+      update: vi.fn(),
+    },
     hafidzStudent: { findUnique: vi.fn(), create: vi.fn(), deleteMany: vi.fn() },
     sanadRecord: { count: vi.fn().mockResolvedValue(0) },
     $transaction: vi.fn((callback) => callback(prisma)),
@@ -34,7 +42,7 @@ vi.mock('@/lib/prisma', () => ({
 import { prisma } from '@/lib/prisma';
 import { simaanService } from '../simaan.service';
 
-const guru: ScopeActor = { sub: 'u-guru', roleCode: 'SMPIT_GURU', unitId: 'unit-smp' };
+const guru: WriteActor = { sub: 'u-guru', roleCode: 'SMPIT_GURU', unitId: 'unit-smp' };
 
 const enrollmentFind = vi.mocked(prisma.takhosusEnrollment.findUnique);
 const enrollmentUpdate = vi.mocked(prisma.takhosusEnrollment.update);
@@ -57,6 +65,9 @@ const enrollment = {
 beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(prisma.student.findFirst).mockResolvedValue({ id: 's-1' } as never);
+  // #1025: the write scope reads the santri of the exam (`studentWriteWhere`).
+  // The santri is in the caller's unit, so the relation read is not reached.
+  vi.mocked(prisma.student.findMany).mockResolvedValue([{ id: 's-1' }] as never);
   examFindFirst.mockResolvedValue({
     id: 'e-1',
     studentId: 's-1',

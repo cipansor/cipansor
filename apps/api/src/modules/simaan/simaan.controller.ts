@@ -2,10 +2,18 @@ import { Request, Response, NextFunction } from 'express';
 import { simaanService } from './simaan.service';
 import { ApiResponse } from '@/utils/response';
 import { assertStudentInScope } from '@/utils/student-scope';
+import { requireUser } from '@/middleware/auth';
+import type { WriteActor } from '@/utils/write-scope';
 
 // ============================================
 // Simaan Controllers
 // ============================================
+
+/** The write actor a service scopes a write on, from the verified token. */
+function actorOf(req: Request): WriteActor {
+  const u = requireUser(req);
+  return { sub: u.sub, roleCode: u.roleCode, unitId: u.unitId };
+}
 
 export const listSimaan = async (req: Request, res: Response, next: NextFunction) => {
   try {
@@ -40,7 +48,7 @@ export const getSimaanById = async (req: Request, res: Response, next: NextFunct
 
 export const createSimaan = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const record = await simaanService.create(req.body, req.user!);
+    const record = await simaanService.create(req.body, actorOf(req));
     res.status(201).json(ApiResponse.success(record, 'Simaan exam created successfully'));
   } catch (error) {
     next(error);
@@ -50,7 +58,7 @@ export const createSimaan = async (req: Request, res: Response, next: NextFuncti
 export const updateSimaan = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const record = await simaanService.update(id, req.body, req.user!);
+    const record = await simaanService.update(id, req.body, actorOf(req));
     res.json(ApiResponse.success(record, 'Simaan exam updated successfully'));
   } catch (error) {
     next(error);
@@ -60,7 +68,7 @@ export const updateSimaan = async (req: Request, res: Response, next: NextFuncti
 export const deleteSimaan = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const result = await simaanService.delete(id, req.user!);
+    const result = await simaanService.delete(id, actorOf(req));
     res.json(ApiResponse.success(result));
   } catch (error) {
     next(error);
@@ -69,7 +77,7 @@ export const deleteSimaan = async (req: Request, res: Response, next: NextFuncti
 
 export const addExaminer = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const examiner = await simaanService.addExaminer(req.body, req.user!);
+    const examiner = await simaanService.addExaminer(req.body, actorOf(req));
     res.status(201).json(ApiResponse.success(examiner, 'Examiner added successfully'));
   } catch (error) {
     next(error);
@@ -79,7 +87,7 @@ export const addExaminer = async (req: Request, res: Response, next: NextFunctio
 export const updateExaminer = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const examiner = await simaanService.updateExaminer(id, req.body, req.user!);
+    const examiner = await simaanService.updateExaminer(id, req.body, actorOf(req));
     res.json(ApiResponse.success(examiner, 'Examiner updated successfully'));
   } catch (error) {
     next(error);
@@ -89,7 +97,7 @@ export const updateExaminer = async (req: Request, res: Response, next: NextFunc
 export const deleteExaminer = async (req: Request, res: Response, next: NextFunction) => {
   try {
     const { id } = req.params;
-    const result = await simaanService.deleteExaminer(id, req.user!);
+    const result = await simaanService.deleteExaminer(id, actorOf(req));
     res.json(ApiResponse.success(result));
   } catch (error) {
     next(error);
@@ -98,7 +106,7 @@ export const deleteExaminer = async (req: Request, res: Response, next: NextFunc
 
 export const submitScores = async (req: Request, res: Response, next: NextFunction) => {
   try {
-    const record = await simaanService.submitScores(req.body, req.user!);
+    const record = await simaanService.submitScores(req.body, actorOf(req));
     res.json(ApiResponse.success(record, 'Scores submitted successfully'));
   } catch (error) {
     next(error);
