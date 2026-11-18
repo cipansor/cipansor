@@ -1,6 +1,6 @@
 import { prisma } from '@/lib/prisma';
 import type { Prisma } from '@prisma/client';
-import { Errors } from '@/middleware/error';
+import { ApiError, Errors } from '@/middleware/error';
 import {
   onlyScopedStudents,
   STUDENT_SAFE_SELECT,
@@ -609,12 +609,38 @@ export async function getP5AssessmentById(id: string, scope: Prisma.StudentWhere
   });
 }
 
+/**
+ * A P5 assessment follows the report-card rule (any teaching relation,
+ * including the homeroom teacher, R13.3) *or* the project facilitator's own
+ * reach: `P5Project.supervisorId` may write its project's assessments, because
+ * P5 is assessed across subjects (#1090, owner decision 2026-11-16). A santri
+ * of another unit, one the actor does not teach, or a project the actor does
+ * not facilitate answers 404, as for a missing studentId.
+ */
+async function assertP5Writable(actor: WriteActor, studentId: string, projectId: string) {
+  try {
+    await assertReportCardsWritable(actor, [studentId], 'P5 assessment');
+    return;
+  } catch (err) {
+    if (!(err instanceof ApiError) || err.statusCode !== 404) throw err;
+  }
+  // Not reached through a relation: the facilitator of the project the
+  // assessment belongs to may still write it. The santri must exist so the
+  // answer stays 404, never a foreign-key 500.
+  const [student, project] = await Promise.all([
+    prisma.student.findUnique({ where: { id: studentId }, select: { id: true } }),
+    prisma.p5Project.findUnique({
+      where: { id: projectId },
+      select: { supervisor: { select: { userId: true } } },
+    }),
+  ]);
+  if (!student || project?.supervisor?.userId !== actor.sub) {
+    throw Errors.notFound('P5 assessment');
+  }
+}
+
 export async function createP5Assessment(data: CreateP5AssessmentInput, actor: WriteActor) {
-  // A P5 assessment is a santri's record; only an account with a teaching
-  // relation to that santri may write it (the report-card rule: any relation,
-  // including the homeroom teacher, R13.3). A santri of another unit, or one
-  // the actor does not teach, answers 404, as for a missing studentId (#1090).
-  await assertReportCardsWritable(actor, [data.studentId], 'Student');
+  await assertP5Writable(actor, data.studentId, data.projectId);
   return prisma.p5Assessment.create({
     data: {
       projectId: data.projectId,
@@ -638,14 +664,14 @@ export async function updateP5Assessment(
   actor: WriteActor
 ) {
   // An existing P5 assessment of another unit's santri answers 404, not 500
-  // (#1090). The santri is read first so the scope is decided on it, not on
-  // the request.
+  // (#1090). The santri and project are read first so the scope is decided on
+  // the row, not on the request.
   const existing = await prisma.p5Assessment.findUnique({
     where: { id },
-    select: { studentId: true },
+    select: { studentId: true, projectId: true },
   });
   if (!existing) throw Errors.notFound('P5 assessment');
-  await assertReportCardsWritable(actor, [existing.studentId], 'P5 assessment');
+  await assertP5Writable(actor, existing.studentId, existing.projectId);
 
   return prisma.p5Assessment.update({
     where: { id },
@@ -656,10 +682,10 @@ export async function updateP5Assessment(
 export async function deleteP5Assessment(id: string, actor: WriteActor) {
   const existing = await prisma.p5Assessment.findUnique({
     where: { id },
-    select: { studentId: true },
+    select: { studentId: true, projectId: true },
   });
   if (!existing) throw Errors.notFound('P5 assessment');
-  await assertReportCardsWritable(actor, [existing.studentId], 'P5 assessment');
+  await assertP5Writable(actor, existing.studentId, existing.projectId);
 
   return prisma.p5Assessment.delete({
     where: { id },

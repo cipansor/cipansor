@@ -18,7 +18,7 @@ vi.mock('@/lib/redis', () => ({
 }));
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    student: { findMany: vi.fn(), findFirst: vi.fn() },
+    student: { findMany: vi.fn(), findFirst: vi.fn(), findUnique: vi.fn() },
     teacher: { findFirst: vi.fn(), findUnique: vi.fn() },
     teacherSubject: { findMany: vi.fn() },
     takhosusEnrollment: { findMany: vi.fn() },
@@ -26,6 +26,7 @@ vi.mock('@/lib/prisma', () => ({
     class: { findMany: vi.fn(), findUnique: vi.fn() },
     p5Project: {
       findMany: vi.fn(),
+      findUnique: vi.fn(),
       count: vi.fn(),
       create: vi.fn(),
       update: vi.fn(),
@@ -77,6 +78,9 @@ const TOKENS = {
   superAdmin: { roleCode: 'SUPER_ADMIN', unitId: null },
   // A unit admin of unit A — a Kepala/Admin_Unit, so a Penulis_Penilaian of A.
   adminUnitA: { roleCode: 'SMPIT_ADMIN', unitId: 'unit-a' },
+  // A project facilitator with no teaching relation to the santri: the P5 rule
+  // grants the write through `P5Project.supervisorId` (#1090).
+  fasilitator: { roleCode: 'SMPIT_GURU', unitId: 'unit-a' },
   student: { roleCode: 'SMPIT_SISWA', unitId: 'unit-a' },
 } as const;
 type Who = keyof typeof TOKENS;
@@ -191,14 +195,23 @@ beforeEach(() => {
   vi.mocked(prisma.student.findMany).mockResolvedValue([
     { id: ST, unitId: 'unit-a', enrollments: [] },
   ] as any);
+  vi.mocked(prisma.student.findUnique).mockResolvedValue({ id: ST } as any);
   vi.mocked(prisma.teacher.findFirst).mockResolvedValue({ id: 't-1', unitId: 'unit-a' } as any);
   vi.mocked(prisma.teacherSubject.findMany).mockResolvedValue([] as any);
   vi.mocked(prisma.takhosusEnrollment.findMany).mockResolvedValue([] as any);
   vi.mocked(prisma.musyrif.findFirst).mockResolvedValue(null as any);
   vi.mocked(prisma.class.findMany).mockResolvedValue([] as any);
+  // The P5 project's supervisor is someone else by default, so the facilitator
+  // path does not open for an actor with no relation.
+  vi.mocked(prisma.p5Project.findUnique).mockResolvedValue({
+    supervisor: { userId: 'someone-else' },
+  } as any);
 
   vi.mocked(prisma.merdekaAssessmentResult.findUnique).mockResolvedValue({ studentId: ST } as any);
-  vi.mocked(prisma.p5Assessment.findUnique).mockResolvedValue({ studentId: ST } as any);
+  vi.mocked(prisma.p5Assessment.findUnique).mockResolvedValue({
+    studentId: ST,
+    projectId: PROJECT,
+  } as any);
   vi.mocked(prisma.merdekaAssessmentResult.create).mockResolvedValue({ id: RESULT } as any);
   vi.mocked(prisma.merdekaAssessmentResult.update).mockResolvedValue({ id: RESULT } as any);
   vi.mocked(prisma.merdekaAssessmentResult.delete).mockResolvedValue({ id: RESULT } as any);
@@ -290,6 +303,50 @@ describe('#1090 — a Penulis_Penilaian still writes', () => {
     });
     expectWrote(res, 'post');
     expect(prisma.p5Assessment.create).toHaveBeenCalled();
+  });
+});
+
+describe('#1090 — a P5 project facilitator may write, without a teaching relation', () => {
+  // The owner's locked decision (2026-11-16): a P5 assessment follows the
+  // report-card rule *or* the facilitator's own project (`P5Project.supervisorId`),
+  // because P5 is assessed across subjects. The actor here has no relation of
+  // any kind — only the project it facilitates.
+  beforeEach(() => {
+    vi.mocked(prisma.p5Project.findUnique).mockResolvedValue({
+      supervisor: { userId: 'u-fasilitator' },
+    } as any);
+  });
+
+  it.each(P5_WRITES)('%s — the project facilitator is allowed', async (_n, m, p, b) => {
+    const res = await send('fasilitator', m, p, b);
+    expectWrote(res, m);
+  });
+
+  // A facilitator whose project is not the one named on the row is still out of
+  // scope: the relation is per project, not "any facilitator anywhere".
+  it('a facilitator of a different project is 404', async () => {
+    vi.mocked(prisma.p5Project.findUnique).mockResolvedValue({
+      supervisor: { userId: 'u-someone-else' },
+    } as any);
+    const res = await send('fasilitator', 'post', '/kurikulum-merdeka/p5-assessments', {
+      projectId: PROJECT,
+      studentId: ST,
+      assessedById: ASSESSOR,
+    });
+    expect(res.status).toBe(404);
+    expectNoWrite();
+  });
+
+  // The facilitator path never opens for a grade: a Merdeka result follows the
+  // grade rule, which a facilitator with no relation does not satisfy.
+  it('the facilitator reach does not extend to Merdeka grades', async () => {
+    const res = await send('fasilitator', 'post', '/kurikulum-merdeka/assessment-results', {
+      assessmentId: ASSESS,
+      studentId: ST,
+      gradedById: GRADER,
+    });
+    expect(res.status).toBe(404);
+    expectNoWrite();
   });
 });
 
