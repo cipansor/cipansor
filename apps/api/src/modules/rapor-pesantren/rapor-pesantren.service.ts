@@ -23,6 +23,9 @@ import type { Prisma } from '@prisma/client';
 import { unitDocumentName } from '@cipansor/shared';
 import { createNotification } from '../notifications/notifications.service';
 import { nisForUnit, nisMapForUnit } from '@/utils/student-nis';
+import { assertStudentsWritable, assertUnitWritable, type WriteActor } from '@/utils/write-scope';
+import { mayWriteReportCardVia, teachingRelationReach } from '@/utils/teaching-relation';
+import { Errors } from '@/middleware/error';
 
 // =====================
 // CONFIG MANAGEMENT
@@ -71,8 +74,16 @@ export async function getRaporConfig(unitId: string): Promise<RaporConfig> {
   return { unitId, ...DEFAULT_CONFIG };
 }
 
-export async function saveRaporConfig(config: RaporConfig): Promise<RaporConfig> {
+export async function saveRaporConfig(
+  config: RaporConfig,
+  actor: WriteActor
+): Promise<RaporConfig> {
   const { unitId, ...configData } = config;
+  // A rapor configuration is stored per unit: 404 unless the caller may write
+  // that unit — their own, or any for a Super Admin (#1025). Not-found so the
+  // answer reads the same as a unit that does not exist, rather than confirming
+  // another unit's config.
+  assertUnitWritable(actor, unitId, 'Rapor config');
 
   await prisma.setting.upsert({
     where: {
@@ -1037,7 +1048,24 @@ export async function listRaporPesantren(query: ListRaporQuery) {
 // UPDATE RAPOR
 // =====================
 
-export async function updateRaporPesantren(id: string, data: UpdateRaporInput) {
+export async function updateRaporPesantren(id: string, data: UpdateRaporInput, actor: WriteActor) {
+  // A rapor's santri must be one the caller may write a report card for:
+  // Super Admin any; everyone else the santri's own unit, or a relation with
+  // them (R13.3). The lookup is by id alone (a relation can reach another
+  // unit's santri, which no `where` on the rapor can express); an out-of-reach
+  // id answers 404 with the same content as one that does not exist.
+  const existing = await prisma.raporPesantren.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('Rapor');
+  await assertStudentsWritable(
+    [existing.studentId],
+    actor,
+    teachingRelationReach(actor.sub, mayWriteReportCardVia),
+    'Rapor'
+  );
+
   const result = await prisma.raporPesantren.update({
     where: { id },
     data: {
@@ -1392,6 +1420,19 @@ export async function getLegerPesantren(query: GetLegerQuery): Promise<LegerItem
 // DELETE RAPOR
 // =====================
 
-export async function deleteRaporPesantren(id: string) {
+export async function deleteRaporPesantren(id: string, actor: WriteActor) {
+  // Same write reach as `updateRaporPesantren`: 404 for a rapor the caller may
+  // not touch, with the content of one that does not exist (#1025).
+  const existing = await prisma.raporPesantren.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('Rapor');
+  await assertStudentsWritable(
+    [existing.studentId],
+    actor,
+    teachingRelationReach(actor.sub, mayWriteReportCardVia),
+    'Rapor'
+  );
   return prisma.raporPesantren.delete({ where: { id } });
 }

@@ -6,6 +6,7 @@ const { prismaMock, notificationMock } = vi.hoisted(() => {
     prismaMock: {
       raporPesantren: {
         findMany: vi.fn(),
+        findUnique: vi.fn(),
         update: vi.fn(),
         count: vi.fn(),
       },
@@ -17,6 +18,22 @@ const { prismaMock, notificationMock } = vi.hoisted(() => {
       },
       student: {
         findUnique: vi.fn(),
+        findMany: vi.fn().mockResolvedValue([{ id: 's1' }]),
+      },
+      teacher: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      teacherSubject: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      takhosusEnrollment: {
+        findMany: vi.fn().mockResolvedValue([]),
+      },
+      musyrif: {
+        findFirst: vi.fn().mockResolvedValue(null),
+      },
+      class: {
+        findMany: vi.fn().mockResolvedValue([]),
       },
       academicYear: {
         findUnique: vi.fn(),
@@ -68,9 +85,20 @@ import {
   updateRaporPesantren,
 } from '@/modules/rapor-pesantren/rapor-pesantren.service';
 
+const SUPER_ADMIN = { sub: 'u-super', roleCode: 'SUPER_ADMIN', unitId: null };
+
 describe('Rapor Pesantren Enhancements', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // The rapor write scope (#1025) reads the rapor's santri and checks it is
+    // writable; the santri exists in the caller's unit.
+    prismaMock.raporPesantren.findUnique.mockResolvedValue({ studentId: 's1' });
+    prismaMock.student.findMany.mockResolvedValue([{ id: 's1' }]);
+    prismaMock.teacher.findFirst.mockResolvedValue(null);
+    prismaMock.teacherSubject.findMany.mockResolvedValue([]);
+    prismaMock.takhosusEnrollment.findMany.mockResolvedValue([]);
+    prismaMock.musyrif.findFirst.mockResolvedValue(null);
+    prismaMock.class.findMany.mockResolvedValue([]);
   });
 
   describe('getLegerPesantren (Ranking)', () => {
@@ -195,7 +223,7 @@ describe('Rapor Pesantren Enhancements', () => {
       // @ts-ignore
       prismaMock.raporPesantren.update.mockResolvedValue(mockResult);
 
-      await updateRaporPesantren('r1', { status: 'PUBLISHED' });
+      await updateRaporPesantren('r1', { status: 'PUBLISHED' }, SUPER_ADMIN);
 
       expect(prismaMock.raporPesantren.update).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -229,7 +257,7 @@ describe('Rapor Pesantren Enhancements', () => {
       // @ts-ignore
       prismaMock.raporPesantren.update.mockResolvedValue(mockResult);
 
-      await updateRaporPesantren('r1', { status: 'DRAFT' });
+      await updateRaporPesantren('r1', { status: 'DRAFT' }, SUPER_ADMIN);
 
       expect(notificationMock.createNotification).not.toHaveBeenCalled();
     });
