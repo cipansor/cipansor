@@ -1,6 +1,8 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma, AccountCode } from '@prisma/client';
 import { JournalReferenceType } from '@cipansor/shared';
+import { Errors } from '@/middleware/error';
+import { assertUnitWritable, isCrossUnitWriter, type WriteActor } from '@/utils/write-scope';
 
 // =====================================
 // COA (CHART OF ACCOUNTS) SERVICE
@@ -129,7 +131,14 @@ export async function createManualJournal(data: {
     credit: number;
   }[];
   createdById: string;
+  actor: WriteActor;
 }) {
+  // A journal belongs to the caller's own unit; only Super_Admin may name another
+  // (#988, R26.7). A unit-scoped role's `unitId` in the body is ignored.
+  const unitId = isCrossUnitWriter(data.actor) ? data.unitId : data.actor.unitId;
+  if (!unitId) throw Errors.forbidden('Akun ini tidak terikat pada unit mana pun');
+  assertUnitWritable(data.actor, unitId, 'Unit');
+
   return prisma.$transaction(async (tx) => {
     // Validate balance
     const totalDebit = data.entries.reduce((sum, e) => sum + e.debit, 0);
@@ -140,13 +149,32 @@ export async function createManualJournal(data: {
       throw new Error(`Journal is not balanced. Debit: ${totalDebit}, Credit: ${totalCredit}`);
     }
 
+    // Every account must exist and be usable by the journal's unit: its own, or
+    // a shared foundation-wide row (`unitId: null`) that any unit may post to —
+    // the chart of accounts is one shared catalog (`AccountCode.code` is
+    // globally unique, so rows are not per-unit), the same rule `createBudget`
+    // applies. An account pinned to another unit refuses the whole request with
+    // 404, the same answer as for an account that does not exist, so no partial
+    // journal is written (#988, R26.8).
+    const accountIds = [...new Set(data.entries.map((e) => e.accountId))];
+    const accounts = await tx.accountCode.findMany({
+      where: { id: { in: accountIds } },
+      select: { id: true, unitId: true },
+    });
+    const usable = new Set(
+      accounts.filter((a) => a.unitId === null || a.unitId === unitId).map((a) => a.id)
+    );
+    if (accountIds.some((accountId) => !usable.has(accountId))) {
+      throw Errors.notFound('AccountCode');
+    }
+
     const referenceId = crypto.randomUUID(); // Group ID for manual entry
 
     const createdEntries = [];
     for (const entry of data.entries) {
       const je = await tx.journalEntry.create({
         data: {
-          unitId: data.unitId,
+          unitId,
           accountId: entry.accountId,
           date: data.date,
           description: data.description,

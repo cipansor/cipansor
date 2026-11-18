@@ -136,11 +136,14 @@ describe('Finance Service Integration', () => {
       (prisma.invoice.update as any).mockResolvedValue(mockInvoice);
 
       // Execute
-      await financeService.createPayment({
-        invoiceId: 'inv-123',
-        amount: 100000,
-        method: PaymentMethod.CASH,
-      });
+      await financeService.createPayment(
+        { sub: 'user-1', roleCode: 'SUPER_ADMIN', unitId: null },
+        {
+          invoiceId: 'inv-123',
+          amount: 100000,
+          method: PaymentMethod.CASH,
+        }
+      );
 
       // Assert
       expect(notificationService.createNotification).toHaveBeenCalledWith(

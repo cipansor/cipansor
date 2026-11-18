@@ -142,6 +142,11 @@ export async function createJournal(req: Request, res: Response, next: NextFunct
       ...data,
       date: new Date(data.date),
       createdById: userId,
+      actor: {
+        sub: userId,
+        roleCode: req.user!.roleCode,
+        unitId: req.user!.unitId,
+      },
     });
     res.status(201).json({ data: journals });
   } catch (error) {

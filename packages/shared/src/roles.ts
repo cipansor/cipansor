@@ -133,6 +133,24 @@ export const TATA_USAHA_ROLE_CODES: readonly string[] = [
 /** Unit treasurers (yayasan treasurer is in GOVERNANCE_ROLE_CODES). */
 export const BENDAHARA_ROLE_CODES: readonly string[] = perSchool("BENDAHARA");
 
+/**
+ * Admin_Unit: the four school administrators (`PESANTREN_ADMIN` joins in #992).
+ * Deliberately the `*_ADMIN` codes alone — not `ADMIN_ROLE_CODES`, which also
+ * carries `SUPER_ADMIN` (a cross-unit writer, not a unit admin).
+ */
+export const UNIT_ADMIN_ROLE_CODES: readonly string[] = perSchool("ADMIN");
+
+/**
+ * Peran_Keuangan_Unit — who may act as a unit's finance admin (Admin_Keuangan_Unit):
+ * Super_Admin, every Admin_Unit, and every Bendahara_Unit. The single source for
+ * the finance module's write guards (#988, R26.3, R26.4).
+ */
+export const FINANCE_UNIT_ROLE_CODES: readonly string[] = [
+  "SUPER_ADMIN",
+  ...UNIT_ADMIN_ROLE_CODES,
+  ...BENDAHARA_ROLE_CODES,
+];
+
 /** Cross-unit support staff mapped to concrete service modules. */
 export const SUPPORT_ROLE_CODES: readonly string[] = [
   "PUSTAKAWAN",

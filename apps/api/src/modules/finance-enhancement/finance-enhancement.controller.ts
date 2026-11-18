@@ -38,6 +38,12 @@ const parsePagination = (req: Request) => ({
   limit: Number(req.query.limit) || 20,
 });
 
+/** The read scope actor, from the verified token — never the request body. */
+const scopeActorOf = (req: Request) => {
+  const user = requireUser(req);
+  return { sub: user.sub, roleCode: user.roleCode, unitId: user.unitId };
+};
+
 export class FinanceEnhancementController {
   // ==================== ACCOUNT CODES ====================
 
@@ -207,11 +213,15 @@ export class FinanceEnhancementController {
       const { status } = req.query;
       const { page, limit } = parsePagination(req);
 
-      const result = await financeEnhancementService.getScholarshipRecipients(id, {
-        status: status as string,
-        page,
-        limit,
-      });
+      const result = await financeEnhancementService.getScholarshipRecipients(
+        id,
+        {
+          status: status as string,
+          page,
+          limit,
+        },
+        scopeActorOf(req)
+      );
 
       res.json(result);
     } catch (error) {
@@ -245,11 +255,10 @@ export class FinanceEnhancementController {
 
   async getScholarshipCriteria(req: Request, res: Response, next: NextFunction) {
     try {
-      const { prisma } = await import('@/lib/prisma');
-      const criteria = await prisma.scholarshipCriterion.findMany({
-        where: { scholarshipId: req.params.id },
-        orderBy: { createdAt: 'asc' },
-      });
+      const criteria = await financeEnhancementService.getScholarshipCriteria(
+        req.params.id,
+        scopeActorOf(req)
+      );
       res.json({ success: true, data: criteria });
     } catch (error) {
       next(error);
