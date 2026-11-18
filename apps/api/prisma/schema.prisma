@@ -5758,10 +5758,14 @@ model AccountCode {
   name      String
   type      String // ASSET, LIABILITY, EQUITY, REVENUE, EXPENSE
   parentId  String?  @map("parent_id")
-  // Owning unit for per-unit charts of accounts. Nullable = legacy/shared row
-  // not yet assigned to a unit; unit-scoped account resolution matches only
-  // rows whose unitId equals the requesting unit (never null-shared), so
-  // fallbacks stay off for unassigned data — no cross-unit journal leak.
+  // Owning unit for per-unit charts of accounts. Null = a shared
+  // foundation-wide row any unit may post to (the catalog is one shared set:
+  // `code` is globally unique). Two resolutions differ on purpose:
+  //   * automatic posting (`getAccountOrFallback`) matches only rows whose
+  //     unitId equals the requesting unit — never null — so an unassigned
+  //     account stays off automatic journals and no cross-unit entry is made;
+  //   * manual entry (`createManualJournal`, `createBudget`) also accepts a
+  //     null (shared) row, refusing only an account pinned to another unit.
   unitId    String?  @map("unit_id")
   isActive  Boolean  @default(true) @map("is_active")
   createdAt DateTime @default(now()) @map("created_at")

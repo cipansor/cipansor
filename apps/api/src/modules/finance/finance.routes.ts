@@ -1,6 +1,11 @@
 import { Router } from 'express';
 import { UserRole } from '@prisma/client';
-import { FINANCE_UNIT_ROLE_CODES, UNIT_ADMIN_ROLE_CODES } from '@cipansor/shared';
+import {
+  BUSINESS_ROLE_CODES,
+  FINANCE_UNIT_ROLE_CODES,
+  SUPPORT_ROLE_CODES,
+  TATA_USAHA_ROLE_CODES,
+} from '@cipansor/shared';
 import * as controller from './finance.controller';
 import { bosController } from './bos.controller';
 import * as accountingController from './accounting.controller';
@@ -408,7 +413,15 @@ router.get(
  */
 router.post(
   '/payments',
-  authorize(UserRole.SUPER_ADMIN, ...UNIT_ADMIN_ROLE_CODES, UserRole.STAFF),
+  // Native RoleCodes, not the legacy buckets: the finance unit roles plus the
+  // unit's TU/support/business staff — the same set `UserRole.STAFF` expanded
+  // to (golden rule 3, #988).
+  authorize(
+    ...FINANCE_UNIT_ROLE_CODES,
+    ...TATA_USAHA_ROLE_CODES,
+    ...SUPPORT_ROLE_CODES,
+    ...BUSINESS_ROLE_CODES
+  ),
   controller.createPayment
 );
 

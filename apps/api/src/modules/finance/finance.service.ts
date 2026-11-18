@@ -428,7 +428,12 @@ export async function updateInvoice(actor: WriteActor, id: string, data: UpdateI
   });
 }
 
-export async function deleteInvoice(id: string) {
+export async function deleteInvoice(actor: WriteActor, id: string) {
+  // A bill of another unit is answered 404, the same as an id that does not
+  // exist, and nothing is cancelled (#988, R26.1). This route is removed by
+  // #1005 in favour of `POST /finance/invoices/:id/cancel`; until then the
+  // write scope holds here too.
+  await assertInvoiceWritable(actor, id);
   return prisma.invoice.update({
     where: { id },
     data: { status: PaymentStatus.CANCELLED },
@@ -450,11 +455,10 @@ export async function createPayment(
     const invoice = await tx.invoice.findUnique({
       where: { id: data.invoiceId },
       include: {
-        student: {
-          include: {
-            user: { select: { name: true } }, // Fetch user name for description
-          },
-        },
+        // Only the name is read from the santri (for the journal description and
+        // the notification); `select` keeps the family columns out of the query
+        // entirely (R24.10, #988).
+        student: { select: { user: { select: { name: true } } } },
         paymentType: { select: { id: true, name: true, accountId: true, unitId: true } },
       },
     });
@@ -485,11 +489,11 @@ export async function createPayment(
       include: {
         invoice: {
           include: {
-            student: {
-              include: {
-                user: { select: { id: true, name: true } },
-              },
-            },
+            // The returned payment is sent to the caller; read the santri's
+            // columns with a `select`, never `include`, so NIK/KK/parent data
+            // does not ride along (R24.10, #988). `user.id`/`user.name` are
+            // still read below for the notification and the event.
+            student: { select: INVOICE_STUDENT_SELECT },
             paymentType: { select: { id: true, name: true, unitId: true } },
           },
         },
@@ -1104,7 +1108,13 @@ export async function getStudentFinanceSummary(studentId: string, actor: ScopeAc
   };
 }
 
-export async function getUnitFinanceStats(unitId: string, month?: string) {
+export async function getUnitFinanceStats(unitId: string, actor: ScopeActor, month?: string) {
+  // A unit that does not exist and a unit outside the caller's read reach get
+  // the same 404, so a guessed id says nothing about another unit (#988, R26.6,
+  // the same rule as the sibling `/outstanding`).
+  const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true } });
+  if (!unit || !actorSeesUnit(actor, unitId)) throw Errors.notFound('Unit');
+
   let dateFilter: { dueDate?: { gte: Date; lt: Date } } = {};
   if (month) {
     const [year, monthIndex] = month.split('-').map(Number);

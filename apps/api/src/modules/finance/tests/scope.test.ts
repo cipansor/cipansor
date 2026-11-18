@@ -41,6 +41,7 @@ import { prisma } from '../../../lib/prisma';
 import { expectNoSensitiveStudentFields } from '../../../../tests/helpers/sensitive-fields';
 import {
   createPayment,
+  deleteInvoice,
   getStudentFinanceSummary,
   getStudentOutstandingBalances,
   updateInvoice,
@@ -170,6 +171,70 @@ describe('createPayment menolak tagihan unit lain', () => {
     expect(db.payment.create).toHaveBeenCalledTimes(1);
     const unitJurnal = db.journalEntry.create.mock.calls.map(([arg]) => arg.data.unitId);
     expect(unitJurnal).toEqual([SD, SD]);
+  });
+
+  it('jawaban pembayaran membaca kolom santri dengan select, bukan include (R24.10)', async () => {
+    db.invoice.findUnique.mockResolvedValue({
+      ...tagihanSmp,
+      id: 'inv-sd',
+      paymentType: { ...tagihanSmp.paymentType, unitId: SD },
+    });
+    db.payment.create.mockResolvedValue({
+      id: 'pay-1',
+      amount: new Prisma.Decimal(350000),
+      method: 'CASH',
+      invoiceId: 'inv-sd',
+      paidAt: new Date(),
+      invoice: {
+        ...tagihanSmp,
+        paymentType: { ...tagihanSmp.paymentType, unitId: SD },
+        student: { id: 's1', nis: 'SD-1', unitId: SD, user: { id: 'u1', name: 'Fulan' } },
+      },
+    });
+    db.invoice.update.mockResolvedValue({ id: 'inv-sd' });
+
+    const payment = await createPayment(adminSd, {
+      invoiceId: 'inv-sd',
+      amount: 350000,
+      method: 'CASH',
+    } as never);
+
+    // The santri relation is read with a `select`, never `include` — `include`
+    // would carry NIK, No. KK and the parents' data into the response.
+    const studentArg = db.payment.create.mock.calls[0][0].include.invoice.include.student;
+    expect(studentArg.select).toBeDefined();
+    expect(studentArg.include).toBeUndefined();
+    expectNoSensitiveStudentFields(payment);
+  });
+});
+
+describe('deleteInvoice menolak tagihan unit lain', () => {
+  it('tagihan unit lain dijawab 404 dan tidak ada tagihan yang dibatalkan', async () => {
+    db.invoice.findUnique.mockResolvedValue({ id: 'inv-smp', paymentType: { unitId: SMP } });
+
+    await expect(deleteInvoice(adminSd, 'inv-smp')).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(db.invoice.update).not.toHaveBeenCalled();
+  });
+
+  it('id yang tidak ada dijawab 404 yang sama', async () => {
+    db.invoice.findUnique.mockResolvedValue(null);
+
+    await expect(deleteInvoice(adminSd, 'tidak-ada')).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(db.invoice.update).not.toHaveBeenCalled();
+  });
+
+  it('tagihan unit sendiri boleh dibatalkan', async () => {
+    db.invoice.findUnique.mockResolvedValue({ id: 'inv-sd', paymentType: { unitId: SD } });
+    db.invoice.update.mockResolvedValue({ id: 'inv-sd', status: 'CANCELLED' });
+
+    await deleteInvoice(adminSd, 'inv-sd');
+
+    expect(db.invoice.update).toHaveBeenCalledWith({
+      where: { id: 'inv-sd' },
+      data: { status: 'CANCELLED' },
+    });
   });
 });
 

@@ -175,7 +175,7 @@ export async function updateInvoice(req: Request, res: Response, next: NextFunct
 export async function deleteInvoice(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    await financeService.deleteInvoice(id);
+    await financeService.deleteInvoice(writeActorOf(req), id);
     res.json({
       success: true,
       message: 'Invoice cancelled successfully',
@@ -345,7 +345,7 @@ export async function getUnitFinanceStats(req: Request, res: Response, next: Nex
   try {
     const { unitId } = req.params;
     const month = req.query.month as string | undefined;
-    const stats = await financeService.getUnitFinanceStats(unitId, month);
+    const stats = await financeService.getUnitFinanceStats(unitId, scopeOf(req), month);
     res.json({
       success: true,
       data: stats,
