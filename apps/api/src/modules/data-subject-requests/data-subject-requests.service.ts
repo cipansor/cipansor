@@ -1103,6 +1103,58 @@ async function eraseStudent(
     data: { content: marker },
   });
 
+  // Kategori khusus (UU PDP Pasal 4): data kesehatan dan kesehatan jiwa menaut
+  // santri dan menyimpan teks bebas yang menyebut dia — keluhan, diagnosis,
+  // ringkasan sesi konseling, observasi psikologis. Barisnya dipertahankan
+  // (rekam medis/konseling punya jalur bacanya sendiri), jadi hanya teksnya
+  // yang ditimpa penanda. `CounselingNote` menaut lewat `sessionId`, bukan
+  // `studentId`, jadi sesinya dikumpulkan lebih dulu.
+  await tx.medicalRecord.updateMany({
+    where: { studentId: student.id },
+    data: {
+      complaint: marker,
+      diagnosis: marker,
+      treatment: marker,
+      prescription: marker,
+      notes: marker,
+    },
+  });
+  await tx.specialDiet.updateMany({
+    where: { studentId: student.id },
+    data: { medicalNotes: marker },
+  });
+  await tx.immunizationRecord.updateMany({
+    where: { studentId: student.id },
+    data: { notes: marker },
+  });
+  await tx.clinicAppointment.updateMany({
+    where: { studentId: student.id },
+    data: { complaint: marker },
+  });
+  await tx.prescription.updateMany({
+    where: { studentId: student.id },
+    data: { notes: marker },
+  });
+  const counselingSessions = await tx.counselingSession.findMany({
+    where: { studentId: student.id },
+    select: { id: true },
+  });
+  await tx.counselingSession.updateMany({
+    where: { studentId: student.id },
+    data: {
+      description: marker,
+      summary: marker,
+      recommendations: marker,
+      psychologyData: Prisma.DbNull,
+    },
+  });
+  if (counselingSessions.length) {
+    await tx.counselingNote.updateMany({
+      where: { sessionId: { in: counselingSessions.map((session) => session.id) } },
+      data: { content: marker },
+    });
+  }
+
   outcome.erased.push(
     'identitas santri',
     'NIK',
@@ -1116,7 +1168,9 @@ async function eraseStudent(
     'foto',
     'berkas dokumen identitas',
     'NISN',
-    'catatan santri'
+    'catatan santri',
+    'catatan kesehatan',
+    'catatan konseling'
   );
   outcome.retained.push(
     'NIS',

@@ -38,6 +38,16 @@ vi.mock('@/lib/prisma', () => ({
     },
     studentNote: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     marketingInteraction: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    medicalRecord: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    specialDiet: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    immunizationRecord: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    clinicAppointment: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    prescription: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    counselingSession: {
+      findMany: vi.fn().mockResolvedValue([]),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    counselingNote: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     auditLog: { create: vi.fn() },
     role: { findMany: vi.fn().mockResolvedValue([]) },
     userRoleAssignment: {
@@ -545,6 +555,67 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
     expect(audit.data.newValues.erased).toContain('catatan santri');
     expect(audit.data.newValues.erased).toContain('catatan interaksi pemasaran');
+  });
+
+  it('menyapu teks bebas kategori khusus: kesehatan dan konseling (UU PDP Pasal 4)', async () => {
+    // Data kesehatan dan kesehatan jiwa diperlakukan lebih ketat. Barisnya
+    // tetap ada setelah anonimisasi, jadi teks bebasnya — keluhan, diagnosis,
+    // ringkasan sesi konseling — harus ditimpa penanda; kalau tidak, staf dan
+    // wali masih dapat membukanya lewat jalur baca masing-masing.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.counselingSession.findMany).mockResolvedValue([{ id: 'ses-1' }] as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const medical = vi.mocked(prisma.medicalRecord.updateMany).mock.calls[0][0] as any;
+    expect(medical.where).toEqual({ studentId: 'stu-1' });
+    expect(medical.data.complaint).toContain('UU PDP');
+    expect(medical.data.diagnosis).toContain('UU PDP');
+
+    const diet = vi.mocked(prisma.specialDiet.updateMany).mock.calls[0][0] as any;
+    expect(diet.data.medicalNotes).toContain('UU PDP');
+
+    const immunization = vi.mocked(prisma.immunizationRecord.updateMany).mock.calls[0][0] as any;
+    expect(immunization.data.notes).toContain('UU PDP');
+
+    const appointment = vi.mocked(prisma.clinicAppointment.updateMany).mock.calls[0][0] as any;
+    expect(appointment.data.complaint).toContain('UU PDP');
+
+    const prescription = vi.mocked(prisma.prescription.updateMany).mock.calls[0][0] as any;
+    expect(prescription.data.notes).toContain('UU PDP');
+
+    const session = vi.mocked(prisma.counselingSession.updateMany).mock.calls[0][0] as any;
+    expect(session.data.description).toContain('UU PDP');
+    expect(session.data.summary).toContain('UU PDP');
+    expect(session.data.recommendations).toContain('UU PDP');
+    // `psychologyData` (Json) dibuang, bukan ditandai — isinya observasi terstruktur.
+    expect(session.data.psychologyData).toEqual(Prisma.DbNull);
+
+    // `CounselingNote` menaut lewat `sessionId`, bukan `studentId`.
+    const note = vi.mocked(prisma.counselingNote.updateMany).mock.calls[0][0] as any;
+    expect(note.where).toEqual({ sessionId: { in: ['ses-1'] } });
+    expect(note.data.content).toContain('UU PDP');
+
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.newValues.erased).toContain('catatan kesehatan');
+    expect(audit.data.newValues.erased).toContain('catatan konseling');
   });
 
   it('tidak menghapus berkas yang masih ditunjuk baris lain (CWE-639)', async () => {
