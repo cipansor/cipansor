@@ -101,8 +101,14 @@ export const getInteractionsByRegistrant = async (registrantId: string) => {
  * pemasaran harus benar-benar berhenti — bukan sekadar dicatat waktunya. Baris
  * pendaftar yang sudah menarik persetujuannya tidak boleh lagi muncul sebagai
  * prospek, kontak tindak lanjut, atau angka di dasbor pemasaran.
+ *
+ * Dipakai juga oleh `roi.service.ts`. Batasnya: setiap kueri yang membaca baris
+ * `Registrant` langsung (jumlah prospek, konversi, corong admisi, biaya daftar
+ * ulang) ikut disaring — baris itu artefak pemasaran/persetujuan. Kueri yang
+ * membaca `Invoice`/`Payment` tidak disentuh: itu catatan keuangan yang wajib
+ * retensi (Pasal 43–44), bukan pemrosesan atas dasar persetujuan.
  */
-const marketingConsentHeld: Prisma.RegistrantWhereInput = { consentWithdrawnAt: null };
+export const marketingConsentHeld: Prisma.RegistrantWhereInput = { consentWithdrawnAt: null };
 
 export const getDashboardStats = async (unitId?: string) => {
   const whereRegistrant: Prisma.RegistrantWhereInput = { ...marketingConsentHeld };

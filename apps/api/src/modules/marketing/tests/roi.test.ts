@@ -62,12 +62,37 @@ describe('Marketing ROI Service', () => {
     // revenue 2500, cost 1000 -> roi 150%
     expect(result[0].metrics.revenue).toBe(2500);
     expect(result[0].metrics.roi).toBe(150);
-    // Hanya biaya yang sudah lunas, dari kampanye dalam daftar, yang dihitung.
+    // Hanya biaya yang sudah lunas, dari kampanye dalam daftar, yang dihitung,
+    // dan pendaftar yang menarik persetujuannya (Pasal 40) dikecualikan.
     expect(vi.mocked(prisma.registrant.findMany)).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { campaignId: { in: ['c1'] }, registrationFeePaidAt: { not: null } },
+        where: {
+          consentWithdrawnAt: null,
+          campaignId: { in: ['c1'] },
+          registrationFeePaidAt: { not: null },
+        },
       })
     );
+  });
+
+  it('mengecualikan pendaftar yang menarik persetujuannya dari prospek, konversi, dan biaya kampanye', async () => {
+    vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([
+      { id: 'c1', name: 'Ads', code: 'A1', budget: 1000, _count: { registrants: 5 } },
+    ] as any);
+    vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
+    vi.mocked(prisma.registrant.findMany).mockResolvedValue([] as any);
+
+    await calculateCampaignROI();
+
+    // Jumlah prospek (relasi `_count`) dan konversi (groupBy) sama-sama
+    // disaring persetujuan; kalau tidak, penarikan persetujuan tidak
+    // menghentikan pemrosesan pemasaran seperti yang dituntut Pasal 40.
+    const campaignArgs = vi.mocked(prisma.marketingCampaign.findMany).mock.calls[0][0] as any;
+    expect(campaignArgs.select._count.select.registrants.where).toEqual({
+      consentWithdrawnAt: null,
+    });
+    const conversionsArgs = vi.mocked(prisma.registrant.groupBy).mock.calls[0][0] as any;
+    expect(conversionsArgs.where.consentWithdrawnAt).toBeNull();
   });
 
   it('menghitung tagihan REG_FEE lunas saat unit penagih belum mencatat biayanya', async () => {

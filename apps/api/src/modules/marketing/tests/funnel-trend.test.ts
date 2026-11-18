@@ -39,9 +39,11 @@ describe('getAdmissionFunnel', () => {
     expect(accepted).toMatchObject({ reached: 35 }); // 20 + 15
     expect(funnel.dropOff).toEqual({ rejected: 8, cancelled: 2 });
 
+    // Corong menghitung baris `Registrant`, jadi pendaftar yang menarik
+    // persetujuannya (Pasal 40) tidak lagi dihitung sebagai prospek.
     expect(mocked.registrant.groupBy).toHaveBeenCalledWith(
       expect.objectContaining({
-        where: { admissionPeriod: { unitId: 'unit-1' } },
+        where: { consentWithdrawnAt: null, admissionPeriod: { unitId: 'unit-1' } },
       })
     );
   });
