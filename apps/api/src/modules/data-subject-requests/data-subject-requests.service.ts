@@ -1182,6 +1182,39 @@ async function eraseRegistrant(
 }
 
 /**
+ * Hapus satu baris `Student` beserta setiap pendaftaran SPMB yang menunjuknya.
+ *
+ * Tautan dua arah `Student` ⇄ `Registrant` menyimpan salinan identitas yang
+ * sama, jadi mengosongkan satu sisi saja meninggalkan sisi lain terbaca —
+ * persis kelas cacat (CWE-212) yang menjadi alasan modul ini ada. Dipakai
+ * ketiga jalur penghapusan: subjek `STUDENT`, subjek `REGISTRANT` yang sudah
+ * menjadi santri, dan subjek `GUARDIAN` yang akunnya menautkan baris santri.
+ */
+async function eraseStudentAndRegistrations(
+  tx: Prisma.TransactionClient,
+  studentId: string,
+  marker: string,
+  now: Date
+): Promise<ErasureOutcome> {
+  const outcome: ErasureOutcome = { erased: [], retained: [], files: [] };
+  const absorb = (part: ErasureOutcome) => {
+    outcome.erased.push(...part.erased);
+    outcome.retained.push(...part.retained);
+    outcome.files.push(...part.files);
+  };
+
+  absorb(await eraseStudent(tx, studentId, marker, now));
+  const registrations = await tx.registrant.findMany({
+    where: { studentId },
+    select: { id: true },
+  });
+  for (const registration of registrations) {
+    absorb(await eraseRegistrant(tx, registration.id, marker));
+  }
+  return outcome;
+}
+
+/**
  * Jalankan penghapusan (Pasal 43–44), sejauh yang boleh dihapus.
  *
  * **Yang dihapus adalah penanda langsung, bukan barisnya.** Baris santri,
@@ -1226,18 +1259,7 @@ async function executeErasure(
   };
 
   if (request.subjectStudentId) {
-    absorb(await eraseStudent(tx, request.subjectStudentId, marker, now));
-    // Tautan dua arah: pendaftaran SPMB yang menghantarkan santri ini masuk
-    // (`Registrant.studentId`) menyimpan salinan penuh data anak dan orang
-    // tuanya. Mengosongkan `Student` saja meninggalkan salinan itu terbaca,
-    // jadi setiap pendaftaran yang menunjuk santri ini ikut dihapus.
-    const registrations = await tx.registrant.findMany({
-      where: { studentId: request.subjectStudentId },
-      select: { id: true },
-    });
-    for (const registration of registrations) {
-      absorb(await eraseRegistrant(tx, registration.id, marker));
-    }
+    absorb(await eraseStudentAndRegistrations(tx, request.subjectStudentId, marker, now));
   }
 
   if (request.subjectRegistrantId) {
@@ -1274,6 +1296,19 @@ async function executeErasure(
       },
     });
     erased.push('identitas akun');
+
+    // Baris `Student` menaut `User` lewat `userId` yang unik: subjek yang
+    // mewakili dirinya sendiri (GUARDIAN) dapat menunjuk seorang santri yang
+    // sudah dewasa. Mengosongkan `User` saja meninggalkan NIK/KK/akta dan
+    // identitas orang tuanya pada `Student` — orang yang sama, masih dapat
+    // dikenali. Jalur ini juga menutup pendaftaran SPMB yang menunjuk santri itu.
+    const linkedStudent = await tx.student.findUnique({
+      where: { userId: request.subjectUserId },
+      select: { id: true },
+    });
+    if (linkedStudent) {
+      absorb(await eraseStudentAndRegistrations(tx, linkedStudent.id, marker, now));
+    }
   }
 
   // Baris permintaan itu sendiri menyimpan PII yang tidak boleh tertinggal:
@@ -1442,6 +1477,66 @@ async function deleteStoredFiles(fileUrls: string[], requestNo: string): Promise
 }
 
 /**
+ * Salinan identitas seorang santri untuk permintaan akses (Pasal 30, 32).
+ *
+ * Dipakai dua kali: subjek `STUDENT` langsung, dan subjek `GUARDIAN` yang
+ * akunnya menautkan baris `Student` — santri yang mewakili dirinya sendiri
+ * berhak menerima salinan data akademik dan identitasnya lewat jalur itu,
+ * sama seperti wali yang mengajukan atas namanya.
+ */
+async function buildStudentPersonalData(
+  tx: Prisma.TransactionClient,
+  where: Prisma.StudentWhereUniqueInput
+): Promise<Record<string, unknown> | null> {
+  const student = await tx.student.findUnique({
+    where,
+    select: {
+      nis: true,
+      nisn: true,
+      gender: true,
+      birthPlace: true,
+      birthDate: true,
+      address: true,
+      parentName: true,
+      parentPhone: true,
+      parentEmail: true,
+      status: true,
+      entryYear: true,
+      graduateYear: true,
+      user: { select: { name: true, email: true, phone: true } },
+      unit: { select: { name: true } },
+      parents: {
+        select: { relation: true, parent: { select: { name: true, email: true } } },
+      },
+    },
+  });
+  if (!student) return null;
+  return {
+    name: student.user.name,
+    email: student.user.email,
+    phone: student.user.phone,
+    nis: student.nis,
+    nisn: student.nisn,
+    gender: student.gender,
+    birthPlace: student.birthPlace,
+    birthDate: student.birthDate.toISOString().slice(0, 10),
+    address: student.address,
+    parentName: student.parentName,
+    parentPhone: student.parentPhone,
+    parentEmail: student.parentEmail,
+    status: student.status,
+    entryYear: student.entryYear,
+    graduateYear: student.graduateYear,
+    unit: student.unit.name,
+    guardians: student.parents.map((p) => ({
+      relation: p.relation,
+      name: p.parent.name,
+      email: p.parent.email,
+    })),
+  };
+}
+
+/**
  * Salinan data subjek untuk permintaan akses (Pasal 30, 32).
  *
  * Dikembalikan ke petugas yang menutup permintaan, bukan disimpan. Menyimpan
@@ -1461,58 +1556,12 @@ async function buildSubjectDataExport(
   const generatedAt = new Date().toISOString();
 
   if (request.subjectStudentId) {
-    const student = await tx.student.findUnique({
-      where: { id: request.subjectStudentId },
-      select: {
-        nis: true,
-        nisn: true,
-        gender: true,
-        birthPlace: true,
-        birthDate: true,
-        address: true,
-        parentName: true,
-        parentPhone: true,
-        parentEmail: true,
-        status: true,
-        entryYear: true,
-        graduateYear: true,
-        user: { select: { name: true, email: true, phone: true } },
-        unit: { select: { name: true } },
-        parents: {
-          select: { relation: true, parent: { select: { name: true, email: true } } },
-        },
-      },
-    });
     return {
       type: request.type,
       requestNo: request.requestNo,
       generatedAt,
       subjectCategory: 'STUDENT',
-      personalData: student
-        ? {
-            name: student.user.name,
-            email: student.user.email,
-            phone: student.user.phone,
-            nis: student.nis,
-            nisn: student.nisn,
-            gender: student.gender,
-            birthPlace: student.birthPlace,
-            birthDate: student.birthDate.toISOString().slice(0, 10),
-            address: student.address,
-            parentName: student.parentName,
-            parentPhone: student.parentPhone,
-            parentEmail: student.parentEmail,
-            status: student.status,
-            entryYear: student.entryYear,
-            graduateYear: student.graduateYear,
-            unit: student.unit.name,
-            guardians: student.parents.map((p) => ({
-              relation: p.relation,
-              name: p.parent.name,
-              email: p.parent.email,
-            })),
-          }
-        : null,
+      personalData: await buildStudentPersonalData(tx, { id: request.subjectStudentId }),
       processingBasis:
         'Persetujuan orang tua/wali (Pasal 20, 25) dan pelaksanaan kontrak pendidikan',
     };
@@ -1582,6 +1631,14 @@ async function buildSubjectDataExport(
       })
     : null;
 
+  // Akun ini dapat menautkan baris `Student` (`Student.userId` unik) — santri
+  // yang mewakili dirinya sendiri. Salinan data akademik dan identitasnya ikut
+  // diserahkan; jalur GUARDIAN tanpa tautan santri (mis. wali murni) tetap
+  // hanya menerima data akunnya.
+  const student = request.subjectUserId
+    ? await buildStudentPersonalData(tx, { userId: request.subjectUserId })
+    : null;
+
   return {
     type: request.type,
     requestNo: request.requestNo,
@@ -1595,6 +1652,7 @@ async function buildSubjectDataExport(
           accountCreatedAt: user.createdAt.toISOString(),
         }
       : null,
+    studentData: student,
     processingBasis: 'Pelaksanaan kontrak layanan portal dan persetujuan',
   };
 }

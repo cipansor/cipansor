@@ -106,6 +106,26 @@ describe('Marketing Service', () => {
         topCampaigns: [{ name: 'Camp 1', code: 'C1', budget: 1000, registrants: 20 }],
       });
     });
+
+    it('mengecualikan pendaftar yang sudah menarik persetujuannya', async () => {
+      // Penarikan persetujuan (Pasal 40) menuntut pemrosesan berhenti; menghitung
+      // pendaftar itu dalam distribusi sumber dan hasil kampanye adalah
+      // pemrosesan lanjutan atas datanya.
+      vi.mocked(prisma.registrant.groupBy).mockResolvedValue([] as any);
+      vi.mocked(prisma.marketingCampaign.findMany).mockResolvedValue([] as any);
+
+      await marketingService.getDashboardStats('unit-1');
+
+      expect(prisma.registrant.groupBy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ consentWithdrawnAt: null }),
+        })
+      );
+      const campaigns = vi.mocked(prisma.marketingCampaign.findMany).mock.calls[0][0] as any;
+      expect(campaigns.select._count.select.registrants.where).toEqual({
+        consentWithdrawnAt: null,
+      });
+    });
   });
 
   describe('getHighPriorityLeads', () => {

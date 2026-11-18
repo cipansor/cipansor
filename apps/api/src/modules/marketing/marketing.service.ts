@@ -94,8 +94,18 @@ export const getInteractionsByRegistrant = async (registrantId: string) => {
   });
 };
 
+/**
+ * Pendaftar yang persetujuannya masih berlaku.
+ *
+ * Penarikan persetujuan (UU PDP 27/2022 Pasal 40) berarti pemrosesan
+ * pemasaran harus benar-benar berhenti — bukan sekadar dicatat waktunya. Baris
+ * pendaftar yang sudah menarik persetujuannya tidak boleh lagi muncul sebagai
+ * prospek, kontak tindak lanjut, atau angka di dasbor pemasaran.
+ */
+const marketingConsentHeld: Prisma.RegistrantWhereInput = { consentWithdrawnAt: null };
+
 export const getDashboardStats = async (unitId?: string) => {
-  const whereRegistrant: Prisma.RegistrantWhereInput = {};
+  const whereRegistrant: Prisma.RegistrantWhereInput = { ...marketingConsentHeld };
 
   // 1. Sources Distribution
   const sources = await prisma.registrant.groupBy({
@@ -109,7 +119,9 @@ export const getDashboardStats = async (unitId?: string) => {
     },
   });
 
-  // 2. Campaign Performance
+  // 2. Campaign Performance. Jumlah pendaftar pun disaring persetujuannya:
+  // menghitung baris yang sudah menariknya sebagai hasil kampanye adalah
+  // pemrosesan lanjutan atas data itu.
   const campaigns = await prisma.marketingCampaign.findMany({
     where: unitId ? { unitId } : {},
     select: {
@@ -118,7 +130,7 @@ export const getDashboardStats = async (unitId?: string) => {
       code: true,
       budget: true,
       _count: {
-        select: { registrants: true },
+        select: { registrants: { where: marketingConsentHeld } },
       },
     },
     take: 5,
@@ -142,16 +154,6 @@ export const getDashboardStats = async (unitId?: string) => {
     })),
   };
 };
-
-/**
- * Pendaftar yang persetujuannya masih berlaku.
- *
- * Penarikan persetujuan (UU PDP 27/2022 Pasal 40) berarti pemrosesan
- * pemasaran harus benar-benar berhenti — bukan sekadar dicatat waktunya. Baris
- * pendaftar yang sudah menarik persetujuannya tidak boleh lagi muncul sebagai
- * prospek atau kontak tindak lanjut.
- */
-const marketingConsentHeld: Prisma.RegistrantWhereInput = { consentWithdrawnAt: null };
 
 export const getRecentLeads = async (unitId?: string, limit: number = 5) => {
   const where: Prisma.RegistrantWhereInput = { ...marketingConsentHeld };
