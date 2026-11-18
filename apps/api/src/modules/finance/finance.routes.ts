@@ -1,5 +1,11 @@
 import { Router } from 'express';
 import { UserRole } from '@prisma/client';
+import {
+  BUSINESS_ROLE_CODES,
+  FINANCE_UNIT_ROLE_CODES,
+  SUPPORT_ROLE_CODES,
+  TATA_USAHA_ROLE_CODES,
+} from '@cipansor/shared';
 import * as controller from './finance.controller';
 import { bosController } from './bos.controller';
 import * as accountingController from './accounting.controller';
@@ -306,11 +312,7 @@ router.get(
  *       200:
  *         description: Invoice updated
  */
-router.put(
-  '/invoices/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  controller.updateInvoice
-);
+router.put('/invoices/:id', authorize(...FINANCE_UNIT_ROLE_CODES), controller.updateInvoice);
 
 /**
  * @swagger
@@ -411,7 +413,15 @@ router.get(
  */
 router.post(
   '/payments',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN, UserRole.STAFF),
+  // Native RoleCodes, not the legacy buckets: the finance unit roles plus the
+  // unit's TU/support/business staff — the same set `UserRole.STAFF` expanded
+  // to (golden rule 3, #988).
+  authorize(
+    ...FINANCE_UNIT_ROLE_CODES,
+    ...TATA_USAHA_ROLE_CODES,
+    ...SUPPORT_ROLE_CODES,
+    ...BUSINESS_ROLE_CODES
+  ),
   controller.createPayment
 );
 
@@ -1096,7 +1106,7 @@ router.get(
  */
 router.post(
   '/accounting/journals',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  authorize(...FINANCE_UNIT_ROLE_CODES),
   validate(createJournalSchema),
   accountingController.createJournal
 );

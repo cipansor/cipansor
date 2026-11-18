@@ -127,12 +127,11 @@ test.describe("Sertifikat publik — verifikasi dan unduh", () => {
  * certificate to click, and the property under test — a private number is
  * indistinguishable from an unknown one — is exactly what a browser would see.
  *
- * The private fixture is a certificate this test *creates* and deletes, not the
- * seeded `PUBLIC_NUMBER` toggled private and restored. Playwright runs files
- * fully parallel, and another test here downloads `PUBLIC_NUMBER`; flipping a
- * shared row made the two race, and a failed restore leaked into every later
- * test. A cert minted for this test and removed in `finally` touches no shared
- * state.
+ * The private fixture is a certificate this test *creates* and deletes, not a
+ * seeded row toggled private and restored. Playwright runs files fully parallel,
+ * so flipping a shared row raced whatever else touched it, and a failed restore
+ * leaked into every later test. A cert minted for this test and removed in
+ * `finally` touches no shared state.
  */
 test.describe("Sertifikat privat — akses publik ditolak", () => {
   test.beforeAll(async () => {
@@ -221,47 +220,86 @@ test.describe("Sertifikat — daftar dan detail mengunduh PDF", () => {
 
   const signIn = (page: Page) => injectSession(page, session);
 
+  /**
+   * A certificate this test alone owns, removed in `finally`. Both tests below
+   * need a row that is (a) on the first page of the newest-first list and (b)
+   * not deleted mid-flight by a sibling spec. Neither holds for the seeded
+   * certificate: a reused local database — or sibling specs' leftovers — can
+   * carry twenty newer rows, pushing the seed past the first page where the row
+   * never renders (the list is 20 per page). A certificate minted here sorts to
+   * the top (`issueDate` now) and no one else touches it — the same pattern the
+   * private-access test above already uses.
+   */
+  async function mintOwnCertificate() {
+    const anyStudent = await apiRequest<{ data: Array<{ id: string }> }>(
+      session,
+      "GET",
+      "/students?limit=1",
+    );
+    const created = await apiRequest<{
+      data: { id: string; certificateNumber: string };
+    }>(session, "POST", "/certificates", {
+      studentId: anyStudent.data[0]?.id,
+      certificateType: "OTHER",
+      title: "Sertifikat Unduh (uji daftar dan detail)",
+      issueDate: new Date().toISOString(),
+      signatoryName: "Uji Unduh",
+      signatoryTitle: "Penguji",
+      isPublic: true,
+    });
+    return created.data;
+  }
+
   test("daftar sertifikat mengunduh PDF dari baris", async ({ page }) => {
     await signIn(page);
-    await gotoAuthedPage(page, "/certificates", /Sertifikat Digital/i);
+    const owned = await mintOwnCertificate();
 
-    // The per-row action trigger is an icon-only button; open it, then choose
-    // Download PDF from the menu. The menu is a Radix popover that animates in,
-    // so wait for the item to be visible before clicking — a bare click right
-    // after opening it races the mount under CI load ("element not stable").
-    await page.locator("table tbody tr").first().getByRole("button").click();
-    const downloadItem = page.getByRole("menuitem", { name: "Download PDF" });
-    await expect(downloadItem).toBeVisible();
-    const downloadPromise = page.waitForEvent("download");
-    await downloadItem.click();
-    const download = await downloadPromise;
-    expect(download.suggestedFilename()).toMatch(/^sertifikat-.*\.pdf$/i);
+    try {
+      await gotoAuthedPage(page, "/certificates", /Sertifikat Digital/i);
+      // Our own number, so the row is unambiguous — and it is on the first page
+      // because it is the newest.
+      const row = page
+        .locator("table tbody tr")
+        .filter({ hasText: owned.certificateNumber })
+        .first();
+      await expect(row).toBeVisible();
+      await row.getByRole("button").click();
+      const downloadItem = page.getByRole("menuitem", {
+        name: "Download PDF",
+      });
+      await expect(downloadItem).toBeVisible();
+      const downloadPromise = page.waitForEvent("download");
+      await downloadItem.click();
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toMatch(/^sertifikat-.*\.pdf$/i);
+    } finally {
+      await apiRequest(session, "DELETE", `/certificates/${owned.id}`);
+    }
   });
 
   test("detail sertifikat mengunduh PDF dari kartu aksi", async ({ page }) => {
     await signIn(page);
+    const owned = await mintOwnCertificate();
 
-    const list = await apiRequest<{ data: Array<{ id: string }> }>(
-      session,
-      "GET",
-      "/certificates?limit=1",
-    );
-    const id = list.data[0]?.id;
-    expect(id, "seed should provide a certificate").toBeTruthy();
+    try {
+      // The id the create returned, so no list lookup is needed at all — a
+      // reused database cannot push the row out of a page it must be found on.
+      // A larger timeout: under CI load `next dev` compiles this route on its
+      // first hit, and 15s is not always enough for the cold compile + fetch.
+      await gotoAuthedPage(
+        page,
+        `/certificates/${owned.id}`,
+        /Detail Sertifikat/i,
+        30000,
+      );
 
-    // A larger timeout: under CI load `next dev` compiles this route on its
-    // first hit, and 15s is not always enough for the cold compile + fetch.
-    await gotoAuthedPage(
-      page,
-      `/certificates/${id}`,
-      /Detail Sertifikat/i,
-      30000,
-    );
-
-    const downloadPromise = page.waitForEvent("download");
-    await page.getByRole("button", { name: "Download PDF" }).click();
-    const download = await downloadPromise;
-    expect(download.suggestedFilename()).toMatch(/\.pdf$/i);
+      const downloadPromise = page.waitForEvent("download");
+      await page.getByRole("button", { name: "Download PDF" }).click();
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toMatch(/\.pdf$/i);
+    } finally {
+      await apiRequest(session, "DELETE", `/certificates/${owned.id}`);
+    }
   });
 });
 

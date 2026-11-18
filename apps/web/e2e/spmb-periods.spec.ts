@@ -69,6 +69,11 @@ test.describe("Periode & Gelombang SPMB", () => {
     await expect(page.getByTestId("period-unit")).toContainText("SMP");
     await page.getByTestId("period-year").click();
     await page.getByRole("option").first().click();
+    // Radix returns focus to the trigger asynchronously when the menu closes.
+    // Filling the next field while that is in flight loses the keystrokes on
+    // Firefox (the value lands and is then cleared), so wait for the listbox to
+    // leave the DOM first — the same guard `selectOption` uses.
+    await expect(page.getByRole("listbox")).toHaveCount(0);
     await page.getByTestId("period-name").fill(`SPMB ${runId}`);
     await page.getByTestId("period-start").fill("2026-10-01");
     await page.getByTestId("period-end").fill("2027-07-10");

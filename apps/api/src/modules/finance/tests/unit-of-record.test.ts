@@ -82,7 +82,11 @@ afterEach(() => {
 
 describe('createPayment', () => {
   it('jurnal kas dan pendapatan dicatat di unit TAGIHAN (SD IT), bukan unit santri sekarang', async () => {
-    await createPayment({ invoiceId: 'inv-1', amount: 350000, method: 'CASH' } as never, 'kasir');
+    await createPayment(
+      { sub: 'kasir', roleCode: 'SUPER_ADMIN', unitId: null },
+      { invoiceId: 'inv-1', amount: 350000, method: 'CASH' } as never,
+      'kasir'
+    );
 
     expect(getAccountOrFallback).toHaveBeenCalledWith(SD, 'CASH', '1101', 'Kas');
     expect(db.journalEntry.create).toHaveBeenCalledTimes(2);
@@ -92,7 +96,11 @@ describe('createPayment', () => {
   });
 
   it('event pembayaran menyebut unit penerima = unit tagihan', async () => {
-    await createPayment({ invoiceId: 'inv-1', amount: 350000, method: 'CASH' } as never, 'kasir');
+    await createPayment(
+      { sub: 'kasir', roleCode: 'SUPER_ADMIN', unitId: null },
+      { invoiceId: 'inv-1', amount: 350000, method: 'CASH' } as never,
+      'kasir'
+    );
 
     expect(eventBus.emit).toHaveBeenCalledWith(
       'finance:payment-received',
@@ -118,10 +126,29 @@ describe('laporan dan antrean per unit menyaring lewat jenis bayar', () => {
   it('statistik keuangan unit', async () => {
     db.invoice.findMany.mockResolvedValue([]);
     db.invoice.groupBy.mockResolvedValue([]);
-    await getUnitFinanceStats(SD);
+    await getUnitFinanceStats(SD, { sub: 'tu-sd', roleCode: 'SDIT_TATA_USAHA', unitId: SD });
 
     expect(db.invoice.findMany.mock.calls[0][0].where).toEqual({ paymentType: { unitId: SD } });
     expect(db.invoice.groupBy.mock.calls[0][0].where).toEqual({ paymentType: { unitId: SD } });
+  });
+
+  it('statistik unit lain dijawab 404, tanpa membaca satu tagihan pun (R26.6)', async () => {
+    await expect(
+      getUnitFinanceStats(SMP, { sub: 'tu-sd', roleCode: 'SDIT_TATA_USAHA', unitId: SD })
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(db.invoice.findMany).not.toHaveBeenCalled();
+    expect(db.invoice.groupBy).not.toHaveBeenCalled();
+  });
+
+  it('statistik unit yang tidak ada dijawab 404 yang sama (R26.6)', async () => {
+    db.unit.findUnique.mockResolvedValueOnce(null);
+
+    await expect(
+      getUnitFinanceStats('unit-hantu', { sub: 'tu-sd', roleCode: 'SDIT_TATA_USAHA', unitId: SD })
+    ).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(db.invoice.findMany).not.toHaveBeenCalled();
   });
 
   it('daftar tunggakan SD IT: santri yang sudah pindah tetap ada, dengan NIS SD IT-nya', async () => {
@@ -137,7 +164,11 @@ describe('laporan dan antrean per unit menyaring lewat jenis bayar', () => {
       { studentId: 's1', unitId: SMP, nis: 'SMP-0099' },
     ]);
 
-    const hasil = await getStudentOutstandingBalances(SD);
+    const hasil = await getStudentOutstandingBalances(SD, {
+      sub: 'tu-sd',
+      roleCode: 'SDIT_TATA_USAHA',
+      unitId: SD,
+    });
 
     expect(db.invoice.findMany.mock.calls[0][0].where.paymentType).toEqual({ unitId: SD });
     expect(hasil).toEqual([

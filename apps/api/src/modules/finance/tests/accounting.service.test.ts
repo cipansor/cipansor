@@ -28,6 +28,10 @@ const mocked = prisma as unknown as {
 // the transaction client. Give it a `journalEntry.create` we can watch, so the
 // test can prove *which* rows were (not) written, not merely that a call failed.
 const txCreate = vi.fn();
+// `createManualJournal` checks each account is usable by the journal's unit — its
+// own, or a shared (`unitId: null`) row — so the transaction client must answer
+// `accountCode.findMany` with the owning unit, not just the id.
+const txAccountFindMany = vi.fn();
 
 const account = (over: Partial<Record<string, unknown>>) => ({
   id: 'acc',
@@ -45,8 +49,11 @@ const sum = (debit: number, credit: number) => ({
 beforeEach(() => {
   vi.clearAllMocks();
   txCreate.mockResolvedValue({ id: 'je' });
+  txAccountFindMany.mockImplementation(async (args: any) =>
+    (args.where.id.in as string[]).map((id) => ({ id, unitId: null }))
+  );
   mocked.$transaction.mockImplementation(async (cb: (tx: unknown) => unknown) =>
-    cb({ journalEntry: { create: txCreate } })
+    cb({ journalEntry: { create: txCreate }, accountCode: { findMany: txAccountFindMany } })
   );
 });
 
@@ -56,6 +63,7 @@ describe('createManualJournal', () => {
     date: new Date('2026-03-01'),
     description: 'Jurnal manual',
     createdById: 'user-1',
+    actor: { sub: 'user-1', roleCode: 'SUPER_ADMIN', unitId: null },
   };
 
   it('rejects an unbalanced journal and writes no journal entry', async () => {

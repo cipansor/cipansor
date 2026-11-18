@@ -210,8 +210,16 @@ describe('Finance Service Unit Tests', () => {
 
     it('stores an update deadline as the date-only value of the day it names', async () => {
       vi.mocked(prisma.invoice.update).mockResolvedValue({ id: 'inv-1' } as any);
+      vi.mocked(prisma.invoice.findUnique).mockResolvedValue({
+        id: 'inv-1',
+        paymentType: { unitId: null },
+      } as any);
 
-      await financeService.updateInvoice('inv-1', { dueDate: '2026-08-10' } as any);
+      await financeService.updateInvoice(
+        { sub: 'u-1', roleCode: 'SUPER_ADMIN', unitId: null },
+        'inv-1',
+        { dueDate: '2026-08-10' } as any
+      );
 
       const updateArgs = vi.mocked(prisma.invoice.update).mock.calls[0][0];
       expect((updateArgs.data.dueDate as Date).toISOString()).toBe('2026-08-10T00:00:00.000Z');

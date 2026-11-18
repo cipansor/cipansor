@@ -26,6 +26,15 @@ function scopeOf(req: Request) {
   };
 }
 
+/** The write actor, in the shape `utils/write-scope` decides from — the token, never the body. */
+function writeActorOf(req: Request) {
+  return {
+    sub: req.user!.sub,
+    roleCode: req.user!.roleCode,
+    unitId: req.user!.unitId,
+  };
+}
+
 // =====================================
 // PAYMENT TYPE CONTROLLERS
 // =====================================
@@ -152,7 +161,7 @@ export async function updateInvoice(req: Request, res: Response, next: NextFunct
   try {
     const { id } = req.params;
     const data = updateInvoiceSchema.parse(req.body);
-    const invoice = await financeService.updateInvoice(id, data);
+    const invoice = await financeService.updateInvoice(writeActorOf(req), id, data);
     res.json({
       success: true,
       message: 'Invoice updated successfully',
@@ -166,7 +175,7 @@ export async function updateInvoice(req: Request, res: Response, next: NextFunct
 export async function deleteInvoice(req: Request, res: Response, next: NextFunction) {
   try {
     const { id } = req.params;
-    await financeService.deleteInvoice(id);
+    await financeService.deleteInvoice(writeActorOf(req), id);
     res.json({
       success: true,
       message: 'Invoice cancelled successfully',
@@ -184,7 +193,7 @@ export async function createPayment(req: Request, res: Response, next: NextFunct
   try {
     const data = createPaymentSchema.parse(req.body);
     const userId = req.user?.sub || 'SYSTEM';
-    const payment = await financeService.createPayment(data, userId);
+    const payment = await financeService.createPayment(writeActorOf(req), data, userId);
     res.status(201).json({
       success: true,
       message: 'Payment recorded successfully',
@@ -309,7 +318,7 @@ export async function getPaymentById(req: Request, res: Response, next: NextFunc
 export async function getStudentFinanceSummary(req: Request, res: Response, next: NextFunction) {
   try {
     const { studentId } = req.params;
-    const summary = await financeService.getStudentFinanceSummary(studentId);
+    const summary = await financeService.getStudentFinanceSummary(studentId, scopeOf(req));
     res.json({
       success: true,
       data: summary,
@@ -336,7 +345,7 @@ export async function getUnitFinanceStats(req: Request, res: Response, next: Nex
   try {
     const { unitId } = req.params;
     const month = req.query.month as string | undefined;
-    const stats = await financeService.getUnitFinanceStats(unitId, month);
+    const stats = await financeService.getUnitFinanceStats(unitId, scopeOf(req), month);
     res.json({
       success: true,
       data: stats,
@@ -353,7 +362,7 @@ export async function getStudentOutstandingBalances(
 ) {
   try {
     const { unitId } = req.params;
-    const data = await financeService.getStudentOutstandingBalances(unitId);
+    const data = await financeService.getStudentOutstandingBalances(unitId, scopeOf(req));
     res.json({
       success: true,
       data,

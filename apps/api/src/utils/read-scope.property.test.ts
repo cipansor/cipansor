@@ -8,11 +8,14 @@ import {
   STUDENT_ROLE_CODES,
 } from '@cipansor/shared';
 
-vi.mock('@/lib/prisma', () => ({ prisma: {} }));
+vi.mock('@/lib/prisma', () => ({
+  prisma: { student: { findFirst: vi.fn() } },
+}));
 
+import { prisma } from '@/lib/prisma';
 import { examReadWhere } from '@/modules/assessment/assessment-writer';
 import { takhosusEnrollmentWhere } from '@/modules/takhosus/takhosus.service';
-import type { ScopeActor } from '@/utils/student-scope';
+import { assertStudentInScope, studentScope, type ScopeActor } from '@/utils/student-scope';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
 import {
   ACTORS as FIXTURE_ACTORS,
@@ -197,5 +200,57 @@ describe('Property 24: takhosus enrolment list is only within scope', () => {
   it('a unit actor names another unit → no enrolment', () => {
     const where = takhosusEnrollmentWhere(FIXTURE_ACTORS.guruSmp, {});
     expect(where.student).toEqual({ unitId: SMP });
+  });
+});
+
+// #988 (PR-02) part: the finance reads that take the santri from the URL. A
+// santri outside the caller's `studentScope` and a santri that does not exist
+// get the same 404, so the summary never confirms the id.
+
+interface StudentRow {
+  id: string;
+  unitId: string;
+  userId: string;
+  parents: { parentId: string }[];
+}
+
+const STUDENTS: StudentRow[] = [
+  { id: 's1', unitId: 'unit-a', userId: 'u-s1', parents: [] },
+  { id: 's2', unitId: 'unit-b', userId: 'u-s2', parents: [{ parentId: 'u-wali' }] },
+  { id: 's3', unitId: 'unit-b', userId: 'u-s3', parents: [] },
+];
+
+function matchesStudentRow(where: Prisma.StudentWhereInput, s: StudentRow): boolean {
+  if (where.id && typeof where.id === 'object' && 'in' in where.id) {
+    return (where.id.in as string[]).includes(s.id);
+  }
+  if (where.userId) return s.userId === where.userId;
+  if (where.parents)
+    return s.parents.some((p) => p.parentId === (where.parents as any).some.parentId);
+  if (where.unitId) return s.unitId === where.unitId;
+  return true;
+}
+
+describe('Property 24: finance santri reads are only within scope', () => {
+  it('assertStudentInScope accepts exactly the santri the actor may read, and 404s the rest', async () => {
+    // Feature: web-api-reconnect-phase-2, Property 24: Daftar baca hanya dalam cakupan
+    await fc.assert(
+      fc.asyncProperty(
+        fc.constantFrom(...ACTORS),
+        fc.constantFrom(...STUDENTS),
+        async (actor, s) => {
+          const where = studentScope(actor);
+          const visible = matchesStudentRow(where, s);
+          vi.mocked(prisma.student.findFirst).mockResolvedValue(
+            (visible ? { id: s.id } : null) as never
+          );
+
+          const promise = assertStudentInScope(s.id, actor);
+          if (visible) await expect(promise).resolves.toBeUndefined();
+          else await expect(promise).rejects.toMatchObject({ statusCode: 404 });
+        }
+      ),
+      { numRuns: 100 }
+    );
   });
 });

@@ -52,12 +52,20 @@ export const createInvoiceSchema = z.object({
   notes: z.string().optional(),
 });
 
-export const updateInvoiceSchema = z.object({
-  amount: z.number().positive().optional(),
-  dueDate: dueDateField.optional(),
-  status: z.nativeEnum(PaymentStatus).optional(),
-  notes: z.string().optional(),
-});
+/**
+ * A bill's status is derived, never set by hand: it changes only through a
+ * recorded payment, a verified payment, a payment reversal (R16) or a bill
+ * cancellation (R15). The schema therefore has no `status` field, and `.strict()`
+ * refuses a request that carries one with 400 (#988, R26.2) instead of silently
+ * dropping it.
+ */
+export const updateInvoiceSchema = z
+  .object({
+    amount: z.number().positive().optional(),
+    dueDate: dueDateField.optional(),
+    notes: z.string().optional(),
+  })
+  .strict();
 
 export const queryInvoiceSchema = z.object({
   studentId: z.string().uuid().optional(),

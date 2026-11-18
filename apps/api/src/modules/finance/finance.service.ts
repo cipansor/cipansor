@@ -21,7 +21,10 @@ import {
   CreatePaymentDto,
   QueryPaymentDto,
 } from './finance.schema';
-import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { actorSeesUnit, seesAllUnits } from '@/utils/resolve-unit-id';
+import { Errors } from '@/middleware/error';
+import { assertUnitWritable, type WriteActor } from '@/utils/write-scope';
+import { assertStudentInScope, type ScopeActor } from '@/utils/student-scope';
 import { CLASS_ENROLLMENT_STATUS, STUDENT_STATUS } from '@cipansor/shared';
 import { nisMapForUnit } from '@/utils/student-nis';
 import { wibMonthYear, wibDate, dayDate, utcMonthRange, wibOverdueCutoff } from '@/utils/wib';
@@ -264,8 +267,12 @@ const INVOICE_STUDENT_SELECT = {
  * Invoices a user may see: those of the bill's own unit (its payment type's),
  * the rule the verification queue below already uses. The list had no unit
  * filter at all, so every unit's TU saw every unit's bills.
+ *
+ * Exported for the finance part of Property 14 (Bendahara_Unit unit filtering):
+ * a unit treasurer's list `where` always carries the token's unit, whatever
+ * `unitId` the request names.
  */
-function invoiceScope(currentUser: VerifierContext): Prisma.InvoiceWhereInput {
+export function invoiceScope(currentUser: VerifierContext): Prisma.InvoiceWhereInput {
   return seesAllUnits(currentUser) ? {} : { paymentType: { unitId: currentUser.unitId ?? 'none' } };
 }
 
@@ -386,7 +393,24 @@ export async function getInvoiceById(id: string, currentUser: VerifierContext) {
   });
 }
 
-export async function updateInvoice(id: string, data: UpdateInvoiceDto) {
+/**
+ * One bill's write scope (#988, R26.1): the invoice exists and its unit — the
+ * unit of its payment type, the same rule `invoiceScope` reads — is writable by
+ * `actor`. Returns the row, or throws 404 shaped exactly like an id that does
+ * not exist, so a guessed id from another unit says nothing about that unit.
+ */
+async function assertInvoiceWritable(actor: WriteActor, id: string) {
+  const invoice = await prisma.invoice.findUnique({
+    where: { id },
+    select: { id: true, paymentType: { select: { unitId: true } } },
+  });
+  if (!invoice) throw Errors.notFound('Invoice');
+  assertUnitWritable(actor, invoice.paymentType.unitId, 'Invoice');
+  return invoice;
+}
+
+export async function updateInvoice(actor: WriteActor, id: string, data: UpdateInvoiceDto) {
+  await assertInvoiceWritable(actor, id);
   return prisma.invoice.update({
     where: { id },
     data: {
@@ -394,18 +418,22 @@ export async function updateInvoice(id: string, data: UpdateInvoiceDto) {
       ...(data.amount && { amount: new Prisma.Decimal(data.amount) }),
       ...(data.dueDate && { dueDate: dayDate(data.dueDate) }),
     },
+    // The response carries the santri's columns, so it reads them with a
+    // `select` of the screen's fields, never `include: { student }` — which
+    // sent NIK, No. KK and the parents' data (R24.10, #988).
     include: {
-      student: {
-        include: {
-          user: { select: { id: true, name: true } },
-        },
-      },
+      student: { select: INVOICE_STUDENT_SELECT },
       paymentType: { select: { id: true, name: true, code: true } },
     },
   });
 }
 
-export async function deleteInvoice(id: string) {
+export async function deleteInvoice(actor: WriteActor, id: string) {
+  // A bill of another unit is answered 404, the same as an id that does not
+  // exist, and nothing is cancelled (#988, R26.1). This route is removed by
+  // #1005 in favour of `POST /finance/invoices/:id/cancel`; until then the
+  // write scope holds here too.
+  await assertInvoiceWritable(actor, id);
   return prisma.invoice.update({
     where: { id },
     data: { status: PaymentStatus.CANCELLED },
@@ -416,24 +444,27 @@ export async function deleteInvoice(id: string) {
 // PAYMENT SERVICE
 // =====================================
 
-export async function createPayment(data: CreatePaymentDto, userId: string = 'SYSTEM') {
+export async function createPayment(
+  actor: WriteActor,
+  data: CreatePaymentDto,
+  userId: string = 'SYSTEM'
+) {
   // Create payment and update invoice in a transaction
   const payment = await prisma.$transaction(async (tx) => {
     // 1. Fetch invoice with all required details upfront
     const invoice = await tx.invoice.findUnique({
       where: { id: data.invoiceId },
       include: {
-        student: {
-          include: {
-            user: { select: { name: true } }, // Fetch user name for description
-          },
-        },
+        // Only the name is read from the santri (for the journal description and
+        // the notification); `select` keeps the family columns out of the query
+        // entirely (R24.10, #988).
+        student: { select: { user: { select: { name: true } } } },
         paymentType: { select: { id: true, name: true, accountId: true, unitId: true } },
       },
     });
 
     if (!invoice) {
-      throw new Error('Invoice not found');
+      throw Errors.notFound('Invoice');
     }
 
     // Tagihan milik unit JENIS BAYARNYA (SPP SD IT = tagihan SD IT), bukan unit
@@ -441,6 +472,10 @@ export async function createPayment(data: CreatePaymentDto, userId: string = 'SY
     // yang tertunggak dulu tercatat sebagai kas SMP IT yang mengkredit akun
     // pendapatan SD IT — satu transaksi, dua buku unit.
     const unitTagihan = invoice.paymentType.unitId;
+
+    // Di_Luar_Cakupan_Tulis (#988, R26.1): a bill of another unit is answered
+    // 404, the same shape as an id that does not exist, and nothing is written.
+    assertUnitWritable(actor, unitTagihan, 'Invoice');
 
     const { invoiceId, ...paymentData } = data;
     const payment = await tx.payment.create({
@@ -454,11 +489,11 @@ export async function createPayment(data: CreatePaymentDto, userId: string = 'SY
       include: {
         invoice: {
           include: {
-            student: {
-              include: {
-                user: { select: { id: true, name: true } },
-              },
-            },
+            // The returned payment is sent to the caller; read the santri's
+            // columns with a `select`, never `include`, so NIK/KK/parent data
+            // does not ride along (R24.10, #988). `user.id`/`user.name` are
+            // still read below for the notification and the event.
+            student: { select: INVOICE_STUDENT_SELECT },
             paymentType: { select: { id: true, name: true, unitId: true } },
           },
         },
@@ -1042,7 +1077,11 @@ export async function getPaymentById(id: string, currentUser: VerifierContext) {
 // ANALYTICS
 // =====================================
 
-export async function getStudentFinanceSummary(studentId: string) {
+export async function getStudentFinanceSummary(studentId: string, actor: ScopeActor) {
+  // 404 unless the santri is one the caller may see — the same answer as for a
+  // santri that does not exist, so the summary never confirms the id (#988, R26.5).
+  await assertStudentInScope(studentId, actor);
+
   const invoices = await prisma.invoice.findMany({
     where: { studentId },
     include: {
@@ -1069,7 +1108,13 @@ export async function getStudentFinanceSummary(studentId: string) {
   };
 }
 
-export async function getUnitFinanceStats(unitId: string, month?: string) {
+export async function getUnitFinanceStats(unitId: string, actor: ScopeActor, month?: string) {
+  // A unit that does not exist and a unit outside the caller's read reach get
+  // the same 404, so a guessed id says nothing about another unit (#988, R26.6,
+  // the same rule as the sibling `/outstanding`).
+  const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true } });
+  if (!unit || !actorSeesUnit(actor, unitId)) throw Errors.notFound('Unit');
+
   let dateFilter: { dueDate?: { gte: Date; lt: Date } } = {};
   if (month) {
     const [year, monthIndex] = month.split('-').map(Number);
@@ -1197,7 +1242,12 @@ export async function getFinancialSummary(currentUser: VerifierContext, academic
   };
 }
 
-export async function getStudentOutstandingBalances(unitId: string) {
+export async function getStudentOutstandingBalances(unitId: string, actor: ScopeActor) {
+  // A unit that does not exist and a unit outside the caller's read reach get
+  // the same 404, so a guessed id says nothing about another unit (#988, R26.6).
+  const unit = await prisma.unit.findUnique({ where: { id: unitId }, select: { id: true } });
+  if (!unit || !actorSeesUnit(actor, unitId)) throw Errors.notFound('Unit');
+
   const invoices = await prisma.invoice.findMany({
     where: {
       paymentType: { unitId },

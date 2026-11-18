@@ -126,6 +126,11 @@ test.describe("Izin pulang santri mukim — koordinator asrama", () => {
   async function chooseType(page: Page, label: string) {
     await page.getByLabel("Jenis izin").click();
     await page.getByRole("option", { name: label, exact: true }).click();
+    // Radix restores focus to the trigger asynchronously; the date/reason fills
+    // right after this lose their keystrokes on Firefox when they land first
+    // (the value is written, then the close clears it). Wait for the listbox to
+    // leave the DOM, as `selectOption` does.
+    await expect(page.getByRole("listbox")).toHaveCount(0);
   }
 
   test("izin pulang: the form names the koordinator, and the wali kamar cannot decide it", async ({

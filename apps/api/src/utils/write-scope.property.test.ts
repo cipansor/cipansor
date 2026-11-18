@@ -2,7 +2,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fc from 'fast-check';
 import type { Prisma } from '@prisma/client';
 
-vi.mock('@/lib/prisma', () => ({ prisma: { student: { findMany: vi.fn() } } }));
+vi.mock('@/lib/prisma', () => ({
+  prisma: { student: { findMany: vi.fn() }, $transaction: vi.fn() },
+}));
 
 import { prisma } from '@/lib/prisma';
 import {
@@ -11,6 +13,7 @@ import {
   studentWriteWhere,
   type WriteActor,
 } from './write-scope';
+import { createManualJournal } from '@/modules/finance/accounting.service';
 
 // Properties 7 (write scope) and 8 (all-or-nothing), R1.20, R2.3, R2.6, R17.4,
 // R17.5, R24.5, R24.9, R25.1, R26.7, R29.10. The helpers are checked against a
@@ -102,6 +105,54 @@ describe('Property 7: write scope', () => {
       { numRuns: 100 }
     );
   });
+
+  it('#988: a manual journal lands on the token unit for every non-Super_Admin, whatever the body names', async () => {
+    // Feature: web-api-reconnect-phase-2, Property 7: Cakupan tulis
+    const txCreate = vi.fn().mockResolvedValue({ id: 'je' });
+    const txAccountFindMany = vi.fn();
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) =>
+      cb({ journalEntry: { create: txCreate }, accountCode: { findMany: txAccountFindMany } })
+    );
+
+    await fc.assert(
+      fc.asyncProperty(actorArb, fc.constantFrom(...UNITS), async (actor, named) => {
+        txCreate.mockClear();
+        txAccountFindMany.mockReset();
+        // Both accounts are shared rows (`unitId: null`), which any unit may post
+        // to — the same shape an account created through the app has.
+        txAccountFindMany.mockImplementation(async (args: any) =>
+          (args.where.id.in as string[]).map((id: string) => ({ id, unitId: null }))
+        );
+
+        const promise = createManualJournal({
+          unitId: named,
+          date: new Date('2026-03-01'),
+          description: 'Jurnal',
+          entries: [
+            { accountId: 'kas', debit: 1000, credit: 0 },
+            { accountId: 'pendapatan', debit: 0, credit: 1000 },
+          ],
+          createdById: actor.sub,
+          actor,
+        });
+
+        const expected = actor.roleCode === 'SUPER_ADMIN' ? named : actor.unitId;
+        if (!expected) {
+          // A non-Super_Admin whose token carries no unit has no journal to write.
+          await expect(promise).rejects.toMatchObject({ statusCode: 403 });
+          expect(txCreate).not.toHaveBeenCalled();
+          return;
+        }
+        await promise;
+        const units = txCreate.mock.calls.map(([arg]) => arg.data.unitId);
+        expect(units).toEqual([expected, expected]);
+        // The account lookup names the accounts, not the unit: a shared row is
+        // usable by any unit, so ownership is decided per row, not in the `where`.
+        expect(txAccountFindMany.mock.calls[0][0].where.id.in).toEqual(['kas', 'pendapatan']);
+      }),
+      { numRuns: 60 }
+    );
+  });
 });
 
 describe('Property 8: all or nothing', () => {
@@ -141,5 +192,52 @@ describe('Property 8: all or nothing', () => {
     await expect(assertStudentsWritable(['missing'], actor)).rejects.toMatchObject({
       statusCode: 404,
     });
+  });
+
+  it('#988: one journal line on an account of another unit refuses the whole journal — nothing is posted', async () => {
+    // Feature: web-api-reconnect-phase-2, Property 8: Semua atau tidak sama sekali
+    const txCreate = vi.fn().mockResolvedValue({ id: 'je' });
+    const txAccountFindMany = vi.fn();
+    vi.mocked(prisma.$transaction).mockImplementation(async (cb: any) =>
+      cb({ journalEntry: { create: txCreate }, accountCode: { findMany: txAccountFindMany } })
+    );
+
+    const owned = ['acc-own-1', 'acc-own-2', 'acc-own-3', 'acc-own-4'];
+    const rows = owned.map((id) => ({ id, unitId: 'unit-a' }));
+    rows.push({ id: 'acc-other', unitId: 'unit-other' }); // another unit's account
+    const actor: WriteActor = { sub: 'u-sd', roleCode: 'SDIT_ADMIN', unitId: 'unit-a' };
+
+    await fc.assert(
+      fc.asyncProperty(
+        fc.subarray(owned, { minLength: 2, maxLength: 2 }),
+        fc.constantFrom('acc-other', 'acc-missing'),
+        async (ownIds, foreignId) => {
+          txCreate.mockClear();
+          // The journal is balanced and names two accounts, one of which the
+          // unit may not post to (another unit's, or one that does not exist).
+          // The mock answers like the database — the rows that exist, with
+          // their owning unit; the service decides usability from `unitId`.
+          txAccountFindMany.mockImplementation(async (args: any) =>
+            rows.filter((r) => (args.where.id.in as string[]).includes(r.id))
+          );
+
+          const promise = createManualJournal({
+            unitId: 'unit-a',
+            date: new Date('2026-03-01'),
+            description: 'Jurnal',
+            entries: [
+              { accountId: ownIds[0], debit: 1000, credit: 0 },
+              { accountId: foreignId, debit: 0, credit: 1000 },
+            ],
+            createdById: 'u-sd',
+            actor,
+          });
+
+          await expect(promise).rejects.toMatchObject({ statusCode: 404 });
+          expect(txCreate).not.toHaveBeenCalled();
+        }
+      ),
+      { numRuns: 40 }
+    );
   });
 });
