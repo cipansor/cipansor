@@ -2,11 +2,11 @@ import * as fs from "fs";
 import * as path from "path";
 import {
   apiLoginNew,
-  buildStorageState,
   refreshSession,
   SEED_USERS,
   sessionKey,
   sessionsFileFor,
+  writeSessionsFile,
   type AuthSession,
 } from "./helpers/auth-api";
 import { E2E_WORKERS } from "./helpers/workers";
@@ -26,17 +26,9 @@ const apiURL = process.env.API_URL || "http://localhost:3001/api";
 // The health endpoint is mounted at the server root (/health), not under /api.
 const healthURL = `${apiURL.replace(/\/api\/?$/, "")}/health`;
 
-// Roles to pre-authenticate → storageState file name (under apps/web/.auth).
-const ROLE_FILES: Record<keyof typeof SEED_USERS, string> = {
-  superAdmin: "superAdmin",
-  adminSdit: "adminSdit",
-  teacher: "teacher",
-  parent: "parent",
-  student: "student",
-  ketuaPengurus: "ketuaPengurus",
-  pengawas: "pengawas",
-  pembina: "pembina",
-};
+// Roles to pre-authenticate (each gets a `.auth/<role>.json` mirror and a
+// per-worker entry in `.auth/sessions.w<N>.json`).
+const ROLES = Object.keys(SEED_USERS) as (keyof typeof SEED_USERS)[];
 
 async function globalSetup() {
   console.log("🚀 Starting E2E Test Global Setup...");
@@ -115,8 +107,8 @@ async function globalSetup() {
     for (let worker = 0; worker < E2E_WORKERS; worker++) {
       stores[worker] = {};
     }
-    for (const [role, file] of Object.entries(ROLE_FILES)) {
-      const user = SEED_USERS[role as keyof typeof SEED_USERS];
+    for (const role of ROLES) {
+      const user = SEED_USERS[role];
       for (let worker = 0; worker < E2E_WORKERS; worker++) {
         const key = sessionKey(user.email);
         try {
@@ -124,15 +116,6 @@ async function globalSetup() {
             (await reusableSession(previous[worker][key])) ??
             (await apiLoginNew(user));
           stores[worker][key] = session;
-          // The storageState files are read-only in every spec that uses them
-          // (none rotates its token), so one file per role is enough; worker
-          // 0's session stands in for it.
-          if (worker === 0) {
-            fs.writeFileSync(
-              path.join(authDir, `${file}.json`),
-              JSON.stringify(buildStorageState(session), null, 2),
-            );
-          }
         } catch (error) {
           console.warn(
             `⚠️ Failed to pre-authenticate ${role} (worker ${worker}):`,
@@ -143,10 +126,9 @@ async function globalSetup() {
       console.log(`✅ Saved sessions for ${role}`);
     }
     for (let worker = 0; worker < E2E_WORKERS; worker++) {
-      fs.writeFileSync(
-        sessionsFileFor(worker),
-        JSON.stringify(stores[worker], null, 2),
-      );
+      // Worker 0 also (re)writes the `.auth/<role>.json` mirrors, so a stored
+      // session and the storageState a spec reads never diverge (#1144).
+      writeSessionsFile(worker, stores[worker]);
     }
   } else {
     console.log("⚠️ Skipping pre-authentication (backend unavailable).");

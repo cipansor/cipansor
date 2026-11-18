@@ -738,7 +738,15 @@ loosely mis-attributes runs. -->
   passed** (0 failures) and **harness alone still failed** (24 "Login failed"),
   so the spurious refresh is the trigger and the shared rotating credential the
   amplifier — both are kept. Regression: `e2e/session-isolation.spec.ts` and
-  `src/lib/api-session.test.ts`.
+  `src/lib/api-session.test.ts`. Follow-up (review of PR #1147): the
+  `.auth/<role>.json` storageState mirrors that `test.use({ storageState })`
+  specs read were written once by global-setup and never moved when worker 0's
+  session rotated, so a mirror-reading spec (e.g. `finance-integration`) could
+  still refresh with a deleted token — a 15-minute access token on a local
+  stack is what makes that refresh fire (CI's 7-day token hides it). The mirror
+  write now lives in `writeSessionsFile`, the one place a stored session
+  changes, so worker 0's rotation keeps it in step; regression in
+  `e2e/helpers/auth-api.test.ts`.
 
 - **`teacher-management.spec.ts` skips all 12 of its tests** ("Teachers page
   not available"): the page it looks for does not exist (HR employees is on

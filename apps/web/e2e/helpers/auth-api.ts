@@ -166,6 +166,21 @@ export function sessionKey(email: string): string {
   return email;
 }
 
+/** Seed email → the role's storageState file name (`.auth/<role>.json`). */
+const STORAGE_STATE_FILE_BY_EMAIL: Record<string, string> = Object.fromEntries(
+  Object.entries(SEED_USERS).map(([role, user]) => [user.email, role]),
+);
+
+/**
+ * The storageState mirror a spec reads (`test.use({ storageState })`), or null
+ * for an email that is not a seed role. It mirrors worker 0's session, so it
+ * must move whenever that session does (#1144).
+ */
+export function storageStateFileFor(email: string): string | null {
+  const role = STORAGE_STATE_FILE_BY_EMAIL[email];
+  return role ? path.join(__dirname, `../../.auth/${role}.json`) : null;
+}
+
 function readSessionsFile(worker: number): Record<string, AuthSession> {
   try {
     return JSON.parse(fs.readFileSync(sessionsFileFor(worker), "utf8"));
@@ -174,12 +189,32 @@ function readSessionsFile(worker: number): Record<string, AuthSession> {
   }
 }
 
-function writeSessionsFile(
+/**
+ * Persist one worker's store. Worker 0 also owns the storageState mirrors the
+ * `test.use({ storageState })` specs read, so they are rewritten here — the one
+ * place a stored session changes — keeping a rotated worker-0 session and its
+ * mirror in step. Without this, `session-isolation.spec.ts` rotating worker 0's
+ * token left the mirror on the refresh token the server had just deleted: the
+ * next mirror-reading spec refreshed with it, answered 401 and bounced to
+ * `/login`. (A local stack's 15-minute access token is what makes that refresh
+ * happen; CI's 7-day token hides it.)
+ */
+export function writeSessionsFile(
   worker: number,
   sessions: Record<string, AuthSession>,
 ): void {
   fs.mkdirSync(path.dirname(sessionsFileFor(worker)), { recursive: true });
   fs.writeFileSync(sessionsFileFor(worker), JSON.stringify(sessions, null, 2));
+  if (worker !== 0) return;
+  for (const [email, session] of Object.entries(sessions)) {
+    const file = storageStateFileFor(email);
+    if (file) {
+      fs.writeFileSync(
+        file,
+        JSON.stringify(buildStorageState(session), null, 2),
+      );
+    }
+  }
 }
 
 // Failed logins are cached too: without this, every subsequent test in the

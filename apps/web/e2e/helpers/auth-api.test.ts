@@ -1,4 +1,5 @@
 import { describe, it, expect, beforeAll } from "vitest";
+import * as fs from "fs";
 import type { AuthSession } from "./auth-api";
 
 /**
@@ -79,5 +80,66 @@ describe("buildStorageState", () => {
     )!;
     expect(JSON.parse(principal.value).role).toBe("UNIT_ADMIN");
     expect(principal.httpOnly).toBe(true);
+  });
+});
+
+describe("the storageState mirror follows worker 0 (#1144)", () => {
+  // `writeSessionsFile` writes into the real (gitignored) `.auth/`; snapshot and
+  // restore so a run does not disturb the files a concurrent e2e run reads.
+  const seed = {
+    ...session,
+    user: { id: "u-1", email: "superadmin@cipansor.or.id" },
+  };
+  const email = seed.user.email;
+  const files = [".auth/sessions.w0.json", ".auth/sessions.w1.json"];
+  const backups = new Map<string, string | null>();
+  const roleFile = () => api.storageStateFileFor(email)!;
+
+  beforeAll(() => {
+    for (const f of [...files, roleFile()]) {
+      backups.set(f, fs.existsSync(f) ? fs.readFileSync(f, "utf8") : null);
+    }
+  });
+
+  function restore() {
+    for (const [f, content] of backups) {
+      if (content === null) fs.rmSync(f, { force: true });
+      else fs.writeFileSync(f, content);
+    }
+  }
+
+  function mirrorRefreshToken(): string {
+    const mirror = JSON.parse(fs.readFileSync(roleFile(), "utf8"));
+    return mirror.cookies.find(
+      (c: { name: string }) => c.name === api.REFRESH_COOKIE,
+    ).value;
+  }
+
+  it("maps a seed email to its role file, and rejects any other", () => {
+    expect(api.storageStateFileFor("superadmin@cipansor.or.id")).toMatch(
+      /\.auth\/superAdmin\.json$/,
+    );
+    expect(api.storageStateFileFor("nobody@example.test")).toBeNull();
+  });
+
+  it("rewrites the mirror when worker 0's session rotates", () => {
+    try {
+      api.writeSessionsFile(0, {
+        [email]: { ...seed, refreshToken: "rt-new" },
+      });
+      expect(mirrorRefreshToken()).toBe("rt-new");
+    } finally {
+      restore();
+    }
+  });
+
+  it("leaves the mirror alone for a non-zero worker", () => {
+    try {
+      api.writeSessionsFile(0, { [email]: { ...seed, refreshToken: "rt-a" } });
+      api.writeSessionsFile(1, { [email]: { ...seed, refreshToken: "rt-b" } });
+      expect(mirrorRefreshToken()).toBe("rt-a");
+    } finally {
+      restore();
+    }
   });
 });
