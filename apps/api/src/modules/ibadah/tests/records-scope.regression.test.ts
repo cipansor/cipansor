@@ -29,9 +29,12 @@ const prismaMock = vi.hoisted(() => ({
   dailyIbadahRecord: {
     findUnique: vi.fn(),
     findFirst: vi.fn(),
+    findMany: vi.fn(),
     create: vi.fn(),
     update: vi.fn(),
     upsert: vi.fn(),
+    delete: vi.fn(),
+    updateMany: vi.fn(),
   },
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }));
@@ -66,7 +69,7 @@ app.use(express.json());
 app.use('/ibadah', ibadahRoutes);
 app.use(errorHandler);
 
-const send = (who: Who, method: 'post' | 'put', path: string, body: object) => {
+const send = (who: Who, method: 'post' | 'put' | 'delete', path: string, body: object = {}) => {
   const req = request(app)[method](path).set('Authorization', `Bearer ${who}`);
   return req.send(body);
 };
@@ -102,6 +105,11 @@ beforeEach(() => {
     target: { id: TARGET, points: 10 },
   });
   prismaMock.dailyIbadahRecord.update.mockResolvedValue({ id: RECORD });
+  prismaMock.dailyIbadahRecord.delete.mockResolvedValue({ id: RECORD });
+  prismaMock.dailyIbadahRecord.updateMany.mockResolvedValue({ count: 1 });
+  // `verifyRecords` loads the target rows to scope them; one record unless a
+  // case says otherwise.
+  prismaMock.dailyIbadahRecord.findMany.mockResolvedValue([{ studentId: SANTRI }]);
 });
 
 const CREATE_BODY = { targetId: TARGET, studentId: SANTRI, date: DATE, isCompleted: true };
@@ -122,6 +130,8 @@ function expectNoWrite() {
   expect(prismaMock.dailyIbadahRecord.create).not.toHaveBeenCalled();
   expect(prismaMock.dailyIbadahRecord.upsert).not.toHaveBeenCalled();
   expect(prismaMock.dailyIbadahRecord.update).not.toHaveBeenCalled();
+  expect(prismaMock.dailyIbadahRecord.delete).not.toHaveBeenCalled();
+  expect(prismaMock.dailyIbadahRecord.updateMany).not.toHaveBeenCalled();
 }
 
 describe('R27.1 — the three writes refuse a caller below isTeacherOrAbove with 403', () => {
@@ -278,5 +288,75 @@ describe('R27.2 — the daily check-in refuses a santri outside the caller’s r
     const res = await send('superAdmin', CHECKIN[1], CHECKIN[2], CHECKIN[3]);
     expect(res.status).toBe(200);
     expect(prismaMock.dailyIbadahRecord.upsert).toHaveBeenCalled();
+  });
+});
+
+// Two more sibling writes were left scoped only by the route guard:
+// `DELETE /ibadah/records/:id` deleted any record by id, and
+// `POST /ibadah/records/verify` verified any record ids — so a guru could
+// delete or verify another unit's notes. Both now run `assertIbadahWriter`.
+const DELETE = ['delete record', 'delete', `/ibadah/records/${RECORD}`, {}] as const;
+const VERIFY_BODY = { recordIds: [RECORD] };
+const VERIFY = ['verify records', 'post', '/ibadah/records/verify', VERIFY_BODY] as const;
+
+describe('R27.1 — delete and verify refuse a caller below isTeacherOrAbove with 403', () => {
+  it.each([
+    ['a santri', 'student'],
+    ['a wali', 'parent'],
+    ['a TU_Unit', 'tuUnit'],
+    ['an Organ_Yayasan', 'yayasan'],
+  ] as const)('%s is 403 on delete and verify, before any lookup', async (_label, who) => {
+    expect((await send(who, DELETE[1], DELETE[2])).status).toBe(403);
+    expect((await send(who, VERIFY[1], VERIFY[2], VERIFY[3])).status).toBe(403);
+    expect(prismaMock.dailyIbadahRecord.findUnique).not.toHaveBeenCalled();
+    expect(prismaMock.dailyIbadahRecord.findMany).not.toHaveBeenCalled();
+    expectNoWrite();
+  });
+});
+
+describe('R27.2 — delete and verify refuse a santri outside the caller’s reach with 404', () => {
+  it.each([
+    ['another unit’s Admin_Unit', 'adminSma'],
+    ['a Guru of the santri’s unit with no relation', 'guruSmp'],
+  ] as const)('%s is 404 on delete and verify, and nothing is written', async (_label, who) => {
+    expect((await send(who, DELETE[1], DELETE[2])).status).toBe(404);
+    expect((await send(who, VERIFY[1], VERIFY[2], VERIFY[3])).status).toBe(404);
+    expectNoWrite();
+  });
+
+  it('delete — a missing record is 404 with the same body as one out of reach', async () => {
+    const outOfScope = await send('adminSma', DELETE[1], DELETE[2]);
+    prismaMock.dailyIbadahRecord.findUnique.mockResolvedValue(null);
+    const absent = await send('adminSma', DELETE[1], DELETE[2]);
+    expect(outOfScope.status).toBe(404);
+    expect(absent.status).toBe(404);
+    expect(absent.body).toEqual(outOfScope.body);
+  });
+
+  it('verify — a missing record id is 404 with the same body as one out of reach', async () => {
+    const outOfScope = await send('adminSma', VERIFY[1], VERIFY[2], VERIFY[3]);
+    prismaMock.dailyIbadahRecord.findMany.mockResolvedValue([]);
+    const absent = await send('adminSma', VERIFY[1], VERIFY[2], VERIFY[3]);
+    expect(outOfScope.status).toBe(404);
+    expect(absent.status).toBe(404);
+    expect(absent.body).toEqual(outOfScope.body);
+  });
+
+  it('delete — an Admin_Unit of the santri’s unit is allowed (200)', async () => {
+    const res = await send('adminSmp', DELETE[1], DELETE[2]);
+    expect(res.status).toBe(200);
+    expect(prismaMock.dailyIbadahRecord.delete).toHaveBeenCalled();
+  });
+
+  it('verify — an Admin_Unit of the santri’s unit is allowed (200)', async () => {
+    const res = await send('adminSmp', VERIFY[1], VERIFY[2], VERIFY[3]);
+    expect(res.status).toBe(200);
+    expect(prismaMock.dailyIbadahRecord.updateMany).toHaveBeenCalled();
+  });
+
+  it('delete — a Super_Admin deletes another unit’s record (200)', async () => {
+    prismaMock.student.findMany.mockResolvedValue([{ id: SANTRI, unitId: SMA, enrollments: [] }]);
+    const res = await send('superAdmin', DELETE[1], DELETE[2]);
+    expect(res.status).toBe(200);
   });
 });

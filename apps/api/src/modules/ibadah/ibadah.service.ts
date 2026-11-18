@@ -321,7 +321,15 @@ export async function updateRecord(id: string, data: UpdateRecordInput, actor: W
   });
 }
 
-export async function deleteRecord(id: string) {
+export async function deleteRecord(id: string, actor: WriteActor) {
+  const existing = await prisma.dailyIbadahRecord.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('Record');
+
+  await assertIbadahWriter(actor, [existing.studentId], 'Record');
+
   return prisma.dailyIbadahRecord.delete({ where: { id } });
 }
 
@@ -377,8 +385,28 @@ export async function bulkCreateRecords(data: BulkCreateRecordsInput, actor: Wri
   return Promise.all(recordsToCreate);
 }
 
-export async function verifyRecords(verifierId: string, data: VerifyRecordInput) {
+export async function verifyRecords(
+  verifierId: string,
+  data: VerifyRecordInput,
+  actor: WriteActor
+) {
   const { recordIds } = data;
+
+  // Every record to verify must belong to a santri the caller may write an
+  // ibadah note for (R27.2) — the sibling writes are scoped, this one must be
+  // too, or a guru could verify another unit's notes. `findMany` returns only
+  // the rows that exist, so a shorter result than the distinct ids asked for
+  // means at least one id is missing (R25.4).
+  const records = await prisma.dailyIbadahRecord.findMany({
+    where: { id: { in: recordIds } },
+    select: { studentId: true },
+  });
+  if (records.length !== new Set(recordIds).size) throw Errors.notFound('Record');
+  await assertIbadahWriter(
+    actor,
+    records.map((r) => r.studentId),
+    'Record'
+  );
 
   return prisma.dailyIbadahRecord.updateMany({
     where: { id: { in: recordIds } },

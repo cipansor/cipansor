@@ -93,7 +93,7 @@ export const updateRecord = asyncHandler(async (req: Request, res: Response) => 
 
 /** DELETE /api/ibadah/records/:id */
 export const deleteRecord = asyncHandler(async (req: Request, res: Response) => {
-  await service.deleteRecord(req.params.id);
+  await service.deleteRecord(req.params.id, req.user!);
   res.json(ApiResponse.success(null, 'Record deleted successfully'));
 });
 
@@ -105,7 +105,7 @@ export const bulkCreateRecords = asyncHandler(async (req: Request, res: Response
 
 /** POST /api/ibadah/records/verify */
 export const verifyRecords = asyncHandler(async (req: Request, res: Response) => {
-  const result = await service.verifyRecords(req.user!.sub, req.body);
+  const result = await service.verifyRecords(req.user!.sub, req.body, req.user!);
   res.json(ApiResponse.success(result, 'Records verified successfully'));
 });
 

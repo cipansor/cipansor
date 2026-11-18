@@ -85,11 +85,18 @@ describe('ibadah controller', () => {
     expect((res as any).statusCode).toBe(404);
   });
 
-  it('verifyRecords: verifies as the authenticated user', async () => {
+  it('verifyRecords: verifies as the authenticated user, passing the actor', async () => {
     (service.verifyRecords as any).mockResolvedValue({ verified: 3 });
     const { req, res } = mockReqRes({ body: { recordIds: ['r1'] } as any });
     await run(controller.verifyRecords, req, res);
-    expect(service.verifyRecords).toHaveBeenCalledWith('user-1', { recordIds: ['r1'] });
+    expect(service.verifyRecords).toHaveBeenCalledWith('user-1', { recordIds: ['r1'] }, req.user);
+  });
+
+  it('deleteRecord: passes the actor so the write is scoped', async () => {
+    (service.deleteRecord as any).mockResolvedValue(undefined);
+    const { req, res } = mockReqRes({ params: { id: 'r1' } as any });
+    await run(controller.deleteRecord, req, res);
+    expect(service.deleteRecord).toHaveBeenCalledWith('r1', req.user);
   });
 
   it('the santri reads go through the reader, never the query alone', async () => {
