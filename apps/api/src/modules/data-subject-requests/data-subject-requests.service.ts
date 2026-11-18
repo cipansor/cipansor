@@ -1094,6 +1094,15 @@ async function eraseStudent(
     },
   });
 
+  // Catatan bebas santri (konseling, perilaku, wali kelas) menyebut nama anak
+  // dan pokok persoalannya. Barisnya bukan arsip akademik yang wajib retensi,
+  // dan `onDelete: Cascade` tidak menyala karena baris `Student` dianonimkan,
+  // bukan dihapus — jadi isinya ditimpa penanda, sama seperti kolom teks lain.
+  await tx.studentNote.updateMany({
+    where: { studentId: student.id },
+    data: { content: marker },
+  });
+
   outcome.erased.push(
     'identitas santri',
     'NIK',
@@ -1106,7 +1115,8 @@ async function eraseStudent(
     'identitas akun',
     'foto',
     'berkas dokumen identitas',
-    'NISN'
+    'NISN',
+    'catatan santri'
   );
   outcome.retained.push(
     'NIS',
@@ -1171,7 +1181,18 @@ async function eraseRegistrant(
     where: removableDocuments,
     data: { fileUrl: null, notes: null },
   });
-  outcome.erased.push('identitas pendaftar', 'berkas identitas');
+
+  // Catatan interaksi pemasaran (CRM) menyebut nama dan nomor telepon pendaftar
+  // di dalam teks bebasnya. `onDelete: Cascade` pada FK `registrantId` tidak
+  // menyala karena baris `Registrant` dianonimkan, bukan dihapus — jadi
+  // catatannya ditimpa penanda. Barisnya dipertahankan supaya riwayat kampanye
+  // tetap terbaca; hanya isi teksnya yang hilang.
+  await tx.marketingInteraction.updateMany({
+    where: { registrantId },
+    data: { notes: marker },
+  });
+
+  outcome.erased.push('identitas pendaftar', 'berkas identitas', 'catatan interaksi pemasaran');
   outcome.retained.push(
     'nomor pendaftaran',
     'status seleksi',

@@ -36,6 +36,8 @@ vi.mock('@/lib/prisma', () => ({
       findMany: vi.fn().mockResolvedValue([]),
       updateMany: vi.fn(),
     },
+    studentNote: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    marketingInteraction: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     auditLog: { create: vi.fn() },
     role: { findMany: vi.fn().mockResolvedValue([]) },
     userRoleAssignment: {
@@ -502,6 +504,47 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     // supaya batasnya dapat diperiksa, bukan tersembunyi sebagai perilaku.
     expect(audit.data.newValues.retained).toContain('nilai');
     expect(audit.data.newValues.erased).toContain('identitas santri');
+  });
+
+  it('menyapu catatan bebas yang menaut subjek: StudentNote.content dan MarketingInteraction.notes', async () => {
+    // Kelas cacat CWE-212 yang sama: baris `Student`/`Registrant` dianonimkan,
+    // bukan dihapus, sehingga `onDelete: Cascade` tidak pernah menyala. Catatan
+    // bebas di tabel sebelah — konseling santri dan CRM pendaftar — tetap hidup
+    // dan masih memuat nama/telepon. Keduanya harus ditimpa penanda.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.registrant.findMany).mockResolvedValue([{ id: 'reg-1' }] as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const noteSweep = vi.mocked(prisma.studentNote.updateMany).mock.calls[0][0] as any;
+    expect(noteSweep.where).toEqual({ studentId: 'stu-1' });
+    expect(noteSweep.data.content).toContain('UU PDP');
+
+    const interactionSweep = vi.mocked(prisma.marketingInteraction.updateMany).mock
+      .calls[0][0] as any;
+    expect(interactionSweep.where).toEqual({ registrantId: 'reg-1' });
+    expect(interactionSweep.data.notes).toContain('UU PDP');
+
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.newValues.erased).toContain('catatan santri');
+    expect(audit.data.newValues.erased).toContain('catatan interaksi pemasaran');
   });
 
   it('tidak menghapus berkas yang masih ditunjuk baris lain (CWE-639)', async () => {
@@ -1025,6 +1068,34 @@ describe('data-subject-requests — jalur wali', () => {
     expect(result.subjectLabel).toBe('Bapak Wali (wali@example.com)');
     // Tidak ada santri yang diperiksa, jadi tidak ada tautan yang dituntut.
     expect(prisma.student.findUnique).not.toHaveBeenCalled();
+  });
+
+  it('cabang GUARDIAN selalu memakai id pemanggil, bukan id yang diselundupkan di masukan', async () => {
+    // `subjectUserId` tidak ada di skema masukan; layanan menetapkannya dari
+    // `actor.userId`. Uji ini mengunci invarian itu: walaupun masukan membawa
+    // `subjectUserId` orang lain, yang tersimpan tetap id pemanggil — jadi
+    // jalur "atas nama diri sendiri" tidak dapat dipakai mewakili orang lain.
+    vi.mocked(prisma.user.findUnique).mockResolvedValue({
+      name: 'Bapak Wali',
+      email: 'wali@example.com',
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.count).mockResolvedValue(0);
+    vi.mocked(prisma.dataSubjectRequest.create).mockResolvedValue(
+      requestRow({ subjectCategory: 'GUARDIAN', subjectUserId: 'wali-1' }) as any
+    );
+
+    await service.submitGuardianRequest(
+      guardianInput({
+        subjectCategory: 'GUARDIAN',
+        subjectStudentId: undefined,
+        subjectUserId: 'orang-lain',
+      }),
+      guardianActor
+    );
+
+    const create = vi.mocked(prisma.dataSubjectRequest.create).mock.calls[0][0] as any;
+    expect(create.data.subjectUserId).toBe('wali-1');
+    expect(create.data.subjectStudentId).toBeNull();
   });
 
   it('menolak kategori STUDENT tanpa id santri', async () => {
