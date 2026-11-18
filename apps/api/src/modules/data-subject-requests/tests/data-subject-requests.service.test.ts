@@ -743,8 +743,19 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     const registrant = vi.mocked(prisma.registrant.update).mock.calls[0][0] as any;
     expect(registrant.where.id).toBe('reg-1');
     expect(registrant.data.parentPhone).not.toContain('0812');
+    // Kolom teks bebas lain di baris yang sama ikut disapu: sekolah asal
+    // (yang juga dimuat ekspor ACCESS sebagai data pribadi) dan catatan biaya
+    // pendaftaran.
+    expect(registrant.data.previousSchool).toContain('UU PDP');
+    expect(registrant.data.registrationFeeNote).toContain('UU PDP');
     // Berkas pendaftaran yang tertinggal ikut dijadwalkan untuk dihapus.
     expect(prisma.registrantDocument.updateMany).toHaveBeenCalled();
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.newValues.erased).toContain('sekolah asal');
+    expect(audit.data.newValues.erased).toContain('catatan biaya pendaftaran');
+    expect(audit.data.newValues.retained).toContain(
+      'bukti persetujuan (tanggal, versi, alamat IP)'
+    );
   });
 
   it('penghapusan pendaftar ikut menghapus santri yang tertaut', async () => {

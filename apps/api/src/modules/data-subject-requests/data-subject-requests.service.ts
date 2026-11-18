@@ -1244,6 +1244,8 @@ async function eraseRegistrant(
       parentOccupation: null,
       birthPlace: marker,
       notes: null,
+      previousSchool: marker,
+      registrationFeeNote: marker,
     },
   });
   // Berkas identitas pendaftar tidak punya kegunaan setelah pendaftarannya
@@ -1276,11 +1278,18 @@ async function eraseRegistrant(
     data: { notes: marker },
   });
 
-  outcome.erased.push('identitas pendaftar', 'berkas identitas', 'catatan interaksi pemasaran');
+  outcome.erased.push(
+    'identitas pendaftar',
+    'berkas identitas',
+    'catatan interaksi pemasaran',
+    'sekolah asal',
+    'catatan biaya pendaftaran'
+  );
   outcome.retained.push(
     'nomor pendaftaran',
     'status seleksi',
     'keuangan',
+    'bukti persetujuan (tanggal, versi, alamat IP)',
     'arsip akademik (rapor, ijazah)'
   );
   return outcome;
