@@ -2,6 +2,7 @@ import * as fs from "fs";
 import * as path from "path";
 import type { Page } from "@playwright/test";
 import { generate as generateTotp } from "otplib";
+import { currentWorkerIndex } from "./workers";
 
 /**
  * API-based authentication for e2e tests.
@@ -145,18 +146,40 @@ function principalFromSetCookie(header: string): string | undefined {
 const sessionCache = new Map<string, AuthSession>();
 
 /**
- * Cross-worker session cache written by global-setup (one real login + 2FA per
- * role per run). Without it every parallel worker re-authenticates the admin
- * roles and the strict 2FA rate limiter (10/15min) 429s most of the suite.
+ * One session store per worker: `.auth/sessions.w<worker>.json`, holding
+ * `{ [email]: AuthSession }`. global-setup writes it (one real login + 2FA per
+ * role *per worker*); each worker reads only its own.
+ *
+ * Per worker, not one shared file (#1144). A single session per role meant
+ * every worker held the same refresh token, and the API rotates that token on
+ * first use — deleting the presented row — so whichever worker refreshed first
+ * revoked the session for all the others, which then answered 401 and bounced
+ * to `/login` mid-test. Separate files also mean a worker that rotates its
+ * session writes back only its own file, with no cross-worker write race.
  */
-export const SESSIONS_FILE = path.join(__dirname, "../../.auth/sessions.json");
+export function sessionsFileFor(worker: number): string {
+  return path.join(__dirname, `../../.auth/sessions.w${worker}.json`);
+}
 
-function readSessionsFile(): Record<string, AuthSession> {
+/** The cache key for a role's session: the role's email, within one worker. */
+export function sessionKey(email: string): string {
+  return email;
+}
+
+function readSessionsFile(worker: number): Record<string, AuthSession> {
   try {
-    return JSON.parse(fs.readFileSync(SESSIONS_FILE, "utf8"));
+    return JSON.parse(fs.readFileSync(sessionsFileFor(worker), "utf8"));
   } catch {
     return {};
   }
+}
+
+function writeSessionsFile(
+  worker: number,
+  sessions: Record<string, AuthSession>,
+): void {
+  fs.mkdirSync(path.dirname(sessionsFileFor(worker)), { recursive: true });
+  fs.writeFileSync(sessionsFileFor(worker), JSON.stringify(sessions, null, 2));
 }
 
 // Failed logins are cached too: without this, every subsequent test in the
@@ -167,47 +190,91 @@ const failureCache = new Map<string, Error>();
 
 /** Authenticate against the API, transparently completing 2FA when required. */
 export async function apiLogin(user: SeedUser): Promise<AuthSession> {
-  const fileSessions = readSessionsFile();
-  const cached = sessionCache.get(user.email) ?? fileSessions[user.email];
+  const worker = currentWorkerIndex();
+  const key = sessionKey(user.email);
+  const cached = sessionCache.get(key) ?? readSessionsFile(worker)[key];
   if (cached) {
-    sessionCache.set(user.email, cached);
+    sessionCache.set(key, cached);
     return cached;
   }
-  const priorFailure = failureCache.get(user.email);
+  const priorFailure = failureCache.get(key);
   if (priorFailure) throw priorFailure;
 
-  // If global-setup ran (sessions file exists) but couldn't authenticate this
-  // seed role, don't have every worker retry the 2FA flow — fail fast.
-  const isSeedRole = Object.values(SEED_USERS).some(
-    (u) => u.email === user.email,
-  );
-  if (isSeedRole && fs.existsSync(SESSIONS_FILE)) {
-    const err = new Error(
-      `global-setup failed to pre-authenticate ${user.email} (see setup logs); ` +
-        "not retrying per-test to avoid hammering the 2FA rate limiter.",
-    );
-    failureCache.set(user.email, err);
-    throw err;
-  }
-
   try {
-    const session = await apiLoginUncached(user);
-    sessionCache.set(user.email, session);
+    // No session was minted for this worker (e.g. a `--workers` count above the
+    // one global-setup used): log in now rather than fall back to another
+    // worker's session, which would reintroduce the sharing this avoids.
+    const session = await apiLoginNew(user);
+    sessionCache.set(key, session);
     return session;
   } catch (error) {
-    failureCache.set(user.email, error as Error);
+    failureCache.set(key, error as Error);
     throw error;
   }
 }
 
 /**
- * A session of its own, never cached or shared: for a test that rotates or
- * revokes its refresh token. Rotating the cached one would leave every other
- * test holding a refresh token the server has already deleted. Use an account
- * without 2FA, so it costs no TOTP step and no 2FA rate-limit slot.
+ * A brand-new session, bypassing every cache: for global-setup (minting the
+ * per-worker sessions) and for a test that rotates or revokes its refresh
+ * token. Rotating a cached one would leave every other test in the worker
+ * holding a refresh token the server has already deleted.
  */
-export async function apiLoginFresh(user: SeedUser): Promise<AuthSession> {
+export async function apiLoginNew(user: SeedUser): Promise<AuthSession> {
   return apiLoginUncached(user);
+}
+
+/** @deprecated Use {@link apiLoginNew}; kept for existing spec imports. */
+export const apiLoginFresh = apiLoginNew;
+
+/**
+ * Keep this worker's stored session in step with a rotation the *browser* made.
+ *
+ * Every test in a worker reuses the one stored session; when a test drives a
+ * real `/auth/refresh` through the page, the server deletes the old refresh
+ * token and the stored copy goes stale. Call this with the rotated cookies so
+ * the next test (or a `--repeat-each` pass, which starts a fresh worker
+ * process) reads a live token rather than the one this test just spent.
+ */
+export function adoptRotatedSession(
+  email: string,
+  tokens: Pick<AuthSession, "accessToken" | "refreshToken">,
+): void {
+  const worker = currentWorkerIndex();
+  const key = sessionKey(email);
+  const stored = readSessionsFile(worker);
+  const current = sessionCache.get(key) ?? stored[key];
+  if (!current) return;
+  const rotated = { ...current, ...tokens };
+  sessionCache.set(key, rotated);
+  writeSessionsFile(worker, { ...stored, [key]: rotated });
+}
+
+/**
+ * Rotate a stored session's tokens against `/auth/refresh`, or return null when
+ * the token no longer works. The API deletes the presented refresh token on
+ * use, so this both validates a session from a previous run and hands back the
+ * replacement — the only way a session may be reused across runs (#1144).
+ */
+export async function refreshSession(
+  session: AuthSession,
+): Promise<AuthSession | null> {
+  try {
+    const res = await fetch(`${API_URL}/auth/refresh`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-client": "bearer" },
+      body: JSON.stringify({ refreshToken: session.refreshToken }),
+    });
+    if (!res.ok) return null;
+    const data = (await res.json())?.data;
+    if (!data?.accessToken || !data?.refreshToken) return null;
+    return {
+      ...session,
+      accessToken: data.accessToken,
+      refreshToken: data.refreshToken,
+    };
+  } catch {
+    return null;
+  }
 }
 
 async function apiLoginUncached(user: SeedUser): Promise<AuthSession> {

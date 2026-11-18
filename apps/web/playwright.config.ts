@@ -1,5 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 import path from "path";
+import { E2E_WORKERS } from "./e2e/helpers/workers";
 
 /**
  * Playwright E2E Test Configuration for Cipansor Web App
@@ -28,7 +29,7 @@ export default defineConfig({
 
   /* Parallel Execution */
   fullyParallel: true,
-  workers: process.env.CI ? 2 : 4, // More workers locally for speed
+  workers: E2E_WORKERS,
   forbidOnly: !!process.env.CI,
 
   /* Retry Strategy */
