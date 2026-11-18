@@ -117,6 +117,12 @@ export async function selectOption(
   // Select the option
   const option = page.getByRole("option", { name: optionText });
   await option.click();
+
+  // Radix returns focus to the trigger asynchronously as the menu closes.
+  // Filling the next field while that is in flight loses the keystrokes on
+  // Firefox (the value lands and is then cleared), so wait for the listbox to
+  // leave the DOM before the caller touches the next field.
+  await expect(page.getByRole("listbox")).toHaveCount(0);
 }
 
 /**

@@ -641,6 +641,10 @@ test.describe("Menu Makan — alur Tambah Menu (#1081)", () => {
       .getByRole("combobox")
       .click();
     await page.getByRole("option", { name: unitName, exact: true }).click();
+    // Radix restores focus to the trigger asynchronously as the listbox closes;
+    // the `fill` right after it is wiped on Firefox when it lands first. Wait
+    // for the listbox to leave the DOM, as `selectOption` does.
+    await expect(page.getByRole("listbox")).toHaveCount(0);
 
     const mainDish = page.getByLabel("Hidangan Utama");
     // Over the 200-character limit: the message is Indonesian, not Zod's default
