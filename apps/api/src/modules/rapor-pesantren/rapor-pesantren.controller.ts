@@ -3,6 +3,14 @@ import * as service from './rapor-pesantren.service';
 import { getLegerQuerySchema, listRaporQuerySchema } from './rapor-pesantren.schema';
 import { asyncHandler } from '@/middleware/error';
 import { ApiResponse } from '@/utils/response';
+import { requireUser } from '@/middleware/auth';
+import type { WriteActor } from '@/utils/write-scope';
+
+/** The write actor a service scopes a write on, from the verified token. */
+function actorOf(req: Request): WriteActor {
+  const u = requireUser(req);
+  return { sub: u.sub, roleCode: u.roleCode, unitId: u.unitId };
+}
 
 /** GET /api/rapor-pesantren/config/:unitId */
 export const getConfig = asyncHandler(async (req: Request, res: Response) => {
@@ -12,7 +20,7 @@ export const getConfig = asyncHandler(async (req: Request, res: Response) => {
 
 /** PUT /api/rapor-pesantren/config */
 export const saveConfig = asyncHandler(async (req: Request, res: Response) => {
-  const config = await service.saveRaporConfig(req.body);
+  const config = await service.saveRaporConfig(req.body, actorOf(req));
   res.json(ApiResponse.success(config, 'Configuration saved successfully'));
 });
 
@@ -54,12 +62,12 @@ export const getById = asyncHandler(async (req: Request, res: Response) => {
 
 /** PUT /api/rapor-pesantren/:id */
 export const update = asyncHandler(async (req: Request, res: Response) => {
-  const result = await service.updateRaporPesantren(req.params.id, req.body);
+  const result = await service.updateRaporPesantren(req.params.id, req.body, actorOf(req));
   res.json(ApiResponse.success(result, 'Rapor updated successfully'));
 });
 
 /** DELETE /api/rapor-pesantren/:id */
 export const remove = asyncHandler(async (req: Request, res: Response) => {
-  await service.deleteRaporPesantren(req.params.id);
+  await service.deleteRaporPesantren(req.params.id, actorOf(req));
   res.json(ApiResponse.success(null, 'Rapor deleted successfully'));
 });
