@@ -1,6 +1,12 @@
 import { describe, it, expect, vi } from 'vitest';
 import fc from 'fast-check';
 import type { Prisma } from '@prisma/client';
+import {
+  ALUMNI_ROLE_CODES,
+  KOMITE_ROLE_CODES,
+  PARENT_ROLE_CODES,
+  STUDENT_ROLE_CODES,
+} from '@cipansor/shared';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: { student: { findFirst: vi.fn() } },
@@ -8,8 +14,16 @@ vi.mock('@/lib/prisma', () => ({
 
 import { prisma } from '@/lib/prisma';
 import { examReadWhere } from '@/modules/assessment/assessment-writer';
+import { takhosusEnrollmentWhere } from '@/modules/takhosus/takhosus.service';
 import { assertStudentInScope, studentScope, type ScopeActor } from '@/utils/student-scope';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
+import {
+  ACTORS as FIXTURE_ACTORS,
+  SANTRI_SMA,
+  SANTRI_SMP,
+  SMP,
+  studentMatches,
+} from '../../tests/mocks/santri-fixture';
 
 // Property 24 (R17.3, R24.6, R25.7, R27.7), #987 (PR-01) part: the exam list
 // `where` returns only exams the actor may see, evaluated over random data in
@@ -92,6 +106,103 @@ describe('Property 24: exam read list is only within scope', () => {
   });
 });
 
+// Property 24, #989 (PR-03) part (R27.7): the takhosus enrolment `where`
+// returns only enrolments of santri inside the caller's Cakupan_Santri,
+// whatever `studentId`/`halaqohId` the request names, and the metadata count is
+// the size of that same set.
+
+interface EnrollmentRow {
+  id: string;
+  studentId: string;
+  halaqohId: string | null;
+  status: string;
+}
+
+const SANTRI = [SANTRI_SMP, SANTRI_SMA];
+const byId = (id: string) => SANTRI.find((s) => s.id === id)!;
+const ACTORS_LIST: ScopeActor[] = Object.values(FIXTURE_ACTORS);
+
+const enrollmentArb: fc.Arbitrary<EnrollmentRow> = fc.record({
+  id: fc.string({ minLength: 1 }),
+  studentId: fc.constantFrom(SANTRI_SMP.id, SANTRI_SMA.id),
+  halaqohId: fc.option(fc.constantFrom('h1', 'h2'), { nil: null }),
+  status: fc.constantFrom('ACTIVE', 'COMPLETED'),
+});
+
+/** Evaluate the enrolment `where` the read scope builds, over an in-memory row. */
+function enrollmentMatches(where: any, e: EnrollmentRow): boolean {
+  if (where.student && !studentMatches(byId(e.studentId), where.student)) return false;
+  if (where.studentId && e.studentId !== where.studentId) return false;
+  if (where.halaqohId && e.halaqohId !== where.halaqohId) return false;
+  if (where.status && e.status !== where.status) return false;
+  return true;
+}
+
+/**
+ * The rule of `studentScope`, restated here by hand — the expectation the
+ * `where` is measured against, so the test cannot agree with the code by
+ * construction. A santri: themselves; a wali: their own children; alumni and
+ * komite: none; a cross-unit reader: every santri; anyone else: their own unit,
+ * or none when the token carries no unit.
+ */
+function santriInScope(actor: ScopeActor, s: (typeof SANTRI)[number]): boolean {
+  const code = actor.roleCode ?? '';
+  if (STUDENT_ROLE_CODES.includes(code)) return s.userId === actor.sub;
+  if (PARENT_ROLE_CODES.includes(code)) return s.parentIds.includes(actor.sub);
+  if (ALUMNI_ROLE_CODES.includes(code) || KOMITE_ROLE_CODES.includes(code)) return false;
+  if (seesAllUnits(actor)) return true;
+  return !!actor.unitId && s.unitId === actor.unitId;
+}
+
+/** The rows the rule says the actor may see, applying the same narrowing. */
+function expectedVisible(
+  actor: ScopeActor,
+  filters: { studentId?: string; halaqohId?: string; status?: string },
+  rows: EnrollmentRow[]
+): EnrollmentRow[] {
+  return rows.filter((e) => {
+    if (!santriInScope(actor, byId(e.studentId))) return false;
+    if (filters.studentId && e.studentId !== filters.studentId) return false;
+    if (filters.halaqohId && e.halaqohId !== filters.halaqohId) return false;
+    if (filters.status && e.status !== filters.status) return false;
+    return true;
+  });
+}
+
+describe('Property 24: takhosus enrolment list is only within scope', () => {
+  it('the where selects exactly the rows the rule says are in scope', () => {
+    // Feature: web-api-reconnect-phase-2, Property 24: Daftar baca hanya dalam cakupan
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...ACTORS_LIST),
+        fc.option(fc.constantFrom(SANTRI_SMP.id, SANTRI_SMA.id), { nil: undefined }),
+        fc.option(fc.constantFrom('h1', 'h2'), { nil: undefined }),
+        fc.array(enrollmentArb),
+        (actor, studentId, halaqohId, rows) => {
+          const filters = { studentId, halaqohId };
+          const where = takhosusEnrollmentWhere(actor, filters);
+          const seen = rows.filter((e) => enrollmentMatches(where, e));
+          const expected = expectedVisible(actor, filters, rows);
+
+          // Same set, both directions: nothing extra, nothing missing. This is
+          // what the old count-over-the-same-where could not catch.
+          expect(new Set(seen.map((e) => e.id))).toEqual(new Set(expected.map((e) => e.id)));
+          // Every visible row is a santri the rule reaches.
+          for (const e of seen) {
+            expect(santriInScope(actor, byId(e.studentId))).toBe(true);
+          }
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('a unit actor names another unit → no enrolment', () => {
+    const where = takhosusEnrollmentWhere(FIXTURE_ACTORS.guruSmp, {});
+    expect(where.student).toEqual({ unitId: SMP });
+  });
+});
+
 // #988 (PR-02) part: the finance reads that take the santri from the URL. A
 // santri outside the caller's `studentScope` and a santri that does not exist
 // get the same 404, so the summary never confirms the id.
@@ -109,7 +220,7 @@ const STUDENTS: StudentRow[] = [
   { id: 's3', unitId: 'unit-b', userId: 'u-s3', parents: [] },
 ];
 
-function studentMatches(where: Prisma.StudentWhereInput, s: StudentRow): boolean {
+function matchesStudentRow(where: Prisma.StudentWhereInput, s: StudentRow): boolean {
   if (where.id && typeof where.id === 'object' && 'in' in where.id) {
     return (where.id.in as string[]).includes(s.id);
   }
@@ -129,7 +240,7 @@ describe('Property 24: finance santri reads are only within scope', () => {
         fc.constantFrom(...STUDENTS),
         async (actor, s) => {
           const where = studentScope(actor);
-          const visible = studentMatches(where, s);
+          const visible = matchesStudentRow(where, s);
           vi.mocked(prisma.student.findFirst).mockResolvedValue(
             (visible ? { id: s.id } : null) as never
           );

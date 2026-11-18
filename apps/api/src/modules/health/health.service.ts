@@ -122,6 +122,11 @@ export async function getMedicalRecordById(id: string, scope: Prisma.StudentWher
   } as unknown as MedicalRecord;
 }
 
+/**
+ * Writes a visit. The caller's Cakupan_Santri is the write range and is
+ * enforced by the controller before this runs (R27.8): a PERAWAT's scope
+ * widens across units, so it may record for any unit (R27.13).
+ */
 export async function createMedicalRecord(data: CreateMedicalRecordInput, recordedById: string) {
   const {
     status,

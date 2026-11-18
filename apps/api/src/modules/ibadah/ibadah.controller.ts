@@ -81,31 +81,31 @@ export const getRecord = asyncHandler(async (req: Request, res: Response) => {
 
 /** POST /api/ibadah/records */
 export const createRecord = asyncHandler(async (req: Request, res: Response) => {
-  const record = await service.createRecord(req.body);
+  const record = await service.createRecord(req.body, req.user!);
   res.status(201).json(ApiResponse.success(record, 'Record created successfully'));
 });
 
 /** PUT /api/ibadah/records/:id */
 export const updateRecord = asyncHandler(async (req: Request, res: Response) => {
-  const record = await service.updateRecord(req.params.id, req.body);
+  const record = await service.updateRecord(req.params.id, req.body, req.user!);
   res.json(ApiResponse.success(record, 'Record updated successfully'));
 });
 
 /** DELETE /api/ibadah/records/:id */
 export const deleteRecord = asyncHandler(async (req: Request, res: Response) => {
-  await service.deleteRecord(req.params.id);
+  await service.deleteRecord(req.params.id, req.user!);
   res.json(ApiResponse.success(null, 'Record deleted successfully'));
 });
 
 /** POST /api/ibadah/records/bulk */
 export const bulkCreateRecords = asyncHandler(async (req: Request, res: Response) => {
-  const records = await service.bulkCreateRecords(req.body);
+  const records = await service.bulkCreateRecords(req.body, req.user!);
   res.status(201).json(ApiResponse.success(records, 'Records created successfully'));
 });
 
 /** POST /api/ibadah/records/verify */
 export const verifyRecords = asyncHandler(async (req: Request, res: Response) => {
-  const result = await service.verifyRecords(req.user!.sub, req.body);
+  const result = await service.verifyRecords(req.user!.sub, req.body, req.user!);
   res.json(ApiResponse.success(result, 'Records verified successfully'));
 });
 
@@ -115,7 +115,7 @@ export const verifyRecords = asyncHandler(async (req: Request, res: Response) =>
 
 /** POST /api/ibadah/check-in */
 export const dailyCheckIn = asyncHandler(async (req: Request, res: Response) => {
-  const result = await service.dailyCheckIn(req.body);
+  const result = await service.dailyCheckIn(req.body, req.user!);
   res.json(ApiResponse.success(result, 'Check-in completed successfully'));
 });
 

@@ -31,7 +31,8 @@ export interface IbadahTarget {
   bonusPoints: number;
   targetType: TargetType;
   targetCount: number;
-  targetUnit: TargetUnit;
+  /** Null when the target counts something with no unit (see the API schema). */
+  targetUnit: TargetUnit | null;
   isActive: boolean;
   isOptional: boolean;
   sortOrder: number;
@@ -61,12 +62,16 @@ export interface IbadahRecord {
   createdAt: string;
   updatedAt: string;
   target?: IbadahTarget;
+  /**
+   * What the API actually sends for a record's santri (`ibadah.service.ts`
+   * selects `id`, `nis` and `user.name` only — never the santri's identity
+   * fields). The Jurnal Ibadah page reads the name from `user.name`.
+   */
   student?: {
     id: string;
-    name: string;
     nis: string;
+    user?: { name: string };
     class?: { name: string };
-    dormRoom?: { name: string };
   };
   verifiedBy?: {
     id: string;
@@ -819,7 +824,8 @@ export function getTargetTypeLabel(type: TargetType) {
   return TARGET_TYPES.find((t) => t.value === type)?.label || type;
 }
 
-export function getTargetUnitLabel(unit: TargetUnit) {
+export function getTargetUnitLabel(unit: TargetUnit | null) {
+  if (!unit) return "";
   return TARGET_UNITS.find((u) => u.value === unit)?.label || unit;
 }
 

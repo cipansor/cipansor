@@ -1,5 +1,8 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
+import { Errors } from '@/middleware/error';
+import { isPenulisIbadah, teachingRelations } from '@/utils/teaching-relation';
+import { isCrossUnitWriter, type WriteActor } from '@/utils/write-scope';
 import type {
   ListTargetsQuery,
   CreateTargetInput,
@@ -215,14 +218,61 @@ export async function getRecordById(id: string, actor: ScopeActor) {
   });
 }
 
-export async function createRecord(data: CreateRecordInput) {
-  const target = await prisma.dailyIbadahTarget.findUnique({
-    where: { id: data.targetId },
+/**
+ * 404 unless every `studentIds` is a santri `actor` may write an ibadah note
+ * for (R27.2): Super_Admin, an Admin_Unit or Kepala_Unit of the santri's unit,
+ * or a Relasi_Pengajaran — including (d), wali kelas. `resource` names the
+ * answer so a record endpoint's out-of-scope answer reads exactly like its own
+ * missing-id answer, and neither confirms the id (R25.4).
+ */
+async function assertIbadahWriter(
+  actor: WriteActor,
+  studentIds: string[],
+  resource = 'Student'
+): Promise<void> {
+  const ids = [...new Set(studentIds)];
+  if (!ids.length) return;
+  const students = await prisma.student.findMany({
+    where: { id: { in: ids } },
+    select: { id: true, unitId: true },
   });
-
-  if (!target) {
-    throw new Error('Target not found');
+  if (students.length !== ids.length) throw Errors.notFound(resource);
+  if (isCrossUnitWriter(actor)) return;
+  const relations = await teachingRelations(actor.sub, ids);
+  for (const s of students) {
+    if (!isPenulisIbadah(actor, s.unitId, relations.get(s.id) ?? new Set())) {
+      throw Errors.notFound(resource);
+    }
   }
+}
+
+/**
+ * 400 unless every `targetIds` is an active target of the santri's unit
+ * (R27.3). Returns the targets so the caller can read their points.
+ */
+async function loadValidTargets(targetIds: string[], studentUnitId: string) {
+  const ids = [...new Set(targetIds)];
+  if (!ids.length) return new Map<string, { id: string; points: number }>();
+  const targets = await prisma.dailyIbadahTarget.findMany({
+    where: { id: { in: ids }, isActive: true, unitId: studentUnitId },
+    select: { id: true, points: true },
+  });
+  if (targets.length !== ids.length) {
+    throw Errors.badRequest('Target ibadah tidak valid untuk santri ini');
+  }
+  return new Map(targets.map((t) => [t.id, t]));
+}
+
+export async function createRecord(data: CreateRecordInput, actor: WriteActor) {
+  const student = await prisma.student.findFirst({
+    where: { id: data.studentId },
+    select: { id: true, unitId: true },
+  });
+  if (!student) throw Errors.notFound('Student');
+
+  await assertIbadahWriter(actor, [student.id]);
+  const targets = await loadValidTargets([data.targetId], student.unitId);
+  const target = targets.get(data.targetId)!;
 
   // Calculate points
   const pointsEarned = data.isCompleted ? target.points : 0;
@@ -240,15 +290,17 @@ export async function createRecord(data: CreateRecordInput) {
   });
 }
 
-export async function updateRecord(id: string, data: UpdateRecordInput) {
+export async function updateRecord(id: string, data: UpdateRecordInput, actor: WriteActor) {
   const existingRecord = await prisma.dailyIbadahRecord.findUnique({
     where: { id },
     include: { target: true },
   });
 
   if (!existingRecord) {
-    throw new Error('Record not found');
+    throw Errors.notFound('Record');
   }
+
+  await assertIbadahWriter(actor, [existingRecord.studentId], 'Record');
 
   // Recalculate points if completion status changed
   let pointsEarned = existingRecord.pointsEarned;
@@ -269,19 +321,32 @@ export async function updateRecord(id: string, data: UpdateRecordInput) {
   });
 }
 
-export async function deleteRecord(id: string) {
+export async function deleteRecord(id: string, actor: WriteActor) {
+  const existing = await prisma.dailyIbadahRecord.findUnique({
+    where: { id },
+    select: { studentId: true },
+  });
+  if (!existing) throw Errors.notFound('Record');
+
+  await assertIbadahWriter(actor, [existing.studentId], 'Record');
+
   return prisma.dailyIbadahRecord.delete({ where: { id } });
 }
 
-export async function bulkCreateRecords(data: BulkCreateRecordsInput) {
+export async function bulkCreateRecords(data: BulkCreateRecordsInput, actor: WriteActor) {
   const { studentId, date, records } = data;
 
-  // Get all target points
-  const targetIds = records.map((r) => r.targetId);
-  const targets = await prisma.dailyIbadahTarget.findMany({
-    where: { id: { in: targetIds } },
+  const student = await prisma.student.findFirst({
+    where: { id: studentId },
+    select: { id: true, unitId: true },
   });
-  const targetMap = new Map(targets.map((t) => [t.id, t]));
+  if (!student) throw Errors.notFound('Student');
+
+  await assertIbadahWriter(actor, [student.id]);
+  const targetMap = await loadValidTargets(
+    records.map((r) => r.targetId),
+    student.unitId
+  );
 
   // Create records with points calculation
   const recordsToCreate = records.map((record) => {
@@ -320,8 +385,28 @@ export async function bulkCreateRecords(data: BulkCreateRecordsInput) {
   return Promise.all(recordsToCreate);
 }
 
-export async function verifyRecords(verifierId: string, data: VerifyRecordInput) {
+export async function verifyRecords(
+  verifierId: string,
+  data: VerifyRecordInput,
+  actor: WriteActor
+) {
   const { recordIds } = data;
+
+  // Every record to verify must belong to a santri the caller may write an
+  // ibadah note for (R27.2) — the sibling writes are scoped, this one must be
+  // too, or a guru could verify another unit's notes. `findMany` returns only
+  // the rows that exist, so a shorter result than the distinct ids asked for
+  // means at least one id is missing (R25.4).
+  const records = await prisma.dailyIbadahRecord.findMany({
+    where: { id: { in: recordIds } },
+    select: { studentId: true },
+  });
+  if (records.length !== new Set(recordIds).size) throw Errors.notFound('Record');
+  await assertIbadahWriter(
+    actor,
+    records.map((r) => r.studentId),
+    'Record'
+  );
 
   return prisma.dailyIbadahRecord.updateMany({
     where: { id: { in: recordIds } },
@@ -347,18 +432,22 @@ const SHOLAT_WAJIB_TARGETS = [
 const SHOLAT_SUNNAH_TARGETS = ['Sholat Tahajud', 'Sholat Dhuha', 'Sholat Rawatib'];
 const OTHER_TARGETS = ['Tilawah Harian', 'Dzikir Pagi', 'Dzikir Petang', 'Puasa Sunnah', 'Sedekah'];
 
-export async function dailyCheckIn(data: DailyCheckInInput) {
+export async function dailyCheckIn(data: DailyCheckInInput, actor: WriteActor) {
   const { studentId, date, ...checkInData } = data;
 
   // Get student's unit
   const student = await prisma.student.findUnique({
     where: { id: studentId },
-    select: { unitId: true },
+    select: { id: true, unitId: true },
   });
 
   if (!student) {
-    throw new Error('Student not found');
+    throw Errors.notFound('Student');
   }
+
+  // The fourth ibadah write, scoped like the other three (R27.2): 404 for a
+  // santri outside the caller's reach, before any record is written.
+  await assertIbadahWriter(actor, [student.id]);
 
   // Get all active targets for the unit
   const targets = await prisma.dailyIbadahTarget.findMany({

@@ -1,6 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import fc from 'fast-check';
+import { ADMIN_ROLE_CODES, KEPALA_UNIT_ROLE_CODES } from '@cipansor/shared';
 import type { TeachingRelation } from './teaching-relation';
+import type { WriteActor } from './write-scope';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -17,6 +19,7 @@ vi.mock('@/lib/prisma', () => ({
 
 import { prisma } from '@/lib/prisma';
 import {
+  isPenulisIbadah,
   mayWriteGradeVia,
   mayWriteReportCardVia,
   teachingRelations,
@@ -77,6 +80,54 @@ describe('Property 10: teaching relations', () => {
       }),
       { numRuns: 100 }
     );
+  });
+});
+
+describe('Property 10: ibadah writer (#989, R27.2)', () => {
+  const ibadahActorArb: fc.Arbitrary<WriteActor> = fc.record({
+    sub: fc.constant('u1'),
+    roleCode: fc.constantFrom(
+      'SUPER_ADMIN',
+      'SMPIT_ADMIN',
+      'SMPIT_KEPALA_SEKOLAH',
+      'PESANTREN_PENGASUH',
+      'SMPIT_GURU',
+      'USTADZ',
+      'MUSYRIF',
+      'SMPIT_SISWA',
+      'SMPIT_ORANG_TUA',
+      'PESANTREN_TATA_USAHA',
+      'YAYASAN_KETUA'
+    ),
+    unitId: fc.option(fc.constantFrom('unit-a', 'unit-b'), { nil: null }),
+  });
+
+  it('accepts exactly Super_Admin, a leader of the santri’s unit, or any relation — including (d)', () => {
+    // Feature: web-api-reconnect-phase-2, Property 10: Relasi pengajaran dan penulis ibadah
+    fc.assert(
+      fc.property(
+        ibadahActorArb,
+        fc.constantFrom('unit-a', 'unit-b'),
+        relationsArb,
+        (actor, studentUnitId, relations) => {
+          const isUnitLeader =
+            ADMIN_ROLE_CODES.includes(actor.roleCode) ||
+            KEPALA_UNIT_ROLE_CODES.includes(actor.roleCode);
+          const expected =
+            actor.roleCode === 'SUPER_ADMIN' ||
+            (isUnitLeader && !!actor.unitId && studentUnitId === actor.unitId) ||
+            (!isUnitLeader && relations.size > 0);
+          expect(isPenulisIbadah(actor, studentUnitId, relations)).toBe(expected);
+        }
+      ),
+      { numRuns: 100 }
+    );
+  });
+
+  it('a unit leader writes no other unit even with a relation; a relation never extends a leader', () => {
+    const leader: WriteActor = { sub: 'u1', roleCode: 'SMPIT_ADMIN', unitId: 'unit-a' };
+    expect(isPenulisIbadah(leader, 'unit-b', new Set(['SUBJECT']))).toBe(false);
+    expect(isPenulisIbadah(leader, 'unit-a', new Set())).toBe(true);
   });
 });
 

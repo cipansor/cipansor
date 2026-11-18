@@ -125,19 +125,9 @@ export const createTransaction = asyncHandler(async (req: Request, res: Response
 
 /** PATCH /api/laundry/transactions/:id/status */
 export const updateStatus = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = req.user?.unitId;
-  const userId = req.user?.sub;
-  if (!unitId || !userId) {
-    return res
-      .status(400)
-      .json(ApiResponse.error('Unit ID atau User ID tidak ditemukan', 'REQUIRED'));
-  }
-  const transaction = await transactionService.updateStatus(
-    req.params.id,
-    unitId,
-    userId,
-    req.body
-  );
+  // The service decides reach from the token: a Super_Admin without a unit is
+  // accepted (R27.11), everyone else is scoped to their own unit (R27.9).
+  const transaction = await transactionService.updateStatus(req.params.id, req.user!, req.body);
   return res.json(ApiResponse.success(transaction, 'Status laundry berhasil diperbarui'));
 });
 

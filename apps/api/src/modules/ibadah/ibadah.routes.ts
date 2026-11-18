@@ -32,12 +32,19 @@ router.post(
 );
 
 // ==================== RECORDS ====================
+// The three writes are gated `isTeacherOrAbove` (403 before any id lookup);
+// the service then narrows to the santri the caller may write (R27.1).
 router.get('/records', controller.listRecords);
 router.get('/records/:id', controller.getRecord);
-router.post('/records', validate(createRecordSchema), controller.createRecord);
-router.put('/records/:id', validate(updateRecordSchema), controller.updateRecord);
+router.post('/records', isTeacherOrAbove, validate(createRecordSchema), controller.createRecord);
+router.put('/records/:id', isTeacherOrAbove, validate(updateRecordSchema), controller.updateRecord);
 router.delete('/records/:id', isTeacherOrAbove, controller.deleteRecord);
-router.post('/records/bulk', validate(bulkCreateRecordsSchema), controller.bulkCreateRecords);
+router.post(
+  '/records/bulk',
+  isTeacherOrAbove,
+  validate(bulkCreateRecordsSchema),
+  controller.bulkCreateRecords
+);
 router.post(
   '/records/verify',
   isTeacherOrAbove,
@@ -46,7 +53,9 @@ router.post(
 );
 
 // ==================== DAILY CHECK-IN ====================
-router.post('/check-in', validate(dailyCheckInSchema), controller.dailyCheckIn);
+// The fourth ibadah write: gated `isTeacherOrAbove` like the three above, and
+// the service narrows to the santri the caller may write (R27.1–R27.2).
+router.post('/check-in', isTeacherOrAbove, validate(dailyCheckInSchema), controller.dailyCheckIn);
 
 // ==================== LEADERBOARD ====================
 router.get('/leaderboard', controller.getLeaderboard);
