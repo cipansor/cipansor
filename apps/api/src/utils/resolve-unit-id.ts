@@ -190,6 +190,28 @@ export function writeUnitScopeFor(
 }
 
 /**
+ * Actor-based half of `listUnitScope`, for a service that does not hold a
+ * `Request`. The unit a list narrows to: `undefined` means every unit.
+ *
+ * A role whose remit spans every unit (`seesAllUnits`: the foundation board and
+ * the cross-unit service staff) sees them all and may narrow to one with
+ * `named`; everyone else is pinned to their own unit whatever `named` says, and
+ * a unit-bound role without one is refused. A unit-A teacher who asks for
+ * `?unitId=unit-B` therefore reads unit-A, never unit-B — a query string must
+ * not widen a read past the token's unit.
+ */
+export function listUnitScopeFor(
+  actor: UnitActor | undefined | null,
+  named: string | null | undefined
+): string | undefined {
+  if (seesAllUnits(actor ?? {})) {
+    return named && named !== 'all' ? named : undefined;
+  }
+  if (!actor?.unitId) throw Errors.forbidden('Akun ini tidak terikat pada unit mana pun');
+  return actor.unitId;
+}
+
+/**
  * Leadership roles across Foundation, Schools/Units, Pesantren, and Higher Education.
  */
 export const LEADERSHIP_ROLES: readonly string[] = [
