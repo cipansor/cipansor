@@ -7,7 +7,7 @@ vi.mock('@/lib/prisma', () => ({
 }));
 
 import { prisma } from '@/lib/prisma';
-import { getAcademicSummary } from './rapor-pesantren.service';
+import { getAcademicSummary } from '../rapor-pesantren.service';
 
 const mocked = prisma as any;
 
