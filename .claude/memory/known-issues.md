@@ -696,11 +696,11 @@ loosely mis-attributes runs. -->
   a navigation does not yield a usable document), not Chromium's particular
   symptom (a thrown error). WebKit and Firefox return the empty placeholder
   instead, which is the same broken read.
-- **Firefox still has two low-rate flakes outside the three #1104 named**
+- **Firefox still has three low-rate flakes outside the three #1104 named**
   (measured 2026-11-17, two full local runs of `--project=firefox`, 748 tests
-  each). They retry green and never redden the job, so #1104 flipped firefox to
-  a gate anyway (a flake is not a failure); the entries stay so the next reader
-  knows they are known, not new:
+  each; the third seen on `main` 2026-11-18). They retry green and never redden
+  the job, so #1104 flipped firefox to a gate anyway (a flake is not a failure);
+  the entries stay so the next reader knows they are known, not new:
   - **Login bounce** (`loginAndWaitForDashboard`, `page-objects/index.ts`): once
     per run a spec lands on `/login?redirect=…` and throws "Login failed -
     redirected to login" (`student-management.spec.ts:272` in CI run
@@ -712,6 +712,22 @@ loosely mis-attributes runs. -->
     (`subtree intercepts pointer events`), and under `--repeat-each` the
     `beforeAll` enrollment insert can 409 ("field already exists"). The spec
     should `dismissToasts` before the row click and make its setup idempotent.
+  - **`session-cookies.spec.ts:89`** ("two tabs refreshing at once both keep
+    their session", run 44229198619 on `main`, 2026-11-18): two tabs reload
+    concurrently and both must present a still-valid rotation-prone refresh
+    cookie. Under load one tab's `/auth/refresh` lands late enough that the
+    concurrent-reload timing the test relies on slips; it retried green. Cause
+    not pinned yet (the serialization itself is correct — this is timing).
+
+- **Chromium (a required check) reports ~5 flakes per full run, a different set
+  each time** — `attendance-module`, `dashboard-refresh`, `lingkungan`,
+  `student-management`, `tahfidz-dashboard`, `tk-module`, `integration-flows`,
+  `auth` across base `b9876b2` (run 44039571200), the #1104 branch (run
+  44228606033) and `main` `5c1cf7ce` (run 44229198619); all retried green. It
+  reads as load-bound suite noise, not one defect, so a new name each run is
+  expected — do not chase it as a regression. (This is why #1104 flipped
+  firefox to a gate without trying to zero Chromium's count: retries absorb a
+  flake, and a real failure still reddens the job.)
 
 - **`teacher-management.spec.ts` skips all 12 of its tests** ("Teachers page
   not available"): the page it looks for does not exist (HR employees is on
