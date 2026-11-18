@@ -41,13 +41,20 @@ vi.mock('@/lib/prisma', () => ({
     medicalRecord: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     specialDiet: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     immunizationRecord: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    growthRecord: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     clinicAppointment: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
-    prescription: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    medicationUsageLog: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    prescription: {
+      findMany: vi.fn().mockResolvedValue([]),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    prescriptionItem: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     counselingSession: {
       findMany: vi.fn().mockResolvedValue([]),
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     counselingNote: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    counselingReferral: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     auditLog: { create: vi.fn() },
     role: { findMany: vi.fn().mockResolvedValue([]) },
     userRoleAssignment: {
@@ -578,6 +585,7 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       photoUrl: null,
     } as any);
     vi.mocked(prisma.counselingSession.findMany).mockResolvedValue([{ id: 'ses-1' }] as any);
+    vi.mocked(prisma.prescription.findMany).mockResolvedValue([{ id: 'pres-1' }] as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
     );
@@ -588,20 +596,39 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     expect(medical.where).toEqual({ studentId: 'stu-1' });
     expect(medical.data.complaint).toContain('UU PDP');
     expect(medical.data.diagnosis).toContain('UU PDP');
+    // Kolom rujukan menyebut rumah sakit/klinik tujuan — bagian rekam medis.
+    expect(medical.data.referredTo).toContain('UU PDP');
 
     const diet = vi.mocked(prisma.specialDiet.updateMany).mock.calls[0][0] as any;
     expect(diet.data.medicalNotes).toContain('UU PDP');
+    // Daftar alergi adalah data kesehatan yang menyebut kondisi subjek.
+    expect(diet.data.allergies).toEqual([]);
 
     const immunization = vi.mocked(prisma.immunizationRecord.updateMany).mock.calls[0][0] as any;
     expect(immunization.data.notes).toContain('UU PDP');
 
+    const growth = vi.mocked(prisma.growthRecord.updateMany).mock.calls[0][0] as any;
+    expect(growth.where).toEqual({ studentId: 'stu-1' });
+    expect(growth.data.notes).toContain('UU PDP');
+
     const appointment = vi.mocked(prisma.clinicAppointment.updateMany).mock.calls[0][0] as any;
     expect(appointment.data.complaint).toContain('UU PDP');
+
+    // Log penggunaan obat menyimpan alasan bebas ("Demam tinggi, paracetamol").
+    const usage = vi.mocked(prisma.medicationUsageLog.updateMany).mock.calls[0][0] as any;
+    expect(usage.where).toEqual({ studentId: 'stu-1' });
+    expect(usage.data.reason).toContain('UU PDP');
 
     const prescription = vi.mocked(prisma.prescription.updateMany).mock.calls[0][0] as any;
     expect(prescription.data.notes).toContain('UU PDP');
 
+    // `PrescriptionItem` menaut lewat `prescriptionId`, bukan `studentId`.
+    const item = vi.mocked(prisma.prescriptionItem.updateMany).mock.calls[0][0] as any;
+    expect(item.where).toEqual({ prescriptionId: { in: ['pres-1'] } });
+    expect(item.data.instructions).toContain('UU PDP');
+
     const session = vi.mocked(prisma.counselingSession.updateMany).mock.calls[0][0] as any;
+    expect(session.data.title).toContain('UU PDP');
     expect(session.data.description).toContain('UU PDP');
     expect(session.data.summary).toContain('UU PDP');
     expect(session.data.recommendations).toContain('UU PDP');
@@ -612,6 +639,15 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     const note = vi.mocked(prisma.counselingNote.updateMany).mock.calls[0][0] as any;
     expect(note.where).toEqual({ sessionId: { in: ['ses-1'] } });
     expect(note.data.content).toContain('UU PDP');
+
+    // Rujukan konseling menaut lewat `sessionId` yang sama.
+    const referral = vi.mocked(prisma.counselingReferral.updateMany).mock.calls[0][0] as any;
+    expect(referral.where).toEqual({ sessionId: { in: ['ses-1'] } });
+    expect(referral.data.reason).toContain('UU PDP');
+    expect(referral.data.outcome).toContain('UU PDP');
+
+    const studentNote = vi.mocked(prisma.studentNote.updateMany).mock.calls[0][0] as any;
+    expect(studentNote.data.title).toContain('UU PDP');
 
     const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
     expect(audit.data.newValues.erased).toContain('catatan kesehatan');

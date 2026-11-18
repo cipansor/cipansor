@@ -1100,15 +1100,16 @@ async function eraseStudent(
   // bukan dihapus — jadi isinya ditimpa penanda, sama seperti kolom teks lain.
   await tx.studentNote.updateMany({
     where: { studentId: student.id },
-    data: { content: marker },
+    data: { content: marker, title: marker },
   });
 
   // Kategori khusus (UU PDP Pasal 4): data kesehatan dan kesehatan jiwa menaut
   // santri dan menyimpan teks bebas yang menyebut dia — keluhan, diagnosis,
   // ringkasan sesi konseling, observasi psikologis. Barisnya dipertahankan
   // (rekam medis/konseling punya jalur bacanya sendiri), jadi hanya teksnya
-  // yang ditimpa penanda. `CounselingNote` menaut lewat `sessionId`, bukan
-  // `studentId`, jadi sesinya dikumpulkan lebih dulu.
+  // yang ditimpa penanda. Tabel anak yang menaut lewat id induknya
+  // (`CounselingNote` lewat `sessionId`, `PrescriptionItem` lewat
+  // `prescriptionId`) dikumpulkan lebih dulu.
   await tx.medicalRecord.updateMany({
     where: { studentId: student.id },
     data: {
@@ -1117,13 +1118,20 @@ async function eraseStudent(
       treatment: marker,
       prescription: marker,
       notes: marker,
+      referredTo: marker,
     },
   });
   await tx.specialDiet.updateMany({
     where: { studentId: student.id },
-    data: { medicalNotes: marker },
+    data: { medicalNotes: marker, allergies: [] },
   });
   await tx.immunizationRecord.updateMany({
+    where: { studentId: student.id },
+    data: { notes: marker },
+  });
+  // Catatan tumbuh kembang dilayani modul kesehatan (`/api/health/growth`) dan
+  // menyimpan pengamatan teks bebas tentang anak.
+  await tx.growthRecord.updateMany({
     where: { studentId: student.id },
     data: { notes: marker },
   });
@@ -1131,10 +1139,24 @@ async function eraseStudent(
     where: { studentId: student.id },
     data: { complaint: marker },
   });
+  await tx.medicationUsageLog.updateMany({
+    where: { studentId: student.id },
+    data: { reason: marker },
+  });
+  const prescriptions = await tx.prescription.findMany({
+    where: { studentId: student.id },
+    select: { id: true },
+  });
   await tx.prescription.updateMany({
     where: { studentId: student.id },
     data: { notes: marker },
   });
+  if (prescriptions.length) {
+    await tx.prescriptionItem.updateMany({
+      where: { prescriptionId: { in: prescriptions.map((item) => item.id) } },
+      data: { instructions: marker },
+    });
+  }
   const counselingSessions = await tx.counselingSession.findMany({
     where: { studentId: student.id },
     select: { id: true },
@@ -1142,6 +1164,7 @@ async function eraseStudent(
   await tx.counselingSession.updateMany({
     where: { studentId: student.id },
     data: {
+      title: marker,
       description: marker,
       summary: marker,
       recommendations: marker,
@@ -1149,9 +1172,16 @@ async function eraseStudent(
     },
   });
   if (counselingSessions.length) {
+    const sessionIds = counselingSessions.map((session) => session.id);
     await tx.counselingNote.updateMany({
-      where: { sessionId: { in: counselingSessions.map((session) => session.id) } },
+      where: { sessionId: { in: sessionIds } },
       data: { content: marker },
+    });
+    // Rujukan konseling juga menyimpan teks bebas — alasan rujukan dan
+    // hasilnya — dan menaut lewat `sessionId` yang sama.
+    await tx.counselingReferral.updateMany({
+      where: { sessionId: { in: sessionIds } },
+      data: { reason: marker, outcome: marker },
     });
   }
 
