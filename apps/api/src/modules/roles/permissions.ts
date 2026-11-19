@@ -61,6 +61,21 @@ export const PERMISSIONS = {
 
   // Settings
   SETTINGS_MANAGE: 'SETTINGS_MANAGE',
+
+  /**
+   * Pelindungan data pribadi: daftar dan tindak lanjut permintaan hak subjek
+   * data (UU 27/2022 Pasal 30, 35, 40, 43).
+   *
+   * Satu izin, bukan RoleCode baru. Yayasan menunjuk petugas pelindungan data
+   * pribadi beserta penggantinya (Pasal 53), dan penunjukan itu berpindah orang
+   * tanpa berpindah jabatan struktural — role baru akan memaksa setiap
+   * penunjukan ulang menjadi perubahan data kepegawaian. Izin ini dapat
+   * diberikan kepada peran mana pun lewat layar peran.
+   *
+   * Hanya SUPER_ADMIN yang memegangnya secara bawaan; sisa peran memperolehnya
+   * dengan penunjukan, bukan dengan menduduki jabatan tertentu.
+   */
+  PDP_MANAGE: 'PDP_MANAGE',
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];

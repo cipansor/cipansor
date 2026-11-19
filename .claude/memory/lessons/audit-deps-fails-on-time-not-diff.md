@@ -33,7 +33,9 @@ A pin cannot clear an advisory with no patched release (`first_patched_version:
 null` in `gh api /advisories/<GHSA>`). First found 2026-10-03: `braces <=3.0.3`
 (GHSA-vfj7-8cjw-p6xm), updated on the 2nd, red on every PR; 3.0.3 was the
 newest release. (Historical: the advisory was withdrawn on 2026-10-23 and the
-waiver removed in #953; `ACCEPTED_RISKS` is empty again.)
+waiver removed in #953. Reused 2026-11-17 for `picomatch <=4.0.7`
+(GHSA-fc5q-39xc-vjpf, high, `first_patched_version: null`, dev-only); both
+installed lines 2.3.2 and 4.0.7 are waived, `until 2026-12-17`.)
 
 - `pnpm why <pkg> -r` — is any path a `dependencies` one? If yes, there is no
   waiver: replace or patch what pulls it in.

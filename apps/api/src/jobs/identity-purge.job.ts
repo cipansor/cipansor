@@ -2,10 +2,12 @@ import type { PrismaClient } from '@prisma/client';
 import type { AppPrismaClient } from '@/lib/prisma';
 import {
   deleteIdentityDocument,
+  identityDocumentRetainUntil,
   listIdentityDocuments,
   orphanedIdentityDocuments,
   type IdentityDocumentOnDisk,
 } from '@/utils/identity-document-store';
+import { DEFAULT_VALIDITY_DAYS, expiryFrom } from '@/utils/esign-lifecycle';
 
 /**
  * Menghapus foto KTP yang tidak boleh lagi disimpan.
@@ -51,6 +53,8 @@ export interface ExpiredIdentityDocument {
 export interface IdentityPurgeSummary {
   dryRun: boolean;
   expired: ExpiredIdentityDocument[];
+  /** Baris ber-`ktpRetainUntil` kosong yang baru saja diberi batas simpan. */
+  backfilled: number;
   onDiskCount: number;
   referencedCount: number;
   orphans: IdentityDocumentOnDisk[];
@@ -87,6 +91,37 @@ export async function purgeIdentityDocuments(
       user: { select: { name: true } },
     },
   });
+
+  // Baris yang berkasnya masih ada tetapi batas simpannya kosong tidak akan
+  // pernah cocok dengan saringan di atas — dan tidak pernah menjadi yatim,
+  // karena berkasnya masih dirujuk. Tanpa langkah ini ia menyimpan foto KTP
+  // selamanya. Kolom itu kini diisi sejak unggah, jadi yang tersisa hanyalah
+  // baris lama yang diunggah sebelum jaring pengaman itu ada; yang dilakukan
+  // di sini adalah memberinya batas simpan menurut aturan yang sama, bukan
+  // menghapusnya — bukti registrasi penandatangan tetap disimpan sesuai
+  // kebijakannya, lalu ikut tersapu ketika batas itu lewat.
+  const backfillRows = await prisma.userIdentity.findMany({
+    // `user.deletedAt: null` mengecualikan baris yang subjeknya sudah dihapus
+    // oleh kode sebelum jaring pengaman ini ada: baris itu juga ber-
+    // `ktpRetainUntil` kosong, tetapi memberinya masa simpan baru berarti
+    // menyimpan KTP orang yang sudah dinyatakan dihapus. Berkasnya justru
+    // dibuang oleh `eraseUserIdentity` pada jalur penghapusan.
+    where: { ktpFileName: { not: null }, ktpRetainUntil: null, user: { deletedAt: null } },
+    select: { userId: true },
+  });
+
+  if (!dryRun) {
+    for (const row of backfillRows) {
+      await prisma.userIdentity.update({
+        where: { userId: row.userId },
+        data: {
+          ktpRetainUntil: identityDocumentRetainUntil(
+            expiryFrom(new Date(), DEFAULT_VALIDITY_DAYS)
+          ),
+        },
+      });
+    }
+  }
 
   const expired: ExpiredIdentityDocument[] = expiredRows.map((row) => ({
     userId: row.userId,
@@ -131,6 +166,7 @@ export async function purgeIdentityDocuments(
   const summary: IdentityPurgeSummary = {
     dryRun,
     expired,
+    backfilled: backfillRows.length,
     onDiskCount: onDisk.length,
     referencedCount: referenced.length,
     orphans,
@@ -167,6 +203,7 @@ async function recordRun(prisma: AppPrismaClient | PrismaClient, summary: Identi
         entity: 'UserIdentity',
         newValues: {
           expired: summary.expired.length,
+          backfilled: summary.backfilled,
           orphans: summary.orphans.length,
           onDisk: summary.onDiskCount,
           referenced: summary.referencedCount,

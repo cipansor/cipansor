@@ -94,8 +94,24 @@ export const getInteractionsByRegistrant = async (registrantId: string) => {
   });
 };
 
+/**
+ * Pendaftar yang persetujuannya masih berlaku.
+ *
+ * Penarikan persetujuan (UU PDP 27/2022 Pasal 40) berarti pemrosesan
+ * pemasaran harus benar-benar berhenti — bukan sekadar dicatat waktunya. Baris
+ * pendaftar yang sudah menarik persetujuannya tidak boleh lagi muncul sebagai
+ * prospek, kontak tindak lanjut, atau angka di dasbor pemasaran.
+ *
+ * Dipakai juga oleh `roi.service.ts`. Batasnya: setiap kueri yang membaca baris
+ * `Registrant` langsung (jumlah prospek, konversi, corong admisi, biaya daftar
+ * ulang) ikut disaring — baris itu artefak pemasaran/persetujuan. Kueri yang
+ * membaca `Invoice`/`Payment` tidak disentuh: itu catatan keuangan yang wajib
+ * retensi (Pasal 43–44), bukan pemrosesan atas dasar persetujuan.
+ */
+export const marketingConsentHeld: Prisma.RegistrantWhereInput = { consentWithdrawnAt: null };
+
 export const getDashboardStats = async (unitId?: string) => {
-  const whereRegistrant: Prisma.RegistrantWhereInput = {};
+  const whereRegistrant: Prisma.RegistrantWhereInput = { ...marketingConsentHeld };
 
   // 1. Sources Distribution
   const sources = await prisma.registrant.groupBy({
@@ -109,8 +125,18 @@ export const getDashboardStats = async (unitId?: string) => {
     },
   });
 
-  // 2. Campaign Performance
-  const campaigns = await prisma.marketingCampaign.findMany({
+  // 2. Campaign Performance. Jumlah pendaftar pun disaring persetujuannya:
+  // menghitung baris yang sudah menariknya sebagai hasil kampanye adalah
+  // pemrosesan lanjutan atas data itu.
+  //
+  // Peringkatnya dihitung di sini, dari jumlah TERSARING, bukan lewat
+  // `orderBy: { registrants: { _count } }`. Penyaring `where` pada `_count`
+  // hanya mengubah angka yang dikembalikan, bukan jumlah yang dipakai Prisma
+  // untuk mengurutkan — dengan lebih dari lima kampanye, lima teratas menurut
+  // jumlah SELURUH pendaftar bisa menyisihkan kampanye yang justru punya
+  // prospek aktif lebih banyak. Jadi seluruh kampanye cakupan dibaca, dihitung
+  // tersaringnya, diurutkan, baru diambil lima.
+  const allCampaigns = await prisma.marketingCampaign.findMany({
     where: unitId ? { unitId } : {},
     select: {
       id: true,
@@ -118,16 +144,13 @@ export const getDashboardStats = async (unitId?: string) => {
       code: true,
       budget: true,
       _count: {
-        select: { registrants: true },
-      },
-    },
-    take: 5,
-    orderBy: {
-      registrants: {
-        _count: 'desc',
+        select: { registrants: { where: marketingConsentHeld } },
       },
     },
   });
+  const campaigns = allCampaigns
+    .sort((a, b) => b._count.registrants - a._count.registrants)
+    .slice(0, 5);
 
   // 3. Conversion Rates (Registered vs Accepted) by Source
   // This is complex, simplified here
@@ -144,7 +167,7 @@ export const getDashboardStats = async (unitId?: string) => {
 };
 
 export const getRecentLeads = async (unitId?: string, limit: number = 5) => {
-  const where: Prisma.RegistrantWhereInput = {};
+  const where: Prisma.RegistrantWhereInput = { ...marketingConsentHeld };
   if (unitId) {
     where.admissionPeriod = { unitId };
   }
@@ -168,6 +191,7 @@ export const getRecentLeads = async (unitId?: string, limit: number = 5) => {
 
 export const getHighPriorityLeads = async (unitId?: string, limit: number = 10) => {
   const where: Prisma.RegistrantWhereInput = {
+    ...marketingConsentHeld,
     // Leads still in the admission funnel (not yet accepted/rejected/enrolled)
     status: {
       in: [
@@ -219,7 +243,7 @@ export const getHighPriorityLeads = async (unitId?: string, limit: number = 10) 
 };
 
 export const getUpcomingFollowUps = async (unitId?: string, limit: number = 5) => {
-  const whereRegistrant: Prisma.RegistrantWhereInput = {};
+  const whereRegistrant: Prisma.RegistrantWhereInput = { ...marketingConsentHeld };
   if (unitId) {
     whereRegistrant.admissionPeriod = { unitId };
   }

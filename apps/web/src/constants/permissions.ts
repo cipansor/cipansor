@@ -59,6 +59,16 @@ export const PERMISSIONS = {
 
   // Settings
   SETTINGS_MANAGE: "SETTINGS_MANAGE",
+
+  /**
+   * Pelindungan data pribadi (UU 27/2022 Pasal 30, 35, 40, 43).
+   *
+   * Diberikan lewat penunjukan petugas, bukan lewat jabatan: satu izin, bukan
+   * RoleCode baru. Cerminan `PERMISSIONS.PDP_MANAGE` di API — layar ini dan
+   * rutenya harus memakai nilai yang sama, atau sidebar menampilkan tautan
+   * yang dijawab 403.
+   */
+  PDP_MANAGE: "PDP_MANAGE",
 } as const;
 
 export const PERMISSION_GROUPS = {
@@ -101,6 +111,12 @@ export const PERMISSION_GROUPS = {
   ],
   ADMISSION: [PERMISSIONS.ADMISSION_VIEW, PERMISSIONS.ADMISSION_MANAGE],
   SYSTEM: [PERMISSIONS.SETTINGS_MANAGE],
+  /**
+   * Pelindungan data pribadi. Grup sendiri, bukan bagian dari SYSTEM: izin ini
+   * diberikan lewat penunjukan petugas (Pasal 53), dan layar peran harus dapat
+   * menunjukkannya terpisah dari izin sistem.
+   */
+  PRIVACY: [PERMISSIONS.PDP_MANAGE],
 };
 
 export const PERMISSION_LABELS: Record<string, string> = {
@@ -139,4 +155,5 @@ export const PERMISSION_LABELS: Record<string, string> = {
   ADMISSION_VIEW: "View Admissions",
   ADMISSION_MANAGE: "Manage Admissions",
   SETTINGS_MANAGE: "Manage Settings",
+  PDP_MANAGE: "Menangani permintaan hak subjek data (UU PDP)",
 };

@@ -398,6 +398,12 @@ model User {
   refreshTokens                     RefreshToken[]
   auditLogs                         AuditLog[]
   processedBorrowings               Borrowing[]                 @relation("BorrowingProcessor")
+  /// Permintaan hak subjek data yang menyebut pengguna ini: sebagai subjek
+  /// (orang dewasa meminta datanya sendiri), sebagai pemohon, atau sebagai
+  /// petugas yang menanganinya (UU PDP 27/2022 Pasal 30, 35).
+  dataSubjectRequestsSubject        DataSubjectRequest[]        @relation("DataSubjectSubject")
+  dataSubjectRequestsMade           DataSubjectRequest[]        @relation("DataSubjectRequester")
+  dataSubjectRequestsHandled        DataSubjectRequest[]        @relation("DataSubjectHandler")
   recordedMedical                   MedicalRecord[]             @relation("MedicalRecorder")
   givenMedications                  MedicationUsageLog[]        @relation("MedicationGiver")
   createdAnnouncements              Announcement[]              @relation("AnnouncementCreator")
@@ -1273,6 +1279,10 @@ model Student {
   /// NIS santri di tiap unit yang pernah menerimanya. `nis` di atas hanya NIS
   /// unit SEKARANG — lihat StudentUnitIdentifier.
   unitIdentifiers             StudentUnitIdentifier[]
+  /// Permintaan hak subjek data yang menyebut santri ini (UU PDP 27/2022
+  /// Pasal 30, 35). Satu santri boleh punya beberapa permintaan sepanjang
+  /// hidupnya; yang terakhir tidak menghapus riwayat yang sebelumnya.
+  dataSubjectRequests         DataSubjectRequest[]
 
   @@index([nis])
   @@index([unitId])
@@ -2027,6 +2037,14 @@ model Registrant {
   consentAt         DateTime?       @map("consent_at")
   consentVersion    String?         @map("consent_version")
   consentIp         String?         @map("consent_ip")
+  /// Kapan persetujuan ditarik (UU PDP 27/2022 Pasal 40 ayat 2, 3×24 jam).
+  ///
+  /// Bukti persetujuan lama TIDAK dihapus saat penarikan — Pasal 21 menuntut
+  /// kemampuan menunjukkan bahwa persetujuan pernah ada dan sah. Yang berubah
+  /// hanya hak memproses ke depan: `consentAt` tetap, kolom ini menandai
+  /// kapan pemrosesan atas dasar persetujuan berhenti. Kolomnya nullable
+  /// karena hanya permintaan penarikan yang mengisinya.
+  consentWithdrawnAt DateTime?     @map("consent_withdrawn_at")
   createdAt         DateTime        @default(now()) @map("created_at")
   updatedAt         DateTime        @updatedAt @map("updated_at")
 
@@ -2037,6 +2055,7 @@ model Registrant {
   documents       RegistrantDocument[]
   campaign        MarketingCampaign?     @relation(fields: [campaignId], references: [id])
   interactions    MarketingInteraction[]
+  dataSubjectRequests DataSubjectRequest[]
 
   @@index([admissionPeriodId])
   @@index([campaignId])
@@ -6930,6 +6949,161 @@ model PrivacyPolicyVersion {
 
   @@index([effectiveAt])
   @@map("privacy_policy_versions")
+}
+
+/// Permintaan hak subjek data (UU PDP 27/2022 Pasal 30, 32, 35, 40, 43).
+///
+/// Pasal 30 memberi subjek data hak akses dan koreksi, Pasal 40 hak menarik
+/// persetujuan, dan Pasal 43 hak penghapusan. Sebelum ini yayasan hanya
+/// *mengumumkan* hak itu di teks Kebijakan Privasi dan menunjuk kontak panitia
+/// SPMB secara manual — tidak ada alur, tidak ada tenggat, tidak ada bukti
+/// kapan sebuah permintaan dijawab. Tabel ini adalah alur itu.
+///
+/// **Kenapa satu tabel, bukan empat.** Keempat hak berbagi hal yang sama:
+/// pemohon, subjek, tenggat, status, dan riwayat tindakan. Empat tabel berarti
+/// empat daftar petugas dan empat tempat yang bisa lupa menghitung tenggat.
+/// Yang membedakan hanya `type` dan perhitungan `dueAt`.
+///
+/// **`dueAt` disimpan, bukan dihitung saat dibaca.** Tenggat adalah janji yang
+/// dibuat pada saat permintaan diterima, dan janji itu tidak boleh berubah
+/// karena kode diubah kemudian. Menyimpannya juga membuat "permintaan yang
+/// mendekati tenggat" menjadi satu indeks, bukan pemindaian seluruh tabel.
+///
+/// **Riwayat tindakan disimpan di `actions`, bukan tabel anak.** Yang dibaca
+/// petugas selalu seluruh riwayat satu permintaan sekaligus, tidak pernah satu
+/// baris tindakan sendirian; tabel anak hanya akan menambah satu join tanpa
+/// menambah kemampuan. Isinya array `{at, byId?, byName, from, to, note?}`.
+///
+/// **Subjek boleh santri, pendaftar, atau wali.** Ketiganya dijangkau lewat
+/// kolom nullable yang berbeda; `subjectCategory` menyatakan mana yang diisi,
+/// dan CHECK di migrasi menegakkan bahwa tepat satu yang terisi. Tidak memakai
+/// relasi polimorfik bertipe `subjectId` karena kunci asing yang nyata membuat
+/// basis data — bukan kode — yang menolak permintaan atas subjek yang tidak ada.
+model DataSubjectRequest {
+  id              String                  @id @default(uuid())
+  /// Nomor yang dibaca manusia dan disebut pemohon saat menanyakan kabar,
+  /// mis. `DSR-2026-0001`. Terpisah dari `id` karena UUID tidak dapat
+  /// didiktekan lewat telepon.
+  requestNo       String                  @unique @map("request_no")
+  type            DataSubjectRequestType
+  status          DataSubjectRequestStatus @default(RECEIVED)
+  subjectCategory DataSubjectCategory      @map("subject_category")
+
+  /// Subjek permintaan. Paling banyak satu terisi (CHECK di migrasi).
+  /// `subjectUserId` dipakai bila subjeknya orang dewasa — wali yang meminta
+  /// datanya sendiri.
+  ///
+  /// **Kenapa "paling banyak", bukan "tepat satu".** Ketiganya kunci asing
+  /// dengan `onDelete: SetNull`: menghapus subjek tidak boleh menyeret catatan
+  /// kepatuhan ini ikut hilang, sebab justru catatan inilah bukti permintaan
+  /// itu pernah dijawab. "Tepat satu" akan membuat penghapusan subjek gagal
+  /// karena melanggar CHECK — kegagalan yang muncul di jalur yang paling tidak
+  /// diinginkan, saat permintaan penghapusan sedang dijalankan.
+  subjectStudentId    String? @map("subject_student_id")
+  subjectRegistrantId String? @map("subject_registrant_id")
+  subjectUserId       String? @map("subject_user_id")
+
+  /// Cuplikan identitas subjek pada saat permintaan dibuat, mis.
+  /// `"Ahmad Fauzi (NIS 2024001)"`.
+  ///
+  /// Disimpan karena `subjectXId` dapat menjadi null (lihat di atas) dan karena
+  /// petugas perlu tahu permintaan ini tentang siapa tanpa membuka baris subjek
+  /// yang mungkin sudah dianonimkan. Setelah penghapusan dijalankan, kolom ini
+  /// ditimpa dengan penanda tanpa data pribadi.
+  subjectLabel String @map("subject_label")
+
+  /// Pemohon. Wali yang punya akun dikenali lewat `requesterUserId`; pemohon
+  /// publik (pendaftar SPMB tanpa akun) tidak punya akun sama sekali, jadi
+  /// identitasnya adalah nama + kontak yang ia tuliskan dan diverifikasi.
+  requesterUserId     String? @map("requester_user_id")
+  requesterName       String  @map("requester_name")
+  requesterContact    String  @map("requester_contact")
+  /// Hubungan pemohon dengan subjek bila bukan subjeknya sendiri, mis.
+  /// "Ayah" / "Ibu" / "Wali". Pasal 25 menuntut data anak dimohonkan wali.
+  requesterRelation   String? @map("requester_relation")
+
+  /// Apa yang diminta, dengan kata pemohon.
+  detail          String  @db.Text
+  /// Alasan penolakan bila `status = REJECTED` (Pasal 33: permintaan yang
+  /// membahayakan keselamatan, melanggar hak pihak lain, atau tidak dapat
+  /// diverifikasi). Wajib pada status itu — dijaga di lapisan layanan.
+  rejectionReason String? @map("rejection_reason") @db.Text
+
+  /// Tenggat pemenuhan. 3×24 jam untuk akses, koreksi, dan penarikan
+  /// persetujuan (Pasal 30 ayat 1, 32 ayat 2, 40 ayat 2); untuk penghapusan
+  /// mengikuti jadwal retensi (Pasal 43–44) dan dapat berupa tanggal yang jauh
+  /// di depan, bukan berarti permintaannya diabaikan.
+  dueAt       DateTime  @map("due_at")
+  /// Kapan permintaan dinyatakan selesai (atau ditolak). Menutup permintaan
+  /// menghentikan pengingat tenggatnya.
+  completedAt DateTime? @map("completed_at")
+
+  /// Petugas pelindungan data pribadi yang menangani.
+  handledById String? @map("handled_by_id")
+  verifiedAt  DateTime? @map("verified_at")
+
+  /// Verifikasi identitas pemohon publik (Pasal 33 menuntut penolakan bila
+  /// identitas tidak dapat dipastikan). Kode dikirim ke kontak yang SUDAH
+  /// terdaftar pada data subjek — bukan ke kontak yang dituliskan pemohon,
+  /// sebab kontak yang dituliskan pemohon justru yang sedang diragukan.
+  /// Hanya hash-nya yang disimpan: kode hidup di basis data sebagai rahasia.
+  verificationCodeHash String? @map("verification_code_hash")
+  /// Kapan kode verifikasi kedaluwarsa dan berapa kali dicoba. Percobaan
+  /// dibatasi supaya enam angka tidak dapat ditebak dengan mencoba terus.
+  verificationExpiresAt DateTime? @map("verification_expires_at")
+  verificationAttempts  Int        @default(0) @map("verification_attempts")
+
+  /// Riwayat tindakan: array `{at, byId?, byName, from, to, note?}`.
+  actions   Json     @default("[]")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relations
+  subjectStudent    Student?    @relation(fields: [subjectStudentId], references: [id], onDelete: SetNull)
+  subjectRegistrant Registrant? @relation(fields: [subjectRegistrantId], references: [id], onDelete: SetNull)
+  subjectUser       User?       @relation("DataSubjectSubject", fields: [subjectUserId], references: [id], onDelete: SetNull)
+  requesterUser     User?       @relation("DataSubjectRequester", fields: [requesterUserId], references: [id], onDelete: SetNull)
+  handledBy         User?       @relation("DataSubjectHandler", fields: [handledById], references: [id], onDelete: SetNull)
+
+  /// Daftar petugas: yang belum selesai lebih dulu, lalu tenggat terdekat.
+  @@index([status, dueAt])
+  @@index([subjectStudentId])
+  @@index([subjectRegistrantId])
+  @@index([subjectUserId])
+  @@index([requesterUserId])
+  @@index([handledById])
+  @@map("data_subject_requests")
+}
+
+/// Hak yang dipakai subjek data. Nilainya mengikuti pasal yang memberikannya.
+enum DataSubjectRequestType {
+  /// Pasal 30, 32 — tahu data apa yang diproses dan mendapat salinannya.
+  ACCESS
+  /// Pasal 30 ayat (1) — perbaikan atau pembaruan data yang tidak akurat.
+  RECTIFICATION
+  /// Pasal 40 ayat (2) — menghentikan pemrosesan atas dasar persetujuan.
+  CONSENT_WITHDRAWAL
+  /// Pasal 43–44 — penghapusan atau pemusnahan, sejauh tidak dibatasi
+  /// kewajiban retensi arsip.
+  ERASURE
+}
+
+/// Perjalanan satu permintaan. `REJECTED` adalah jalan keluar yang sah
+/// (Pasal 33) dan bukan kegagalan alur.
+enum DataSubjectRequestStatus {
+  RECEIVED
+  VERIFIED
+  PROCESSING
+  COMPLETED
+  REJECTED
+}
+
+/// Jenis subjek. Menentukan kolom mana yang wajib diisi dan aturan retensi
+/// mana yang berlaku saat penghapusan.
+enum DataSubjectCategory {
+  STUDENT
+  REGISTRANT
+  GUARDIAN
 }
 
 /// ChatbotUsageDaily — berapa banyak yang benar-benar dibelanjakan asisten

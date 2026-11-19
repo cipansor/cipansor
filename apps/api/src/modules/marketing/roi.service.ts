@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import { wibMonthYear, wibMonthKey, wibMonthRange } from '@/utils/wib';
+import { marketingConsentHeld } from './marketing.service';
 
 /** Page size for the row-by-row reads below; every page is read, so it is a
  * transport detail, not a cap on how much revenue is counted. */
@@ -66,7 +67,9 @@ export async function calculateCampaignROI(unitId?: string) {
       code: true,
       budget: true,
       _count: {
-        select: { registrants: true },
+        // Prospek kampanye adalah baris `Registrant`: yang menarik
+        // persetujuannya (Pasal 40) tidak lagi dihitung sebagai prospek.
+        select: { registrants: { where: marketingConsentHeld } },
       },
     },
   });
@@ -79,6 +82,7 @@ export async function calculateCampaignROI(unitId?: string) {
   const conversions = await prisma.registrant.groupBy({
     by: ['campaignId'],
     where: {
+      ...marketingConsentHeld,
       campaignId: { in: campaignIds },
       studentId: { not: null },
     },
@@ -162,6 +166,7 @@ export async function calculateCampaignROI(unitId?: string) {
   const registrationFeeRows = await readAllPages(({ skip, take }) =>
     prisma.registrant.findMany({
       where: {
+        ...marketingConsentHeld,
         campaignId: { in: campaignIds },
         registrationFeePaidAt: { not: null },
       },
@@ -240,7 +245,7 @@ export async function calculateCampaignROI(unitId?: string) {
  * CANCELLED are terminal drop-offs reported separately.
  */
 export async function getAdmissionFunnel(unitId?: string) {
-  const where: Prisma.RegistrantWhereInput = {};
+  const where: Prisma.RegistrantWhereInput = { ...marketingConsentHeld };
   if (unitId) where.admissionPeriod = { unitId };
   const rows = await prisma.registrant.groupBy({
     by: ['status'],
@@ -360,6 +365,7 @@ export async function getMonthlyAttributedRevenue(unitId?: string, months = 6) {
   const registrationFees = await readAllPages(({ skip, take }) =>
     prisma.registrant.findMany({
       where: {
+        ...marketingConsentHeld,
         campaignId: { not: null },
         registrationFeePaidAt: { gte: start },
         ...(unitId ? { admissionPeriod: { unitId } } : {}),

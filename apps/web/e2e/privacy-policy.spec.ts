@@ -72,3 +72,28 @@ test("a pinned version that does not exist degrades to the honest 'not yet'", as
   expect(response?.status()).toBeLessThan(400);
   await expect(page.getByText(copy.notPublishedTitle)).toBeVisible();
 });
+
+for (const locale of ["id", "en", "ar"] as Locale[]) {
+  test(`the privacy policy links the data subject request form in ${locale}`, async ({
+    page,
+    context,
+    baseURL,
+  }) => {
+    // Before #1111 the page named the rights (access, correction, erasure,
+    // withdrawal) and then told the reader to email the SPMB committee: a right
+    // with no route to exercise it and no record that a request arrived. The
+    // link is now the route, and it must exist in every language the notice is
+    // published in — a label added to one translation only would leave the
+    // other two readers with the old dead end.
+    const url = new URL(baseURL ?? "http://localhost:3000");
+    await context.addCookies([
+      { name: LOCALE_COOKIE, value: locale, domain: url.hostname, path: "/" },
+    ]);
+    const copy = pagesContentFor(locale).privacy;
+
+    await page.goto("/kebijakan-privasi");
+    const link = page.getByRole("link", { name: copy.requestLinkLabel });
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute("href", "/public/permintaan-data");
+  });
+}

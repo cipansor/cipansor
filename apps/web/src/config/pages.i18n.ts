@@ -135,6 +135,14 @@ export interface PagesContent {
     versionLabel: (version: number) => string;
     contactHeading: string;
     contactBody: string;
+    /**
+     * The way to actually exercise the rights the paragraph above describes.
+     *
+     * Before #1111 `contactBody` ended at "contact the SPMB committee", which
+     * is a sentence with nothing to click and no record that a request ever
+     * arrived — the manual channel the DataSubjectRequest flow replaces.
+     */
+    requestLinkLabel: string;
     backToForm: string;
   };
   article: {
@@ -288,7 +296,8 @@ const ID: PagesContent = {
     versionLabel: (version) => `Versi ${version}`,
     contactHeading: "Pertanyaan dan hak Anda",
     contactBody:
-      "Anda berhak meminta akses, koreksi, atau penghapusan data pribadi anak Anda, dan berhak menarik persetujuan ini kapan saja. Sampaikan permintaan itu kepada panitia SPMB melalui kontak di halaman Kontak.",
+      "Anda berhak meminta akses, koreksi, atau penghapusan data pribadi anak Anda, dan berhak menarik persetujuan ini kapan saja. Ajukan permintaan itu lewat formulir di bawah — ia tercatat, bertenggat, dan dapat Anda tanyakan kabarnya.",
+    requestLinkLabel: "Ajukan permintaan data pribadi",
     backToForm: "Kembali ke formulir pendaftaran",
   },
   article: {
@@ -449,7 +458,8 @@ const EN: PagesContent = {
     versionLabel: (version) => `Version ${version}`,
     contactHeading: "Questions and your rights",
     contactBody:
-      "You have the right to request access to, correction of, or deletion of your child's personal data, and to withdraw this consent at any time. Send that request to the SPMB committee through the contact details on the Contact page.",
+      "You have the right to request access to, correction of, or deletion of your child's personal data, and to withdraw this consent at any time. Make that request through the form below — it is recorded, given a deadline, and you can ask after it.",
+    requestLinkLabel: "Request your personal data",
     backToForm: "Back to the registration form",
   },
   article: {
@@ -619,7 +629,8 @@ const AR: PagesContent = {
     versionLabel: (version) => `الإصدار ${version}`,
     contactHeading: "الأسئلة وحقوقكم",
     contactBody:
-      "لكم الحق في طلب الوصول إلى بيانات طفلكم الشخصية أو تصحيحها أو حذفها، وفي سحب هذه الموافقة في أي وقت. أرسلوا هذا الطلب إلى لجنة القبول عبر بيانات التواصل في صفحة التواصل.",
+      "لكم الحق في طلب الوصول إلى بيانات طفلكم الشخصية أو تصحيحها أو حذفها، وفي سحب هذه الموافقة في أي وقت. قدّموا هذا الطلب عبر الاستمارة أدناه — فهي تُسجَّل، ويُحدَّد لها أجل، ويمكنكم الاستفسار عنها.",
+    requestLinkLabel: "تقديم طلب بشأن البيانات الشخصية",
     backToForm: "العودة إلى استمارة التسجيل",
   },
   article: {

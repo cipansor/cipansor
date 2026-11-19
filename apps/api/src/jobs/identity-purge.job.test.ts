@@ -50,7 +50,13 @@ function fakeDisk(files: Array<{ fileName: string; modifiedAt: Date }>) {
  * panggilan. Menjawab menurut urutan akan tetap lulus walaupun kedua kueri itu
  * tertukar.
  */
-function fakePrisma(opts: { expired?: any[]; referenced?: string[]; auditThrows?: boolean }) {
+function fakePrisma(opts: {
+  expired?: any[];
+  /** Baris lama: berkasnya ada, batas simpannya kosong. */
+  backfill?: any[];
+  referenced?: string[];
+  auditThrows?: boolean;
+}) {
   const referenced = new Set(opts.referenced ?? []);
   const auditCreate = vi.fn(async (_args: { data: Record<string, unknown> }) => {
     if (opts.auditThrows) throw new Error('audit_logs tidak dapat ditulis');
@@ -66,7 +72,18 @@ function fakePrisma(opts: { expired?: any[]; referenced?: string[]; auditThrows?
     prisma: {
       userIdentity: {
         findMany: vi.fn(async ({ where }: any) => {
-          if (where.ktpRetainUntil) return opts.expired ?? [];
+          if (where.ktpRetainUntil?.lte) return opts.expired ?? [];
+          // `ktpRetainUntil: null` — baris lama yang belum punya batas simpan.
+          if (where.ktpRetainUntil === null) {
+            const rows = opts.backfill ?? [];
+            // Saringan `user: { deletedAt: null }` dihormati di sini: tiruan
+            // yang mengabaikannya akan lulus walaupun layanannya lupa
+            // mengecualikan subjek yang sudah dihapus.
+            if (where.user?.deletedAt === null) {
+              return rows.filter((row) => (row.user?.deletedAt ?? null) === null);
+            }
+            return rows;
+          }
           return [...referenced].map((ktpFileName) => ({ ktpFileName }));
         }),
         update,
@@ -157,6 +174,73 @@ describe('purgeIdentityDocuments', () => {
 
     expect(summary.orphans).toHaveLength(0);
     expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  /**
+   * Baris yang diunggah sebelum jaring pengaman `ktpRetainUntil` ada tidak akan
+   * pernah cocok dengan saringan kedaluwarsa, dan tidak pernah menjadi yatim
+   * karena berkasnya masih dirujuk. Tanpa langkah ini foto KTP-nya tersimpan
+   * tanpa batas waktu — persis kelas yang ditutup `eraseUserIdentity`, hanya
+   * bentuknya baris lama alih-alih penghapusan subjek.
+   */
+  it('memberi batas simpan pada baris lama yang belum punya, bukan menghapusnya', async () => {
+    const { prisma, update } = fakePrisma({
+      backfill: [{ userId: 'u-lama' }],
+      referenced: ['lama.jpg'],
+    });
+
+    const summary = await purgeIdentityDocuments(prisma);
+
+    expect(summary.backfilled).toBe(1);
+    expect(update).toHaveBeenCalledWith({
+      where: { userId: 'u-lama' },
+      data: { ktpRetainUntil: expect.any(Date) },
+    });
+    // Memberi batas, bukan menghapus: bukti registrasi tetap disimpan sampai
+    // batas itu lewat, dan berkasnya belum boleh dibuang pada jalan ini.
+    expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it('tidak memberi batas simpan baru kepada baris yang subjeknya sudah dihapus', async () => {
+    // Baris yang dihapus oleh kode **sebelum** jaring pengaman ini ada juga
+    // ber-`ktpRetainUntil` kosong. Memberinya masa simpan ≈ 8 tahun berarti
+    // menyimpan KTP orang yang sudah dinyatakan dihapus — kebalikan dari
+    // maksud kolom itu. Berkasnya dibuang oleh `eraseUserIdentity` pada jalur
+    // penghapusan; yang di sini dicegah adalah menghidupkannya kembali.
+    const { prisma, update } = fakePrisma({
+      backfill: [
+        { userId: 'u-lama' },
+        { userId: 'u-dihapus', user: { deletedAt: new Date('2026-01-01') } },
+      ],
+    });
+
+    const summary = await purgeIdentityDocuments(prisma);
+
+    expect(summary.backfilled).toBe(1);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith({
+      where: { userId: 'u-lama' },
+      data: { ktpRetainUntil: expect.any(Date) },
+    });
+  });
+
+  it('batas simpan hasil backfill berada di masa depan, bukan langsung kedaluwarsa', async () => {
+    const { prisma, update } = fakePrisma({ backfill: [{ userId: 'u-lama' }] });
+
+    await purgeIdentityDocuments(prisma);
+
+    const data = update.mock.calls[0]![0].data as { ktpRetainUntil: Date };
+    expect(data.ktpRetainUntil.getTime()).toBeGreaterThan(Date.now());
+  });
+
+  it('dry run tidak menulis backfill apa pun', async () => {
+    const { prisma, update } = fakePrisma({ backfill: [{ userId: 'u-lama' }] });
+
+    const summary = await purgeIdentityDocuments(prisma, { dryRun: true });
+
+    expect(update).not.toHaveBeenCalled();
+    // Tetap dilaporkan: itulah gunanya dry run.
+    expect(summary.backfilled).toBe(1);
   });
 
   it('dry run tidak menghapus apa pun dan tidak mencatat apa pun', async () => {

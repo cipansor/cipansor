@@ -14,6 +14,7 @@ import { runChatbotSpendCheck } from './chatbot-spend.job';
 import { runChatbotTranscriptPurge } from './chatbot-transcript-purge.job';
 import { runChatbotEscalationRetry } from './chatbot-escalation-retry.job';
 import { runAttendanceFollowUpReminder } from './attendance-follow-up.job';
+import { runDataSubjectOverdueReminder } from './data-subject-overdue.job';
 import { runAttendanceRegisterReminder } from './attendance-register-reminder.job';
 import { runAttendancePatternFlags } from './attendance-pattern.job';
 import { runAccreditationReminder } from './accreditation-reminder.job';
@@ -187,6 +188,7 @@ export function initializeScheduler(): void {
         const summary = await purgeIdentityDocuments(prisma);
         logger.info(
           `[Scheduler] Identity purge: ${summary.expired.length} expired, ` +
+            `${summary.backfilled} backfilled, ` +
             `${summary.orphans.length} orphaned, ` +
             `${summary.onDiskCount} on disk, ${summary.referencedCount} referenced`
         );
@@ -362,6 +364,32 @@ export function initializeScheduler(): void {
   );
   scheduledTasks.push(attendanceFollowUpTask);
   logger.info('[Scheduler] Attendance follow-up reminder scheduled daily at 15:00 WIB');
+
+  /**
+   * Pengingat tenggat permintaan hak subjek data (UU 27/2022 Pasal 30, 32, 40, 43).
+   *
+   * Pukul 07:00 WIB, sebelum jam kerja: petugas pelindungan data pribadi
+   * membuka harinya dengan daftar permintaan yang tenggatnya sudah lewat,
+   * bukan menemukannya kebetulan. Tenggat terpendek adalah 3×24 jam, jadi
+   * sekali sehari sudah cukup.
+   */
+  const dataSubjectOverdueTask = cron.schedule(
+    '0 7 * * *',
+    async () => {
+      try {
+        const { overdue, reminded } = await runDataSubjectOverdueReminder();
+        if (overdue)
+          logger.info(`[Scheduler] DSR overdue reminders: ${reminded} for ${overdue} request(s)`);
+      } catch (error) {
+        logger.error('[Scheduler] DSR overdue reminder failed:', error);
+      }
+    },
+    {
+      timezone: 'Asia/Jakarta',
+    }
+  );
+  scheduledTasks.push(dataSubjectOverdueTask);
+  logger.info('[Scheduler] DSR overdue reminder scheduled daily at 07:00 WIB');
 
   /**
    * Pengingat register (decisions/absensi-harian.md).
@@ -562,6 +590,7 @@ export async function runJob(
     | 'chatbot-transcript-purge'
     | 'chatbot-escalation-retry'
     | 'attendance-follow-up'
+    | 'data-subject-overdue'
     | 'attendance-register-reminder'
     | 'attendance-pattern'
     | 'accreditation-reminder'
@@ -604,6 +633,9 @@ export async function runJob(
       break;
     case 'attendance-follow-up':
       await runAttendanceFollowUpReminder();
+      break;
+    case 'data-subject-overdue':
+      await runDataSubjectOverdueReminder();
       break;
     case 'attendance-register-reminder':
       await runAttendanceRegisterReminder();
