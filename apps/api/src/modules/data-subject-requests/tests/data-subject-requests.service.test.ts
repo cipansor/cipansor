@@ -1396,7 +1396,17 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       user: { name: 'Ahmad Dewasa', email: 'ahmad@example.com', phone: '0812' },
       unit: { name: 'SMA IT Cipansor' },
       parents: [],
-      documents: [{ type: 'AKTA', title: 'Akta Kelahiran', documentNumber: 'AL-2010-0003' }],
+      // Bentuk `StudentDocument` yang sebenarnya: `documentType`/`status`,
+      // bukan `type`/`isVerified` (itu milik `RegistrantDocument`). Memakai
+      // bentuk registrant di sini adalah cara cacat putaran 12 lolos.
+      studentDocuments: [
+        {
+          documentType: 'BIRTH_CERTIFICATE',
+          title: 'Akta Kelahiran',
+          documentNumber: 'AL-2010-0003',
+          status: 'VERIFIED',
+        },
+      ],
     } as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ACCESS', status: 'COMPLETED' }) as any
@@ -1417,15 +1427,41 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     // Dokumen ikut: judul dan nomornya juga disapu `eraseStudent`, jadi
     // keduanya bagian dari data subjek yang harus diserahkan.
     expect(personal.documents).toEqual([
-      { type: 'AKTA', title: 'Akta Kelahiran', documentNumber: 'AL-2010-0003' },
+      {
+        documentType: 'BIRTH_CERTIFICATE',
+        title: 'Akta Kelahiran',
+        documentNumber: 'AL-2010-0003',
+        status: 'VERIFIED',
+      },
     ]);
 
     // Kolomnya benar-benar diminta dari basis data, bukan hanya ada di objek
     // hasil — `select` yang lupa memuatnya akan mengembalikan `undefined`.
     const select = vi.mocked(prisma.student.findUnique).mock.calls[0][0] as any;
-    for (const col of ['nik', 'noKK', 'noAkta', 'kipNumber', 'fatherNik', 'motherNik']) {
+    for (const col of [
+      'nik',
+      'noKK',
+      'noAkta',
+      'kipNumber',
+      'fatherNik',
+      'motherNik',
+      'guardianNik',
+      'nisn',
+    ]) {
       expect(select.select[col]).toBe(true);
     }
+    // Nama relasi dan kolomnya harus milik `Student`/`StudentDocument`, bukan
+    // `Registrant`/`RegistrantDocument`. Bentuk yang salah lolos `tsc` (TS 6
+    // tidak melaporkan properti berlebih pada `StudentSelect`) tetapi ditolak
+    // Prisma saat dijalankan — jadi kueri yang dikirim diperiksa di sini.
+    expect(select.select.studentDocuments).toBeDefined();
+    expect(select.select.documents).toBeUndefined();
+    expect(Object.keys(select.select.studentDocuments.select).sort()).toEqual([
+      'documentNumber',
+      'documentType',
+      'status',
+      'title',
+    ]);
   });
 });
 

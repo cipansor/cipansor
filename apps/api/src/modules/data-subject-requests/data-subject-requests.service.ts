@@ -1852,10 +1852,13 @@ async function buildStudentPersonalData(
       },
       // Judul dan nomor dokumen juga disapu `eraseStudent` (`title`,
       // `documentNumber`), jadi keduanya bagian dari data subjek yang harus
-      // ikut diserahkan. Berkas akademik yang dipertahankan tetap disebut.
-      documents: {
+      // ikut diserahkan. Nama relasinya `studentDocuments` — `documents` milik
+      // `Registrant`; `StudentDocument` memakai `documentType`/`status`, bukan
+      // `type`/`isVerified`. Keduanya diperiksa penjaga
+      // `select-coverage.guard.test.ts`.
+      studentDocuments: {
         where: { deletedAt: null },
-        select: { type: true, title: true, documentNumber: true, isVerified: true },
+        select: { documentType: true, title: true, documentNumber: true, status: true },
       },
     },
   });
@@ -1884,7 +1887,7 @@ async function buildStudentPersonalData(
     entryYear: student.entryYear,
     graduateYear: student.graduateYear,
     unit: student.unit.name,
-    documents: student.documents,
+    documents: student.studentDocuments,
     guardians: student.parents.map((p) => ({
       relation: p.relation,
       name: p.parent.name,
