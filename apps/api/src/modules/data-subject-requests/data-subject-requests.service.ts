@@ -1500,12 +1500,14 @@ async function executeErasure(
     requesterContact: '—',
     requesterRelation: null,
     detail: `Rincian dihapus bersama permintaan ${request.requestNo} (UU PDP).`,
-    rejectionReason: null,
   } as const;
 
   await tx.dataSubjectRequest.update({
     where: { id: request.id },
-    data: { ...requesterAnonymisation },
+    // `rejectionReason` dikosongkan hanya pada baris ini: statusnya sedang
+    // dipindahkan ke `COMPLETED`, jadi CHECK `status <> 'REJECTED' OR
+    // rejection_reason IS NOT NULL` tidak berlaku untuknya.
+    data: { ...requesterAnonymisation, rejectionReason: null },
   });
 
   // Permintaan LAIN yang menunjuk subjek yang sama menyimpan label, nama
@@ -1513,6 +1515,13 @@ async function executeErasure(
   // menampilkan nama yang baru saja dihapus. Baris-barisnya dipertahankan
   // (riwayat kepatuhan), tetapi seluruh PII pemohon ditimpa: nomor permintaan
   // dan riwayat statusnya tetap utuh, yang hilang hanya yang menunjuk orang.
+  //
+  // `rejectionReason` di sini ditimpa penanda, BUKAN dikosongkan: baris
+  // saudara dapat berstatus `REJECTED`, dan CHECK migrasi menuntut alasan
+  // penolakan tetap ada. Mengosongkannya membuat PostgreSQL menolak baris itu
+  // (23514) dan seluruh transaksi penutupan batal — artinya penghapusan tidak
+  // akan pernah bisa diselesaikan untuk subjek yang punya satu permintaan
+  // ditolak.
   const sameSubject: Prisma.DataSubjectRequestWhereInput[] = [];
   if (request.subjectStudentId) sameSubject.push({ subjectStudentId: request.subjectStudentId });
   if (request.subjectRegistrantId)
@@ -1521,7 +1530,10 @@ async function executeErasure(
   if (sameSubject.length) {
     await tx.dataSubjectRequest.updateMany({
       where: { id: { not: request.id }, OR: sameSubject },
-      data: { ...requesterAnonymisation },
+      data: {
+        ...requesterAnonymisation,
+        rejectionReason: `Alasan penolakan dihapus bersama permintaan ${request.requestNo} (UU PDP).`,
+      },
     });
   }
 

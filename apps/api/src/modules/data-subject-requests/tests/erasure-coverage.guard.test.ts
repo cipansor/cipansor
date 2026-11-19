@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Prisma } from '@prisma/client';
 
@@ -200,8 +200,12 @@ const COVERAGE: Record<string, Buckets> = {
       'requesterRelation',
       'detail',
       'rejectionReason',
+      // Ditulis ulang: catatan tindakan diganti salinan yang sudah disapu
+      // (peristiwa status dan waktunya tetap). Tidak boleh masuk `retained`
+      // justru karena `retained` berarti "tidak ditulis sama sekali".
+      'actions',
     ],
-    retained: ['actions'],
+    retained: [],
     ignored: [
       'id',
       'requestNo',
@@ -217,7 +221,8 @@ const COVERAGE: Record<string, Buckets> = {
 
 type DmmfModel = {
   name: string;
-  fields: { name: string; kind: string; type: string; isList: boolean }[];
+  dbName?: string;
+  fields: { name: string; dbName?: string; kind: string; type: string; isList: boolean }[];
 };
 
 const datamodel = (Prisma as unknown as { dmmf: { datamodel: { models: DmmfModel[] } } }).dmmf
@@ -276,22 +281,107 @@ describe('penjaga cakupan penyapuan ERASURE', () => {
     expect(unlisted).toEqual([]);
   });
 
-  it('setiap kolom yang ditandai disapu benar-benar ditulis di layanan', () => {
+  it('setiap kolom yang ditandai disapu benar-benar ditulis, dan yang dipertahankan tidak', () => {
     // Bukan pengganti pembacaan kode — hanya menahan daftar agar tidak
     // menyimpang dari layanan yang benar-benar menulisnya. Kolom dianggap
     // tertulis bila muncul sebagai kunci di dalam `data: { … }` sebuah
     // `tx.<model>.update`/`updateMany` (termasuk yang masuk lewat spread).
+    //
+    // Arah kedua sama pentingnya: kolom yang ditulis tetapi didaftarkan
+    // `retained` menyembunyikan penyapuan dari pemeriksaan (`actions` sempat
+    // begitu), dan `retained` adalah janji "tidak disentuh" yang harus benar.
     const written = columnsWrittenByService(serviceSource);
-    const missing: string[] = [];
+    const problems: string[] = [];
     for (const [model, buckets] of Object.entries(COVERAGE)) {
       const keys = written[model[0].toLowerCase() + model.slice(1)] ?? new Set<string>();
       for (const col of buckets.swept) {
-        if (!keys.has(col)) missing.push(`${model}.${col}`);
+        if (!keys.has(col)) problems.push(`${model}.${col} ditandai disapu tetapi tidak ditulis`);
+      }
+      for (const col of buckets.retained) {
+        if (keys.has(col)) problems.push(`${model}.${col} ditandai dipertahankan tetapi ditulis`);
       }
     }
-    expect(missing).toEqual([]);
+    expect(problems).toEqual([]);
+  });
+
+  it('tidak ada updateMany yang mengosongkan kolom terikat CHECK', () => {
+    // Unit test mem-mock Prisma, jadi CHECK basis data tidak pernah dievaluasi
+    // — itulah yang meloloskan `rejectionReason: null` pada baris saudara
+    // berstatus `REJECTED` sampai tinjauan menemukannya. `updateMany` menyentuh
+    // baris yang statusnya tidak diketahui di titik tulis, sehingga
+    // mengosongkan kolom terikat CHECK dapat melanggar batasan (23514) dan
+    // membatalkan seluruh transaksi. `update` tidak diperiksa: ia menulis satu
+    // baris yang statusnya ikut ditetapkan di blok yang sama.
+    const constrained = checkConstrainedColumns();
+    const problems: string[] = [];
+    for (const { model, data } of updateManyDataBlocks(serviceSource)) {
+      const columns = constrained[model];
+      if (!columns) continue;
+      for (const [col, value] of Object.entries(data)) {
+        if (value === 'null' && columns.has(col)) {
+          problems.push(`${model}.${col} dikosongkan lewat updateMany, tetapi terikat CHECK`);
+        }
+      }
+    }
+    expect(problems).toEqual([]);
   });
 });
+
+/** Kolom yang disebut `CHECK (…)` pada migrasi, per nama FIELD Prisma. */
+function checkConstrainedColumns(): Record<string, Set<string>> {
+  // SQL memakai nama kolom basis data (`rejection_reason`), sedangkan layanan
+  // menulis nama field Prisma (`rejectionReason`). Tanpa pemetaan lewat DMMF,
+  // penjaga ini tidak pernah cocok dan hijau secara palsu.
+  const result: Record<string, Set<string>> = {};
+  const dir = resolve(__dirname, '../../../../prisma/migrations');
+  for (const migration of readdirSync(dir)) {
+    const file = resolve(dir, migration, 'migration.sql');
+    if (!existsSync(file)) continue;
+    const sql = readFileSync(file, 'utf8');
+    for (const [, table, body] of sql.matchAll(/ALTER TABLE "(\w+)"([\s\S]*?);/g)) {
+      if (!/CHECK\s*\(/i.test(body)) continue;
+      const model = datamodel.models.find((m) => m.dbName === table);
+      if (!model) continue;
+      const delegate = model.name[0].toLowerCase() + model.name.slice(1);
+      const columns = (result[delegate] ??= new Set<string>());
+      for (const [, dbColumn] of body.matchAll(/"(\w+)"/g)) {
+        const field = model.fields.find((f) => (f.dbName ?? f.name) === dbColumn);
+        if (field) columns.add(field.name);
+      }
+    }
+  }
+  return result;
+}
+
+/** Blok `data: { … }` setiap `tx.<model>.updateMany`, dengan nilai literal. */
+function updateManyDataBlocks(source: string): { model: string; data: Record<string, string> }[] {
+  const code = source.replace(/\/\/[^\n]*/g, '');
+  const constObjects = topLevelConstObjects(code);
+  const blocks: { model: string; data: Record<string, string> }[] = [];
+  for (const call of code.matchAll(/tx\.(\w+)\.updateMany\(\{/g)) {
+    const body = sliceBalanced(code, call.index + call[0].length - 1);
+    const dataAt = body.indexOf('data: {');
+    if (dataAt < 0) continue;
+    const data = literalValues(sliceBalanced(body, body.indexOf('{', dataAt)), constObjects);
+    blocks.push({ model: call[1], data });
+  }
+  return blocks;
+}
+
+/** Nilai literal per kunci objek; kolom yang datang lewat spread ditandai. */
+function literalValues(
+  obj: string,
+  constObjects: Record<string, string[]>
+): Record<string, string> {
+  const values: Record<string, string> = {};
+  for (const name of topLevelSpreads(obj)) {
+    for (const key of constObjects[name] ?? []) values[key] = 'spread';
+  }
+  for (const [, key, value] of obj.matchAll(/(\w+)\s*:\s*(null|'[^']*'|"[^"]*"|\d+)/g)) {
+    values[key] = value;
+  }
+  return values;
+}
 
 /** Peta `tx.<model>.update(Many)({…})` -> himpunan kunci `data`. */
 function columnsWrittenByService(source: string): Record<string, Set<string>> {

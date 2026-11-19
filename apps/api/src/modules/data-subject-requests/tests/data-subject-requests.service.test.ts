@@ -1368,10 +1368,52 @@ describe('data-subject-requests — penemuan lanjutan', () => {
     expect(sibling.data).toMatchObject({
       requesterName: expect.stringContaining('Pemohon dihapus'),
       requesterContact: '—',
-      rejectionReason: null,
     });
     expect(sibling.data.requesterName).not.toContain('Budi');
     expect(sibling.data.detail).not.toContain('Budi');
+  });
+
+  it('baris saudara berstatus REJECTED tetap punya alasan penolakan', async () => {
+    // CHECK `data_subject_requests_rejection_reason_check` menuntut alasan pada
+    // status REJECTED. Baris saudara dapat berstatus itu, dan `updateMany`
+    // menyentuh semua baris saudara tanpa menyaring status — jadi mengosongkan
+    // `rejectionReason` membuat PostgreSQL menolak barisnya (23514) dan seluruh
+    // transaksi penutupan batal: penghapusan tak akan pernah bisa diselesaikan.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const sibling = vi
+      .mocked(prisma.dataSubjectRequest.updateMany)
+      .mock.calls.map((c) => c[0] as any)
+      .find((c) => c.where?.id?.not === 'dsr-1');
+    expect(sibling, 'baris saudara harus disapu').toBeTruthy();
+    expect(sibling.data.rejectionReason).not.toBeNull();
+    expect(sibling.data.rejectionReason).not.toContain('Budi');
+    // Baris utama tidak terkena CHECK (statusnya menjadi COMPLETED), jadi
+    // alasan penolakannya boleh dan memang harus dikosongkan.
+    const main = vi
+      .mocked(prisma.dataSubjectRequest.update)
+      .mock.calls.map((c) => c[0] as any)
+      .find((c) => c.where.id === 'dsr-1' && c.data.requesterName !== undefined);
+    expect(main.data.rejectionReason).toBeNull();
   });
 
   it('mengosongkan catatan tindakan yang dapat memuat PII', async () => {
