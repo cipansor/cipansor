@@ -74,7 +74,16 @@ function fakePrisma(opts: {
         findMany: vi.fn(async ({ where }: any) => {
           if (where.ktpRetainUntil?.lte) return opts.expired ?? [];
           // `ktpRetainUntil: null` — baris lama yang belum punya batas simpan.
-          if (where.ktpRetainUntil === null) return opts.backfill ?? [];
+          if (where.ktpRetainUntil === null) {
+            const rows = opts.backfill ?? [];
+            // Saringan `user: { deletedAt: null }` dihormati di sini: tiruan
+            // yang mengabaikannya akan lulus walaupun layanannya lupa
+            // mengecualikan subjek yang sudah dihapus.
+            if (where.user?.deletedAt === null) {
+              return rows.filter((row) => (row.user?.deletedAt ?? null) === null);
+            }
+            return rows;
+          }
           return [...referenced].map((ktpFileName) => ({ ktpFileName }));
         }),
         update,
@@ -190,6 +199,29 @@ describe('purgeIdentityDocuments', () => {
     // Memberi batas, bukan menghapus: bukti registrasi tetap disimpan sampai
     // batas itu lewat, dan berkasnya belum boleh dibuang pada jalan ini.
     expect(deleteMock).not.toHaveBeenCalled();
+  });
+
+  it('tidak memberi batas simpan baru kepada baris yang subjeknya sudah dihapus', async () => {
+    // Baris yang dihapus oleh kode **sebelum** jaring pengaman ini ada juga
+    // ber-`ktpRetainUntil` kosong. Memberinya masa simpan ≈ 8 tahun berarti
+    // menyimpan KTP orang yang sudah dinyatakan dihapus — kebalikan dari
+    // maksud kolom itu. Berkasnya dibuang oleh `eraseUserIdentity` pada jalur
+    // penghapusan; yang di sini dicegah adalah menghidupkannya kembali.
+    const { prisma, update } = fakePrisma({
+      backfill: [
+        { userId: 'u-lama' },
+        { userId: 'u-dihapus', user: { deletedAt: new Date('2026-01-01') } },
+      ],
+    });
+
+    const summary = await purgeIdentityDocuments(prisma);
+
+    expect(summary.backfilled).toBe(1);
+    expect(update).toHaveBeenCalledTimes(1);
+    expect(update).toHaveBeenCalledWith({
+      where: { userId: 'u-lama' },
+      data: { ktpRetainUntil: expect.any(Date) },
+    });
   });
 
   it('batas simpan hasil backfill berada di masa depan, bukan langsung kedaluwarsa', async () => {

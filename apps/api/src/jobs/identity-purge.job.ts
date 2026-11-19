@@ -101,7 +101,12 @@ export async function purgeIdentityDocuments(
   // menghapusnya — bukti registrasi penandatangan tetap disimpan sesuai
   // kebijakannya, lalu ikut tersapu ketika batas itu lewat.
   const backfillRows = await prisma.userIdentity.findMany({
-    where: { ktpFileName: { not: null }, ktpRetainUntil: null },
+    // `user.deletedAt: null` mengecualikan baris yang subjeknya sudah dihapus
+    // oleh kode sebelum jaring pengaman ini ada: baris itu juga ber-
+    // `ktpRetainUntil` kosong, tetapi memberinya masa simpan baru berarti
+    // menyimpan KTP orang yang sudah dinyatakan dihapus. Berkasnya justru
+    // dibuang oleh `eraseUserIdentity` pada jalur penghapusan.
+    where: { ktpFileName: { not: null }, ktpRetainUntil: null, user: { deletedAt: null } },
     select: { userId: true },
   });
 

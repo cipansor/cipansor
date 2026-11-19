@@ -1040,6 +1040,12 @@ async function eraseStudent(
   now: Date
 ): Promise<ErasureOutcome> {
   const outcome: ErasureOutcome = { erased: [], retained: [], files: [], identityFiles: [] };
+  const absorbOutcome = (part: ErasureOutcome) => {
+    outcome.erased.push(...part.erased);
+    outcome.retained.push(...part.retained);
+    outcome.files.push(...part.files);
+    outcome.identityFiles.push(...part.identityFiles);
+  };
   const student = await tx.student.findUnique({
     where: { id: studentId },
     select: { id: true, userId: true, photoUrl: true },
@@ -1138,6 +1144,14 @@ async function eraseStudent(
       deletedAt: now,
     },
   });
+
+  // `UserIdentity` menaut `User` lewat `userId`, dan `onDelete: Cascade` tidak
+  // menyala karena baris `User` diperbarui, bukan dihapus. Tanpa panggilan ini,
+  // jalur subjek `STUDENT`/`REGISTRANT` mengosongkan akunnya tetapi meninggalkan
+  // nama sesuai KTP, NIK 16 digit, tempat lahir, dan catatan verifikasi pada
+  // `UserIdentity` — dan `nik` bertanda `@unique`, sehingga orang itu juga tidak
+  // dapat mendaftar ulang dengan NIK-nya sendiri.
+  absorbOutcome(await eraseUserIdentity(tx, student.userId, marker, now));
 
   // Catatan bebas santri (konseling, perilaku, wali kelas) menyebut nama anak
   // dan pokok persoalannya. Barisnya bukan arsip akademik yang wajib retensi,
@@ -1680,8 +1694,12 @@ async function executeErasure(
       entity: 'DataSubjectRequest',
       entityId: request.id,
       newValues: {
-        erased,
-        retained,
+        // Satu jalur dapat menyapu `User` yang sama dua kali (subjek diri
+        // sendiri yang juga menunjuk seorang santri), jadi daftarnya dirapikan
+        // sebelum dicatat — catatan audit yang menyebut hal yang sama dua kali
+        // terbaca seolah dua hal berbeda yang dihapus.
+        erased: [...new Set(erased)],
+        retained: [...new Set(retained)],
         filesDeleted: filesToDelete.length,
         executedAt: now.toISOString(),
       } as Prisma.InputJsonValue,

@@ -530,6 +530,92 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     expect(audit.data.newValues.erased).toContain('identitas santri');
   });
 
+  it('subjek STUDENT menyapu UserIdentity-nya, bukan hanya baris User', async () => {
+    // Kelas cacat putaran 13: `eraseStudent` mengosongkan `User` (nama, surel,
+    // `deletedAt`) lalu berhenti, sementara `UserIdentity` — nama sesuai KTP,
+    // NIK 16 digit, tempat lahir, catatan verifikasi — tetap utuh. Jalur ini
+    // adalah yang paling wajar dipakai wali (`assertCanActForStudent` mengisi
+    // `subjectStudentId`, bukan `subjectUserId`), sehingga `eraseUserIdentity`
+    // yang hanya dipanggil dari cabang `subjectUserId` tidak pernah tercapai.
+    //
+    // `nik` bertanda `@unique`, jadi selain sisa data pribadi ini juga menutup
+    // pintu bagi orang itu untuk mendaftar ulang dengan NIK-nya sendiri.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectRegistrantId: null,
+        subjectStudentId: 'stu-1',
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    // Santri ini pernah mengunggah KTP tetapi belum pernah menerima kunci,
+    // jadi berkasnya harus ikut dibuang sekarang, bukan menunggu purge.
+    vi.mocked(prisma.userIdentity.findUnique).mockResolvedValue({
+      ktpFileName: 'ktp-santri.jpg',
+    } as any);
+    vi.mocked(prisma.userSigningKey.findUnique).mockResolvedValue(null as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const identity = vi.mocked(prisma.userIdentity.update).mock.calls[0]?.[0] as any;
+    expect(identity).toBeDefined();
+    expect(identity.where).toEqual({ userId: 'usr-1' });
+    expect(identity.data.nik).toBe('dihapus-usr-1');
+    expect(identity.data.legalName).toContain('UU PDP');
+    expect(identity.data.ktpFileName).toBeNull();
+    expect(identity.data.ktpDeletedAt).toBeInstanceOf(Date);
+
+    // Berkasnya benar-benar masuk daftar hapus-setelah-commit, bukan hanya
+    // kolomnya dikosongkan.
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.newValues.erased).toContain('identitas penandatangan (KTP)');
+    expect(audit.data.newValues.erased).toContain('berkas foto KTP');
+  });
+
+  it('subjek STUDENT menyapu UserIdentity meski tidak ada berkas KTP', async () => {
+    // Kolom teksnya tetap harus disapu walaupun tak ada berkas: `legalName` dan
+    // `nik` sendiri sudah penanda langsung. Ini juga menjaga agar penjagaan
+    // tidak bergantung pada keberadaan `ktpFileName`.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectRegistrantId: null,
+        subjectStudentId: 'stu-1',
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.userIdentity.findUnique).mockResolvedValue(null as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const sweep = vi.mocked(prisma.userIdentity.updateMany).mock.calls[0]?.[0] as any;
+    expect(sweep).toBeDefined();
+    expect(sweep.where).toEqual({ userId: 'usr-1' });
+    expect(sweep.data.nik).toBe('dihapus-usr-1');
+    expect(sweep.data.legalName).toContain('UU PDP');
+    expect(sweep.data.birthPlace).toContain('UU PDP');
+  });
+
   it('menyapu catatan bebas yang menaut subjek: StudentNote.content dan MarketingInteraction.notes', async () => {
     // Kelas cacat CWE-212 yang sama: baris `Student`/`Registrant` dianonimkan,
     // bukan dihapus, sehingga `onDelete: Cascade` tidak pernah menyala. Catatan

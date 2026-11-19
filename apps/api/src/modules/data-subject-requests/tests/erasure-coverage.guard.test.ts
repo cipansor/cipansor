@@ -123,10 +123,15 @@ const COVERAGE: Record<string, Buckets> = {
     ignored: ['id', 'unitId'],
   },
   UserIdentity: {
-    // `ktpFileName`/`ktpSha256` disapu bila subjeknya belum pernah menerima
-    // kunci tanda tangan. Bila kunci sudah terbit, berkasnya adalah bukti
-    // registrasi penandatangan yang wajib disimpan sampai `ktpRetainUntil` —
-    // jadi ia **ditulis secara bersyarat**, bukan dipertahankan diam-diam.
+    // `ktpFileName`/`ktpSha256` disapu **bersyarat**: bila subjeknya belum
+    // pernah menerima kunci tanda tangan, berkasnya dibuang sekarang; bila
+    // kunci sudah terbit, berkasnya bukti registrasi penandatangan yang wajib
+    // disimpan sampai `ktpRetainUntil` dan dilaporkan di `outcome.retained`
+    // saat penghapusan berjalan. Karena itu `retained: []` di bawah berarti
+    // "tidak ada kolom yang selalu dipertahankan" — bukan "berkas KTP selalu
+    // dibuang". Penjaga hanya melihat kolomnya ada di badan fungsi, jadi
+    // syarat itu tidak dapat ia periksa; yang menutupnya adalah uji layanan
+    // untuk kedua cabang (`data-subject-requests.service.test.ts`).
     swept: ['legalName', 'nik', 'birthPlace', 'verificationNote', 'ktpFileName', 'ktpSha256'],
     retained: [],
     ignored: ['id', 'userId', 'verifiedById'],
@@ -365,6 +370,35 @@ describe('penjaga cakupan penyapuan ERASURE', () => {
         if (!keys.has(col)) problems.push(`${fn} tidak menulis ${model}.${col}`);
       }
     }
+    expect(problems).toEqual([]);
+  });
+
+  it('setiap jalur yang mengosongkan `User` juga menyapu `UserIdentity`-nya', () => {
+    // Penjaga di atas memeriksa bahwa `eraseUserIdentity` **menulis** kolomnya —
+    // bukan bahwa ia **dipanggil** dari setiap cabang subjek. Cacat putaran 13
+    // lolos persis di celah itu: `eraseStudent` mengosongkan `User` (nama,
+    // surel, `deletedAt`) lalu berhenti, meninggalkan `UserIdentity` dengan
+    // nama sesuai KTP dan NIK 16 digit. `onDelete: Cascade` tidak menolong,
+    // karena baris `User` diperbarui, bukan dihapus.
+    //
+    // Karena itu yang diperiksa di sini adalah **titik panggil**, satu tingkat
+    // lebih halus daripada "per fungsi": setiap fungsi yang menulis
+    // `deletedAt` pada `user` wajib memanggil `eraseUserIdentity`.
+    const problems: string[] = [];
+    const userClearing: string[] = [];
+    for (const [, name] of serviceSource.matchAll(/async function (\w+)\(/g)) {
+      const body = functionSource(serviceSource, name);
+      if (!body) continue;
+      if (!/tx\.user\.update\(/.test(body)) continue;
+      if (!/deletedAt: now/.test(body)) continue;
+      userClearing.push(name);
+      if (!/eraseUserIdentity\(/.test(body)) {
+        problems.push(`${name} mengosongkan User tanpa memanggil eraseUserIdentity`);
+      }
+    }
+    // Penjaga yang tidak menemukan apa pun akan hijau selamanya — pastikan
+    // fungsinya memang ada, dan bahwa yang memanggil dari luar ikut tercatat.
+    expect(userClearing).toContain('eraseStudent');
     expect(problems).toEqual([]);
   });
 
