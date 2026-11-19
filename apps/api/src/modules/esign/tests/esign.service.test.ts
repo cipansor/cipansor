@@ -1708,3 +1708,33 @@ describe('EsignService.readIdentityDocument — subjek yang sudah dihapus', () =
     expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 });
+
+describe('antrean pengajuan kunci', () => {
+  it('tidak menampilkan pengajuan milik subjek yang sudah dihapus', async () => {
+    // Baris `SigningKeyRequest` tidak ikut terhapus saat subjek dihapus: yang
+    // dikosongkan adalah baris `User`-nya. Tanpa saringan ini, petugas tetap
+    // diminta memutuskan permintaan orang yang sudah meminta datanya dihapus,
+    // dan antrean yang dipakai untuk statistik akan menghitung mereka.
+    vi.mocked(prisma.signingKeyRequest.findMany).mockResolvedValue([] as any);
+
+    await EsignService.listRequests();
+
+    expect(prisma.signingKeyRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { user: { deletedAt: null } },
+      })
+    );
+  });
+
+  it('saringan status dan saringan subjek terhapus dipakai bersama', async () => {
+    vi.mocked(prisma.signingKeyRequest.findMany).mockResolvedValue([] as any);
+
+    await EsignService.listRequests('PENDING');
+
+    expect(prisma.signingKeyRequest.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { status: 'PENDING', user: { deletedAt: null } },
+      })
+    );
+  });
+});

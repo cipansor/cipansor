@@ -634,7 +634,15 @@ export const EsignService = {
   /** Antrean pengajuan untuk Super Admin. */
   async listRequests(status?: SigningKeyRequestStatus) {
     return prisma.signingKeyRequest.findMany({
-      where: status ? { status } : undefined,
+      where: {
+        ...(status ? { status } : {}),
+        // Subjek yang sudah dihapus tidak lagi punya urusan yang menunggu
+        // keputusan. Barisnya tetap ada (riwayat), tetapi menampilkannya di
+        // antrean membuat petugas memutuskan permintaan orang yang sudah
+        // meminta datanya dihapus — dan bila antrean ini dipakai untuk
+        // statistik, angkanya akan menghitung mereka.
+        user: { deletedAt: null },
+      },
       include: {
         // Identitas ikut, karena inilah yang sedang diputuskan. NIK termasuk:
         // rute ini hanya terbuka bagi Super Admin, dan mencocokkan NIK dengan

@@ -396,10 +396,30 @@ describe('penjaga cakupan penyapuan ERASURE', () => {
         problems.push(`${name} mengosongkan User tanpa memanggil eraseUserIdentity`);
       }
     }
-    // Penjaga yang tidak menemukan apa pun akan hijau selamanya — pastikan
-    // fungsinya memang ada, dan bahwa yang memanggil dari luar ikut tercatat.
-    expect(userClearing).toContain('eraseStudent');
+    // Penjaga yang tidak menemukan apa pun akan hijau selamanya. Kedua fungsi
+    // ini WAJIB terbaca: `eraseStudent` (parameter `string`/`Date`) dan
+    // `executeErasure` (parameter memuat literal tipe objek) — yang terakhir
+    // itulah yang dulu terbaca sebagai `{ userId: string; name: string }` dan
+    // membuat penjaga ini hijau tanpa memeriksa badan apa pun.
+    expect(userClearing).toEqual(expect.arrayContaining(['eraseStudent', 'executeErasure']));
     expect(problems).toEqual([]);
+  });
+
+  it('`functionSource` melewati daftar parameter yang memuat literal tipe objek', () => {
+    // Cacat yang tertangkap di atas: `indexOf('{')` berhenti di `{ userId:
+    // string }` milik parameter, bukan di badan fungsi. Diuji terpisah supaya
+    // kelas ini tertangkap untuk fungsi berikutnya, bukan hanya yang kebetulan
+    // ada hari ini.
+    const synthetic = `
+      async function target(a: string, actor: { userId: string; name: string }) {
+        await tx.user.update({ data: { deletedAt: now } });
+        await eraseUserIdentity(tx, a);
+      }
+    `;
+    const body = functionSource(synthetic, 'target');
+    expect(body).toContain('tx.user.update(');
+    expect(body).toContain('eraseUserIdentity(');
+    expect(body).not.toBe('{ userId: string; name: string }');
   });
 
   it('penjaga CHECK membaca nilai yang masuk lewat spread', () => {
@@ -418,14 +438,96 @@ describe('penjaga cakupan penyapuan ERASURE', () => {
   });
 });
 
-/** Badan sebuah `async function NAME(…) { … }` pada sumber, atau `null`. */
+/**
+ * Badan sebuah `async function NAME(…) { … }` pada sumber, atau `null`.
+ *
+ * Kurung kurawal **pertama** setelah nama fungsi bukanlah awal badan. Dua
+ * bentuk membuat `indexOf('{')` berhenti di tempat yang salah:
+ *
+ * - daftar parameter dengan literal tipe objek —
+ *   `executeErasure(…, actor: { userId: string; name: string })` — sehingga
+ *   yang terbaca hanya `{ userId: … }`;
+ * - anotasi tipe kembalian dengan literal objek —
+ *   `): Promise<{ uploadFiles: string[]; identityFiles: string[] }> {`.
+ *
+ * Keduanya membuat penjaga hijau tanpa memeriksa badan sama sekali. Karena itu
+ * daftar parameter dilewati lebih dulu, lalu anotasi tipe kembalian dilewati
+ * sampai `{` yang berada di kedalaman nol.
+ */
 function functionSource(source: string, name: string): string | null {
   const re = new RegExp(`async function ${name}\\(`);
   const m = re.exec(source);
   if (!m) return null;
-  const open = source.indexOf('{', m.index);
+  const paramsOpen = source.indexOf('(', m.index);
+  if (paramsOpen < 0) return null;
+  const paramsClose = closingParen(source, paramsOpen);
+  if (paramsClose < 0) return null;
+  const open = bodyBrace(source, paramsClose + 1);
   if (open < 0) return null;
   return sliceBalanced(source, open);
+}
+
+/**
+ * Indeks `{` pertama pada kedalaman nol sesudah `from` — melewati anotasi tipe
+ * seperti `Promise<{ … }>`. Kurung `<>`, `()`, `[]`, dan `{}` dihitung sebagai
+ * kedalaman, jadi literal objek di dalam tipe tidak dikira badan fungsi.
+ */
+function bodyBrace(source: string, from: number): number {
+  let depth = 0;
+  for (let i = from; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === "'" || ch === '"' || ch === '`') {
+      i = skipString(source, i);
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '/') {
+      i = source.indexOf('\n', i);
+      if (i < 0) return -1;
+      continue;
+    }
+    if (ch === '{') {
+      if (depth === 0) return i;
+      depth++;
+    } else if (ch === '}' || ch === '>' || ch === ')' || ch === ']') {
+      depth--;
+    } else if (ch === '<' || ch === '(' || ch === '[') {
+      depth++;
+    }
+  }
+  return -1;
+}
+
+/** Indeks `)` yang menutup `(` pada `open`, melewati string dan komentar. */
+function closingParen(source: string, open: number): number {
+  let depth = 0;
+  for (let i = open; i < source.length; i++) {
+    const ch = source[i];
+    if (ch === "'" || ch === '"' || ch === '`') {
+      i = skipString(source, i);
+      continue;
+    }
+    if (ch === '/' && source[i + 1] === '/') {
+      i = source.indexOf('\n', i);
+      if (i < 0) return -1;
+      continue;
+    }
+    if (ch === '(') depth++;
+    else if (ch === ')' && --depth === 0) return i;
+  }
+  return -1;
+}
+
+/** Indeks penutup string yang dibuka pada `start`, atau akhir sumber. */
+function skipString(source: string, start: number): number {
+  const quote = source[start];
+  for (let i = start + 1; i < source.length; i++) {
+    if (source[i] === '\\') {
+      i++;
+      continue;
+    }
+    if (source[i] === quote) return i;
+  }
+  return source.length;
 }
 
 /** Kolom yang disebut `CHECK (…)` pada migrasi, per nama FIELD Prisma. */

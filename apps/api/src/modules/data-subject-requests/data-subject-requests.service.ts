@@ -1813,6 +1813,17 @@ async function buildStudentPersonalData(
       birthPlace: true,
       birthDate: true,
       address: true,
+      // Nomor identitas: kolom yang justru disapu `eraseStudent`, jadi salinan
+      // Pasal 30 tanpa kolom ini menjanjikan "identitas" tetapi tidak
+      // menyerahkannya. `nik` 16 digit adalah nomor yang paling mengidentifikasi
+      // anaknya; KK, akta, KIP, dan NIK orang tua sama-sama penanda langsung.
+      nik: true,
+      noKK: true,
+      noAkta: true,
+      kipNumber: true,
+      fatherNik: true,
+      motherNik: true,
+      guardianNik: true,
       parentName: true,
       parentPhone: true,
       parentEmail: true,
@@ -1823,6 +1834,13 @@ async function buildStudentPersonalData(
       unit: { select: { name: true } },
       parents: {
         select: { relation: true, parent: { select: { name: true, email: true } } },
+      },
+      // Judul dan nomor dokumen juga disapu `eraseStudent` (`title`,
+      // `documentNumber`), jadi keduanya bagian dari data subjek yang harus
+      // ikut diserahkan. Berkas akademik yang dipertahankan tetap disebut.
+      documents: {
+        where: { deletedAt: null },
+        select: { type: true, title: true, documentNumber: true, isVerified: true },
       },
     },
   });
@@ -1837,6 +1855,13 @@ async function buildStudentPersonalData(
     birthPlace: student.birthPlace,
     birthDate: student.birthDate.toISOString().slice(0, 10),
     address: student.address,
+    nik: student.nik,
+    noKK: student.noKK,
+    noAkta: student.noAkta,
+    kipNumber: student.kipNumber,
+    fatherNik: student.fatherNik,
+    motherNik: student.motherNik,
+    guardianNik: student.guardianNik,
     parentName: student.parentName,
     parentPhone: student.parentPhone,
     parentEmail: student.parentEmail,
@@ -1844,6 +1869,7 @@ async function buildStudentPersonalData(
     entryYear: student.entryYear,
     graduateYear: student.graduateYear,
     unit: student.unit.name,
+    documents: student.documents,
     guardians: student.parents.map((p) => ({
       relation: p.relation,
       name: p.parent.name,
@@ -1860,10 +1886,11 @@ async function buildStudentPersonalData(
  * dilindungi dan dihapus pada waktunya — dan salinan yang tersimpan selalu
  * lebih lama hidupnya daripada keperluannya.
  *
- * Isinya sengaja hanya apa yang dibaca pemohon: identitas, pendaftaran, dan
- * ringkasan akademik. Riwayat internal (catatan konseling, disiplin) tidak
- * dimasukkan di sini; bila pemohon memintanya, itu permintaan tersendiri yang
- * dinilai petugas.
+ * Isinya sengaja hanya apa yang dibaca pemohon: identitas (termasuk nomor
+ * identitas — NIK, KK, akta, KIP, dan NIK orang tua, yang justru disapu
+ * `eraseStudent`), pendaftaran, dan ringkasan akademik. Riwayat internal
+ * (catatan konseling, disiplin) tidak dimasukkan di sini; bila pemohon
+ * memintanya, itu permintaan tersendiri yang dinilai petugas.
  */
 async function buildSubjectDataExport(
   tx: Prisma.TransactionClient,

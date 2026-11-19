@@ -1278,6 +1278,79 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       studentData: expect.objectContaining({ nis: '2024001' }),
     });
   });
+
+  it('ekspor ACCESS menyerahkan nomor identitas, bukan hanya nama dan kontak', async () => {
+    // Asimetri yang ditutup di sini: `eraseStudent` menimpa `nik`, `noKK`,
+    // `noAkta`, `kipNumber`, dan NIK orang tua — jadi sistem sudah menyatakan
+    // kolom itu data pribadi subjek. Salinan Pasal 30 yang tidak memuatnya
+    // menjanjikan "identitas" (judul kartunya: "Salinan data yang diserahkan")
+    // tetapi menyerahkan kontak saja, dan pemohon akan mengira NIK anaknya
+    // sudah ada di dalamnya.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ACCESS',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectUserId: null,
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      nis: '2024001',
+      nisn: '0012345678',
+      gender: 'MALE',
+      birthPlace: 'Bandung',
+      birthDate: new Date('2008-03-05T00:00:00.000Z'),
+      address: 'Jl. Contoh 1',
+      nik: '3204010101080001',
+      noKK: '3204010101080002',
+      noAkta: 'AL-2010-0003',
+      kipNumber: 'KIP-0004',
+      fatherNik: '3204010101800005',
+      motherNik: '3204010101850006',
+      guardianNik: null,
+      parentName: 'Bapak',
+      parentPhone: '0813',
+      parentEmail: 'b@example.com',
+      status: 'ACTIVE',
+      entryYear: 2021,
+      graduateYear: null,
+      user: { name: 'Ahmad Dewasa', email: 'ahmad@example.com', phone: '0812' },
+      unit: { name: 'SMA IT Cipansor' },
+      parents: [],
+      documents: [{ type: 'AKTA', title: 'Akta Kelahiran', documentNumber: 'AL-2010-0003' }],
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ACCESS', status: 'COMPLETED' }) as any
+    );
+
+    const result = await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const personal = (result.exportPayload as any).personalData;
+    expect(personal).toMatchObject({
+      nik: '3204010101080001',
+      noKK: '3204010101080002',
+      noAkta: 'AL-2010-0003',
+      kipNumber: 'KIP-0004',
+      fatherNik: '3204010101800005',
+      motherNik: '3204010101850006',
+      guardianNik: null,
+    });
+    // Dokumen ikut: judul dan nomornya juga disapu `eraseStudent`, jadi
+    // keduanya bagian dari data subjek yang harus diserahkan.
+    expect(personal.documents).toEqual([
+      { type: 'AKTA', title: 'Akta Kelahiran', documentNumber: 'AL-2010-0003' },
+    ]);
+
+    // Kolomnya benar-benar diminta dari basis data, bukan hanya ada di objek
+    // hasil — `select` yang lupa memuatnya akan mengembalikan `undefined`.
+    const select = vi.mocked(prisma.student.findUnique).mock.calls[0][0] as any;
+    for (const col of ['nik', 'noKK', 'noAkta', 'kipNumber', 'fatherNik', 'motherNik']) {
+      expect(select.select[col]).toBe(true);
+    }
+  });
 });
 
 describe('data-subject-requests — jalur wali', () => {
