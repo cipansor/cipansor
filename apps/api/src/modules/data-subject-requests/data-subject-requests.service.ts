@@ -1516,24 +1516,32 @@ async function executeErasure(
   // (riwayat kepatuhan), tetapi seluruh PII pemohon ditimpa: nomor permintaan
   // dan riwayat statusnya tetap utuh, yang hilang hanya yang menunjuk orang.
   //
-  // `rejectionReason` di sini ditimpa penanda, BUKAN dikosongkan: baris
-  // saudara dapat berstatus `REJECTED`, dan CHECK migrasi menuntut alasan
-  // penolakan tetap ada. Mengosongkannya membuat PostgreSQL menolak baris itu
-  // (23514) dan seluruh transaksi penutupan batal — artinya penghapusan tidak
-  // akan pernah bisa diselesaikan untuk subjek yang punya satu permintaan
-  // ditolak.
+  // `rejectionReason` sengaja TIDAK ikut di `requesterAnonymisation`: nilainya
+  // bergantung status baris, dan `updateMany` menyentuh baris apa pun. Baris
+  // saudara `REJECTED` wajib tetap punya alasan (CHECK migrasi), sedangkan
+  // baris non-`REJECTED` tidak pernah ditolak — memberinya alasan akan
+  // menampilkan pernyataan keliru di daftar milik pemohon
+  // (`parent/permintaan-data`), jadi kolom itu tidak ditulis sama sekali.
   const sameSubject: Prisma.DataSubjectRequestWhereInput[] = [];
   if (request.subjectStudentId) sameSubject.push({ subjectStudentId: request.subjectStudentId });
   if (request.subjectRegistrantId)
     sameSubject.push({ subjectRegistrantId: request.subjectRegistrantId });
   if (request.subjectUserId) sameSubject.push({ subjectUserId: request.subjectUserId });
   if (sameSubject.length) {
+    const siblingWhere: Prisma.DataSubjectRequestWhereInput = {
+      id: { not: request.id },
+      OR: sameSubject,
+    };
     await tx.dataSubjectRequest.updateMany({
-      where: { id: { not: request.id }, OR: sameSubject },
+      where: { ...siblingWhere, status: 'REJECTED' },
       data: {
         ...requesterAnonymisation,
         rejectionReason: `Alasan penolakan dihapus bersama permintaan ${request.requestNo} (UU PDP).`,
       },
+    });
+    await tx.dataSubjectRequest.updateMany({
+      where: { ...siblingWhere, status: { not: 'REJECTED' } },
+      data: { ...requesterAnonymisation },
     });
   }
 

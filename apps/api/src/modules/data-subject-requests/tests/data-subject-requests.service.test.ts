@@ -1360,17 +1360,25 @@ describe('data-subject-requests — penemuan lanjutan', () => {
 
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
 
-    const sibling = vi
+    const siblings = vi
       .mocked(prisma.dataSubjectRequest.updateMany)
       .mock.calls.map((c) => c[0] as any)
-      .find((c) => c.where?.id?.not === 'dsr-1');
-    expect(sibling, 'baris saudara harus disapu').toBeTruthy();
-    expect(sibling.data).toMatchObject({
-      requesterName: expect.stringContaining('Pemohon dihapus'),
-      requesterContact: '—',
-    });
-    expect(sibling.data.requesterName).not.toContain('Budi');
-    expect(sibling.data.detail).not.toContain('Budi');
+      .filter((c) => c.where?.id?.not === 'dsr-1');
+    expect(siblings, 'baris saudara harus disapu').toHaveLength(2);
+
+    // Baris non-REJECTED tidak pernah ditolak, jadi alasan penolakan tidak
+    // boleh ditulis sama sekali — teks itu tampil di daftar milik pemohon.
+    const open = siblings.find((c) => c.where.status?.not === 'REJECTED');
+    expect(open, 'blok untuk baris non-REJECTED').toBeTruthy();
+    expect(open.data).not.toHaveProperty('rejectionReason');
+    expect(open.data.requesterName).not.toContain('Budi');
+    expect(open.data.detail).not.toContain('Budi');
+
+    const rejected = siblings.find((c) => c.where.status === 'REJECTED');
+    expect(rejected, 'blok untuk baris REJECTED').toBeTruthy();
+    expect(rejected.data.rejectionReason).toContain('UU PDP');
+    expect(rejected.data.rejectionReason).not.toContain('Budi');
+    expect(rejected.data.requesterName).not.toContain('Budi');
   });
 
   it('baris saudara berstatus REJECTED tetap punya alasan penolakan', async () => {
@@ -1400,13 +1408,23 @@ describe('data-subject-requests — penemuan lanjutan', () => {
 
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
 
-    const sibling = vi
+    const rejected = vi
       .mocked(prisma.dataSubjectRequest.updateMany)
       .mock.calls.map((c) => c[0] as any)
-      .find((c) => c.where?.id?.not === 'dsr-1');
-    expect(sibling, 'baris saudara harus disapu').toBeTruthy();
-    expect(sibling.data.rejectionReason).not.toBeNull();
-    expect(sibling.data.rejectionReason).not.toContain('Budi');
+      .find((c) => c.where?.id?.not === 'dsr-1' && c.where.status === 'REJECTED');
+    expect(rejected, 'blok untuk baris REJECTED').toBeTruthy();
+    expect(rejected.data.rejectionReason).not.toBeNull();
+    expect(rejected.data.rejectionReason).toContain('UU PDP');
+    expect(rejected.data.rejectionReason).not.toContain('Budi');
+
+    // Baris non-REJECTED tidak menerima alasan apa pun, jadi tidak ada baris
+    // yang berakhir dengan alasan palsu sekaligus memenuhi CHECK.
+    const open = vi
+      .mocked(prisma.dataSubjectRequest.updateMany)
+      .mock.calls.map((c) => c[0] as any)
+      .find((c) => c.where?.id?.not === 'dsr-1' && c.where.status?.not === 'REJECTED');
+    expect(open.data).not.toHaveProperty('rejectionReason');
+
     // Baris utama tidak terkena CHECK (statusnya menjadi COMPLETED), jadi
     // alasan penolakannya boleh dan memang harus dikosongkan.
     const main = vi

@@ -325,6 +325,21 @@ describe('penjaga cakupan penyapuan ERASURE', () => {
     }
     expect(problems).toEqual([]);
   });
+
+  it('penjaga CHECK membaca nilai yang masuk lewat spread', () => {
+    // Bentuk cacat yang sebenarnya terjadi (putaran 12) bukan literal langsung
+    // di blok `data`, melainkan `rejectionReason: null` di dalam objek `const`
+    // yang kemudian di-spread. Tanpa uji ini, penjaga dapat hijau pada kode
+    // yang justru melanggar CHECK — dan penjaga yang hijau palsu lebih
+    // berbahaya daripada tidak ada penjaga.
+    const synthetic = `
+      const anonymised = { a: null, b: 'x' };
+      await tx.dataSubjectRequest.updateMany({ where: {}, data: { ...anonymised } });
+    `;
+    const [block] = updateManyDataBlocks(synthetic);
+    expect(block.data.a).toBe('null');
+    expect(block.data.b).toBe("'x'");
+  });
 });
 
 /** Kolom yang disebut `CHECK (…)` pada migrasi, per nama FIELD Prisma. */
@@ -368,15 +383,19 @@ function updateManyDataBlocks(source: string): { model: string; data: Record<str
   return blocks;
 }
 
-/** Nilai literal per kunci objek; kolom yang datang lewat spread ditandai. */
+/** Nilai literal per kunci objek; kunci dari spread memakai nilai aslinya. */
 function literalValues(
   obj: string,
-  constObjects: Record<string, string[]>
+  constObjects: Record<string, Record<string, string>>
 ): Record<string, string> {
+  // Setiap kunci didaftarkan lebih dulu, termasuk yang nilainya bukan literal
+  // (template literal, identifier) — kalau tidak, kolom seperti `detail`
+  // hilang dari daftar "ditulis" dan penjaga cakupan merah palsu.
   const values: Record<string, string> = {};
   for (const name of topLevelSpreads(obj)) {
-    for (const key of constObjects[name] ?? []) values[key] = 'spread';
+    Object.assign(values, constObjects[name] ?? {});
   }
+  for (const key of topLevelKeys(obj)) values[key] ??= 'expr';
   for (const [, key, value] of obj.matchAll(/(\w+)\s*:\s*(null|'[^']*'|"[^"]*"|\d+)/g)) {
     values[key] = value;
   }
@@ -405,23 +424,23 @@ function columnsWrittenByService(source: string): Record<string, Set<string>> {
   return result;
 }
 
-/** Kunci objek `const NAME = { … }` pada kedalaman teratas. */
-function topLevelConstObjects(source: string): Record<string, string[]> {
-  const map: Record<string, string[]> = {};
+/** Nilai literal objek `const NAME = { … }` pada kedalaman teratas. */
+function topLevelConstObjects(source: string): Record<string, Record<string, string>> {
+  const map: Record<string, Record<string, string>> = {};
   const re = /const\s+(\w+)\s*=\s*\{/g;
   let m: RegExpExecArray | null;
   while ((m = re.exec(source))) {
     const open = m.index + m[0].length - 1;
-    map[m[1]] = topLevelKeys(sliceBalanced(source, open));
+    map[m[1]] = literalValues(sliceBalanced(source, open), {});
   }
   return map;
 }
 
 /** Kunci sebuah objek, memperluas `...identifier` dari `constObjects`. */
-function objectKeys(obj: string, constObjects: Record<string, string[]>): string[] {
+function objectKeys(obj: string, constObjects: Record<string, Record<string, string>>): string[] {
   const keys = topLevelKeys(obj);
   for (const name of topLevelSpreads(obj)) {
-    keys.push(...(constObjects[name] ?? []));
+    keys.push(...Object.keys(constObjects[name] ?? {}));
   }
   return keys;
 }
