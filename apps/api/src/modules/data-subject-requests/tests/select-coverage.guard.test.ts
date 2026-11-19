@@ -37,6 +37,16 @@ const modelsByName = new Map(datamodel.models.map((m) => [m.name, m]));
 /** Metode yang argumennya membawa blok `data`. */
 const WRITE_METHODS = new Set(['create', 'createMany', 'update', 'updateMany', 'upsert']);
 
+/** Pembungkus tulis bersarang di dalam nilai sebuah relasi. */
+const NESTED_WRITES = new Set([
+  'create',
+  'createMany',
+  'update',
+  'updateMany',
+  'upsert',
+  'connectOrCreate',
+]);
+
 /**
  * Nama properti klien Prisma (`tx.studentDocument`) ke model DMMF
  * (`StudentDocument`). Tanpa pemetaan ini setiap pemanggilan akan dilewati
@@ -220,8 +230,12 @@ function topLevelValue(body: string, key: string): string | null {
 }
 
 function problemsIn(body: string, model: DmmfModel, where: string): string[] {
+  return checkKeys(body, model, where, topLevelKeys(body));
+}
+
+function checkKeys(body: string, model: DmmfModel, where: string, keys: string[]): string[] {
   const problems: string[] = [];
-  for (const key of topLevelKeys(body)) {
+  for (const key of keys) {
     if (key.startsWith('_')) continue; // agregat `_count`/`_sum`, bukan field
     const field = fieldOf(model, key);
     if (!field) {
@@ -236,10 +250,73 @@ function problemsIn(body: string, model: DmmfModel, where: string): string[] {
       const inner = topLevelValue(body, key);
       const target = modelsByName.get(field.type);
       if (inner === null || !target) continue;
-      for (const block of selectBlocks(inner)) {
-        problems.push(...problemsIn(block.body, target, `${where} → ${target.name} ${block.key}`));
+      problems.push(...problemsInRelation(inner, target, `${where} → ${target.name}`));
+    }
+  }
+  return problems;
+}
+
+/**
+ * Isi sebuah nilai relasi: `{ select }`, `{ include }`, atau pembungkus tulis
+ * Prisma (`create`, `update`, `upsert`, `connectOrCreate`, …).
+ *
+ * Blok `data` di dalam pembungkus berada **satu tingkat lebih dalam**, jadi
+ * `selectBlocks` — yang hanya membaca kedalaman nol — tidak melihatnya.
+ * `user: { update: { data: { bogus: 1 } } }` karena itu harus ditelusuri
+ * lewat pembungkusnya, bukan dengan memindai kedalaman sembarang: `data` milik
+ * relasi lain akan dicocokkan dengan model yang salah.
+ */
+function problemsInRelation(inner: string, target: DmmfModel, where: string): string[] {
+  const problems: string[] = [];
+  for (const key of topLevelKeys(inner)) {
+    if (key === 'select' || key === 'include') {
+      const block = topLevelValue(inner, key);
+      if (block !== null) problems.push(...problemsIn(block, target, `${where} ${key}`));
+    } else if (NESTED_WRITES.has(key)) {
+      const op = topLevelValue(inner, key);
+      if (op !== null) problems.push(...problemsInWriteOp(key, op, target, `${where} ${key}`));
+    }
+    // `where`, `orderBy`, … bukan data tulis; operator seperti `in`/`some`
+    // membuat validasi `where` pekerjaan tersendiri, bukan cakupan penjaga ini.
+  }
+  return problems;
+}
+
+/**
+ * Satu operasi tulis bersarang. `create`/`update` menerima `{ data }` maupun
+ * bentuk singkat `{ nama: nilai }`; `upsert`/`connectOrCreate` membungkus
+ * `create`/`update` satu tingkat lagi.
+ */
+function problemsInWriteOp(op: string, body: string, target: DmmfModel, where: string): string[] {
+  const keys = topLevelKeys(body);
+  const problems: string[] = [];
+
+  if (keys.includes('data')) {
+    const data = topLevelValue(body, 'data');
+    if (data !== null) problems.push(...problemsIn(data, target, `${where} data`));
+    for (const key of keys) {
+      if (key !== 'select' && key !== 'include') continue;
+      const block = topLevelValue(body, key);
+      if (block !== null) problems.push(...problemsIn(block, target, `${where} ${key}`));
+    }
+    return problems;
+  }
+
+  if (op === 'upsert' || op === 'connectOrCreate') {
+    for (const key of keys) {
+      if (key !== 'create' && key !== 'update') continue;
+      const nested = topLevelValue(body, key);
+      if (nested !== null) {
+        problems.push(...problemsInWriteOp(key, nested, target, `${where} ${key}`));
       }
     }
+    return problems;
+  }
+
+  // Bentuk singkat: `create: { name: "x" }` — sisa kunci adalah data.
+  const shorthand = keys.filter((key) => key !== 'select' && key !== 'include');
+  if (shorthand.length) {
+    problems.push(...checkKeys(body, target, `${where} data`, shorthand));
   }
   return problems;
 }
@@ -354,6 +431,29 @@ describe('penjaga nama kolom select/include modul data-subject-requests', () => 
     expect(problemsIn(' now: 1 ', req, 'sintetis')).toEqual([
       expect.stringContaining('`now` bukan field DataSubjectRequest'),
     ]);
+  });
+
+  it('menemukan kolom palsu pada penulisan relasi bersarang', () => {
+    // `user: { update: { data: … } }` — `data` berada satu tingkat di dalam
+    // pembungkus `update`, jadi `selectBlocks` yang hanya membaca kedalaman
+    // nol tidak melihatnya. Bentuk ini nyata: Prisma menulis relasi lewat
+    // pembungkus seperti ini.
+    const student = modelOf('Student');
+    expect(
+      problemsIn(' user: { update: { data: { bogusNested: 1 } } } ', student, 'Student')
+    ).toEqual([expect.stringContaining('`bogusNested` bukan field User')]);
+    // `connectOrCreate` membungkus `create` satu tingkat lagi.
+    expect(
+      problemsIn(
+        ' user: { connectOrCreate: { where: { id: "x" }, create: { data: { bogusDeep: 1 } } } } ',
+        student,
+        'Student'
+      )
+    ).toEqual([expect.stringContaining('`bogusDeep` bukan field User')]);
+    // Kolom yang benar tetap lolos.
+    expect(problemsIn(' user: { update: { data: { name: "x" } } } ', student, 'Student')).toEqual(
+      []
+    );
   });
 
   it('menemukan field salah pada relasi bersarang', () => {
