@@ -1334,6 +1334,46 @@ describe('data-subject-requests — penemuan lanjutan', () => {
     expect(requestUpdate.data.detail).not.toContain('Budi');
   });
 
+  it('menganonimkan baris permintaan saudara atas subjek yang sama', async () => {
+    // Subjek yang mengajukan lebih dari satu permintaan (mis. ACCESS lalu
+    // ERASURE) meninggalkan namanya di baris yang lain bila hanya labelnya
+    // ditimpa. `requesterName`/`detail`/`rejectionReason` baris saudara juga
+    // harus disapu — baris utamanya sudah.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const sibling = vi
+      .mocked(prisma.dataSubjectRequest.updateMany)
+      .mock.calls.map((c) => c[0] as any)
+      .find((c) => c.where?.id?.not === 'dsr-1');
+    expect(sibling, 'baris saudara harus disapu').toBeTruthy();
+    expect(sibling.data).toMatchObject({
+      requesterName: expect.stringContaining('Pemohon dihapus'),
+      requesterContact: '—',
+      rejectionReason: null,
+    });
+    expect(sibling.data.requesterName).not.toContain('Budi');
+    expect(sibling.data.detail).not.toContain('Budi');
+  });
+
   it('mengosongkan catatan tindakan yang dapat memuat PII', async () => {
     const actionsWithPii = [
       {

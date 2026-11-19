@@ -192,6 +192,27 @@ const COVERAGE: Record<string, Buckets> = {
     retained: ['nutritionStatus'],
     ignored: ['id', 'studentId', 'unitId', 'recordedById'],
   },
+  DataSubjectRequest: {
+    swept: [
+      'subjectLabel',
+      'requesterName',
+      'requesterContact',
+      'requesterRelation',
+      'detail',
+      'rejectionReason',
+    ],
+    retained: ['actions'],
+    ignored: [
+      'id',
+      'requestNo',
+      'subjectStudentId',
+      'subjectRegistrantId',
+      'subjectUserId',
+      'requesterUserId',
+      'handledById',
+      'verificationCodeHash',
+    ],
+  },
 };
 
 type DmmfModel = {
@@ -244,11 +265,22 @@ describe('penjaga cakupan penyapuan ERASURE', () => {
     expect(problems).toEqual([]);
   });
 
+  it('tidak ada model yang ditulis layanan tetapi luput dari daftar', () => {
+    // Inti putaran-putaran sebelumnya bukan "kolom baru pada model yang sudah
+    // terdaftar", melainkan "model yang belum masuk daftar sama sekali"
+    // (`DataSubjectRequest` sempat luput). Tanpa asersi ini, model yang ditulis
+    // `executeErasure` tetapi lupa didaftarkan tidak diperiksa oleh apa pun.
+    const written = columnsWrittenByService(serviceSource);
+    const known = new Set(Object.keys(COVERAGE).map((m) => m[0].toLowerCase() + m.slice(1)));
+    const unlisted = Object.keys(written).filter((m) => !known.has(m));
+    expect(unlisted).toEqual([]);
+  });
+
   it('setiap kolom yang ditandai disapu benar-benar ditulis di layanan', () => {
     // Bukan pengganti pembacaan kode — hanya menahan daftar agar tidak
     // menyimpang dari layanan yang benar-benar menulisnya. Kolom dianggap
     // tertulis bila muncul sebagai kunci di dalam `data: { … }` sebuah
-    // `tx.<model>.update`/`updateMany`.
+    // `tx.<model>.update`/`updateMany` (termasuk yang masuk lewat spread).
     const written = columnsWrittenByService(serviceSource);
     const missing: string[] = [];
     for (const [model, buckets] of Object.entries(COVERAGE)) {
@@ -266,6 +298,7 @@ function columnsWrittenByService(source: string): Record<string, Set<string>> {
   // Komentar baris dibuang lebih dulu: sebuah `:` di dalamnya akan terbaca
   // sebagai pemisah kunci dan menempelkan komentar ke nama kolom berikutnya.
   const code = source.replace(/\/\/[^\n]*/g, '');
+  const constObjects = topLevelConstObjects(code);
   const result: Record<string, Set<string>> = {};
   const callRe = /tx\.(\w+)\.(?:update|updateMany)\(\{/g;
   let match: RegExpExecArray | null;
@@ -274,12 +307,53 @@ function columnsWrittenByService(source: string): Record<string, Set<string>> {
     const body = sliceBalanced(code, open);
     const dataIdx = body.indexOf('data: {');
     if (dataIdx < 0) continue;
-    const keys = topLevelKeys(sliceBalanced(body, body.indexOf('{', dataIdx)));
+    const keys = objectKeys(sliceBalanced(body, body.indexOf('{', dataIdx)), constObjects);
     const model = match[1];
     result[model] ??= new Set<string>();
     for (const k of keys) result[model].add(k);
   }
   return result;
+}
+
+/** Kunci objek `const NAME = { … }` pada kedalaman teratas. */
+function topLevelConstObjects(source: string): Record<string, string[]> {
+  const map: Record<string, string[]> = {};
+  const re = /const\s+(\w+)\s*=\s*\{/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(source))) {
+    const open = m.index + m[0].length - 1;
+    map[m[1]] = topLevelKeys(sliceBalanced(source, open));
+  }
+  return map;
+}
+
+/** Kunci sebuah objek, memperluas `...identifier` dari `constObjects`. */
+function objectKeys(obj: string, constObjects: Record<string, string[]>): string[] {
+  const keys = topLevelKeys(obj);
+  for (const name of topLevelSpreads(obj)) {
+    keys.push(...(constObjects[name] ?? []));
+  }
+  return keys;
+}
+
+/** Identifier yang di-spread (`...name`) pada kedalaman teratas objek. */
+function topLevelSpreads(obj: string): string[] {
+  const inner = obj.slice(1, -1);
+  const spreads: string[] = [];
+  let depth = 0;
+  for (let i = 0; i < inner.length; i++) {
+    const c = inner[i];
+    if (c === '{' || c === '[' || c === '(') depth++;
+    else if (c === '}' || c === ']' || c === ')') depth--;
+    else if (c === "'" || c === '"') {
+      const q = c;
+      while (++i < inner.length && inner[i] !== q);
+    } else if (c === '.' && depth === 0 && inner[i + 1] === '.' && inner[i + 2] === '.') {
+      const m = /^\.\.\.(\w+)/.exec(inner.slice(i));
+      if (m) spreads.push(m[1]);
+    }
+  }
+  return spreads;
 }
 
 /** Isi `{…}` mulai dari indeks `open` (kurung penyeimbang). */

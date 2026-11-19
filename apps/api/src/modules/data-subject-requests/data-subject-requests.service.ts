@@ -1500,6 +1500,7 @@ async function executeErasure(
     requesterContact: '—',
     requesterRelation: null,
     detail: `Rincian dihapus bersama permintaan ${request.requestNo} (UU PDP).`,
+    rejectionReason: null,
   } as const;
 
   await tx.dataSubjectRequest.update({
@@ -1507,9 +1508,11 @@ async function executeErasure(
     data: { ...requesterAnonymisation },
   });
 
-  // Permintaan LAIN yang menunjuk subjek yang sama menyimpan label yang sama
-  // pula — daftar petugas akan tetap menampilkan nama yang baru saja dihapus.
-  // Baris-barisnya dipertahankan (riwayat kepatuhan), hanya labelnya ditimpa.
+  // Permintaan LAIN yang menunjuk subjek yang sama menyimpan label, nama
+  // pemohon, dan rinciannya yang sama pula — daftar petugas akan tetap
+  // menampilkan nama yang baru saja dihapus. Baris-barisnya dipertahankan
+  // (riwayat kepatuhan), tetapi seluruh PII pemohon ditimpa: nomor permintaan
+  // dan riwayat statusnya tetap utuh, yang hilang hanya yang menunjuk orang.
   const sameSubject: Prisma.DataSubjectRequestWhereInput[] = [];
   if (request.subjectStudentId) sameSubject.push({ subjectStudentId: request.subjectStudentId });
   if (request.subjectRegistrantId)
@@ -1518,7 +1521,7 @@ async function executeErasure(
   if (sameSubject.length) {
     await tx.dataSubjectRequest.updateMany({
       where: { id: { not: request.id }, OR: sameSubject },
-      data: { subjectLabel: subjectMarker },
+      data: { ...requesterAnonymisation },
     });
   }
 
