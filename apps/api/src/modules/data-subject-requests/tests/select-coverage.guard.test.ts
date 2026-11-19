@@ -34,6 +34,9 @@ const datamodel = (Prisma as unknown as { dmmf: { datamodel: { models: DmmfModel
 
 const modelsByName = new Map(datamodel.models.map((m) => [m.name, m]));
 
+/** Metode yang argumennya membawa blok `data`. */
+const WRITE_METHODS = new Set(['create', 'createMany', 'update', 'updateMany', 'upsert']);
+
 /**
  * Nama properti klien Prisma (`tx.studentDocument`) ke model DMMF
  * (`StudentDocument`). Tanpa pemetaan ini setiap pemanggilan akan dilewati
@@ -111,8 +114,8 @@ function skipString(s: string, start: number): number {
 }
 
 /**
- * Blok `select`/`include` pada **kedalaman nol** teks yang diberikan. Blok
- * bersarang tidak diambil di sini — ia ditelusuri lewat relasinya sendiri,
+ * Blok `select`/`include`/`data` pada **kedalaman nol** teks yang diberikan.
+ * Blok bersarang tidak diambil di sini — ia ditelusuri lewat relasinya sendiri,
  * sehingga tidak pernah dicocokkan dengan model yang salah.
  */
 function selectBlocks(rawText: string): { key: string; body: string }[] {
@@ -140,7 +143,7 @@ function selectBlocks(rawText: string): { key: string; body: string }[] {
       continue;
     }
     if (depth !== 0 || (i > 0 && /[\w$]/.test(text[i - 1]))) continue;
-    const m = /^(select|include)\s*:\s*\{/.exec(text.slice(i));
+    const m = /^(select|include|data)\s*:\s*\{/.exec(text.slice(i));
     if (!m) continue;
     const open = text.indexOf('{', i + m[0].length - 1);
     const body = sliceBalanced(text, open);
@@ -150,6 +153,23 @@ function selectBlocks(rawText: string): { key: string; body: string }[] {
     }
   }
   return out;
+}
+
+/**
+ * Apakah `i` berada di posisi awal kunci sebuah objek literal? Karakter
+ * bermakna sebelumnya harus `{` atau `,` (atau tidak ada sama sekali).
+ *
+ * Tanpa syarat ini sebuah ternary di dalam nilai terbaca sebagai kunci:
+ * `completedAt: isClosed(s) ? now : null` menghasilkan kunci palsu `now`,
+ * karena `now :` berbentuk sama dengan `kunci: nilai`.
+ */
+function atKeyStart(body: string, i: number): boolean {
+  for (let j = i - 1; j >= 0; j -= 1) {
+    const c = body[j];
+    if (c === ' ' || c === '\t' || c === '\n' || c === '\r') continue;
+    return c === '{' || c === ',';
+  }
+  return true;
 }
 
 /** Kunci tingkat atas sebuah objek literal (bukan kunci bersarang). */
@@ -164,7 +184,7 @@ function topLevelKeys(body: string): string[] {
     }
     if (ch === '{' || ch === '(' || ch === '[') depth += 1;
     else if (ch === '}' || ch === ')' || ch === ']') depth -= 1;
-    else if (depth === 0 && (i === 0 || /[,\s{]/.test(body[i - 1]))) {
+    else if (depth === 0 && atKeyStart(body, i)) {
       const km = /^([a-zA-Z_]\w*)\s*:/.exec(body.slice(i));
       if (km) {
         keys.push(km[1]);
@@ -186,7 +206,7 @@ function topLevelValue(body: string, key: string): string | null {
     }
     if (ch === '{' || ch === '(' || ch === '[') depth += 1;
     else if (ch === '}' || ch === ')' || ch === ']') depth -= 1;
-    else if (depth === 0 && (i === 0 || /[,\s{]/.test(body[i - 1]))) {
+    else if (depth === 0 && atKeyStart(body, i)) {
       const km = new RegExp(`^${key}\\s*:\\s*\\{`).exec(body.slice(i));
       if (km) {
         const open = body.indexOf('{', i + km[0].length - 1);
@@ -210,7 +230,8 @@ function problemsIn(body: string, model: DmmfModel, where: string): string[] {
       );
       continue;
     }
-    // Relasi yang dipilih lebih dalam: `studentDocuments: { select: … }`.
+    // Relasi yang dipilih/ditulis lebih dalam:
+    // `studentDocuments: { select: … }`, `user: { update: { data: … } }`.
     if (field.kind === 'object') {
       const inner = topLevelValue(body, key);
       const target = modelsByName.get(field.type);
@@ -279,15 +300,18 @@ describe('penjaga nama kolom select/include modul data-subject-requests', () => 
     const problems: string[] = [];
 
     const resolved: string[] = [];
+    let dataBlocks = 0;
     for (const site of callSites(serviceSource)) {
       const model = clientModel(site.model);
       if (!model) continue; // `$transaction` dan sejenisnya bukan model
       resolved.push(model.name);
 
       for (const block of selectBlocks(site.args)) {
+        if (block.key === 'data' && !WRITE_METHODS.has(site.method)) continue;
         problems.push(
           ...problemsIn(block.body, model, `${model.name}.${site.method} ${block.key}`)
         );
+        if (block.key === 'data') dataBlocks += 1;
       }
     }
 
@@ -296,6 +320,10 @@ describe('penjaga nama kolom select/include modul data-subject-requests', () => 
     expect(resolved.length).toBeGreaterThan(20);
     expect(new Set(resolved)).toContain('Student');
     expect(new Set(resolved)).toContain('Registrant');
+    // `data` pada mutasi juga dijaga — TS 6 tidak melaporkan field berlebih di
+    // sana, jadi `update({ data: { bogus: 1 } })` lolos typecheck dan gagal di
+    // runtime. Modul ini menulis banyak baris lewat `updateMany`.
+    expect(dataBlocks).toBeGreaterThan(20);
   });
 
   it('penjaga menemukan field yang tidak ada (bukan hijau karena tidak membaca apa pun)', () => {
@@ -308,6 +336,24 @@ describe('penjaga nama kolom select/include modul data-subject-requests', () => 
       expect.stringContaining('`documents` bukan field Student'),
     ]);
     expect(problemsIn(' studentDocuments: true, nik: true ', student, 'sintetis')).toEqual([]);
+  });
+
+  it('tidak salah membaca ternary sebagai kunci', () => {
+    // `completedAt: isClosed(s) ? now : null` — `now :` berbentuk sama dengan
+    // `kunci: nilai`. Versi pertama penjaga melaporkan `now` sebagai field dan
+    // itu satu-satunya "temuan" saat disapu ke seluruh API.
+    const req = modelOf('DataSubjectRequest');
+    expect(
+      problemsIn(
+        ' status: "COMPLETED", completedAt: isClosed(s) ? now : null, rejectionReason: n ?? null ',
+        req,
+        'sintetis'
+      )
+    ).toEqual([]);
+    // Kunci sungguhan yang salah tetap tertangkap.
+    expect(problemsIn(' now: 1 ', req, 'sintetis')).toEqual([
+      expect.stringContaining('`now` bukan field DataSubjectRequest'),
+    ]);
   });
 
   it('menemukan field salah pada relasi bersarang', () => {
