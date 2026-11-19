@@ -37,6 +37,7 @@ vi.mock('@/lib/prisma', () => ({
       updateMany: vi.fn(),
     },
     studentNote: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    legacyIdentifierAudit: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     marketingInteraction: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     medicalRecord: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     specialDiet: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
@@ -649,9 +650,16 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     const studentNote = vi.mocked(prisma.studentNote.updateMany).mock.calls[0][0] as any;
     expect(studentNote.data.title).toContain('UU PDP');
 
+    // Jejak pengenal lama menyimpan NISN/NIK mentah — nilainya ditimpa penanda,
+    // barisnya (field, reason) dipertahankan.
+    const legacy = vi.mocked(prisma.legacyIdentifierAudit.updateMany).mock.calls[0][0] as any;
+    expect(legacy.where).toEqual({ studentId: 'stu-1' });
+    expect(legacy.data.value).toContain('UU PDP');
+
     const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
     expect(audit.data.newValues.erased).toContain('catatan kesehatan');
     expect(audit.data.newValues.erased).toContain('catatan konseling');
+    expect(audit.data.newValues.erased).toContain('jejak pengenal lama');
   });
 
   it('tidak menghapus berkas yang masih ditunjuk baris lain (CWE-639)', async () => {

@@ -1103,6 +1103,17 @@ async function eraseStudent(
     data: { content: marker, title: marker },
   });
 
+  // Jejak pengenal lama (`legacy_identifier_audit`) menyimpan SALINAN mentah
+  // NISN/NIK yang migrasi 20260914000000 keluarkan dari baris `Student` —
+  // bukan hash. Tabelnya sengaja tanpa relasi supaya tidak ikut terhapus, jadi
+  // `onDelete: Cascade` tidak akan membersihkannya; hanya nilai mentahnya yang
+  // ditimpa penanda. Barisnya dipertahankan (field, reason, `keptStudentId`)
+  // supaya jejak penanganan duplikat tetap terbaca.
+  await tx.legacyIdentifierAudit.updateMany({
+    where: { studentId: student.id },
+    data: { value: marker },
+  });
+
   // Kategori khusus (UU PDP Pasal 4): data kesehatan dan kesehatan jiwa menaut
   // santri dan menyimpan teks bebas yang menyebut dia — keluhan, diagnosis,
   // ringkasan sesi konseling, observasi psikologis. Barisnya dipertahankan
@@ -1198,6 +1209,7 @@ async function eraseStudent(
     'foto',
     'berkas dokumen identitas',
     'NISN',
+    'jejak pengenal lama',
     'catatan santri',
     'catatan kesehatan',
     'catatan konseling'
@@ -1208,6 +1220,7 @@ async function eraseStudent(
     'kehadiran',
     'keuangan',
     'riwayat unit',
+    'nomor kartu santri (turunan NIS, operasional)',
     'arsip akademik (rapor, ijazah)'
   );
   return outcome;
