@@ -127,37 +127,6 @@ describe('Marketing Service', () => {
       });
     });
 
-    it('baris yang dihapus (nama penanda) tidak lagi muncul sebagai prospek aktif', async () => {
-      // Penghapusan (Pasal 35, 43) adalah bentuk terkuat "berhenti memproses".
-      // Saringan pemasaran hanya membaca `consentWithdrawnAt`, jadi penghapusan
-      // WAJIB mengisinya — kalau tidak, baris ber-`fullName` penanda tetap
-      // dihitung sebagai prospek dan tetap muncul di daftar tindak lanjut.
-      // Diuji dari sisi konsumen: baris terhapus tidak boleh lolos penyaring.
-      const erased = {
-        id: 'reg-1',
-        fullName: 'Data dihapus (UU PDP, DSR-2026-0001)',
-        consentWithdrawnAt: new Date('2026-11-18T00:00:00.000Z'),
-      };
-      const active = {
-        id: 'reg-2',
-        fullName: 'Ahmad Fauzi',
-        consentWithdrawnAt: null,
-      };
-      vi.mocked(prisma.registrant.findMany).mockImplementation((async (args: any) => {
-        const rows = [erased, active];
-        const where = args?.where ?? {};
-        if (where.consentWithdrawnAt === null) {
-          return rows.filter((r) => r.consentWithdrawnAt === null);
-        }
-        return rows;
-      }) as any);
-
-      const leads = await marketingService.getRecentLeads('unit-1', 10);
-
-      expect(leads.map((l: any) => l.id)).toEqual(['reg-2']);
-      expect(leads.some((l: any) => l.fullName.includes('Data dihapus'))).toBe(false);
-    });
-
     it('memeringkat lima kampanye teratas dari jumlah pendaftar TERSARING, bukan jumlah total', async () => {
       // Prisma tidak dapat mengurutkan relasi `_count` menurut penyaringnya:
       // `orderBy.registrants._count` memakai jumlah SELURUH pendaftar. Kalau
@@ -197,6 +166,28 @@ describe('Marketing Service', () => {
       const args = vi.mocked(prisma.marketingCampaign.findMany).mock.calls[0][0] as any;
       expect(args.orderBy).toBeUndefined();
       expect(args.take).toBeUndefined();
+    });
+  });
+
+  describe('getRecentLeads', () => {
+    it('baris yang dihapus (nama penanda) tidak lagi muncul sebagai prospek aktif', async () => {
+      // Penghapusan (Pasal 35, 43) adalah bentuk terkuat "berhenti memproses".
+      // Saringan pemasaran hanya membaca `consentWithdrawnAt`, jadi penghapusan
+      // WAJIB mengisinya — kalau tidak, baris ber-`fullName` penanda tetap
+      // dihitung sebagai prospek dan tetap muncul di daftar tindak lanjut.
+      //
+      // Diperiksa pada kueri yang dikirim ke basis data, bukan pada hasil yang
+      // disaring tiruan: tiruan yang menyaring sendiri akan lulus walaupun
+      // layanannya berhenti menyaring — hijau palsu yang justru dicari uji ini.
+      vi.mocked(prisma.registrant.findMany).mockResolvedValue([] as any);
+
+      await marketingService.getRecentLeads('unit-1', 10);
+
+      expect(prisma.registrant.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ consentWithdrawnAt: null }),
+        })
+      );
     });
   });
 

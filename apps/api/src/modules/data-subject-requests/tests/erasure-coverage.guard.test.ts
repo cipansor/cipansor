@@ -86,7 +86,7 @@ const COVERAGE: Record<string, Buckets> = {
     // `consentIp` dipertahankan sebagai bukti sahnya persetujuan (Pasal 21):
     // IP asal persetujuan adalah bagian dari catatan itu, bukan turunan angka
     // operasional. Klasifikasi ini disengaja — jangan disapu tanpa keputusan
-    // ulang, dan jangan pula dibiarkan tanpa alasan tertulis seperti sekarang.
+    // ulang, karena bukti persetujuan yang hilang tidak dapat dipulihkan.
     retained: ['registrationNo', 'source', 'consentVersion', 'consentIp'],
     ignored: [
       'id',
