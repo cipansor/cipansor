@@ -3,9 +3,18 @@ import { Prisma } from '@prisma/client';
 import * as service from '../data-subject-requests.service';
 import { prisma } from '@/lib/prisma';
 import { notificationService } from '@/modules/notifications';
+import { deleteIdentityDocument } from '@/utils/identity-document-store';
 import fs from 'fs/promises';
 
 vi.mock('fs/promises', () => ({ default: { unlink: vi.fn() } }));
+
+// `deleteIdentityDocument` dipalsukan supaya uji dapat menegaskan bahwa berkas
+// KTP benar-benar dihapus dari penyimpanan, bukan hanya kolomnya dikosongkan.
+// Tanpa ini, mencabut panggilan itu tidak membuat uji apa pun gagal.
+vi.mock('@/utils/identity-document-store', () => ({
+  deleteIdentityDocument: vi.fn().mockResolvedValue(undefined),
+  identityDocumentRetainUntil: vi.fn((d: Date) => new Date(d.getTime() + 365 * 24 * 3600 * 1000)),
+}));
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -32,6 +41,10 @@ vi.mock('@/lib/prisma', () => ({
       updateMany: vi.fn().mockResolvedValue({ count: 0 }),
     },
     userSigningKey: { findUnique: vi.fn().mockResolvedValue(null) },
+    // Riwayat kunci yang diarsipkan `archiveActiveKey`. Bawaannya kosong, jadi
+    // uji yang tidak menyebutnya tetap berjalan seperti "belum pernah menerima
+    // kunci" — tetapi uji yang menguji jeda penerbitan ulang harus mengisinya.
+    signingKeyStatusRecord: { findFirst: vi.fn().mockResolvedValue(null) },
     registrantDocument: {
       updateMany: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
@@ -405,6 +418,11 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     txPassThrough();
+    // `clearAllMocks` mengosongkan panggilan, bukan implementasi — jadi tanpa
+    // baris ini nilai `mockResolvedValue` milik uji sebelumnya terbawa ke uji
+    // berikutnya. Bawaannya "belum pernah menerima kunci"; uji yang menguji
+    // jeda penerbitan ulang menimpanya sendiri.
+    vi.mocked(prisma.signingKeyStatusRecord.findFirst).mockResolvedValue(null as any);
   });
 
   const actor = { userId: 'officer-1', name: 'Petugas PDP' };
@@ -580,6 +598,64 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
     expect(audit.data.newValues.erased).toContain('identitas penandatangan (KTP)');
     expect(audit.data.newValues.erased).toContain('berkas foto KTP');
+
+    // Label audit dan penghapusan fisik diisi terpisah — yang pertama dari
+    // daftar `erased`, yang kedua dari `identityFiles` setelah commit. Karena
+    // itu label saja tidak membuktikan berkasnya hilang; panggilannya diuji.
+    expect(deleteIdentityDocument).toHaveBeenCalledWith('ktp-santri.jpg');
+  });
+
+  it('foto KTP dipertahankan saat kunci lama sudah diarsipkan tetapi belum diganti', async () => {
+    // Jeda antara persetujuan penerbitan ulang dan aktivasi kunci pengganti:
+    // `archiveActiveKey` sudah menghapus `UserSigningKey`, tetapi metadatanya
+    // tersisa di `SigningKeyStatusRecord`. Menguji kunci aktif saja akan
+    // menyimpulkan "belum pernah menerima kunci" dan membuang bukti registrasi
+    // kunci lama padahal masa simpannya belum berakhir.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectRegistrantId: null,
+        subjectStudentId: 'stu-1',
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.userIdentity.findUnique).mockResolvedValue({
+      ktpFileName: 'ktp-ahmad.jpg',
+    } as any);
+    // Tidak ada kunci aktif...
+    vi.mocked(prisma.userSigningKey.findUnique).mockResolvedValue(null as any);
+    // ...tetapi riwayatnya membuktikan kunci pernah terbit.
+    vi.mocked(prisma.signingKeyStatusRecord.findFirst).mockResolvedValue({
+      id: 'skr-1',
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const identity = vi.mocked(prisma.userIdentity.updateMany).mock.calls[0]?.[0] as any;
+    expect(identity).toBeDefined();
+    // Kolom teksnya tetap disapu...
+    expect(identity.data.nik).toBe('dihapus-usr-1');
+    // ...tetapi berkas dan batas simpannya tidak disentuh.
+    expect(identity.data.ktpFileName).toBeUndefined();
+    expect(identity.data.ktpRetainUntil).toBeUndefined();
+    expect(deleteIdentityDocument).not.toHaveBeenCalled();
+
+    // Batas itu disebut di `retained` supaya terbaca, bukan tersembunyi.
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(
+      (audit.data.newValues.retained as string[]).some((entry) => entry.includes('berkas foto KTP'))
+    ).toBe(true);
+    expect(audit.data.newValues.erased).not.toContain('berkas foto KTP');
   });
 
   it('subjek STUDENT menyapu UserIdentity meski tidak ada berkas KTP', async () => {

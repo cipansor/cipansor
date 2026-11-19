@@ -1432,6 +1432,13 @@ async function eraseStudentAndRegistrations(
  *   disimpan sampai masa simpannya habis (CA/B Forum, eIDAS Ps. 24.2(h));
  *   pekerja purge mencapainya nanti. Berkasnya disebut di `retained` supaya
  *   batas itu tercatat, bukan tersembunyi.
+ *
+ * "Sudah terbit" diuji lewat **dua** sumber, bukan satu: `UserSigningKey` (kunci
+ * yang berlaku sekarang) dan `SigningKeyStatusRecord` (riwayat yang diarsipkan
+ * `archiveActiveKey` saat penerbitan ulang disetujui). Menguji kunci aktif saja
+ * akan membuang foto KTP pada jeda antara persetujuan penerbitan ulang dan
+ * aktivasi kunci pengganti — tepat ketika riwayatnya masih membuktikan bahwa
+ * kunci lama pernah terbit dan masa simpannya belum berakhir.
  */
 async function eraseUserIdentity(
   tx: Prisma.TransactionClient,
@@ -1453,10 +1460,18 @@ async function eraseUserIdentity(
   // kunci, tidak ada tanda tangan yang perlu dipertanggungjawabkan. Menguji
   // `ktpRetainUntil` saja tidak cukup, karena kolom itu kini juga diisi sebagai
   // jaring pengaman sejak unggah.
-  const issuedKey = await tx.userSigningKey.findUnique({
-    where: { userId },
-    select: { id: true },
-  });
+  //
+  // `UserSigningKey` hanya menyimpan kunci yang **sekarang** berlaku.
+  // `archiveActiveKey` menghapus baris itu saat penerbitan ulang disetujui dan
+  // menyisakan metadatanya di `SigningKeyStatusRecord` sampai pemiliknya
+  // mengaktifkan kunci pengganti. Selama jeda itu, "tidak ada kunci aktif"
+  // bukan berarti "belum pernah menerima kunci" — riwayatnya justru bukti
+  // bahwa kunci pernah terbit, dan foto KTP-nya masih wajib disimpan.
+  const [issuedKey, archivedKey] = await Promise.all([
+    tx.userSigningKey.findUnique({ where: { userId }, select: { id: true } }),
+    tx.signingKeyStatusRecord.findFirst({ where: { userId }, select: { id: true } }),
+  ]);
+  const everIssuedKey = Boolean(issuedKey || archivedKey);
   const identityData = {
     legalName: marker,
     nik: `dihapus-${userId}`,
@@ -1464,7 +1479,7 @@ async function eraseUserIdentity(
     birthDate: new Date('1900-01-01'),
     verificationNote: marker,
   };
-  if (identity?.ktpFileName && !issuedKey) {
+  if (identity?.ktpFileName && !everIssuedKey) {
     await tx.userIdentity.update({
       where: { userId },
       data: {
