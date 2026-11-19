@@ -26,6 +26,7 @@ vi.mock('@/lib/prisma', () => ({
     student: { findUnique: vi.fn(), update: vi.fn() },
     studentParent: { findUnique: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn() },
+    userIdentity: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     registrantDocument: {
       updateMany: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
@@ -758,6 +759,10 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     expect(registrant.data.registrationFeeNote).toContain('UU PDP');
     // Berkas pendaftaran yang tertinggal ikut dijadwalkan untuk dihapus.
     expect(prisma.registrantDocument.updateMany).toHaveBeenCalled();
+    // Nama berkas dokumen adalah teks bebas (nama file unggahan pendaftar)
+    // yang juga dimuat ekspor ACCESS sebagai data subjek — ikut ditimpa.
+    const docSweep = vi.mocked(prisma.registrantDocument.updateMany).mock.calls[0][0] as any;
+    expect(docSweep.data.name).toContain('UU PDP');
     const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
     expect(audit.data.newValues.erased).toContain('sekolah asal');
     expect(audit.data.newValues.erased).toContain('catatan biaya pendaftaran');
@@ -948,8 +953,16 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     // Akunnya sendiri tetap dianonimkan.
     const user = vi.mocked(prisma.user.update).mock.calls[0][0] as any;
     expect(user.data.isActive).toBe(false);
+    // Identitas penandatangan (NIK mentah) ikut disapu; `nik` unik, jadi
+    // penandanya tetap unik per pengguna.
+    const identity = vi.mocked(prisma.userIdentity.updateMany).mock.calls[0][0] as any;
+    expect(identity.where).toEqual({ userId: 'usr-1' });
+    expect(identity.data.nik).toBe('dihapus-usr-1');
+    expect(identity.data.legalName).toContain('UU PDP');
     const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
     expect(audit.data.newValues.erased).toContain('identitas santri');
+    expect(audit.data.newValues.erased).toContain('identitas penandatangan (KTP)');
+    expect(audit.data.newValues.retained).toContain('jejak verifikasi identitas penandatangan');
   });
 
   it('penghapusan GUARDIAN tanpa santri tertaut tidak menyentuh baris Student', async () => {

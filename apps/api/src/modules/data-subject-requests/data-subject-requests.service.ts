@@ -1078,7 +1078,16 @@ async function eraseStudent(
   }
   await tx.studentDocument.updateMany({
     where: removableDocuments,
-    data: { fileUrl: '', deletedAt: now },
+    data: {
+      fileUrl: '',
+      deletedAt: now,
+      // Judul dan nomor dokumen adalah teks bebas yang menyebut anak
+      // ("Akta Kelahiran - Muhammad Rizky") atau nomor akta/KK-nya.
+      title: marker,
+      description: null,
+      documentNumber: null,
+      rejectionReason: null,
+    },
   });
 
   await tx.user.update({
@@ -1088,6 +1097,12 @@ async function eraseStudent(
       email: `dihapus-${student.userId}@invalid.local`,
       phone: null,
       passwordHash: null,
+      // Token setel-ulang dan rahasia 2FA adalah kredensial; akun yang
+      // dinonaktifkan tidak boleh menyisakan jalan masuk.
+      resetTokenHash: null,
+      twoFactorSecret: null,
+      twoFactorSecretPending: null,
+      twoFactorRecoveryCodes: [],
       fcmToken: null,
       isActive: false,
       deletedAt: now,
@@ -1188,11 +1203,18 @@ async function eraseStudent(
       where: { sessionId: { in: sessionIds } },
       data: { content: marker },
     });
-    // Rujukan konseling juga menyimpan teks bebas — alasan rujukan dan
-    // hasilnya — dan menaut lewat `sessionId` yang sama.
+    // Rujukan konseling juga menyimpan teks bebas — pihak yang dirujuk,
+    // institusinya, kontak, alasan, dan hasilnya — dan menaut lewat `sessionId`
+    // yang sama.
     await tx.counselingReferral.updateMany({
       where: { sessionId: { in: sessionIds } },
-      data: { reason: marker, outcome: marker },
+      data: {
+        reason: marker,
+        outcome: marker,
+        referredTo: marker,
+        institution: marker,
+        contactInfo: marker,
+      },
     });
   }
 
@@ -1278,7 +1300,7 @@ async function eraseRegistrant(
   }
   await tx.registrantDocument.updateMany({
     where: removableDocuments,
-    data: { fileUrl: null, notes: null },
+    data: { fileUrl: null, notes: null, name: marker },
   });
 
   // Catatan interaksi pemasaran (CRM) menyebut nama dan nomor telepon pendaftar
@@ -1294,6 +1316,7 @@ async function eraseRegistrant(
   outcome.erased.push(
     'identitas pendaftar',
     'berkas identitas',
+    'nama berkas dokumen',
     'catatan interaksi pemasaran',
     'sekolah asal',
     'catatan biaya pendaftaran'
@@ -1417,12 +1440,39 @@ async function executeErasure(
         email: `dihapus-${request.subjectUserId}@invalid.local`,
         phone: null,
         passwordHash: null,
+        resetTokenHash: null,
+        twoFactorSecret: null,
+        twoFactorSecretPending: null,
+        twoFactorRecoveryCodes: [],
         fcmToken: null,
         isActive: false,
         deletedAt: now,
       },
     });
     erased.push('identitas akun');
+
+    // Identitas penandatangan (`UserIdentity`) adalah identitas negara orang
+    // yang sama: `legalName`, NIK 16 digit, tempat/tanggal lahir, dan catatan
+    // verifikasi. Ia menaut `User` dengan `onDelete: Cascade`, tetapi jalur ini
+    // MENGANONIMKAN baris `User`, bukan menghapusnya — jadi cascade tidak
+    // menyala dan penandanya bertahan. Kolom identitasnya ditimpa penanda;
+    // `nik` unik, jadi penandanya harus tetap unik per pengguna. Jejak
+    // verifikasi (`verifiedAt`, `verifiedById`) dipertahankan — itu catatan
+    // bahwa pejabat tertentu pernah mencocokkan, bukan identitas orangnya.
+    // Berkas foto KTP tidak disentuh di sini: masa simpannya dikelola
+    // `db:purge-identity-documents` lewat `ktpRetainUntil`.
+    await tx.userIdentity.updateMany({
+      where: { userId: request.subjectUserId },
+      data: {
+        legalName: marker,
+        nik: `dihapus-${request.subjectUserId}`,
+        birthPlace: marker,
+        birthDate: new Date('1900-01-01'),
+        verificationNote: marker,
+      },
+    });
+    erased.push('identitas penandatangan (KTP)');
+    retained.push('jejak verifikasi identitas penandatangan');
 
     // Baris `Student` menaut `User` lewat `userId` yang unik: subjek yang
     // mewakili dirinya sendiri (GUARDIAN) dapat menunjuk seorang santri yang
