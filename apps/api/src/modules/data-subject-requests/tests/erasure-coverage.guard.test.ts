@@ -82,6 +82,11 @@ const COVERAGE: Record<string, Buckets> = {
       'notes',
       'registrationFeeNote',
     ],
+    // `registrationNo`/`source`/`consentVersion` = riwayat kepatuhan SPMB.
+    // `consentIp` dipertahankan sebagai bukti sahnya persetujuan (Pasal 21):
+    // IP asal persetujuan adalah bagian dari catatan itu, bukan turunan angka
+    // operasional. Klasifikasi ini disengaja — jangan disapu tanpa keputusan
+    // ulang, dan jangan pula dibiarkan tanpa alasan tertulis seperti sekarang.
     retained: ['registrationNo', 'source', 'consentVersion', 'consentIp'],
     ignored: [
       'id',
@@ -118,8 +123,12 @@ const COVERAGE: Record<string, Buckets> = {
     ignored: ['id', 'unitId'],
   },
   UserIdentity: {
-    swept: ['legalName', 'nik', 'birthPlace', 'verificationNote'],
-    retained: ['ktpFileName', 'ktpSha256'],
+    // `ktpFileName`/`ktpSha256` disapu bila subjeknya belum pernah menerima
+    // kunci tanda tangan. Bila kunci sudah terbit, berkasnya adalah bukti
+    // registrasi penandatangan yang wajib disimpan sampai `ktpRetainUntil` —
+    // jadi ia **ditulis secara bersyarat**, bukan dipertahankan diam-diam.
+    swept: ['legalName', 'nik', 'birthPlace', 'verificationNote', 'ktpFileName', 'ktpSha256'],
+    retained: [],
     ignored: ['id', 'userId', 'verifiedById'],
   },
   LegacyIdentifierAudit: {
@@ -129,6 +138,9 @@ const COVERAGE: Record<string, Buckets> = {
   },
   StudentNote: {
     swept: ['title', 'content'],
+    // `attachments` adalah larik URL berkas; saat ini tak ada jalur tulis yang
+    // mengisinya, jadi laten. Bila kelak diisi, berkasnya harus ikut dihapus —
+    // bukan sekadar kehilangan rujukannya. Catat di sini sampai ada penulisnya.
     retained: ['attachments', 'tags'],
     ignored: ['id', 'studentId', 'classId', 'academicYearId', 'createdById'],
   },
@@ -326,6 +338,36 @@ describe('penjaga cakupan penyapuan ERASURE', () => {
     expect(problems).toEqual([]);
   });
 
+  it('kolom perilaku (bukan teks) yang menandai "berhenti memproses" ditulis di fungsi penghapusannya', () => {
+    // Kelas cacat yang lolos seluruh penjaga di atas: `consentWithdrawnAt` dan
+    // `ktpFileName` bukan kolom teks, sehingga `stringColumns()` tidak pernah
+    // melihatnya — dan penghapusan yang meninggalkannya membuat subjek yang
+    // sudah dianonimkan tetap diproses (prospek pemasaran) atau tetap terbaca
+    // (foto KTP).
+    //
+    // **Diperiksa per fungsi, bukan per berkas.** `consentWithdrawnAt` juga
+    // ditulis `withdrawConsent`, jadi penjaga yang memindai seluruh berkas
+    // akan hijau meski `eraseRegistrant` melewatkannya — persis hijau palsu
+    // yang pernah lolos pada bentuk spread.
+    const required: { fn: string; model: string; columns: string[] }[] = [
+      { fn: 'eraseRegistrant', model: 'registrant', columns: ['consentWithdrawnAt'] },
+      { fn: 'eraseUserIdentity', model: 'userIdentity', columns: ['ktpFileName', 'ktpSha256'] },
+    ];
+    const problems: string[] = [];
+    for (const { fn, model, columns } of required) {
+      const body = functionSource(serviceSource, fn);
+      if (!body) {
+        problems.push(`${fn} tidak ditemukan di layanan`);
+        continue;
+      }
+      const keys = columnsWrittenByService(body)[model] ?? new Set<string>();
+      for (const col of columns) {
+        if (!keys.has(col)) problems.push(`${fn} tidak menulis ${model}.${col}`);
+      }
+    }
+    expect(problems).toEqual([]);
+  });
+
   it('penjaga CHECK membaca nilai yang masuk lewat spread', () => {
     // Bentuk cacat yang sebenarnya terjadi (putaran 12) bukan literal langsung
     // di blok `data`, melainkan `rejectionReason: null` di dalam objek `const`
@@ -341,6 +383,16 @@ describe('penjaga cakupan penyapuan ERASURE', () => {
     expect(block.data.b).toBe("'x'");
   });
 });
+
+/** Badan sebuah `async function NAME(…) { … }` pada sumber, atau `null`. */
+function functionSource(source: string, name: string): string | null {
+  const re = new RegExp(`async function ${name}\\(`);
+  const m = re.exec(source);
+  if (!m) return null;
+  const open = source.indexOf('{', m.index);
+  if (open < 0) return null;
+  return sliceBalanced(source, open);
+}
 
 /** Kolom yang disebut `CHECK (…)` pada migrasi, per nama FIELD Prisma. */
 function checkConstrainedColumns(): Record<string, Set<string>> {

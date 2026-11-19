@@ -26,7 +26,12 @@ vi.mock('@/lib/prisma', () => ({
     student: { findUnique: vi.fn(), update: vi.fn() },
     studentParent: { findUnique: vi.fn() },
     user: { findUnique: vi.fn(), update: vi.fn() },
-    userIdentity: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    userIdentity: {
+      findUnique: vi.fn().mockResolvedValue(null),
+      update: vi.fn().mockResolvedValue({}),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
+    userSigningKey: { findUnique: vi.fn().mockResolvedValue(null) },
     registrantDocument: {
       updateMany: vi.fn(),
       findMany: vi.fn().mockResolvedValue([]),
@@ -963,6 +968,103 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     expect(audit.data.newValues.erased).toContain('identitas santri');
     expect(audit.data.newValues.erased).toContain('identitas penandatangan (KTP)');
     expect(audit.data.newValues.retained).toContain('jejak verifikasi identitas penandatangan');
+  });
+
+  it('menghapus berkas foto KTP subjek yang belum pernah disetujui (tanpa kunci terbit)', async () => {
+    // Kelas cacat: penanda langsung yang bertahan setelah subjek dihapus, kali
+    // ini berbentuk berkas. `ktpRetainUntil` hanya diisi saat pengajuan kunci
+    // DISETUJUI, sehingga pengajuan yang belum diputuskan tidak pernah dicapai
+    // pekerja purge — fotonya tersimpan tanpa batas waktu.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'GUARDIAN',
+        subjectUserId: 'usr-1',
+        subjectStudentId: null,
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.userIdentity.findUnique).mockResolvedValue({
+      ktpFileName: 'ktp-abc.jpg',
+    } as any);
+    vi.mocked(prisma.userSigningKey.findUnique).mockResolvedValue(null as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const identity = vi.mocked(prisma.userIdentity.update).mock.calls[0][0] as any;
+    expect(identity.where).toEqual({ userId: 'usr-1' });
+    expect(identity.data.ktpFileName).toBeNull();
+    expect(identity.data.ktpSha256).toBeNull();
+    expect(identity.data.ktpRetainUntil).toBeNull();
+    expect(identity.data.ktpDeletedAt).toBeInstanceOf(Date);
+
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.newValues.erased).toContain('berkas foto KTP');
+  });
+
+  it('mempertahankan berkas KTP saat kunci sudah terbit, dan menyebutkannya di `retained`', async () => {
+    // Kewajiban menyimpan bukti registrasi penandatangan mengalahkan
+    // penghapusan; pekerja purge mencapainya saat masa simpannya habis.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'GUARDIAN',
+        subjectUserId: 'usr-1',
+        subjectStudentId: null,
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.userIdentity.findUnique).mockResolvedValue({
+      ktpFileName: 'ktp-abc.jpg',
+    } as any);
+    vi.mocked(prisma.userSigningKey.findUnique).mockResolvedValue({ id: 'key-1' } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    expect(prisma.userIdentity.update).not.toHaveBeenCalled();
+    const sweep = vi.mocked(prisma.userIdentity.updateMany).mock.calls[0][0] as any;
+    expect(sweep.data).not.toHaveProperty('ktpFileName');
+
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.newValues.retained.join(' ')).toContain('berkas foto KTP');
+    expect(audit.data.newValues.erased).not.toContain('berkas foto KTP');
+  });
+
+  it('penghapusan pendaftar menulis `consentWithdrawnAt` agar berhenti dihitung sebagai prospek', async () => {
+    // Saringan pemasaran (`marketingConsentHeld`) hanya membaca kolom ini. Tanpa
+    // tulisan ini, baris yang sudah dianonimkan tetap muncul di dasbor, daftar
+    // tindak lanjut, dan hitungan ROI kampanye.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'REGISTRANT',
+        subjectRegistrantId: 'reg-1',
+        subjectStudentId: null,
+        subjectUserId: null,
+      }) as any
+    );
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValue({ studentId: null } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const registrant = vi.mocked(prisma.registrant.update).mock.calls[0][0] as any;
+    expect(registrant.data.consentWithdrawnAt).toBeInstanceOf(Date);
+    expect(registrant.data.fullName).toContain('UU PDP');
   });
 
   it('penghapusan GUARDIAN tanpa santri tertaut tidak menyentuh baris Student', async () => {

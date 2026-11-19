@@ -69,6 +69,20 @@ vi.mock('../../../lib/prisma', () => ({
 vi.mock('../../../lib/event-bus', () => ({ eventBus: { emit: emitMock } }));
 vi.mock('@/lib/event-bus', () => ({ eventBus: { emit: emitMock } }));
 vi.mock('@/lib/password', () => ({ comparePassword: compareMock }));
+vi.mock('@/utils/identity-document-store', () => ({
+  deleteIdentityDocument: vi.fn(),
+  identityDocumentRetainUntil: vi.fn((d: Date) => {
+    const u = new Date(d);
+    u.setFullYear(u.getFullYear() + 7);
+    return u;
+  }),
+  isAcceptedIdentityDocument: vi.fn(() => true),
+  readIdentityDocument: vi.fn().mockResolvedValue(Buffer.from('ktp')),
+  storeIdentityDocument: vi
+    .fn()
+    .mockResolvedValue({ fileName: 'ktp-new.jpg', sha256: 'b'.repeat(64) }),
+}));
+
 vi.mock('@/utils/letter-uploaded-file', () => ({
   readUploadedPdfBytes: vi.fn(),
   uploadFilenameFromUrl: vi.fn((url: string | null | undefined) =>
@@ -1650,5 +1664,47 @@ describe('mencabut naskah dinas', () => {
       .find((c) => c.data?.revokedSha256);
     expect(stampWrite?.data.revokedByName).toBe('Ani');
     expect(stampWrite?.data.revokedSha256).toMatch(/^[0-9a-f]{64}$/);
+  });
+});
+
+describe('EsignService.uploadIdentityDocument — masa simpan berkas', () => {
+  it('mengisi `ktpRetainUntil` saat unggah, agar pekerja purge dapat mencapainya', async () => {
+    // Tanpa nilai ini, baris yang pengajuannya tidak pernah diputuskan tidak
+    // akan pernah cocok dengan penyaring pekerja purge
+    // (`ktpRetainUntil: { not: null, lte: now }`) — fotonya tersimpan tanpa
+    // batas waktu, dan penghapusan subjek harus menutupnya sendiri.
+    vi.mocked(prisma.userIdentity.findUnique).mockResolvedValue(
+      verifiedIdentity({ verifiedAt: null, ktpFileName: null }) as any
+    );
+    vi.mocked(prisma.userIdentity.update).mockResolvedValue({} as any);
+
+    await EsignService.uploadIdentityDocument('ketua', {
+      buffer: Buffer.from('ktp'),
+      mimetype: 'image/jpeg',
+    } as any);
+
+    const call = vi.mocked(prisma.userIdentity.update).mock.calls.at(-1)![0] as any;
+    expect(call.data.ktpRetainUntil).toBeInstanceOf(Date);
+    expect(call.data.ktpRetainUntil.getTime()).toBeGreaterThan(Date.now() + 365 * DAY);
+  });
+});
+
+describe('EsignService.readIdentityDocument — subjek yang sudah dihapus', () => {
+  it('menolak membaca foto KTP subjek yang barisnya sudah dihapus', async () => {
+    // Baris `User` yang dianonimkan tidak boleh menyisakan jalur baca foto KTP:
+    // foto identitas negara adalah penanda langsung, dan penghapusan menutupnya
+    // bahkan bagi Super Admin.
+    vi.mocked(prisma.userIdentity.findUnique).mockResolvedValue({
+      ktpFileName: 'ktp-abc.jpg',
+      ktpDeletedAt: null,
+      user: { deletedAt: new Date('2026-11-18T00:00:00.000Z') },
+    } as any);
+
+    await expect(EsignService.readIdentityDocument('usr-1', 'superadmin')).rejects.toThrow(
+      /sudah dihapus/i
+    );
+
+    // Tidak ada jejak baca yang tercatat: pembacaan tidak pernah terjadi.
+    expect(prisma.auditLog.create).not.toHaveBeenCalled();
   });
 });

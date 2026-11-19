@@ -41,6 +41,12 @@ async function main() {
       console.log(`  ${row.ownerName} — batas simpan ${until}`);
     }
 
+    if (summary.backfilled > 0) {
+      console.log(
+        `${summary.backfilled} baris tanpa batas simpan diberi batas menurut kebijakan${suffix}.`
+      );
+    }
+
     console.log(
       `${summary.onDiskCount} berkas di disk, ${summary.referencedCount} dirujuk ` +
         `basis data, ${summary.orphans.length} yatim${suffix}.`

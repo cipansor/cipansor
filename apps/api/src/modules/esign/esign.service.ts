@@ -490,6 +490,13 @@ export const EsignService = {
         ktpSha256: stored.sha256,
         ktpUploadedAt: new Date(),
         ktpDeletedAt: null,
+        // Jaring pengaman masa simpan: penyaring pekerja purge menuntut
+        // `ktpRetainUntil` bukan null, sehingga pengajuan yang tidak pernah
+        // diputuskan akan menyimpan fotonya tanpa batas waktu bila kolom ini
+        // kosong. Nilainya memakai aturan yang sama dengan jalur persetujuan,
+        // supaya hanya ada satu kebijakan retensi berkas identitas. Jalur
+        // persetujuan menimpanya dengan masa kunci yang benar-benar diberikan.
+        ktpRetainUntil: identityDocumentRetainUntil(expiryFrom(new Date(), DEFAULT_VALIDITY_DAYS)),
       },
     });
 
@@ -508,8 +515,17 @@ export const EsignService = {
   async readIdentityDocument(subjectUserId: string, readerId: string) {
     const identity = await prisma.userIdentity.findUnique({
       where: { userId: subjectUserId },
-      select: { ktpFileName: true, ktpDeletedAt: true },
+      select: { ktpFileName: true, ktpDeletedAt: true, user: { select: { deletedAt: true } } },
     });
+
+    // Subjek yang sudah dihapus tidak lagi dapat dibaca fotonya, bahkan oleh
+    // Super Admin: barisnya sudah dianonimkan, dan foto KTP adalah penanda
+    // langsung yang tidak boleh bertahan melewati penghapusan. Diperiksa
+    // sebelum `ktpFileName` supaya pesannya tidak membocorkan apakah berkasnya
+    // masih ada.
+    if (identity?.user?.deletedAt) {
+      throw Errors.notFound('Subjek data ini sudah dihapus.');
+    }
 
     if (!identity?.ktpFileName) {
       throw Errors.notFound(

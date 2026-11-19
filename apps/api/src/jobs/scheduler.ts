@@ -188,6 +188,7 @@ export function initializeScheduler(): void {
         const summary = await purgeIdentityDocuments(prisma);
         logger.info(
           `[Scheduler] Identity purge: ${summary.expired.length} expired, ` +
+            `${summary.backfilled} backfilled, ` +
             `${summary.orphans.length} orphaned, ` +
             `${summary.onDiskCount} on disk, ${summary.referencedCount} referenced`
         );

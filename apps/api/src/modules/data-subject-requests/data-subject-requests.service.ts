@@ -6,6 +6,7 @@ import { logger } from '@/lib/logger';
 import { isPdpOfficer } from '@/lib/pdp-officers';
 import { Errors } from '@/middleware/error';
 import { notificationService } from '@/modules/notifications';
+import { deleteIdentityDocument } from '@/utils/identity-document-store';
 import { uploadPathFromUrl } from '@/utils/letter-uploaded-file';
 import {
   DATA_SUBJECT_REQUEST_DUE_HOURS,
@@ -51,7 +52,14 @@ const DSR_INCLUDE = {
 type DsrWithRelations = Prisma.DataSubjectRequestGetPayload<{ include: typeof DSR_INCLUDE }>;
 
 /** Apa yang dihapus, apa yang dipertahankan, dan berkas apa yang harus di-unlink. */
-type ErasureOutcome = { erased: string[]; retained: string[]; files: string[] };
+type ErasureOutcome = {
+  erased: string[];
+  retained: string[];
+  /** URL unggahan (`uploadPathFromUrl`), dihapus lewat `deleteStoredFiles`. */
+  files: string[];
+  /** Nama berkas di penyimpanan identitas, dihapus lewat `deleteIdentityDocument`. */
+  identityFiles: string[];
+};
 
 /** Status yang mengakhiri alur; pengingat tenggat berhenti di sini. */
 const CLOSED_STATUSES = ['COMPLETED', 'REJECTED'] as const;
@@ -817,8 +825,8 @@ export async function updateStatus(
   const now = new Date();
   let exportPayload: unknown;
 
-  const { updated, filesToDelete, isPublicUnverified, notifyContact } = await prisma.$transaction(
-    async (tx) => {
+  const { updated, filesToDelete, identityFilesToDelete, isPublicUnverified, notifyContact } =
+    await prisma.$transaction(async (tx) => {
       // Kunci barisnya lebih dulu. `$executeRaw` (bukan `$queryRaw`): kunci
       // mengembalikan `void`, yang tidak dapat dideserialkan `$queryRaw`.
       await tx.$executeRaw`SELECT id FROM data_subject_requests WHERE id = ${id} FOR UPDATE`;
@@ -862,12 +870,15 @@ export async function updateStatus(
       });
 
       let erasedFiles: string[] = [];
+      let erasedIdentityFiles: string[] = [];
       if (input.status === 'COMPLETED') {
         if (existing.type === 'CONSENT_WITHDRAWAL') {
           await withdrawConsent(tx, existing, now);
         }
         if (existing.type === 'ERASURE') {
-          erasedFiles = await executeErasure(tx, existing, actor, now);
+          const erased = await executeErasure(tx, existing, actor, now);
+          erasedFiles = erased.uploadFiles;
+          erasedIdentityFiles = erased.identityFiles;
           // `executeErasure` menyapu riwayat yang ADA DI BASIS DATA, tetapi
           // tindakan penutupan baru saja ditambahkan ke array di memori ini di
           // atasnya — dan pembaruan status di bawah yang menang. Seluruh array
@@ -921,15 +932,34 @@ export async function updateStatus(
       const notifyContact =
         existing.type === 'ERASURE' ? existing.requesterContact : row.requesterContact;
 
-      return { updated: row, filesToDelete: erasedFiles, isPublicUnverified, notifyContact };
-    }
-  );
+      return {
+        updated: row,
+        filesToDelete: erasedFiles,
+        identityFilesToDelete: erasedIdentityFiles,
+        isPublicUnverified,
+        notifyContact,
+      };
+    });
 
   // Berkas dihapus SETELAH transaksi dikukuhkan: menghapus berkas tidak dapat
   // dibatalkan, jadi ia tidak boleh berjalan di dalam transaksi yang mungkin
   // gagal dan meninggalkan baris yang masih menunjuk berkas yang sudah lenyap.
   if (filesToDelete.length) {
     await deleteStoredFiles(filesToDelete, updated.requestNo);
+  }
+  // Berkas identitas tinggal di penyimpanan sendiri (bukan direktori unggahan),
+  // jadi ia dihapus lewat helper-nya, juga setelah commit. Kegagalan di sini
+  // dicatat tanpa membatalkan penghapusan yang sudah tercatat — barisnya sudah
+  // tidak menunjuk berkasnya lagi.
+  for (const fileName of identityFilesToDelete) {
+    try {
+      await deleteIdentityDocument(fileName);
+    } catch (error) {
+      logger.warn('[PDP] Berkas KTP gagal dihapus dari penyimpanan identitas', {
+        requestNo: updated.requestNo,
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
   }
 
   const statusLabel = DATA_SUBJECT_REQUEST_STATUS_LABELS[input.status] ?? input.status;
@@ -1009,7 +1039,7 @@ async function eraseStudent(
   marker: string,
   now: Date
 ): Promise<ErasureOutcome> {
-  const outcome: ErasureOutcome = { erased: [], retained: [], files: [] };
+  const outcome: ErasureOutcome = { erased: [], retained: [], files: [], identityFiles: [] };
   const student = await tx.student.findUnique({
     where: { id: studentId },
     select: { id: true, userId: true, photoUrl: true },
@@ -1262,9 +1292,10 @@ async function eraseStudent(
 async function eraseRegistrant(
   tx: Prisma.TransactionClient,
   registrantId: string,
-  marker: string
+  marker: string,
+  now: Date
 ): Promise<ErasureOutcome> {
-  const outcome: ErasureOutcome = { erased: [], retained: [], files: [] };
+  const outcome: ErasureOutcome = { erased: [], retained: [], files: [], identityFiles: [] };
   await tx.registrant.update({
     where: { id: registrantId },
     data: {
@@ -1281,6 +1312,11 @@ async function eraseRegistrant(
       notes: null,
       previousSchool: marker,
       registrationFeeNote: marker,
+      // Penghapusan adalah bentuk terkuat dari "berhenti memproses". Saringan
+      // pemasaran (`marketingConsentHeld`) hanya membaca kolom ini, jadi tanpa
+      // tulisan ini baris yang sudah dianonimkan tetap dihitung sebagai prospek
+      // dan tetap muncul di daftar tindak lanjut (Pasal 35, 40, 43).
+      consentWithdrawnAt: now,
     },
   });
   // Berkas identitas pendaftar tidak punya kegunaan setelah pendaftarannya
@@ -1346,11 +1382,12 @@ async function eraseStudentAndRegistrations(
   marker: string,
   now: Date
 ): Promise<ErasureOutcome> {
-  const outcome: ErasureOutcome = { erased: [], retained: [], files: [] };
+  const outcome: ErasureOutcome = { erased: [], retained: [], files: [], identityFiles: [] };
   const absorb = (part: ErasureOutcome) => {
     outcome.erased.push(...part.erased);
     outcome.retained.push(...part.retained);
     outcome.files.push(...part.files);
+    outcome.identityFiles.push(...part.identityFiles);
   };
 
   absorb(await eraseStudent(tx, studentId, marker, now));
@@ -1359,8 +1396,87 @@ async function eraseStudentAndRegistrations(
     select: { id: true },
   });
   for (const registration of registrations) {
-    absorb(await eraseRegistrant(tx, registration.id, marker));
+    absorb(await eraseRegistrant(tx, registration.id, marker, now));
   }
+  return outcome;
+}
+
+/**
+ * Sapu identitas penandatangan (`UserIdentity`) milik subjek yang dihapus.
+ *
+ * Berkas foto KTP-nya adalah penanda langsung yang tidak boleh bertahan setelah
+ * subjek dinyatakan dihapus. `db:purge-identity-documents` hanya mencapainya
+ * bila `ktpRetainUntil` terisi — dan kolom itu diisi sejak unggah sebagai jaring
+ * pengaman, tetapi kewajiban menyimpan yang sesungguhnya lahir dari **kunci yang
+ * terbit** (lihat `discardIdentityDocument` di `esign.service.ts`). Karena itu
+ * yang menentukan di sini adalah ada-tidaknya `UserSigningKey`, bukan nilai
+ * `ktpRetainUntil`:
+ *
+ * - **Belum pernah menerima kunci** — tidak ada tanda tangan yang perlu
+ *   dipertanggungjawabkan, jadi berkasnya dibuang sekarang juga.
+ * - **Kunci sudah terbit** — berkasnya bukti registrasi penandatangan yang wajib
+ *   disimpan sampai masa simpannya habis (CA/B Forum, eIDAS Ps. 24.2(h));
+ *   pekerja purge mencapainya nanti. Berkasnya disebut di `retained` supaya
+ *   batas itu tercatat, bukan tersembunyi.
+ */
+async function eraseUserIdentity(
+  tx: Prisma.TransactionClient,
+  userId: string,
+  marker: string,
+  now: Date
+): Promise<ErasureOutcome> {
+  const outcome: ErasureOutcome = { erased: [], retained: [], files: [], identityFiles: [] };
+  // Kolom identitasnya ditimpa penanda; `nik` unik, jadi penandanya harus tetap
+  // unik per pengguna. Jejak verifikasi (`verifiedAt`, `verifiedById`)
+  // dipertahankan — itu catatan bahwa pejabat tertentu pernah mencocokkan,
+  // bukan identitas orangnya.
+  const identity = await tx.userIdentity.findUnique({
+    where: { userId },
+    select: { ktpFileName: true },
+  });
+  // Kewajiban menyimpan foto KTP lahir dari **kunci yang terbit**, bukan dari
+  // unggahannya (lihat `discardIdentityDocument` di `esign.service.ts`): tanpa
+  // kunci, tidak ada tanda tangan yang perlu dipertanggungjawabkan. Menguji
+  // `ktpRetainUntil` saja tidak cukup, karena kolom itu kini juga diisi sebagai
+  // jaring pengaman sejak unggah.
+  const issuedKey = await tx.userSigningKey.findUnique({
+    where: { userId },
+    select: { id: true },
+  });
+  const identityData = {
+    legalName: marker,
+    nik: `dihapus-${userId}`,
+    birthPlace: marker,
+    birthDate: new Date('1900-01-01'),
+    verificationNote: marker,
+  };
+  if (identity?.ktpFileName && !issuedKey) {
+    await tx.userIdentity.update({
+      where: { userId },
+      data: {
+        ...identityData,
+        ktpFileName: null,
+        ktpSha256: null,
+        ktpUploadedAt: null,
+        ktpRetainUntil: null,
+        ktpDeletedAt: now,
+      },
+    });
+    outcome.identityFiles.push(identity.ktpFileName);
+    outcome.erased.push('identitas penandatangan (KTP)', 'berkas foto KTP');
+  } else {
+    await tx.userIdentity.updateMany({
+      where: { userId },
+      data: identityData,
+    });
+    outcome.erased.push('identitas penandatangan (KTP)');
+    if (identity?.ktpFileName) {
+      outcome.retained.push(
+        'berkas foto KTP sampai masa simpannya berakhir (bukti registrasi penandatangan)'
+      );
+    }
+  }
+  outcome.retained.push('jejak verifikasi identitas penandatangan');
   return outcome;
 }
 
@@ -1389,22 +1505,25 @@ async function eraseStudentAndRegistrations(
  * Batas ini dicatat pada tindakan, dengan kata-kata, supaya keputusan itu
  * dapat diperiksa — bukan tersembunyi sebagai perilaku yang kebetulan.
  *
- * @returns URL berkas yang harus dihapus dari penyimpanan setelah commit.
+ * @returns Berkas yang harus dihapus setelah commit: URL unggahan (`uploadFiles`)
+ *   dan nama berkas di penyimpanan identitas (`identityFiles`).
  */
 async function executeErasure(
   tx: Prisma.TransactionClient,
   request: DsrWithRelations,
   actor: { userId: string; name: string },
   now: Date
-): Promise<string[]> {
+): Promise<{ uploadFiles: string[]; identityFiles: string[] }> {
   const marker = `Data dihapus (UU PDP, ${request.requestNo})`;
   const erased: string[] = [];
   const retained: string[] = [];
   const filesToDelete: string[] = [];
+  const identityFiles: string[] = [];
 
   const absorb = (outcome: ErasureOutcome) => {
     erased.push(...outcome.erased);
     retained.push(...outcome.retained);
+    identityFiles.push(...outcome.identityFiles);
     filesToDelete.push(...outcome.files);
   };
 
@@ -1417,7 +1536,7 @@ async function executeErasure(
       where: { id: request.subjectRegistrantId },
       select: { studentId: true },
     });
-    absorb(await eraseRegistrant(tx, request.subjectRegistrantId, marker));
+    absorb(await eraseRegistrant(tx, request.subjectRegistrantId, marker, now));
     // Arah sebaliknya: pendaftaran yang sudah menjadi santri menunjuk baris
     // `Student`, dan baris itu memegang identitas yang sama.
     if (registration?.studentId) {
@@ -1427,7 +1546,7 @@ async function executeErasure(
         select: { id: true },
       });
       for (const sibling of siblings) {
-        absorb(await eraseRegistrant(tx, sibling.id, marker));
+        absorb(await eraseRegistrant(tx, sibling.id, marker, now));
       }
     }
   }
@@ -1451,28 +1570,7 @@ async function executeErasure(
     });
     erased.push('identitas akun');
 
-    // Identitas penandatangan (`UserIdentity`) adalah identitas negara orang
-    // yang sama: `legalName`, NIK 16 digit, tempat/tanggal lahir, dan catatan
-    // verifikasi. Ia menaut `User` dengan `onDelete: Cascade`, tetapi jalur ini
-    // MENGANONIMKAN baris `User`, bukan menghapusnya — jadi cascade tidak
-    // menyala dan penandanya bertahan. Kolom identitasnya ditimpa penanda;
-    // `nik` unik, jadi penandanya harus tetap unik per pengguna. Jejak
-    // verifikasi (`verifiedAt`, `verifiedById`) dipertahankan — itu catatan
-    // bahwa pejabat tertentu pernah mencocokkan, bukan identitas orangnya.
-    // Berkas foto KTP tidak disentuh di sini: masa simpannya dikelola
-    // `db:purge-identity-documents` lewat `ktpRetainUntil`.
-    await tx.userIdentity.updateMany({
-      where: { userId: request.subjectUserId },
-      data: {
-        legalName: marker,
-        nik: `dihapus-${request.subjectUserId}`,
-        birthPlace: marker,
-        birthDate: new Date('1900-01-01'),
-        verificationNote: marker,
-      },
-    });
-    erased.push('identitas penandatangan (KTP)');
-    retained.push('jejak verifikasi identitas penandatangan');
+    absorb(await eraseUserIdentity(tx, request.subjectUserId, marker, now));
 
     // Baris `Student` menaut `User` lewat `userId` yang unik: subjek yang
     // mewakili dirinya sendiri (GUARDIAN) dapat menunjuk seorang santri yang
@@ -1597,7 +1695,7 @@ async function executeErasure(
     byUserId: actor.userId,
   });
 
-  return filesToDelete;
+  return { uploadFiles: filesToDelete, identityFiles };
 }
 
 /**
