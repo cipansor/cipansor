@@ -181,6 +181,56 @@ test.describe("Kalender Akademik — agenda lintas bulan tetap tampil", () => {
   });
 });
 
+/**
+ * A one-day agenda has no `endDate` — the model stores null. The month grid
+ * read `event.endDate.split("T")` unconditionally, so a single one-day event
+ * threw "Cannot read properties of null (reading 'split')" and the whole grid
+ * fell to the error boundary: the month rendered empty. A one-day event is the
+ * ordinary case — the Tambah form leaves "Tanggal Selesai" blank for one day.
+ *
+ * Asserts the grid still renders its day cells, which is what the crash
+ * destroyed; the event itself may sit behind the per-day "+N lainnya" cap.
+ *
+ * On `main` this fails earlier still, at the seed: `POST /calendar` answered
+ * 500 because the model's required `eventType` was never sent (#1155).
+ */
+test.describe("Kalender Akademik — agenda satu hari tidak merusak grid", () => {
+  test("grid bulan tetap tergambar saat ada agenda tanpa tanggal selesai", async ({
+    page,
+  }) => {
+    const title = `Agenda sehari e2e ${Date.now()}`;
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const today = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/calendar",
+      {
+        title,
+        eventType: "MEETING",
+        startDate: today,
+        isAllDay: true,
+        isPublic: true,
+      },
+    );
+
+    try {
+      await loginAs(page, "superAdmin");
+      await page.goto("/calendar");
+
+      // 42 day cells = six weeks; the crash left the month blank.
+      await expect(page.locator(".grid.grid-cols-7 > div")).toHaveCount(42, {
+        timeout: 15000,
+      });
+      await expect(page.getByText(/Application error/i)).toHaveCount(0);
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
+    }
+  });
+});
+
 test.describe("Calendar - Performance", () => {
   test("should load calendar quickly", async ({ page }) => {
     await loginAs(page, "superAdmin");
