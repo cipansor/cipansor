@@ -22,7 +22,7 @@ import { shiftWibDay, wibDayOf, wibDayStart } from '@/utils/wib';
  * kuota cadangan, dan pengaduan sesudah pengumuman (tahap pasca-SPMB,
  * Permendikdasmen 3/2025), jadi penghapusan baru boleh berjalan mulai 00.00 WIB
  * hari D+90 — bukan D+90 00.00 UTC, yang di WIB masih pukul 07.00 hari D+90 dan
- * memberi 90 hari lebih 7 jam.
+ * memberi masa simpan 90 hari lebih 7 jam.
  *
  * **Siapa yang dihapus.** Status `ENROLLED` atau baris ber-`studentId` tidak
  * pernah disentuh: pendaftar itu sudah menjadi santri, dan dokumennya pindah ke
@@ -80,8 +80,9 @@ export interface RegistrantRetentionSummary {
  *
  * `wibDayStart` + `shiftWibDay` dipakai, bukan `+90 * 24 jam` pada instan:
  * kolom `@db.Date` menyimpan hari kalender di tengah malam UTC, dan menambah
- * 90 hari pada instan itu menghasilkan 07.00 WIB — tujuh jam terlalu cepat,
- * serta bergeser bagi instan mana pun yang bukan tengah malam.
+ * 90 hari pada instan itu menghasilkan 07.00 WIB — tujuh jam **terlambat**
+ * (masa simpan jadi 90 hari lebih 7 jam), serta bergeser bagi instan mana pun
+ * yang bukan tengah malam.
  */
 export function retentionStartFor(closeDay: string): Date {
   return wibDayStart(shiftWibDay(closeDay, REGISTRANT_RETENTION_DAYS));
