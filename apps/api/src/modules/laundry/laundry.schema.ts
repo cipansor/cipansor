@@ -1,78 +1,61 @@
 import { z } from 'zod';
-import { partialUpdateSchema } from '@/lib/partial';
-import { LaundryStatusEnum } from '@cipansor/shared';
+import {
+  LAUNDRY_PAYMENT_METHOD_VALUES,
+  LAUNDRY_PAYMENT_STATUS_VALUES,
+  createLaundryPricingSchema,
+  createLaundryTransactionSchema,
+  laundryItemInputSchema,
+  listLaundryTransactionsQuerySchema,
+  processLaundryPaymentSchema,
+  updateLaundryPricingSchema,
+  updateLaundryStatusSchema,
+  type ListLaundryTransactionsQuery,
+} from '@cipansor/shared';
 
 // =============================================================================
 // STATUS ENUMS
 // =============================================================================
 
-// The laundry statuses live once, in `@cipansor/shared` (#989): the API's
-// request validation (`LaundryStatusEnum`) and the transition table the Portal
-// reads derive from the same `LAUNDRY_STATUS_VALUES` there, so a status added
-// to that one list can never be offered by the Portal while the API refuses it.
+// The laundry statuses, the transition table, the query and every request body
+// live once, in `@cipansor/shared` (#989, #1010): the API's validation and the
+// Portal's form and status menu derive from the same definitions, so a status
+// added to `LAUNDRY_STATUS_VALUES` can never be offered by the Portal while the
+// API refuses it.
 
-export const PAYMENT_STATUS = ['UNPAID', 'PAID', 'REFUNDED'] as const;
-export const PAYMENT_METHOD = ['WALLET', 'CASH', 'PENDING'] as const;
+export const PAYMENT_STATUS = LAUNDRY_PAYMENT_STATUS_VALUES;
+export const PAYMENT_METHOD = LAUNDRY_PAYMENT_METHOD_VALUES;
 
 // =============================================================================
 // PRICING SCHEMAS
 // =============================================================================
 
-export const CreatePricingSchema = z.object({
-  name: z.string().min(1, 'Nama layanan wajib diisi'),
-  description: z.string().optional(),
-  pricePerKg: z.number().positive('Harga per kg harus lebih dari 0'),
-  minWeight: z.number().positive().default(1),
-  processDays: z.number().int().positive().default(2),
-  isExpress: z.boolean().default(false),
-  isActive: z.boolean().default(true),
-});
+export const CreatePricingSchema = createLaundryPricingSchema;
 
-export const UpdatePricingSchema = partialUpdateSchema(CreatePricingSchema);
+export const UpdatePricingSchema = updateLaundryPricingSchema;
 
 // =============================================================================
 // LAUNDRY ITEM SCHEMAS (Detail Pakaian)
 // =============================================================================
 
-export const LaundryItemInputSchema = z.object({
-  itemType: z.string().min(1, 'Jenis pakaian wajib diisi'),
-  quantity: z.number().int().positive('Jumlah minimal 1'),
-  notes: z.string().optional(),
-});
+export const LaundryItemInputSchema = laundryItemInputSchema;
 
 // =============================================================================
 // TRANSACTION SCHEMAS
 // =============================================================================
 
-export const CreateTransactionSchema = z.object({
-  studentId: z.string().uuid('Student ID tidak valid'),
-  pricingId: z.string().uuid('Pricing ID tidak valid'),
-  weight: z.number().positive('Berat harus lebih dari 0'),
-  paymentMethod: z.enum(['WALLET', 'CASH', 'PENDING']),
-  discount: z.number().min(0).default(0),
-  notes: z.string().optional(),
-  businessUnitId: z.string().uuid().optional(),
-  items: z.array(LaundryItemInputSchema).optional(),
-});
+export const CreateTransactionSchema = createLaundryTransactionSchema;
 
-export const UpdateStatusSchema = z.object({
-  status: LaundryStatusEnum,
-  notes: z.string().optional(),
-});
+export const UpdateStatusSchema = updateLaundryStatusSchema;
 
-export const ProcessPaymentSchema = z.object({
-  paymentMethod: z.enum(['WALLET', 'CASH']),
-});
+export const ProcessPaymentSchema = processLaundryPaymentSchema;
 
-export const ListTransactionsQuerySchema = z.object({
-  studentId: z.string().uuid().optional(),
-  status: LaundryStatusEnum.optional(),
-  paymentStatus: z.enum(PAYMENT_STATUS).optional(),
-  startDate: z.string().optional(),
-  endDate: z.string().optional(),
-  page: z.string().regex(/^\d+$/).optional().default('1'),
-  limit: z.string().regex(/^\d+$/).optional().default('20'),
-});
+/**
+ * `GET /transactions`: the list's query is `@cipansor/shared`'s
+ * (`listLaundryTransactionsQuerySchema`), so the Portal's search box and
+ * status filter validate against the same contract the service reads (R22.4,
+ * R22.11, R22.12).
+ */
+export const ListTransactionsQuerySchema = listLaundryTransactionsQuerySchema;
 
 /**
  * `GET /transactions/stats`: the range is two WIB calendar days (`YYYY-MM-DD`).
@@ -97,5 +80,5 @@ export type UpdatePricingInput = z.infer<typeof UpdatePricingSchema>;
 export type CreateTransactionInput = z.infer<typeof CreateTransactionSchema>;
 export type UpdateStatusInput = z.infer<typeof UpdateStatusSchema>;
 export type ProcessPaymentInput = z.infer<typeof ProcessPaymentSchema>;
-export type ListTransactionsQuery = z.infer<typeof ListTransactionsQuerySchema>;
+export type ListTransactionsQuery = ListLaundryTransactionsQuery;
 export type TransactionStatsQuery = z.infer<typeof TransactionStatsQuerySchema>;
