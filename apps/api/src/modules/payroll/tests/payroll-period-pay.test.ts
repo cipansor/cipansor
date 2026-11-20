@@ -101,7 +101,7 @@ beforeEach(() => {
 });
 
 describe('payrollPeriodService.markAsPaid — the happy path', () => {
-  it('moves the period and its APPROVED slips to PAID and stamps both dates', async () => {
+  it('moves the period and its APPROVED slips to PAID and stamps both dates (R1.27)', async () => {
     const payDate = new Date('2026-06-25T00:00:00.000Z');
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-06-26T09:15:00.000Z'));
@@ -311,7 +311,7 @@ describe('payrollPeriodService.approve — the creator rule', () => {
     expect(update.data.notes).toBe('Disetujui');
   });
 
-  it('refuses a period with no slips (R1.27)', async () => {
+  it('refuses a period with no slips (R1.35)', async () => {
     vi.mocked(prisma.payrollPeriod.findUnique).mockResolvedValue({
       ...PERIOD,
       status: 'DRAFT',
