@@ -22,6 +22,7 @@ import { runPermitNoteErasure } from './permit-note-erasure.job';
 import { runHolidaySync } from './holiday-sync.job';
 import { runAttendanceRetention } from './attendance-retention.job';
 import { runAdmissionWaveStatusUpdate } from './admission-wave-status.job';
+import { purgeExpiredRegistrants } from './registrant-retention.job';
 import { prisma } from '@/lib/prisma';
 
 /**
@@ -562,6 +563,37 @@ export function initializeScheduler(): void {
   scheduledTasks.push(attendanceRetentionTask);
   logger.info('[Scheduler] Attendance retention scheduled daily at 03:15 WIB');
 
+  /**
+   * Retensi data pendaftar SPMB (keputusan pemilik 2026-11-20, #842).
+   *
+   * Pendaftar yang tidak menjadi santri dihapus 90 hari sesudah gelombangnya
+   * ditutup. Kebijakan Privasi sudah menjanjikannya sejak dulu
+   * (`prisma/seed.ts`), tetapi tidak ada yang menjalankannya — janji itu hanya
+   * kalimat sampai pekerjaan ini ada. 03:30 WIB, sesudah retensi absensi, dan
+   * pekerjaannya ringan (satu kueri berindeks + satu hapus per baris).
+   */
+  const registrantRetentionTask = cron.schedule(
+    '30 3 * * *',
+    async () => {
+      try {
+        const summary = await purgeExpiredRegistrants(prisma);
+        if (summary.deleted.length || summary.failed.length) {
+          logger.info(
+            `[Scheduler] Registrant retention: ${summary.deleted.length} deleted, ` +
+              `${summary.failed.length} failed`
+          );
+        }
+      } catch (error) {
+        logger.error('[Scheduler] Registrant retention failed:', error);
+      }
+    },
+    {
+      timezone: 'Asia/Jakarta',
+    }
+  );
+  scheduledTasks.push(registrantRetentionTask);
+  logger.info('[Scheduler] Registrant retention scheduled daily at 03:30 WIB');
+
   logger.info(`[Scheduler] ${scheduledTasks.length} jobs scheduled successfully`);
 }
 
@@ -597,6 +629,7 @@ export async function runJob(
     | 'permit-note-erasure'
     | 'holiday-sync'
     | 'attendance-retention'
+    | 'registrant-retention'
 ): Promise<void> {
   logger.info(`[Scheduler] Manually running job: ${jobName}`);
 
@@ -655,6 +688,14 @@ export async function runJob(
     case 'attendance-retention':
       await runAttendanceRetention();
       break;
+    case 'registrant-retention': {
+      const summary = await purgeExpiredRegistrants(prisma);
+      logger.info(
+        `[Scheduler] Registrant retention: ${summary.deleted.length} deleted, ` +
+          `${summary.failed.length} failed`
+      );
+      break;
+    }
     default:
       throw new Error(`Unknown job: ${jobName}`);
   }
