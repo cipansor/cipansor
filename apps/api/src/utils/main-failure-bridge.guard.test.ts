@@ -232,16 +232,86 @@ describe('main-failure-bridge.yml', () => {
       0
     );
 
-    // Preparation (job start → the test step) and teardown (the test step → job
-    // end), measured across the 68 cross-browser jobs of the 60 most recent
-    // completed E2E runs (2026-11-16): preparation min 37s / mean 198s / p95
-    // 230s / max 255s; teardown ≤ 10s. The allowance is the observed maximum
-    // with margin, so the guard fails if a later timeout is raised past what the
-    // ceiling can actually absorb — the "leaves ~5 minutes" claim in the
-    // workflow is only true because preparation was measured, not assumed.
-    const PREP_MAX = 255;
+    // Preparation (job start → the test step) is measured, not assumed.
+    // Across the 71 cross-browser jobs of the 60 most recent completed E2E runs
+    // (2026-11-20): preparation min 134s / p50 163s / p95 184s / max 200s
+    // **excluding the browser download**, teardown ≤ 10s. The download was the
+    // one truly unbounded part — 14s to 29m45s in the same window — so it is no
+    // longer part of this figure: it has its own cap below, read from the
+    // workflow, and the ceiling must hold that cap too (#1148).
+    const PREP_MAX = 200;
     const POST_MAX = 30;
     const MARGIN = 60;
     expect(seconds + PREP_MAX + POST_MAX + MARGIN).toBeLessThanOrEqual(ceilingSeconds);
+  });
+
+  it('bounds the browser download instead of letting it reach the job ceiling', () => {
+    // #1148: the download is the one preparation step the repo does not
+    // control. On 2026-11-18 webkit's took 29m45s against 34–62s around it,
+    // pushing preparation to 33m13s and the job past its 45-minute ceiling; a
+    // job killed at the ceiling concludes `cancelled`, which `continue-on-error`
+    // does not absorb, so the run went `cancelled` and the staging deploy was
+    // `skipped`. The fix has two halves, and this test requires both:
+    //
+    //  - the download is CACHED, so a cold download is off the critical path;
+    //  - the step is BOUNDED and its failure ABSORBED, so a slow CDN ends as a
+    //    reported step failure, never as a `cancelled` job.
+    const job = E2E.slice(E2E.indexOf('e2e-cross-browser:'));
+
+    // Cached: `~/.cache/ms-playwright` under a key naming the Playwright
+    // version, which is the only thing that changes what gets downloaded.
+    expect(job, 'the cross-browser job must cache the Playwright browsers').toMatch(
+      /uses:\s*actions\/cache@[0-9a-f]{40}/
+    );
+    expect(job).toMatch(/path:\s*~\/\.cache\/ms-playwright/);
+    expect(job, 'the cache key must name the Playwright version').toMatch(
+      /key:\s*playwright-[^\n]*steps\.playwright\.outputs\.version/
+    );
+    expect(job, 'the Playwright version must be read, not written').toMatch(
+      /id:\s*playwright\b[\s\S]{0,300}playwright --version/
+    );
+
+    // Bounded + absorbed. `timeout` on the command is what turns a stalled
+    // download into exit 124; `continue-on-error` keeps that from turning the
+    // run red for a reason that is not the tests.
+    const install = job.match(
+      /name: Install Playwright \(\$\{\{ matrix\.browser \}\}\)\n([\s\S]*?)\n\s*- name:/
+    );
+    expect(install, 'the cross-browser job must install Playwright').not.toBeNull();
+    const block = install?.[1] ?? '';
+    expect(block, 'the install step must bound its own run time').toMatch(/timeout-minutes:\s*\d+/);
+    expect(block, 'a slow download must be absorbed, not gate the run').toMatch(
+      /continue-on-error:\s*true/
+    );
+    const installSeconds = Number(
+      block.match(
+        /run:\s*timeout --signal=TERM (\d+) pnpm --filter web exec playwright install/
+      )?.[1]
+    );
+    expect(
+      installSeconds,
+      'the install command must wrap its download in `timeout`'
+    ).toBeGreaterThan(0);
+    // The step and command bounds agree: the command's `timeout` must end
+    // before the step's own ceiling, or the runner kills the step first and the
+    // "absorbed failure" never happens.
+    const stepCeiling = Number(block.match(/timeout-minutes:\s*(\d+)/)?.[1]) * 60;
+    expect(installSeconds).toBeLessThan(stepCeiling);
+
+    // And the whole budget must still fit the job ceiling: measured
+    // preparation (which now excludes the download), the download's own cap,
+    // the test timeout, teardown and a margin.
+    const ceilingSeconds = Number(job.match(/timeout-minutes:\s*(\d+)/)?.[1]) * 60;
+    const testStep =
+      job.match(/name: Run E2E tests \(\$\{\{ matrix\.browser \}\}\)\n\s*run: ([^\n]+)/)?.[1] ?? '';
+    const testSeconds = Number(testStep.match(/^timeout --signal=TERM (\d+)/)?.[1]);
+    expect(testSeconds, 'the cross-browser test step sets a timeout').toBeGreaterThan(0);
+    const PREP_MAX = 200;
+    const POST_MAX = 30;
+    const MARGIN = 60;
+    expect(
+      PREP_MAX + installSeconds + testSeconds + POST_MAX + MARGIN,
+      'a bounded download plus the test timeout must still fit the job ceiling'
+    ).toBeLessThanOrEqual(ceilingSeconds);
   });
 });

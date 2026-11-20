@@ -151,8 +151,25 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # Same cold-download risk as the cross-browser job below (see the note
+      # there); Chromium is the required gate, so a slow CDN must not be able to
+      # spend this job's 40-minute ceiling on the download.
+      - name: Read the Playwright version
+        id: playwright
+        run: |
+          version=$(pnpm --filter web exec playwright --version | sed 's/^Version //')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "playwright $version"
+
+      - name: Cache Playwright browsers (Chromium)
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-chromium-${{ steps.playwright.outputs.version }}
+
       - name: Install Playwright (Chromium)
-        run: pnpm --filter web exec playwright install --with-deps chromium
+        timeout-minutes: 15
+        run: timeout --signal=TERM 840 pnpm --filter web exec playwright install --with-deps chromium
 
       - name: Generate Prisma client
         run: pnpm --filter api db:generate
@@ -239,7 +256,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: scope
     if: ${{ needs.scope.outputs.run == 'true' && (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && github.ref == 'refs/heads/main')) }}
-    timeout-minutes: 45
+    # 75 minutes, not 45: the budget is the bounded 15-minute browser install
+    # plus the 36-minute test timeout plus measured preparation and teardown
+    # (#1148). At 45 the install cap and the test timeout could not both be
+    # honoured, so a slow CDN still reached the ceiling and the job concluded
+    # `cancelled`. The guard in main-failure-bridge.guard.test.ts checks that
+    # these three numbers still fit; raising any one past the others fails it.
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:
@@ -306,8 +329,42 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      # The browser download is the one preparation step whose duration this
+      # repo does not control: it comes from Playwright's CDN, and on
+      # 2026-11-18 the webkit download alone took 29m45s (against 34–62s in the
+      # runs around it), pushing preparation to 33m13s and the job past its
+      # `timeout-minutes` ceiling. A job killed at the ceiling concludes
+      # `cancelled`, which nothing absorbs, so the run went `cancelled` and the
+      # staging deploy was `skipped` with no report (#1148).
+      #
+      # The cache removes the cold download from the critical path: the key is
+      # the Playwright version (the only thing that changes what gets
+      # downloaded) plus the browser, so a hit installs in seconds and a miss
+      # pays the download once. The version is read from the installed package,
+      # not written here, so it cannot drift from the lockfile.
+      - name: Read the Playwright version
+        id: playwright
+        run: |
+          version=$(pnpm --filter web exec playwright --version | sed 's/^Version //')
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "playwright $version"
+
+      - name: Cache Playwright browsers (${{ matrix.browser }})
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ matrix.browser }}-${{ steps.playwright.outputs.version }}
+
+      # Bounded, and its failure absorbed, so a slow CDN can no longer reach the
+      # job ceiling: the step stops at its own `timeout` (a failure, which the
+      # run reports) instead of letting the runner kill the job (`cancelled`,
+      # which it does not). `continue-on-error` keeps the run's verdict about
+      # the tests: if the browser is missing the test step below fails on its
+      # own, loudly, rather than this step turning a CDN stall into a red gate.
       - name: Install Playwright (${{ matrix.browser }})
-        run: pnpm --filter web exec playwright install --with-deps ${{ matrix.browser }}
+        timeout-minutes: 15
+        continue-on-error: true
+        run: timeout --signal=TERM 840 pnpm --filter web exec playwright install --with-deps ${{ matrix.browser }}
 
       - name: Generate Prisma client
         run: pnpm --filter api db:generate
@@ -360,18 +417,22 @@ jobs:
       # Wrapping the command in `timeout` turns a hang into a step failure
       # (exit 124) that `continue-on-error` absorbs, so the run stays `success`.
       #
-      # The 45-minute `timeout-minutes` ceiling covers the WHOLE job, not just
-      # this step: preparation (checkout, install, Playwright download, seed,
+      # The `timeout-minutes` ceiling covers the WHOLE job, not just this step:
+      # preparation (checkout, install, the bounded Playwright step, seed,
       # build, start the API) runs before the command and the post steps after
-      # it, and only the command is under `timeout`. Measured across the 68
+      # it, and only the command is under `timeout`. Measured across the 71
       # cross-browser jobs of the 60 most recent completed E2E runs
-      # (2026-11-16): preparation 37–255s (mean 198s), teardown ≤10s. So 36
-      # minutes (2160s) leaves 2700 − 2160 − 255 − 10 ≈ 275s of true headroom
-      # under the ceiling — not the ~5 minutes a bare "45 − 36" suggests — and
-      # is well above the ~16–22 minutes a healthy run takes. The guard in
-      # main-failure-bridge.guard.test.ts holds this budget: the timeout plus
-      # the measured preparation, teardown and a margin must fit the ceiling, so
-      # raising the timeout past what the ceiling can absorb fails the test.
+      # (2026-11-20): preparation 134–200s excluding the browser download,
+      # teardown ≤10s, and the test step 167–1627s (p95 1339s). The download is
+      # the one part whose duration this repo does not control, so it is bounded
+      # by its own `timeout` (840s) instead of being assumed away, and the
+      # ceiling is sized to hold all three: 200 + 840 + 2160 + 30 + 60 margin =
+      # 3290s, inside the 4500s ceiling with ~1200s to spare. Before #1148 the
+      # ceiling was 2700s and the download was unbounded, so a 29m45s download
+      # consumed the ceiling and the job was killed — `cancelled`, not a
+      # reported failure. The guard in main-failure-bridge.guard.test.ts holds
+      # this budget and reads every number from this workflow, so raising one
+      # past what the ceiling can absorb fails the test.
       - name: Run E2E tests (${{ matrix.browser }})
         run: timeout --signal=TERM 2160 pnpm --filter web exec playwright test --project=${{ matrix.browser }} --max-failures=30
 
