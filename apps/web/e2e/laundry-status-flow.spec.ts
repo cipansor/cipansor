@@ -126,7 +126,7 @@ test.describe("Petugas membuat transaksi lalu memindahkan statusnya (R22.1, R22.
       .poll(
         async () =>
           (
-            await apiRequest<{ data: { status: LaundryStatusCode } }>(
+            await apiRequest<{ data: Array<{ status: LaundryStatusCode }> }>(
               session,
               "GET",
               `/laundry/transactions?search=${encodeURIComponent(transactionNo)}`,
