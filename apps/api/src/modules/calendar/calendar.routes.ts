@@ -1,7 +1,14 @@
 import { Router } from 'express';
 import { UserRole } from '@prisma/client';
+import {
+  bulkCreateCalendarEventsSchema,
+  calendarEventDeleteQuerySchema,
+  createCalendarEventSchema,
+  listCalendarEventsQuerySchema,
+} from '@cipansor/shared';
 import { calendarController } from './calendar.controller';
 import { authenticate, authorize } from '@/middleware/auth';
+import { validate, validateQuery } from '@/middleware/validate';
 
 const router = Router();
 
@@ -15,6 +22,7 @@ router.use(authenticate);
 // GET /calendar - List all events
 router.get(
   '/',
+  validateQuery(listCalendarEventsQuerySchema),
   authorize(
     UserRole.SUPER_ADMIN,
     UserRole.UNIT_ADMIN,
@@ -71,23 +79,11 @@ router.get(
   calendarController.getHolidays.bind(calendarController)
 );
 
-// GET /calendar/:id - Get event by ID
-router.get(
-  '/:id',
-  authorize(
-    UserRole.SUPER_ADMIN,
-    UserRole.UNIT_ADMIN,
-    UserRole.TEACHER,
-    UserRole.STUDENT,
-    UserRole.PARENT
-  ),
-  calendarController.getEventById.bind(calendarController)
-);
-
-// POST /calendar - Create single event
+// POST /calendar - Create single event (and, when it repeats, its whole series)
 router.post(
   '/',
   authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  validate(createCalendarEventSchema),
   calendarController.createEvent.bind(calendarController)
 );
 
@@ -95,6 +91,7 @@ router.post(
 router.post(
   '/bulk',
   authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  validate(bulkCreateCalendarEventsSchema),
   calendarController.bulkCreateEvents.bind(calendarController)
 );
 
@@ -103,13 +100,6 @@ router.post(
   '/import',
   authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
   calendarController.importAcademicCalendar.bind(calendarController)
-);
-
-// POST /calendar/generate-recurring - Generate recurring events
-router.post(
-  '/generate-recurring',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  calendarController.generateRecurringEvents.bind(calendarController)
 );
 
 // GET /calendar/holidays/config - Holiday-source settings
@@ -176,10 +166,11 @@ router.put(
   calendarController.updateEvent.bind(calendarController)
 );
 
-// DELETE /calendar/:id - Delete event
+// DELETE /calendar/:id?scope=SINGLE|SERIES - Delete one occurrence or a whole series
 router.delete(
   '/:id',
   authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  validateQuery(calendarEventDeleteQuerySchema),
   calendarController.deleteEvent.bind(calendarController)
 );
 

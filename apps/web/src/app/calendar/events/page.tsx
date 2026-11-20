@@ -50,7 +50,9 @@ import {
   EVENT_CATEGORIES,
   getEventCategoryConfig,
   EventCategory,
+  CalendarEvent,
 } from "@/hooks/use-calendar";
+import type { CalendarEventDeleteScope } from "@cipansor/shared";
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -70,12 +72,20 @@ import { toast } from "sonner";
 
 export default function EventsListPage() {
   const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<EventCategory | "">("");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  // `all` rather than "": Radix Select refuses an empty-string item, so the
+  // "Semua Kategori" option could not be rendered at all.
+  const [categoryFilter, setCategoryFilter] = useState<EventCategory | "all">(
+    "all",
+  );
+  const [deleteTarget, setDeleteTarget] = useState<CalendarEvent | null>(null);
+  const [deleteScope, setDeleteScope] =
+    useState<CalendarEventDeleteScope>("SINGLE");
 
   const { data: eventsData, isLoading } = useCalendarEvents({
     limit: 50,
-    category: categoryFilter || undefined,
+    // The API's own filter name. The page used to send `category`, which the
+    // controller never read, so choosing a category filtered nothing (#1155).
+    eventType: categoryFilter === "all" ? undefined : categoryFilter,
   });
   const events = eventsData?.data || [];
 
@@ -90,15 +100,26 @@ export default function EventsListPage() {
   );
 
   const handleDelete = async () => {
-    if (!deleteId) return;
+    if (!deleteTarget) return;
     try {
-      await deleteEvent.mutateAsync(deleteId);
-      toast.success("Event berhasil dihapus");
-      setDeleteId(null);
+      await deleteEvent.mutateAsync({
+        id: deleteTarget.id,
+        scope: deleteScope,
+      });
+      toast.success(
+        deleteScope === "SERIES"
+          ? "Seluruh rangkaian agenda berhasil dihapus"
+          : "Agenda berhasil dihapus",
+      );
+      setDeleteTarget(null);
     } catch {
-      toast.error("Gagal menghapus event");
+      toast.error("Gagal menghapus agenda");
     }
   };
+
+  /** Whether this row is part of a series, so the dialog can offer the choice. */
+  const inSeries = (event: CalendarEvent) =>
+    event.isRecurring || !!event.recurrenceParentId;
 
   return (
     <MainLayout>
@@ -146,15 +167,15 @@ export default function EventsListPage() {
               <Select
                 value={categoryFilter}
                 onValueChange={(v) =>
-                  setCategoryFilter(v as EventCategory | "")
+                  setCategoryFilter(v as EventCategory | "all")
                 }
               >
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-48" aria-label="Saring kategori">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue placeholder="Semua Kategori" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Semua Kategori</SelectItem>
+                  <SelectItem value="all">Semua Kategori</SelectItem>
                   {EVENT_CATEGORIES.map((cat) => (
                     <SelectItem key={cat.value} value={cat.value}>
                       <div className="flex items-center gap-2">
@@ -212,7 +233,7 @@ export default function EventsListPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredEvents.map((event) => {
-                    const catConfig = getEventCategoryConfig(event.category);
+                    const catConfig = getEventCategoryConfig(event.eventType);
                     return (
                       <TableRow key={event.id}>
                         <TableCell>
@@ -242,15 +263,19 @@ export default function EventsListPage() {
                             {safeFormat(new Date(event.startDate), "d MMM", {
                               locale: idLocale,
                             })}
-                            {event.startDate !== event.endDate && (
-                              <>
-                                {" "}
-                                -{" "}
-                                {safeFormat(new Date(event.endDate), "d MMM", {
-                                  locale: idLocale,
-                                })}
-                              </>
-                            )}
+                            {event.endDate &&
+                              event.startDate.slice(0, 10) !==
+                                event.endDate.slice(0, 10) && (
+                                <>
+                                  {" "}
+                                  -{" "}
+                                  {safeFormat(
+                                    new Date(event.endDate),
+                                    "d MMM",
+                                    { locale: idLocale },
+                                  )}
+                                </>
+                              )}
                           </div>
                         </TableCell>
                         <TableCell>
@@ -298,7 +323,10 @@ export default function EventsListPage() {
                               </Link>
                               <DropdownMenuItem
                                 className="text-red-600"
-                                onClick={() => setDeleteId(event.id)}
+                                onClick={() => {
+                                  setDeleteScope("SINGLE");
+                                  setDeleteTarget(event);
+                                }}
                               >
                                 <Trash2 className="h-4 w-4 mr-2" />
                                 Hapus
@@ -316,15 +344,62 @@ export default function EventsListPage() {
         </Card>
 
         {/* Delete Confirmation */}
-        <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialog
+          open={!!deleteTarget}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Hapus Event?</AlertDialogTitle>
+              <AlertDialogTitle>Hapus Agenda?</AlertDialogTitle>
               <AlertDialogDescription>
-                Event yang dihapus tidak dapat dikembalikan. Apakah Anda yakin
-                ingin melanjutkan?
+                Agenda yang dihapus tidak dapat dikembalikan.
+                {deleteTarget && inSeries(deleteTarget) && (
+                  <>
+                    {" "}
+                    Agenda ini bagian dari rangkaian berulang — pilih apakah
+                    hanya kemunculan ini atau seluruh rangkaian yang dihapus.
+                  </>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
+
+            {deleteTarget && inSeries(deleteTarget) && (
+              <div className="space-y-2 py-2">
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="delete-scope"
+                    className="mt-1"
+                    checked={deleteScope === "SINGLE"}
+                    onChange={() => setDeleteScope("SINGLE")}
+                  />
+                  <span>
+                    <span className="font-medium">Hanya agenda ini</span>
+                    <span className="block text-muted-foreground">
+                      Kemunculan lain dari rangkaian tetap ada.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="delete-scope"
+                    className="mt-1"
+                    checked={deleteScope === "SERIES"}
+                    onChange={() => setDeleteScope("SERIES")}
+                  />
+                  <span>
+                    <span className="font-medium">Seluruh rangkaian</span>
+                    <span className="block text-muted-foreground">
+                      Semua kemunculan agenda berulang ini ikut dihapus.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            )}
+
             <AlertDialogFooter>
               <AlertDialogCancel>Batal</AlertDialogCancel>
               <AlertDialogAction

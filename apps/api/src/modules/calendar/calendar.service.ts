@@ -1,7 +1,10 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { UserRole, Prisma, EventType, EventScope } from '@prisma/client';
+import type { EventRecurrenceCode, ParsedCalendarEventPayload } from '@cipansor/shared';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { dayDate, shiftWibDay } from '@/utils/wib';
+import { daysBetween, occurrenceDays, recurrenceRuleFor } from './calendar-recurrence';
 
 interface ListEventsQuery {
   unitId?: string;
@@ -17,26 +20,8 @@ interface ListEventsQuery {
   limit: number;
 }
 
-interface CreateEventInput {
-  unitId?: string;
-  classId?: string;
-  title: string;
-  description?: string;
-  eventType: EventType;
-  scope?: EventScope;
-  startDate: string;
-  endDate?: string;
-  isAllDay?: boolean;
-  startTime?: string;
-  endTime?: string;
-  location?: string;
-  isOnline?: boolean;
-  onlineUrl?: string;
-  isRecurring?: boolean;
-  recurrenceRule?: string;
-  isPublic?: boolean;
-  color?: string;
-}
+/** A parsed payload: every default filled in and every day normalised. */
+type CreateEventInput = ParsedCalendarEventPayload;
 
 interface UpdateEventInput {
   title?: string;
@@ -56,6 +41,9 @@ interface UpdateEventInput {
   isPublic?: boolean;
   color?: string;
 }
+
+/** Which occurrences a delete applies to when the event belongs to a series. */
+export type DeleteScope = 'SINGLE' | 'SERIES';
 
 // User type from JwtPayload
 interface AuthenticatedUser {
@@ -93,6 +81,11 @@ export class CalendarService {
 
     const where: Prisma.CalendarEventWhereInput = {
       deletedAt: null,
+      // A draft is a holiday a third-party source suggested but nobody has
+      // reviewed (decisions/absensi-pegawai.md). `getHolidays` always filtered
+      // it out; this list did not, so an unapproved import showed up on the
+      // live calendar before anyone had looked at it (#1155).
+      isDraft: false,
     };
 
     // Filter by unit.
@@ -143,10 +136,18 @@ export class CalendarService {
       where.AND = overlapping;
     }
 
+    // Search goes in `AND`, never into `where.OR`: that OR carries the unit
+    // scope above, and overwriting it made a search from any unit return every
+    // unit's private events.
     if (search) {
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
+      where.AND = [
+        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
+        {
+          OR: [
+            { title: { contains: search, mode: 'insensitive' } },
+            { description: { contains: search, mode: 'insensitive' } },
+          ],
+        },
       ];
     }
 
@@ -206,7 +207,11 @@ export class CalendarService {
   }
 
   /**
-   * Create calendar event
+   * Create calendar event — and, when it repeats, every occurrence with it.
+   *
+   * A series is materialised in one transaction: the parent (the first
+   * occurrence) and one row per later occurrence pointing back at it. All or
+   * nothing, so a half-written series never reaches the calendar.
    */
   async create(input: CreateEventInput, currentUser: AuthenticatedUser) {
     // Validate unit access
@@ -218,36 +223,81 @@ export class CalendarService {
       throw Errors.forbidden('Cannot create event for another unit');
     }
 
-    const event = await prisma.calendarEvent.create({
-      data: {
-        unitId: input.unitId || null,
-        classId: input.classId || null,
-        title: input.title,
-        description: input.description,
-        eventType: input.eventType,
-        scope: input.scope || EventScope.ALL_UNITS,
-        startDate: new Date(input.startDate),
-        endDate: input.endDate ? new Date(input.endDate) : null,
-        isAllDay: input.isAllDay ?? false,
-        startTime: input.startTime,
-        endTime: input.endTime,
-        location: input.location,
-        isOnline: input.isOnline ?? false,
-        onlineUrl: input.onlineUrl,
-        isRecurring: input.isRecurring ?? false,
-        recurrenceRule: input.recurrenceRule,
-        isPublic: input.isPublic ?? true,
-        color: input.color,
-        createdById: currentUser.sub,
-      },
-      include: {
-        unit: { select: { id: true, name: true } },
-        class: { select: { id: true, name: true } },
-        createdBy: { select: { id: true, name: true } },
-      },
-    });
+    const recurrence = input.recurrence ?? 'NONE';
+    const startDate = dayDate(input.startDate);
+    const endDate = input.endDate ? dayDate(input.endDate) : null;
+    const daySpan = input.endDate ? daysBetween(input.startDate, input.endDate) : 0;
 
-    return event;
+    // `scope` is derived, not sent: the unit and class columns are what decide
+    // who sees the event, and a form's own `scope` could contradict them.
+    const scope = input.classId
+      ? EventScope.SPECIFIC_CLASS
+      : input.unitId
+        ? EventScope.SPECIFIC_UNIT
+        : EventScope.ALL_UNITS;
+
+    const shared = {
+      unitId: input.unitId || null,
+      classId: input.classId || null,
+      title: input.title,
+      description: input.description ?? null,
+      eventType: input.eventType,
+      scope,
+      isAllDay: input.isAllDay ?? false,
+      startTime: input.startTime ?? null,
+      endTime: input.endTime ?? null,
+      location: input.location ?? null,
+      isOnline: input.isOnline ?? false,
+      onlineUrl: input.onlineUrl ?? null,
+      isPublic: input.isPublic ?? true,
+      color: input.color ?? null,
+      createdById: currentUser.sub,
+    };
+
+    const include = {
+      unit: { select: { id: true, name: true } },
+      class: { select: { id: true, name: true } },
+      createdBy: { select: { id: true, name: true } },
+    } as const;
+
+    if (recurrence === 'NONE' || !input.recurrenceEnd) {
+      return prisma.calendarEvent.create({
+        data: { ...shared, startDate, endDate, isRecurring: false },
+        include,
+      });
+    }
+
+    const frequency = recurrence as Exclude<EventRecurrenceCode, 'NONE'>;
+    const rule = recurrenceRuleFor(frequency, input.recurrenceEnd);
+    const occurrences = occurrenceDays(input.startDate, frequency, input.recurrenceEnd);
+
+    return prisma.$transaction(async (tx) => {
+      const parent = await tx.calendarEvent.create({
+        data: {
+          ...shared,
+          startDate,
+          endDate,
+          isRecurring: true,
+          recurrenceRule: rule,
+        },
+        include,
+      });
+
+      for (const day of occurrences) {
+        await tx.calendarEvent.create({
+          data: {
+            ...shared,
+            startDate: dayDate(day),
+            endDate: endDate ? dayDate(shiftWibDay(day, daySpan)) : null,
+            isRecurring: true,
+            recurrenceRule: rule,
+            recurrenceParentId: parent.id,
+          },
+        });
+      }
+
+      return parent;
+    });
   }
 
   /**
@@ -294,9 +344,15 @@ export class CalendarService {
   }
 
   /**
-   * Soft delete event
+   * Soft delete event — one occurrence, or the whole series.
+   *
+   * Delete here is a soft delete (`deletedAt`), so a series delete marks the
+   * parent and every child in one statement — atomic by itself, since a single
+   * `updateMany` either lands on all matching rows or on none. `SERIES` on an
+   * event that is not part of a series just deletes it; there is nothing else
+   * to mark.
    */
-  async delete(id: string, currentUser: AuthenticatedUser) {
+  async delete(id: string, currentUser: AuthenticatedUser, scope: DeleteScope = 'SINGLE') {
     const event = await this.findById(id, currentUser);
 
     // Check delete permission
@@ -306,9 +362,22 @@ export class CalendarService {
       }
     }
 
-    await prisma.calendarEvent.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    const deletedAt = new Date();
+
+    if (scope !== 'SERIES') {
+      await prisma.calendarEvent.update({ where: { id }, data: { deletedAt } });
+      return { success: true };
+    }
+
+    // A child names its parent; a parent is found by the children that point
+    // at it. Either way the whole series is one parent id.
+    const parentId = event.recurrenceParentId ?? event.id;
+    await prisma.calendarEvent.updateMany({
+      where: {
+        deletedAt: null,
+        OR: [{ id: parentId }, { recurrenceParentId: parentId }],
+      },
+      data: { deletedAt },
     });
 
     return { success: true };
@@ -414,8 +483,11 @@ export class CalendarService {
    * Get calendar statistics
    */
   async getStatistics(unitId?: string, startDate?: string, endDate?: string) {
+    // Drafts are excluded for the same reason the list excludes them: an
+    // unreviewed holiday import is not part of the calendar yet (#1155).
     const where: Prisma.CalendarEventWhereInput = {
       deletedAt: null,
+      isDraft: false,
     };
 
     if (unitId) {
