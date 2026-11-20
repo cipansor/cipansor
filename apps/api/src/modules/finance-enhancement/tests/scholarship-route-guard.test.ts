@@ -23,10 +23,17 @@ vi.mock('../finance-enhancement.service', () => ({
     getScholarshipCriteria: vi.fn(async () => []),
   },
 }));
+vi.mock('../scholarship-scoring.service', () => ({
+  scholarshipScoringService: {
+    assessRecipient: vi.fn(async () => ({ criteria: [], totalScore: null, complete: false })),
+    createCriterion: vi.fn(async () => ({ id: 'crit-1' })),
+  },
+}));
 
 import { verifyToken } from '@/lib/jwt';
 import { errorHandler } from '@/middleware/error';
 import { financeEnhancementRoutes } from '../index';
+import { scholarshipScoringService } from '../scholarship-scoring.service';
 
 const app = express();
 app.use(express.json());
@@ -74,3 +81,35 @@ describe.each(['/scholarships/sch-1/recipients', '/scholarships/sch-1/criteria']
     );
   }
 );
+
+/**
+ * R11.15: computing a score and writing a criterion are the unit finance
+ * admin's acts alone. The yayasan board reads a score but never produces one,
+ * and TU_Unit is not a finance role at all — both are refused before the
+ * service runs, so nothing is written.
+ */
+describe.each([
+  ['post', '/scholarships/sch-1/criteria', { name: 'Hafalan', weight: 2, type: 'NUMERIC' }],
+  ['post', '/scholarship-recipients/rec-1/assess', undefined],
+] as const)('%s %s', (method, path, body) => {
+  it.each(['YAYASAN_KETUA', 'YAYASAN_BENDAHARA', 'SDIT_TATA_USAHA', 'SDIT_GURU', 'SDIT_SISWA'])(
+    'refuses %s with 403 and writes nothing',
+    async (roleCode) => {
+      as(roleCode, roleCode.startsWith('YAYASAN_') ? null : 'unit-sd');
+
+      const res = await authed(request(app)[method](`/finance-enhancement${path}`).send(body));
+
+      expect(res.status).toBe(403);
+      expect(scholarshipScoringService.assessRecipient).not.toHaveBeenCalled();
+      expect(scholarshipScoringService.createCriterion).not.toHaveBeenCalled();
+    }
+  );
+
+  it.each(['SDIT_ADMIN', 'SDIT_BENDAHARA', 'SUPER_ADMIN'])('lets %s through', async (roleCode) => {
+    as(roleCode, roleCode === 'SUPER_ADMIN' ? null : 'unit-sd');
+
+    const res = await authed(request(app)[method](`/finance-enhancement${path}`).send(body));
+
+    expect(res.status).toBeLessThan(400);
+  });
+});

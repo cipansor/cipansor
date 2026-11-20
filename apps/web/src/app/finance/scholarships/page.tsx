@@ -51,11 +51,19 @@ import {
   useCreateScholarship,
   useAssignScholarship,
   useScholarshipRecipients,
+  useScholarshipCriteria,
+  useCreateScholarshipCriterion,
+  useAssessScholarshipRecipient,
   type Scholarship,
   type ScholarshipRecipient,
+  type ScholarshipAssessmentResult,
   ScholarshipSource,
   ScholarshipType,
 } from "@/hooks/use-finance-enhancement";
+import { FINANCE_UNIT_ROLE_CODES } from "@cipansor/shared";
+import { useAuth } from "@/hooks/use-auth";
+import { getPrimaryRoleCode } from "@/lib/rbac";
+import { criterionValueLabel, formatCriterionScore } from "@/lib/income-range";
 import { useUnits } from "@/hooks/use-units";
 import { useStudents } from "@/hooks/use-students";
 import { useAcademicYears } from "@/hooks/use-academic-years";
@@ -76,29 +84,190 @@ const TYPE_LABELS: Record<ScholarshipType, string> = {
   [ScholarshipType.FIXED_AMOUNT]: "Bantuan Tetap (Fixed)",
 };
 
-function RecipientsDialog({
+/** Peran_Keuangan_Unit — who may compute a score and write a criterion (R11.15). */
+const FINANCE_UNIT_ROLES: readonly string[] = FINANCE_UNIT_ROLE_CODES;
+
+/**
+ * Whether this account may score for this program: a finance-unit role, and for
+ * a non-Super-Admin only within its own unit. The API enforces the same rule;
+ * this decides whether the button exists at all (R11.11).
+ */
+export function canScoreProgram(
+  roleCode: string | undefined,
+  userUnitId: string | null | undefined,
+  programUnitId: string,
+): boolean {
+  if (!roleCode || !FINANCE_UNIT_ROLES.includes(roleCode)) return false;
+  if (roleCode === "SUPER_ADMIN") return true;
+  return !!userUnitId && userUnitId === programUnitId;
+}
+
+/** The score total to one decimal, "-" when every criterion was excluded. */
+function formatTotal(total: number | null): string {
+  return total === null || Number.isNaN(total) ? "-" : total.toFixed(1);
+}
+
+export function RecipientsDialog({
   scholarship,
   onClose,
 }: {
   scholarship: Scholarship | null;
   onClose: () => void;
 }) {
+  const { user } = useAuth();
   const { data: recipients, isLoading } = useScholarshipRecipients(
     scholarship?.id || "",
     { limit: 50 },
   );
+  const {
+    data: criteria,
+    isLoading: criteriaLoading,
+    isError: criteriaFailed,
+  } = useScholarshipCriteria(scholarship?.id || "");
+  const createCriterion = useCreateScholarshipCriterion(scholarship?.id || "");
+  const assess = useAssessScholarshipRecipient(scholarship?.id || "");
+
+  const [results, setResults] = useState<
+    Record<string, ScholarshipAssessmentResult>
+  >({});
+  const [scoreError, setScoreError] = useState<string | null>(null);
 
   if (!scholarship) return null;
 
+  const roleCode = getPrimaryRoleCode(user ?? null);
+  const mayScore = canScoreProgram(roleCode, user?.unitId, scholarship.unitId);
+  const hasCriteria = (criteria?.length ?? 0) > 0;
+
+  const handleAssess = async (recipientId: string) => {
+    setScoreError(null);
+    try {
+      const result = await assess.mutateAsync(recipientId);
+      setResults((prev) => ({ ...prev, [recipientId]: result }));
+    } catch {
+      // R11.9: say the score was not computed, and keep any previous score out
+      // of sight for this recipient.
+      setResults((prev) => {
+        const next = { ...prev };
+        delete next[recipientId];
+        return next;
+      });
+      setScoreError("Skor tidak dihitung. Silakan coba lagi.");
+    }
+  };
+
+  const handleCreateCriterion = async (formData: FormData) => {
+    try {
+      await createCriterion.mutateAsync({
+        name: formData.get("name") as string,
+        weight: Number(formData.get("weight")),
+        type: "NUMERIC",
+        targetValue: (formData.get("targetValue") as string) || undefined,
+      });
+      toast.success("Kriteria berhasil ditambahkan");
+    } catch {
+      toast.error("Gagal menambahkan kriteria");
+    }
+  };
+
   return (
     <Dialog open={!!scholarship} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Penerima Beasiswa: {scholarship.name}</DialogTitle>
           <DialogDescription>
             Daftar santri penerima beasiswa ini.
           </DialogDescription>
         </DialogHeader>
+
+        <p className="text-sm text-muted-foreground">
+          Skor beasiswa hanya pendukung keputusan. Keputusan penerimaan tetap
+          dicatat oleh petugas, bukan ditentukan oleh mesin.
+        </p>
+
+        {/* Criteria of the program (R11.13) */}
+        <div className="mt-2 space-y-2">
+          <h3 className="text-sm font-semibold">Kriteria Penilaian</h3>
+          {criteriaLoading ? (
+            <p className="text-sm text-muted-foreground">Memuat kriteria...</p>
+          ) : criteriaFailed ? (
+            // Not the same as "no criteria": the API refused the read, so
+            // saying the program has none would be a guess.
+            <p className="text-sm text-muted-foreground">
+              Kriteria tidak dapat ditampilkan untuk akun ini.
+            </p>
+          ) : !hasCriteria ? (
+            <p className="text-sm text-muted-foreground">
+              Program ini belum memiliki kriteria penilaian.
+            </p>
+          ) : (
+            <div className="border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Kriteria</TableHead>
+                    <TableHead>Bobot</TableHead>
+                    <TableHead>Target</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {criteria?.map((criterion) => (
+                    <TableRow key={criterion.id}>
+                      <TableCell>{criterion.name}</TableCell>
+                      <TableCell>{criterion.weight}</TableCell>
+                      <TableCell>{criterion.targetValue || "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {mayScore && (
+            <form
+              action={handleCreateCriterion}
+              className="flex flex-col sm:flex-row gap-2 items-end"
+            >
+              <div className="space-y-1 flex-1">
+                <Label htmlFor="criterion-name">Nama kriteria</Label>
+                <Input
+                  id="criterion-name"
+                  name="name"
+                  placeholder="Hafalan Al-Quran"
+                  required
+                />
+              </div>
+              <div className="space-y-1 w-24">
+                <Label htmlFor="criterion-weight">Bobot</Label>
+                <Input
+                  id="criterion-weight"
+                  name="weight"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  defaultValue="1"
+                  required
+                />
+              </div>
+              <div className="space-y-1 w-32">
+                <Label htmlFor="criterion-target">Target</Label>
+                <Input
+                  id="criterion-target"
+                  name="targetValue"
+                  placeholder="30"
+                />
+              </div>
+              <Button type="submit" disabled={createCriterion.isPending}>
+                {createCriterion.isPending ? "Menyimpan..." : "Tambah kriteria"}
+              </Button>
+            </form>
+          )}
+        </div>
+
+        {scoreError && (
+          <p role="alert" className="text-sm text-destructive">
+            {scoreError}
+          </p>
+        )}
 
         <div className="mt-4 border rounded-md">
           <Table>
@@ -110,55 +279,107 @@ function RecipientsDialog({
                 <TableHead>Tahun Ajaran</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Mulai</TableHead>
+                {mayScore && <TableHead className="text-right">Aksi</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-4">
+                  <TableCell colSpan={7} className="text-center py-4">
                     Memuat data...
                   </TableCell>
                 </TableRow>
               ) : recipients?.data?.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={7}
                     className="text-center py-4 text-muted-foreground"
                   >
                     Belum ada penerima.
                   </TableCell>
                 </TableRow>
               ) : (
-                recipients?.data?.map((recipient: any) => (
-                  <TableRow key={recipient.id}>
-                    <TableCell className="font-medium">
-                      {recipient.student?.name || "Unknown"}
-                    </TableCell>
-                    <TableCell>{recipient.student?.nis || "-"}</TableCell>
-                    <TableCell>{recipient.student?.class || "-"}</TableCell>
-                    <TableCell>{recipient.academicYear?.name || "-"}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          recipient.status === "ACTIVE"
-                            ? "default"
-                            : "secondary"
-                        }
-                      >
-                        {recipient.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {safeFormat(
-                        new Date(recipient.startDate),
-                        "dd MMM yyyy",
-                        {
-                          locale: localeID,
-                        },
+                recipients?.data?.map((recipient: ScholarshipRecipient) => {
+                  const result = results[recipient.id];
+                  return (
+                    <TableRow key={recipient.id} className="align-top">
+                      <TableCell className="font-medium">
+                        {recipient.student?.name || "Unknown"}
+                        {result && (
+                          <div className="mt-2 space-y-1">
+                            {result.criteria.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                Program ini belum memiliki kriteria penilaian.
+                              </p>
+                            ) : (
+                              <>
+                                {result.criteria.map((c) => (
+                                  <div
+                                    key={c.criterionId}
+                                    className="text-xs text-muted-foreground"
+                                  >
+                                    {c.name}: {criterionValueLabel(c.value)} —{" "}
+                                    {formatCriterionScore(c.score)}
+                                  </div>
+                                ))}
+                                <div className="text-xs font-medium flex items-center gap-2">
+                                  <span>
+                                    Skor total: {formatTotal(result.totalScore)}
+                                  </span>
+                                  {!result.complete && (
+                                    <Badge variant="secondary">
+                                      belum lengkap
+                                    </Badge>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>{recipient.student?.nis || "-"}</TableCell>
+                      <TableCell>{recipient.student?.class || "-"}</TableCell>
+                      <TableCell>
+                        {recipient.academicYear?.name || "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            recipient.status === "ACTIVE"
+                              ? "default"
+                              : "secondary"
+                          }
+                        >
+                          {recipient.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {safeFormat(
+                          new Date(recipient.startDate),
+                          "dd MMM yyyy",
+                          {
+                            locale: localeID,
+                          },
+                        )}
+                      </TableCell>
+                      {mayScore && (
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleAssess(recipient.id)}
+                            disabled={
+                              assess.isPending &&
+                              assess.variables === recipient.id
+                            }
+                          >
+                            Hitung skor
+                          </Button>
+                        </TableCell>
                       )}
-                    </TableCell>
-                  </TableRow>
-                ))
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>

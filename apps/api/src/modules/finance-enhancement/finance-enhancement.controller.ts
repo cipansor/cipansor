@@ -2,12 +2,14 @@ import { requireUser } from '../../middleware/auth';
 import { wibDayBound } from '../../utils/wib';
 import { Request, Response, NextFunction } from 'express';
 import { financeEnhancementService } from './finance-enhancement.service';
+import { scholarshipScoringService } from './scholarship-scoring.service';
 import {
   CreateAccountCodeInput,
   UpdateAccountCodeInput,
   CreateJournalEntryInput,
   CreateScholarshipInput,
   AssignScholarshipInput,
+  CreateScholarshipCriterionInput,
   CreatePaymentComponentInput,
   CreateBudgetInput,
   UpdateBudgetInput,
@@ -243,10 +245,12 @@ export class FinanceEnhancementController {
 
   async createScholarshipCriterion(req: Request, res: Response, next: NextFunction) {
     try {
-      const { prisma } = await import('@/lib/prisma');
-      const criterion = await prisma.scholarshipCriterion.create({
-        data: { ...req.body, scholarshipId: req.params.id },
-      });
+      const input: CreateScholarshipCriterionInput = req.body;
+      const criterion = await scholarshipScoringService.createCriterion(
+        scopeActorOf(req),
+        req.params.id,
+        input
+      );
       res.status(201).json({ success: true, data: criterion });
     } catch (error) {
       next(error);
@@ -267,8 +271,10 @@ export class FinanceEnhancementController {
 
   async assessScholarshipRecipient(req: Request, res: Response, next: NextFunction) {
     try {
-      const { scholarshipScoringService } = await import('../scholarship/scoring.service');
-      const result = await scholarshipScoringService.assessRecipient(req.params.id);
+      const result = await scholarshipScoringService.assessRecipient(
+        scopeActorOf(req),
+        req.params.id
+      );
       res.json({ success: true, data: result });
     } catch (error) {
       next(error);
