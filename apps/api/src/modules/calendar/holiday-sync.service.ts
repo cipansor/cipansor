@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { Errors } from '../../middleware/error';
-import { dayOf } from '../../utils/wib';
+import { dayOf } from '@/utils/wib';
 import type { Prisma } from '@prisma/client';
 
 /**

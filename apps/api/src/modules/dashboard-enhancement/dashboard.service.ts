@@ -1,6 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma } from '@prisma/client';
 import { studentInUnitAt } from '@/utils/student-unit-history';
+import { dayOf, todayWib } from '@/utils/wib';
 import type {
   DashboardOverviewQuery,
   MetricsQuery,
@@ -517,13 +518,16 @@ export const dashboardService = {
       }),
     ]);
 
-    // Today's attendance
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
+    // Today's attendance. `Attendance.date` and `MurojaahRecord.murojaahDate`
+    // are `@db.Date` columns filled with the WIB day (`dayOf(todayWib())`), so
+    // the bound is that same stored day — equality, not a lower bound. A local
+    // `setHours(0,0,0,0)` on the UTC container yields the UTC day (07:00 WIB),
+    // which both counted yesterday and lost today's 00:00–07:00 rows (#1152).
+    const today = dayOf(todayWib());
 
     const todayAttendance = await prisma.attendance.count({
       where: {
-        date: { gte: today },
+        date: today,
         status: 'PRESENT',
         ...(unitId ? { student: studentInUnitAt(unitId, new Date()) } : {}),
       },
@@ -532,7 +536,7 @@ export const dashboardService = {
     // Recent murojaah
     const recentMurojaah = await prisma.murojaahRecord.count({
       where: {
-        murojaahDate: { gte: today },
+        murojaahDate: today,
         ...(unitId ? { student: studentInUnitAt(unitId, new Date()) } : {}),
       },
     });
