@@ -179,6 +179,46 @@ export interface ScholarshipRecipient {
   academicYear?: { id: string; name: string };
 }
 
+export interface ScholarshipCriterion {
+  id: string;
+  scholarshipId: string;
+  name: string;
+  description?: string | null;
+  weight: number;
+  type: string;
+  targetValue?: string | null;
+  createdAt?: Date;
+  updatedAt?: Date;
+}
+
+/**
+ * One criterion's share of a recipient's score.
+ *
+ * `score` is `null` exactly when the criterion is excluded from the total: the
+ * machine cannot read that criterion (a `MANUAL_REQUIRED` interview, an
+ * `UNKNOWN` household income, a santri with `NO_DATA` for it). A `0` would look
+ * like a judgement, so the reason travels in `value` instead.
+ */
+export interface ScholarshipCriterionScore {
+  criterionId: string;
+  name: string;
+  weight: number;
+  value: string;
+  score: number | null;
+  excluded: boolean;
+}
+
+/**
+ * The answer to "hitung skor". `totalScore` is `null` when every criterion was
+ * excluded — no evidence is not a score of zero — and `complete` is false
+ * whenever at least one criterion was left out (R11.12).
+ */
+export interface ScholarshipAssessmentResult {
+  criteria: ScholarshipCriterionScore[];
+  totalScore: number | null;
+  complete: boolean;
+}
+
 export interface PaymentComponent {
   id: string;
   code: string;
@@ -238,6 +278,14 @@ export interface AssignScholarshipInput {
   startDate: Date | string;
   endDate?: Date | string;
   notes?: string;
+}
+
+export interface CreateScholarshipCriterionInput {
+  name: string;
+  description?: string;
+  weight: number;
+  type: "NUMERIC" | "BOOLEAN" | "ENUM";
+  targetValue?: string;
 }
 
 export interface CreatePaymentComponentInput {
