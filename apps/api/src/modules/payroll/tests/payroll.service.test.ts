@@ -33,12 +33,17 @@ import { prisma } from '../../../lib/prisma';
 import { attendanceDeductionService } from '../attendance-deduction.service';
 import { payrollService } from '../payroll.service';
 
+/** A unit treasurer whose token carries the period's unit. */
+const ACTOR = { sub: 'user-bendahara', roleCode: 'SDIT_BENDAHARA', unitId: 'unit-sd' };
+
 const PERIOD = {
   id: '11111111-1111-4111-8111-111111111111',
   unitId: 'unit-sd',
   status: 'DRAFT',
+  createdById: 'user-bendahara',
   startDate: new Date('2026-09-01'),
   endDate: new Date('2026-09-30'),
+  _count: { payrolls: 1 },
 };
 
 function deductionRow(overrides: Record<string, unknown> = {}) {
@@ -118,7 +123,7 @@ describe('payrollService.generate', () => {
     ] as never);
 
     await expect(
-      payrollService.generate({ periodId: PERIOD.id, overwrite: false } as never)
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
     ).rejects.toThrow(/Absensi belum lengkap/i);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -129,7 +134,7 @@ describe('payrollService.generate', () => {
     ] as never);
 
     await expect(
-      payrollService.generate({ periodId: PERIOD.id, overwrite: false } as never)
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
     ).rejects.toThrow(/melampaui batas/i);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -140,7 +145,7 @@ describe('payrollService.generate', () => {
     ] as never);
 
     await expect(
-      payrollService.generate({
+      payrollService.generate(ACTOR, {
         periodId: PERIOD.id,
         overwrite: false,
         overrideGuardReason: 'Kesepakatan tertulis dengan pegawai',
@@ -157,7 +162,7 @@ describe('payrollService.generate', () => {
     ] as never);
 
     await expect(
-      payrollService.generate({ periodId: PERIOD.id, overwrite: false } as never)
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
     ).resolves.toBeDefined();
     expect(prisma.$transaction).toHaveBeenCalled();
   });
@@ -210,7 +215,7 @@ describe('payrollService.generate — the slip’s base salary line', () => {
       },
     ] as never);
 
-    await payrollService.generate({ periodId: PERIOD.id, overwrite: false } as never);
+    await payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never);
 
     const items = txMock.payrollItem.createMany.mock.calls[0][0].data as {
       componentCode: string;

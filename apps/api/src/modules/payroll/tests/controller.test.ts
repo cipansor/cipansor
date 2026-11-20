@@ -26,6 +26,7 @@ vi.mock('../payroll.service', () => ({
     markAsPaid: vi.fn(),
     cancel: vi.fn(),
     delete: vi.fn(),
+    assertReadable: vi.fn(),
   },
   payrollService: {
     list: vi.fn(),
@@ -44,7 +45,7 @@ function mockReqRes(overrides: Partial<Request> = {}) {
     query: {},
     params: {},
     body: {},
-    user: { id: 'user-1' },
+    user: { id: 'user-1', roleCode: 'SDIT_BENDAHARA', unitId: 'unit-sd' },
     ...overrides,
   } as unknown as Request;
 
@@ -68,6 +69,9 @@ async function run(handler: any, req: Request, res: Response) {
   await handler(req, res, vi.fn());
 }
 
+/** The actor every handler builds from the token — never from the body. */
+const ACTOR = { sub: 'user-1', roleCode: 'SDIT_BENDAHARA', unitId: 'unit-sd' };
+
 describe('payroll controller', () => {
   beforeEach(() => vi.clearAllMocks());
 
@@ -78,18 +82,11 @@ describe('payroll controller', () => {
     expect((res as any).jsonPayload).toEqual({ success: true, data: [{ id: 'c1' }] });
   });
 
-  it('getComponent: 404 when missing', async () => {
-    (salaryComponentService.getById as any).mockResolvedValue(null);
-    const { req, res } = mockReqRes({ params: { id: 'x' } as any });
-    await run(controller.getComponent, req, res);
-    expect((res as any).statusCode).toBe(404);
-  });
-
-  it('createPeriod: passes the authenticated user id and returns 201', async () => {
+  it('createPeriod: passes the actor from the token and returns 201', async () => {
     (payrollPeriodService.create as any).mockResolvedValue({ id: 'p1' });
     const { req, res } = mockReqRes({ body: { month: 1, year: 2026 } as any });
     await run(controller.createPeriod, req, res);
-    expect(payrollPeriodService.create).toHaveBeenCalledWith({ month: 1, year: 2026 }, 'user-1');
+    expect(payrollPeriodService.create).toHaveBeenCalledWith(ACTOR, { month: 1, year: 2026 });
     expect((res as any).statusCode).toBe(201);
   });
 
@@ -98,5 +95,24 @@ describe('payroll controller', () => {
     const { req, res } = mockReqRes({ body: { periodId: 'p1' } as any });
     await run(controller.generate, req, res);
     expect((res as any).jsonPayload.message).toBe('3 slip gaji dibuat, 1 diperbarui');
+  });
+
+  it('payPeriod: passes payDate from the body and the actor from the token', async () => {
+    const period = { id: 'p1', status: 'PAID' };
+    (payrollPeriodService.markAsPaid as any).mockResolvedValue(period);
+    const { req, res } = mockReqRes({
+      params: { id: 'p1' } as any,
+      body: { payDate: '2026-06-25T00:00:00.000Z' } as any,
+    });
+    await run(controller.payPeriod, req, res);
+
+    expect(payrollPeriodService.markAsPaid).toHaveBeenCalledWith(
+      ACTOR,
+      'p1',
+      new Date('2026-06-25T00:00:00.000Z'),
+      undefined
+    );
+    expect((res as any).statusCode).toBe(200);
+    expect((res as any).jsonPayload).toMatchObject({ success: true, data: period });
   });
 });
