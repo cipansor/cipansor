@@ -154,10 +154,18 @@ export function laundryReadScope(actor: ScopeActor): Prisma.LaundryTransactionWh
 }
 
 export const transactionService = {
+  /**
+   * The list (R22.4, R22.11): newest first, a full `pagination`, and a
+   * `search` that matches the santri's name, NIS or the transaction number,
+   * case-insensitively — all inside `laundryReadScope`.
+   *
+   * The santri is read with `select`, never `include: { student }`: include on
+   * a relation sends every column, NIK and No. KK among them (R24.10).
+   */
   async getAll(scope: Prisma.LaundryTransactionWhereInput, query: ListTransactionsQuery) {
-    const page = parseInt(query.page || '1');
-    const limit = parseInt(query.limit || '20');
+    const { page, limit } = query;
     const skip = (page - 1) * limit;
+    const search = query.search?.trim();
 
     const where: Prisma.LaundryTransactionWhereInput = {
       ...scope,
@@ -171,6 +179,17 @@ export const transactionService = {
             lte: new Date(query.endDate + 'T23:59:59.999Z'),
           },
         }),
+      ...(search && {
+        OR: [
+          { transactionNo: { contains: search, mode: 'insensitive' as const } },
+          { student: { nis: { contains: search, mode: 'insensitive' as const } } },
+          {
+            student: {
+              user: { name: { contains: search, mode: 'insensitive' as const } },
+            },
+          },
+        ],
+      }),
     };
 
     const [transactions, total] = await Promise.all([

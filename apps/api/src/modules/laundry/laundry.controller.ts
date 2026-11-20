@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
 import { asyncHandler } from '../../middleware/error';
-import { ListTransactionsQuerySchema, type TransactionStatsQuery } from './laundry.schema';
+import {
+  ListTransactionsQuerySchema,
+  type ListTransactionsQuery,
+  type TransactionStatsQuery,
+} from './laundry.schema';
 import { laundryReadScope, pricingService, transactionService } from './laundry.service';
 import { ApiResponse } from '../../utils/response';
 
@@ -67,8 +71,12 @@ export const deletePricing = asyncHandler(async (req: Request, res: Response) =>
 
 /** GET /api/laundry/transactions */
 export const listTransactions = asyncHandler(async (req: Request, res: Response) => {
-  const parsedQuery = ListTransactionsQuerySchema.parse(req.query);
-  const result = await transactionService.getAll(laundryReadScope(req.user!), parsedQuery);
+  // The route validates (`ListTransactionsQuerySchema`), so page and limit are
+  // already numbers; the fallback keeps a direct controller call (tests) working.
+  const query =
+    (res.locals.validatedQuery as ListTransactionsQuery | undefined) ??
+    ListTransactionsQuerySchema.parse(req.query);
+  const result = await transactionService.getAll(laundryReadScope(req.user!), query);
   return res.json(
     ApiResponse.success(result.data, 'Berhasil mengambil data transaksi', result.pagination)
   );
