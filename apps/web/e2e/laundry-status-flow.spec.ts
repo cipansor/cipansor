@@ -76,6 +76,81 @@ async function openTransactionDetail(
   return dialog;
 }
 
+test.describe("Petugas membuat transaksi lalu memindahkan statusnya (R22.1, R22.9)", () => {
+  test("status yang dipilih lewat menu tetap tersimpan sesudah halaman dimuat ulang", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const session = await apiLoginNew(LAUNDRY_ADMIN);
+    const students = await apiRequest<{
+      data: Array<{ nis: string; user?: { name?: string } }>;
+    }>(session, "GET", "/students?limit=1");
+    const student = students.data[0];
+    expect(student, "seed tanpa santri").toBeTruthy();
+    // `GET /students` nests the display name on the user; the form searches
+    // by NIS so the choice is one row whichever unit the santri belongs to.
+    const studentName = student.user?.name ?? "";
+    await injectSession(page, session);
+
+    await gotoAuthedPage(page, "/laundry", /^Laundry$/);
+
+    // Transaksi Baru — the form the counter staff actually uses (R22.9).
+    await page.getByRole("button", { name: "Transaksi Baru" }).click();
+    const form = page.getByRole("dialog");
+    await form.getByLabel("Cari Santri").fill(student.nis);
+    await form.getByRole("button", { name: new RegExp(student.nis) }).click();
+    await form.getByRole("combobox", { name: "Pilih tarif" }).click();
+    await page.getByRole("option").first().click();
+    await form.getByLabel("Berat (kg)").fill("2");
+    await form.getByRole("button", { name: "Buat Transaksi" }).click();
+    await expect(
+      page.getByText("Transaksi laundry berhasil dibuat"),
+    ).toBeVisible({
+      timeout: 15000,
+    });
+
+    // The newest row is the one just created; open it and take the flow's move.
+    const row = page.getByRole("row").nth(1);
+    const transactionNo = (
+      await row.getByRole("cell").first().innerText()
+    ).trim();
+    expect(transactionNo).toMatch(/^LDR-/);
+    await row.getByRole("button", { name: "Lihat detail" }).click();
+    const detail = page.getByRole("dialog");
+    await expect(detail).toContainText(transactionNo);
+
+    const [next] = laundryStatusOptions("RECEIVED");
+    expect(next).toBeTruthy();
+    await detail.getByRole("button", { name: next.label, exact: true }).click();
+    await expect
+      .poll(
+        async () =>
+          (
+            await apiRequest<{ data: { status: LaundryStatusCode } }>(
+              session,
+              "GET",
+              `/laundry/transactions?search=${encodeURIComponent(transactionNo)}`,
+            )
+          ).data[0]?.status,
+        { timeout: 20000 },
+      )
+      .toBe(next.value);
+
+    // Reload: the status came from the API, not from component state.
+    await page.reload();
+    await gotoAuthedPage(page, "/laundry", /^Laundry$/);
+    const reloaded = page.getByRole("row").filter({ hasText: transactionNo });
+    await expect(reloaded).toContainText(LAUNDRY_STATUS_LABELS[next.value], {
+      timeout: 15000,
+    });
+    // R22.2: the santri column is `student.user.name`, and the item count is
+    // the sum of `items[].quantity` — 0 here, because the form left the
+    // optional clothing list empty and the API then sends no items.
+    await expect(reloaded).toContainText(studentName);
+    await expect(reloaded).toContainText("0 item");
+  });
+});
+
 test.describe("Menu status laundry mengikuti LAUNDRY_STATUS_FLOW", () => {
   // Each test creates a transaction, and `generateTransactionNo` reads the last
   // number and adds one — two creates in the same second race for the same
