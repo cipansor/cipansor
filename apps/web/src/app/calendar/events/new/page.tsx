@@ -49,7 +49,10 @@ export default function NewEventPage() {
   const [formData, setFormData] = useState({
     title: "",
     description: "",
-    category: "ACADEMIC" as EventCategory,
+    // The field the API stores. It was `category` here and in the payload, a
+    // name the model does not have, so `eventType` reached Prisma undefined and
+    // every save failed (#1155).
+    eventType: "ACADEMIC" as EventCategory,
     startDate: safeFormat(new Date(), "yyyy-MM-dd"),
     endDate: safeFormat(new Date(), "yyyy-MM-dd"),
     startTime: "",
@@ -83,17 +86,40 @@ export default function NewEventPage() {
       toast.error("Tanggal mulai harus diisi");
       return;
     }
+    if (formData.endDate && formData.endDate < formData.startDate) {
+      toast.error("Tanggal selesai tidak boleh sebelum tanggal mulai");
+      return;
+    }
+    if (!formData.isAllDay && !formData.startTime) {
+      toast.error("Waktu mulai harus diisi bila agenda tidak sepanjang hari");
+      return;
+    }
+    if (
+      !formData.isAllDay &&
+      formData.startTime &&
+      formData.endTime &&
+      formData.endTime < formData.startTime
+    ) {
+      toast.error("Waktu selesai tidak boleh sebelum waktu mulai");
+      return;
+    }
+    if (formData.recurrence !== "NONE" && !formData.recurrenceEnd) {
+      toast.error("Agenda berulang harus punya tanggal berakhir");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       await createEvent.mutateAsync({
         title: formData.title,
         description: formData.description || undefined,
-        category: formData.category,
+        eventType: formData.eventType,
         startDate: formData.startDate,
-        endDate: formData.endDate || formData.startDate,
+        // An empty end date means one day, not "same as start": sending it
+        // back made every one-day event look like a range.
+        endDate: formData.endDate || undefined,
         startTime: formData.isAllDay ? undefined : formData.startTime,
-        endTime: formData.isAllDay ? undefined : formData.endTime,
+        endTime: formData.isAllDay ? undefined : formData.endTime || undefined,
         isAllDay: formData.isAllDay,
         location: formData.location || undefined,
         unitId: formData.unitId || undefined,
@@ -103,17 +129,21 @@ export default function NewEventPage() {
           formData.recurrence !== "NONE" ? formData.recurrenceEnd : undefined,
         isPublic: formData.isPublic,
       });
-      toast.success("Event berhasil dibuat");
+      toast.success(
+        formData.recurrence === "NONE"
+          ? "Agenda berhasil dibuat"
+          : "Agenda dan seluruh rangkaiannya berhasil dibuat",
+      );
       router.push("/calendar/events");
     } catch {
-      toast.error("Gagal membuat event");
+      toast.error("Gagal membuat agenda");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const selectedCategory = EVENT_CATEGORIES.find(
-    (c) => c.value === formData.category,
+    (c) => c.value === formData.eventType,
   );
 
   return (
@@ -177,17 +207,17 @@ export default function NewEventPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Kategori *</Label>
+                    <Label htmlFor="eventType">Kategori *</Label>
                     <Select
-                      value={formData.category}
+                      value={formData.eventType}
                       onValueChange={(v) =>
                         setFormData({
                           ...formData,
-                          category: v as EventCategory,
+                          eventType: v as EventCategory,
                         })
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="eventType">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -361,7 +391,7 @@ export default function NewEventPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Ulangi Event</Label>
+                    <Label htmlFor="recurrence">Ulangi Event</Label>
                     <Select
                       value={formData.recurrence}
                       onValueChange={(v) =>
@@ -371,7 +401,7 @@ export default function NewEventPage() {
                         })
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="recurrence">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -430,18 +460,24 @@ export default function NewEventPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Unit (Opsional)</Label>
+                    <Label htmlFor="unitId">Unit (Opsional)</Label>
                     <Select
-                      value={formData.unitId}
+                      value={formData.unitId || "all"}
                       onValueChange={(v) =>
-                        setFormData({ ...formData, unitId: v, classId: "" })
+                        setFormData({
+                          ...formData,
+                          unitId: v === "all" ? "" : v,
+                          classId: "",
+                        })
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="unitId">
                         <SelectValue placeholder="Semua Unit" />
                       </SelectTrigger>
                       <SelectContent>
-                        <SelectItem value="">Semua Unit</SelectItem>
+                        {/* Radix refuses an empty-string item, so "all" is the
+                            sentinel for "no unit". */}
+                        <SelectItem value="all">Semua Unit</SelectItem>
                         {units.map((unit) => (
                           <SelectItem key={unit.id} value={unit.id}>
                             {unit.name}
@@ -453,18 +489,21 @@ export default function NewEventPage() {
 
                   {formData.unitId && (
                     <div className="space-y-2">
-                      <Label>Kelas (Opsional)</Label>
+                      <Label htmlFor="classId">Kelas (Opsional)</Label>
                       <Select
-                        value={formData.classId}
+                        value={formData.classId || "all"}
                         onValueChange={(v) =>
-                          setFormData({ ...formData, classId: v })
+                          setFormData({
+                            ...formData,
+                            classId: v === "all" ? "" : v,
+                          })
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger id="classId">
                           <SelectValue placeholder="Semua Kelas" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">Semua Kelas</SelectItem>
+                          <SelectItem value="all">Semua Kelas</SelectItem>
                           {classes.map((cls) => (
                             <SelectItem key={cls.id} value={cls.id}>
                               {cls.name}
