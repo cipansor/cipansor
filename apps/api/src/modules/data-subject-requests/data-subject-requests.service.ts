@@ -8,6 +8,7 @@ import { Errors } from '@/middleware/error';
 import { notificationService } from '@/modules/notifications';
 import { deleteIdentityDocument } from '@/utils/identity-document-store';
 import { uploadPathFromUrl } from '@/utils/letter-uploaded-file';
+import { sweepStudentText, sweepUserText } from './erasure-sweep';
 import {
   DATA_SUBJECT_REQUEST_DUE_HOURS,
   DATA_SUBJECT_REQUEST_ERASURE_DEFAULT_DAYS,
@@ -1152,14 +1153,27 @@ async function eraseStudent(
   // `UserIdentity` — dan `nik` bertanda `@unique`, sehingga orang itu juga tidak
   // dapat mendaftar ulang dengan NIK-nya sendiri.
   absorbOutcome(await eraseUserIdentity(tx, student.userId, marker, now));
+  // Kotak pesan, pengaduan, notifikasi, dan baris pasien menaut akun ini lewat
+  // `userId`; jalur santri juga harus menyapunya, bukan hanya jalur
+  // subjek-diri-sendiri.
+  absorbOutcome(await sweepUserText(tx, student.userId, marker));
 
   // Catatan bebas santri (konseling, perilaku, wali kelas) menyebut nama anak
   // dan pokok persoalannya. Barisnya bukan arsip akademik yang wajib retensi,
   // dan `onDelete: Cascade` tidak menyala karena baris `Student` dianonimkan,
   // bukan dihapus — jadi isinya ditimpa penanda, sama seperti kolom teks lain.
+  // Lampiran catatan adalah berkas milik subjek: penunjuknya dikosongkan dan
+  // jalurnya dikembalikan untuk dihapus, sama seperti lampiran lain.
+  const notes = await tx.studentNote.findMany({
+    where: { studentId: student.id },
+    select: { attachments: true },
+  });
+  for (const note of notes) {
+    for (const url of note.attachments) if (url) outcome.files.push(url);
+  }
   await tx.studentNote.updateMany({
     where: { studentId: student.id },
-    data: { content: marker, title: marker },
+    data: { content: marker, title: marker, attachments: [] },
   });
 
   // Jejak pengenal lama (`legacy_identifier_audit`) menyimpan SALINAN mentah
@@ -1261,6 +1275,12 @@ async function eraseStudent(
       },
     });
   }
+
+  // Sisa teks bebas pada tabel yang menaut santri: perilaku, nilai, hafalan,
+  // laporan harian, tugas, portofolio, keuangan, alumni, sertifikat. Daftarnya
+  // satu tempat di `erasure-sweep.ts`, dan penjaganya
+  // `tests/erasure-coverage.guard.test.ts`.
+  absorbOutcome(await sweepStudentText(tx, student.id, marker));
 
   outcome.erased.push(
     'identitas santri',
@@ -1600,6 +1620,9 @@ async function executeErasure(
     erased.push('identitas akun');
 
     absorb(await eraseUserIdentity(tx, request.subjectUserId, marker, now));
+    // Tabel yang menaut subjek lewat `userId` saja — pesan, pengaduan,
+    // notifikasi, baris pasien — tidak tersapu oleh jalur santri di atas.
+    absorb(await sweepUserText(tx, request.subjectUserId, marker));
 
     // Baris `Student` menaut `User` lewat `userId` yang unik: subjek yang
     // mewakili dirinya sendiri (GUARDIAN) dapat menunjuk seorang santri yang

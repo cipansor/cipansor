@@ -30,154 +30,412 @@ import { Prisma } from '@prisma/client';
 
 type Buckets = { swept: string[]; retained: string[]; ignored: string[] };
 
-/** Model yang `executeErasure`/`eraseStudent`/`eraseRegistrant` tulis ulang. */
+/**
+ * Model yang `executeErasure`/`eraseStudent`/`eraseRegistrant` tulis ulang.
+ *
+ * Daftar ini adalah keputusan lengkap untuk **setiap** kolom `String`/`Json`
+ * pada setiap model yang menyimpan `studentId`/`registrantId`, ditambah tabel
+ * anak yang menaut subjek lewat id induknya (baris induk tidak dihapus, jadi
+ * `onDelete: Cascade` tidak menyelamatkan anaknya), ditambah model yang menaut
+ * subjek lewat `userId` saja. Model tanpa kolom teks sama sekali tidak muncul
+ * di sini — tidak ada yang perlu diputuskan.
+ *
+ * `retained` berarti "sengaja dibiarkan apa adanya, dengan alasan": nilai
+ * akademik/keuangan (angka, predikat, nomor dokumen, status), kosakata tetap
+ * yang terikat CHECK, dan jejak audit keuangan. `ignored` adalah kolom
+ * struktural — id dan kunci asing.
+ */
 const COVERAGE: Record<string, Buckets> = {
-  Student: {
+  Alumni: {
     swept: [
       'address',
-      'parentName',
-      'parentPhone',
-      'parentEmail',
       'birthPlace',
-      'photoUrl',
-      'nisn',
-      'nik',
-      'noKK',
-      'noAkta',
-      'fatherName',
-      'fatherNik',
-      'fatherBirthPlace',
-      'fatherPhone',
-      'motherName',
-      'motherNik',
-      'motherBirthPlace',
-      'motherPhone',
-      'guardianName',
-      'guardianNik',
-      'guardianRelation',
-      'guardianPhone',
-      'rt',
-      'rw',
-      'postalCode',
-      'kipNumber',
-      'specialNeeds',
-      'livingWith',
-    ],
-    retained: ['nis', 'status', 'religion', 'nationality'],
-    ignored: ['id', 'userId', 'unitId', 'provinceId', 'regencyId', 'districtId', 'villageId'],
-  },
-  Registrant: {
-    swept: [
-      'fullName',
-      'name',
-      'address',
-      'phone',
+      'city',
+      'country',
       'email',
-      'birthPlace',
-      'previousSchool',
-      'parentName',
-      'parentPhone',
-      'parentEmail',
-      'parentOccupation',
+      'name',
       'notes',
-      'registrationFeeNote',
-    ],
-    // `registrationNo`/`source`/`consentVersion` = riwayat kepatuhan SPMB.
-    // `consentIp` dipertahankan sebagai bukti sahnya persetujuan (Pasal 21):
-    // IP asal persetujuan adalah bagian dari catatan itu, bukan turunan angka
-    // operasional. Klasifikasi ini disengaja — jangan disapu tanpa keputusan
-    // ulang, karena bukti persetujuan yang hilang tidak dapat dipulihkan.
-    retained: ['registrationNo', 'source', 'consentVersion', 'consentIp'],
-    ignored: [
-      'id',
-      'admissionPeriodId',
-      'waveId',
-      'registrationFeeVerifiedById',
-      'studentId',
-      'campaignId',
-    ],
-  },
-  RegistrantDocument: {
-    swept: ['name', 'notes', 'fileUrl'],
-    retained: ['type'],
-    ignored: ['id', 'registrantId'],
-  },
-  StudentDocument: {
-    swept: ['title', 'description', 'documentNumber', 'rejectionReason', 'fileUrl'],
-    retained: ['mimeType'],
-    ignored: ['id', 'studentId', 'verifiedById', 'uploadedById'],
-  },
-  User: {
-    swept: [
-      'name',
-      'email',
       'phone',
-      'passwordHash',
-      'resetTokenHash',
-      'twoFactorSecret',
-      'twoFactorSecretPending',
-      'twoFactorRecoveryCodes',
-      'fcmToken',
+      'photo',
+      'province',
+    ],
+    retained: ['registrationNo', 'lastClass', 'tahfidzLevel'],
+    ignored: ['id', 'studentId', 'unitId'],
+  },
+  AlumniCareer: {
+    swept: ['company', 'description', 'industry', 'location', 'position'],
+    retained: [],
+    ignored: ['id', 'alumniId'],
+  },
+  AlumniDonation: {
+    swept: ['description', 'notes', 'purpose'],
+    retained: ['receiptNo'],
+    ignored: ['id', 'alumniId', 'unitId'],
+  },
+  AlumniEducation: {
+    swept: [
+      'achievements',
+      'admissionPath',
+      'degree',
+      'field',
+      'institution',
+      'location',
+      'scholarshipName',
     ],
     retained: [],
-    ignored: ['id', 'unitId'],
+    ignored: ['id', 'alumniId'],
   },
-  UserIdentity: {
-    // `ktpFileName`/`ktpSha256` disapu **bersyarat**: bila subjeknya belum
-    // pernah menerima kunci tanda tangan, berkasnya dibuang sekarang; bila
-    // kunci sudah terbit, berkasnya bukti registrasi penandatangan yang wajib
-    // disimpan sampai `ktpRetainUntil` dan dilaporkan di `outcome.retained`
-    // saat penghapusan berjalan. Karena itu `retained: []` di bawah berarti
-    // "tidak ada kolom yang selalu dipertahankan" — bukan "berkas KTP selalu
-    // dibuang". Penjaga hanya melihat kolomnya ada di badan fungsi, jadi
-    // syarat itu tidak dapat ia periksa; yang menutupnya adalah uji layanan
-    // untuk kedua cabang (`data-subject-requests.service.test.ts`).
-    swept: ['legalName', 'nik', 'birthPlace', 'verificationNote', 'ktpFileName', 'ktpSha256'],
+  AlumniEventAttendee: {
+    swept: ['notes'],
+    retained: ['status'],
+    ignored: ['id', 'eventId', 'alumniId'],
+  },
+  Announcement: {
+    swept: ['attachmentUrl', 'content', 'title'],
+    retained: ['targetRoles', 'classIds', 'studentIds'],
+    ignored: ['id', 'unitId', 'withdrawnById', 'createdById'],
+  },
+  AssignmentSubmission: {
+    swept: ['attachments', 'content', 'feedback'],
     retained: [],
-    ignored: ['id', 'userId', 'verifiedById'],
+    ignored: ['id', 'assignmentId', 'studentId'],
   },
-  LegacyIdentifierAudit: {
-    swept: ['value'],
-    retained: ['field', 'reason', 'keptStudentId'],
-    ignored: ['id', 'studentId'],
-  },
-  StudentNote: {
-    swept: ['title', 'content'],
-    // `attachments` adalah larik URL berkas; saat ini tak ada jalur tulis yang
-    // mengisinya, jadi laten. Bila kelak diisi, berkasnya harus ikut dihapus —
-    // bukan sekadar kehilangan rujukannya. Catat di sini sampai ada penulisnya.
-    retained: ['attachments', 'tags'],
-    ignored: ['id', 'studentId', 'classId', 'academicYearId', 'createdById'],
-  },
-  MarketingInteraction: {
+  Attendance: {
     swept: ['notes'],
-    retained: ['type'],
-    ignored: ['id', 'registrantId', 'recordedById'],
+    retained: [],
+    ignored: ['id', 'studentId', 'classId', 'recordedById'],
   },
-  MedicalRecord: {
-    swept: ['complaint', 'diagnosis', 'treatment', 'prescription', 'notes', 'referredTo'],
-    retained: ['bloodPressure'],
-    ignored: ['id', 'studentId', 'patientId', 'recordedById'],
+  AttendanceFollowUp: {
+    swept: ['note'],
+    retained: [],
+    ignored: ['id', 'attendanceId', 'contactedById'],
   },
-  SpecialDiet: {
-    swept: ['medicalNotes', 'allergies'],
-    retained: ['dietType'],
-    ignored: ['id', 'studentId', 'approvedById'],
+  BehaviorRecord: {
+    swept: ['actionTaken', 'description'],
+    retained: [],
+    ignored: ['id', 'studentId', 'classId', 'academicYearId', 'witnessedById', 'recordedById'],
   },
-  ImmunizationRecord: {
+  Borrowing: {
     swept: ['notes'],
-    retained: ['vaccineName', 'vaccineCode', 'administeredAt', 'batchNumber', 'status'],
-    ignored: ['id', 'studentId', 'unitId', 'recordedById'],
+    retained: ['borrowerType'],
+    ignored: ['id', 'bookId', 'borrowerId', 'studentId', 'processedBy'],
+  },
+  CanteenTransaction: {
+    swept: ['customerName', 'notes'],
+    retained: ['transactionNo', 'paymentMethod', 'status'],
+    ignored: ['id', 'unitId', 'businessUnitId', 'studentId', 'walletId', 'cashierId'],
+  },
+  CanteenTransactionItem: {
+    swept: ['notes'],
+    retained: ['itemName'],
+    ignored: ['id', 'transactionId', 'itemId'],
   },
   ClinicAppointment: {
     swept: ['complaint'],
     retained: ['status'],
     ignored: ['id', 'unitId', 'patientId', 'studentId', 'userId', 'processedById'],
   },
+  Complaint: {
+    swept: ['attachments', 'description', 'location', 'resolution', 'subject'],
+    retained: [],
+    ignored: ['id', 'unitId', 'userId', 'buildingId', 'roomId', 'assetId', 'assignedToId'],
+  },
+  ComplaintComment: { swept: ['content'], retained: [], ignored: ['id', 'complaintId', 'userId'] },
+  CounselingNote: {
+    swept: ['content'],
+    retained: ['noteType'],
+    ignored: ['id', 'sessionId', 'createdById'],
+  },
+  CounselingReferral: {
+    swept: ['contactInfo', 'institution', 'outcome', 'reason', 'referredTo'],
+    retained: [],
+    ignored: ['id', 'sessionId', 'createdById'],
+  },
+  CounselingSession: {
+    swept: ['description', 'psychologyData', 'recommendations', 'summary', 'title'],
+    retained: ['location'],
+    ignored: ['id', 'unitId', 'studentId', 'counselorId'],
+  },
+  CourseCertificate: {
+    swept: ['fileUrl'],
+    retained: ['certificateNo'],
+    ignored: ['id', 'enrollmentId'],
+  },
+  CourseEnrollment: {
+    swept: ['externalEmail', 'externalName', 'externalPhone'],
+    retained: [],
+    ignored: ['id', 'courseId', 'studentId', 'invoiceId'],
+  },
+  DailyHomework: {
+    swept: ['description', 'subjectName'],
+    retained: [],
+    ignored: ['id', 'reportId'],
+  },
+  DailyIbadahRecord: {
+    swept: ['notes'],
+    retained: [],
+    ignored: ['id', 'targetId', 'studentId', 'verifiedBy'],
+  },
+  DailyMuhasabah: {
+    swept: ['gratitude', 'improvement', 'notes'],
+    retained: [],
+    ignored: ['id', 'studentId'],
+  },
+  DailyReportPhoto: { swept: ['caption', 'photoUrl'], retained: [], ignored: ['id', 'reportId'] },
+  DailyStudentReport: {
+    swept: [
+      'achievements',
+      'activitiesSummary',
+      'behaviorNotes',
+      'healthStatus',
+      'homeActivity',
+      'pickedUpBy',
+      'tahfidzActivity',
+      'teacherNotes',
+      'toiletNotes',
+    ],
+    retained: ['notifiedVia'],
+    ignored: ['id', 'studentId', 'unitId', 'academicYearId', 'createdById'],
+  },
+  DataSubjectRequest: {
+    swept: [
+      'actions',
+      'rejectionReason',
+      'verificationCodeHash',
+      'subjectLabel',
+      'requesterName',
+      'requesterContact',
+      'requesterRelation',
+      'detail',
+    ],
+    retained: ['requestNo'],
+    ignored: [
+      'id',
+      'subjectStudentId',
+      'subjectRegistrantId',
+      'subjectUserId',
+      'requesterUserId',
+      'handledById',
+    ],
+  },
+  DigitalCertificate: {
+    swept: ['description', 'metadata', 'pdfUrl', 'thumbnailUrl', 'title'],
+    retained: [
+      'certificateType',
+      'certificateNumber',
+      'qrCode',
+      'verificationUrl',
+      'grade',
+      'signatoryName',
+      'signatoryTitle',
+      'signatureUrl',
+    ],
+    ignored: ['id', 'studentId', 'createdById'],
+  },
+  DutyRoster: {
+    swept: ['notes'],
+    retained: [],
+    ignored: ['id', 'dutyTypeId', 'studentId', 'verifiedById', 'substituteId'],
+  },
+  ExamAnswer: { swept: ['answer'], retained: [], ignored: ['id', 'attemptId', 'questionId'] },
+  ExtracurricularAchievement: {
+    swept: ['certificateUrl', 'description', 'photoUrl', 'title'],
+    retained: ['level', 'rank', 'organizer'],
+    ignored: ['id', 'extracurricularId', 'studentId'],
+  },
+  ExtracurricularAttendance: {
+    swept: ['notes'],
+    retained: [],
+    ignored: ['id', 'extracurricularId', 'studentId', 'recordedById'],
+  },
+  ExtracurricularEnrollment: {
+    swept: ['notes'],
+    retained: ['grade'],
+    ignored: ['id', 'extracurricularId', 'studentId'],
+  },
+  Grade: {
+    swept: ['notes'],
+    retained: ['letterGrade'],
+    ignored: ['id', 'studentId', 'subjectId', 'examId', 'academicYearId', 'gradedById'],
+  },
+  GrowthRecord: {
+    swept: ['notes'],
+    retained: ['nutritionStatus'],
+    ignored: ['id', 'studentId', 'unitId', 'recordedById'],
+  },
+  HafidzStudent: { swept: ['notes'], retained: [], ignored: ['id', 'studentId'] },
+  ImmunizationRecord: {
+    swept: ['notes'],
+    retained: ['vaccineName', 'vaccineCode', 'administeredAt', 'batchNumber', 'status'],
+    ignored: ['id', 'studentId', 'unitId', 'recordedById'],
+  },
+  Invoice: {
+    swept: ['notes'],
+    retained: ['invoiceNumber', 'period'],
+    ignored: ['id', 'studentId', 'paymentTypeId'],
+  },
+  KitabProgress: {
+    swept: ['notes'],
+    retained: ['grade'],
+    ignored: ['id', 'kitabId', 'studentId', 'teacherId', 'academicYearId'],
+  },
+  KitabProgressRecord: {
+    swept: ['notes', 'teacherFeedback', 'topic'],
+    retained: ['predicate'],
+    ignored: ['id', 'studentId', 'kitabAssignmentId', 'kitabId', 'recordedById'],
+  },
+  KitabStudentProgress: {
+    swept: ['notes'],
+    retained: [],
+    ignored: ['id', 'studentId', 'kitabAssignmentId'],
+  },
+  LaundryItem: { swept: ['notes'], retained: ['itemType'], ignored: ['id', 'transactionId'] },
+  LaundryStatusLog: {
+    swept: ['notes'],
+    retained: ['fromStatus', 'toStatus'],
+    ignored: ['id', 'transactionId', 'createdById'],
+  },
+  LaundryTransaction: {
+    swept: ['notes'],
+    retained: ['transactionNo', 'paymentMethod', 'paymentStatus', 'status'],
+    ignored: [
+      'id',
+      'unitId',
+      'businessUnitId',
+      'studentId',
+      'walletId',
+      'pricingId',
+      'receivedById',
+      'deliveredById',
+    ],
+  },
+  LegacyIdentifierAudit: {
+    swept: ['value'],
+    retained: ['field', 'reason', 'keptStudentId'],
+    ignored: ['id', 'studentId'],
+  },
+  MarketingInteraction: {
+    swept: ['notes'],
+    retained: ['type'],
+    ignored: ['id', 'registrantId', 'recordedById'],
+  },
+  MealAttendance: {
+    swept: ['notes'],
+    retained: [],
+    ignored: ['id', 'menuId', 'studentId', 'recordedById'],
+  },
+  MedicalRecord: {
+    swept: ['complaint', 'diagnosis', 'notes', 'prescription', 'referredTo', 'treatment'],
+    retained: ['bloodPressure'],
+    ignored: ['id', 'studentId', 'patientId', 'recordedById'],
+  },
   MedicationUsageLog: {
     swept: ['reason'],
     retained: [],
     ignored: ['id', 'medicationId', 'studentId', 'givenById'],
+  },
+  MerdekaAssessmentResult: {
+    swept: ['attachments', 'feedback'],
+    retained: ['grade'],
+    ignored: ['id', 'assessmentId', 'studentId', 'gradedById'],
+  },
+  Message: {
+    swept: ['content', 'subject'],
+    retained: ['category'],
+    ignored: ['id', 'senderId', 'recipientId', 'parentId'],
+  },
+  Muhadatsah: {
+    swept: ['feedback', 'recordingUrl', 'topic'],
+    retained: ['language', 'grade', 'status'],
+    ignored: ['id', 'unitId', 'studentId', 'partnerId', 'evaluatorId'],
+  },
+  Muhadhoroh: {
+    swept: ['feedback', 'topic', 'videoUrl'],
+    retained: ['language', 'grade', 'status'],
+    ignored: ['id', 'unitId', 'studentId', 'evaluatorId'],
+  },
+  MurojaahMistake: { swept: ['description'], retained: [], ignored: ['id', 'murojaahId'] },
+  MurojaahRecord: {
+    swept: ['improvementAreas', 'notes'],
+    retained: [],
+    ignored: ['id', 'studentId', 'enrollmentId', 'halaqohId', 'recordedById'],
+  },
+  Notification: {
+    swept: ['data', 'link', 'message', 'title'],
+    retained: ['dedupeKey'],
+    ignored: ['id', 'userId', 'announcementId'],
+  },
+  P5Assessment: {
+    swept: ['notes'],
+    retained: [
+      'beriman',
+      'berkebinekaan',
+      'bergotongroyong',
+      'mandiri',
+      'bernalarkritis',
+      'kreatif',
+      'overallGrade',
+    ],
+    ignored: ['id', 'projectId', 'studentId', 'assessedById'],
+  },
+  PAUDAssessmentEvidence: {
+    swept: ['caption', 'fileName', 'fileUrl'],
+    retained: ['fileType'],
+    ignored: ['id', 'assessmentId'],
+  },
+  PAUDDevelopmentAssessment: {
+    swept: ['narrativeText', 'recommendations', 'teacherNotes'],
+    retained: ['semester'],
+    ignored: ['id', 'studentId', 'unitId', 'academicYearId', 'indicatorId', 'assessedById'],
+  },
+  PAUDNarrativeReport: {
+    swept: [
+      'areasForDevelopment',
+      'healthSummary',
+      'narrativeBHS',
+      'narrativeFM',
+      'narrativeKOG',
+      'narrativeNAM',
+      'narrativeSE',
+      'narrativeSNI',
+      'overallStrengths',
+      'parentRecommendations',
+    ],
+    retained: ['semester', 'tahfidzSummary', 'teacherSignature', 'principalSignature', 'status'],
+    ignored: ['id', 'studentId', 'unitId', 'academicYearId', 'createdById'],
+  },
+  PAUDReportPhoto: { swept: ['caption', 'photoUrl'], retained: [], ignored: ['id', 'reportId'] },
+  Patient: { swept: ['address', 'name', 'phone'], retained: [], ignored: ['id', 'userId'] },
+  Payment: {
+    swept: ['notes', 'proofUrl', 'rejectionReason'],
+    retained: ['referenceNo'],
+    ignored: ['id', 'invoiceId', 'tuVerifiedById', 'finalVerifiedById'],
+  },
+  Permit: {
+    swept: ['destination', 'reason', 'rejectionNote'],
+    retained: ['code'],
+    ignored: ['id', 'studentId', 'approvedById'],
+  },
+  Portfolio: {
+    swept: ['description', 'feedback', 'reflection', 'title'],
+    retained: ['type', 'category'],
+    ignored: ['id', 'studentId', 'academicYearId', 'subjectId', 'classId', 'reviewedBy'],
+  },
+  PortfolioComment: { swept: ['content'], retained: [], ignored: ['id', 'portfolioId', 'userId'] },
+  PortfolioFile: {
+    swept: ['fileName', 'fileUrl'],
+    retained: ['fileType'],
+    ignored: ['id', 'portfolioId'],
+  },
+  PracticumEvaluation: {
+    swept: ['feedback'],
+    retained: [],
+    ignored: ['id', 'lessonPlanId', 'evaluatorId'],
+  },
+  PracticumLessonPlan: {
+    swept: ['materials', 'method', 'objectives', 'reviewNotes', 'steps', 'subject', 'topic'],
+    retained: [],
+    ignored: ['id', 'studentId', 'academicYearId', 'reviewedById'],
   },
   Prescription: {
     swept: ['notes'],
@@ -189,51 +447,243 @@ const COVERAGE: Record<string, Buckets> = {
     retained: ['dosage'],
     ignored: ['id', 'prescriptionId', 'medicationId'],
   },
-  CounselingSession: {
-    swept: ['title', 'description', 'summary', 'recommendations', 'psychologyData'],
-    retained: ['location'],
-    ignored: ['id', 'unitId', 'studentId', 'counselorId'],
-  },
-  CounselingNote: {
-    swept: ['content'],
-    retained: ['noteType'],
-    ignored: ['id', 'sessionId', 'createdById'],
-  },
-  CounselingReferral: {
-    swept: ['reason', 'outcome', 'referredTo', 'institution', 'contactInfo'],
-    retained: [],
-    ignored: ['id', 'sessionId', 'createdById'],
-  },
-  GrowthRecord: {
-    swept: ['notes'],
-    retained: ['nutritionStatus'],
-    ignored: ['id', 'studentId', 'unitId', 'recordedById'],
-  },
-  DataSubjectRequest: {
+  RaporPesantren: {
     swept: [
-      'subjectLabel',
-      'requesterName',
-      'requesterContact',
-      'requesterRelation',
-      'detail',
-      'rejectionReason',
-      // Ditulis ulang: catatan tindakan diganti salinan yang sudah disapu
-      // (peristiwa status dan waktunya tetap). Tidak boleh masuk `retained`
-      // justru karena `retained` berarti "tidak ditulis sama sekali".
-      'actions',
+      'akhlakData',
+      'headTeacherNotes',
+      'muhadatsahData',
+      'muhadhorohData',
+      'musyrifNotes',
+      'notes',
+      'principalNotes',
     ],
-    retained: [],
+    retained: [
+      'status',
+      'tahfidzData',
+      'takhosusData',
+      'ibadahData',
+      'kitabProgressData',
+      'attendanceData',
+      'academicData',
+      'overallGrade',
+    ],
+    ignored: ['id', 'studentId', 'unitId', 'academicYearId'],
+  },
+  Registrant: {
+    swept: [
+      'address',
+      'birthPlace',
+      'email',
+      'fullName',
+      'name',
+      'notes',
+      'parentEmail',
+      'parentName',
+      'parentOccupation',
+      'parentPhone',
+      'phone',
+      'previousSchool',
+      'registrationFeeNote',
+    ],
+    retained: ['registrationNo', 'source', 'consentVersion', 'consentIp'],
     ignored: [
       'id',
-      'requestNo',
-      'subjectStudentId',
-      'subjectRegistrantId',
-      'subjectUserId',
-      'requesterUserId',
-      'handledById',
-      'verificationCodeHash',
+      'admissionPeriodId',
+      'waveId',
+      'registrationFeeVerifiedById',
+      'studentId',
+      'campaignId',
     ],
   },
+  RegistrantDocument: {
+    swept: ['fileUrl', 'name', 'notes'],
+    retained: ['type'],
+    ignored: ['id', 'registrantId'],
+  },
+  ReportCard: {
+    swept: ['principalNotes', 'teacherNotes'],
+    retained: ['attendance', 'tahfidzSummary'],
+    ignored: ['id', 'studentId', 'classId', 'academicYearId'],
+  },
+  ReportCardDetail: {
+    swept: ['description'],
+    retained: ['subjectName', 'letterGrade'],
+    ignored: ['id', 'reportCardId'],
+  },
+  ResearchSubmission: {
+    swept: ['abstract', 'content', 'feedback', 'title'],
+    retained: ['status'],
+    ignored: ['id', 'themeId', 'studentId', 'reviewedById'],
+  },
+  Reward: {
+    swept: ['description'],
+    retained: ['category'],
+    ignored: ['id', 'studentId', 'givenById'],
+  },
+  RoomAssignment: { swept: ['notes'], retained: [], ignored: ['id', 'studentId', 'roomId'] },
+  SanadRecord: {
+    swept: ['notes'],
+    retained: ['grade'],
+    ignored: ['id', 'enrollmentId', 'teacherId'],
+  },
+  ScholarshipAssessment: {
+    swept: ['notes', 'value'],
+    retained: [],
+    ignored: ['id', 'recipientId', 'criterionId'],
+  },
+  ScholarshipRecipient: {
+    swept: ['notes'],
+    retained: ['status'],
+    ignored: ['id', 'scholarshipId', 'studentId', 'academicYearId', 'approvedById'],
+  },
+  SimaanExam: {
+    swept: ['notes', 'recommendations'],
+    retained: ['grade'],
+    ignored: ['id', 'studentId', 'enrollmentId', 'halaqohId'],
+  },
+  SimaanExaminer: { swept: ['notes'], retained: [], ignored: ['id', 'simaanId', 'examinerId'] },
+  SpecialDiet: {
+    swept: ['allergies', 'medicalNotes'],
+    retained: ['dietType'],
+    ignored: ['id', 'studentId', 'approvedById'],
+  },
+  Student: {
+    swept: [
+      'address',
+      'birthPlace',
+      'fatherBirthPlace',
+      'fatherName',
+      'fatherNik',
+      'fatherPhone',
+      'guardianName',
+      'guardianNik',
+      'guardianPhone',
+      'guardianRelation',
+      'kipNumber',
+      'livingWith',
+      'motherBirthPlace',
+      'motherName',
+      'motherNik',
+      'motherPhone',
+      'nik',
+      'nisn',
+      'noAkta',
+      'noKK',
+      'parentEmail',
+      'parentName',
+      'parentPhone',
+      'photoUrl',
+      'postalCode',
+      'rt',
+      'rw',
+      'specialNeeds',
+    ],
+    retained: ['nis', 'status', 'religion', 'nationality'],
+    ignored: ['id', 'userId', 'unitId', 'provinceId', 'regencyId', 'districtId', 'villageId'],
+  },
+  StudentCardState: {
+    swept: ['revokeReason'],
+    retained: ['cardNumber'],
+    ignored: ['id', 'studentId', 'generatedById'],
+  },
+  StudentDocument: {
+    swept: ['description', 'documentNumber', 'fileUrl', 'rejectionReason', 'title'],
+    retained: ['mimeType'],
+    ignored: ['id', 'studentId', 'verifiedById', 'uploadedById'],
+  },
+  StudentNote: {
+    swept: ['attachments', 'content', 'title'],
+    retained: ['tags'],
+    ignored: ['id', 'studentId', 'classId', 'academicYearId', 'createdById'],
+  },
+  StudentOrgLogbook: {
+    swept: ['activity', 'notes', 'result'],
+    retained: [],
+    ignored: ['id', 'memberId'],
+  },
+  StudentPackage: {
+    swept: ['content', 'deliveredTo', 'notes', 'photoUrl', 'senderName', 'senderPhone'],
+    retained: ['expedition', 'storageLocation'],
+    ignored: ['id', 'studentId', 'unitId', 'receivedById'],
+  },
+  StudentVisit: {
+    swept: ['needs', 'notes', 'relationship', 'visitorName'],
+    retained: [],
+    ignored: ['id', 'studentId', 'unitId'],
+  },
+  TahfidzRecord: {
+    swept: ['audioUrl', 'notes'],
+    retained: ['surahName'],
+    ignored: ['id', 'studentId', 'recordedById'],
+  },
+  TahfidzTarget: { swept: ['notes'], retained: [], ignored: ['id', 'studentId', 'academicYearId'] },
+  TakhosusEnrollment: { swept: ['notes'], retained: [], ignored: ['id', 'studentId', 'halaqohId'] },
+  User: {
+    swept: [
+      'email',
+      'fcmToken',
+      'name',
+      'passwordHash',
+      'phone',
+      'resetTokenHash',
+      'twoFactorRecoveryCodes',
+      'twoFactorSecret',
+      'twoFactorSecretPending',
+    ],
+    retained: [],
+    ignored: ['id', 'unitId'],
+  },
+  UserIdentity: {
+    swept: ['birthPlace', 'ktpFileName', 'ktpSha256', 'legalName', 'nik', 'verificationNote'],
+    retained: [],
+    ignored: ['id', 'userId', 'verifiedById'],
+  },
+  Violation: {
+    swept: ['action', 'description'],
+    retained: ['category'],
+    ignored: ['id', 'studentId', 'reportedById'],
+  },
+  WalletTransaction: {
+    swept: ['description'],
+    retained: ['type', 'reference', 'referenceType'],
+    ignored: ['id', 'walletId', 'createdById'],
+  },
+  // Model terjangkau yang tidak butuh tulisan: seluruh kolom teksnya kosakata
+  // tetap, angka, atau kunci asing — dicatat supaya keputusannya terlihat dan
+  // penjaga penutupan kunci asing di bawah punya jawaban untuk setiap model.
+  AttendancePatternFlag: { swept: [], retained: [], ignored: ['id', 'studentId'] },
+  ClassEnrollment: { swept: [], retained: ['status'], ignored: ['id', 'studentId', 'classId'] },
+  ExamAttempt: { swept: [], retained: [], ignored: ['id', 'examId', 'studentId'] },
+  ExamSecurityLog: { swept: ['details'], retained: ['type'], ignored: ['id', 'attemptId'] },
+  IbadahLeaderboard: {
+    swept: [],
+    retained: ['periodType'],
+    ignored: ['id', 'unitId', 'studentId'],
+  },
+  PermitAttachment: {
+    swept: [],
+    retained: ['mimeType', 'sha256'],
+    ignored: ['id', 'permitId', 'uploadedById', 'firstViewedById'],
+  },
+  PracticumSchedule: {
+    swept: [],
+    retained: ['startTime', 'endTime', 'location'],
+    ignored: ['id', 'lessonPlanId', 'targetClassId'],
+  },
+  ResearchReference: {
+    swept: [],
+    retained: ['bookTitle', 'author', 'volume', 'page', 'contentQuote'],
+    ignored: ['id', 'submissionId'],
+  },
+  SantriWallet: { swept: [], retained: [], ignored: ['id', 'studentId'] },
+  StudentOrgMember: { swept: [], retained: [], ignored: ['id', 'positionId', 'studentId'] },
+  StudentParent: { swept: [], retained: ['relation'], ignored: ['id', 'studentId', 'parentId'] },
+  StudentUnitEnrollment: {
+    swept: [],
+    retained: ['exitReason', 'gradeLevel'],
+    ignored: ['id', 'studentId', 'unitId', 'academicYearId'],
+  },
+  StudentUnitIdentifier: { swept: [], retained: ['nis'], ignored: ['id', 'studentId', 'unitId'] },
 };
 
 type DmmfModel = {
@@ -245,6 +695,95 @@ type DmmfModel = {
 const datamodel = (Prisma as unknown as { dmmf: { datamodel: { models: DmmfModel[] } } }).dmmf
   .datamodel;
 
+/**
+ * Model yang menaut subjek **hanya** lewat `userId`, akar `sweepUserText`.
+ *
+ * Kotak pesan, pengaduan, notifikasi, dan baris pasien tidak menyimpan
+ * `studentId`; satu-satunya jalan dari subjek ke barisnya adalah akunnya.
+ */
+const USER_LINKED_ROOTS: { model: string; columns: string[] }[] = [
+  { model: 'Message', columns: ['senderId', 'recipientId'] },
+  { model: 'Complaint', columns: ['userId'] },
+  { model: 'Notification', columns: ['userId'] },
+  { model: 'Patient', columns: ['userId'] },
+];
+
+/**
+ * Setiap model yang dapat dijangkau dari subjek lewat kunci asing, dihitung
+ * dari `schema.prisma` — bukan dari daftar yang diuji.
+ *
+ * Arahnya ke **bawah**: mulai dari model yang menyimpan `studentId`/
+ * `registrantId`, lalu setiap model yang menaruh kunci asing ke model yang
+ * sudah terjangkau ikut masuk. Itulah himpunan yang harus disapu tangan,
+ * karena baris induknya dianonimkan dan `onDelete: Cascade` tidak pernah
+ * menyala. Ke arah atas (induk dari subjek, seperti `Class` atau `Unit`) tidak
+ * ikut: barisnya milik banyak orang.
+ *
+ * `relationFromFields` tidak ada di DMMF versi ini, jadi relasinya dibaca dari
+ * skema: `@relation(fields: […])` menandai sisi yang memegang kunci asing.
+ */
+function reachableFromSubject(): Set<string> {
+  const schema = readFileSync(resolve(__dirname, '../../../../prisma/schema.prisma'), 'utf8');
+  const parentOf = new Map<string, Set<string>>();
+  for (const [, name, body] of schema.matchAll(/^model (\w+) \{([\s\S]*?)^\}/gm)) {
+    const parents = new Set<string>();
+    for (const rel of body.matchAll(/(\w+)\s+(\w+)\??\s+@relation\([^)]*fields:\s*\[/g)) {
+      parents.add(rel[2]);
+    }
+    parentOf.set(name, parents);
+  }
+  // Akarnya adalah subjeknya sendiri plus setiap model yang menyimpan
+  // `studentId`/`registrantId` — `Student` tidak menyimpan `studentId`, dan
+  // justru dialah yang disapu pertama.
+  const reached = new Set(
+    datamodel.models
+      .filter(
+        (m) =>
+          m.name === 'Student' ||
+          m.name === 'Registrant' ||
+          m.fields.some((f) => f.name === 'studentId' || f.name === 'registrantId')
+      )
+      .map((m) => m.name)
+  );
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const [child, parents] of parentOf) {
+      if (reached.has(child)) continue;
+      if ([...parents].some((parent) => reached.has(parent))) {
+        reached.add(child);
+        grew = true;
+      }
+    }
+  }
+  return reached;
+}
+
+/**
+ * Kolom skalar yang menjadi kunci asing, per model, dibaca dari
+ * `@relation(fields: […])`.
+ *
+ * Kunci asing tidak pernah memuat PII: ia hanya menunjuk baris lain, dan
+ * nilainya sudah ditangani baris yang ditunjuk. Karena itu ia selalu masuk
+ * `ignored` — bukan `retained` (yang berarti "nilai ini sengaja dibiarkan dan
+ * punya alasan"), dan bukan `swept`. `Borrowing.processedBy` dan
+ * `DutyRoster.substituteId` sempat tercatat sebagai `retained`; keduanya kunci
+ * asing, dan salah keranjang berarti kolom berikutnya yang serupa akan
+ * dianggap "sudah diputuskan".
+ */
+function foreignKeyColumns(): Record<string, Set<string>> {
+  const schema = readFileSync(resolve(__dirname, '../../../../prisma/schema.prisma'), 'utf8');
+  const result: Record<string, Set<string>> = {};
+  for (const [, name, body] of schema.matchAll(/^model (\w+) \{([\s\S]*?)^\}/gm)) {
+    const fks = new Set<string>();
+    for (const rel of body.matchAll(/@relation\([^)]*fields:\s*\[([^\]]*)\]/g)) {
+      for (const field of rel[1].matchAll(/(\w+)/g)) fks.add(field[1]);
+    }
+    if (fks.size) result[name] = fks;
+  }
+  return result;
+}
+
 /** Kolom skalar `String`/`Json` sebuah model — teks bebas yang perlu diputuskan. */
 function stringColumns(model: string): string[] {
   const m = datamodel.models.find((x) => x.name === model);
@@ -254,10 +793,14 @@ function stringColumns(model: string): string[] {
     .map((f) => f.name);
 }
 
-const serviceSource = readFileSync(
-  resolve(__dirname, '../data-subject-requests.service.ts'),
-  'utf8'
-);
+// Dua berkas: penyapuan teks bebas tinggal di `erasure-sweep.ts` (satu tempat,
+// karena ia menyapu ~70 model), dan penjaga harus melihat keduanya — kalau
+// hanya layanan utama yang dibaca, setiap kolom di berkas sapuan terbaca
+// "ditandai disapu tetapi tidak ditulis".
+const serviceSource = [
+  readFileSync(resolve(__dirname, '../data-subject-requests.service.ts'), 'utf8'),
+  readFileSync(resolve(__dirname, '../erasure-sweep.ts'), 'utf8'),
+].join('\n');
 
 describe('penjaga cakupan penyapuan ERASURE', () => {
   it('setiap kolom String/Json model yang ditulis ulang terklasifikasi tepat sekali', () => {
@@ -284,6 +827,56 @@ describe('penjaga cakupan penyapuan ERASURE', () => {
       }
     }
 
+    expect(problems).toEqual([]);
+  });
+
+  it('setiap model yang terjangkau dari subjek ada di daftar', () => {
+    // Penjaga di atas hanya memeriksa model yang **sudah** didaftarkan. Model
+    // yang belum pernah didaftarkan — persis kelas cacat yang berulang di PR
+    // #1140 (#1146) — lolos tanpa terlihat: `AttendanceFollowUp`, `Muhadroh`
+    // dan sejenisnya menaut subjek lewat id induknya, dan karena baris induk
+    // dianonimkan (bukan dihapus), `onDelete: Cascade` tidak pernah menyapunya.
+    //
+    // Jadi himpunan yang diperiksa di sini dihitung dari skema, bukan dari
+    // daftar: mulai dari setiap model yang menyimpan `studentId`/`registrantId`,
+    // lalu tutup ke bawah lewat setiap relasi yang menaruh kunci asing di sisi
+    // anak. Setiap model dalam tutupan itu harus punya keputusan di `COVERAGE`.
+    const closure = reachableFromSubject();
+    const listed = new Set(Object.keys(COVERAGE));
+    const missing = [...closure].filter((m) => !listed.has(m)).sort();
+
+    // Penjaga yang tidak menemukan model apa pun akan hijau selamanya.
+    expect(closure.size).toBeGreaterThan(70);
+    expect(closure).toContain('Student');
+    expect(closure).toContain('AttendanceFollowUp');
+    expect(missing).toEqual([]);
+  });
+
+  it('akar yang hanya menaut lewat `userId` tetap benar-benar menaut `userId`', () => {
+    // `sweepUserText` menyapu tabel yang menaut subjek lewat akunnya saja, dan
+    // daftar akarnya ditulis tangan. Bila sebuah model kelak berhenti punya
+    // `userId`, akar itu menjadi tidak berarti dan `sweepUserText` menyapu
+    // tabel yang salah tanpa suara.
+    const problems = USER_LINKED_ROOTS.filter(({ model, columns }) => {
+      const m = datamodel.models.find((x) => x.name === model);
+      if (!m) return true;
+      return !columns.every((c) => m.fields.some((f) => f.kind === 'scalar' && f.name === c));
+    }).map(({ model }) => model);
+    expect(problems).toEqual([]);
+  });
+
+  it('kunci asing dicatat sebagai struktural, bukan disapu atau dipertahankan', () => {
+    const fks = foreignKeyColumns();
+    const problems: string[] = [];
+    for (const [model, buckets] of Object.entries(COVERAGE)) {
+      const modelFks = fks[model];
+      if (!modelFks) continue;
+      for (const col of [...buckets.swept, ...buckets.retained]) {
+        if (modelFks.has(col)) problems.push(`${model}.${col} adalah kunci asing`);
+      }
+    }
+    // Penjaga yang tidak menemukan kunci asing apa pun akan hijau selamanya.
+    expect(Object.keys(fks).length).toBeGreaterThan(50);
     expect(problems).toEqual([]);
   });
 

@@ -16,8 +16,29 @@ vi.mock('@/utils/identity-document-store', () => ({
   identityDocumentRetainUntil: vi.fn((d: Date) => new Date(d.getTime() + 365 * 24 * 3600 * 1000)),
 }));
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
+vi.mock('@/lib/prisma', async () => {
+  // Setiap delegasi Prisma mendapat permukaan tiruan yang menjawab "tidak ada
+  // baris", supaya penyapuan yang menyentuh puluhan model (perilaku, hafalan,
+  // laporan harian, keuangan, alumni) berjalan tanpa perlu didaftarkan satu per
+  // satu di sini — daftar manual seperti itu yang membuat uji merah hanya
+  // karena model baru tersentuh. Delegasi yang perilakunya diuji tetap
+  // didefinisikan eksplisit di bawah dan tidak ditimpa.
+  const { Prisma } = await import('@prisma/client');
+  const noop = () => ({
+    findUnique: vi.fn().mockResolvedValue(null),
+    findFirst: vi.fn().mockResolvedValue(null),
+    findMany: vi.fn().mockResolvedValue([]),
+    count: vi.fn().mockResolvedValue(0),
+    create: vi.fn().mockResolvedValue({}),
+    update: vi.fn().mockResolvedValue({}),
+    updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    upsert: vi.fn().mockResolvedValue({}),
+    delete: vi.fn().mockResolvedValue({}),
+    deleteMany: vi.fn().mockResolvedValue({ count: 0 }),
+    aggregate: vi.fn().mockResolvedValue({}),
+    groupBy: vi.fn().mockResolvedValue([]),
+  });
+  const prisma: Record<string, unknown> = {
     dataSubjectRequest: {
       create: vi.fn(),
       findUnique: vi.fn(),
@@ -55,7 +76,10 @@ vi.mock('@/lib/prisma', () => ({
       findMany: vi.fn().mockResolvedValue([]),
       updateMany: vi.fn(),
     },
-    studentNote: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    studentNote: {
+      findMany: vi.fn().mockResolvedValue([]),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     legacyIdentifierAudit: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     marketingInteraction: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     medicalRecord: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
@@ -85,8 +109,13 @@ vi.mock('@/lib/prisma', () => ({
     // `FOR UPDATE` mengunci baris lewat `$executeRaw`; mock harus punya
     // permukaannya, karena `tx` di sini adalah klien yang sama.
     $executeRaw: vi.fn().mockResolvedValue(0),
-  },
-}));
+  };
+  for (const model of Prisma.dmmf.datamodel.models) {
+    const delegate = model.name[0].toLowerCase() + model.name.slice(1);
+    prisma[delegate] ??= noop();
+  }
+  return { prisma };
+});
 
 vi.mock('@/modules/notifications', () => ({
   notificationService: { send: vi.fn().mockResolvedValue({ success: true }) },
@@ -722,6 +751,8 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     const noteSweep = vi.mocked(prisma.studentNote.updateMany).mock.calls[0][0] as any;
     expect(noteSweep.where).toEqual({ studentId: 'stu-1' });
     expect(noteSweep.data.content).toContain('UU PDP');
+    // Lampiran catatan adalah berkas milik subjek; penunjuknya dikosongkan.
+    expect(noteSweep.data.attachments).toEqual([]);
 
     const interactionSweep = vi.mocked(prisma.marketingInteraction.updateMany).mock
       .calls[0][0] as any;
@@ -828,6 +859,414 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     expect(audit.data.newValues.erased).toContain('catatan kesehatan');
     expect(audit.data.newValues.erased).toContain('catatan konseling');
     expect(audit.data.newValues.erased).toContain('jejak pengenal lama');
+  });
+
+  it('menyapu teks bebas pada tabel akademik dan perilaku, tanpa menyentuh angkanya', async () => {
+    // Baris `Student` dianonimkan, jadi `onDelete: Cascade` tidak menyala untuk
+    // pelanggaran, nilai, rapor, laporan harian, dan hafalan — semuanya masih
+    // menyebut anak di kolom prosanya (#1146). Angka dan predikatnya
+    // dipertahankan karena rapor adalah arsip akademik.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    for (const [delegate, columns] of [
+      [prisma.violation, ['description', 'action']],
+      [prisma.behaviorRecord, ['description', 'actionTaken']],
+      [prisma.reward, ['description']],
+      [prisma.studentVisit, ['visitorName', 'relationship', 'needs', 'notes']],
+      [prisma.permit, ['reason', 'destination', 'rejectionNote']],
+      [prisma.attendance, ['notes']],
+      [prisma.grade, ['notes']],
+      [prisma.reportCard, ['teacherNotes', 'principalNotes']],
+      [prisma.raporPesantren, ['notes', 'headTeacherNotes', 'musyrifNotes', 'principalNotes']],
+      [prisma.dailyStudentReport, ['healthStatus', 'teacherNotes', 'pickedUpBy']],
+      [prisma.tahfidzRecord, ['notes']],
+      [prisma.murojaahRecord, ['notes', 'improvementAreas']],
+      [prisma.muhadhoroh, ['topic', 'feedback']],
+      [prisma.portfolio, ['title', 'description', 'reflection', 'feedback']],
+      [prisma.researchSubmission, ['title', 'abstract', 'content', 'feedback']],
+      [prisma.alumni, ['name', 'address', 'phone', 'email', 'notes']],
+    ] as const) {
+      const call = vi.mocked(delegate.updateMany as any).mock.calls[0]?.[0] as any;
+      expect(call, `${delegate} tidak disapu`).toBeDefined();
+      expect(call.where).toEqual({ studentId: 'stu-1' });
+      for (const column of columns) {
+        expect(call.data[column], `${column} tidak ditimpa`).toContain('UU PDP');
+      }
+    }
+
+    // Predikat dan nilai bukan prosa: tidak boleh ikut ditimpa.
+    const grade = vi.mocked(prisma.grade.updateMany).mock.calls[0][0] as any;
+    expect(grade.data).not.toHaveProperty('letterGrade');
+    const rapor = vi.mocked(prisma.raporPesantren.updateMany).mock.calls[0][0] as any;
+    expect(rapor.data).not.toHaveProperty('overallGrade');
+  });
+
+  it('menyapu isi tahapan praktikum di dalam JSON, tanpa menghapus strukturnya', async () => {
+    // `PracticumLessonPlan.steps` menyimpan `[{ name, content }]`: `name` adalah
+    // kerangka mengajar (struktur), `content` adalah tulisan subjek sendiri.
+    // Menyapu kolom teks di sekitarnya saja meninggalkan prosa ini utuh.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.practicumLessonPlan.findMany).mockResolvedValue([
+      {
+        id: 'plan-1',
+        steps: [
+          { name: 'Muqaddimah', content: 'Anak bernama Ahmad membuka pelajaran' },
+          { name: 'Hissoh', content: 'Latihan membaca bersama Ahmad' },
+        ],
+      },
+    ] as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const update = vi.mocked(prisma.practicumLessonPlan.update).mock.calls[0][0] as any;
+    expect(update.where).toEqual({ id: 'plan-1' });
+    expect(update.data.steps).toHaveLength(2);
+    expect(update.data.steps[0].name).toBe('Muqaddimah');
+    expect(update.data.steps[0].content).toContain('UU PDP');
+    expect(update.data.steps[1].content).toContain('UU PDP');
+  });
+
+  it('menyapu prosa di dalam cuplikan JSON rapor, tetapi mempertahankan angkanya', async () => {
+    // `akhlakData` menyalin deskripsi pelanggaran dan penghargaan; menyapu
+    // `Violation.description` saja meninggalkan salinannya di rapor. Angka
+    // (poin, skor, jumlah) tetap — hanya teks yang menyebut anak yang diganti.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.raporPesantren.findMany).mockResolvedValue([
+      {
+        id: 'rapor-1',
+        akhlakData: {
+          violationPoints: 15,
+          score: 92.5,
+          violations: [
+            {
+              date: '2026-10-01',
+              category: 'TERLAMBAT',
+              description: 'Berkelahi di kelas',
+              points: 15,
+            },
+          ],
+        },
+        muhadhorohData: {
+          totalSessions: 4,
+          performances: [{ theme: 'Adab menuntut ilmu', score: 88 }],
+        },
+        muhadatsahData: null,
+      },
+    ] as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const update = vi.mocked(prisma.raporPesantren.update).mock.calls[0][0] as any;
+    expect(update.where).toEqual({ id: 'rapor-1' });
+    expect(update.data.akhlakData.violations[0].description).toContain('UU PDP');
+    expect(update.data.akhlakData.violations[0].points).toBe(15);
+    expect(update.data.akhlakData.violationPoints).toBe(15);
+    expect(update.data.akhlakData.score).toBe(92.5);
+    expect(update.data.muhadhorohData.performances[0].theme).toContain('UU PDP');
+    expect(update.data.muhadhorohData.performances[0].score).toBe(88);
+    // Kolom yang tidak berubah ditulis kembali apa adanya (null tetap null).
+    expect(update.data.muhadatsahData).toBeNull();
+  });
+
+  it('mengumpulkan berkas milik subjek dan menghapusnya, bukan hanya mengosongkan URL-nya', async () => {
+    // `/uploads` menyajikan berkas kepada setiap akun yang sudah masuk, jadi
+    // URL yang dikosongkan bukan penghapusan. Foto laporan, rekaman bacaan,
+    // bukti transfer, dan lampiran portofolio harus ikut dihapus dari disk.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.tahfidzRecord.findMany).mockResolvedValueOnce([
+      { audioUrl: 'https://portal.cipansor.or.id/uploads/rekaman.m4a' },
+    ] as any);
+    vi.mocked(prisma.studentNote.findMany).mockResolvedValueOnce([
+      { attachments: ['https://portal.cipansor.or.id/uploads/lampiran-catatan.pdf'] },
+    ] as any);
+    vi.mocked(prisma.portfolio.findMany).mockResolvedValueOnce([{ id: 'port-1' }] as any);
+    vi.mocked(prisma.portfolioFile.findMany).mockResolvedValueOnce([
+      { fileUrl: 'https://portal.cipansor.or.id/uploads/karya.pdf' },
+    ] as any);
+    vi.mocked(prisma.invoice.findMany).mockResolvedValueOnce([{ id: 'inv-1' }] as any);
+    vi.mocked(prisma.payment.findMany).mockResolvedValueOnce([
+      { proofUrl: 'https://portal.cipansor.or.id/uploads/bukti.jpg' },
+    ] as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const removed = vi.mocked(fs.unlink).mock.calls.map((c) => String(c[0]));
+    expect(removed.some((p) => p.endsWith('rekaman.m4a'))).toBe(true);
+    expect(removed.some((p) => p.endsWith('karya.pdf'))).toBe(true);
+    expect(removed.some((p) => p.endsWith('bukti.jpg'))).toBe(true);
+    expect(removed.some((p) => p.endsWith('lampiran-catatan.pdf'))).toBe(true);
+
+    const tahfidz = vi.mocked(prisma.tahfidzRecord.updateMany).mock.calls[0][0] as any;
+    expect(tahfidz.data.audioUrl).toBeNull();
+  });
+
+  it('menyapu pengumuman pribadi saja, bukan pengumuman kelompok', async () => {
+    // `Announcement.content` milik pengumuman unit/kelas adalah pesan bagi
+    // banyak santri; menyapunya akan menghapus pesan orang lain.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const announcement = vi.mocked(prisma.announcement.updateMany).mock.calls[0][0] as any;
+    expect(announcement.where).toEqual({ scope: 'BOARDERS', studentIds: { equals: ['stu-1'] } });
+    expect(announcement.data.content).toContain('UU PDP');
+  });
+
+  it('menyapu kotak pesan, pengaduan, dan notifikasi milik akun subjek', async () => {
+    // Tabel ini hanya menaut lewat `userId`, jadi jalur santri harus
+    // menyapunya sendiri — `eraseUserIdentity` hanya menyentuh `User` dan
+    // `UserIdentity`.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const message = vi.mocked(prisma.message.updateMany).mock.calls[0][0] as any;
+    expect(message.where).toEqual({ OR: [{ senderId: 'usr-1' }, { recipientId: 'usr-1' }] });
+    expect(message.data.content).toContain('UU PDP');
+
+    const notification = vi.mocked(prisma.notification.updateMany).mock.calls[0][0] as any;
+    expect(notification.where).toEqual({ userId: 'usr-1' });
+    expect(notification.data.message).toContain('UU PDP');
+    expect(notification.data.data).toEqual(Prisma.DbNull);
+
+    const complaint = vi.mocked(prisma.complaint.updateMany).mock.calls[0][0] as any;
+    expect(complaint.where).toEqual({ userId: 'usr-1' });
+  });
+
+  it('menyapu `Patient` pada jalur subjek-diri-sendiri, termasuk yang tidak menaut santri', async () => {
+    // Subjek GUARDIAN yang mewakili dirinya sendiri tidak punya baris santri,
+    // tetapi baris pasiennya tetap menyimpan nama, telepon, dan alamat.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'GUARDIAN',
+        subjectUserId: 'usr-1',
+        subjectStudentId: null,
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue(null as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const patient = vi.mocked(prisma.patient.updateMany).mock.calls[0][0] as any;
+    expect(patient.where).toEqual({ userId: 'usr-1' });
+    expect(patient.data.name).toContain('UU PDP');
+    expect(patient.data.phone).toBeNull();
+  });
+
+  it('mengosongkan isi surat keterangan dokter pada izin (data kesehatan, bukan berkas unggahan)', async () => {
+    // `PermitAttachment.content` bertipe `Bytes` dan tinggal di baris basis
+    // data, jadi penjaga kolom teks tidak melihatnya dan `/uploads` tidak
+    // menyimpannya. Barisnya dipertahankan sebagai bukti lampiran pernah ada.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.permit.findMany).mockResolvedValueOnce([{ id: 'permit-1' }] as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const attachment = vi.mocked(prisma.permitAttachment.updateMany).mock.calls[0][0] as any;
+    expect(attachment.where).toEqual({ permitId: { in: ['permit-1'] }, erasedAt: null });
+    expect(attachment.data.content).toBeNull();
+    expect(attachment.data.erasedAt).toBeInstanceOf(Date);
+  });
+
+  it('menutup sertifikat dari verifikasi publik dan menghapus PDF-nya', async () => {
+    // PDF sertifikat memuat nama anak, dan `/verify/:code` menyajikannya tanpa
+    // login selama `isPublic`. Menyapu judulnya saja tidak cukup.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.digitalCertificate.findMany).mockResolvedValueOnce([
+      {
+        pdfUrl: 'https://portal.cipansor.or.id/uploads/ijazah.pdf',
+        thumbnailUrl: 'https://portal.cipansor.or.id/uploads/ijazah.png',
+      },
+    ] as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const certificate = vi.mocked(prisma.digitalCertificate.updateMany).mock.calls[0][0] as any;
+    expect(certificate.data.isPublic).toBe(false);
+    expect(certificate.data.title).toContain('UU PDP');
+    expect(certificate.data.pdfUrl).toBeNull();
+    expect(certificate.data.metadata).toEqual(Prisma.DbNull);
+
+    const removed = vi.mocked(fs.unlink).mock.calls.map((c) => String(c[0]));
+    expect(removed.some((p) => p.endsWith('ijazah.pdf'))).toBe(true);
+  });
+
+  it('menyapu jawaban ujian dan muatan log pengawasan', async () => {
+    // Jawaban ujian adalah tulisan anak sendiri; log pengawasan mencatat
+    // perilakunya selama ujian. Jenis kejadiannya tetap sebagai arsip integritas.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.examAttempt.findMany).mockResolvedValueOnce([{ id: 'att-1' }] as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const answer = vi.mocked(prisma.examAnswer.updateMany).mock.calls[0][0] as any;
+    expect(answer.where).toEqual({ attemptId: { in: ['att-1'] } });
+    expect(answer.data.answer).toEqual(Prisma.DbNull);
+
+    const log = vi.mocked(prisma.examSecurityLog.updateMany).mock.calls[0][0] as any;
+    expect(log.data.details).toEqual(Prisma.DbNull);
   });
 
   it('tidak menghapus berkas yang masih ditunjuk baris lain (CWE-639)', async () => {
