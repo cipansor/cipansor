@@ -590,8 +590,7 @@ export async function getBudgetRealizationReport(unitId: string, academicYearId:
  * The month `offset` months after `base`, normalized back into 0-11.
  *
  * `wibMonthRange` builds its dates from the month number and does not roll
- * over, so `baseMonth + i` past 11 would throw. `analytics/forecast.service.ts`
- * carries the same normalization for the same reason.
+ * over, so `baseMonth + i` past 11 would ask for month "13" and throw.
  */
 function monthAfter(base: { year: number; month: number }, offset: number) {
   const index = base.month + offset;
