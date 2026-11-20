@@ -708,11 +708,14 @@ pelanggarannya memerahkan job **Tests** — bukan sekadar konvensi.
   memblokir seluruh PR terbuka (#910). Batas bawah benar hanya pada atau di atas
   rilis perbaikan pertama advisory. Penjaganya
   `apps/api/src/utils/pnpm-supply-chain.guard.test.ts`, tetapi hanya untuk paket
-  yang terdaftar di `MIN_OVERRIDES` (empat saat ini: `body-parser`, `dompurify`,
-  `follow-redirects`, `multer`) — penjaga membaca daftar itu, bukan seluruh
-  `overrides`. Entri yang tidak masuk `MIN_OVERRIDES` tidak diperiksa batas
-  bawahnya oleh **Tests**, jadi saat menambah override dengan advisory baru,
-  daftarkan paket dan rilis perbaikan pertamanya di `MIN_OVERRIDES` juga.
+  yang terdaftar di `MIN_OVERRIDES` (lima saat ini: `body-parser`, `dompurify`,
+  `effect`, `follow-redirects`, `multer`) — penjaga membaca daftar itu, bukan
+  seluruh `overrides`. Entri yang tidak masuk `MIN_OVERRIDES` tidak diperiksa
+  batas bawahnya oleh **Tests**, jadi saat menambah override dengan advisory
+  baru, daftarkan paket dan rilis perbaikan pertamanya di `MIN_OVERRIDES` juga.
+  Batas bawah boleh berbentuk rentang (`>=3.22.1 <4`); penjaga membaca batas
+  bawahnya saja, karena batas atas adalah pernyataan pemanggil bahwa lini mayor
+  paket itu tidak boleh berpindah.
 
 ## Rilis & operasi
 

@@ -44,6 +44,7 @@ overrides:
   brace-expansion@1: '>=1.1.21 <2'
   brace-expansion@5: '>=5.0.9'
   dompurify: '>=3.4.17'
+  '@prisma/config>effect': '>=3.22.1 <4'
   fast-uri: '>=4.1.5'
   fflate: '>=0.8.3'
   follow-redirects: '>=1.16.2'
