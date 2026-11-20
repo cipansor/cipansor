@@ -42,6 +42,122 @@ export const nikSchema = z.preprocess(
     .optional(),
 );
 
+/**
+ * Apa yang bisa dibaca dari NIK tanpa membaca gambar apa pun (Dukcapil:
+ * 6 digit wilayah, 6 digit tanggal lahir, 4 digit nomor urut).
+ *
+ * Tanggal lahirnya 6 digit: DD MM YY, dan perempuan ditambah 40 pada DD
+ * (tanggal 17 menjadi 57). NIK **tidak** menyimpan abad, jadi tahunnya
+ * dua digit — membandingkannya dengan tanggal lahir yang empat digit berarti
+ * membandingkan dua digit terakhir saja.
+ */
+export interface NikIdentity {
+  /** Dua digit terakhir tahun lahir; NIK tidak menyimpan abad. */
+  birthYearShort: number;
+  /** 1–12. */
+  birthMonth: number;
+  /** 1–31, sudah dikurangi 40 untuk perempuan. */
+  birthDay: number;
+  gender: "MALE" | "FEMALE";
+}
+
+const daysInMonth = (month: number, year: number) =>
+  month === 2
+    ? (year % 4 === 0 && year % 100 !== 0) || year % 400 === 0
+      ? 29
+      : 28
+    : [4, 6, 9, 11].includes(month)
+      ? 30
+      : 31;
+
+/**
+ * Membaca identitas dari NIK, atau `null` bila bentuknya bukan 16 digit angka
+ * atau digit 7–12-nya bukan tanggal yang ada di kalender.
+ *
+ * Tahunnya dianggap abad yang membuatnya kabisat bila perlu: NIK tidak
+ * menyimpan abad, jadi 29 Februari tidak boleh ditolak hanya karena 1905 bukan
+ * tahun kabisat.
+ */
+export function readNikIdentity(nik: string): NikIdentity | null {
+  if (!NIK_PATTERN.test(nik)) return null;
+
+  const rawDay = Number(nik.slice(6, 8));
+  const month = Number(nik.slice(8, 10));
+  const yearShort = Number(nik.slice(10, 12));
+  const female = rawDay > 40;
+  const day = female ? rawDay - 40 : rawDay;
+
+  if (month < 1 || month > 12) return null;
+  if (day < 1 || day > daysInMonth(month, 2000)) return null;
+
+  return {
+    birthYearShort: yearShort,
+    birthMonth: month,
+    birthDay: day,
+    gender: female ? "FEMALE" : "MALE",
+  };
+}
+
+/** Isian yang bisa tidak cocok dengan NIK. */
+export type NikMismatchField = "nationalId" | "birthDate" | "gender";
+
+export type NikCheck =
+  /** Tidak diisi — bukan kesalahan: anak yang belum punya NIK tetap boleh mendaftar. */
+  | { status: "empty" }
+  /** Bukan 16 digit angka. */
+  | { status: "invalid-format" }
+  /** 16 digit, tetapi digit 7–12 bukan tanggal yang ada di kalender. */
+  | { status: "invalid-date" }
+  /** Terbaca, tetapi tidak cocok dengan isian; `fields` menyebut yang mana. */
+  | { status: "mismatch"; fields: NikMismatchField[] }
+  | { status: "match" };
+
+/**
+ * Membandingkan NIK dengan tanggal lahir dan jenis kelamin yang diisi orang
+ * tua/wali. Menangkap salah ketik NIK, salah isi tanggal lahir, dan salah
+ * pilih jenis kelamin tanpa OCR.
+ *
+ * `birthDate` dibaca pada UTC, karena begitulah formulir dan API membawanya
+ * (tengah malam UTC dari hari kalender yang dipilih) — memakai zona waktu
+ * server akan menggeser tanggalnya sehari bagi sebagian jam.
+ */
+export function checkNik(input: {
+  nationalId?: string | null;
+  birthDate?: string | Date | null;
+  gender?: string | null;
+}): NikCheck {
+  const nik = input.nationalId?.trim() ?? "";
+  if (nik === "") return { status: "empty" };
+  if (!NIK_PATTERN.test(nik)) return { status: "invalid-format" };
+
+  const identity = readNikIdentity(nik);
+  if (!identity) return { status: "invalid-date" };
+
+  const fields: NikMismatchField[] = [];
+
+  if (input.birthDate) {
+    const birth =
+      input.birthDate instanceof Date
+        ? input.birthDate
+        : new Date(input.birthDate);
+    if (!Number.isNaN(birth.getTime())) {
+      const matches =
+        birth.getUTCDate() === identity.birthDay &&
+        birth.getUTCMonth() + 1 === identity.birthMonth &&
+        birth.getUTCFullYear() % 100 === identity.birthYearShort;
+      if (!matches) fields.push("birthDate");
+    }
+  }
+
+  if (input.gender && input.gender !== identity.gender) {
+    fields.push("gender");
+  }
+
+  return fields.length > 0
+    ? { status: "mismatch", fields }
+    : { status: "match" };
+}
+
 const noKkSchema = z.preprocess(
   kosongJadiNull,
   z
