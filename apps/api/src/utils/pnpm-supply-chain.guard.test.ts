@@ -67,6 +67,7 @@ const MUST_ALLOW = [
 const MIN_OVERRIDES: Record<string, string> = {
   'body-parser': '2.4.0', // GHSA-27r3-jxmh-p828 — DoS via trailing bytes (high)
   dompurify: '3.4.17', // GHSA-cg2g-xh64-v4q7 (critical) + GHSA-mrv2-3pqr-j5jr (high)
+  effect: '3.22.1', // GHSA-7589-6fvf-x4pw — ReDoS in Schema.TemplateLiteral (high)
   'follow-redirects': '1.16.2', // GHSA-mrwp-f3q8-3g9p (high)
   multer: '2.5.0', // GHSA-q7qp-rjg7-q26m — DoS via async fileFilter (high)
 };
@@ -123,10 +124,19 @@ function lockfileMaps(): Record<string, Record<string, string>> {
   );
 }
 
-/** The lower bound an override declares, or the value itself for an exact pin. */
+/**
+ * The lower bound an override declares, or the value itself for an exact pin.
+ *
+ * An override may be a compound range (`>=1.1.21 <2`, `>=3.22.1 <4`): the
+ * lower bound is what this guard is about, and the upper bound is the caller's
+ * statement that the package's major line must not move (a dependency that
+ * declared `effect: 3.20.0` does not necessarily accept a 4.x upgrade). Ignore
+ * it here rather than read the whole string as one version number.
+ */
 function overrideLowerBound(declared: unknown): string {
-  const match = /^\s*>=\s*(\S+)\s*$/.exec(String(declared ?? ''));
-  return match ? match[1] : String(declared ?? '');
+  const text = String(declared ?? '');
+  const match = /^\s*>=\s*(\S+)/.exec(text) ?? /^\s*(\S+)\s*$/.exec(text);
+  return match ? match[1] : text;
 }
 
 /** `a >= b` for release versions, compared numerically field by field. */
@@ -147,6 +157,22 @@ function versionAtLeast(version: string, floor: string): boolean {
 }
 
 /**
+ * The declared override for `name`, from either key shape pnpm 12 accepts:
+ * a bare name (`effect`) or a parent selector (`@prisma/config>effect`).
+ *
+ * The selector form is how a repo fixes one vulnerable path without rewriting
+ * an unrelated package's peer range — an unscoped override of `effect` also
+ * collapses `@hookform/resolvers`'s `effect: ^4.0.0` peer, which is a different
+ * package's business. A guard that only looked up the bare name would report
+ * the selector-scoped override as missing.
+ */
+function overrideFor(overrides: Record<string, unknown>, name: string): unknown {
+  if (name in overrides) return overrides[name];
+  const selector = Object.keys(overrides).find((key) => key.endsWith(`>${name}`));
+  return selector === undefined ? undefined : overrides[selector];
+}
+
+/**
  * Overrides whose floor sits below the first fixed release, as
  * "name: declared X, must be >= Y". Extracted so the guard below and the
  * blind-spot check share one implementation.
@@ -156,8 +182,12 @@ function overrideFloorViolations(
   floors: Record<string, string> = MIN_OVERRIDES
 ): string[] {
   return Object.entries(floors)
-    .filter(([name, floor]) => !versionAtLeast(overrideLowerBound(overrides[name]), floor))
-    .map(([name, floor]) => `${name}: declared ${overrides[name]}, must be >= ${floor}`);
+    .filter(
+      ([name, floor]) => !versionAtLeast(overrideLowerBound(overrideFor(overrides, name)), floor)
+    )
+    .map(
+      ([name, floor]) => `${name}: declared ${overrideFor(overrides, name)}, must be >= ${floor}`
+    );
 }
 
 /** The version shape `scripts/audit-deps.mjs` keeps (`semver.valid`). */
@@ -384,6 +414,17 @@ describe('pnpm supply-chain control', () => {
     expect(overrideFloorViolations({ dompurify: '>=3.4.17' }, floor)).toEqual([]);
     // An exact pin (as YAML writes `5.1.0`) is read the same way as a range.
     expect(overrideFloorViolations({ dompurify: '3.4.17' }, floor)).toEqual([]);
+    // A compound range's upper bound is not a floor; only its lower bound is.
+    expect(overrideFloorViolations({ dompurify: '>=3.4.17 <4' }, floor)).toEqual([]);
+    // A selector-scoped override (`parent>child`) counts as the child's override
+    // — the shape #1143 needed, so that fixing `effect` under `@prisma/config`
+    // does not have to rewrite `@hookform/resolvers`'s `effect: ^4.0.0` peer.
+    expect(
+      overrideFloorViolations({ '@prisma/config>effect': '>=3.22.1 <4' }, { effect: '3.22.1' })
+    ).toEqual([]);
+    expect(
+      overrideFloorViolations({ '@prisma/config>effect': '>=3.22.0' }, { effect: '3.22.1' })
+    ).toContain('effect: declared >=3.22.0, must be >= 3.22.1');
 
     // The lockfile scan must actually find the packages it checks; a change in
     // the lockfile key shape would otherwise make that assertion vacuous.
