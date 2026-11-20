@@ -117,6 +117,23 @@ release plan points at Azure Application Insights). ESLint 10 merged (#604).
 
 ## In flight
 
+- **Kalender WIB di tiga pembaca (#1149, #1152 — PR #1157, 2026-11-20).**
+  Dua issue `bug`+`ready` yang berakar sama: batas kalender dibangun dari jam
+  dinding server (UTC), bukan kalender WIB. Diperbaiki bersama karena keduanya
+  menyentuh pagar `wib-day-bounds.guard.test.ts` yang sama (aturan emas 9: satu
+  gate, bukan dua PR yang saling memerahkan `main`). (#1149) proyeksi arus kas
+  kini mengambil bulan dasar dari `wibMonthYear` dan menormalkan bulan sebelum
+  `wibMonthRange` — helper itu **tidak** roll-over, `month = 12` melempar
+  `RangeError`; bulan terakhir yang diminta tidak lagi hilang pada 00:00–06:59
+  WIB tanggal 1. (#1152) `calendarService.getToday()` memakai jendela WIB
+  `[00:00, 24:00)` dan `getQuickStats()` memakai **kesetaraan**
+  `dayOf(todayWib())`, bukan `gte` — batas `gte` menghitung kemarin *dan* semua
+  hari berikutnya pada kolom `@db.Date`. Pagar diperluas (`GUARDED` + daftar baru
+  `MONTH_GUARDED`), dan `holiday-sync.service.ts` diselaraskan ke alias
+  `@/utils/wib` karena asersi impor pagar hanya mengenal bentuk alias.
+  **Keadaan:** draf PR, CI hijau kecuali `Security` (advisory `effect`, #1143,
+  merah juga di `main`). Belum di-`main`, belum di staging.
+
 - **Dua penjadwal di dokumen teknis (#875, 2026-11-12).** Merge #804 membuat
   penjadwal notifikasi (`modules/notifications/scheduler.service.ts`) benar-benar
   berjalan dari `main.ts`, tetapi `docs/` tidak ikut diperbarui. §6.6 hanya

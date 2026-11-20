@@ -2,6 +2,7 @@ import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { UserRole, Prisma, EventType, EventScope } from '@prisma/client';
 import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { shiftWibDay, todayWib, wibDayStart } from '@/utils/wib';
 
 interface ListEventsQuery {
   unitId?: string;
@@ -341,16 +342,21 @@ export class CalendarService {
 
   /**
    * Get today's events
+   *
+   * "Today" is the WIB calendar day. `CalendarEvent.startDate` is a real
+   * instant, so the window is `[00:00, 24:00) WIB` — which also covers an
+   * all-day event stored at midnight UTC. Building it with `setHours(0,0,0,0)`
+   * on the UTC container made it `[07:00 yesterday, 07:00 today) WIB` and
+   * returned yesterday's agenda all morning (#1152).
    */
   async getToday(unitId: string) {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const tomorrow = new Date(today);
-    tomorrow.setDate(tomorrow.getDate() + 1);
+    const today = todayWib();
+    const startDate = wibDayStart(today);
+    const endDate = wibDayStart(shiftWibDay(today, 1));
 
     const where: Prisma.CalendarEventWhereInput = {
       deletedAt: null,
-      startDate: { gte: today, lt: tomorrow },
+      startDate: { gte: startDate, lt: endDate },
       OR: [{ unitId: unitId }, { unitId: null, isPublic: true }],
     };
 

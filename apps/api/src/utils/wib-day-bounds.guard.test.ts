@@ -12,17 +12,38 @@ import { join, relative, resolve } from 'path';
  * bounds come from `utils/wib.ts`. The analytics module
  * builds the same "hari ini" bounds (`getDashboardStats`) and labels the parent
  * activity chart by day (`getParentEngagement`), so it is pinned too (#978).
+ * The calendar's `getToday` and the enhancement dashboard's quick stats were
+ * the last two readers of the UTC day, so both modules are pinned as well
+ * (#1152).
+ *
+ * A second, related defect: a *month* bucket built with
+ * `new Date(x.getFullYear(), x.getMonth() + i, …)` is the server's month, which
+ * on a UTC container is still the previous month between 00:00 and 06:59 WIB
+ * on the 1st — the finance cash-flow forecast labelled its first bucket with
+ * the month that had just ended and dropped the last requested month (#1149).
+ * `MONTH_GUARDED` pins the modules whose month arithmetic must come from
+ * `wibMonthYear`/`wibMonthRange`.
  *
  * This guard does not forbid the pattern everywhere — plenty of other modules
- * still shift an instant that way. It pins the dashboard and analytics modules,
- * where the bug lived, so the same defect cannot walk back in unnoticed.
+ * still shift an instant that way. It pins the modules where the bug lived, so
+ * the same defect cannot walk back in unnoticed.
  */
 
 const API = resolve(__dirname, '..', '..');
 
 /** The files whose day bounds must be WIB: the dashboard module and its metrics,
- * and the analytics module (dashboard card + parent activity chart). */
-const GUARDED = ['src/modules/dashboard', 'src/lib/dashboard-metrics.ts', 'src/modules/analytics'];
+ * the analytics module (dashboard card + parent activity chart), the calendar's
+ * "today" reader, and the enhancement dashboard's quick stats. */
+const GUARDED = [
+  'src/modules/dashboard',
+  'src/lib/dashboard-metrics.ts',
+  'src/modules/analytics',
+  'src/modules/calendar',
+  'src/modules/dashboard-enhancement',
+];
+
+/** The files whose month buckets must be WIB: the finance cash-flow forecast. */
+const MONTH_GUARDED = ['src/modules/finance-enhancement'];
 
 function sourceFiles(path: string): string[] {
   const full = join(API, path);
@@ -39,6 +60,11 @@ function sourceFiles(path: string): string[] {
 // real time (`setHours(7, 0)`) and not the mention inside a comment.
 const LOCAL_MIDNIGHT = /\.setHours\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)/;
 
+// A calendar month read off the server clock: `new Date(x.getFullYear(),
+// x.getMonth() + …)`. The year/month pair is what makes it local — a
+// `new Date(Date.UTC(...))` is not matched.
+const LOCAL_MONTH = /new\s+Date\(\s*[\w.$]+\.getFullYear\(\)\s*,\s*[\w.$]+\.getMonth\(\)/;
+
 const codeLines = (file: string) =>
   readFileSync(file, 'utf8')
     .split('\n')
@@ -53,6 +79,14 @@ describe('the dashboard bounds its day in WIB, not in the server clock', () => {
     expect(offenders).toEqual([]);
   });
 
+  it.each(MONTH_GUARDED)('%s buckets no month with the server clock', (path) => {
+    const offenders = sourceFiles(path)
+      .filter((file) => codeLines(file).some((line) => LOCAL_MONTH.test(line)))
+      .map((file) => relative(API, file));
+
+    expect(offenders).toEqual([]);
+  });
+
   it('still has the WIB day helpers it should bound with', () => {
     for (const path of GUARDED) {
       const text = sourceFiles(path)
@@ -60,5 +94,25 @@ describe('the dashboard bounds its day in WIB, not in the server clock', () => {
         .join('\n');
       expect(text).toMatch(/from '@\/utils\/wib(-day)?'/);
     }
+  });
+
+  it('still has the WIB month helpers it should bucket with', () => {
+    for (const path of MONTH_GUARDED) {
+      const text = sourceFiles(path)
+        .map((f) => readFileSync(f, 'utf8'))
+        .join('\n');
+      expect(text).toMatch(/from '@\/utils\/wib(-day)?'/);
+    }
+  });
+
+  it('the month predicate catches the copy the ticket removed, and spares a UTC month', () => {
+    expect(
+      LOCAL_MONTH.test('const monthDate = new Date(now.getFullYear(), now.getMonth() + i, 1);')
+    ).toBe(true);
+    expect(
+      LOCAL_MONTH.test('const endDate = new Date(now.getFullYear(), now.getMonth() + months, 0);')
+    ).toBe(true);
+    // A month built on the UTC calendar is not the server's month.
+    expect(LOCAL_MONTH.test('new Date(Date.UTC(year, month, 1))')).toBe(false);
   });
 });
