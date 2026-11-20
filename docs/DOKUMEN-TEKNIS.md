@@ -470,7 +470,7 @@ bisa dijadwalkan lebih dari sekali (`dashboard-snapshot` tiga kali).
 | `holiday-sync.job` | tanggal 1, 05:00 | Menarik hari libur nasional ke kalender |
 | `admission-wave-status.job` | harian 00:01 | Membuka atau menutup gelombang SPMB menurut tanggalnya |
 | `attendance-retention.job` | harian 03:15 | Menghapus swafoto dan koordinat absensi pegawai setelah masa retensi |
-| `registrant-retention.job` | harian 03:30 | Menghapus pendaftar SPMB yang tidak menjadi santri 90 hari sesudah gelombangnya ditutup (WIB) |
+| `registrant-retention.job` | harian 03:30 | Menghapus pendaftar SPMB yang tidak menjadi santri 90 hari sesudah gelombangnya ditutup (WIB). Dikecualikan: yang sudah menjadi santri (`studentId`/`ENROLLED`), yang sudah membayar biaya daftar ulang (satu-satunya catatan uang itu), dan yang masih punya permintaan hak subjek data terbuka |
 | `chatbot-spend.job` | harian 07:00 | Memeriksa belanja chatbot terhadap anggaran |
 | `chatbot-transcript-purge.job` | harian 03:15 | Memangkas transkrip chatbot |
 | `chatbot-escalation-retry.job` | tiap 30 menit | Mengulang eskalasi chatbot yang gagal |

@@ -1,4 +1,4 @@
-import type { AdmissionStatus, PrismaClient } from '@prisma/client';
+import type { AdmissionStatus, DataSubjectRequestStatus, PrismaClient } from '@prisma/client';
 import type { AppPrismaClient } from '@/lib/prisma';
 import { deleteRegistrant } from '@/modules/admissions';
 import { shiftWibDay, wibDayOf, wibDayStart } from '@/utils/wib';
@@ -68,11 +68,50 @@ export interface FailedRegistrant {
   reason: string;
 }
 
+/** Status permintaan hak subjek yang belum selesai — subjeknya tidak boleh hilang. */
+const OPEN_REQUEST_STATUSES: DataSubjectRequestStatus[] = ['RECEIVED', 'VERIFIED', 'PROCESSING'];
+
 export interface RegistrantRetentionSummary {
   dryRun: boolean;
   expired: ExpiredRegistrant[];
   deleted: ExpiredRegistrant[];
   failed: FailedRegistrant[];
+  /** Melewati masa simpan tetapi ditahan karena masih punya permintaan hak subjek terbuka. */
+  withheld: number;
+}
+
+/**
+ * Hari tutup gelombang yang paling akhir yang masih boleh dihapus pada `now`.
+ *
+ * `closeDay + 90 <= wibDayOf(now)`, dibalik menjadi satu tanggal, supaya
+ * batasnya bisa didorong ke `where` dan indeks `@@index([waveId])` /
+ * `@@index([admissionPeriodId])` terpakai. Tanpa ini kueri mengambil seluruh
+ * riwayat pendaftar setiap malam dan menyaring tanggalnya di memori.
+ */
+export function cutoffCloseDayFor(now: Date): string {
+  return shiftWibDay(wibDayOf(now), -REGISTRANT_RETENTION_DAYS);
+}
+
+/**
+ * Batas yang sama sebagai predikat Prisma. Sengaja **superset** dari keputusan
+ * di JS: cabang-cabang ini hanya mempersempit baris yang dibaca, sedangkan
+ * boleh-tidaknya dihapus tetap diputuskan `retentionStartFor` atas `closeDay`
+ * yang sebenarnya — supaya batas WIB hanya punya satu tempat uji.
+ */
+function expiryFilter(cutoff: Date) {
+  return {
+    OR: [
+      { wave: { reRegistrationEndDate: { not: null, lte: cutoff } } },
+      {
+        wave: {
+          reRegistrationEndDate: null,
+          resultsEndDate: { not: null, lte: cutoff },
+        },
+      },
+      { wave: { reRegistrationEndDate: null, resultsEndDate: null, endDate: { lte: cutoff } } },
+      { wave: null, admissionPeriod: { endDate: { lte: cutoff } } },
+    ],
+  };
 }
 
 /**
@@ -132,10 +171,21 @@ export async function purgeExpiredRegistrants(
   // punya `studentId`, tetapi baris lama bisa saja berstatus ENROLLED dengan
   // tautan yang belum terisi. Keduanya disaring di sini, bukan hanya di JS,
   // supaya baris yang tidak boleh disentuh tidak pernah masuk daftar kandidat.
+  //
+  // `registrationFeePaidAt` dikecualikan karena baris pendaftar adalah
+  // **satu-satunya** catatan uang daftar ulang: `recordRegistrationFee` menulis
+  // nominal, tanggal, dan verifikatornya ke kolom `Registrant` saja, dan
+  // `roi.service.ts` membaca laporan kampanye dari sana. Sapuan otomatis tidak
+  // boleh memusnahkan bukti penerimaan uang (UU KUP Ps. 28 ayat 11 menuntut
+  // catatan keuangan paling singkat 10 tahun); pendaftar seperti itu diserahkan
+  // ke jalur ERASURE atau tindakan petugas sesudah tutup buku.
+  const cutoff = cutoffCloseDayFor(now);
   const rows = (await prisma.registrant.findMany({
     where: {
       studentId: null,
       status: { not: 'ENROLLED' },
+      registrationFeePaidAt: null,
+      ...expiryFilter(new Date(`${cutoff}T00:00:00.000Z`)),
     },
     select: {
       id: true,
@@ -169,9 +219,27 @@ export async function purgeExpiredRegistrants(
 
   const deleted: ExpiredRegistrant[] = [];
   const failed: FailedRegistrant[] = [];
+  let withheld = 0;
 
-  if (!dryRun) {
+  if (!dryRun && expired.length) {
+    // Permintaan hak subjek yang masih terbuka harus tetap punya subjeknya:
+    // `DataSubjectRequest.subjectRegistrantId` memakai `onDelete: SetNull`, jadi
+    // barisnya selamat tetapi objek yang diminta hilang lebih dulu, dan ACCESS
+    // atau RECTIFICATION tidak lagi dapat dijawab dalam tenggat 3×24 jam
+    // (Pasal 30, 32, 40, 43). Pengecualian sempit: hanya status yang belum
+    // selesai, dan hanya selama permintaannya terbuka.
+    const openRequests = await prisma.dataSubjectRequest.findMany({
+      where: {
+        subjectRegistrantId: { in: expired.map((r) => r.registrantId) },
+        status: { in: OPEN_REQUEST_STATUSES },
+      },
+      select: { subjectRegistrantId: true },
+    });
+    const held = new Set(openRequests.map((r) => r.subjectRegistrantId));
+    withheld = held.size;
+
     for (const row of expired) {
+      if (held.has(row.registrantId)) continue;
       try {
         await deleteRegistrant(row.registrantId);
         deleted.push(row);
@@ -189,7 +257,7 @@ export async function purgeExpiredRegistrants(
     }
   }
 
-  const summary: RegistrantRetentionSummary = { dryRun, expired, deleted, failed };
+  const summary: RegistrantRetentionSummary = { dryRun, expired, deleted, failed, withheld };
   if (!dryRun) await recordRun(prisma, summary);
   return summary;
 }
@@ -214,6 +282,7 @@ async function recordRun(
           expired: summary.expired.length,
           deleted: summary.deleted.length,
           failed: summary.failed.length,
+          withheld: summary.withheld,
         },
       },
     });
