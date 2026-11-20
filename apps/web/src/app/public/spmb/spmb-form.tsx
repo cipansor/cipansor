@@ -37,7 +37,7 @@ import {
 import { usePrivacyPolicyCurrent } from "@/hooks/use-privacy-policy";
 import { PublicIntakes } from "@/components/admissions/public-intakes";
 import { formatRupiah } from "@/lib/admission-intake";
-import { QURAN_ABILITIES } from "@cipansor/shared";
+import { checkNik, QURAN_ABILITIES } from "@cipansor/shared";
 import type { Locale } from "@/locales";
 import {
   TurnstileWidget,
@@ -200,6 +200,10 @@ export function SpmbForm({
   const [activeTab, setActiveTab] = useState("info");
   const [currentStep, setCurrentStep] = useState(0);
   const [formData, setFormData] = useState<FormData>(initialFormData);
+  // A NIK under 16 digits is "not finished yet", not "wrong": the message waits
+  // for the field to lose focus or for the registrant to try to move on, so it
+  // does not shout at someone who is still typing the 16th digit.
+  const [nikTouched, setNikTouched] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [successData, setSuccessData] = useState<{
     registrationNumber: string;
@@ -283,9 +287,30 @@ export function SpmbForm({
     setCurrentStep((prev) => Math.max(prev - 1, 0));
   };
 
+  /**
+   * The NIK carries its own birth date and sex (Dukcapil: digits 7–12 are
+   * DD MM YY, +40 for girls), so a typo there is caught without reading any
+   * image. `null` means "nothing to complain about" — an empty NIK included.
+   */
+  const nikProblem = (() => {
+    const check = checkNik({
+      nationalId: formData.nationalId,
+      birthDate: formData.birthDate,
+      gender: formData.gender,
+    });
+    if (check.status === "invalid-format") return "format" as const;
+    if (check.status === "invalid-date") return "date" as const;
+    if (check.status === "mismatch")
+      return check.fields.includes("birthDate")
+        ? ("birthDate" as const)
+        : ("gender" as const);
+    return null;
+  })();
+
   const handleNext = () => {
     // Validation per step
     if (currentStep === 0) {
+      setNikTouched(true);
       if (
         !formData.fullName ||
         !formData.gender ||
@@ -294,6 +319,13 @@ export function SpmbForm({
         !formData.unitId
       ) {
         toast.error(t.toasts.studentIncomplete);
+        return;
+      }
+      // A filled NIK must agree with the birth date and sex above it, or the
+      // form moves on with a typo nobody catches until the unit files the
+      // santri's data months later.
+      if (nikProblem) {
+        toast.error(t.student.nikError(nikProblem));
         return;
       }
     }
@@ -991,7 +1023,24 @@ export function SpmbForm({
                                 })
                               }
                               maxLength={16}
+                              inputMode="numeric"
+                              onBlur={() => setNikTouched(true)}
+                              aria-invalid={nikTouched && nikProblem !== null}
+                              aria-describedby={
+                                nikTouched && nikProblem
+                                  ? "spmb-nik-error"
+                                  : undefined
+                              }
                             />
+                            {nikTouched && nikProblem && (
+                              <p
+                                id="spmb-nik-error"
+                                data-testid="spmb-nik-error"
+                                className="text-sm text-destructive"
+                              >
+                                {t.student.nikError(nikProblem)}
+                              </p>
+                            )}
                           </div>
                           <div className="space-y-2">
                             <Label>{t.student.familyCard}</Label>
