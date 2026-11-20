@@ -14,5 +14,6 @@
     "sourceMap": true
   },
   "include": ["src/**/*"],
-  "exclude": ["node_modules", "dist"]
+  // Tests live beside the policy they check but never ship in `dist`.
+  "exclude": ["node_modules", "dist", "src/**/*.test.ts"]
 }

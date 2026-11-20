@@ -16,8 +16,15 @@ import { attendanceDeductionService } from './attendance-deduction.service';
 import { calculateMonthlyPph21, effectiveItemAmount, isBasicSalaryComponent } from './payroll-tax';
 import { Errors } from '../../middleware/error';
 import { workDatesInRange } from '../../utils/work-calendar';
-import { JournalReferenceType } from '@cipansor/shared';
+import { JournalReferenceType, type PayrollActor } from '@cipansor/shared';
 import { ACCOUNT_MAPPING_KEYS, getAccountOrFallback } from '../finance/accounting-config.service';
+import {
+  assertPayroll,
+  assertRowInScope,
+  listUnitFor,
+  periodFacts,
+  writeUnitFor,
+} from './payroll-access';
 import {
   CreateSalaryComponentInput,
   UpdateSalaryComponentInput,
@@ -28,6 +35,40 @@ import {
   GeneratePayrollInput,
   PayrollItemAdjustmentInput,
 } from './payroll.schema';
+
+/** The name a missing row answers with — the same sentence for every caller. */
+const NOT_FOUND = {
+  component: 'Komponen gaji',
+  salary: 'Pengaturan gaji karyawan',
+  period: 'Periode penggajian',
+  slip: 'Slip gaji',
+} as const;
+
+/**
+ * A period, or 404. Always loaded with the slip count, because every rule that
+ * acts on a period needs it (approval refuses an empty period).
+ */
+async function loadPeriod(id: string) {
+  const period = await prisma.payrollPeriod.findUnique({
+    where: { id },
+    include: { _count: { select: { payrolls: true } } },
+  });
+  if (!period) throw Errors.notFound(NOT_FOUND.period);
+  return period;
+}
+
+/**
+ * A staff row outside the caller's reach answers 404, exactly as an unknown
+ * staffId does — a treasurer must not learn which ids exist in another unit.
+ */
+async function assertStaffInScope(actor: PayrollActor, staffId: string) {
+  const staff = await prisma.staff.findUnique({
+    where: { id: staffId },
+    select: { unitId: true },
+  });
+  if (!staff) throw Errors.notFound('Pegawai');
+  assertRowInScope(actor, staff.unitId, 'Pegawai');
+}
 
 // ============================================
 // SALARY COMPONENT SERVICE
@@ -54,11 +95,19 @@ export const salaryComponentService = {
     return components;
   },
 
+  /**
+   * A salary component carries no unit — it belongs to the yayasan and feeds
+   * every unit's payroll — so every reader sees all of them (R1.16) and a
+   * missing id answers 404 for everyone.
+   */
   async getById(id: string) {
-    return prisma.salaryComponent.findUnique({ where: { id } });
+    const component = await prisma.salaryComponent.findUnique({ where: { id } });
+    if (!component) throw Errors.notFound(NOT_FOUND.component);
+    return component;
   },
 
-  async create(data: CreateSalaryComponentInput) {
+  async create(actor: PayrollActor, data: CreateSalaryComponentInput) {
+    assertPayroll(actor, 'COMPONENT_WRITE');
     return prisma.salaryComponent.create({
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       data: {
@@ -69,7 +118,11 @@ export const salaryComponentService = {
     });
   },
 
-  async update(id: string, data: UpdateSalaryComponentInput) {
+  async update(actor: PayrollActor, id: string, data: UpdateSalaryComponentInput) {
+    assertPayroll(actor, 'COMPONENT_WRITE');
+    const existing = await prisma.salaryComponent.findUnique({ where: { id } });
+    if (!existing) throw Errors.notFound(NOT_FOUND.component);
+
     return prisma.salaryComponent.update({
       where: { id },
       data: {
@@ -90,20 +143,33 @@ export const salaryComponentService = {
     });
   },
 
-  async delete(id: string) {
-    // Check if used in any payroll
-    const usageCount = await prisma.payrollItem.count({
-      where: { componentId: id },
-    });
+  /**
+   * A component that a slip or a salary structure already refers to is not
+   * deleted — the reference would dangle — but deactivated instead, and the
+   * refusal says so (R1.22).
+   */
+  async delete(actor: PayrollActor, id: string) {
+    assertPayroll(actor, 'COMPONENT_WRITE');
+    const existing = await prisma.salaryComponent.findUnique({ where: { id } });
+    if (!existing) throw Errors.notFound(NOT_FOUND.component);
 
-    if (usageCount > 0) {
-      throw new Error('Komponen gaji tidak dapat dihapus karena sudah digunakan');
+    const [slipItems, salaryItems] = await Promise.all([
+      prisma.payrollItem.count({ where: { componentId: id } }),
+      prisma.employeeSalaryItem.count({ where: { componentId: id } }),
+    ]);
+
+    if (slipItems > 0 || salaryItems > 0) {
+      throw Errors.conflict(
+        `Komponen gaji tidak dapat dihapus karena masih dirujuk ${slipItems} rincian slip dan ` +
+          `${salaryItems} rincian gaji pegawai. Nonaktifkan saja lewat isActive = false.`
+      );
     }
 
     return prisma.salaryComponent.delete({ where: { id } });
   },
 
-  async seedDefaults() {
+  async seedDefaults(actor: PayrollActor) {
+    assertPayroll(actor, 'COMPONENT_WRITE');
     const defaultComponents = [
       // Earnings
       {
@@ -263,9 +329,18 @@ export const salaryComponentService = {
 // ============================================
 
 export const employeeSalaryService = {
-  async list(params: { unitId?: string; search?: string; page: number; limit: number }) {
-    const { unitId, search, page, limit } = params;
+  /**
+   * A unit treasurer's list always carries the token's unit, whatever `unitId`
+   * the request names (R1.16); Super_Admin and the yayasan organs read every
+   * unit and may narrow to one (R1.18).
+   */
+  async list(
+    actor: PayrollActor,
+    params: { unitId?: string; search?: string; page: number; limit: number }
+  ) {
+    const { search, page, limit } = params;
     const skip = (page - 1) * limit;
+    const unitId = listUnitFor(actor, params.unitId);
 
     const where: Prisma.EmployeeSalaryWhereInput = {};
 
@@ -308,8 +383,12 @@ export const employeeSalaryService = {
     };
   },
 
-  async getByStaffId(staffId: string) {
-    return prisma.employeeSalary.findUnique({
+  /**
+   * A salary row outside the caller's reach answers 404, exactly as a missing
+   * staffId does (R1.17): the row's existence is never confirmed.
+   */
+  async getByStaffId(actor: PayrollActor, staffId: string) {
+    const salary = await prisma.employeeSalary.findUnique({
       where: { staffId },
       include: {
         staff: {
@@ -326,9 +405,16 @@ export const employeeSalaryService = {
         },
       },
     });
+
+    if (!salary) throw Errors.notFound(NOT_FOUND.salary);
+    assertRowInScope(actor, salary.staff.unitId, NOT_FOUND.salary);
+    return salary;
   },
 
-  async create(data: CreateEmployeeSalaryInput) {
+  async create(actor: PayrollActor, data: CreateEmployeeSalaryInput) {
+    assertPayroll(actor, 'SALARY_WRITE');
+    await assertStaffInScope(actor, data.staffId);
+
     const { items, ...salaryData } = data;
 
     return prisma.$transaction(async (tx) => {
@@ -358,7 +444,10 @@ export const employeeSalaryService = {
     });
   },
 
-  async update(staffId: string, data: UpdateEmployeeSalaryInput) {
+  async update(actor: PayrollActor, staffId: string, data: UpdateEmployeeSalaryInput) {
+    assertPayroll(actor, 'SALARY_WRITE');
+    await assertStaffInScope(actor, staffId);
+
     const { items, ...salaryData } = data;
 
     const existing = await prisma.employeeSalary.findUnique({
@@ -366,7 +455,7 @@ export const employeeSalaryService = {
     });
 
     if (!existing) {
-      throw new Error('Pengaturan gaji karyawan tidak ditemukan');
+      throw Errors.notFound(NOT_FOUND.salary);
     }
 
     return prisma.$transaction(async (tx) => {
@@ -409,14 +498,21 @@ export const employeeSalaryService = {
     });
   },
 
-  async delete(staffId: string) {
-    // Check if used in any payroll
+  async delete(actor: PayrollActor, staffId: string) {
+    assertPayroll(actor, 'SALARY_WRITE');
+    await assertStaffInScope(actor, staffId);
+
+    const existing = await prisma.employeeSalary.findUnique({ where: { staffId } });
+    if (!existing) throw Errors.notFound(NOT_FOUND.salary);
+
     const usageCount = await prisma.payroll.count({
       where: { staffId },
     });
 
     if (usageCount > 0) {
-      throw new Error('Pengaturan gaji tidak dapat dihapus karena sudah ada slip gaji');
+      throw Errors.conflict(
+        'Pengaturan gaji tidak dapat dihapus karena sudah ada slip gaji untuk pegawai ini'
+      );
     }
 
     return prisma.employeeSalary.delete({ where: { staffId } });
@@ -428,15 +524,19 @@ export const employeeSalaryService = {
 // ============================================
 
 export const payrollPeriodService = {
-  async list(params: {
-    unitId?: string;
-    year?: number;
-    status?: PayrollStatus;
-    page: number;
-    limit: number;
-  }) {
-    const { unitId, year, status, page, limit } = params;
+  async list(
+    actor: PayrollActor,
+    params: {
+      unitId?: string;
+      year?: number;
+      status?: PayrollStatus;
+      page: number;
+      limit: number;
+    }
+  ) {
+    const { year, status, page, limit } = params;
     const skip = (page - 1) * limit;
+    const unitId = listUnitFor(actor, params.unitId);
 
     const where: Prisma.PayrollPeriodWhereInput = {};
 
@@ -466,8 +566,8 @@ export const payrollPeriodService = {
     };
   },
 
-  async getById(id: string) {
-    return prisma.payrollPeriod.findUnique({
+  async getById(actor: PayrollActor, id: string) {
+    const period = await prisma.payrollPeriod.findUnique({
       where: { id },
       include: {
         unit: { select: { id: true, name: true } },
@@ -485,60 +585,54 @@ export const payrollPeriodService = {
         },
       },
     });
+
+    if (!period) throw Errors.notFound(NOT_FOUND.period);
+    assertRowInScope(actor, period.unitId, NOT_FOUND.period);
+    return period;
   },
 
-  async create(data: CreatePayrollPeriodInput, createdById: string) {
+  /**
+   * A period is created in the caller's own unit — the body cannot name
+   * another one (R1.19) — in DRAFT, with the caller as its creator.
+   */
+  async create(actor: PayrollActor, data: CreatePayrollPeriodInput) {
+    assertPayroll(actor, 'PERIOD_CREATE');
+    const unitId = writeUnitFor(actor);
+
     return prisma.payrollPeriod.create({
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       data: {
         ...data,
+        unitId,
         startDate: new Date(data.startDate),
         endDate: new Date(data.endDate),
         payDate: data.payDate ? new Date(data.payDate) : null,
-        createdById,
-      } as any,
+        status: 'DRAFT',
+        createdById: actor.sub,
+      } as never,
     });
   },
 
-  async update(id: string, data: UpdatePayrollPeriodInput) {
-    const period = await prisma.payrollPeriod.findUnique({ where: { id } });
-
-    if (!period) {
-      throw new Error('Periode penggajian tidak ditemukan');
-    }
-
-    if (period.status !== 'DRAFT') {
-      throw new Error('Hanya periode DRAFT yang dapat diubah');
-    }
+  async update(actor: PayrollActor, id: string, data: UpdatePayrollPeriodInput) {
+    const period = await loadPeriod(id);
+    assertPayroll(actor, 'PERIOD_UPDATE', periodFacts(period));
 
     return prisma.payrollPeriod.update({
       where: { id },
       data: {
         ...data,
+        // A period never changes unit: that would move the whole payroll, and
+        // its slips, into a unit whose treasurer never approved it.
+        unitId: undefined,
         startDate: data.startDate ? new Date(data.startDate) : undefined,
         endDate: data.endDate ? new Date(data.endDate) : undefined,
         payDate: data.payDate ? new Date(data.payDate) : undefined,
-      },
+      } as never,
     });
   },
 
-  async approve(id: string, approverId: string, notes?: string) {
-    const period = await prisma.payrollPeriod.findUnique({
-      where: { id },
-      include: { _count: { select: { payrolls: true } } },
-    });
-
-    if (!period) {
-      throw new Error('Periode penggajian tidak ditemukan');
-    }
-
-    if (period.status !== 'DRAFT') {
-      throw new Error('Hanya periode DRAFT yang dapat disetujui');
-    }
-
-    if (period._count.payrolls === 0) {
-      throw new Error('Tidak ada slip gaji untuk disetujui');
-    }
+  async approve(actor: PayrollActor, id: string, notes?: string) {
+    const period = await loadPeriod(id);
+    assertPayroll(actor, 'APPROVE', periodFacts(period));
 
     return prisma.$transaction(async (tx) => {
       // Update all payrolls to APPROVED
@@ -552,7 +646,7 @@ export const payrollPeriodService = {
         where: { id },
         data: {
           status: 'APPROVED',
-          approvedById: approverId,
+          approvedById: actor.sub,
           approvedAt: new Date(),
           notes: notes || period.notes,
         },
@@ -560,25 +654,31 @@ export const payrollPeriodService = {
     });
   },
 
-  async markAsPaid(id: string, payDate: Date, notes?: string, userId: string = 'SYSTEM') {
-    const period = await prisma.payrollPeriod.findUnique({ where: { id } });
-
-    if (!period) {
-      throw new Error('Periode penggajian tidak ditemukan');
-    }
-
-    if (period.status !== 'APPROVED') {
-      throw new Error('Hanya periode APPROVED yang dapat dibayar');
-    }
+  /**
+   * Tandai dibayar (R1.27): one transaction moves the period and every
+   * APPROVED slip to PAID, stamps `payDate` from the request and `paidAt` from
+   * the clock, and books the unit's payroll journal with `actor.sub` as its
+   * creator.
+   *
+   * The journal is written in the same transaction, so a period never reads
+   * PAID without its entry: when an account the entry needs is missing the
+   * whole transaction rolls back and the period stays APPROVED with its slips,
+   * which is what the criterion asks for — a half-booked payment would be
+   * worse than none.
+   */
+  async markAsPaid(actor: PayrollActor, id: string, payDate: Date, notes?: string) {
+    const period = await loadPeriod(id);
+    assertPayroll(actor, 'PAY', periodFacts(period));
 
     return prisma.$transaction(async (tx) => {
-      // 1. Update all payrolls to PAID
+      // 1. Every APPROVED slip of the period, and only those: a DRAFT slip was
+      //    never approved and must not be paid by this call (R1.11).
       await tx.payroll.updateMany({
         where: { periodId: id, status: 'APPROVED' },
         data: { status: 'PAID' },
       });
 
-      // 2. Update period
+      // 2. The period itself.
       const updatedPeriod = await tx.payrollPeriod.update({
         where: { id },
         data: {
@@ -589,9 +689,9 @@ export const payrollPeriodService = {
         },
       });
 
-      // 3. INTEGRATION: Create Journal Entry
+      // 3. The journal, for what was actually paid.
       const agg = await tx.payroll.aggregate({
-        where: { periodId: id },
+        where: { periodId: id, status: 'PAID' },
         _sum: {
           totalEarnings: true,
           totalDeductions: true,
@@ -607,35 +707,26 @@ export const payrollPeriodService = {
       const otherDeductions = totalDeductions.sub(tax);
 
       if (earnings.gt(0)) {
-        // Find Accounts
         const salaryExpenseAcc = await getAccountOrFallback(
           period.unitId,
           ACCOUNT_MAPPING_KEYS.PAYROLL_EXPENSE,
           '5100',
-          'Beban Gaji'
+          'Beban Gaji',
+          tx
         );
-
-        const taxPayableAcc = await tx.accountCode.findFirst({
-          where: { code: '2103', isActive: true },
-        });
-
-        const otherPayableAcc = await tx.accountCode.findFirst({
-          where: {
-            OR: [{ code: '2199' }, { name: { contains: 'Utang Lain', mode: 'insensitive' } }],
-            isActive: true,
-          },
-        });
 
         const cashAcc = await getAccountOrFallback(
           period.unitId,
           ACCOUNT_MAPPING_KEYS.CASH,
           '1101',
-          'Kas'
+          'Kas',
+          tx
         );
 
         if (!salaryExpenseAcc || !cashAcc) {
-          throw new Error(
-            'Konfigurasi Akun Gaji/Kas tidak ditemukan. Mohon cek Chart of Accounts.'
+          throw Errors.conflict(
+            'Akun Beban Gaji atau Kas unit ini belum dipetakan di Chart of Accounts, ' +
+              'jadi jurnal penggajian tidak dapat dibuat dan pembayaran dibatalkan.'
           );
         }
 
@@ -652,7 +743,7 @@ export const payrollPeriodService = {
             accountId: salaryExpenseAcc.id,
             debit: earnings,
             credit: 0,
-            createdById: userId,
+            createdById: actor.sub,
           },
         });
 
@@ -667,14 +758,20 @@ export const payrollPeriodService = {
             accountId: cashAcc.id,
             debit: 0,
             credit: net,
-            createdById: userId,
+            createdById: actor.sub,
           },
         });
 
         // Credit Tax Payable
         if (tax.gt(0)) {
+          const taxPayableAcc = await tx.accountCode.findFirst({
+            where: { unitId: period.unitId, code: '2103', isActive: true },
+          });
           if (!taxPayableAcc) {
-            throw new Error('Akun Utang PPh 21 tidak ditemukan. Mohon cek Chart of Accounts.');
+            throw Errors.conflict(
+              'Akun Utang PPh 21 unit ini tidak ditemukan di Chart of Accounts, ' +
+                'jadi jurnal penggajian tidak dapat dibuat dan pembayaran dibatalkan.'
+            );
           }
           await tx.journalEntry.create({
             data: {
@@ -686,15 +783,25 @@ export const payrollPeriodService = {
               accountId: taxPayableAcc.id,
               debit: 0,
               credit: tax,
-              createdById: userId,
+              createdById: actor.sub,
             },
           });
         }
 
         // Credit Other Payables
         if (otherDeductions.gt(0)) {
+          const otherPayableAcc = await tx.accountCode.findFirst({
+            where: {
+              unitId: period.unitId,
+              OR: [{ code: '2199' }, { name: { contains: 'Utang Lain', mode: 'insensitive' } }],
+              isActive: true,
+            },
+          });
           if (!otherPayableAcc) {
-            throw new Error('Akun Utang Lainnya tidak ditemukan. Mohon cek Chart of Accounts.');
+            throw Errors.conflict(
+              'Akun Utang Lainnya unit ini tidak ditemukan di Chart of Accounts, ' +
+                'jadi jurnal penggajian tidak dapat dibuat dan pembayaran dibatalkan.'
+            );
           }
           await tx.journalEntry.create({
             data: {
@@ -706,7 +813,7 @@ export const payrollPeriodService = {
               accountId: otherPayableAcc.id,
               debit: 0,
               credit: otherDeductions,
-              createdById: userId,
+              createdById: actor.sub,
             },
           });
         }
@@ -716,16 +823,21 @@ export const payrollPeriodService = {
     });
   },
 
-  async cancel(id: string, notes?: string) {
-    const period = await prisma.payrollPeriod.findUnique({ where: { id } });
+  /**
+   * Refuse a period the caller cannot reach, without loading its slips — the
+   * read the attendance-deductions preview needs before it computes anything
+   * (R1.17). A period outside the caller's unit answers the 404 of a missing
+   * id, so its existence is never confirmed.
+   */
+  async assertReadable(actor: PayrollActor, id: string) {
+    const period = await loadPeriod(id);
+    assertRowInScope(actor, period.unitId, NOT_FOUND.period);
+    return period;
+  },
 
-    if (!period) {
-      throw new Error('Periode penggajian tidak ditemukan');
-    }
-
-    if (period.status === 'PAID') {
-      throw new Error('Periode yang sudah dibayar tidak dapat dibatalkan');
-    }
+  async cancel(actor: PayrollActor, id: string, notes?: string) {
+    const period = await loadPeriod(id);
+    assertPayroll(actor, 'CANCEL', periodFacts(period));
 
     return prisma.$transaction(async (tx) => {
       // Update all payrolls to CANCELLED
@@ -745,16 +857,9 @@ export const payrollPeriodService = {
     });
   },
 
-  async delete(id: string) {
-    const period = await prisma.payrollPeriod.findUnique({ where: { id } });
-
-    if (!period) {
-      throw new Error('Periode penggajian tidak ditemukan');
-    }
-
-    if (period.status !== 'DRAFT' && period.status !== 'CANCELLED') {
-      throw new Error('Hanya periode DRAFT atau CANCELLED yang dapat dihapus');
-    }
+  async delete(actor: PayrollActor, id: string) {
+    const period = await loadPeriod(id);
+    assertPayroll(actor, 'DELETE', periodFacts(period));
 
     return prisma.$transaction(async (tx) => {
       // Delete all payroll items
@@ -778,18 +883,27 @@ export const payrollPeriodService = {
 // ============================================
 
 export const payrollService = {
-  async list(params: {
-    periodId?: string;
-    staffId?: string;
-    search?: string;
-    page: number;
-    limit: number;
-  }) {
+  /**
+   * Slips are read through their period's unit: a treasurer sees its own
+   * unit's slips, never another's (R1.17).
+   */
+  async list(
+    actor: PayrollActor,
+    params: {
+      periodId?: string;
+      staffId?: string;
+      search?: string;
+      page: number;
+      limit: number;
+    }
+  ) {
     const { periodId, staffId, search, page, limit } = params;
     const skip = (page - 1) * limit;
+    const unitId = listUnitFor(actor);
 
     const where: Prisma.PayrollWhereInput = {};
 
+    if (unitId) where.period = { unitId };
     if (periodId) where.periodId = periodId;
     if (staffId) where.staffId = staffId;
     if (search) {
@@ -824,8 +938,8 @@ export const payrollService = {
     };
   },
 
-  async getById(id: string) {
-    return prisma.payroll.findUnique({
+  async getById(actor: PayrollActor, id: string) {
+    const slip = await prisma.payroll.findUnique({
       where: { id },
       include: {
         period: true,
@@ -843,21 +957,20 @@ export const payrollService = {
         },
       },
     });
+
+    if (!slip) throw Errors.notFound(NOT_FOUND.slip);
+    assertRowInScope(actor, slip.period.unitId, NOT_FOUND.slip);
+    return slip;
   },
 
-  async generate(data: GeneratePayrollInput) {
+  async generate(actor: PayrollActor, data: GeneratePayrollInput) {
     const period = await prisma.payrollPeriod.findUnique({
       where: { id: data.periodId },
-      include: { unit: true },
+      include: { unit: true, _count: { select: { payrolls: true } } },
     });
 
-    if (!period) {
-      throw new Error('Periode penggajian tidak ditemukan');
-    }
-
-    if (period.status !== 'DRAFT') {
-      throw new Error('Hanya periode DRAFT yang dapat digenerate');
-    }
+    if (!period) throw Errors.notFound(NOT_FOUND.period);
+    assertPayroll(actor, 'GENERATE', periodFacts(period));
 
     // Get staff with salary configuration
     const staffWhere: Prisma.StaffWhereInput = {
@@ -883,7 +996,7 @@ export const payrollService = {
     });
 
     if (staffList.length === 0) {
-      throw new Error('Tidak ada karyawan dengan pengaturan gaji');
+      throw Errors.badRequest('Tidak ada karyawan dengan pengaturan gaji');
     }
 
     // Get salary components
@@ -1227,27 +1340,20 @@ export const payrollService = {
     return results;
   },
 
-  async adjustItem(payrollId: string, adjustment: PayrollItemAdjustmentInput) {
+  async adjustItem(actor: PayrollActor, payrollId: string, adjustment: PayrollItemAdjustmentInput) {
     const payroll = await prisma.payroll.findUnique({
       where: { id: payrollId },
-      include: { period: true },
+      include: { period: { include: { _count: { select: { payrolls: true } } } } },
     });
 
-    if (!payroll) {
-      throw new Error('Slip gaji tidak ditemukan');
-    }
-
-    if (payroll.period.status !== 'DRAFT') {
-      throw new Error('Hanya slip gaji DRAFT yang dapat disesuaikan');
-    }
+    if (!payroll) throw Errors.notFound(NOT_FOUND.slip);
+    assertPayroll(actor, 'ADJUST', periodFacts(payroll.period));
 
     const component = await prisma.salaryComponent.findUnique({
       where: { id: adjustment.componentId },
     });
 
-    if (!component) {
-      throw new Error('Komponen gaji tidak ditemukan');
-    }
+    if (!component) throw Errors.notFound(NOT_FOUND.component);
 
     // Find or create the item
     const existingItem = await prisma.payrollItem.findFirst({
@@ -1312,15 +1418,14 @@ export const payrollService = {
     });
   },
 
-  async getSummary(periodId: string) {
+  async getSummary(actor: PayrollActor, periodId: string) {
     const period = await prisma.payrollPeriod.findUnique({
       where: { id: periodId },
       include: { unit: true },
     });
 
-    if (!period) {
-      throw new Error('Periode penggajian tidak ditemukan');
-    }
+    if (!period) throw Errors.notFound(NOT_FOUND.period);
+    assertRowInScope(actor, period.unitId, NOT_FOUND.period);
 
     const payrolls = await prisma.payroll.findMany({
       where: { periodId },
