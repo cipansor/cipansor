@@ -74,9 +74,10 @@ const daysInMonth = (month: number, year: number) =>
  * Membaca identitas dari NIK, atau `null` bila bentuknya bukan 16 digit angka
  * atau digit 7–12-nya bukan tanggal yang ada di kalender.
  *
- * Tahunnya dianggap abad yang membuatnya kabisat bila perlu: NIK tidak
- * menyimpan abad, jadi 29 Februari tidak boleh ditolak hanya karena 1905 bukan
- * tahun kabisat.
+ * Kabisatnya dihitung dari tahun dua digit itu sendiri, dipetakan ke abad
+ * 2000-an: NIK tidak menyimpan abad, dan satu-satunya tahun yang berbeda
+ * antara 1900-an dan 2000-an adalah `00` (1900 bukan kabisat, 2000 kabisat).
+ * Jadi 29 Februari `00` dan `24` sah, sedangkan 29 Februari `23` mustahil.
  */
 export function readNikIdentity(nik: string): NikIdentity | null {
   if (!NIK_PATTERN.test(nik)) return null;
@@ -88,7 +89,7 @@ export function readNikIdentity(nik: string): NikIdentity | null {
   const day = female ? rawDay - 40 : rawDay;
 
   if (month < 1 || month > 12) return null;
-  if (day < 1 || day > daysInMonth(month, 2000)) return null;
+  if (day < 1 || day > daysInMonth(month, 2000 + yearShort)) return null;
 
   return {
     birthYearShort: yearShort,

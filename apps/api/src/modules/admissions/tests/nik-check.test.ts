@@ -44,10 +44,26 @@ describe('readNikIdentity', () => {
   });
 
   it('rejects a day that does not exist in its month', () => {
-    // 31 February and 31 April are wrong in every century; a 29 February is
-    // not, since NIK does not carry the century.
     expect(readNikIdentity('3201233102230001')).toBeNull();
     expect(readNikIdentity('3201233104230001')).toBeNull();
+  });
+
+  it('rejects 29 February in a year that was not a leap year', () => {
+    // 2023 (and 1923) had 28 days in February.
+    expect(readNikIdentity('3201232902230001')).toBeNull();
+  });
+
+  it('accepts 29 February in a leap year, including the year 00', () => {
+    // 1900 was not a leap year, but 2000 was — and no one was born on
+    // 29 February 1900, so the century-less `00` must read as 2000.
+    expect(readNikIdentity('3201232902240001')).toMatchObject({
+      birthDay: 29,
+      birthMonth: 2,
+    });
+    expect(readNikIdentity('3201232902000001')).toMatchObject({
+      birthDay: 29,
+      birthMonth: 2,
+    });
   });
 });
 
@@ -91,6 +107,18 @@ describe('checkNik', () => {
       checkNik({
         nationalId: '3201230113230001',
         birthDate: '2023-10-01',
+        gender: 'MALE',
+      })
+    ).toEqual({ status: 'invalid-date' });
+  });
+
+  it('reports an impossible date instead of a mismatch', () => {
+    // 29 February 2023 does not exist, so the NIK is wrong — not merely
+    // different from the birth date filled in.
+    expect(
+      checkNik({
+        nationalId: '3201232902230001',
+        birthDate: '2023-02-28T00:00:00.000Z',
         gender: 'MALE',
       })
     ).toEqual({ status: 'invalid-date' });
