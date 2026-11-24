@@ -29,12 +29,14 @@ import {
 } from "@/components/ui/dialog";
 import {
   useMonthEvents,
+  useTodayEvents,
   CalendarEvent,
   EVENT_CATEGORIES,
   getEventCategoryConfig,
   EventCategory,
 } from "@/hooks/use-calendar";
 import { useUnits } from "@/hooks/use-units";
+import { useAuthStore } from "@/stores/auth";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -89,12 +91,18 @@ export default function AcademicCalendarPage() {
   );
   const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
 
+  const { user } = useAuthStore();
   const { data: units = [] } = useUnits();
   const { data: events = [], isLoading } = useMonthEvents(
     currentDate.getFullYear(),
     currentDate.getMonth(),
     selectedUnitId || undefined,
   );
+
+  // The "today" agenda is per unit, so fall back to the signed-in user's unit
+  // when no unit filter is chosen. The API answers it on the WIB calendar day.
+  const agendaUnitId = selectedUnitId || user?.unit?.id || user?.unitId || "";
+  const { data: todayEvents = [] } = useTodayEvents(agendaUnitId || undefined);
 
   // Filter events by category
   const filteredEvents = useMemo(() => {
@@ -309,6 +317,59 @@ export default function AcademicCalendarPage() {
             </button>
           ))}
         </div>
+
+        {/* Agenda Hari Ini — the API's WIB "today" window */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarIcon className="h-5 w-5" />
+              Agenda Hari Ini
+            </CardTitle>
+            <CardDescription>
+              {format(new Date(), "EEEE, d MMMM yyyy", { locale: idLocale })}
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!agendaUnitId ? (
+              <p className="text-sm text-muted-foreground">
+                Pilih unit untuk melihat agenda hari ini.
+              </p>
+            ) : todayEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Tidak ada agenda hari ini.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {todayEvents.map((event) => {
+                  const config = getEventCategoryConfig(
+                    event.eventType ?? event.category,
+                  );
+                  return (
+                    <li key={event.id} className="flex items-start gap-3">
+                      <span
+                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: config?.color ?? "#6b7280",
+                        }}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{event.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {event.isAllDay
+                            ? "Sepanjang hari"
+                            : [event.startTime, event.endTime]
+                                .filter(Boolean)
+                                .join("–") || "—"}
+                          {event.location ? ` · ${event.location}` : ""}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Calendar View */}
         {viewMode === "calendar" ? (

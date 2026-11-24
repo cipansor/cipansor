@@ -72,7 +72,7 @@ describe.each(['UTC', 'Asia/Jakarta', 'America/New_York'])(
     it('starts at the running WIB month and keeps every requested month', async () => {
       const { forecast } = await getCashFlowForecast('unit-1', 3);
 
-      expect(forecast.map((row) => row.month)).toEqual(['Nov 26', 'Dec 26', 'Jan 27']);
+      expect(forecast.map((row) => row.month)).toEqual(['Nov 26', 'Des 26', 'Jan 27']);
       expect(forecast).toHaveLength(3);
     });
 

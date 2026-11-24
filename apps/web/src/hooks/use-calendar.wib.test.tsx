@@ -21,7 +21,7 @@ vi.mock("@/lib/api", () => {
   return { api, default: api };
 });
 
-import { useMonthEvents } from "./use-calendar";
+import { useMonthEvents, useTodayEvents } from "./use-calendar";
 
 const ORIGINAL_TZ = process.env.TZ;
 
@@ -81,5 +81,25 @@ describe("useMonthEvents", () => {
       startDate: "2026-01-01",
       endDate: "2026-01-31",
     });
+  });
+});
+
+describe("useTodayEvents", () => {
+  it("asks the API for the unit's WIB agenda today", async () => {
+    const { result } = renderHook(() => useTodayEvents("unit-1"), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(get).toHaveBeenCalledWith("/calendar/today/unit-1");
+  });
+
+  it("does not ask when no unit is known", () => {
+    const { result } = renderHook(() => useTodayEvents(undefined), {
+      wrapper,
+    });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(get).not.toHaveBeenCalled();
   });
 });

@@ -181,6 +181,32 @@ test.describe("Kalender Akademik — agenda lintas bulan tetap tampil", () => {
   });
 });
 
+/**
+ * The "Agenda Hari Ini" card reads `GET /calendar/today/:unitId`, whose window
+ * is the WIB calendar day (#1152). A unit-scoped user supplies the unit, so the
+ * card must request that endpoint rather than filtering the month window in the
+ * browser.
+ */
+test.describe("Kalender Akademik — agenda hari ini", () => {
+  test("unit-scoped user reads today's agenda from /calendar/today", async ({
+    page,
+  }) => {
+    await loginAs(page, "adminSdit");
+
+    const todayRequest = page.waitForRequest((r) =>
+      r.url().includes("/calendar/today/"),
+    );
+    await page.goto("/calendar");
+
+    expect(new URL((await todayRequest).url()).pathname).toContain(
+      "/calendar/today/",
+    );
+    await expect(page.getByText("Agenda Hari Ini")).toBeVisible({
+      timeout: 15000,
+    });
+  });
+});
+
 test.describe("Calendar - Performance", () => {
   test("should load calendar quickly", async ({ page }) => {
     await loginAs(page, "superAdmin");

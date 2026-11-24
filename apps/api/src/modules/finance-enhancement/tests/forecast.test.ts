@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { Decimal } from '@prisma/client/runtime/client';
 
 // Mock prisma before importing the service
@@ -23,12 +23,27 @@ vi.mock('@/lib/prisma', () => ({
 import { getCashFlowForecast } from '../reporting.service';
 import { prisma } from '@/lib/prisma';
 import { AccountType } from '@cipansor/shared';
+import { wibMonthYear } from '@/utils/wib';
+
+/**
+ * The forecast buckets by the WIB month (#1149). The clock is frozen at
+ * 1 Nov 2026 00:30 WIB, while the UTC server still reads 31 Oct, so a fixture
+ * built from the server month would land in the first bucket instead of the
+ * second — exactly the regression this test guards.
+ */
+const NOW = new Date('2026-10-31T17:30:00.000Z');
 
 describe('Finance Forecasting Logic', () => {
   const unitId = 'unit-123';
 
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(NOW);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it('should calculate forecast correctly with inflows and outflows', async () => {
@@ -40,16 +55,20 @@ describe('Finance Forecasting Logic', () => {
       _sum: { debit: new Decimal(15000000), credit: new Decimal(5000000) },
     });
 
-    // 2. Pending Invoices (Inflow): 5M next month
-    // Set to 15th of next month safely handling end-of-month rollover (e.g. Aug 31 -> Sept 30)
-    const nextMonth = new Date();
-    nextMonth.setDate(1);
-    nextMonth.setMonth(nextMonth.getMonth() + 1);
-    nextMonth.setDate(15);
+    // 2. Pending Invoices (Inflow): 5M next WIB month. Derive the month the
+    // same way the service does; `new Date().getMonth()` reads the UTC server
+    // month, which is still October at NOW.
+    const base = wibMonthYear(new Date());
+    const nextIndex = base.month + 1;
+    const nextMonth = {
+      year: base.year + Math.floor(nextIndex / 12),
+      month: ((nextIndex % 12) + 12) % 12,
+    };
+    const nextMonthDay = new Date(Date.UTC(nextMonth.year, nextMonth.month, 15));
 
     (prisma.invoice.findMany as any).mockResolvedValue([
       {
-        dueDate: nextMonth,
+        dueDate: nextMonthDay,
         amount: new Decimal(5000000),
         paidAmount: new Decimal(0),
       },
@@ -58,7 +77,7 @@ describe('Finance Forecasting Logic', () => {
     // 3. Approved PRs (Outflow): 2M next month
     (prisma.purchaseRequest.findMany as any).mockResolvedValue([
       {
-        date: nextMonth,
+        date: nextMonthDay,
         totalEstimated: new Decimal(2000000),
       },
     ]);

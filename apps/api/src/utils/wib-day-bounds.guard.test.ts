@@ -65,15 +65,29 @@ const LOCAL_MIDNIGHT = /\.setHours\(\s*0\s*,\s*0\s*,\s*0\s*,\s*0\s*\)/;
 // `new Date(Date.UTC(...))` is not matched.
 const LOCAL_MONTH = /new\s+Date\(\s*[\w.$]+\.getFullYear\(\)\s*,\s*[\w.$]+\.getMonth\(\)/;
 
-const codeLines = (file: string) =>
+// Scan the file as one code text, not line by line: a constructor split across
+// lines (`new Date(\n  now.getFullYear(),\n  now.getMonth() + i,\n  1\n)`) is
+// the same defect, and a per-line scan silently missed it.
+const codeText = (file: string) =>
   readFileSync(file, 'utf8')
     .split('\n')
-    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line));
+    .filter((line) => !/^\s*(\/\/|\*|\/\*)/.test(line))
+    .join('\n');
+
+/** Every named import list pulled from `@/utils/wib` in a file. `[^}]` spans
+ * newlines, so a multi-line import is read as one statement. */
+function wibImports(text: string): string {
+  const names: string[] = [];
+  const re = /import\s*\{([^}]*)\}\s*from\s*'@\/utils\/wib(?:-day)?'/g;
+  let match: RegExpExecArray | null;
+  while ((match = re.exec(text))) names.push(match[1]);
+  return names.join(',');
+}
 
 describe('the dashboard bounds its day in WIB, not in the server clock', () => {
   it.each(GUARDED)('%s builds no day bound with a local setHours(0,0,0,0)', (path) => {
     const offenders = sourceFiles(path)
-      .filter((file) => codeLines(file).some((line) => LOCAL_MIDNIGHT.test(line)))
+      .filter((file) => LOCAL_MIDNIGHT.test(codeText(file)))
       .map((file) => relative(API, file));
 
     expect(offenders).toEqual([]);
@@ -81,7 +95,7 @@ describe('the dashboard bounds its day in WIB, not in the server clock', () => {
 
   it.each(MONTH_GUARDED)('%s buckets no month with the server clock', (path) => {
     const offenders = sourceFiles(path)
-      .filter((file) => codeLines(file).some((line) => LOCAL_MONTH.test(line)))
+      .filter((file) => LOCAL_MONTH.test(codeText(file)))
       .map((file) => relative(API, file));
 
     expect(offenders).toEqual([]);
@@ -92,7 +106,7 @@ describe('the dashboard bounds its day in WIB, not in the server clock', () => {
       const text = sourceFiles(path)
         .map((f) => readFileSync(f, 'utf8'))
         .join('\n');
-      expect(text).toMatch(/from '@\/utils\/wib(-day)?'/);
+      expect(wibImports(text)).not.toBe('');
     }
   });
 
@@ -101,7 +115,10 @@ describe('the dashboard bounds its day in WIB, not in the server clock', () => {
       const text = sourceFiles(path)
         .map((f) => readFileSync(f, 'utf8'))
         .join('\n');
-      expect(text).toMatch(/from '@\/utils\/wib(-day)?'/);
+      // Importing any WIB helper is not enough: a file that kept `wibDayOf`
+      // but dropped `wibMonthYear`/`wibMonthRange` would pass a bare import
+      // check while the month arithmetic no longer has a WIB helper.
+      expect(wibImports(text)).toMatch(/\bwibMonth(?:Year|Range)\b/);
     }
   });
 
@@ -111,6 +128,12 @@ describe('the dashboard bounds its day in WIB, not in the server clock', () => {
     ).toBe(true);
     expect(
       LOCAL_MONTH.test('const endDate = new Date(now.getFullYear(), now.getMonth() + months, 0);')
+    ).toBe(true);
+    // The same constructor split across lines is still the server's month.
+    expect(
+      LOCAL_MONTH.test(
+        'const monthDate = new Date(\n  now.getFullYear(),\n  now.getMonth() + i,\n  1\n);'
+      )
     ).toBe(true);
     // A month built on the UTC calendar is not the server's month.
     expect(LOCAL_MONTH.test('new Date(Date.UTC(year, month, 1))')).toBe(false);

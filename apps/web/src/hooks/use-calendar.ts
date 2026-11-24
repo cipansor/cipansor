@@ -17,6 +17,8 @@ export interface CalendarEvent {
   title: string;
   description?: string;
   category: EventCategory;
+  /** The API's own enum (Prisma `EventType`); `category` is the legacy name. */
+  eventType?: string;
   startDate: string;
   endDate: string;
   startTime?: string;
@@ -173,6 +175,24 @@ export function useMonthEvents(year: number, month: number, unitId?: string) {
   });
 }
 
+/**
+ * Today's agenda for a unit (`GET /calendar/today/:unitId`). The API bounds
+ * "today" by the WIB calendar day, so the portal asks it rather than filtering
+ * the month window on the browser clock. Nothing is asked until a unit is known.
+ */
+export function useTodayEvents(unitId?: string) {
+  return useQuery({
+    queryKey: ["calendar-events", "today", unitId],
+    queryFn: async () => {
+      const response = await api.get<ApiResponse<CalendarEvent[]>>(
+        `/calendar/today/${unitId}`,
+      );
+      return response.data.data;
+    },
+    enabled: !!unitId,
+  });
+}
+
 export interface CreateCalendarEventData {
   title: string;
   description?: string;
@@ -227,7 +247,7 @@ export function getEventCategoryColor(category: EventCategory): string {
 }
 
 export function getEventCategoryConfig(
-  category: EventCategory,
+  category: EventCategory | string,
 ): EventCategoryConfig | undefined {
   return EVENT_CATEGORIES.find((c) => c.value === category);
 }

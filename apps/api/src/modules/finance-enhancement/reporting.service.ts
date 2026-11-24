@@ -600,10 +600,11 @@ function monthAfter(base: { year: number; month: number }, offset: number) {
 /**
  * The bucket label ("Nov 26") of a calendar month, read from a UTC midnight so
  * no server timezone can shift it. The web renders this string as-is, so the
- * locale is pinned rather than left to the host's default.
+ * locale is pinned to the portal's language (Indonesian) rather than left to
+ * the host's default.
  */
 function monthLabelOf({ year, month }: { year: number; month: number }): string {
-  return new Date(Date.UTC(year, month, 1)).toLocaleString('en-US', {
+  return new Date(Date.UTC(year, month, 1)).toLocaleString('id-ID', {
     month: 'short',
     year: '2-digit',
     timeZone: 'UTC',
