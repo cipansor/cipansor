@@ -764,24 +764,37 @@ export const transactionService = {
             },
           };
 
-    const [periodStats, statusBreakdown, pendingPayments, pendingPickup] = await Promise.all([
-      prisma.laundryTransaction.aggregate({
-        where: { ...scope, status: { not: 'CANCELLED' }, ...dateFilter },
-        _sum: { total: true, weight: true },
-        _count: { id: true },
-      }),
-      prisma.laundryTransaction.groupBy({
-        by: ['status'],
-        where: { ...scope, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
-        _count: { id: true },
-      }),
-      prisma.laundryTransaction.count({
-        where: { ...scope, paymentStatus: 'UNPAID', status: { not: 'CANCELLED' } },
-      }),
-      prisma.laundryTransaction.count({
-        where: { ...scope, status: 'READY' },
-      }),
-    ]);
+    const [periodStats, paidStats, statusBreakdown, pendingPayments, pendingPickup] =
+      await Promise.all([
+        prisma.laundryTransaction.aggregate({
+          where: { ...scope, status: { not: 'CANCELLED' }, ...dateFilter },
+          _sum: { weight: true },
+          _count: { id: true },
+        }),
+        // Revenue is money received, not money billed: a Bayar Nanti order
+        // counts towards the period's transactions and weight, but only a PAID
+        // one towards the income card.
+        prisma.laundryTransaction.aggregate({
+          where: {
+            ...scope,
+            status: { not: 'CANCELLED' },
+            paymentStatus: 'PAID',
+            ...dateFilter,
+          },
+          _sum: { total: true },
+        }),
+        prisma.laundryTransaction.groupBy({
+          by: ['status'],
+          where: { ...scope, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
+          _count: { id: true },
+        }),
+        prisma.laundryTransaction.count({
+          where: { ...scope, paymentStatus: 'UNPAID', status: { not: 'CANCELLED' } },
+        }),
+        prisma.laundryTransaction.count({
+          where: { ...scope, status: 'READY' },
+        }),
+      ]);
 
     return {
       period: {
@@ -789,7 +802,7 @@ export const transactionService = {
         endDate: endDate || todayWib(),
       },
       summary: {
-        totalRevenue: periodStats._sum.total?.toNumber() || 0,
+        totalRevenue: paidStats._sum.total?.toNumber() || 0,
         totalWeight: periodStats._sum.weight?.toNumber() || 0,
         totalTransactions: periodStats._count.id,
         pendingPayments,

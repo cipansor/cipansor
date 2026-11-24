@@ -46,12 +46,7 @@ router.get(
   validateQuery(ListTransactionsQuerySchema),
   controller.listTransactions
 );
-router.get(
-  '/transactions/stats',
-  authorize(...OPERATE_ROLES),
-  validateQuery(TransactionStatsQuerySchema),
-  controller.getStats
-);
+router.get('/transactions/stats', validateQuery(TransactionStatsQuerySchema), controller.getStats);
 router.get('/transactions/ready', authorize(...OPERATE_ROLES), controller.getReadyForPickup);
 router.get('/transactions/student/:studentId', controller.getByStudent);
 router.get('/transactions/:id', controller.getTransaction);

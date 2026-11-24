@@ -82,6 +82,7 @@ import {
   useLaundryStats,
   useLaundryTransaction,
   useLaundryTransactions,
+  useProcessLaundryPayment,
   useUpdateLaundryPricing,
   useUpdateLaundryStatus,
 } from "@/hooks/use-laundry";
@@ -279,7 +280,8 @@ function PricingTab() {
                   <Input
                     id="pricing-price"
                     type="number"
-                    min={0}
+                    min={0.01}
+                    step="0.01"
                     value={form.pricePerKg}
                     onChange={(e) =>
                       setForm({
@@ -294,8 +296,8 @@ function PricingTab() {
                   <Input
                     id="pricing-min-weight"
                     type="number"
-                    min={0}
-                    step="0.1"
+                    min={0.01}
+                    step="0.01"
                     value={form.minWeight}
                     onChange={(e) =>
                       setForm({
@@ -618,8 +620,8 @@ function NewTransactionDialog() {
               <Input
                 id="laundry-weight"
                 type="number"
-                min={0.1}
-                step="0.1"
+                min={0.01}
+                step="0.01"
                 value={weight}
                 onChange={(e) => setWeight(Number(e.target.value) || 0)}
               />
@@ -756,6 +758,7 @@ function TransactionDetail({
 }) {
   const { data: transaction, isLoading } = useLaundryTransaction(transactionId);
   const updateStatus = useUpdateLaundryStatus();
+  const processPayment = useProcessLaundryPayment();
 
   /**
    * R22.3, R22.7: the hook writes nothing to the cache before the API answers,
@@ -782,9 +785,23 @@ function TransactionDetail({
 
   const options = transaction ? laundryStatusOptions(transaction.status) : [];
 
+  const settlePayment = (paymentMethod: "WALLET" | "CASH") => {
+    if (!transaction) return;
+    processPayment.mutate(
+      { id: transaction.id, paymentMethod },
+      {
+        onSuccess: () => toast.success("Pembayaran laundry berhasil dicatat"),
+        onError: (error) =>
+          toast.error(
+            getErrorMessage(error) || "Gagal mencatat pembayaran laundry",
+          ),
+      },
+    );
+  };
+
   return (
     <Dialog open onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-lg">
+      <DialogContent className="max-w-lg max-h-[90dvh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Detail Transaksi</DialogTitle>
           <DialogDescription>
@@ -877,6 +894,33 @@ function TransactionDetail({
               </div>
             )}
 
+            {transaction.paymentStatus === "UNPAID" &&
+              transaction.status !== "CANCELLED" && (
+                <div className="space-y-2">
+                  <Label>Pelunasan</Label>
+                  <p className="text-sm text-muted-foreground">
+                    Tagihan ini belum dibayar.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      onClick={() => settlePayment("CASH")}
+                      disabled={processPayment.isPending}
+                    >
+                      <Banknote className="h-4 w-4 mr-2" />
+                      Lunasi Tunai
+                    </Button>
+                    <Button
+                      variant="outline"
+                      onClick={() => settlePayment("WALLET")}
+                      disabled={processPayment.isPending}
+                    >
+                      <Banknote className="h-4 w-4 mr-2" />
+                      Lunasi Dompet
+                    </Button>
+                  </div>
+                </div>
+              )}
+
             <div className="space-y-2">
               <Label>Ubah Status</Label>
               {options.length === 0 ? (
@@ -892,7 +936,15 @@ function TransactionDetail({
                         option.value === "CANCELLED" ? "destructive" : "default"
                       }
                       disabled={updateStatus.isPending}
-                      onClick={() => changeStatus(option.value)}
+                      onClick={() => {
+                        if (
+                          option.value === "CANCELLED" &&
+                          !confirm("Batalkan transaksi ini?")
+                        ) {
+                          return;
+                        }
+                        changeStatus(option.value);
+                      }}
                     >
                       {option.value === "CANCELLED" ? (
                         <XCircle className="h-4 w-4 mr-2" />
@@ -925,8 +977,10 @@ function TransactionsTab() {
   const [pageSize, setPageSize] = useState(20);
   const [detailId, setDetailId] = useState<string | null>(null);
 
-  const { data, isLoading } = useLaundryTransactions({
-    ...(search ? { search } : {}),
+  const searchTerm = search.trim().slice(0, 100);
+
+  const { data, isLoading, isError } = useLaundryTransactions({
+    ...(searchTerm ? { search: searchTerm } : {}),
     ...(statusFilter !== "ALL" ? { status: statusFilter } : {}),
     page,
     limit: pageSize,
@@ -944,6 +998,7 @@ function TransactionsTab() {
             aria-label="Cari transaksi"
             placeholder="Cari nomor transaksi, nama, atau NIS..."
             value={search}
+            maxLength={100}
             onChange={(e) => {
               setSearch(e.target.value);
               setPage(1);
@@ -999,6 +1054,16 @@ function TransactionsTab() {
               <TableRow>
                 <TableCell colSpan={8} className="text-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin mx-auto" />
+                </TableCell>
+              </TableRow>
+            ) : isError ? (
+              <TableRow>
+                <TableCell
+                  colSpan={8}
+                  role="alert"
+                  className="text-center py-8 text-muted-foreground"
+                >
+                  Gagal memuat transaksi laundry. Coba muat ulang halaman.
                 </TableCell>
               </TableRow>
             ) : transactions.length === 0 ? (
@@ -1085,11 +1150,20 @@ const IN_PROGRESS: readonly LaundryStatusCode[] = [
 
 function LaundryPageContent() {
   // R22.10: the cards read `GET /transactions/stats`, not one page of the list.
-  const { data: stats } = useLaundryStats();
+  const {
+    data: stats,
+    isLoading: statsLoading,
+    isError: statsError,
+  } = useLaundryStats();
   const summary = stats?.summary;
   const inProgress = (stats?.statusBreakdown ?? [])
     .filter((row) => IN_PROGRESS.includes(row.status))
     .reduce((sum, row) => sum + row.count, 0);
+
+  // A failed request is not a zero: say so rather than printing figures the
+  // API never sent.
+  const statValue = (value: number | undefined) =>
+    statsError ? "—" : statsLoading ? "…" : (value ?? 0);
 
   return (
     <div className="container mx-auto py-6 space-y-6">
@@ -1108,7 +1182,7 @@ function LaundryPageContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {summary?.totalTransactions ?? 0}
+              {statValue(summary?.totalTransactions)}
             </div>
             <p className="text-xs text-muted-foreground">hari ini</p>
           </CardContent>
@@ -1119,7 +1193,7 @@ function LaundryPageContent() {
             <WashingMachine className="h-4 w-4 text-blue-500" />
           </CardHeader>
           <CardContent>
-            <div className="text-2xl font-bold">{inProgress}</div>
+            <div className="text-2xl font-bold">{statValue(inProgress)}</div>
             <p className="text-xs text-muted-foreground">
               dicuci, dikeringkan, disetrika
             </p>
@@ -1132,7 +1206,7 @@ function LaundryPageContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {summary?.pendingPickup ?? 0}
+              {statValue(summary?.pendingPickup)}
             </div>
             <p className="text-xs text-muted-foreground">menunggu diambil</p>
           </CardContent>
@@ -1144,10 +1218,16 @@ function LaundryPageContent() {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {formatCurrency(summary?.totalRevenue ?? 0)}
+              {statsError
+                ? "—"
+                : statsLoading
+                  ? "…"
+                  : formatCurrency(summary?.totalRevenue ?? 0)}
             </div>
             <p className="text-xs text-muted-foreground">
-              {summary?.pendingPayments ?? 0} transaksi belum dibayar
+              {statsError
+                ? "gagal memuat statistik"
+                : `${summary?.pendingPayments ?? 0} transaksi belum dibayar`}
             </p>
           </CardContent>
         </Card>

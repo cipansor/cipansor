@@ -267,3 +267,60 @@ test.describe("Menu status laundry mengikuti LAUNDRY_STATUS_FLOW", () => {
     ).toBeVisible();
   });
 });
+
+test.describe("Petugas mengelola tarif laundry (R22.8)", () => {
+  test("menambah, mengubah, lalu menghapus tarif", async ({ page }) => {
+    test.setTimeout(180_000);
+    const session = await apiLoginNew(LAUNDRY_ADMIN);
+    await injectSession(page, session);
+    await gotoAuthedPage(page, "/laundry", /^Laundry$/);
+    await page.getByRole("tab", { name: /Tarif/ }).click();
+
+    const name = `Cuci Uji ${Date.now()}`;
+    await page.getByRole("button", { name: "Tambah Tarif" }).click();
+    const create = page.getByRole("dialog");
+    await create.getByLabel("Nama Layanan").fill(name);
+    await create.getByLabel("Harga per Kg (Rp)").fill("7500");
+    await create.getByLabel("Berat Minimal (kg)").fill("1.25");
+    await create.getByRole("button", { name: "Tambah", exact: true }).click();
+    await expect(
+      page.getByText("Tarif laundry berhasil ditambahkan"),
+    ).toBeVisible({ timeout: 15000 });
+
+    const row = page.getByRole("row").filter({ hasText: name });
+    await expect(row).toBeVisible({ timeout: 15000 });
+    await expect(row).toContainText("7.500");
+    // Two decimals survive the form (step 0.01), not rounded to 1.2/1.3.
+    await expect(row).toContainText("1.25 kg");
+
+    await row.getByRole("button", { name: "Aksi" }).click();
+    await page.getByRole("menuitem", { name: "Edit" }).click();
+    const edit = page.getByRole("dialog");
+    await edit.getByLabel("Harga per Kg (Rp)").fill("8000");
+    await edit.getByRole("button", { name: "Simpan" }).click();
+    await expect(
+      page.getByText("Tarif laundry berhasil diperbarui"),
+    ).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByRole("row").filter({ hasText: name })).toContainText(
+      "8.000",
+      { timeout: 15000 },
+    );
+
+    page.once("dialog", (dialog) => dialog.accept());
+    await page
+      .getByRole("row")
+      .filter({ hasText: name })
+      .getByRole("button", { name: "Aksi" })
+      .click();
+    await page.getByRole("menuitem", { name: "Hapus" }).click();
+    await expect(page.getByText("Tarif laundry berhasil dihapus")).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByRole("row").filter({ hasText: name })).toHaveCount(
+      0,
+      { timeout: 15000 },
+    );
+  });
+});

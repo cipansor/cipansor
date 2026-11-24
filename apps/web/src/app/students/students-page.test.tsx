@@ -59,7 +59,7 @@ describe("student roster", () => {
   it("shows the real total instead of 0 of 0", () => {
     granted.current = new Set(["STUDENT_VIEW"]);
     render(<StudentsPage />);
-    expect(screen.getByText(/of 601 results/)).toBeDefined();
+    expect(screen.getByText(/dari 601 data/)).toBeDefined();
   });
 
   it("asks the API without pinning the user's home unit", () => {

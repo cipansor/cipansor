@@ -63,4 +63,22 @@ describe('GET /laundry/transactions/stats', () => {
     expect(res.status).toBe(400);
     expect(transactionService.getStats).not.toHaveBeenCalled();
   });
+
+  it('lets a read-only pengasuhan role read the scoped stats', async () => {
+    // A musyrif reaches the Laundry menu and sees the list; the cards must
+    // answer for the same read scope instead of 403-ing into a row of zeros.
+    vi.mocked(verifyToken).mockImplementation((() => ({
+      type: 'access',
+      permissions: [],
+      sub: 'u-musyrif',
+      role: 'STAFF',
+      roleCode: 'MUSYRIF',
+      unitId: 'unit-pesantren',
+    })) as unknown as typeof verifyToken);
+
+    const res = await stats('');
+
+    expect(res.status).toBe(200);
+    expect(transactionService.getStats).toHaveBeenCalled();
+  });
 });

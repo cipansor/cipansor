@@ -62,11 +62,11 @@ export function Pagination({
     <div className="flex flex-col items-center justify-between gap-3 px-2 py-4 sm:flex-row sm:gap-4">
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
         <span>
-          Showing {startItem} to {endItem} of {safeTotal} results
+          Menampilkan {startItem}–{endItem} dari {safeTotal} data
         </span>
         {onPageSizeChange && (
           <div className="flex items-center gap-2">
-            <span>Rows per page:</span>
+            <span>Baris per halaman:</span>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => onPageSizeChange(Number(value))}
@@ -108,7 +108,7 @@ export function Pagination({
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <span className="flex items-center gap-1 text-sm">
-          Page <strong>{page}</strong> of <strong>{totalPages}</strong>
+          Halaman <strong>{page}</strong> dari <strong>{totalPages}</strong>
         </span>
         <Button
           variant="outline"

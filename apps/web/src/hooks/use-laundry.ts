@@ -9,6 +9,7 @@ import {
   type LaundryTransactionStatsDTO,
   type ListLaundryTransactionsQuery,
   type Pagination,
+  type ProcessLaundryPaymentInput,
   type UpdateLaundryPricingInput,
 } from "@cipansor/shared";
 import api from "@/lib/api";
@@ -104,8 +105,15 @@ export function useCreateLaundryPricing() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: async (data: CreateLaundryPricingInput) =>
-      (await api.post<ApiResponse<LaundryPricingDTO>>("/laundry/pricing", data))
-        .data.data,
+      (
+        await api.post<ApiResponse<LaundryPricingDTO>>(
+          "/laundry/pricing",
+          data,
+          {
+            skipErrorToast: true,
+          },
+        )
+      ).data.data,
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: [KEY, "pricing"] }),
   });
@@ -125,6 +133,7 @@ export function useUpdateLaundryPricing() {
         await api.put<ApiResponse<LaundryPricingDTO>>(
           `/laundry/pricing/${id}`,
           data,
+          { skipErrorToast: true },
         )
       ).data.data,
     onSuccess: () =>
@@ -135,7 +144,8 @@ export function useUpdateLaundryPricing() {
 export function useDeleteLaundryPricing() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (id: string) => api.delete(`/laundry/pricing/${id}`),
+    mutationFn: async (id: string) =>
+      api.delete(`/laundry/pricing/${id}`, { skipErrorToast: true }),
     onSuccess: () =>
       queryClient.invalidateQueries({ queryKey: [KEY, "pricing"] }),
   });
@@ -150,6 +160,30 @@ export function useCreateLaundryTransaction() {
         await api.post<ApiResponse<LaundryTransactionDTO>>(
           "/laundry/transactions",
           data,
+          { skipErrorToast: true },
+        )
+      ).data.data,
+    onSuccess: () => invalidateLaundry(queryClient),
+  });
+}
+
+/**
+ * Settle a `PENDING` transaction — `POST …/pay`, the only route that turns
+ * `UNPAID` into `PAID` and books the revenue. Without it a Bayar Nanti order
+ * stayed unpaid forever, even after the laundry was handed over.
+ */
+export function useProcessLaundryPayment() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({
+      id,
+      ...data
+    }: { id: string } & ProcessLaundryPaymentInput) =>
+      (
+        await api.post<ApiResponse<LaundryTransactionDTO>>(
+          `/laundry/transactions/${id}/pay`,
+          data,
+          { skipErrorToast: true },
         )
       ).data.data,
     onSuccess: () => invalidateLaundry(queryClient),
@@ -178,6 +212,7 @@ export function useUpdateLaundryStatus() {
         await api.patch<ApiResponse<LaundryTransactionDTO>>(
           `/laundry/transactions/${id}/status`,
           { status, notes },
+          { skipErrorToast: true },
         )
       ).data.data,
     onSuccess: () => invalidateLaundry(queryClient),
