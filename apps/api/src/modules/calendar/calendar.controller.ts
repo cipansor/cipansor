@@ -1,6 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
-import type { EventType } from '@prisma/client';
-import { calendarService, type DeleteScope } from './calendar.service';
+import type { CalendarEventDeleteQuery, ListCalendarEventsQuery } from '@cipansor/shared';
+import { calendarService } from './calendar.service';
 import {
   approveHolidayDraft,
   getHolidaySyncConfig,
@@ -37,19 +37,7 @@ export class CalendarController {
       // Parsed by the route's `listCalendarEventsQuerySchema`, so `eventType`
       // is a real `EventType` (the page used to send `category`, which nothing
       // read, and the filter silently did nothing — #1155).
-      const query = res.locals.validatedQuery as {
-        unitId?: string;
-        classId?: string;
-        eventType?: EventType;
-        startDate?: string;
-        endDate?: string;
-        month?: number;
-        year?: number;
-        search?: string;
-        isPublic?: boolean;
-        page: number;
-        limit: number;
-      };
+      const query = res.locals.validatedQuery as ListCalendarEventsQuery;
       const user = {
         sub: req.user!.sub,
         role: req.user!.role,
@@ -115,9 +103,9 @@ export class CalendarController {
       const { id } = req.params;
       // Which occurrences to remove: one, or the whole series. Validated by the
       // route's `calendarEventDeleteQuerySchema`.
-      const { scope } = (res.locals.validatedQuery ?? { scope: 'SINGLE' }) as {
-        scope: DeleteScope;
-      };
+      const { scope } = (res.locals.validatedQuery ?? {
+        scope: 'SINGLE',
+      }) as CalendarEventDeleteQuery;
       const user = {
         sub: req.user!.sub,
         role: req.user!.role,

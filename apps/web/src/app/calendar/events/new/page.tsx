@@ -98,6 +98,9 @@ export default function NewEventPage() {
       !formData.isAllDay &&
       formData.startTime &&
       formData.endTime &&
+      // Only a same-day event must end after it starts. With a later end date
+      // 22:00–06:00 is an eight-hour agenda that crosses midnight.
+      (!formData.endDate || formData.endDate === formData.startDate) &&
       formData.endTime < formData.startTime
     ) {
       toast.error("Waktu selesai tidak boleh sebelum waktu mulai");

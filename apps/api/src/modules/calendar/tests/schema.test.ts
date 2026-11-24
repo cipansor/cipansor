@@ -90,6 +90,19 @@ describe('createCalendarEventSchema', () => {
     ).toBe(false);
   });
 
+  it('accepts an agenda that crosses midnight into the next day', () => {
+    // 22:00–06:00 is eight hours, not a reversed clock: the end date is later.
+    const parsed = createCalendarEventSchema.safeParse({
+      ...valid,
+      isAllDay: false,
+      startDate: '2026-03-06',
+      endDate: '2026-03-07',
+      startTime: '22:00',
+      endTime: '06:00',
+    });
+    expect(parsed.success).toBe(true);
+  });
+
   it('requires an end date for a recurring event', () => {
     const parsed = createCalendarEventSchema.safeParse({
       ...valid,

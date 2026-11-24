@@ -220,10 +220,14 @@ test.describe("Kalender Akademik — agenda satu hari tidak merusak grid", () =>
       await loginAs(page, "superAdmin");
       await page.goto("/calendar");
 
-      // 42 day cells = six weeks; the crash left the month blank.
-      await expect(page.locator(".grid.grid-cols-7 > div")).toHaveCount(42, {
-        timeout: 15000,
-      });
+      // A month grid is four to six weeks, so its day cells are 28–42. The old
+      // selector also counted the seven weekday headers and pinned 42, which
+      // only matched a six-week month.
+      const cells = page.getByTestId("calendar-day");
+      await expect(cells.first()).toBeVisible({ timeout: 15000 });
+      const count = await cells.count();
+      expect(count).toBeGreaterThanOrEqual(28);
+      expect(count).toBeLessThanOrEqual(42);
       await expect(page.getByText(/Application error/i)).toHaveCount(0);
     } finally {
       await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);

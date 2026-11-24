@@ -52,6 +52,7 @@ import {
   EventCategory,
   CalendarEvent,
 } from "@/hooks/use-calendar";
+import { Pagination } from "@/components/shared/pagination";
 import type { CalendarEventDeleteScope } from "@cipansor/shared";
 import {
   Calendar as CalendarIcon,
@@ -72,6 +73,7 @@ import { toast } from "sonner";
 
 export default function EventsListPage() {
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   // `all` rather than "": Radix Select refuses an empty-string item, so the
   // "Semua Kategori" option could not be rendered at all.
   const [categoryFilter, setCategoryFilter] = useState<EventCategory | "all">(
@@ -82,22 +84,19 @@ export default function EventsListPage() {
     useState<CalendarEventDeleteScope>("SINGLE");
 
   const { data: eventsData, isLoading } = useCalendarEvents({
+    page,
     limit: 50,
+    // Search runs on the server, before pagination: filtering the 50 rows the
+    // browser already has hid an agenda that fell on a later page.
+    search: search.trim() || undefined,
     // The API's own filter name. The page used to send `category`, which the
     // controller never read, so choosing a category filtered nothing (#1155).
     eventType: categoryFilter === "all" ? undefined : categoryFilter,
   });
   const events = eventsData?.data || [];
+  const total = eventsData?.meta.total ?? 0;
 
   const deleteEvent = useDeleteCalendarEvent();
-
-  // Filter events by search
-  const filteredEvents = events.filter(
-    (event) =>
-      event.title.toLowerCase().includes(search.toLowerCase()) ||
-      event.description?.toLowerCase().includes(search.toLowerCase()) ||
-      event.location?.toLowerCase().includes(search.toLowerCase()),
-  );
 
   const handleDelete = async () => {
     if (!deleteTarget) return;
@@ -160,15 +159,19 @@ export default function EventsListPage() {
                 <Input
                   placeholder="Cari event..."
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
                   className="pl-9"
                 />
               </div>
               <Select
                 value={categoryFilter}
-                onValueChange={(v) =>
-                  setCategoryFilter(v as EventCategory | "all")
-                }
+                onValueChange={(v) => {
+                  setCategoryFilter(v as EventCategory | "all");
+                  setPage(1);
+                }}
               >
                 <SelectTrigger className="w-48" aria-label="Saring kategori">
                   <Filter className="h-4 w-4 mr-2" />
@@ -197,9 +200,7 @@ export default function EventsListPage() {
         <Card>
           <CardHeader>
             <CardTitle>Daftar Event</CardTitle>
-            <CardDescription>
-              {filteredEvents.length} event ditemukan
-            </CardDescription>
+            <CardDescription>{total} event ditemukan</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -208,7 +209,7 @@ export default function EventsListPage() {
                   <Skeleton key={i} className="h-16" />
                 ))}
               </div>
-            ) : filteredEvents.length === 0 ? (
+            ) : events.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <CalendarIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>Tidak ada event ditemukan</p>
@@ -232,7 +233,7 @@ export default function EventsListPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEvents.map((event) => {
+                  {events.map((event) => {
                     const catConfig = getEventCategoryConfig(event.eventType);
                     return (
                       <TableRow key={event.id}>
@@ -342,6 +343,16 @@ export default function EventsListPage() {
             )}
           </CardContent>
         </Card>
+
+        {eventsData && eventsData.meta.totalPages > 1 && (
+          <Pagination
+            page={page}
+            totalPages={eventsData.meta.totalPages}
+            pageSize={eventsData.meta.limit}
+            total={eventsData.meta.total}
+            onPageChange={setPage}
+          />
+        )}
 
         {/* Delete Confirmation */}
         <AlertDialog

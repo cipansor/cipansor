@@ -1,24 +1,21 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { UserRole, Prisma, EventType, EventScope } from '@prisma/client';
-import type { EventRecurrenceCode, ParsedCalendarEventPayload } from '@cipansor/shared';
-import { seesAllUnits } from '@/utils/resolve-unit-id';
+import {
+  CLASS_ENROLLMENT_STATUS,
+  PARENT_ROLE_CODES,
+  STUDENT_ROLE_CODES,
+  createCalendarEventSchema,
+  type CalendarEventDeleteScope,
+  type EventRecurrenceCode,
+  type ListCalendarEventsQuery,
+  type ParsedCalendarEventPayload,
+} from '@cipansor/shared';
+import { isFoundationScopedRole, seesAllUnits } from '@/utils/resolve-unit-id';
 import { dayDate, shiftWibDay } from '@/utils/wib';
 import { daysBetween, occurrenceDays, recurrenceRuleFor } from './calendar-recurrence';
 
-interface ListEventsQuery {
-  unitId?: string;
-  classId?: string;
-  eventType?: EventType;
-  startDate?: string;
-  endDate?: string;
-  month?: number;
-  year?: number;
-  search?: string;
-  isPublic?: boolean;
-  page: number;
-  limit: number;
-}
+type ListEventsQuery = ListCalendarEventsQuery;
 
 /** A parsed payload: every default filled in and every day normalised. */
 type CreateEventInput = ParsedCalendarEventPayload;
@@ -42,9 +39,6 @@ interface UpdateEventInput {
   color?: string;
 }
 
-/** Which occurrences a delete applies to when the event belongs to a series. */
-export type DeleteScope = 'SINGLE' | 'SERIES';
-
 // User type from JwtPayload
 interface AuthenticatedUser {
   sub: string;
@@ -57,6 +51,40 @@ interface AuthenticatedUser {
    */
   roleCode?: string | null;
   unitId: string | null;
+}
+
+/**
+ * The classes a student or guardian may see class-scoped events for, or `null`
+ * when the caller is staff and sees every class in its unit.
+ *
+ * A class event names its audience by `classId`; the list's unit scope alone
+ * therefore handed a santri every other class's private agenda in the same
+ * unit. Staff keep the wider view they manage.
+ */
+async function visibleClassIds(user: AuthenticatedUser): Promise<string[] | null> {
+  const roleCode = user.roleCode ?? '';
+  const student = STUDENT_ROLE_CODES.includes(roleCode);
+  const parent = PARENT_ROLE_CODES.includes(roleCode);
+  if (!student && !parent) return null;
+
+  const enrolled = {
+    where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
+    select: { classId: true },
+  } as const;
+  const record = await prisma.user.findUnique({
+    where: { id: user.sub },
+    select: {
+      student: { select: { enrollments: enrolled } },
+      parentOf: { select: { student: { select: { enrollments: enrolled } } } },
+    },
+  });
+
+  const classIds = new Set<string>();
+  for (const e of record?.student?.enrollments ?? []) classIds.add(e.classId);
+  for (const p of record?.parentOf ?? []) {
+    for (const e of p.student.enrollments) classIds.add(e.classId);
+  }
+  return [...classIds];
 }
 
 export class CalendarService {
@@ -87,6 +115,10 @@ export class CalendarService {
       // live calendar before anyone had looked at it (#1155).
       isDraft: false,
     };
+    // Everything that narrows the unit scope goes here, never into `where.OR`:
+    // that OR carries the unit scope, and overwriting it returned every unit's
+    // private events.
+    const and: Prisma.CalendarEventWhereInput[] = [];
 
     // Filter by unit.
     //
@@ -100,12 +132,19 @@ export class CalendarService {
       where.unitId = unitId;
     }
 
+    // A class event is addressed to that class. A santri or wali sees their own
+    // classes' events, never another class's in the same unit.
+    const classScope = await visibleClassIds(currentUser);
+    if (classScope) {
+      and.push({ OR: [{ classId: null }, { classId: { in: classScope } }] });
+    }
+
     if (classId) {
       where.classId = classId;
     }
 
     if (eventType) {
-      where.eventType = eventType;
+      where.eventType = eventType as EventType;
     }
 
     if (isPublic !== undefined) {
@@ -114,8 +153,7 @@ export class CalendarService {
 
     // Date filters. An event belongs to the window when it *overlaps* it, not
     // merely when it starts inside it: an event running 31 Dec–4 Jan must also
-    // appear in January. Filtering on `startDate` alone dropped it (#911). The
-    // overlap goes in `AND` because `OR` already carries the unit scope.
+    // appear in January. Filtering on `startDate` alone dropped it (#911).
     let rangeStart: Date | undefined;
     let rangeEnd: Date | undefined;
     if (startDate || endDate) {
@@ -126,30 +164,27 @@ export class CalendarService {
       rangeEnd = new Date(year, month, 0);
     }
     if (rangeStart || rangeEnd) {
-      const overlapping: Prisma.CalendarEventWhereInput[] = [];
-      if (rangeEnd) overlapping.push({ startDate: { lte: rangeEnd } });
+      if (rangeEnd) and.push({ startDate: { lte: rangeEnd } });
       if (rangeStart) {
-        overlapping.push({
+        and.push({
           OR: [{ endDate: { gte: rangeStart } }, { endDate: null, startDate: { gte: rangeStart } }],
         });
       }
-      where.AND = overlapping;
     }
 
-    // Search goes in `AND`, never into `where.OR`: that OR carries the unit
-    // scope above, and overwriting it made a search from any unit return every
-    // unit's private events.
+    // Search runs before pagination, on the server: filtering the page the
+    // browser already has hid every later occurrence of a recurring agenda.
     if (search) {
-      where.AND = [
-        ...(Array.isArray(where.AND) ? where.AND : where.AND ? [where.AND] : []),
-        {
-          OR: [
-            { title: { contains: search, mode: 'insensitive' } },
-            { description: { contains: search, mode: 'insensitive' } },
-          ],
-        },
-      ];
+      and.push({
+        OR: [
+          { title: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+          { location: { contains: search, mode: 'insensitive' } },
+        ],
+      });
     }
+
+    if (and.length) where.AND = and;
 
     const [events, total] = await Promise.all([
       prisma.calendarEvent.findMany({
@@ -201,6 +236,10 @@ export class CalendarService {
       if (event.unitId && event.unitId !== currentUser.unitId && !event.isPublic) {
         throw Errors.forbidden('Access denied');
       }
+      const classScope = await visibleClassIds(currentUser);
+      if (classScope && event.classId && !classScope.includes(event.classId)) {
+        throw Errors.forbidden('Access denied');
+      }
     }
 
     return event;
@@ -214,13 +253,21 @@ export class CalendarService {
    * nothing, so a half-written series never reaches the calendar.
    */
   async create(input: CreateEventInput, currentUser: AuthenticatedUser) {
-    // Validate unit access
-    if (
-      input.unitId &&
-      currentUser.role !== UserRole.SUPER_ADMIN &&
-      input.unitId !== currentUser.unitId
-    ) {
-      throw Errors.forbidden('Cannot create event for another unit');
+    // A unit admin writes into its own unit, whatever the body says — including
+    // an empty unit, which used to mean "the whole yayasan" and let a school's
+    // admin publish a foundation-wide holiday from the form's default. Only a
+    // foundation role may name a unit or omit one.
+    const foundationScope =
+      isFoundationScopedRole(currentUser.roleCode) || currentUser.role === UserRole.SUPER_ADMIN;
+    let unitId = input.unitId || null;
+    if (!foundationScope) {
+      if (!currentUser.unitId) {
+        throw Errors.forbidden('Akun ini tidak terikat pada unit mana pun');
+      }
+      if (unitId && unitId !== currentUser.unitId) {
+        throw Errors.forbidden('Cannot create event for another unit');
+      }
+      unitId = currentUser.unitId;
     }
 
     const recurrence = input.recurrence ?? 'NONE';
@@ -232,12 +279,12 @@ export class CalendarService {
     // who sees the event, and a form's own `scope` could contradict them.
     const scope = input.classId
       ? EventScope.SPECIFIC_CLASS
-      : input.unitId
+      : unitId
         ? EventScope.SPECIFIC_UNIT
         : EventScope.ALL_UNITS;
 
     const shared = {
-      unitId: input.unitId || null,
+      unitId,
       classId: input.classId || null,
       title: input.title,
       description: input.description ?? null,
@@ -352,7 +399,11 @@ export class CalendarService {
    * event that is not part of a series just deletes it; there is nothing else
    * to mark.
    */
-  async delete(id: string, currentUser: AuthenticatedUser, scope: DeleteScope = 'SINGLE') {
+  async delete(
+    id: string,
+    currentUser: AuthenticatedUser,
+    scope: CalendarEventDeleteScope = 'SINGLE'
+  ) {
     const event = await this.findById(id, currentUser);
 
     // Check delete permission
@@ -455,24 +506,31 @@ export class CalendarService {
   }
 
   /**
-   * Bulk create events
+   * Bulk create events.
+   *
+   * Each row is parsed by the shared write contract first: the import route
+   * does not run the Zod middleware, and an ISO instant handed straight to
+   * `dayDate()` became `…Z T00:00:00.000Z`, which Prisma rejected. Parsing here
+   * normalises the day and reports a bad row without failing the whole import.
    */
-  async bulkCreate(events: CreateEventInput[], currentUser: AuthenticatedUser) {
+  async bulkCreate(events: unknown[], currentUser: AuthenticatedUser) {
     const results = {
       success: 0,
       failed: 0,
       errors: [] as string[],
     };
 
-    for (const eventInput of events) {
+    for (const raw of events) {
+      const title =
+        raw && typeof raw === 'object' && typeof (raw as { title?: unknown }).title === 'string'
+          ? (raw as { title: string }).title
+          : 'Agenda';
       try {
-        await this.create(eventInput, currentUser);
+        await this.create(createCalendarEventSchema.parse(raw), currentUser);
         results.success++;
       } catch (error) {
         results.failed++;
-        results.errors.push(
-          `${eventInput.title}: ${error instanceof Error ? error.message : 'Failed'}`
-        );
+        results.errors.push(`${title}: ${error instanceof Error ? error.message : 'Failed'}`);
       }
     }
 

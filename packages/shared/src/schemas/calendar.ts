@@ -98,7 +98,16 @@ export const createCalendarEventSchema = z
           message: "Waktu mulai harus diisi bila agenda tidak sepanjang hari",
         });
       }
-      if (value.startTime && value.endTime && value.endTime < value.startTime) {
+      // Only a same-day event must end after it starts. An event that names a
+      // later end date may cross midnight — 22:00–06:00 is an eight-hour
+      // agenda, not a reversed one.
+      const sameDay = !value.endDate || value.endDate === value.startDate;
+      if (
+        sameDay &&
+        value.startTime &&
+        value.endTime &&
+        value.endTime < value.startTime
+      ) {
         ctx.addIssue({
           code: "custom",
           path: ["endTime"],

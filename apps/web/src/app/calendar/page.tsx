@@ -347,6 +347,7 @@ export default function AcademicCalendarPage() {
                       return (
                         <div
                           key={idx}
+                          data-testid="calendar-day"
                           className={`
                             min-h-[120px] border-b border-r p-1 transition-colors
                             ${!isCurrentMonth ? "bg-muted/30 text-muted-foreground" : ""}

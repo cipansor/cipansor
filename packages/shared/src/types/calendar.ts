@@ -81,3 +81,16 @@ export type UpdateCalendarEventInput = Partial<CreateCalendarEventInput>;
 
 /** Which occurrences a delete applies to, when the event belongs to a series. */
 export type CalendarEventDeleteScope = "SINGLE" | "SERIES";
+
+/** The page envelope `GET /calendar` answers with. */
+export interface CalendarEventListMeta {
+  total: number;
+  page: number;
+  limit: number;
+  totalPages: number;
+}
+
+export interface CalendarEventList {
+  data: CalendarEvent[];
+  meta: CalendarEventListMeta;
+}

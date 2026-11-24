@@ -79,6 +79,19 @@ describe("useCalendarEvents", () => {
     expect(get.mock.calls[0][1].params).toMatchObject({ eventType: "EXAM" });
     expect(get.mock.calls[0][1].params).not.toHaveProperty("category");
   });
+
+  it("sends the search to the API so it runs before pagination", async () => {
+    const { result } = renderHook(
+      () => useCalendarEvents({ page: 2, search: "rapat" }),
+      { wrapper },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(get.mock.calls[0][1].params).toMatchObject({
+      page: 2,
+      search: "rapat",
+    });
+  });
 });
 
 describe("useDeleteCalendarEvent", () => {

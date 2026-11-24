@@ -80,12 +80,22 @@ test.describe("Kalender Akademik — Tambah Agenda", () => {
   });
 
   test("kategori tersimpan dapat disaring dari daftar", async ({ page }) => {
-    const title = `Rapat e2e ${STAMP}`;
+    const base = `e2e saring ${STAMP}`;
+    const meetingTitle = `${base} rapat`;
+    const examTitle = `${base} ujian`;
     const session = await apiLogin(SEED_USERS.superAdmin);
+    const today = new Date().toISOString().slice(0, 10);
     const created = await apiRequest<Created>(session, "POST", "/calendar", {
-      title,
+      title: meetingTitle,
       eventType: "MEETING",
-      startDate: new Date().toISOString().slice(0, 10),
+      startDate: today,
+      isAllDay: true,
+      isPublic: true,
+    });
+    const control = await apiRequest<Created>(session, "POST", "/calendar", {
+      title: examTitle,
+      eventType: "EXAM",
+      startDate: today,
       isAllDay: true,
       isPublic: true,
     });
@@ -94,24 +104,167 @@ test.describe("Kalender Akademik — Tambah Agenda", () => {
       await loginAs(page, "superAdmin");
       await page.goto("/calendar/events");
 
-      const filterId = await page
-        .locator("label")
-        .filter({ hasText: /Kategori/ })
-        .first()
-        .getAttribute("for")
-        .catch(() => null);
-      const trigger = filterId
-        ? page.locator(`[id="${filterId}"]`)
-        : page.getByRole("combobox").first();
-      await trigger.click();
+      // Both rows start on the same page, so the filter — not the page window —
+      // is what removes the second one.
+      await page.getByPlaceholder("Cari event...").fill(base);
+      await expect(page.getByText(meetingTitle)).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(page.getByText(examTitle)).toBeVisible({ timeout: 15000 });
+
+      const filtered = page.waitForRequest(
+        (r) =>
+          r.url().includes("/calendar?") &&
+          r.url().includes("eventType=MEETING"),
+      );
+      await page.getByRole("combobox", { name: "Saring kategori" }).click();
       await page.getByRole("option", { name: /^Rapat$/ }).click();
 
       // The filter is `eventType`: a `category` filter returned everything.
-      await expect(page.getByText(title)).toBeVisible({ timeout: 15000 });
-      const url = page.url();
-      expect(url).not.toContain("category=");
+      expect(
+        new URL((await filtered).url()).searchParams.get("eventType"),
+      ).toBe("MEETING");
+      await expect(page.getByText(meetingTitle)).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(page.getByText(examTitle)).toHaveCount(0);
     } finally {
       await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
+      await apiRequest(session, "DELETE", `/calendar/${control.data.id}`);
+    }
+  });
+
+  test("form menerima agenda yang melewati tengah malam", async ({ page }) => {
+    const title = `Tarawih e2e ${STAMP}`;
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const day = (offset: number) =>
+      new Date(Date.now() + offset * 86_400_000 + 7 * 3_600_000)
+        .toISOString()
+        .slice(0, 10);
+
+    try {
+      await loginAs(page, "superAdmin");
+      await page.goto("/calendar/events/new");
+
+      await page.getByLabel("Judul Event *").fill(title);
+      await page.getByRole("switch", { name: "Sepanjang Hari" }).click();
+      await page.getByLabel("Tanggal Mulai *").fill(day(1));
+      await page.getByLabel("Tanggal Selesai").fill(day(2));
+      await page.getByLabel("Waktu Mulai").fill("22:00");
+      await page.getByLabel("Waktu Selesai").fill("06:00");
+      await page.getByRole("button", { name: /Simpan/ }).click();
+
+      // 22:00–06:00 with a later end date is eight hours, not a reversed clock.
+      await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
+      await page.getByPlaceholder("Cari event...").fill(title);
+      await expect(page.getByText(title)).toBeVisible({ timeout: 15000 });
+    } finally {
+      const listed = await apiRequest<Listed>(
+        session,
+        "GET",
+        `/calendar?limit=100&search=${encodeURIComponent(title)}`,
+      );
+      for (const e of listed.data) {
+        await apiRequest(session, "DELETE", `/calendar/${e.id}`);
+      }
+    }
+  });
+
+  test("form menolak jam terbalik pada hari yang sama", async ({ page }) => {
+    const today = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+
+    await loginAs(page, "superAdmin");
+    await page.goto("/calendar/events/new");
+
+    await page.getByLabel("Judul Event *").fill(`Jam terbalik e2e ${STAMP}`);
+    await page.getByRole("switch", { name: "Sepanjang Hari" }).click();
+    await page.getByLabel("Tanggal Mulai *").fill(today);
+    await page.getByLabel("Tanggal Selesai").fill(today);
+    await page.getByLabel("Waktu Mulai").fill("10:00");
+    await page.getByLabel("Waktu Selesai").fill("09:00");
+    await page.getByRole("button", { name: /Simpan/ }).click();
+
+    await expect(
+      page.getByText("Waktu selesai tidak boleh sebelum waktu mulai"),
+    ).toBeVisible();
+    await expect(page).toHaveURL(/\/calendar\/events\/new$/);
+  });
+});
+
+/**
+ * Deleting one occurrence of a series must leave the others, and deleting the
+ * series must remove them all. Both go through the same dialog; only the
+ * service and hook tests ran it, so a broken choice shipped untested.
+ */
+test.describe("Kalender Akademik — hapus satu kemunculan atau seluruh rangkaian", () => {
+  const wibDay = (offset: number) =>
+    new Date(Date.now() + offset * 86_400_000 + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+
+  async function remaining(
+    session: Awaited<ReturnType<typeof apiLogin>>,
+    title: string,
+  ) {
+    const listed = await apiRequest<Listed>(
+      session,
+      "GET",
+      `/calendar?limit=100&search=${encodeURIComponent(title)}`,
+    );
+    return listed.data.filter((e) => e.title === title);
+  }
+
+  test("SINGLE menyisakan kemunculan lain, SERIES menghapus semuanya", async ({
+    page,
+  }) => {
+    const title = `Rangkaian hapus e2e ${STAMP}`;
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await apiRequest<Created>(session, "POST", "/calendar", {
+      title,
+      eventType: "MEETING",
+      startDate: wibDay(1),
+      isAllDay: true,
+      isPublic: true,
+      recurrence: "DAILY",
+      recurrenceEnd: wibDay(3),
+    });
+
+    try {
+      await loginAs(page, "superAdmin");
+      await page.goto("/calendar/events");
+      await page.getByPlaceholder("Cari event...").fill(title);
+
+      const rows = page.getByRole("row").filter({ hasText: title });
+      await expect(rows).toHaveCount(3, { timeout: 15000 });
+
+      // One occurrence only.
+      await rows.first().getByRole("button").last().click({ force: true });
+      await page.getByRole("menuitem", { name: /Hapus/ }).click();
+      const singleDialog = page.getByRole("alertdialog");
+      await singleDialog.getByLabel(/Hanya agenda ini/).check();
+      await singleDialog.getByRole("button", { name: "Hapus" }).click();
+      await expect(rows).toHaveCount(2, { timeout: 15000 });
+      expect(await remaining(session, title)).toHaveLength(2);
+
+      // The whole series.
+      await rows.first().getByRole("button").last().click({ force: true });
+      await page.getByRole("menuitem", { name: /Hapus/ }).click();
+      const seriesDialog = page.getByRole("alertdialog");
+      await seriesDialog.getByLabel(/Seluruh rangkaian/).check();
+      await seriesDialog.getByRole("button", { name: "Hapus" }).click();
+      await expect(rows).toHaveCount(0, { timeout: 15000 });
+      expect(await remaining(session, title)).toHaveLength(0);
+    } finally {
+      // Cleanup must never fail the test. A row the UI already removed answers
+      // 404, and deleting one occurrence at a time leaves nothing behind.
+      const left = await remaining(session, title);
+      for (const e of left) {
+        await apiRequest(session, "DELETE", `/calendar/${e.id}`).catch(
+          () => undefined,
+        );
+      }
     }
   });
 });

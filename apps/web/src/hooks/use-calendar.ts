@@ -5,6 +5,7 @@ import {
   EVENT_TYPES,
   type CalendarEvent as SharedCalendarEvent,
   type CalendarEventDeleteScope,
+  type CalendarEventList,
   type CreateCalendarEventPayload,
   type EventRecurrenceCode,
 } from "@cipansor/shared";
@@ -115,16 +116,7 @@ export interface CalendarEventParams {
   isPublic?: boolean;
   month?: number;
   year?: number;
-}
-
-interface CalendarEventList {
-  data: CalendarEvent[];
-  meta: {
-    total: number;
-    page: number;
-    limit: number;
-    totalPages: number;
-  };
+  search?: string;
 }
 
 export function useCalendarEvents(params: CalendarEventParams = {}) {
@@ -153,13 +145,22 @@ export function useMonthEvents(year: number, month: number, unitId?: string) {
       const endDate = new Date(Date.UTC(year, month + 1, 0))
         .toISOString()
         .slice(0, 10);
-      const response = await api.get<ApiResponse<CalendarEvent[]>>(
-        "/calendar",
-        {
-          params: { startDate, endDate, unitId, limit: 100 },
-        },
-      );
-      return response.data.data;
+
+      // Read every page: a daily agenda fills the first 100 rows on its own,
+      // and stopping there hid the rest of the month from the grid.
+      const events: CalendarEvent[] = [];
+      let page = 1;
+      let totalPages = 1;
+      do {
+        const response = await api.get<CalendarEventList>("/calendar", {
+          params: { startDate, endDate, unitId, page, limit: 100 },
+        });
+        events.push(...response.data.data);
+        totalPages = response.data.meta?.totalPages ?? 1;
+        page += 1;
+      } while (page <= totalPages);
+
+      return events;
     },
   });
 }

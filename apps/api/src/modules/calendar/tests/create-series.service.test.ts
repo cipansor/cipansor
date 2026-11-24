@@ -122,6 +122,24 @@ describe('CalendarService.create', () => {
     expect(create).not.toHaveBeenCalled();
   });
 
+  it('pins a unit admin to their own unit when the body names none', async () => {
+    // The form's "Semua Unit" default used to become `unitId: null`, which the
+    // model reads as a yayasan-wide event.
+    await calendarService.create(payload(), unitAdmin);
+
+    const data = create.mock.calls[0][0].data;
+    expect(data.unitId).toBe('unit-sdit');
+    expect(data.scope).toBe(EventScope.SPECIFIC_UNIT);
+  });
+
+  it('lets a foundation role create a yayasan-wide event', async () => {
+    await calendarService.create(payload(), superAdmin);
+
+    const data = create.mock.calls[0][0].data;
+    expect(data.unitId).toBeNull();
+    expect(data.scope).toBe(EventScope.ALL_UNITS);
+  });
+
   it('writes one row for a non-recurring event', async () => {
     await calendarService.create(payload(), superAdmin);
     expect(create).toHaveBeenCalledTimes(1);
@@ -264,6 +282,7 @@ describe('CalendarService.findAll filters', () => {
       OR: [
         { title: { contains: 'rapat', mode: 'insensitive' } },
         { description: { contains: 'rapat', mode: 'insensitive' } },
+        { location: { contains: 'rapat', mode: 'insensitive' } },
       ],
     });
   });
@@ -279,5 +298,33 @@ describe('CalendarService.getStatistics', () => {
     await calendarService.getStatistics('unit-sdit');
     expect(count.mock.calls[0][0].where.isDraft).toBe(false);
     expect(groupBy.mock.calls[0][0].where.isDraft).toBe(false);
+  });
+});
+
+/**
+ * The import route does not run the Zod middleware, so `bulkCreate` parses each
+ * row itself. An ISO instant handed straight to `dayDate()` became
+ * `2026-03-02T00:00:00.000ZT00:00:00.000Z`, which Prisma rejected.
+ */
+describe('CalendarService.bulkCreate', () => {
+  it('normalises an ISO instant to the stored day before Prisma sees it', async () => {
+    const result = await calendarService.bulkCreate(
+      [payload({ startDate: '2026-03-02T00:00:00.000Z' })],
+      superAdmin
+    );
+
+    expect(result).toMatchObject({ success: 1, failed: 0 });
+    expect(create.mock.calls[0][0].data.startDate.toISOString()).toBe('2026-03-02T00:00:00.000Z');
+  });
+
+  it('reports a row the contract refuses without failing the import', async () => {
+    const result = await calendarService.bulkCreate(
+      [{ title: 'Rusak', eventType: 'NOPE', startDate: '2026-03-02', isAllDay: true }],
+      superAdmin
+    );
+
+    expect(result).toMatchObject({ success: 0, failed: 1 });
+    expect(result.errors[0]).toContain('Rusak');
+    expect(create).not.toHaveBeenCalled();
   });
 });
