@@ -341,11 +341,13 @@ export function deriveLegacyRole(roleCode: string): LegacyRole | undefined {
 export interface RbacRoleAssignment {
   isPrimary?: boolean;
   role?: { code?: string | null } | null;
+  unit?: { id?: string | null } | null;
 }
 
 /** Minimal shape of the persisted user needed for RBAC decisions. */
 export interface RbacUser {
   role?: string | null;
+  unitId?: string | null;
   userRoles?: RbacRoleAssignment[] | null;
 }
 
@@ -509,8 +511,17 @@ export function getDashboardForRole(
 export function getPrimaryRoleCode(
   user: RbacUser | null | undefined,
 ): string | undefined {
-  const assignments = user?.userRoles ?? [];
-  const primary =
-    assignments.find((a) => a?.isPrimary) ?? assignments[0] ?? undefined;
-  return primary?.role?.code ?? undefined;
+  return getActiveRoleAssignment(user)?.role?.code ?? undefined;
+}
+
+/**
+ * The unit of the same active (primary) assignment whose RoleCode
+ * `getPrimaryRoleCode` returns — the scope the API puts in the token. The
+ * profile's `unitId` is the home unit, which may differ after a role switch;
+ * it is only the fallback when the assignment carries no unit.
+ */
+export function getActiveRoleUnitId(
+  user: RbacUser | null | undefined,
+): string | undefined {
+  return getActiveRoleAssignment(user)?.unit?.id ?? user?.unitId ?? undefined;
 }

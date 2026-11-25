@@ -36,13 +36,9 @@ export const createJournalEntrySchema = z
 
 // ==================== SCHOLARSHIPS ====================
 
-export const createScholarshipCriterionSchema = z.object({
-  name: z.string().min(2).max(100),
-  description: z.string().optional(),
-  weight: z.number().positive(),
-  type: z.enum(['NUMERIC', 'BOOLEAN', 'ENUM']),
-  targetValue: z.string().optional(),
-});
+// The criterion contract lives once, in @cipansor/shared (schemas/finance.ts);
+// the web imports the same schema and type.
+export { createScholarshipCriterionSchema } from '@cipansor/shared';
 
 export const createScholarshipSchema = z.object({
   name: z.string().min(1),

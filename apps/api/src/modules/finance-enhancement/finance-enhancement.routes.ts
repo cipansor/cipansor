@@ -93,7 +93,9 @@ router.post(
   financeEnhancementController.assignScholarship
 );
 
-// Scholarship scoring (criteria + automated assessment from PR #313)
+// Scholarship scoring: writing criteria and computing a score are acts of the
+// unit's finance admin only — the yayasan board and TU_Unit read the result but
+// never produce it (R11.15).
 router.get(
   '/scholarships/:id/criteria',
   authorize(...FINANCE_UNIT_ROLE_CODES, ...GOVERNANCE_ROLE_CODES),
@@ -101,13 +103,13 @@ router.get(
 );
 router.post(
   '/scholarships/:id/criteria',
-  financeAdmin(),
+  authorize(...FINANCE_UNIT_ROLE_CODES),
   validate(createScholarshipCriterionSchema),
   financeEnhancementController.createScholarshipCriterion
 );
 router.post(
   '/scholarship-recipients/:id/assess',
-  financeAdmin(),
+  authorize(...FINANCE_UNIT_ROLE_CODES),
   financeEnhancementController.assessScholarshipRecipient
 );
 

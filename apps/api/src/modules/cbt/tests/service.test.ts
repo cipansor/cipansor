@@ -122,6 +122,32 @@ describe('CBT Service', () => {
       });
     });
 
+    it('refuses duplicate option ids before writing the question', async () => {
+      vi.mocked(prisma.questionBank.findUnique).mockResolvedValue({
+        id: 'bank-1',
+        teacher: { userId: 'user-1' },
+      } as any);
+
+      await expect(
+        CBTService.addQuestion(
+          {
+            bankId: 'bank-1',
+            type: 'MULTIPLE_CHOICE' as any,
+            content: 'Berapa 2+2?',
+            options: [
+              { id: 'A', text: '3' },
+              { id: 'C', text: '4' },
+              { id: 'D', text: '5' },
+              { id: 'D', text: '6' },
+            ],
+            answerKey: 'D',
+          },
+          { id: 'user-1', role: 'TEACHER' }
+        )
+      ).rejects.toThrow(/lebih dari sekali/i);
+      expect(prisma.question.create).not.toHaveBeenCalled();
+    });
+
     it('should throw error if unauthorized to add question', async () => {
       vi.mocked(prisma.questionBank.findUnique).mockResolvedValue({
         id: 'bank-1',

@@ -7,6 +7,9 @@ import {
   JournalEntry,
   Scholarship,
   ScholarshipRecipient,
+  ScholarshipCriterion,
+  ScholarshipAssessmentResult,
+  CreateScholarshipCriterionInput,
   PaymentComponent,
   TrialBalanceReport,
   IncomeExpenseReport,
@@ -27,6 +30,9 @@ export type {
   JournalEntry,
   Scholarship,
   ScholarshipRecipient,
+  ScholarshipCriterion,
+  ScholarshipAssessmentResult,
+  CreateScholarshipCriterionInput,
   PaymentComponent,
   TrialBalanceReport,
   IncomeExpenseReport,
@@ -337,6 +343,73 @@ export function useAssignScholarship() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["scholarship-recipients"] });
+    },
+  });
+}
+
+// ==================== SCHOLARSHIP SCORING ====================
+
+/**
+ * A program's criteria — the weight and target the score is computed from.
+ * Reading is open to the finance roles and the yayasan board (the API guard);
+ * writing is not.
+ */
+export function useScholarshipCriteria(scholarshipId: string) {
+  return useQuery({
+    queryKey: ["scholarship-criteria", scholarshipId],
+    queryFn: async () => {
+      const response = await api.get<{ data: ScholarshipCriterion[] }>(
+        `/finance-enhancement/scholarships/${scholarshipId}/criteria`,
+        // The dialog says the read was refused; a second toast would repeat it.
+        { skipErrorToast: true },
+      );
+      return response.data.data;
+    },
+    enabled: !!scholarshipId,
+  });
+}
+
+export function useCreateScholarshipCriterion(scholarshipId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (data: CreateScholarshipCriterionInput) => {
+      const response = await api.post(
+        `/finance-enhancement/scholarships/${scholarshipId}/criteria`,
+        data,
+        // The form reports the refusal in place; a toast would repeat it.
+        { skipErrorToast: true },
+      );
+      return response.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["scholarship-criteria", scholarshipId],
+      });
+    },
+  });
+}
+
+/**
+ * Compute a recipient's score. The answer is the API's own — each criterion
+ * with its value and score, the weighted total, and whether anything was left
+ * out — so the screen shows what the server decided rather than re-deriving it.
+ */
+export function useAssessScholarshipRecipient(scholarshipId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async (recipientId: string) => {
+      const response = await api.post<{ data: ScholarshipAssessmentResult }>(
+        `/finance-enhancement/scholarship-recipients/${recipientId}/assess`,
+        undefined,
+        // The dialog says "Skor tidak dihitung" itself (R11.9).
+        { skipErrorToast: true },
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({
+        queryKey: ["scholarship-recipients", scholarshipId],
+      });
     },
   });
 }
