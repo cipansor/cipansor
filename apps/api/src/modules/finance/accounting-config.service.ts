@@ -44,43 +44,90 @@ export async function getAccountMapping(
  * expense account, an inactive row or another unit's account would make the
  * settings look saved while the payment ignored it.
  */
-async function assertUsableAccountMapping(unitId: string, key: string, accountId: string) {
-  if (key !== ACCOUNT_MAPPING_KEYS.TAX_PAYABLE) return;
+async function isUsableAccountMapping(
+  unitId: string,
+  key: string,
+  accountId: string,
+  tx: TransactionClient | typeof prisma
+): Promise<boolean> {
+  if (key !== ACCOUNT_MAPPING_KEYS.TAX_PAYABLE) return true;
 
-  const account = await prisma.accountCode.findUnique({
+  const account = await tx.accountCode.findUnique({
     where: { id: accountId },
     select: { unitId: true, isActive: true, type: true },
   });
-  if (
-    !account ||
-    !account.isActive ||
-    account.type !== 'LIABILITY' ||
-    (account.unitId !== null && account.unitId !== unitId)
-  ) {
+  return Boolean(
+    account &&
+    account.isActive &&
+    account.type === 'LIABILITY' &&
+    (account.unitId === null || account.unitId === unitId)
+  );
+}
+
+async function assertUsableAccountMapping(
+  unitId: string,
+  key: string,
+  accountId: string,
+  tx: TransactionClient
+) {
+  if (!(await isUsableAccountMapping(unitId, key, accountId, tx))) {
     throw Errors.badRequest(
       'Akun Utang PPh 21 harus akun kewajiban aktif milik unit ini atau akun bersama'
     );
   }
 }
 
-export async function setAccountMapping(unitId: string, key: string, accountId: string) {
-  await assertUsableAccountMapping(unitId, key, accountId);
+/**
+ * Every mapping of one unit, with a stored PPh 21 id that no longer points to a
+ * usable account reported as null. The form then cannot resend a stale id and
+ * block an unrelated cash-account change.
+ */
+export async function getAccountMappings(unitId: string) {
+  const settings: Record<string, string | null> = {};
 
-  return prisma.setting.upsert({
-    where: {
-      unitId_key: {
-        unitId,
-        key,
-      },
-    },
-    update: {
-      value: { accountId },
-    },
-    create: {
-      unitId,
-      key,
-      value: { accountId },
-    },
+  for (const key of Object.values(ACCOUNT_MAPPING_KEYS)) {
+    const accountId = await getAccountMapping(unitId, key);
+    settings[key] =
+      accountId && (await isUsableAccountMapping(unitId, key, accountId, prisma))
+        ? accountId
+        : null;
+  }
+
+  return settings;
+}
+
+/**
+ * Saves every mapping of one unit in a single transaction. Validation runs
+ * before any upsert, so a request that changes the cash account and carries a
+ * stale/invalid PPh 21 mapping writes neither: the portal's failure message and
+ * the stored settings always describe the same state.
+ */
+export async function setAccountMappings(unitId: string, mappings: Record<string, string>) {
+  const entries = Object.entries(mappings).filter(([, accountId]) => accountId);
+
+  return prisma.$transaction(async (tx) => {
+    for (const [key, accountId] of entries) {
+      await assertUsableAccountMapping(unitId, key, accountId, tx);
+    }
+
+    for (const [key, accountId] of entries) {
+      await tx.setting.upsert({
+        where: {
+          unitId_key: {
+            unitId,
+            key,
+          },
+        },
+        update: {
+          value: { accountId },
+        },
+        create: {
+          unitId,
+          key,
+          value: { accountId },
+        },
+      });
+    }
   });
 }
 

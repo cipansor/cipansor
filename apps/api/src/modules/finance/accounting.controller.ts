@@ -93,12 +93,7 @@ export async function getSettings(req: Request, res: Response, next: NextFunctio
       return;
     }
 
-    const keys = Object.values(configService.ACCOUNT_MAPPING_KEYS);
-    const settings: Record<string, string | null> = {};
-
-    for (const key of keys) {
-      settings[key] = await configService.getAccountMapping(unitId as string, key);
-    }
+    const settings = await configService.getAccountMappings(unitId as string);
 
     res.json({ data: settings });
   } catch (error) {
@@ -114,11 +109,7 @@ export async function updateSettings(req: Request, res: Response, next: NextFunc
       return;
     }
 
-    for (const [key, accountId] of Object.entries(settings)) {
-      if (accountId) {
-        await configService.setAccountMapping(unitId, key, accountId as string);
-      }
-    }
+    await configService.setAccountMappings(unitId, settings as Record<string, string>);
 
     res.json({ message: 'Settings updated' });
   } catch (error) {

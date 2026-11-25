@@ -10,7 +10,6 @@ export interface AccountCode {
   code: string;
   name: string;
   type: string;
-  unitId?: string | null;
   normalBalance: "DEBIT" | "CREDIT";
   parentId?: string;
   parent?: {

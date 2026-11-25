@@ -265,7 +265,9 @@ test.describe("Payroll — tombol periode mengikuti kebijakan API", () => {
     email: "yayasan.bendahara@cipansor.or.id",
     password: "Cipansor123!",
   };
-  const YEAR = 2090;
+  // The portal opens the current year and its year picker has no 2090, so the
+  // period must live in a year the list actually shows.
+  const YEAR = new Date().getFullYear();
   let creator: AuthSession;
   let approver: AuthSession;
   let unitId: string;
@@ -281,6 +283,22 @@ test.describe("Payroll — tombol periode mengikuti kebijakan API", () => {
     await apiRequest(creator, "DELETE", `/payroll/periods/${periodId}`).catch(
       () => undefined,
     );
+  }
+
+  /** The unit allows one period per month, so pick a month still free. */
+  async function openMonth(): Promise<number> {
+    const existing = await apiRequest<{
+      data: Array<{ month: number; year: number }>;
+    }>(creator, "GET", `/payroll/periods?year=${YEAR}&limit=100`);
+    const used = new Set(
+      existing.data
+        .filter((period) => period.year === YEAR)
+        .map((period) => period.month),
+    );
+    for (let month = 1; month <= 12; month += 1) {
+      if (!used.has(month)) return month;
+    }
+    throw new Error(`Every month of ${YEAR} already has a payroll period`);
   }
 
   async function createPeriod(name: string, month: number) {
@@ -323,7 +341,10 @@ test.describe("Payroll — tombol periode mengikuti kebijakan API", () => {
 
   test("draf kosong tidak menawarkan Setujui", async ({ page }) => {
     test.setTimeout(120_000);
-    const period = await createPeriod(`E2E otorisasi kosong ${Date.now()}`, 1);
+    const period = await createPeriod(
+      `E2E otorisasi kosong ${Date.now()}`,
+      await openMonth(),
+    );
 
     try {
       await signIn(page, approver);
@@ -346,7 +367,10 @@ test.describe("Payroll — tombol periode mengikuti kebijakan API", () => {
 
   test("draf berslip menawarkan Setujui", async ({ page }) => {
     test.setTimeout(120_000);
-    const period = await createPeriod(`E2E otorisasi berslip ${Date.now()}`, 2);
+    const period = await createPeriod(
+      `E2E otorisasi berslip ${Date.now()}`,
+      await openMonth(),
+    );
 
     try {
       const salaries = await apiRequest<{ data: Array<{ staffId: string }> }>(

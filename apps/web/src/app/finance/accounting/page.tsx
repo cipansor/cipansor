@@ -969,7 +969,7 @@ function AccountingSettingsTab() {
           <div className="space-y-2">
             <Label>Pilih Unit</Label>
             <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Pilih Unit">
                 <SelectValue placeholder="Pilih Unit Sekolah/Pesantren" />
               </SelectTrigger>
               <SelectContent>
@@ -996,7 +996,7 @@ function AccountingSettingsTab() {
                       setSettings((prev) => ({ ...prev, [mapping.key]: val }))
                     }
                   >
-                    <SelectTrigger>
+                    <SelectTrigger aria-label={mapping.label}>
                       <SelectValue placeholder="Pilih Akun" />
                     </SelectTrigger>
                     <SelectContent>
