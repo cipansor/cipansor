@@ -8,6 +8,7 @@ import { prisma } from '@/lib/prisma';
 const { txCalls } = vi.hoisted(() => ({
   txCalls: {
     executeRaw: [] as unknown[][],
+    waveUpdate: [] as unknown[][],
     waveUpdateMany: [] as unknown[][],
     registrantDelete: [] as unknown[][],
     registrantUpdate: [] as unknown[][],
@@ -77,6 +78,12 @@ vi.mock('@/lib/prisma', () => ({
           if (prop === 'admissionWave') {
             return new Proxy(target.admissionWave, {
               get(waveTarget, waveProp) {
+                if (waveProp === 'update') {
+                  return (...args: unknown[]) => {
+                    txCalls.waveUpdate.push(args);
+                    return (waveTarget.update as any)(...args);
+                  };
+                }
                 if (waveProp === 'updateMany') {
                   return (...args: unknown[]) => {
                     txCalls.waveUpdateMany.push(args);
@@ -138,6 +145,7 @@ describe('Admissions Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     txCalls.executeRaw.length = 0;
+    txCalls.waveUpdate.length = 0;
     txCalls.waveUpdateMany.length = 0;
     txCalls.registrantDelete.length = 0;
     txCalls.registrantUpdate.length = 0;
@@ -378,11 +386,13 @@ describe('Admissions Service', () => {
 
     await service.deleteRegistrant('r-1');
 
-    // Auto-filled waves regain a slot on cancellation and re-open.
+    // Auto-filled waves regain a slot on cancellation and re-open, inside the
+    // same transaction as the counter decrement and the delete.
     expect(prisma.admissionWave.update).toHaveBeenCalledWith({
       where: { id: 'w-cap' },
       data: { status: 'OPEN' },
     });
+    expect(txCalls.waveUpdate).toHaveLength(1);
 
     // Reset shared mocks to avoid leaking the capacity-full wave mock into
     // sibling tests (see the manually-closed test above).

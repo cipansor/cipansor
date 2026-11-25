@@ -12,6 +12,7 @@ import { waveService } from '../ppdb-wave.service';
 const { txCalls } = vi.hoisted(() => ({
   txCalls: {
     executeRaw: [] as unknown[][],
+    waveUpdate: [] as unknown[][],
     waveUpdateMany: [] as unknown[][],
     registrantDelete: [] as unknown[][],
     registrantUpdate: [] as unknown[][],
@@ -118,6 +119,12 @@ vi.mock('@/lib/prisma', () => ({
           if (prop === 'admissionWave') {
             return new Proxy(target.admissionWave, {
               get(waveTarget, waveProp) {
+                if (waveProp === 'update') {
+                  return (...args: unknown[]) => {
+                    txCalls.waveUpdate.push(args);
+                    return (waveTarget.update as any)(...args);
+                  };
+                }
                 if (waveProp === 'updateMany') {
                   return (...args: unknown[]) => {
                     txCalls.waveUpdateMany.push(args);
@@ -167,6 +174,7 @@ describe('Student Onboarding & Wave Quota Unit Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     txCalls.executeRaw.length = 0;
+    txCalls.waveUpdate.length = 0;
     txCalls.waveUpdateMany.length = 0;
     txCalls.registrantDelete.length = 0;
     txCalls.registrantUpdate.length = 0;
@@ -831,10 +839,11 @@ describe('Student Onboarding & Wave Quota Unit Tests', () => {
 
       // Lock the registrant before any wave counter. The retention sweep and
       // onboarding take the same order; the reverse is a deadlock. The lock,
-      // both counter updates, and the reassignment must run on the
-      // transaction client, or each write commits separately.
+      // both counter updates, the status reopen, and the reassignment must run
+      // on the transaction client, or each write commits separately.
       expect(txCalls.executeRaw).toHaveLength(1);
       expect(txCalls.waveUpdateMany).toHaveLength(2);
+      expect(txCalls.waveUpdate).toHaveLength(1);
       expect(txCalls.registrantUpdate).toHaveLength(1);
       const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
       const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];
