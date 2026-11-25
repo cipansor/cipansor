@@ -357,6 +357,33 @@ describe('PPh 21 account mapping', () => {
     expect(account).toMatchObject({ id: 'acc-sd' });
   });
 
+  it('ignores a stored revenue mapping that points at a cash account', async () => {
+    prismaMock.setting.findUnique.mockResolvedValue({
+      value: { accountId: 'acc-cash' },
+    } as never);
+    prismaMock.accountCode.findUnique.mockResolvedValue({
+      id: 'acc-cash',
+      unitId: UNIT,
+      isActive: true,
+      type: 'ASSET',
+    } as never);
+    prismaMock.accountCode.findFirst.mockResolvedValue({
+      id: 'acc-revenue',
+      unitId: UNIT,
+      isActive: true,
+      type: 'REVENUE',
+    } as never);
+
+    const account = await getAccountOrFallback(UNIT, ACCOUNT_MAPPING_KEYS.SALES_REVENUE, '4101');
+
+    expect(account).toMatchObject({ id: 'acc-revenue' });
+    expect(prismaMock.accountCode.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: expect.objectContaining({ type: 'REVENUE' }),
+      })
+    );
+  });
+
   it('clears a mapping when the value is null', async () => {
     await setAccountMappings(UNIT, { [ACCOUNT_MAPPING_KEYS.TAX_PAYABLE]: null });
 
