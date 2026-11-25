@@ -2,6 +2,7 @@
 
 import { useAuth } from "@/hooks/use-auth";
 import { useUnits } from "@/hooks/use-units";
+import { overseesAllUnits, sessionUnitId } from "@/lib/session-scope";
 import {
   Select,
   SelectContent,
@@ -15,10 +16,20 @@ import {
  * carries no unit. The API shows them every unit and lets them narrow to one
  * (`listUnitScope` in the API's resolve-unit-id.ts); everyone else is pinned
  * to their own, so these controls are only for the former.
+ *
+ * The scope comes from the active role assignment, not the profile unit: a
+ * person can hold a yayasan role and a unit role, and the API follows the
+ * active one.
  */
 export function useOverseesAllUnits(): boolean {
   const { user } = useAuth();
-  return !!user && !user.unitId;
+  return overseesAllUnits(user);
+}
+
+/** The unit the active role writes into, matching the API's `tokenUnitId`. */
+export function useSessionUnitId(): string | undefined {
+  const { user } = useAuth();
+  return sessionUnitId(user);
 }
 
 const ALL = "ALL";

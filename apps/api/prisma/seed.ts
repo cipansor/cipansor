@@ -4323,6 +4323,7 @@ async function main() {
         total: new Prisma.Decimal(21000),
         paymentMethod: 'WALLET',
         paymentStatus: 'PAID',
+        paidAt: new Date(),
         status: 'READY',
         estimatedAt: new Date(Date.now() + 2 * 24 * 60 * 60 * 1000),
         receivedById: teacherPesantrenUser.id,

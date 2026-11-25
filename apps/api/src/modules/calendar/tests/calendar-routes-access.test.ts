@@ -40,8 +40,18 @@ beforeEach(() => {
   })) as unknown as typeof verifyToken);
 });
 
+const validEvent = {
+  title: 'Rapat',
+  eventType: 'MEETING',
+  startDate: '2026-12-01',
+  isAllDay: true,
+};
+
 const send = (roleCode: string, method: 'get' | 'post' | 'put' | 'delete', path: string) =>
-  request(app)[method](path).set('Authorization', `Bearer ${roleCode}`).send({});
+  request(app)
+    [method](path)
+    .set('Authorization', `Bearer ${roleCode}`)
+    .send(method === 'post' && path === '/calendar' ? validEvent : {});
 
 describe.each(['SUPER_ADMIN', 'SDIT_ADMIN', 'YAYASAN_KETUA', 'YAYASAN_ANGGOTA'])(
   '%s may write the calendar',

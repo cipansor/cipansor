@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { safeFormat } from "@/lib/date";
 import { MainLayout } from "@/components/layout/main-layout";
 import {
@@ -50,7 +50,17 @@ import {
   EVENT_CATEGORIES,
   getEventCategoryConfig,
   EventCategory,
+  CalendarEvent,
 } from "@/hooks/use-calendar";
+import { Pagination } from "@/components/shared/pagination";
+import { usePermission } from "@/hooks/use-permission";
+import { useAuth } from "@/hooks/use-auth";
+import { canModifyCalendarEvent } from "@/lib/calendar-access";
+import { PERMISSIONS } from "@/constants/permissions";
+import {
+  CALENDAR_EVENT_SEARCH_MAX_LENGTH,
+  type CalendarEventDeleteScope,
+} from "@cipansor/shared";
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -66,42 +76,72 @@ import {
 
 import { id as idLocale } from "date-fns/locale";
 import Link from "next/link";
-import { useCanWriteCalendar } from "@/hooks/use-calendar-permissions";
 import { toast } from "sonner";
 
 export default function EventsListPage() {
-  const canWrite = useCanWriteCalendar();
   const [search, setSearch] = useState("");
-  const [categoryFilter, setCategoryFilter] = useState<EventCategory | "">("");
-  const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [page, setPage] = useState(1);
+  // `all` rather than "": Radix Select refuses an empty-string item, so the
+  // "Semua Kategori" option could not be rendered at all.
+  const [categoryFilter, setCategoryFilter] = useState<EventCategory | "all">(
+    "all",
+  );
+  const [deleteTarget, setDeleteTarget] = useState<CalendarEvent | null>(null);
+  const [deleteScope, setDeleteScope] =
+    useState<CalendarEventDeleteScope>("SINGLE");
 
-  const { data: eventsData, isLoading } = useCalendarEvents({
+  const {
+    data: eventsData,
+    isLoading,
+    isError,
+    refetch,
+  } = useCalendarEvents({
+    page,
     limit: 50,
-    eventType: categoryFilter || undefined,
-    manage: true,
+    // Search runs on the server, before pagination: filtering the 50 rows the
+    // browser already has hid an agenda that fell on a later page.
+    search: search.trim() || undefined,
+    // The API's own filter name. The page used to send `category`, which the
+    // controller never read, so choosing a category filtered nothing (#1155).
+    eventType: categoryFilter === "all" ? undefined : categoryFilter,
   });
   const events = eventsData?.data || [];
+  const total = eventsData?.meta.total ?? 0;
+  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
+  const { user } = useAuth();
+
+  // Deleting the last row of the last page leaves the requested page beyond
+  // the new total. The API answers an empty page, so without this the list said
+  // "no events" and the pager (hidden at one page) offered no way back.
+  useEffect(() => {
+    if (eventsData && page > Math.max(1, eventsData.meta.totalPages)) {
+      setPage(Math.max(1, eventsData.meta.totalPages));
+    }
+  }, [eventsData, page]);
 
   const deleteEvent = useDeleteCalendarEvent();
 
-  // Filter events by search
-  const filteredEvents = events.filter(
-    (event) =>
-      event.title.toLowerCase().includes(search.toLowerCase()) ||
-      event.description?.toLowerCase().includes(search.toLowerCase()) ||
-      event.location?.toLowerCase().includes(search.toLowerCase()),
-  );
-
   const handleDelete = async () => {
-    if (!deleteId) return;
+    if (!deleteTarget) return;
     try {
-      await deleteEvent.mutateAsync(deleteId);
-      toast.success("Event berhasil dihapus");
-      setDeleteId(null);
+      await deleteEvent.mutateAsync({
+        id: deleteTarget.id,
+        scope: deleteScope,
+      });
+      toast.success(
+        deleteScope === "SERIES"
+          ? "Seluruh rangkaian agenda berhasil dihapus"
+          : "Agenda berhasil dihapus",
+      );
+      setDeleteTarget(null);
     } catch {
-      toast.error("Gagal menghapus event");
+      toast.error("Gagal menghapus agenda");
     }
   };
+
+  /** Whether this row is part of a series, so the dialog can offer the choice. */
+  const inSeries = (event: CalendarEvent) =>
+    event.isRecurring || !!event.recurrenceParentId;
 
   return (
     <MainLayout>
@@ -124,7 +164,7 @@ export default function EventsListPage() {
                 Lihat Kalender
               </Button>
             </Link>
-            {canWrite && (
+            {canManage && (
               <Link href="/calendar/events/new">
                 <Button>
                   <Plus className="h-4 w-4 mr-2" />
@@ -142,24 +182,29 @@ export default function EventsListPage() {
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Cari event..."
+                  placeholder={`Cari event... (maks. ${CALENDAR_EVENT_SEARCH_MAX_LENGTH} karakter)`}
+                  maxLength={CALENDAR_EVENT_SEARCH_MAX_LENGTH}
                   value={search}
-                  onChange={(e) => setSearch(e.target.value)}
+                  onChange={(e) => {
+                    setSearch(e.target.value);
+                    setPage(1);
+                  }}
                   className="pl-9"
                 />
               </div>
               <Select
                 value={categoryFilter}
-                onValueChange={(v) =>
-                  setCategoryFilter(v as EventCategory | "")
-                }
+                onValueChange={(v) => {
+                  setCategoryFilter(v as EventCategory | "all");
+                  setPage(1);
+                }}
               >
-                <SelectTrigger className="w-48">
+                <SelectTrigger className="w-48" aria-label="Saring kategori">
                   <Filter className="h-4 w-4 mr-2" />
                   <SelectValue placeholder="Semua Kategori" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="">Semua Kategori</SelectItem>
+                  <SelectItem value="all">Semua Kategori</SelectItem>
                   {EVENT_CATEGORIES.map((cat) => (
                     <SelectItem key={cat.value} value={cat.value}>
                       <div className="flex items-center gap-2">
@@ -181,9 +226,7 @@ export default function EventsListPage() {
         <Card>
           <CardHeader>
             <CardTitle>Daftar Event</CardTitle>
-            <CardDescription>
-              {filteredEvents.length} event ditemukan
-            </CardDescription>
+            <CardDescription>{total} event ditemukan</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -192,11 +235,27 @@ export default function EventsListPage() {
                   <Skeleton key={i} className="h-16" />
                 ))}
               </div>
-            ) : filteredEvents.length === 0 ? (
+            ) : isError ? (
+              <div
+                role="alert"
+                className="text-center py-12 text-muted-foreground"
+              >
+                <CalendarIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>Daftar agenda gagal dimuat.</p>
+                <p className="text-sm">Periksa koneksi lalu coba lagi.</p>
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => refetch()}
+                >
+                  Coba lagi
+                </Button>
+              </div>
+            ) : events.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <CalendarIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>Tidak ada event ditemukan</p>
-                {canWrite && (
+                {canManage && (
                   <Link href="/calendar/events/new">
                     <Button variant="outline" className="mt-4">
                       <Plus className="h-4 w-4 mr-2" />
@@ -218,7 +277,7 @@ export default function EventsListPage() {
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredEvents.map((event) => {
+                  {events.map((event) => {
                     const catConfig = getEventCategoryConfig(event.eventType);
                     return (
                       <TableRow key={event.id}>
@@ -250,16 +309,15 @@ export default function EventsListPage() {
                               locale: idLocale,
                             })}
                             {event.endDate &&
-                              event.startDate !== event.endDate && (
+                              event.startDate.slice(0, 10) !==
+                                event.endDate.slice(0, 10) && (
                                 <>
                                   {" "}
                                   -{" "}
                                   {safeFormat(
                                     new Date(event.endDate),
                                     "d MMM",
-                                    {
-                                      locale: idLocale,
-                                    },
+                                    { locale: idLocale },
                                   )}
                                 </>
                               )}
@@ -302,25 +360,29 @@ export default function EventsListPage() {
                                   Lihat Detail
                                 </DropdownMenuItem>
                               </Link>
-                              {canWrite && (
-                                <>
-                                  <Link
-                                    href={`/calendar/events/${event.id}/edit`}
-                                  >
-                                    <DropdownMenuItem>
-                                      <Edit className="h-4 w-4 mr-2" />
-                                      Edit
+                              {canManage &&
+                                canModifyCalendarEvent(user, event) && (
+                                  <>
+                                    <Link
+                                      href={`/calendar/events/${event.id}/edit`}
+                                    >
+                                      <DropdownMenuItem>
+                                        <Edit className="h-4 w-4 mr-2" />
+                                        Edit
+                                      </DropdownMenuItem>
+                                    </Link>
+                                    <DropdownMenuItem
+                                      className="text-red-600"
+                                      onClick={() => {
+                                        setDeleteScope("SINGLE");
+                                        setDeleteTarget(event);
+                                      }}
+                                    >
+                                      <Trash2 className="h-4 w-4 mr-2" />
+                                      Hapus
                                     </DropdownMenuItem>
-                                  </Link>
-                                  <DropdownMenuItem
-                                    className="text-red-600"
-                                    onClick={() => setDeleteId(event.id)}
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Hapus
-                                  </DropdownMenuItem>
-                                </>
-                              )}
+                                  </>
+                                )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>
@@ -333,16 +395,73 @@ export default function EventsListPage() {
           </CardContent>
         </Card>
 
+        {eventsData && eventsData.meta.totalPages > 1 && (
+          <Pagination
+            page={page}
+            totalPages={eventsData.meta.totalPages}
+            pageSize={eventsData.meta.limit}
+            total={eventsData.meta.total}
+            onPageChange={setPage}
+          />
+        )}
+
         {/* Delete Confirmation */}
-        <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
+        <AlertDialog
+          open={!!deleteTarget}
+          onOpenChange={(open) => {
+            if (!open) setDeleteTarget(null);
+          }}
+        >
           <AlertDialogContent>
             <AlertDialogHeader>
-              <AlertDialogTitle>Hapus Event?</AlertDialogTitle>
+              <AlertDialogTitle>Hapus Agenda?</AlertDialogTitle>
               <AlertDialogDescription>
-                Event yang dihapus tidak dapat dikembalikan. Apakah Anda yakin
-                ingin melanjutkan?
+                Agenda yang dihapus tidak dapat dikembalikan.
+                {deleteTarget && inSeries(deleteTarget) && (
+                  <>
+                    {" "}
+                    Agenda ini bagian dari rangkaian berulang — pilih apakah
+                    hanya kemunculan ini atau seluruh rangkaian yang dihapus.
+                  </>
+                )}
               </AlertDialogDescription>
             </AlertDialogHeader>
+
+            {deleteTarget && inSeries(deleteTarget) && (
+              <div className="space-y-2 py-2">
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="delete-scope"
+                    className="mt-1"
+                    checked={deleteScope === "SINGLE"}
+                    onChange={() => setDeleteScope("SINGLE")}
+                  />
+                  <span>
+                    <span className="font-medium">Hanya agenda ini</span>
+                    <span className="block text-muted-foreground">
+                      Kemunculan lain dari rangkaian tetap ada.
+                    </span>
+                  </span>
+                </label>
+                <label className="flex items-start gap-2 text-sm cursor-pointer">
+                  <input
+                    type="radio"
+                    name="delete-scope"
+                    className="mt-1"
+                    checked={deleteScope === "SERIES"}
+                    onChange={() => setDeleteScope("SERIES")}
+                  />
+                  <span>
+                    <span className="font-medium">Seluruh rangkaian</span>
+                    <span className="block text-muted-foreground">
+                      Semua kemunculan agenda berulang ini ikut dihapus.
+                    </span>
+                  </span>
+                </label>
+              </div>
+            )}
+
             <AlertDialogFooter>
               <AlertDialogCancel>Batal</AlertDialogCancel>
               <AlertDialogAction

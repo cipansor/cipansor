@@ -39,6 +39,8 @@ import {
 } from "@/hooks/use-calendar";
 import { useUnits } from "@/hooks/use-units";
 import { useAuthStore } from "@/stores/auth";
+import { usePermission } from "@/hooks/use-permission";
+import { PERMISSIONS } from "@/constants/permissions";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -71,7 +73,6 @@ import {
 } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
 import Link from "next/link";
-import { useCanWriteCalendar } from "@/hooks/use-calendar-permissions";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   GraduationCap,
@@ -84,7 +85,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function AcademicCalendarPage() {
-  const canWrite = useCanWriteCalendar();
+  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | "">(
@@ -152,8 +153,9 @@ export default function AcademicCalendarPage() {
   const getEventsForDay = (date: Date): CalendarEvent[] => {
     const dateStr = format(date, "yyyy-MM-dd");
     return filteredEvents.filter((event) => {
-      const eventStart = event.startDate.split("T")[0];
-      const eventEnd = (event.endDate ?? event.startDate).split("T")[0];
+      const eventStart = event.startDate.slice(0, 10);
+      // A one-day event has no `endDate`: it occupies its start day only.
+      const eventEnd = event.endDate ? event.endDate.slice(0, 10) : eventStart;
       return dateStr >= eventStart && dateStr <= eventEnd;
     });
   };
@@ -184,16 +186,16 @@ export default function AcademicCalendarPage() {
               Jadwal kegiatan dan event pesantren
             </p>
           </div>
-          {canWrite && (
-            <div className="flex gap-2">
+          <div className="flex gap-2">
+            {canManage && (
               <Link href="/calendar/events/new">
                 <Button>
                   <Plus className="h-4 w-4 mr-2" />
                   Tambah Event
                 </Button>
               </Link>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Filters & Controls */}
@@ -427,6 +429,7 @@ export default function AcademicCalendarPage() {
                       return (
                         <div
                           key={idx}
+                          data-testid="calendar-day"
                           className={`
                             min-h-[120px] border-b border-r p-1 transition-colors
                             ${!isCurrentMonth ? "bg-muted/30 text-muted-foreground" : ""}
@@ -559,7 +562,8 @@ export default function AcademicCalendarPage() {
                                   },
                                 )}
                                 {event.endDate &&
-                                  event.startDate !== event.endDate && (
+                                  event.startDate.slice(0, 10) !==
+                                    event.endDate.slice(0, 10) && (
                                     <>
                                       {" "}
                                       -{" "}
@@ -734,7 +738,8 @@ export default function AcademicCalendarPage() {
                           { locale: idLocale },
                         )}
                         {selectedEvent.endDate &&
-                          selectedEvent.startDate !== selectedEvent.endDate && (
+                          selectedEvent.startDate.slice(0, 10) !==
+                            selectedEvent.endDate.slice(0, 10) && (
                             <>
                               {" "}
                               -{" "}
@@ -783,7 +788,7 @@ export default function AcademicCalendarPage() {
                     >
                       Tutup
                     </Button>
-                    {canWrite && (
+                    {canManage && (
                       <Link href={`/calendar/events/${selectedEvent.id}/edit`}>
                         <Button variant="default">Edit Event</Button>
                       </Link>

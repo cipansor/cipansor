@@ -8,6 +8,7 @@ import {
   CreateTransactionSchema,
   UpdateStatusSchema,
   ProcessPaymentSchema,
+  ListTransactionsQuerySchema,
   TransactionStatsQuerySchema,
 } from './laundry.schema';
 import * as controller from './laundry.controller';
@@ -40,13 +41,12 @@ router.put(
 router.delete('/pricing/:id', authorize(...ADMIN_ROLES), controller.deletePricing);
 
 // ==================== TRANSACTION ====================
-router.get('/transactions', controller.listTransactions);
 router.get(
-  '/transactions/stats',
-  authorize(...OPERATE_ROLES),
-  validateQuery(TransactionStatsQuerySchema),
-  controller.getStats
+  '/transactions',
+  validateQuery(ListTransactionsQuerySchema),
+  controller.listTransactions
 );
+router.get('/transactions/stats', validateQuery(TransactionStatsQuerySchema), controller.getStats);
 router.get('/transactions/ready', authorize(...OPERATE_ROLES), controller.getReadyForPickup);
 router.get('/transactions/student/:studentId', controller.getByStudent);
 router.get('/transactions/:id', controller.getTransaction);

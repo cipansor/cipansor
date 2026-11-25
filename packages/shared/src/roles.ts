@@ -305,6 +305,7 @@ export const CALENDAR_FOUNDATION_WRITE_ROLE_CODES: readonly string[] = [
  * admins, and the Pengurus who publish the foundation-wide agenda. */
 export const CALENDAR_WRITE_ROLE_CODES: readonly string[] = [
   ...ADMIN_ROLE_CODES,
+  ...PRINCIPAL_ROLE_CODES,
   ...PENGURUS_ROLE_CODES,
 ];
 

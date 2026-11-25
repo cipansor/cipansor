@@ -52,3 +52,28 @@ describe("activeNavHref — the one entry a page belongs to", () => {
     expect(lit.map((i) => i.title)).toEqual(["Absensi Harian"]);
   });
 });
+
+describe("kepala sekolah sees the academic calendar", () => {
+  const hrefs = (menu: NavGroup[]): string[] =>
+    menu.flatMap((group) =>
+      group.items.flatMap((item) => [
+        item.href,
+        ...(item.children ?? []).map((child) => child.href),
+      ]),
+    );
+
+  it.each([
+    "TKQ_KEPALA_SEKOLAH",
+    "SDIT_KEPALA_SEKOLAH",
+    "SMPIT_KEPALA_SEKOLAH",
+    "SMAQ_KEPALA_SEKOLAH",
+  ])("%s", (roleCode) => {
+    expect(hrefs(getNavigationForRoleCode(roleCode))).toContain("/calendar");
+  });
+
+  it("a guru does not get the calendar menu", () => {
+    expect(hrefs(getNavigationForRoleCode("SDIT_GURU"))).not.toContain(
+      "/calendar",
+    );
+  });
+});

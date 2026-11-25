@@ -1,0 +1,13 @@
+-- Kategori "Ujian/Asesmen" pada kalender, #1155.
+--
+-- Kaldik Dinas Pendidikan mencantumkan masa asesmen sumatif tengah dan akhir
+-- semester sebagai agenda tersendiri, begitu pula UTS/UAS di kaldik madrasah.
+-- Tanpa nilai sendiri, masa ujian tersimpan sebagai ACADEMIC dan tidak bisa
+-- disaring atau dihitung terpisah — padahal justru itu yang dicari TU saat
+-- menyusun kalender pendidikan.
+--
+-- `ALTER TYPE ... ADD VALUE` tidak boleh dipakai dalam transaksi yang sama
+-- dengan pemakaian nilai barunya, karena itu statement ini berdiri sendiri di
+-- migrasinya sendiri. Ia tidak mengubah satu baris pun: nilai lama tetap, dan
+-- tidak ada baris ber-EXAM di database mana pun sebelum migrasi ini.
+ALTER TYPE "EventType" ADD VALUE IF NOT EXISTS 'EXAM';

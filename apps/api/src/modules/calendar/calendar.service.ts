@@ -1,35 +1,27 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
-import { Prisma, EventType, EventScope } from '@prisma/client';
+import { UserRole, Prisma, EventType, EventScope } from '@prisma/client';
 import {
   CALENDAR_FOUNDATION_WRITE_ROLE_CODES,
   CALENDAR_WRITE_ROLE_CODES,
+  CLASS_ENROLLMENT_STATUS,
+  PARENT_ROLE_CODES,
+  STUDENT_ROLE_CODES,
   UNIT_ADMIN_ROLE_CODES,
+  createCalendarEventSchema,
+  type CalendarEventDeleteScope,
+  type EventRecurrenceCode,
+  type ListCalendarEventsQuery,
+  type ParsedCalendarEventPayload,
 } from '@cipansor/shared';
 import { isFoundationScopedRole, seesAllUnits } from '@/utils/resolve-unit-id';
-import { shiftWibDay, todayWib, wibDayOf, wibDayStart, wibTimeOnDay } from '@/utils/wib';
-import type { CalendarEventsQuery } from './calendar.schema';
+import { dayDate, shiftWibDay, todayWib, wibDayOf, wibDayStart, wibTimeOnDay } from '@/utils/wib';
+import { daysBetween, occurrenceDays, recurrenceRuleFor } from './calendar-recurrence';
 
-interface CreateEventInput {
-  unitId?: string;
-  classId?: string;
-  title: string;
-  description?: string;
-  eventType: EventType;
-  scope?: EventScope;
-  startDate: string;
-  endDate?: string;
-  isAllDay?: boolean;
-  startTime?: string;
-  endTime?: string;
-  location?: string;
-  isOnline?: boolean;
-  onlineUrl?: string;
-  isRecurring?: boolean;
-  recurrenceRule?: string;
-  isPublic?: boolean;
-  color?: string;
-}
+type ListEventsQuery = ListCalendarEventsQuery;
+
+/** A parsed payload: every default filled in and every day normalised. */
+type CreateEventInput = ParsedCalendarEventPayload;
 
 interface UpdateEventInput {
   title?: string;
@@ -64,11 +56,162 @@ interface AuthenticatedUser {
   unitId: string | null;
 }
 
+/**
+ * The classes a student or guardian may see class-scoped events for, or `null`
+ * when the caller is staff and sees every class in its unit.
+ *
+ * A class event names its audience by `classId`; the list's unit scope alone
+ * therefore handed a santri every other class's private agenda in the same
+ * unit. Staff keep the wider view they manage.
+ */
+async function visibleClassIds(user: AuthenticatedUser): Promise<string[] | null> {
+  const roleCode = user.roleCode ?? '';
+  const student = STUDENT_ROLE_CODES.includes(roleCode);
+  const parent = PARENT_ROLE_CODES.includes(roleCode);
+  if (!student && !parent) return null;
+
+  const enrolled = {
+    where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
+    select: { classId: true },
+  } as const;
+  const record = await prisma.user.findUnique({
+    where: { id: user.sub },
+    select: {
+      student: { select: { enrollments: enrolled } },
+      parentOf: { select: { student: { select: { enrollments: enrolled } } } },
+    },
+  });
+
+  const classIds = new Set<string>();
+  for (const e of record?.student?.enrollments ?? []) classIds.add(e.classId);
+  for (const p of record?.parentOf ?? []) {
+    for (const e of p.student.enrollments) classIds.add(e.classId);
+  }
+  return [...classIds];
+}
+
 export class CalendarService {
+  private canWriteCalendar(currentUser: AuthenticatedUser): boolean {
+    return !!currentUser.roleCode && CALENDAR_WRITE_ROLE_CODES.includes(currentUser.roleCode);
+  }
+
+  private canPublishFoundationWide(currentUser: AuthenticatedUser): boolean {
+    return (
+      !!currentUser.roleCode && CALENDAR_FOUNDATION_WRITE_ROLE_CODES.includes(currentUser.roleCode)
+    );
+  }
+
+  private isSuperAdmin(currentUser: AuthenticatedUser): boolean {
+    return currentUser.roleCode === 'SUPER_ADMIN';
+  }
+
+  private isUnitAdmin(currentUser: AuthenticatedUser): boolean {
+    return !!currentUser.roleCode && UNIT_ADMIN_ROLE_CODES.includes(currentUser.roleCode);
+  }
+
+  private bypassesClassScope(currentUser: AuthenticatedUser): boolean {
+    return isFoundationScopedRole(currentUser.roleCode);
+  }
+
+  /** Who may change an event: its creator, the Super Admin, the admin of the
+   * event's unit, or a Pengurus for a foundation-wide event. */
+  private canManageEvent(
+    event: { createdById: string; unitId: string | null },
+    currentUser: AuthenticatedUser
+  ): boolean {
+    if (!this.canWriteCalendar(currentUser)) return false;
+    if (this.isSuperAdmin(currentUser) || event.createdById === currentUser.sub) return true;
+    if (
+      this.isUnitAdmin(currentUser) &&
+      !!currentUser.unitId &&
+      event.unitId === currentUser.unitId
+    ) {
+      return true;
+    }
+    return this.canPublishFoundationWide(currentUser) && event.unitId === null;
+  }
+
+  /**
+   * Classes whose private events the user may read: their own enrollment, a
+   * class they homeroom or teach, or a class their child is enrolled in.
+   * Students and guardians keep the lighter lookup used by the list.
+   */
+  private async classIdsVisibleTo(currentUser: AuthenticatedUser): Promise<string[]> {
+    const simple = await visibleClassIds(currentUser);
+    if (simple) return simple;
+
+    const classes = await prisma.class.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { enrollments: { some: { status: 'active', student: { userId: currentUser.sub } } } },
+          { homeroomTeacher: { is: { userId: currentUser.sub } } },
+          {
+            teacherSubjects: {
+              some: { isActive: true, teacher: { userId: currentUser.sub } },
+            },
+          },
+          {
+            enrollments: {
+              some: {
+                status: 'active',
+                student: { parents: { some: { parentId: currentUser.sub } } },
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    return classes.map((kelas) => kelas.id);
+  }
+
+  private async classScopeWhere(
+    currentUser: AuthenticatedUser
+  ): Promise<Prisma.CalendarEventWhereInput | null> {
+    if (this.bypassesClassScope(currentUser)) return null;
+
+    const classIds = await this.classIdsVisibleTo(currentUser);
+    const or: Prisma.CalendarEventWhereInput[] = [
+      { scope: { not: EventScope.SPECIFIC_CLASS } },
+      { scope: EventScope.SPECIFIC_CLASS, createdById: currentUser.sub },
+    ];
+    if (classIds.length) {
+      or.push({ scope: EventScope.SPECIFIC_CLASS, classId: { in: classIds } });
+    }
+    return { OR: or };
+  }
+
+  /** The management list adds every class event of the admin's own unit, so a
+   * unit admin can find and delete one created by another writer. */
+  private async managementClassScopeWhere(
+    currentUser: AuthenticatedUser
+  ): Promise<Prisma.CalendarEventWhereInput | null> {
+    if (this.bypassesClassScope(currentUser)) return null;
+
+    const classIds = await this.classIdsVisibleTo(currentUser);
+    const or: Prisma.CalendarEventWhereInput[] = [
+      { scope: { not: EventScope.SPECIFIC_CLASS } },
+      { scope: EventScope.SPECIFIC_CLASS, createdById: currentUser.sub },
+    ];
+    if (this.isUnitAdmin(currentUser) && currentUser.unitId) {
+      or.push({ scope: EventScope.SPECIFIC_CLASS, unitId: currentUser.unitId });
+    }
+    if (classIds.length) {
+      or.push({ scope: EventScope.SPECIFIC_CLASS, classId: { in: classIds } });
+    }
+    return { OR: or };
+  }
+
+  private assertUnitScope(unitId: string, currentUser: AuthenticatedUser) {
+    if (!seesAllUnits(currentUser) && currentUser.unitId !== unitId) {
+      throw Errors.forbidden('Tidak dapat melihat agenda unit lain');
+    }
+  }
   /**
    * List calendar events
    */
-  async findAll(query: CalendarEventsQuery, currentUser: AuthenticatedUser) {
+  async findAll(query: ListEventsQuery, currentUser: AuthenticatedUser) {
     const {
       page,
       limit,
@@ -86,7 +229,15 @@ export class CalendarService {
 
     const where: Prisma.CalendarEventWhereInput = {
       deletedAt: null,
+      // A draft is a holiday a third-party source suggested but nobody has
+      // reviewed (decisions/absensi-pegawai.md). `getHolidays` always filtered
+      // it out; this list did not, so an unapproved import showed up on the
+      // live calendar before anyone had looked at it (#1155).
+      isDraft: false,
     };
+    // Everything that narrows the unit scope goes here, never into `where.OR`:
+    // that OR carries the unit scope, and overwriting it returned every unit's
+    // private events.
     const and: Prisma.CalendarEventWhereInput[] = [];
 
     // Filter by unit.
@@ -99,6 +250,20 @@ export class CalendarService {
       where.OR = [{ unitId: currentUser.unitId }, { unitId: null, isPublic: true }];
     } else if (unitId) {
       where.unitId = unitId;
+    }
+
+    // A class event is addressed to that class. A santri or wali sees their own
+    // classes' events, never another class's in the same unit. Staff see the
+    // class events they teach or homeroom; a unit admin's management list also
+    // includes its unit's class events so it can correct them.
+    const studentParentScope = await visibleClassIds(currentUser);
+    if (studentParentScope) {
+      and.push({ OR: [{ classId: null }, { classId: { in: studentParentScope } }] });
+    } else {
+      const classScope = query.manage
+        ? await this.managementClassScopeWhere(currentUser)
+        : await this.classScopeWhere(currentUser);
+      if (classScope) and.push(classScope);
     }
 
     if (classId) {
@@ -126,31 +291,29 @@ export class CalendarService {
       rangeEnd = new Date(year, month, 0);
     }
     if (rangeStart || rangeEnd) {
-      const overlapping: Prisma.CalendarEventWhereInput[] = [];
-      if (rangeEnd) overlapping.push({ startDate: { lte: rangeEnd } });
+      if (rangeEnd) and.push({ startDate: { lte: rangeEnd } });
       if (rangeStart) {
-        overlapping.push({
+        and.push({
           OR: [{ endDate: { gte: rangeStart } }, { endDate: null, startDate: { gte: rangeStart } }],
         });
       }
-      and.push(...overlapping);
     }
 
-    // Search must not replace the unit `OR`: a unit user who searched saw
-    // every unit's events because this clause overwrote the scope.
+    // Search runs before pagination, on the server: filtering the page the
+    // browser already has hid every later occurrence of a recurring agenda.
+    // `%` and `_` are LIKE wildcards, so a literal "100%" would also match
+    // "100"; escape them (and the escape character itself) before Prisma sends
+    // the value as a pattern.
     if (search) {
+      const literalSearch = search.replace(/[\\%_]/g, '\\$&');
       and.push({
         OR: [
-          { title: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
+          { title: { contains: literalSearch, mode: 'insensitive' } },
+          { description: { contains: literalSearch, mode: 'insensitive' } },
+          { location: { contains: literalSearch, mode: 'insensitive' } },
         ],
       });
     }
-
-    const classScope = query.manage
-      ? await this.managementClassScopeWhere(currentUser)
-      : await this.classScopeWhere(currentUser);
-    if (classScope) and.push(classScope);
 
     if (and.length) where.AND = and;
 
@@ -159,7 +322,11 @@ export class CalendarService {
         where,
         skip,
         take: limit,
-        orderBy: { startDate: 'asc' },
+        // `id` breaks ties between events that start on the same day: without
+        // it the database may order a tie differently per query, so a row can
+        // appear on two pages or on none while the month grid stitches pages
+        // together.
+        orderBy: [{ startDate: 'asc' }, { id: 'asc' }],
         include: {
           unit: { select: { id: true, name: true } },
           class: { select: { id: true, name: true } },
@@ -206,14 +373,14 @@ export class CalendarService {
       if (!ownUnit && !foundationPublic) {
         throw Errors.forbidden('Access denied');
       }
-      if (event.scope === EventScope.SPECIFIC_CLASS && !this.bypassesClassScope(currentUser)) {
+      if (event.classId && !this.bypassesClassScope(currentUser)) {
         const managesUnit =
           this.isUnitAdmin(currentUser) &&
           !!currentUser.unitId &&
           event.unitId === currentUser.unitId;
         if (event.createdById !== currentUser.sub && !managesUnit) {
-          const classIds = await this.classIdsVisibleTo(currentUser.sub);
-          if (!event.classId || !classIds.includes(event.classId)) {
+          const classIds = await this.classIdsVisibleTo(currentUser);
+          if (!classIds.includes(event.classId)) {
             throw Errors.forbidden('Access denied');
           }
         }
@@ -224,16 +391,25 @@ export class CalendarService {
   }
 
   /**
-   * Create calendar event
+   * Create calendar event — and, when it repeats, every occurrence with it.
+   *
+   * A series is materialised in one transaction: the parent (the first
+   * occurrence) and one row per later occurrence pointing back at it. All or
+   * nothing, so a half-written series never reaches the calendar.
    */
   async create(input: CreateEventInput, currentUser: AuthenticatedUser) {
     if (!this.canWriteCalendar(currentUser)) {
       throw Errors.forbidden('Peran ini tidak dapat menulis agenda kalender');
     }
-    const foundationWide = this.canPublishFoundationWide(currentUser);
-    let unitId = input.unitId || null;
 
-    if (!foundationWide) {
+    // A unit admin writes into its own unit, whatever the body says — including
+    // an empty unit, which used to mean "the whole yayasan" and let a school's
+    // admin publish a foundation-wide holiday from the form's default. Only a
+    // foundation role may name a unit or omit one.
+    const foundationScope =
+      isFoundationScopedRole(currentUser.roleCode) || currentUser.role === UserRole.SUPER_ADMIN;
+    let unitId = input.unitId || null;
+    if (!foundationScope) {
       if (!currentUser.unitId) {
         throw Errors.forbidden('Akun ini tidak terikat pada unit mana pun');
       }
@@ -256,62 +432,81 @@ export class CalendarService {
       unitId = unitId || kelas.unitId;
     }
 
-    let scope = input.scope;
-    if (classId) {
-      if (scope && scope !== EventScope.SPECIFIC_CLASS) {
-        throw Errors.badRequest('Event kelas harus bercakupan SPECIFIC_CLASS');
-      }
-      scope = EventScope.SPECIFIC_CLASS;
-    } else if (!unitId) {
-      if (scope && scope !== EventScope.ALL_UNITS) {
-        throw Errors.badRequest('Event tanpa unit harus bercakupan ALL_UNITS');
-      }
-      scope = EventScope.ALL_UNITS;
-    } else {
-      if (scope === EventScope.ALL_UNITS) {
-        if (!foundationWide) {
-          throw Errors.forbidden(
-            'Hanya pengurus yayasan yang dapat membuat agenda seluruh yayasan'
-          );
-        }
-        throw Errors.badRequest('Event dengan unit tidak dapat bercakupan ALL_UNITS');
-      }
-      if (scope === EventScope.SPECIFIC_CLASS) {
-        throw Errors.badRequest('Event tanpa kelas tidak dapat bercakupan SPECIFIC_CLASS');
-      }
-      scope = scope || EventScope.SPECIFIC_UNIT;
+    const recurrence = input.recurrence ?? 'NONE';
+    const startDate = dayDate(input.startDate);
+    const endDate = input.endDate ? dayDate(input.endDate) : null;
+    const daySpan = input.endDate ? daysBetween(input.startDate, input.endDate) : 0;
+
+    // `scope` is derived, not sent: the unit and class columns are what decide
+    // who sees the event, and a form's own `scope` could contradict them.
+    const scope = classId
+      ? EventScope.SPECIFIC_CLASS
+      : unitId
+        ? EventScope.SPECIFIC_UNIT
+        : EventScope.ALL_UNITS;
+
+    const shared = {
+      unitId,
+      classId,
+      title: input.title,
+      description: input.description ?? null,
+      eventType: input.eventType,
+      scope,
+      isAllDay: input.isAllDay ?? false,
+      startTime: input.startTime ?? null,
+      endTime: input.endTime ?? null,
+      location: input.location ?? null,
+      isOnline: input.isOnline ?? false,
+      onlineUrl: input.onlineUrl ?? null,
+      isPublic: input.isPublic ?? true,
+      color: input.color ?? null,
+      createdById: currentUser.sub,
+    };
+
+    const include = {
+      unit: { select: { id: true, name: true } },
+      class: { select: { id: true, name: true } },
+      createdBy: { select: { id: true, name: true } },
+    } as const;
+
+    if (recurrence === 'NONE' || !input.recurrenceEnd) {
+      return prisma.calendarEvent.create({
+        data: { ...shared, startDate, endDate, isRecurring: false },
+        include,
+      });
     }
 
-    const event = await prisma.calendarEvent.create({
-      data: {
-        unitId,
-        classId,
-        title: input.title,
-        description: input.description,
-        eventType: input.eventType,
-        scope,
-        startDate: new Date(input.startDate),
-        endDate: input.endDate ? new Date(input.endDate) : null,
-        isAllDay: input.isAllDay ?? false,
-        startTime: input.startTime,
-        endTime: input.endTime,
-        location: input.location,
-        isOnline: input.isOnline ?? false,
-        onlineUrl: input.onlineUrl,
-        isRecurring: input.isRecurring ?? false,
-        recurrenceRule: input.recurrenceRule,
-        isPublic: input.isPublic ?? true,
-        color: input.color,
-        createdById: currentUser.sub,
-      },
-      include: {
-        unit: { select: { id: true, name: true } },
-        class: { select: { id: true, name: true } },
-        createdBy: { select: { id: true, name: true } },
-      },
-    });
+    const frequency = recurrence as Exclude<EventRecurrenceCode, 'NONE'>;
+    const rule = recurrenceRuleFor(frequency, input.recurrenceEnd);
+    const occurrences = occurrenceDays(input.startDate, frequency, input.recurrenceEnd);
 
-    return event;
+    return prisma.$transaction(async (tx) => {
+      const parent = await tx.calendarEvent.create({
+        data: {
+          ...shared,
+          startDate,
+          endDate,
+          isRecurring: true,
+          recurrenceRule: rule,
+        },
+        include,
+      });
+
+      for (const day of occurrences) {
+        await tx.calendarEvent.create({
+          data: {
+            ...shared,
+            startDate: dayDate(day),
+            endDate: endDate ? dayDate(shiftWibDay(day, daySpan)) : null,
+            isRecurring: true,
+            recurrenceRule: rule,
+            recurrenceParentId: parent.id,
+          },
+        });
+      }
+
+      return parent;
+    });
   }
 
   /**
@@ -324,30 +519,20 @@ export class CalendarService {
       throw Errors.forbidden('Cannot edit this event');
     }
 
-    const foundationWide = this.canPublishFoundationWide(currentUser);
     let scope = input.scope;
-    if (!foundationWide) {
-      const expected = event.classId ? EventScope.SPECIFIC_CLASS : EventScope.SPECIFIC_UNIT;
+    if (!this.canPublishFoundationWide(currentUser)) {
       if (scope === EventScope.ALL_UNITS) {
         throw Errors.forbidden('Hanya pengurus yayasan yang dapat membuat agenda seluruh yayasan');
       }
+      const expected = event.classId
+        ? EventScope.SPECIFIC_CLASS
+        : event.unitId
+          ? EventScope.SPECIFIC_UNIT
+          : EventScope.ALL_UNITS;
       if (scope && scope !== expected) {
         throw Errors.badRequest(`Event ini harus bercakupan ${expected}`);
       }
       scope = expected;
-    } else if (scope) {
-      if (event.classId && scope !== EventScope.SPECIFIC_CLASS) {
-        throw Errors.badRequest('Event kelas harus bercakupan SPECIFIC_CLASS');
-      }
-      if (!event.classId && scope === EventScope.SPECIFIC_CLASS) {
-        throw Errors.badRequest('Event tanpa kelas tidak dapat bercakupan SPECIFIC_CLASS');
-      }
-      if (!event.unitId && scope !== EventScope.ALL_UNITS) {
-        throw Errors.badRequest('Event tanpa unit harus bercakupan ALL_UNITS');
-      }
-      if (event.unitId && scope === EventScope.ALL_UNITS) {
-        throw Errors.badRequest('Event dengan unit tidak dapat bercakupan ALL_UNITS');
-      }
     }
 
     const updated = await prisma.calendarEvent.update({
@@ -381,156 +566,44 @@ export class CalendarService {
   }
 
   /**
-   * Soft delete event
+   * Soft delete event — one occurrence, or the whole series.
+   *
+   * Delete here is a soft delete (`deletedAt`), so a series delete marks the
+   * parent and every child in one statement — atomic by itself, since a single
+   * `updateMany` either lands on all matching rows or on none. `SERIES` on an
+   * event that is not part of a series just deletes it; there is nothing else
+   * to mark.
    */
-  async delete(id: string, currentUser: AuthenticatedUser) {
+  async delete(
+    id: string,
+    currentUser: AuthenticatedUser,
+    scope: CalendarEventDeleteScope = 'SINGLE'
+  ) {
     const event = await this.findById(id, currentUser);
 
     if (!this.canManageEvent(event, currentUser)) {
       throw Errors.forbidden('Cannot delete this event');
     }
 
-    await prisma.calendarEvent.update({
-      where: { id },
-      data: { deletedAt: new Date() },
+    const deletedAt = new Date();
+
+    if (scope !== 'SERIES') {
+      await prisma.calendarEvent.update({ where: { id }, data: { deletedAt } });
+      return { success: true };
+    }
+
+    // A child names its parent; a parent is found by the children that point
+    // at it. Either way the whole series is one parent id.
+    const parentId = event.recurrenceParentId ?? event.id;
+    await prisma.calendarEvent.updateMany({
+      where: {
+        deletedAt: null,
+        OR: [{ id: parentId }, { recurrenceParentId: parentId }],
+      },
+      data: { deletedAt },
     });
 
     return { success: true };
-  }
-
-  /**
-   * Publishing a foundation-wide agenda is a foundation act, not a read
-   * breadth: the Pengawas and Pembina read across units but do not write the
-   * agenda they supervise. Only the Super Admin and the Pengurus publish it.
-   */
-  private canPublishFoundationWide(currentUser: AuthenticatedUser): boolean {
-    return (
-      !!currentUser.roleCode && CALENDAR_FOUNDATION_WRITE_ROLE_CODES.includes(currentUser.roleCode)
-    );
-  }
-
-  private canWriteCalendar(currentUser: AuthenticatedUser): boolean {
-    return !!currentUser.roleCode && CALENDAR_WRITE_ROLE_CODES.includes(currentUser.roleCode);
-  }
-
-  private isSuperAdmin(currentUser: AuthenticatedUser): boolean {
-    return currentUser.roleCode === 'SUPER_ADMIN';
-  }
-
-  private isUnitAdmin(currentUser: AuthenticatedUser): boolean {
-    return !!currentUser.roleCode && UNIT_ADMIN_ROLE_CODES.includes(currentUser.roleCode);
-  }
-
-  /**
-   * Who may change an event: its creator, the Super Admin, the admin of the
-   * event's unit (including a class event the admin does not teach), and a
-   * Pengurus for a foundation-wide event.
-   */
-  private canManageEvent(
-    event: { createdById: string; unitId: string | null },
-    currentUser: AuthenticatedUser
-  ): boolean {
-    if (!this.canWriteCalendar(currentUser)) return false;
-    if (this.isSuperAdmin(currentUser) || event.createdById === currentUser.sub) return true;
-    if (
-      this.isUnitAdmin(currentUser) &&
-      !!currentUser.unitId &&
-      event.unitId === currentUser.unitId
-    ) {
-      return true;
-    }
-    return this.canPublishFoundationWide(currentUser) && event.unitId === null;
-  }
-
-  /** Reading a class event is wider than writing it: the foundation's
-   * oversight organs read every unit, but `canManageEvent` still governs the
-   * writes. */
-  private bypassesClassScope(currentUser: AuthenticatedUser): boolean {
-    return isFoundationScopedRole(currentUser.roleCode);
-  }
-
-  /**
-   * Classes whose private events the user may read: their own enrollment, a
-   * class they homeroom or teach, or a class their child is enrolled in.
-   */
-  private async classIdsVisibleTo(userId: string): Promise<string[]> {
-    const classes = await prisma.class.findMany({
-      where: {
-        deletedAt: null,
-        OR: [
-          { enrollments: { some: { status: 'active', student: { userId } } } },
-          { homeroomTeacher: { is: { userId } } },
-          { teacherSubjects: { some: { isActive: true, teacher: { userId } } } },
-          {
-            enrollments: {
-              some: {
-                status: 'active',
-                student: { parents: { some: { parentId: userId } } },
-              },
-            },
-          },
-        ],
-      },
-      select: { id: true },
-    });
-    return classes.map((kelas) => kelas.id);
-  }
-
-  /**
-   * A class-scoped event is readable by its creator, the class members above,
-   * and foundation roles. Without this a private class event reached every
-   * user of the unit, because the unit `OR` was the only read gate.
-   */
-  private async classScopeWhere(
-    currentUser: AuthenticatedUser
-  ): Promise<Prisma.CalendarEventWhereInput | null> {
-    if (this.bypassesClassScope(currentUser)) return null;
-
-    const classIds = await this.classIdsVisibleTo(currentUser.sub);
-    const or: Prisma.CalendarEventWhereInput[] = [
-      { scope: { not: EventScope.SPECIFIC_CLASS } },
-      { scope: EventScope.SPECIFIC_CLASS, createdById: currentUser.sub },
-    ];
-    if (classIds.length) {
-      or.push({ scope: EventScope.SPECIFIC_CLASS, classId: { in: classIds } });
-    }
-    return { OR: or };
-  }
-
-  /**
-   * The management list adds every class event of the admin's own unit, so the
-   * unit admin can find and delete one created by the Super Admin or another
-   * teacher. The calendar list keeps `classScopeWhere`, so this does not open a
-   * class agenda to ordinary users outside the class.
-   */
-  private async managementClassScopeWhere(
-    currentUser: AuthenticatedUser
-  ): Promise<Prisma.CalendarEventWhereInput | null> {
-    if (this.bypassesClassScope(currentUser)) return null;
-
-    const classIds = await this.classIdsVisibleTo(currentUser.sub);
-    const or: Prisma.CalendarEventWhereInput[] = [
-      { scope: { not: EventScope.SPECIFIC_CLASS } },
-      { scope: EventScope.SPECIFIC_CLASS, createdById: currentUser.sub },
-    ];
-    if (this.isUnitAdmin(currentUser) && currentUser.unitId) {
-      or.push({ scope: EventScope.SPECIFIC_CLASS, unitId: currentUser.unitId });
-    }
-    if (classIds.length) {
-      or.push({ scope: EventScope.SPECIFIC_CLASS, classId: { in: classIds } });
-    }
-    return { OR: or };
-  }
-
-  /**
-   * A unit's private events are readable only by a session whose active role
-   * covers that unit. A unit user naming another unit is refused, not silently
-   * served their own agenda under the other unit's name.
-   */
-  private assertUnitScope(unitId: string, currentUser: AuthenticatedUser) {
-    if (!seesAllUnits(currentUser) && currentUser.unitId !== unitId) {
-      throw Errors.forbidden('Tidak dapat melihat agenda unit lain');
-    }
   }
 
   /**
@@ -657,24 +730,31 @@ export class CalendarService {
   }
 
   /**
-   * Bulk create events
+   * Bulk create events.
+   *
+   * Each row is parsed by the shared write contract first: the import route
+   * does not run the Zod middleware, and an ISO instant handed straight to
+   * `dayDate()` became `…Z T00:00:00.000Z`, which Prisma rejected. Parsing here
+   * normalises the day and reports a bad row without failing the whole import.
    */
-  async bulkCreate(events: CreateEventInput[], currentUser: AuthenticatedUser) {
+  async bulkCreate(events: unknown[], currentUser: AuthenticatedUser) {
     const results = {
       success: 0,
       failed: 0,
       errors: [] as string[],
     };
 
-    for (const eventInput of events) {
+    for (const raw of events) {
+      const title =
+        raw && typeof raw === 'object' && typeof (raw as { title?: unknown }).title === 'string'
+          ? (raw as { title: string }).title
+          : 'Agenda';
       try {
-        await this.create(eventInput, currentUser);
+        await this.create(createCalendarEventSchema.parse(raw), currentUser);
         results.success++;
       } catch (error) {
         results.failed++;
-        results.errors.push(
-          `${eventInput.title}: ${error instanceof Error ? error.message : 'Failed'}`
-        );
+        results.errors.push(`${title}: ${error instanceof Error ? error.message : 'Failed'}`);
       }
     }
 
@@ -685,8 +765,11 @@ export class CalendarService {
    * Get calendar statistics
    */
   async getStatistics(unitId?: string, startDate?: string, endDate?: string) {
+    // Drafts are excluded for the same reason the list excludes them: an
+    // unreviewed holiday import is not part of the calendar yet (#1155).
     const where: Prisma.CalendarEventWhereInput = {
       deletedAt: null,
+      isDraft: false,
     };
 
     if (unitId) {

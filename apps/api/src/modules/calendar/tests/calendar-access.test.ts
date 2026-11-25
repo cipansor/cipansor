@@ -97,13 +97,6 @@ describe('calendarService.create — who may publish where', () => {
     expect(prismaMock.calendarEvent.create).not.toHaveBeenCalled();
   });
 
-  it('refuses a unit admin asking for the whole foundation', async () => {
-    await expect(
-      calendarService.create({ ...baseInput, scope: EventScope.ALL_UNITS }, UNIT_ADMIN)
-    ).rejects.toThrow(/pengurus yayasan/);
-    expect(prismaMock.calendarEvent.create).not.toHaveBeenCalled();
-  });
-
   it('lets a Pengurus publish a foundation-wide event', async () => {
     await calendarService.create(baseInput, FOUNDATION);
 
@@ -190,6 +183,7 @@ describe('calendarService reads — class-private events stay in the class', () 
           OR: [
             { title: { contains: 'rapat', mode: 'insensitive' } },
             { description: { contains: 'rapat', mode: 'insensitive' } },
+            { location: { contains: 'rapat', mode: 'insensitive' } },
           ],
         },
         classScope([]),

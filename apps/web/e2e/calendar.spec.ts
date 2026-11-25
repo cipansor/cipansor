@@ -497,6 +497,47 @@ test.describe("Manajemen Event — agenda kelas milik admin lain", () => {
   });
 });
 
+test.describe("Kalender Akademik — agenda satu hari tidak merusak grid", () => {
+  test("grid bulan tetap tergambar saat ada agenda tanpa tanggal selesai", async ({
+    page,
+  }) => {
+    const title = `Agenda sehari e2e ${Date.now()}`;
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const today = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/calendar",
+      {
+        title,
+        eventType: "MEETING",
+        startDate: today,
+        isAllDay: true,
+        isPublic: true,
+      },
+    );
+
+    try {
+      await loginAs(page, "superAdmin");
+      await page.goto("/calendar");
+
+      // A month grid is four to six weeks, so its day cells are 28–42. The old
+      // selector also counted the seven weekday headers and pinned 42, which
+      // only matched a six-week month.
+      const cells = page.getByTestId("calendar-day");
+      await expect(cells.first()).toBeVisible({ timeout: 15000 });
+      const count = await cells.count();
+      expect(count).toBeGreaterThanOrEqual(28);
+      expect(count).toBeLessThanOrEqual(42);
+      await expect(page.getByText(/Application error/i)).toHaveCount(0);
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
+    }
+  });
+});
+
 test.describe("Calendar - Performance", () => {
   test("should load calendar quickly", async ({ page }) => {
     await loginAs(page, "superAdmin");

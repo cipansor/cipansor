@@ -90,6 +90,29 @@ describe("useMonthEvents", () => {
       endDate: "2026-01-31",
     });
   });
+
+  it("reads every page so a long series cannot hide the rest of the month", async () => {
+    get
+      .mockResolvedValueOnce({
+        data: {
+          data: [{ id: "1" }],
+          meta: { total: 2, page: 1, limit: 100, totalPages: 2 },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: [{ id: "2" }],
+          meta: { total: 2, page: 2, limit: 100, totalPages: 2 },
+        },
+      });
+
+    const { result } = renderHook(() => useMonthEvents(2026, 0), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(result.current.data).toHaveLength(2);
+    expect(get.mock.calls[1][1].params).toMatchObject({ page: 2 });
+  });
 });
 
 describe("useTodayEvents", () => {
@@ -173,13 +196,13 @@ describe("eventStartInstant", () => {
 });
 
 describe("useCreateCalendarEvent", () => {
-  it("sends eventType, scope and an iCal rule instead of the form fields", async () => {
+  it("sends eventType and the form fields the shared schema expects", async () => {
     const { result } = renderHook(() => useCreateCalendarEvent(), { wrapper });
 
     await act(async () => {
       await result.current.mutateAsync({
         title: "Rapat Wali Kelas",
-        category: EventType.MEETING,
+        eventType: EventType.MEETING,
         startDate: "2026-11-25",
         endDate: "2026-11-25",
         isAllDay: true,
@@ -193,11 +216,9 @@ describe("useCreateCalendarEvent", () => {
     const payload = post.mock.calls[0][1] as Record<string, unknown>;
     expect(payload).toMatchObject({
       eventType: "MEETING",
-      scope: "SPECIFIC_UNIT",
-      isRecurring: true,
-      recurrenceRule: "FREQ=WEEKLY;UNTIL=20261231T235959Z",
+      recurrence: "WEEKLY",
+      recurrenceEnd: "2026-12-31",
     });
     expect(payload).not.toHaveProperty("category");
-    expect(payload).not.toHaveProperty("recurrence");
   });
 });
