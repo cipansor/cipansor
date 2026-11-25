@@ -234,6 +234,10 @@ test.describe("CBT Exams & Grading", () => {
     // The monitoring page also asks for topic mastery. Wait for that response
     // before asserting, so a toast from either request cannot arrive later.
     expect((await topicMasteryResponse).status()).toBe(404);
+    // waitForResponse resolves on the response headers, before the Axios
+    // interceptor has processed the rejection. Give it a turn so an error toast
+    // cannot appear after the assertion has already passed.
+    await page.waitForTimeout(500);
     await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, {
       timeout: 3000,
     });
@@ -249,6 +253,7 @@ test.describe("CBT Exams & Grading", () => {
     // The controller answers 404 for an exam with no bank; the tab must treat
     // that as an empty state, not as a user-facing error.
     expect((await insightsResponse).status()).toBe(404);
+    await page.waitForTimeout(500);
     await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, {
       timeout: 3000,
     });
