@@ -28,6 +28,11 @@ const STAMP = Date.now().toString(36);
 async function openNewEventFromMenu(page: Page) {
   await page.goto("/dashboard");
 
+  // ProtectedRoute renders its loading state before the layout. Without this
+  // wait, `isVisible()` sees no header and answers false on mobile, so the test
+  // waits for a sidebar link that the closed sheet never shows.
+  await expect(page.locator("header")).toBeVisible({ timeout: 15000 });
+
   // The sidebar is a sheet on narrow viewports; the menu trigger is hidden on
   // desktop, where the sidebar is already visible.
   const menuButton = page.locator("header button").first();
