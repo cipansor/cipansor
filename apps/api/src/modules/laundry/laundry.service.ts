@@ -29,6 +29,18 @@ import type {
 // PRICING SERVICE
 // =============================================================================
 
+/** A tariff may only point at a laundry business unit of its own unit. */
+async function isLaundryBusinessUnitOfUnit(
+  unitId: string,
+  businessUnitId: string
+): Promise<boolean> {
+  const businessUnit = await prisma.businessUnit.findFirst({
+    where: { id: businessUnitId, unitId, type: 'LAUNDRY' },
+    select: { id: true },
+  });
+  return Boolean(businessUnit);
+}
+
 export const pricingService = {
   async getAll(unitId: string) {
     return prisma.laundryPricing.findMany({
@@ -44,6 +56,10 @@ export const pricingService = {
   },
 
   async create(unitId: string, data: CreatePricingInput) {
+    if (data.businessUnitId && !(await isLaundryBusinessUnitOfUnit(unitId, data.businessUnitId))) {
+      throw Errors.badRequest('Unit usaha laundry tidak ditemukan untuk unit ini');
+    }
+
     return prisma.laundryPricing.create({
       data: {
         unit: { connect: { id: unitId } },
@@ -54,11 +70,22 @@ export const pricingService = {
         processDays: data.processDays,
         isExpress: data.isExpress,
         isActive: data.isActive,
+        businessUnit: data.businessUnitId ? { connect: { id: data.businessUnitId } } : undefined,
       },
     });
   },
 
   async update(id: string, unitId: string, data: UpdatePricingInput) {
+    const existing = await prisma.laundryPricing.findFirst({
+      where: { id, unitId },
+      select: { id: true },
+    });
+    if (!existing) throw Errors.notFound('Tarif laundry');
+
+    if (data.businessUnitId && !(await isLaundryBusinessUnitOfUnit(unitId, data.businessUnitId))) {
+      throw Errors.badRequest('Unit usaha laundry tidak ditemukan untuk unit ini');
+    }
+
     const updateData: Prisma.LaundryPricingUpdateInput = {};
 
     if (data.name !== undefined) updateData.name = data.name;
@@ -68,6 +95,11 @@ export const pricingService = {
     if (data.processDays !== undefined) updateData.processDays = data.processDays;
     if (data.isExpress !== undefined) updateData.isExpress = data.isExpress;
     if (data.isActive !== undefined) updateData.isActive = data.isActive;
+    if (data.businessUnitId !== undefined) {
+      updateData.businessUnit = data.businessUnitId
+        ? { connect: { id: data.businessUnitId } }
+        : { disconnect: true };
+    }
 
     return prisma.laundryPricing.update({
       where: { id },
@@ -303,7 +335,7 @@ export const transactionService = {
       const businessUnitId = pricing.businessUnitId ?? null;
       if (businessUnitId) {
         const businessUnit = await tx.businessUnit.findFirst({
-          where: { id: businessUnitId, unitId },
+          where: { id: businessUnitId, unitId, type: 'LAUNDRY' },
           select: { id: true },
         });
         if (!businessUnit) {

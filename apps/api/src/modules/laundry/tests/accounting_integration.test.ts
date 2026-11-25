@@ -49,13 +49,13 @@ vi.mock('@prisma/client', async (importOriginal) => ({
   },
 }));
 
-import { transactionService } from '../laundry.service';
+import { pricingService, transactionService } from '../laundry.service';
 import { getAccountOrFallback } from '../../finance/accounting-config.service';
 import { prisma } from '@/lib/prisma';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    laundryPricing: { findFirst: vi.fn() },
+    laundryPricing: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
     businessUnit: { findFirst: vi.fn() },
     santriWallet: { findUnique: vi.fn(), update: vi.fn() },
     laundryTransaction: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
@@ -172,7 +172,7 @@ describe('Laundry Accounting Integration', () => {
       })
     );
     expect(prisma.businessUnit.findFirst).toHaveBeenCalledWith({
-      where: { id: 'bu-1', unitId },
+      where: { id: 'bu-1', unitId, type: 'LAUNDRY' },
       select: { id: true },
     });
     expect(getAccountOrFallback).toHaveBeenCalledWith(
@@ -209,6 +209,123 @@ describe('Laundry Accounting Integration', () => {
       message: expect.stringContaining('Unit usaha tarif tidak ditemukan'),
     });
     expect(prisma.laundryTransaction.create).not.toHaveBeenCalled();
+  });
+
+  describe('pricing tiers point at a laundry business unit', () => {
+    it('saves the selected laundry unit after validating ownership and type', async () => {
+      (prisma.businessUnit.findFirst as any).mockResolvedValue({ id: 'bu-1' });
+      (prisma.laundryPricing.create as any).mockResolvedValue({ id: 'pricing-1' });
+
+      await pricingService.create(unitId, {
+        name: 'Setrika',
+        pricePerKg: 5000,
+        minWeight: 1,
+        processDays: 2,
+        isExpress: false,
+        isActive: true,
+        businessUnitId: 'bu-1',
+      } as any);
+
+      expect(prisma.businessUnit.findFirst).toHaveBeenCalledWith({
+        where: { id: 'bu-1', unitId, type: 'LAUNDRY' },
+        select: { id: true },
+      });
+      expect(prisma.laundryPricing.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          businessUnit: { connect: { id: 'bu-1' } },
+        }),
+      });
+    });
+
+    it('refuses a unit that is not a laundry unit of the caller', async () => {
+      (prisma.businessUnit.findFirst as any).mockResolvedValue(null);
+
+      await expect(
+        pricingService.create(unitId, {
+          name: 'Setrika',
+          pricePerKg: 5000,
+          minWeight: 1,
+          processDays: 2,
+          isExpress: false,
+          isActive: true,
+          businessUnitId: 'bu-other',
+        } as any)
+      ).rejects.toMatchObject({
+        statusCode: 400,
+        message: expect.stringContaining('Unit usaha laundry tidak ditemukan'),
+      });
+      expect(prisma.laundryPricing.create).not.toHaveBeenCalled();
+    });
+
+    it('links an existing tier, and can unlink it again', async () => {
+      (prisma.laundryPricing.findFirst as any).mockResolvedValue({ id: 'pricing-1' });
+      (prisma.businessUnit.findFirst as any).mockResolvedValue({ id: 'bu-1' });
+
+      await pricingService.update('pricing-1', unitId, {
+        businessUnitId: 'bu-1',
+      } as any);
+      expect(prisma.laundryPricing.update).toHaveBeenLastCalledWith({
+        where: { id: 'pricing-1' },
+        data: expect.objectContaining({
+          businessUnit: { connect: { id: 'bu-1' } },
+        }),
+      });
+
+      await pricingService.update('pricing-1', unitId, {
+        businessUnitId: null,
+      } as any);
+      expect(prisma.laundryPricing.update).toHaveBeenLastCalledWith({
+        where: { id: 'pricing-1' },
+        data: expect.objectContaining({ businessUnit: { disconnect: true } }),
+      });
+    });
+
+    it('does not update a tier outside the caller unit', async () => {
+      (prisma.laundryPricing.findFirst as any).mockResolvedValue(null);
+
+      await expect(
+        pricingService.update('pricing-other', unitId, {
+          name: 'Diubah',
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 404 });
+      expect(prisma.laundryPricing.update).not.toHaveBeenCalled();
+    });
+  });
+
+  it('settles a late payment against the transaction business-unit account', async () => {
+    const transaction = {
+      id: 'tx-1',
+      unitId,
+      studentId,
+      transactionNo: 'LDR-20240101-0001',
+      status: 'RECEIVED',
+      paymentStatus: 'UNPAID',
+      paymentMethod: 'PENDING',
+      total: new MockDecimal(20000),
+      businessUnitId: 'bu-1',
+    };
+    (prisma.laundryTransaction.findFirst as any)
+      .mockResolvedValueOnce({ unitId })
+      .mockResolvedValueOnce(transaction);
+    (prisma.laundryTransaction.update as any).mockResolvedValue({
+      ...transaction,
+      paymentStatus: 'PAID',
+      paymentMethod: 'CASH',
+    });
+
+    await transactionService.processPayment(
+      'tx-1',
+      { sub: userId, roleCode: 'SMPIT_ADMIN', unitId },
+      { paymentMethod: 'CASH' }
+    );
+
+    expect(getAccountOrFallback).toHaveBeenCalledWith(
+      unitId,
+      ['BU_bu-1_LAUNDRY_REVENUE', 'LAUNDRY_REVENUE'],
+      '4102',
+      'Pendapatan Laundry',
+      prisma
+    );
   });
 
   it('rounds the total once so the wallet debit and the bill agree', async () => {

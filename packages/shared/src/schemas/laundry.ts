@@ -242,6 +242,7 @@ export const createLaundryPricingSchema = z.object({
     .default(2),
   isExpress: z.boolean().default(false),
   isActive: z.boolean().default(true),
+  businessUnitId: z.uuid("Unit usaha tidak valid").nullable().optional(),
 });
 export type CreateLaundryPricingInput = z.input<
   typeof createLaundryPricingSchema
@@ -265,6 +266,7 @@ export const updateLaundryPricingSchema = z.object({
     .optional(),
   isExpress: z.boolean().optional(),
   isActive: z.boolean().optional(),
+  businessUnitId: z.uuid("Unit usaha tidak valid").nullable().optional(),
 });
 export type UpdateLaundryPricingInput = z.infer<
   typeof updateLaundryPricingSchema

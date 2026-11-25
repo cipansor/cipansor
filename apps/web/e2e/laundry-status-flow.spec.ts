@@ -9,6 +9,7 @@ import {
   apiLoginNew,
   apiRequest,
   injectSession,
+  SEED_USERS,
   type AuthSession,
 } from "./helpers/auth-api";
 import { gotoAuthedPage } from "./helpers/page-helpers";
@@ -406,6 +407,11 @@ test.describe("Petugas mengelola tarif laundry (R22.8)", () => {
   test("menambah, mengubah, lalu menghapus tarif", async ({ page }) => {
     test.setTimeout(180_000);
     const session = await apiLoginNew(LAUNDRY_ADMIN);
+    const businessUnits = await apiRequest<{
+      data: Array<{ id: string; name: string; type: string }>;
+    }>(session, "GET", "/business-units?type=LAUNDRY");
+    const laundryUnit = businessUnits.data[0];
+    expect(laundryUnit, "seed tanpa unit usaha laundry").toBeTruthy();
     await injectSession(page, session);
     await gotoAuthedPage(page, "/laundry", /^Laundry$/);
     await page.getByRole("tab", { name: /Tarif/ }).click();
@@ -416,6 +422,10 @@ test.describe("Petugas mengelola tarif laundry (R22.8)", () => {
     await create.getByLabel("Nama Layanan").fill(name);
     await create.getByLabel("Harga per Kg (Rp)").fill("7500");
     await create.getByLabel("Berat Minimal (kg)").fill("1.25");
+    await create.getByRole("combobox", { name: "Unit Usaha Laundry" }).click();
+    await page
+      .getByRole("option", { name: laundryUnit.name, exact: true })
+      .click();
     await create.getByRole("button", { name: "Tambah", exact: true }).click();
     await expect(
       page.getByText("Tarif laundry berhasil ditambahkan"),
@@ -426,6 +436,25 @@ test.describe("Petugas mengelola tarif laundry (R22.8)", () => {
     await expect(row).toContainText("7.500");
     // Two decimals survive the form (step 0.01), not rounded to 1.2/1.3.
     await expect(row).toContainText("1.25 kg");
+    await expect(row).toContainText(laundryUnit.name);
+
+    const storedTier = await expect
+      .poll(
+        async () => {
+          const pricing = await apiRequest<{
+            data: Array<{
+              id: string;
+              name: string;
+              businessUnitId: string | null;
+            }>;
+          }>(session, "GET", "/laundry/pricing");
+          return pricing.data.find((tier) => tier.name === name)
+            ?.businessUnitId;
+        },
+        { timeout: 15000 },
+      )
+      .toBe(laundryUnit.id);
+    expect(storedTier).toBeUndefined();
 
     await row.getByRole("button", { name: "Aksi" }).click();
     await page.getByRole("menuitem", { name: "Edit" }).click();
@@ -504,5 +533,204 @@ test.describe("Pencarian laundry menyaring baris nyata (R22.11)", () => {
     await expect(page.getByText("Belum ada transaksi laundry")).toBeVisible({
       timeout: 15000,
     });
+  });
+});
+
+test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
+  test("tarif yang dibuat di portal membawa pembayarannya ke akun unit usaha", async ({
+    page,
+  }, testInfo) => {
+    test.skip(
+      testInfo.project.name !== "chromium",
+      "one financial period per unit and day; the mobile project would race it",
+    );
+    test.setTimeout(240_000);
+    const session = await apiLoginNew(LAUNDRY_ADMIN);
+    const finance = await apiLoginNew(SEED_USERS.superAdmin);
+    const stamp = Date.now();
+    const unitName = `Zz E2E Laundry ${stamp}`;
+    let businessUnitId: string | undefined;
+    let unitId: string | undefined;
+    let accountId: string | undefined;
+    let cashAccountId: string | undefined;
+    let originalCashMapping: string | null | undefined;
+    let pricingId: string | undefined;
+
+    try {
+      const businessUnit = await apiRequest<{
+        data: { id: string; unitId: string };
+      }>(session, "POST", "/business-units", {
+        name: unitName,
+        code: `E2E-LDR-${stamp}`,
+        type: "LAUNDRY",
+      });
+      businessUnitId = businessUnit.data.id;
+      unitId = businessUnit.data.unitId;
+
+      const periods = await apiRequest<{
+        data: Array<{ startDate: string; endDate: string; isClosed: boolean }>;
+      }>(
+        finance,
+        "GET",
+        `/finance-enhancement/financial-periods?unitId=${unitId}&limit=100`,
+      );
+      const now = new Date();
+      const covering = periods.data.find(
+        (period) =>
+          new Date(period.startDate) <= now && new Date(period.endDate) >= now,
+      );
+      test.skip(
+        Boolean(covering?.isClosed),
+        "the unit's current financial period is closed",
+      );
+
+      const account = await apiRequest<{
+        id: string;
+        code: string;
+        name: string;
+      }>(finance, "POST", "/finance/accounting/accounts", {
+        code: `E2E-LDR-REV-${stamp}`,
+        name: `E2E Pendapatan Laundry ${stamp}`,
+        type: "REVENUE",
+        normalBalance: "CREDIT",
+        isActive: true,
+      });
+      accountId = account.id;
+
+      const cash = await apiRequest<{ id: string }>(
+        finance,
+        "POST",
+        "/finance/accounting/accounts",
+        {
+          code: `E2E-LDR-CASH-${stamp}`,
+          name: `E2E Kas Laundry ${stamp}`,
+          type: "ASSET",
+          normalBalance: "DEBIT",
+          isActive: true,
+        },
+      );
+      cashAccountId = cash.id;
+
+      const originalSettings = await apiRequest<{
+        data: { mappings: Record<string, string | null> };
+      }>(finance, "GET", `/finance/accounting/settings?unitId=${unitId}`);
+      originalCashMapping = originalSettings.data.mappings.ACCOUNT_MAPPING_CASH;
+
+      const mappingKey = `BU_${businessUnitId}_ACCOUNT_MAPPING_LAUNDRY_REVENUE`;
+      await apiRequest(finance, "POST", "/finance/accounting/settings", {
+        unitId,
+        settings: {
+          [mappingKey]: accountId,
+          ACCOUNT_MAPPING_CASH: cashAccountId,
+        },
+      });
+
+      await injectSession(page, session);
+      await gotoAuthedPage(page, "/laundry", /^Laundry$/);
+      await page.getByRole("tab", { name: /Tarif/ }).click();
+      const tierName = `Setrika Unit ${stamp}`;
+      await page.getByRole("button", { name: "Tambah Tarif" }).click();
+      const dialog = page.getByRole("dialog");
+      await dialog.getByLabel("Nama Layanan").fill(tierName);
+      await dialog.getByLabel("Harga per Kg (Rp)").fill("9000");
+      await dialog
+        .getByRole("combobox", { name: "Unit Usaha Laundry" })
+        .click();
+      await page.getByRole("option", { name: unitName, exact: true }).click();
+      await dialog.getByRole("button", { name: "Tambah" }).click();
+      await expect(
+        page.getByText("Tarif laundry berhasil ditambahkan"),
+      ).toBeVisible({ timeout: 15000 });
+
+      let storedTier:
+        { id: string; name: string; businessUnitId: string | null } | undefined;
+      await expect
+        .poll(
+          async () => {
+            const rows = await apiRequest<{
+              data: Array<{
+                id: string;
+                name: string;
+                businessUnitId: string | null;
+              }>;
+            }>(session, "GET", "/laundry/pricing");
+            storedTier = rows.data.find((row) => row.name === tierName);
+            return storedTier?.businessUnitId;
+          },
+          { timeout: 15000 },
+        )
+        .toBe(businessUnitId);
+      expect(storedTier, "tarif baru tidak tersimpan").toBeTruthy();
+      pricingId = storedTier!.id;
+
+      const students = await apiRequest<{
+        data: Array<{ id: string }>;
+      }>(session, "GET", "/students?limit=1");
+      expect(students.data[0], "seed tanpa santri").toBeTruthy();
+
+      const transaction = await apiRequest<{
+        data: {
+          id: string;
+          transactionNo: string;
+          businessUnitId: string | null;
+        };
+      }>(session, "POST", "/laundry/transactions", {
+        studentId: students.data[0].id,
+        pricingId,
+        weight: 2,
+        paymentMethod: "CASH",
+      });
+      expect(transaction.data.businessUnitId).toBe(businessUnitId);
+
+      await expect
+        .poll(
+          async () => {
+            const journal = await apiRequest<{
+              data: Array<{
+                accountId: string;
+                credit: number;
+              }>;
+            }>(
+              session,
+              "GET",
+              `/finance-enhancement/journal-entries?search=${encodeURIComponent(
+                transaction.data.transactionNo,
+              )}&limit=20`,
+            );
+            return journal.data.find(
+              (entry) =>
+                entry.accountId === accountId && Number(entry.credit) > 0,
+            );
+          },
+          { timeout: 20000 },
+        )
+        .toBeTruthy();
+    } finally {
+      if (businessUnitId && unitId) {
+        await apiRequest(finance, "POST", "/finance/accounting/settings", {
+          unitId,
+          settings: {
+            [`BU_${businessUnitId}_ACCOUNT_MAPPING_LAUNDRY_REVENUE`]: null,
+            ACCOUNT_MAPPING_CASH: originalCashMapping ?? null,
+          },
+        }).catch(() => undefined);
+        await apiRequest(finance, "PUT", `/business-units/${businessUnitId}`, {
+          isActive: false,
+        }).catch(() => undefined);
+      }
+      if (pricingId) {
+        await apiRequest(
+          session,
+          "DELETE",
+          `/laundry/pricing/${pricingId}`,
+        ).catch(() => undefined);
+      }
+      for (const id of [accountId, cashAccountId]) {
+        if (!id) continue;
+        await apiRequest(finance, "PUT", `/finance/accounting/accounts/${id}`, {
+          isActive: false,
+        }).catch(() => undefined);
+      }
+    }
   });
 });

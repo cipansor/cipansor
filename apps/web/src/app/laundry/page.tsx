@@ -90,6 +90,7 @@ import {
   useUpdateLaundryStatus,
 } from "@/hooks/use-laundry";
 import { useStudents } from "@/hooks/use-students";
+import { useBusinessUnits } from "@/hooks/use-business-unit";
 import { useAuthStore } from "@/stores/auth";
 import { getActiveRoleAssignment, getActiveRoleCode } from "@/lib/rbac";
 
@@ -204,6 +205,7 @@ interface PricingFormState {
   processDays: number;
   isExpress: boolean;
   isActive: boolean;
+  businessUnitId: string | null;
 }
 
 const EMPTY_PRICING: PricingFormState = {
@@ -214,6 +216,7 @@ const EMPTY_PRICING: PricingFormState = {
   processDays: 2,
   isExpress: false,
   isActive: true,
+  businessUnitId: null,
 };
 
 function PricingTab() {
@@ -222,6 +225,11 @@ function PricingTab() {
   const [form, setForm] = useState<PricingFormState>(EMPTY_PRICING);
 
   const { data: pricing = [], isLoading } = useLaundryPricing();
+  const {
+    data: businessUnits = [],
+    isLoading: businessUnitsLoading,
+    isError: businessUnitsError,
+  } = useBusinessUnits({ type: "LAUNDRY" });
   const createPricing = useCreateLaundryPricing();
   const updatePricing = useUpdateLaundryPricing();
   const deletePricing = useDeleteLaundryPricing();
@@ -241,6 +249,7 @@ function PricingTab() {
       processDays: item.processDays,
       isExpress: item.isExpress,
       isActive: item.isActive,
+      businessUnitId: item.businessUnitId,
     });
     setShowDialog(true);
   };
@@ -271,6 +280,8 @@ function PricingTab() {
   };
 
   const saving = createPricing.isPending || updatePricing.isPending;
+  const businessUnitName = (id: string | null) =>
+    businessUnits.find((businessUnit) => businessUnit.id === id)?.name;
 
   return (
     <div className="space-y-4">
@@ -371,6 +382,52 @@ function PricingTab() {
                   }
                 />
               </div>
+              <div className="space-y-2">
+                <Label htmlFor="pricing-business-unit">
+                  Unit Usaha Laundry
+                </Label>
+                <Select
+                  value={form.businessUnitId ?? "__none__"}
+                  onValueChange={(value) =>
+                    setForm({
+                      ...form,
+                      businessUnitId: value === "__none__" ? null : value,
+                    })
+                  }
+                >
+                  <SelectTrigger id="pricing-business-unit">
+                    <SelectValue placeholder="Pilih unit usaha" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">Tidak ditautkan</SelectItem>
+                    {businessUnits.map((businessUnit) => (
+                      <SelectItem key={businessUnit.id} value={businessUnit.id}>
+                        {businessUnit.name}
+                        {businessUnit.isActive ? "" : " (nonaktif)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+                {businessUnitsLoading ? (
+                  <p className="text-sm text-muted-foreground">
+                    Memuat unit usaha…
+                  </p>
+                ) : businessUnitsError ? (
+                  <p className="text-sm text-destructive">
+                    Gagal memuat unit usaha. Muat ulang halaman sebelum
+                    menyimpan tarif.
+                  </p>
+                ) : businessUnits.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Belum ada unit usaha laundry. Tarif tetap bisa disimpan
+                    tanpa tautan.
+                  </p>
+                ) : (
+                  <p className="text-sm text-muted-foreground">
+                    Jurnal pembayaran memakai akun pendapatan unit usaha ini.
+                  </p>
+                )}
+              </div>
               <div className="flex items-center justify-between">
                 <Label htmlFor="pricing-express">Layanan Express</Label>
                 <Switch
@@ -402,7 +459,12 @@ function PricingTab() {
                 >
                   Batal
                 </Button>
-                <Button type="submit" disabled={saving}>
+                <Button
+                  type="submit"
+                  disabled={
+                    saving || businessUnitsLoading || businessUnitsError
+                  }
+                >
                   {saving && <Loader2 className="h-4 w-4 mr-2 animate-spin" />}
                   {editing ? "Simpan" : "Tambah"}
                 </Button>
@@ -420,6 +482,7 @@ function PricingTab() {
               <TableHead>Harga/Kg</TableHead>
               <TableHead>Berat Minimal</TableHead>
               <TableHead>Lama Proses</TableHead>
+              <TableHead>Unit Usaha</TableHead>
               <TableHead>Jenis</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="w-12"></TableHead>
@@ -428,14 +491,14 @@ function PricingTab() {
           <TableBody>
             {isLoading ? (
               <TableRow>
-                <TableCell colSpan={7} className="text-center py-8">
+                <TableCell colSpan={8} className="text-center py-8">
                   <Loader2 className="h-6 w-6 animate-spin mx-auto" />
                 </TableCell>
               </TableRow>
             ) : pricing.length === 0 ? (
               <TableRow>
                 <TableCell
-                  colSpan={7}
+                  colSpan={8}
                   className="text-center py-8 text-muted-foreground"
                 >
                   Belum ada tarif laundry
@@ -455,6 +518,15 @@ function PricingTab() {
                   <TableCell>{formatCurrency(item.pricePerKg)}</TableCell>
                   <TableCell>{Number(item.minWeight)} kg</TableCell>
                   <TableCell>{item.processDays} hari</TableCell>
+                  <TableCell>
+                    {businessUnitsLoading ? (
+                      <span className="text-muted-foreground">Memuat…</span>
+                    ) : item.businessUnitId ? (
+                      (businessUnitName(item.businessUnitId) ?? "Tidak dikenal")
+                    ) : (
+                      <Badge variant="outline">Belum tertaut</Badge>
+                    )}
+                  </TableCell>
                   <TableCell>
                     <Badge variant={item.isExpress ? "default" : "secondary"}>
                       {item.isExpress ? "Express" : "Reguler"}

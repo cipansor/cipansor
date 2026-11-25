@@ -20,6 +20,11 @@ beforeAll(() => {
   Element.prototype.setPointerCapture = () => {};
   Element.prototype.releasePointerCapture = () => {};
   Element.prototype.scrollIntoView = () => {};
+  global.ResizeObserver = class {
+    observe() {}
+    unobserve() {}
+    disconnect() {}
+  } as unknown as typeof ResizeObserver;
 });
 
 afterEach(() => {
@@ -46,6 +51,7 @@ const {
   useDeleteLaundryPricing,
   useProcessLaundryPayment,
   useStudents,
+  useBusinessUnits,
 } = vi.hoisted(() => ({
   useLaundryTransactions: vi.fn(),
   useLaundryTransaction: vi.fn(),
@@ -58,6 +64,7 @@ const {
   useDeleteLaundryPricing: vi.fn(),
   useProcessLaundryPayment: vi.fn(),
   useStudents: vi.fn(),
+  useBusinessUnits: vi.fn(),
 }));
 
 vi.mock("@/components/layout/main-layout", () => ({
@@ -84,6 +91,7 @@ vi.mock("@/hooks/use-laundry", async (importOriginal) => {
 });
 
 vi.mock("@/hooks/use-students", () => ({ useStudents }));
+vi.mock("@/hooks/use-business-unit", () => ({ useBusinessUnits }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import LaundryPage from "./page";
@@ -167,6 +175,11 @@ beforeEach(() => {
   });
   useLaundryPricing.mockReturnValue({ data: [], isLoading: false });
   useStudents.mockReturnValue({ data: { data: [] } });
+  useBusinessUnits.mockReturnValue({
+    data: [],
+    isLoading: false,
+    isError: false,
+  });
   useUpdateLaundryStatus.mockReturnValue({
     mutate: vi.fn(),
     isPending: false,
@@ -377,6 +390,138 @@ describe("Laundry — the tarif tab uses the per-kilogram contract (R22.8)", () 
     expect(screen.getByText(/6\.000/)).toBeInTheDocument();
     expect(screen.getByText("Express")).toBeInTheDocument();
     expect(screen.getByText("Aktif")).toBeInTheDocument();
+  });
+});
+
+describe("Laundry — a tariff names the laundry unit that owns it (R22.8)", () => {
+  const laundryUnit = {
+    id: "bu-1",
+    name: "Jasa Laundry Al-Hikmah",
+    code: "LDR-01",
+    type: "LAUNDRY" as const,
+    isActive: true,
+    unitId: "unit-smp",
+    monthlyRevenue: 0,
+    monthlyTransactions: 0,
+  };
+
+  it("shows the linked unit, and marks an old tariff that has none", async () => {
+    useLaundryPricing.mockReturnValue({
+      data: [
+        { ...tier, id: "p-linked", name: "Reguler", businessUnitId: "bu-1" },
+        { ...tier, id: "p-old", name: "Setrika Lama", businessUnitId: null },
+      ],
+      isLoading: false,
+    });
+    useBusinessUnits.mockReturnValue({
+      data: [laundryUnit],
+      isLoading: false,
+      isError: false,
+    });
+
+    render(<LaundryPage />);
+    await userEvent.click(screen.getByRole("tab", { name: /Tarif/ }));
+
+    const linked = screen.getByRole("row", { name: /Reguler/ });
+    expect(within(linked).getByText("Jasa Laundry Al-Hikmah")).toBeVisible();
+    const old = screen.getByRole("row", { name: /Setrika Lama/ });
+    expect(within(old).getByText("Belum tertaut")).toBeVisible();
+  });
+
+  it("sends the selected business unit when a tariff is created", async () => {
+    const mutate = vi.fn();
+    useCreateLaundryPricing.mockReturnValue({ mutate, isPending: false });
+    useBusinessUnits.mockReturnValue({
+      data: [laundryUnit],
+      isLoading: false,
+      isError: false,
+    });
+
+    render(<LaundryPage />);
+    await userEvent.click(screen.getByRole("tab", { name: /Tarif/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Tambah Tarif" }));
+    const dialog = screen.getByRole("dialog");
+
+    await userEvent.type(
+      within(dialog).getByLabelText("Nama Layanan"),
+      "Setrika",
+    );
+    await userEvent.type(
+      within(dialog).getByLabelText("Harga per Kg (Rp)"),
+      "7500",
+    );
+    await userEvent.click(
+      within(dialog).getByRole("combobox", { name: "Unit Usaha Laundry" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Jasa Laundry Al-Hikmah" }),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Tambah" }),
+    );
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ businessUnitId: "bu-1" }),
+      expect.anything(),
+    );
+  });
+
+  it("links an old tariff through Edit", async () => {
+    const mutate = vi.fn();
+    useUpdateLaundryPricing.mockReturnValue({ mutate, isPending: false });
+    useLaundryPricing.mockReturnValue({
+      data: [{ ...tier, businessUnitId: null }],
+      isLoading: false,
+    });
+    useBusinessUnits.mockReturnValue({
+      data: [laundryUnit],
+      isLoading: false,
+      isError: false,
+    });
+
+    render(<LaundryPage />);
+    await userEvent.click(screen.getByRole("tab", { name: /Tarif/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Aksi" }));
+    await userEvent.click(
+      await screen.findByRole("menuitem", { name: "Edit" }),
+    );
+    const dialog = screen.getByRole("dialog");
+
+    await userEvent.click(
+      within(dialog).getByRole("combobox", { name: "Unit Usaha Laundry" }),
+    );
+    await userEvent.click(
+      await screen.findByRole("option", { name: "Jasa Laundry Al-Hikmah" }),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Simpan" }),
+    );
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        id: "p1",
+        data: expect.objectContaining({ businessUnitId: "bu-1" }),
+      }),
+      expect.anything(),
+    );
+  });
+
+  it("refuses to save while the unit list is still loading", async () => {
+    useBusinessUnits.mockReturnValue({
+      data: undefined,
+      isLoading: true,
+      isError: false,
+    });
+
+    render(<LaundryPage />);
+    await userEvent.click(screen.getByRole("tab", { name: /Tarif/ }));
+    await userEvent.click(screen.getByRole("button", { name: "Tambah Tarif" }));
+    const dialog = screen.getByRole("dialog");
+
+    expect(within(dialog).getByText("Memuat unit usaha…")).toBeVisible();
+    expect(
+      within(dialog).getByRole("button", { name: "Tambah" }),
+    ).toBeDisabled();
   });
 });
 
