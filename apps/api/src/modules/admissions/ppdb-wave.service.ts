@@ -463,6 +463,12 @@ export const waveService = {
         }
       }
 
+      // Lock the registrant before touching any wave counter. Onboarding and
+      // the retention sweep take the same order (registrant, then wave);
+      // incrementing the target wave first would let the two transactions
+      // hold one lock each and deadlock.
+      await tx.$executeRaw`SELECT id FROM "registrants" WHERE id = ${registrantId} FOR UPDATE`;
+
       // Look up the registrant's current wave (if any) so we can decrement
       // the old wave's registeredCount when reassigning. Without this,
       // the old wave's count stays inflated forever.

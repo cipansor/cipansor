@@ -6,6 +6,19 @@ import { prisma } from '@/lib/prisma';
 import * as admissionsService from '../admissions.service';
 import { waveService } from '../ppdb-wave.service';
 
+// Calls made through the transaction client, not the base client. A lock
+// issued outside `$transaction` has the same call order but releases before
+// the wave update, so tests must be able to tell the two apart.
+const { txCalls } = vi.hoisted(() => ({
+  txCalls: {
+    executeRaw: [] as unknown[][],
+    waveUpdate: [] as unknown[][],
+    waveUpdateMany: [] as unknown[][],
+    registrantDelete: [] as unknown[][],
+    registrantUpdate: [] as unknown[][],
+  },
+}));
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     registrant: {
@@ -17,6 +30,7 @@ vi.mock('@/lib/prisma', () => ({
     admissionPeriod: {
       findUnique: vi.fn(),
       findFirst: vi.fn(),
+      update: vi.fn().mockResolvedValue({ registrationSeq: 1 }),
     },
     admissionWave: {
       count: vi.fn(),
@@ -93,7 +107,58 @@ vi.mock('@/lib/prisma', () => ({
     },
     $executeRaw: vi.fn().mockResolvedValue(1),
     $queryRaw: vi.fn().mockResolvedValue([{ max_seq: 10 }]),
-    $transaction: vi.fn((cb) => cb(prisma)),
+    $transaction: vi.fn((cb) => {
+      const tx = new Proxy(prisma, {
+        get(target, prop) {
+          if (prop === '$executeRaw') {
+            return (...args: unknown[]) => {
+              txCalls.executeRaw.push(args);
+              return (target.$executeRaw as any)(...args);
+            };
+          }
+          if (prop === 'admissionWave') {
+            return new Proxy(target.admissionWave, {
+              get(waveTarget, waveProp) {
+                if (waveProp === 'update') {
+                  return (...args: unknown[]) => {
+                    txCalls.waveUpdate.push(args);
+                    return (waveTarget.update as any)(...args);
+                  };
+                }
+                if (waveProp === 'updateMany') {
+                  return (...args: unknown[]) => {
+                    txCalls.waveUpdateMany.push(args);
+                    return (waveTarget.updateMany as any)(...args);
+                  };
+                }
+                return Reflect.get(waveTarget, waveProp);
+              },
+            });
+          }
+          if (prop === 'registrant') {
+            return new Proxy(target.registrant, {
+              get(regTarget, regProp) {
+                if (regProp === 'delete') {
+                  return (...args: unknown[]) => {
+                    txCalls.registrantDelete.push(args);
+                    return (regTarget.delete as any)(...args);
+                  };
+                }
+                if (regProp === 'update') {
+                  return (...args: unknown[]) => {
+                    txCalls.registrantUpdate.push(args);
+                    return (regTarget.update as any)(...args);
+                  };
+                }
+                return Reflect.get(regTarget, regProp);
+              },
+            });
+          }
+          return Reflect.get(target, prop);
+        },
+      });
+      return cb(tx);
+    }),
   },
 }));
 
@@ -108,6 +173,15 @@ vi.mock('@/utils/parent-scope', () => ({
 describe('Student Onboarding & Wave Quota Unit Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    txCalls.executeRaw.length = 0;
+    txCalls.waveUpdate.length = 0;
+    txCalls.waveUpdateMany.length = 0;
+    txCalls.registrantDelete.length = 0;
+    txCalls.registrantUpdate.length = 0;
+    // No registrant holds the generated number unless a test says so; a stale
+    // implementation from an earlier test would send allocation into the
+    // "counter behind" repair path.
+    vi.mocked(prisma.registrant.findUnique as any).mockResolvedValue(null);
   });
 
   describe('StudentOnboardingOrchestrator.processEnrollment', () => {
@@ -762,6 +836,18 @@ describe('Student Onboarding & Wave Quota Unit Tests', () => {
       });
 
       await waveService.assignRegistrant('reg-1', 'w-new');
+
+      // Lock the registrant before any wave counter. The retention sweep and
+      // onboarding take the same order; the reverse is a deadlock. The lock,
+      // both counter updates, the status reopen, and the reassignment must run
+      // on the transaction client, or each write commits separately.
+      expect(txCalls.executeRaw).toHaveLength(1);
+      expect(txCalls.waveUpdateMany).toHaveLength(2);
+      expect(txCalls.waveUpdate).toEqual([[{ where: { id: 'w-old' }, data: { status: 'OPEN' } }]]);
+      expect(txCalls.registrantUpdate).toHaveLength(1);
+      const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
+      const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];
+      expect(registrantLock).toBeLessThan(waveLock);
 
       // The freed old wave must be flipped back to OPEN.
       expect(prisma.admissionWave.update).toHaveBeenCalledWith({

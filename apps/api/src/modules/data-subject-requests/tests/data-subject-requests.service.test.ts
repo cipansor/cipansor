@@ -247,6 +247,21 @@ describe('data-subject-requests — pengajuan publik', () => {
     });
     expect(prisma.dataSubjectRequest.create).not.toHaveBeenCalled();
   });
+
+  it('tidak membuat permintaan bila pendaftar terhapus sebelum transaksi mengunci barisnya', async () => {
+    // Retensi menghapus baris di antara pembacaan awal dan transaksi. Kunci
+    // baris membuat kedua jalur bersambung: permintaan yang tiba setelahnya
+    // tidak boleh menggantung pada subjek yang sudah tidak ada.
+    vi.mocked(prisma.registrant.findUnique)
+      .mockResolvedValueOnce(registrantRow() as any)
+      .mockResolvedValueOnce(null as any);
+    vi.mocked(prisma.dataSubjectRequest.count).mockResolvedValue(0);
+
+    await expect(service.submitPublicRequest(input)).rejects.toMatchObject({ statusCode: 404 });
+
+    expect(prisma.$executeRaw).toHaveBeenCalled();
+    expect(prisma.dataSubjectRequest.create).not.toHaveBeenCalled();
+  });
 });
 
 describe('data-subject-requests — verifikasi kode', () => {

@@ -47,8 +47,9 @@ setiap peran melihat menu, dasbor, dan data yang berbeda.
 
 Pada commit ini, basis kode berisi **95 modul API**, **307 model data** dan
 **163 enum**, sekitar **1.459 hulu rute API**, **436 halaman web**, serta
-**19 entri jadwal** atas **17 berkas pekerjaan** (diukur pada commit `76511a89`,
-11 November 2026). Data disimpan di satu basis data PostgreSQL dan
+**21 entri jadwal** atas **19 berkas pekerjaan terjadwal** (angka lain diukur pada commit
+`76511a89`, 11 November 2026; entri jadwal diukur ulang pada 20 November 2026,
+sesudah `registrant-retention.job`). Data disimpan di satu basis data PostgreSQL dan
 diakses lewat Prisma 7. Aplikasi berjalan sebagai dua layanan: API (Express 5)
 dan web (Next.js 16), dengan paket tipe bersama `@cipansor/shared`.
 
@@ -469,6 +470,7 @@ bisa dijadwalkan lebih dari sekali (`dashboard-snapshot` tiga kali).
 | `holiday-sync.job` | tanggal 1, 05:00 | Menarik hari libur nasional ke kalender |
 | `admission-wave-status.job` | harian 00:01 | Membuka atau menutup gelombang SPMB menurut tanggalnya |
 | `attendance-retention.job` | harian 03:15 | Menghapus swafoto dan koordinat absensi pegawai setelah masa retensi |
+| `registrant-retention.job` | harian 03:30 | Menghapus pendaftar SPMB yang tidak menjadi santri 90 hari sesudah gelombangnya ditutup (WIB). Dikecualikan: yang sudah menjadi santri (`studentId`/`ENROLLED`), yang sudah membayar biaya daftar ulang (satu-satunya catatan uang itu), dan yang masih punya permintaan hak subjek data terbuka |
 | `chatbot-spend.job` | harian 07:00 | Memeriksa belanja chatbot terhadap anggaran |
 | `chatbot-transcript-purge.job` | harian 03:15 | Memangkas transkrip chatbot |
 | `chatbot-escalation-retry.job` | tiap 30 menit | Mengulang eskalasi chatbot yang gagal |
