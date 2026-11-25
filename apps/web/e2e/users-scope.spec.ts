@@ -54,15 +54,17 @@ test("Users & Roles shows the real total and pages past the first ten", async ({
   await injectSession(page, superAdmin);
   await page.goto("/users");
 
-  const footer = page.getByText(/Menampilkan \d+[–-]\d+ dari [\d.]+ data/);
+  const footer = page.getByText(/Menampilkan \d+–\d+ dari [\d.]+ hasil/);
+  const totalOf = async () =>
+    Number(
+      /dari ([\d.]+) hasil/
+        .exec((await footer.textContent()) ?? "")?.[1]
+        .replace(/\./g, ""),
+    );
   await expect(footer).toBeVisible();
-  const total = Number(
-    /dari ([\d.]+) data/
-      .exec((await footer.textContent()) ?? "")?.[1]
-      .replace(/\./g, ""),
-  );
-  // The seed has dozens of accounts; the list used to say "of 0".
-  expect(total).toBeGreaterThan(10);
+  // The footer first renders with the loading placeholder's zero; wait for the
+  // API's count, or this reads "dari 0 hasil" on a slow start.
+  await expect.poll(totalOf).toBeGreaterThan(10);
   await expect(page.getByText(/Halaman\s*1\s*dari\s*\d+/)).toBeVisible();
 
   const firstRow = await page.getByRole("row").nth(1).textContent();
@@ -90,14 +92,15 @@ test("the realm filter narrows the whole list, not the page shown", async ({
 }) => {
   await injectSession(page, superAdmin);
   await page.goto("/users");
-  const footer = page.getByText(/Menampilkan \d+[–-]\d+ dari [\d.]+ data/);
+  const footer = page.getByText(/Menampilkan \d+–\d+ dari [\d.]+ hasil/);
   const totalOf = async () =>
     Number(
-      /dari ([\d.]+) data/
+      /dari ([\d.]+) hasil/
         .exec((await footer.textContent()) ?? "")?.[1]
         .replace(/\./g, ""),
     );
   await expect(footer).toBeVisible();
+  await expect.poll(totalOf).toBeGreaterThan(10);
   const all = await totalOf();
 
   const filtered = page.waitForResponse(
@@ -106,7 +109,7 @@ test("the realm filter narrows the whole list, not the page shown", async ({
   await page.getByRole("combobox").filter({ hasText: "All Realms" }).click();
   await page.getByRole("option", { name: "SD IT" }).click();
   await filtered;
-  await expect(footer).toBeVisible();
+  await expect.poll(totalOf).toBeGreaterThan(0);
   const sdit = await totalOf();
 
   // Fewer than all, more than nothing — counted by the API, so the footer

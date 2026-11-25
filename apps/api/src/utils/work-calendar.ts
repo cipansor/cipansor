@@ -53,6 +53,10 @@ export async function holidaysInRange(
       isDraft: false,
       startDate: { lte: end },
       OR: [{ endDate: null }, { endDate: { gte: start } }],
+      // A class holiday closes that class, not the unit: the staff attendance
+      // register and the payslip day count are unit-wide, so only a unit or
+      // yayasan holiday belongs here.
+      classId: null,
       AND: [{ OR: [{ unitId: null }, ...(unitId ? [{ unitId }] : [])] }],
     },
     select: { title: true, startDate: true, endDate: true },

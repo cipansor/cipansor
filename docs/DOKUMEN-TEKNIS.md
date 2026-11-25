@@ -749,7 +749,7 @@ memanggil Prisma dari rute/controller.
 | attendance | /api/attendance | 12 | ya | ok |
 | auth | /api/auth | 14 | ya | ok |
 | business-unit | /api/business-units | 7 | - | ok |
-| calendar | /api/calendar | 19 | - | ok |
+| calendar | /api/calendar | 17 | - | ok |
 | canteen | /api/canteen | 19 | - | ok |
 | cbt | /api/cbt | 20 | - | Prisma di route/controller |
 | certificates | /api/certificates | 10 | - | ok |

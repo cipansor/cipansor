@@ -658,7 +658,7 @@ describe("Laundry — the pager speaks Indonesian", () => {
   it("prints the range and the page in Indonesian", () => {
     render(<LaundryPage />);
 
-    expect(document.body).toHaveTextContent("Menampilkan 1–1 dari 1 data");
+    expect(document.body).toHaveTextContent("Menampilkan 1–1 dari 1 hasil");
     expect(document.body).toHaveTextContent("Halaman 1 dari 1");
     expect(document.body).not.toHaveTextContent(
       /Showing|Rows per page|Page 1 of/,

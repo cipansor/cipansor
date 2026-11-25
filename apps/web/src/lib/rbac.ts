@@ -435,11 +435,13 @@ export const roleCodeRouteAccess: Readonly<Record<string, readonly string[]>> =
     SMAQ_ADMIN: ["/rapor-pesantren"],
     // The head drafts the RKA Unit their PK must anchor to
     // (`canAuthorUnitPlan` on the API), and reads their unit's page and its
-    // accreditation (Profil Unit).
-    TKQ_KEPALA_SEKOLAH: ["/perencanaan", "/units"],
-    SDIT_KEPALA_SEKOLAH: ["/perencanaan", "/units"],
-    SMPIT_KEPALA_SEKOLAH: ["/perencanaan", "/units"],
-    SMAQ_KEPALA_SEKOLAH: ["/perencanaan", "/units"],
+    // accreditation (Profil Unit). The academic calendar is theirs too: the API
+    // admits every `_KEPALA_SEKOLAH` through ACADEMIC_MANAGE, while the TEACHER
+    // bucket does not carry `/calendar`.
+    TKQ_KEPALA_SEKOLAH: ["/perencanaan", "/units", "/calendar"],
+    SDIT_KEPALA_SEKOLAH: ["/perencanaan", "/units", "/calendar"],
+    SMPIT_KEPALA_SEKOLAH: ["/perencanaan", "/units", "/calendar"],
+    SMAQ_KEPALA_SEKOLAH: ["/perencanaan", "/units", "/calendar"],
     PUSTAKAWAN: ["/library"],
     // Laboratory equipment: the role holds INVENTORY_VIEW / INVENTORY_MANAGE.
     // `/practicum` is Amaliyah Tadris (teaching practice), not a laboratory.
