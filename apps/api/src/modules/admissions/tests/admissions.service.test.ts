@@ -93,7 +93,9 @@ describe('Admissions Service', () => {
     // The registration counter is incremented atomically; each test that
     // creates a registrant gets its own starting sequence.
     vi.mocked(prisma.admissionPeriod.update as any).mockResolvedValue({ registrationSeq: 1 });
-    vi.mocked(prisma.$executeRaw as any).mockResolvedValue(1);
+    vi.mocked(prisma.$executeRaw as any)
+      .mockReset()
+      .mockResolvedValue(1);
     // Most tests do not have a row with the candidate number; tests that do
     // override this with their own sequence.
     vi.mocked(prisma.registrant.findUnique as any).mockResolvedValue(null);
@@ -328,6 +330,33 @@ describe('Admissions Service', () => {
     vi.mocked(prisma.registrant.findUnique as any).mockReset();
     vi.mocked(prisma.registrant.delete as any).mockReset();
     vi.mocked(prisma.admissionPeriod.findUnique as any).mockReset();
+  });
+
+  it('mengunci pendaftar sebelum gelombangnya saat penghapusan manual', async () => {
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValue({
+      id: 'r-1',
+      status: 'REGISTERED',
+      waveId: 'w-1',
+    } as any);
+    vi.mocked(prisma.admissionWave.updateMany as any).mockResolvedValue({ count: 1 });
+    vi.mocked(prisma.admissionWave.findUnique as any).mockResolvedValue({
+      id: 'w-1',
+      status: 'OPEN',
+      registeredCount: 1,
+      quota: 10,
+      startDate: new Date('2026-01-01T00:00:00.000Z'),
+      endDate: new Date('2026-12-31T00:00:00.000Z'),
+      fullByCapacity: false,
+    } as any);
+    vi.mocked(prisma.registrant.delete as any).mockResolvedValue({ id: 'r-1' });
+
+    await service.deleteRegistrant('r-1');
+
+    // Retention, onboarding, and reassignment lock the registrant first. The
+    // manual delete must do the same, or it can deadlock with any of them.
+    const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
+    const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];
+    expect(registrantLock).toBeLessThan(waveLock);
   });
 
   describe('deleteRegistrantForRetention', () => {
