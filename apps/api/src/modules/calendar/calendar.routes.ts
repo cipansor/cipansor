@@ -1,16 +1,19 @@
 import { Router } from 'express';
-import { UserRole } from '@prisma/client';
+import { RoleCode } from '@prisma/client';
 import {
   ADMIN_ROLE_CODES,
+  CALENDAR_READ_ROLE_CODES,
+  CALENDAR_STATS_ROLE_CODES,
+  CALENDAR_WRITE_ROLE_CODES,
   bulkCreateCalendarEventsSchema,
   calendarEventDeleteQuerySchema,
   createCalendarEventSchema,
   listCalendarEventsQuerySchema,
+  updateCalendarEventSchema,
 } from '@cipansor/shared';
 import { calendarController } from './calendar.controller';
-import { authenticate, authorize, hasPermission } from '@/middleware/auth';
+import { authenticate, authorize } from '@/middleware/auth';
 import { validate, validateQuery } from '@/middleware/validate';
-import { PERMISSIONS } from '@/modules/roles/permissions';
 
 const router = Router();
 
@@ -19,15 +22,14 @@ const router = Router();
 // (Pengawas) could publish unit holidays even though its permission set is
 // read-only. Gate the writes on the permission the operational academic roles
 // actually hold.
-const manageCalendar = hasPermission(PERMISSIONS.ACADEMIC_MANAGE);
+const manageCalendar = authorize(...CALENDAR_WRITE_ROLE_CODES);
 
 // Reviewing an imported holiday is admin work, not teaching work. A kepala
-// sekolah holds ACADEMIC_MANAGE and may create ordinary agenda, but approving a
-// draft changes a unit's work days for attendance and payroll. Gate on the
-// RoleCode list, not the legacy UNIT_ADMIN bucket: that bucket also contains
-// the read-only yayasan roles, and TEACHER contains the kepala sekolah. The
-// pair of gates leaves exactly SUPER_ADMIN and the four per-unit admins.
-const reviewHolidayDraft = [authorize(...ADMIN_ROLE_CODES), manageCalendar];
+// sekolah may create ordinary agenda, but approving a draft changes a unit's
+// work days for attendance and payroll. `ADMIN_ROLE_CODES` is exactly
+// SUPER_ADMIN and the four per-unit admins: the legacy UNIT_ADMIN bucket also
+// contains the read-only yayasan roles, and TEACHER contains the kepala sekolah.
+const reviewHolidayDraft = authorize(...ADMIN_ROLE_CODES);
 
 // All routes require authentication
 router.use(authenticate);
@@ -40,59 +42,35 @@ router.use(authenticate);
 router.get(
   '/',
   validateQuery(listCalendarEventsQuerySchema),
-  authorize(
-    UserRole.SUPER_ADMIN,
-    UserRole.UNIT_ADMIN,
-    UserRole.TEACHER,
-    UserRole.STUDENT,
-    UserRole.PARENT
-  ),
+  authorize(...CALENDAR_READ_ROLE_CODES),
   calendarController.listEvents.bind(calendarController)
 );
 
 // GET /calendar/statistics - Get calendar statistics
 router.get(
   '/statistics',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  authorize(...CALENDAR_STATS_ROLE_CODES),
   calendarController.getStatistics.bind(calendarController)
 );
 
 // GET /calendar/upcoming/:unitId - Get upcoming events for a unit
 router.get(
   '/upcoming/:unitId',
-  authorize(
-    UserRole.SUPER_ADMIN,
-    UserRole.UNIT_ADMIN,
-    UserRole.TEACHER,
-    UserRole.STUDENT,
-    UserRole.PARENT
-  ),
+  authorize(...CALENDAR_READ_ROLE_CODES),
   calendarController.getUpcomingEvents.bind(calendarController)
 );
 
 // GET /calendar/today/:unitId - Get today's events for a unit
 router.get(
   '/today/:unitId',
-  authorize(
-    UserRole.SUPER_ADMIN,
-    UserRole.UNIT_ADMIN,
-    UserRole.TEACHER,
-    UserRole.STUDENT,
-    UserRole.PARENT
-  ),
+  authorize(...CALENDAR_READ_ROLE_CODES),
   calendarController.getTodayEvents.bind(calendarController)
 );
 
 // GET /calendar/holidays/:unitId/:academicYearId - Get holidays for academic year
 router.get(
   '/holidays/:unitId/:academicYearId',
-  authorize(
-    UserRole.SUPER_ADMIN,
-    UserRole.UNIT_ADMIN,
-    UserRole.TEACHER,
-    UserRole.STUDENT,
-    UserRole.PARENT
-  ),
+  authorize(...CALENDAR_READ_ROLE_CODES),
   calendarController.getHolidays.bind(calendarController)
 );
 
@@ -122,7 +100,7 @@ router.post(
 // GET /calendar/holidays/config - Holiday-source settings
 router.get(
   '/holidays/config',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  authorize(...CALENDAR_STATS_ROLE_CODES),
   calendarController.getHolidaySyncConfig.bind(calendarController)
 );
 
@@ -131,7 +109,7 @@ router.get(
 // may change it. A unit admin editing it would silently retarget every unit.
 router.put(
   '/holidays/config',
-  authorize(UserRole.SUPER_ADMIN),
+  authorize(RoleCode.SUPER_ADMIN),
   calendarController.updateHolidaySyncConfig.bind(calendarController)
 );
 
@@ -145,7 +123,7 @@ router.post(
 // GET /calendar/holidays/drafts - Imported holidays awaiting review
 router.get(
   '/holidays/drafts',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  authorize(...CALENDAR_WRITE_ROLE_CODES),
   calendarController.listHolidayDrafts.bind(calendarController)
 );
 
@@ -166,18 +144,17 @@ router.post(
 // GET /calendar/:id - Get event by ID
 router.get(
   '/:id',
-  authorize(
-    UserRole.SUPER_ADMIN,
-    UserRole.UNIT_ADMIN,
-    UserRole.TEACHER,
-    UserRole.STUDENT,
-    UserRole.PARENT
-  ),
+  authorize(...CALENDAR_READ_ROLE_CODES),
   calendarController.getEventById.bind(calendarController)
 );
 
 // PUT /calendar/:id - Update event
-router.put('/:id', manageCalendar, calendarController.updateEvent.bind(calendarController));
+router.put(
+  '/:id',
+  manageCalendar,
+  validate(updateCalendarEventSchema),
+  calendarController.updateEvent.bind(calendarController)
+);
 
 // DELETE /calendar/:id?scope=SINGLE|SERIES - Delete one occurrence or a whole series
 router.delete(

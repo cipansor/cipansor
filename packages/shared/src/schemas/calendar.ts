@@ -1,5 +1,9 @@
 import { z } from "zod";
-import { EVENT_TYPES } from "../types/calendar";
+import { EVENT_TYPES, EventScope } from "../types/calendar";
+
+const booleanQuery = z
+  .union([z.boolean(), z.enum(["true", "false"])])
+  .transform((value) => value === true || value === "true");
 
 /**
  * The calendar's write contract, read by both the API and the web (#1155).
@@ -149,6 +153,53 @@ export const createCalendarEventSchema = z
     }
   });
 
+/**
+ * The partial update contract. `null` is a value, not "leave it alone": the
+ * edit form sends it for a field the user cleared, and the API forwards it to
+ * Prisma so an old end date, description or time cannot survive the edit.
+ */
+export const updateCalendarEventSchema = z
+  .object({
+    title: z
+      .string()
+      .trim()
+      .min(1, "Judul agenda harus diisi")
+      .max(200)
+      .optional(),
+    description: z.string().max(2000).nullable().optional(),
+    eventType: z.enum(EVENT_TYPES, "Kategori agenda tidak dikenal").optional(),
+    startDate: dayOrInstant.optional(),
+    endDate: dayOrInstant.nullable().optional(),
+    isAllDay: z.boolean().optional(),
+    startTime: clockTime.nullable().optional(),
+    endTime: clockTime.nullable().optional(),
+    location: z.string().max(200).nullable().optional(),
+    isOnline: z.boolean().optional(),
+    onlineUrl: z.string().max(500).nullable().optional(),
+    isPublic: z.boolean().optional(),
+    color: hexColor.nullable().optional(),
+    scope: z.enum(EventScope).optional(),
+    isRecurring: z.boolean().optional(),
+    recurrenceRule: z.string().max(500).nullable().optional(),
+  })
+  .strict()
+  .superRefine((value, ctx) => {
+    if (!value.startDate || !value.endDate) return;
+    const start = Date.parse(`${value.startDate}T00:00:00.000Z`);
+    const end = Date.parse(`${value.endDate}T00:00:00.000Z`);
+    if (end < start) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["endDate"],
+        message: "Tanggal selesai tidak boleh sebelum tanggal mulai",
+      });
+    }
+  });
+
+export type UpdateCalendarEventPayload = z.input<
+  typeof updateCalendarEventSchema
+>;
+
 export type CreateCalendarEventPayload = z.input<
   typeof createCalendarEventSchema
 >;
@@ -197,9 +248,18 @@ export const listCalendarEventsQuerySchema = z.object({
     .enum(["true", "false"])
     .transform((v) => v === "true")
     .optional(),
+  manage: booleanQuery.default(false),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  // Keep headroom above the portal's 100-row month request: the route used to
+  // accept any page size, and an external reader asking for 101 must not start
+  // failing with 400. 500 still bounds a single query.
+  limit: z.coerce.number().int().min(1).max(500).default(50),
 });
 export type ListCalendarEventsQuery = z.output<
+  typeof listCalendarEventsQuerySchema
+>;
+
+/** The list query's input shape, for the web hook's parameter type. */
+export type CalendarEventListParams = z.input<
   typeof listCalendarEventsQuerySchema
 >;

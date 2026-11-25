@@ -14,6 +14,7 @@ vi.mock('@/lib/prisma', () => ({
       findUnique: vi.fn(),
     },
     user: { findUnique: vi.fn() },
+    class: { findMany: vi.fn().mockResolvedValue([]) },
   },
 }));
 
@@ -23,6 +24,7 @@ import { prisma } from '@/lib/prisma';
 const findMany = prisma.calendarEvent.findMany as unknown as ReturnType<typeof vi.fn>;
 const findUniqueEvent = prisma.calendarEvent.findUnique as unknown as ReturnType<typeof vi.fn>;
 const findUser = prisma.user.findUnique as unknown as ReturnType<typeof vi.fn>;
+const findClasses = prisma.class.findMany as unknown as ReturnType<typeof vi.fn>;
 
 const baseQuery = { page: 1, limit: 10 } as Parameters<typeof calendarService.findAll>[0];
 
@@ -60,6 +62,7 @@ beforeEach(() => {
   findMany.mockResolvedValue([]);
   findUniqueEvent.mockResolvedValue(null);
   findUser.mockResolvedValue(null);
+  findClasses.mockResolvedValue([]);
 });
 
 /**
@@ -96,11 +99,19 @@ describe('CalendarService.findAll class scope', () => {
     expect([...ids].sort()).toEqual(['class-4b', 'class-6a']);
   });
 
-  it('leaves a teacher’s unit-wide view untouched', async () => {
+  it('restricts a teacher to the classes they teach or homeroom', async () => {
+    findClasses.mockResolvedValue([{ id: 'class-5b' }]);
+
     await calendarService.findAll(baseQuery, teacher);
 
     const where = findMany.mock.calls[0][0].where;
-    expect(classFilter(where)).toBeUndefined();
+    expect(classFilter(where)).toEqual({
+      OR: [
+        { scope: { not: 'SPECIFIC_CLASS' } },
+        { scope: 'SPECIFIC_CLASS', createdById: teacher.sub },
+        { scope: 'SPECIFIC_CLASS', classId: { in: ['class-5b'] } },
+      ],
+    });
     expect(findUser).not.toHaveBeenCalled();
   });
 });

@@ -6,7 +6,9 @@ import {
   type CalendarEvent as SharedCalendarEvent,
   type CalendarEventDeleteScope,
   type CalendarEventList,
+  type CalendarEventListParams,
   type CreateCalendarEventPayload,
+  type UpdateCalendarEventPayload,
   type EventRecurrenceCode,
 } from "@cipansor/shared";
 
@@ -105,19 +107,7 @@ export const EVENT_RECURRENCES: { value: EventRecurrence; label: string }[] = [
   { value: "YEARLY", label: "Setiap Tahun" },
 ];
 
-export interface CalendarEventParams {
-  page?: number;
-  limit?: number;
-  startDate?: string;
-  endDate?: string;
-  eventType?: EventCategory;
-  unitId?: string;
-  classId?: string;
-  isPublic?: boolean;
-  month?: number;
-  year?: number;
-  search?: string;
-}
+export type CalendarEventParams = CalendarEventListParams;
 
 export function useCalendarEvents(params: CalendarEventParams = {}) {
   return useQuery({
@@ -131,6 +121,20 @@ export function useCalendarEvents(params: CalendarEventParams = {}) {
       });
       return response.data;
     },
+  });
+}
+
+/** One agenda, for the edit form. The API scopes the read like the list. */
+export function useCalendarEvent(id?: string) {
+  return useQuery({
+    queryKey: ["calendar-events", "detail", id],
+    queryFn: async () => {
+      const response = await api.get<ApiResponse<CalendarEvent>>(
+        `/calendar/${id}`,
+      );
+      return response.data.data;
+    },
+    enabled: !!id,
   });
 }
 
@@ -166,7 +170,86 @@ export function useMonthEvents(year: number, month: number, unitId?: string) {
 }
 
 /** What the form sends: the shared contract, with days as the form holds them. */
+/**
+ * The instant a non-all-day event really starts. The create form sends a
+ * date-only `startDate` plus a WIB `startTime`; the API stores that date at
+ * midnight UTC (07:00 WIB) and keeps the time separately. Reading `startDate`
+ * alone hides an afternoon event from "Event Mendatang" all morning.
+ */
+export function eventStartInstant(
+  event: Pick<CalendarEvent, "startDate" | "startTime" | "isAllDay">,
+): Date {
+  const start = new Date(event.startDate);
+  if (event.isAllDay || !event.startTime) return start;
+  if (start.getUTCHours() || start.getUTCMinutes() || start.getUTCSeconds()) {
+    return start;
+  }
+
+  const [hours, minutes] = event.startTime.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return start;
+
+  const day = event.startDate.slice(0, 10);
+  return new Date(
+    `${day}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00+07:00`,
+  );
+}
+
+/**
+ * The unit whose agenda the page asks for: an explicit filter, else the
+ * session's active-role unit. The profile's home unit (`user.unit`) is not it —
+ * a person whose role covers another unit would read that other unit's private
+ * agenda under their own name.
+ */
+export function agendaUnitIdFor(
+  selectedUnitId: string,
+  user:
+    { unitId?: string | null; unit?: { id: string } | null } | null | undefined,
+): string {
+  return selectedUnitId || user?.unitId || "";
+}
+
+/**
+ * Today's agenda for a unit (`GET /calendar/today/:unitId`). The API bounds
+ * "today" by the WIB calendar day, so the portal asks it rather than filtering
+ * the month window on the browser clock. Nothing is asked until a unit is known.
+ */
+export function useTodayEvents(unitId?: string) {
+  return useQuery({
+    queryKey: ["calendar-events", "today", unitId],
+    queryFn: async () => {
+      const response = await api.get<ApiResponse<CalendarEvent[]>>(
+        `/calendar/today/${unitId}`,
+      );
+      return response.data.data;
+    },
+    enabled: !!unitId,
+  });
+}
+
 export type CreateCalendarEventData = CreateCalendarEventPayload;
+
+export function useUpdateCalendarEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: UpdateCalendarEventPayload;
+    }) => {
+      const response = await api.put<ApiResponse<CalendarEvent>>(
+        `/calendar/${id}`,
+        data,
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+  });
+}
 
 export function useCreateCalendarEvent() {
   const queryClient = useQueryClient();

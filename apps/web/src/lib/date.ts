@@ -35,6 +35,49 @@ export function todayWibDay(now: Date = new Date()): string {
 }
 
 /**
+ * Today's date on the WIB clock, e.g. "Minggu, 1 November 2026".
+ *
+ * A label above a "today" list must name the same day the API counted. Reading
+ * the device clock with date-fns `format` shows yesterday between 00:00 and
+ * 06:59 WIB on a UTC device (and on any zone west of WIB). `timeZone` makes
+ * Intl do the shift in one step, independent of the device.
+ */
+export function formatTodayWib(now: Date = new Date()): string {
+  return new Intl.DateTimeFormat("id-ID", {
+    weekday: "long",
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+  }).format(now);
+}
+
+/**
+ * Format an instant on the WIB calendar, whatever the device's zone.
+ *
+ * `safeFormat` uses date-fns, which formats in the device's local zone. A
+ * 00:30 WIB event is 17:30Z the previous day, so a UTC device rendered it as
+ * "24 Nov" while the month grid (which reads the stored day) put it on the
+ * 25th. Intl does the shift in one step.
+ */
+export function formatWibDate(
+  date: Date | string | null | undefined,
+  options: Intl.DateTimeFormatOptions = {},
+  fallback = "-",
+): string {
+  if (!date) return fallback;
+  const d = typeof date === "string" ? new Date(date) : date;
+  if (isNaN(d.getTime())) return fallback;
+  return d.toLocaleDateString("id-ID", {
+    day: "numeric",
+    month: "short",
+    year: "numeric",
+    timeZone: "Asia/Jakarta",
+    ...options,
+  });
+}
+
+/**
  * Day of week (0=Sunday … 6=Saturday) an instant falls on in WIB.
  *
  * `Schedule.dayOfWeek` is filled from the WIB week, but `new Date().getDay()`

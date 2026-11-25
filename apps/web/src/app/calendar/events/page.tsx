@@ -53,10 +53,9 @@ import {
   CalendarEvent,
 } from "@/hooks/use-calendar";
 import { Pagination } from "@/components/shared/pagination";
-import { usePermission } from "@/hooks/use-permission";
+import { useCanWriteCalendar } from "@/hooks/use-calendar-permissions";
 import { useAuth } from "@/hooks/use-auth";
 import { canModifyCalendarEvent } from "@/lib/calendar-access";
-import { PERMISSIONS } from "@/constants/permissions";
 import {
   CALENDAR_EVENT_SEARCH_MAX_LENGTH,
   type CalendarEventDeleteScope,
@@ -104,10 +103,11 @@ export default function EventsListPage() {
     // The API's own filter name. The page used to send `category`, which the
     // controller never read, so choosing a category filtered nothing (#1155).
     eventType: categoryFilter === "all" ? undefined : categoryFilter,
+    manage: true,
   });
   const events = eventsData?.data || [];
   const total = eventsData?.meta.total ?? 0;
-  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
+  const canManage = useCanWriteCalendar();
   const { user } = useAuth();
 
   // Deleting the last row of the last page leaves the requested page beyond

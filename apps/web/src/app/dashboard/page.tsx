@@ -19,6 +19,7 @@ import {
   useTahfidzRecords,
 } from "@/hooks";
 import { useStudents } from "@/hooks/use-students";
+import { useQuickStats } from "@/hooks/use-dashboard-enhancement";
 import { useHealthSummary } from "@/hooks/use-health";
 import { useDonationStats, useRecentDonations } from "@/hooks/use-donation";
 import {
@@ -64,6 +65,10 @@ export default function DashboardPage() {
   const { data: stats, isLoading } = useDashboardStats();
   const { data: attendanceData } = useAttendanceStats();
   const { data: financeData } = useFinanceStats();
+  // Today's WIB counts (attendance + murojaah) — the endpoint the dashboard's
+  // "hari ini" cards read, kept fresh every five minutes. A unit user is
+  // scoped to their unit; a foundation-wide user passes none.
+  const { data: quickStats } = useQuickStats({ unitId: user?.unitId });
 
   // New hooks for enhanced dashboard
   const { data: tahfidzData, isLoading: tahfidzLoading } = useTahfidzStats({
@@ -250,6 +255,18 @@ export default function DashboardPage() {
             description="Tahun ajaran aktif"
             icon={Calendar}
             isLoading={isLoading}
+          />
+          <StatsCard
+            title="Kehadiran Hari Ini"
+            value={quickStats?.todayAttendance ?? "-"}
+            description="Santri hadir (WIB)"
+            icon={Calendar}
+          />
+          <StatsCard
+            title="Murojaah Hari Ini"
+            value={quickStats?.todayMurojaah ?? "-"}
+            description="Setoran murojaah (WIB)"
+            icon={BookOpen}
           />
         </div>
 

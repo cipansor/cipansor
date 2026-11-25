@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { safeFormat } from "@/lib/date";
+import { formatTodayWib, formatWibDate, safeFormat } from "@/lib/date";
 import { MainLayout } from "@/components/layout/main-layout";
 import {
   Card,
@@ -29,14 +29,18 @@ import {
 } from "@/components/ui/dialog";
 import {
   useMonthEvents,
+  useTodayEvents,
+  agendaUnitIdFor,
+  eventStartInstant,
   CalendarEvent,
   EVENT_CATEGORIES,
   getEventCategoryConfig,
   EventCategory,
 } from "@/hooks/use-calendar";
 import { useUnits } from "@/hooks/use-units";
-import { usePermission } from "@/hooks/use-permission";
-import { PERMISSIONS } from "@/constants/permissions";
+import { useAuthStore } from "@/stores/auth";
+import { canModifyCalendarEvent } from "@/lib/calendar-access";
+import { useCanWriteCalendar } from "@/hooks/use-calendar-permissions";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -81,7 +85,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function AcademicCalendarPage() {
-  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
+  const canManage = useCanWriteCalendar();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | "">(
@@ -92,6 +96,7 @@ export default function AcademicCalendarPage() {
   );
   const [viewMode, setViewMode] = useState<"calendar" | "list">("calendar");
 
+  const { user } = useAuthStore();
   const { data: units = [] } = useUnits();
   const { data: events = [], isLoading } = useMonthEvents(
     currentDate.getFullYear(),
@@ -99,11 +104,34 @@ export default function AcademicCalendarPage() {
     selectedUnitId || undefined,
   );
 
+  // The "today" agenda is per active-role unit, never the profile's home unit:
+  // `user.unitId` is the scope of the role the session is acting as, while
+  // `user.unit` is only the person's home unit. The API bounds it by the WIB
+  // calendar day and refuses a unit outside that role's scope.
+  const agendaUnitId = agendaUnitIdFor(selectedUnitId, user);
+  const { data: todayEvents = [] } = useTodayEvents(agendaUnitId || undefined);
+
   // Filter events by category
   const filteredEvents = useMemo(() => {
     if (!selectedCategory) return events;
     return events.filter((e) => e.eventType === selectedCategory);
   }, [events, selectedCategory]);
+
+  const filteredTodayEvents = useMemo(() => {
+    if (!selectedCategory) return todayEvents;
+    return todayEvents.filter((e) => e.eventType === selectedCategory);
+  }, [todayEvents, selectedCategory]);
+
+  const upcomingEvents = useMemo(() => {
+    const now = new Date();
+    return filteredEvents
+      .filter((event) => eventStartInstant(event) >= now)
+      .sort(
+        (a, b) =>
+          eventStartInstant(a).getTime() - eventStartInstant(b).getTime(),
+      )
+      .slice(0, 5);
+  }, [filteredEvents]);
 
   // Generate calendar days
   const calendarDays = useMemo(() => {
@@ -315,6 +343,55 @@ export default function AcademicCalendarPage() {
             </button>
           ))}
         </div>
+
+        {/* Agenda Hari Ini — the API's WIB "today" window */}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <CalendarIcon className="h-5 w-5" />
+              Agenda Hari Ini
+            </CardTitle>
+            <CardDescription>{formatTodayWib()}</CardDescription>
+          </CardHeader>
+          <CardContent>
+            {!agendaUnitId ? (
+              <p className="text-sm text-muted-foreground">
+                Pilih unit untuk melihat agenda hari ini.
+              </p>
+            ) : filteredTodayEvents.length === 0 ? (
+              <p className="text-sm text-muted-foreground">
+                Tidak ada agenda hari ini.
+              </p>
+            ) : (
+              <ul className="space-y-3">
+                {filteredTodayEvents.map((event) => {
+                  const config = getEventCategoryConfig(event.eventType);
+                  return (
+                    <li key={event.id} className="flex items-start gap-3">
+                      <span
+                        className="mt-1.5 h-2 w-2 shrink-0 rounded-full"
+                        style={{
+                          backgroundColor: config?.color ?? "#6b7280",
+                        }}
+                      />
+                      <div className="min-w-0">
+                        <p className="text-sm font-medium">{event.title}</p>
+                        <p className="text-xs text-muted-foreground">
+                          {event.isAllDay
+                            ? "Sepanjang hari"
+                            : [event.startTime, event.endTime]
+                                .filter(Boolean)
+                                .join("–") || "—"}
+                          {event.location ? ` · ${event.location}` : ""}
+                        </p>
+                      </div>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </CardContent>
+        </Card>
 
         {/* Calendar View */}
         {viewMode === "calendar" ? (
@@ -571,36 +648,30 @@ export default function AcademicCalendarPage() {
               <CardTitle>Event Mendatang</CardTitle>
             </CardHeader>
             <CardContent>
-              {filteredEvents
-                .filter((e) => new Date(e.startDate) >= new Date())
-                .slice(0, 5)
-                .map((event) => {
-                  const catConfig = getEventCategoryConfig(event.eventType);
-                  return (
+              {upcomingEvents.map((event) => {
+                const catConfig = getEventCategoryConfig(event.eventType);
+                return (
+                  <div
+                    key={event.id}
+                    onClick={() => setSelectedEvent(event)}
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer mb-2 last:mb-0"
+                  >
                     <div
-                      key={event.id}
-                      onClick={() => setSelectedEvent(event)}
-                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer mb-2 last:mb-0"
-                    >
-                      <div
-                        className="w-2 h-10 rounded-full"
-                        style={{ backgroundColor: catConfig?.color }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate text-sm">
-                          {event.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {safeFormat(new Date(event.startDate), "d MMM yyyy", {
-                            locale: idLocale,
-                          })}
-                        </p>
-                      </div>
+                      className="w-2 h-10 rounded-full"
+                      style={{ backgroundColor: catConfig?.color }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate text-sm">
+                        {event.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {formatWibDate(eventStartInstant(event))}
+                      </p>
                     </div>
-                  );
-                })}
-              {filteredEvents.filter((e) => new Date(e.startDate) >= new Date())
-                .length === 0 && (
+                  </div>
+                );
+              })}
+              {upcomingEvents.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   Tidak ada event mendatang
                 </p>
@@ -717,9 +788,14 @@ export default function AcademicCalendarPage() {
                     >
                       Tutup
                     </Button>
-                    <Link href={`/calendar/events/${selectedEvent.id}/edit`}>
-                      <Button variant="default">Edit Event</Button>
-                    </Link>
+                    {canManage &&
+                      canModifyCalendarEvent(user, selectedEvent) && (
+                        <Link
+                          href={`/calendar/events/${selectedEvent.id}/edit`}
+                        >
+                          <Button variant="default">Edit Event</Button>
+                        </Link>
+                      )}
                   </div>
                 </div>
               </>

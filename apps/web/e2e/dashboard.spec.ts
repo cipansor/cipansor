@@ -16,6 +16,42 @@ test.beforeEach(async ({ page }) => {
   await page.waitForLoadState("domcontentloaded", { timeout: 15000 });
 });
 
+/**
+ * The "hari ini" cards read `GET /dashboard-enhancement/quick-stats`, whose
+ * counts are bounded by the WIB calendar day (#1152). The page must ask that
+ * endpoint, not derive "today" from the browser clock.
+ */
+test.describe("Dashboard - Today's WIB quick stats", () => {
+  test("renders the values quick-stats returned, not just the card titles", async ({
+    page,
+  }) => {
+    const quickStats = page.waitForResponse((r) =>
+      r.url().includes("/dashboard-enhancement/quick-stats"),
+    );
+
+    await page.reload();
+    const body = (await (await quickStats).json()) as {
+      data: { todayAttendance: number; todayMurojaah: number };
+    };
+
+    const attendance = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Kehadiran Hari Ini" });
+    await expect(
+      attendance.getByText(String(body.data.todayAttendance), {
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 20000 });
+
+    const murojaah = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Murojaah Hari Ini" });
+    await expect(
+      murojaah.getByText(String(body.data.todayMurojaah), { exact: true }),
+    ).toBeVisible();
+  });
+});
+
 test.describe("Dashboard - Navigation", () => {
   test("should load dashboard after login", async ({ page }) => {
     expect(page.url()).toMatch(/(dashboard|home)/);

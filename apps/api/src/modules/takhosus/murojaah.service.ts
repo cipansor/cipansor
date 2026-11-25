@@ -1,6 +1,18 @@
 import { prisma } from '@/lib/prisma';
 import { Prisma, MurojaahType, TahfidzMistakeType } from '@prisma/client';
+import { dayDate, wibDayOf } from '@/utils/wib';
 import { CreateMurojaahInput, UpdateMurojaahInput } from './takhosus.schema';
+
+/**
+ * The WIB calendar day a murojaah date names, as the `@db.Date` column holds
+ * it. The form sends a full datetime whose instant can be WIB midnight — whose
+ * UTC day is the day before — so storing `new Date(value)` filed an early
+ * morning record under the previous day and `getQuickStats` (which counts the
+ * WIB day) never saw it.
+ */
+function murojaahDayDate(value: string): Date {
+  return dayDate(wibDayOf(new Date(value)));
+}
 
 export const murojaahService = {
   /**
@@ -109,7 +121,7 @@ export const murojaahService = {
     return prisma.murojaahRecord.create({
       data: {
         student: { connect: { id: studentId } },
-        murojaahDate: new Date(murojaahDate),
+        murojaahDate: murojaahDayDate(murojaahDate),
         murojaahType: input.murojaahType as MurojaahType,
         juzStart: input.juzStart,
         juzEnd: input.juzEnd,
@@ -147,7 +159,7 @@ export const murojaahService = {
     const data: any = { ...rest };
 
     if (murojaahDate) {
-      data.murojaahDate = new Date(murojaahDate);
+      data.murojaahDate = murojaahDayDate(murojaahDate);
     }
 
     if (input.murojaahType) {

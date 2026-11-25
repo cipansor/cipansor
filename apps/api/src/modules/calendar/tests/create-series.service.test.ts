@@ -9,6 +9,8 @@ const transaction = vi.fn();
 const findMany = vi.fn();
 const count = vi.fn();
 const groupBy = vi.fn();
+const classFindFirst = vi.fn();
+const classFindMany = vi.fn();
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
@@ -22,6 +24,10 @@ vi.mock('@/lib/prisma', () => ({
       groupBy: (...args: unknown[]) => groupBy(...args),
     },
     $transaction: (...args: unknown[]) => transaction(...args),
+    class: {
+      findFirst: (...args: unknown[]) => classFindFirst(...args),
+      findMany: (...args: unknown[]) => classFindMany(...args),
+    },
   },
 }));
 
@@ -78,6 +84,8 @@ beforeEach(() => {
   findMany.mockResolvedValue([]);
   count.mockResolvedValue(0);
   groupBy.mockResolvedValue([]);
+  classFindFirst.mockResolvedValue({ unitId: 'unit-sdit' });
+  classFindMany.mockResolvedValue([]);
 });
 
 /**
@@ -254,7 +262,7 @@ describe('CalendarService.delete', () => {
     });
 
     await expect(calendarService.delete('event-1', unitAdmin, 'SINGLE')).rejects.toThrow(
-      /cannot delete/i
+      /Access denied/
     );
     expect(update).not.toHaveBeenCalled();
   });

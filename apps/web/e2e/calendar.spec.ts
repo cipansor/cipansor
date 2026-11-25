@@ -1,6 +1,8 @@
 import { test, expect } from "./fixtures/auth.fixture";
 import { SEED_USERS, apiLogin, apiRequest, loginAs } from "./helpers/auth-api";
 import { settledContent } from "./helpers/page-state";
+import type { UpdateCalendarEventPayload } from "@cipansor/shared";
+import { refetchQuery } from "./helpers/query-cache";
 
 /**
  * Calendar Module E2E Tests
@@ -182,18 +184,522 @@ test.describe("Kalender Akademik — agenda lintas bulan tetap tampil", () => {
 });
 
 /**
- * A one-day agenda has no `endDate` — the model stores null. The month grid
- * read `event.endDate.split("T")` unconditionally, so a single one-day event
- * threw "Cannot read properties of null (reading 'split')" and the whole grid
- * fell to the error boundary: the month rendered empty. A one-day event is the
- * ordinary case — the Tambah form leaves "Tanggal Selesai" blank for one day.
- *
- * Asserts the grid still renders its day cells, which is what the crash
- * destroyed; the event itself may sit behind the per-day "+N lainnya" cap.
- *
- * On `main` this fails earlier still, at the seed: `POST /calendar` answered
- * 500 because the model's required `eventType` was never sent (#1155).
+ * The "Agenda Hari Ini" card reads `GET /calendar/today/:unitId`, whose window
+ * is the WIB calendar day (#1152). A unit-scoped user supplies the unit, so the
+ * card must request that endpoint rather than filtering the month window in the
+ * browser — and it must render what the endpoint returned, then obey the
+ * category filter (the card used to list the raw API result).
  */
+test.describe("Kalender Akademik — agenda hari ini", () => {
+  test("renders the API agenda and follows the category filter", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const wibToday = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    // 08:00 WIB — inside today whatever time the suite runs.
+    const startDate = `${wibToday}T01:00:00.000Z`;
+    const suffix = Date.now();
+    const meetingTitle = `Rapat agenda e2e ${suffix}`;
+    const religiousTitle = `Keagamaan agenda e2e ${suffix}`;
+
+    const create = (title: string, eventType: "MEETING" | "RELIGIOUS") =>
+      apiRequest<{ data: { id: string } }>(session, "POST", "/calendar", {
+        title,
+        eventType,
+        startDate,
+        endDate: startDate,
+        isAllDay: false,
+        startTime: "08:00",
+        endTime: "09:00",
+        isPublic: true,
+      });
+
+    const meeting = await create(meetingTitle, "MEETING");
+    const religious = await create(religiousTitle, "RELIGIOUS");
+
+    try {
+      await loginAs(page, "adminSdit");
+      const agendaResponse = page.waitForResponse((r) =>
+        r.url().includes("/calendar/today/"),
+      );
+      await page.goto("/calendar");
+
+      const body = (await (await agendaResponse).json()) as {
+        data: { title: string }[];
+      };
+      expect(body.data.map((event) => event.title)).toEqual(
+        expect.arrayContaining([meetingTitle, religiousTitle]),
+      );
+
+      const agenda = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: "Agenda Hari Ini" });
+      await expect(agenda.getByText(meetingTitle)).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(agenda.getByText(religiousTitle)).toBeVisible();
+
+      // The legend's "Rapat" button narrows both the grid and the agenda.
+      await page
+        .getByRole("button", { name: "Rapat", exact: true })
+        .first()
+        .click();
+
+      await expect(agenda.getByText(meetingTitle)).toBeVisible();
+      await expect(agenda.getByText(religiousTitle)).toHaveCount(0);
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${meeting.data.id}`);
+      await apiRequest(session, "DELETE", `/calendar/${religious.data.id}`);
+    }
+  });
+});
+
+test.describe("Manajemen Event — filter kategori", () => {
+  test("mengirim eventType dan menyempitkan daftar", async ({ page }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const suffix = Date.now();
+    const wibToday = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const startDate = `${wibToday}T01:00:00.000Z`;
+    const meetingTitle = `Rapat daftar e2e ${suffix}`;
+    const religiousTitle = `Keagamaan daftar e2e ${suffix}`;
+
+    const create = (title: string, eventType: "MEETING" | "RELIGIOUS") =>
+      apiRequest<{ data: { id: string } }>(session, "POST", "/calendar", {
+        title,
+        eventType,
+        startDate,
+        endDate: startDate,
+        isAllDay: false,
+        startTime: "08:00",
+        endTime: "09:00",
+        isPublic: true,
+      });
+
+    const meeting = await create(meetingTitle, "MEETING");
+    const religious = await create(religiousTitle, "RELIGIOUS");
+
+    try {
+      await loginAs(page, "superAdmin");
+      await page.goto("/calendar/events");
+
+      await expect(page.getByText(meetingTitle)).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(page.getByText(religiousTitle)).toBeVisible();
+
+      const filtered = page.waitForRequest(
+        (request) =>
+          request.url().includes("/calendar?") &&
+          request.url().includes("eventType=MEETING"),
+      );
+      await page.locator('[data-slot="select-trigger"]').first().click();
+      await page.getByRole("option", { name: "Rapat", exact: true }).click();
+
+      const url = new URL((await filtered).url());
+      expect(url.searchParams.get("eventType")).toBe("MEETING");
+
+      await expect(page.getByText(meetingTitle)).toBeVisible();
+      await expect(page.getByText(religiousTitle)).toHaveCount(0);
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${meeting.data.id}`);
+      await apiRequest(session, "DELETE", `/calendar/${religious.data.id}`);
+    }
+  });
+});
+
+test.describe("Tambah Event — unit admin", () => {
+  test("menyimpan event ke unit aktif dan tidak menawarkan Semua Unit", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.adminSdit);
+    const title = `Rapat unit e2e ${Date.now()}`;
+    let createdId: string | undefined;
+
+    try {
+      await loginAs(page, "adminSdit");
+      await page.goto("/calendar/events/new");
+
+      await expect(page.getByTestId("event-unit")).toHaveText(/SD IT/, {
+        timeout: 15000,
+      });
+      await expect(page.getByText("Semua Unit", { exact: true })).toHaveCount(
+        0,
+      );
+
+      await page.locator("#title").fill(title);
+      const saved = page.waitForResponse(
+        (response) =>
+          response.url().includes("/calendar") &&
+          response.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Simpan" }).click();
+
+      const response = await saved;
+      expect(response.status()).toBe(201);
+      const body = (await response.json()) as {
+        data: { id: string; scope: string; unit?: { name: string } | null };
+      };
+      createdId = body.data.id;
+      expect(body.data.scope).toBe("SPECIFIC_UNIT");
+      expect(body.data.unit?.name).toMatch(/SD IT/);
+      await expect(page).toHaveURL(/\/calendar\/events/, { timeout: 15000 });
+    } finally {
+      if (createdId) {
+        await apiRequest(session, "DELETE", `/calendar/${createdId}`);
+      }
+    }
+  });
+});
+
+test.describe("Tambah Event — Pengurus yayasan", () => {
+  test("membuka formulir dan menyimpan agenda seluruh yayasan", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.ketuaPengurus);
+    const title = `Agenda yayasan e2e ${Date.now()}`;
+    let createdId: string | undefined;
+
+    try {
+      await loginAs(page, "ketuaPengurus");
+      await page.goto("/calendar");
+
+      const add = page.getByRole("link", { name: /Tambah Event/i }).first();
+      await expect(add).toBeVisible({ timeout: 15000 });
+      await add.click();
+
+      await expect(
+        page.getByRole("heading", { name: /Tambah Event Baru/i }),
+      ).toBeVisible({ timeout: 15000 });
+      await expect(page.getByText("Akses ditolak")).toHaveCount(0);
+      await expect(page.getByRole("combobox", { name: "Unit" })).toHaveText(
+        /Semua Unit/,
+      );
+
+      await page.locator("#title").fill(title);
+      const saved = page.waitForResponse(
+        (response) =>
+          response.url().includes("/calendar") &&
+          response.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Simpan" }).click();
+
+      const response = await saved;
+      expect(response.status()).toBe(201);
+      const body = (await response.json()) as {
+        data: { id: string; scope: string; unit?: { name: string } | null };
+      };
+      createdId = body.data.id;
+      expect(body.data.scope).toBe("ALL_UNITS");
+      expect(body.data.unit).toBeNull();
+      await expect(page).toHaveURL(/\/calendar\/events/, { timeout: 15000 });
+    } finally {
+      if (createdId) {
+        await apiRequest(session, "DELETE", `/calendar/${createdId}`);
+      }
+    }
+  });
+});
+
+test.describe("Edit Event — Pengurus yayasan", () => {
+  test("membuka formulir dari Manajemen Event dan menyimpan judul baru", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.ketuaPengurus);
+    const title = `Agenda edit e2e ${Date.now()}`;
+    const updatedTitle = `${title} (revisi)`;
+    const todayWib = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const tomorrowWib = new Date(Date.now() + 31 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/calendar",
+      {
+        title,
+        eventType: "MEETING",
+        startDate: `${todayWib}T00:00:00.000Z`,
+        endDate: `${tomorrowWib}T00:00:00.000Z`,
+        description: "Deskripsi awal",
+        location: "Aula utama",
+        isAllDay: true,
+        isPublic: true,
+      },
+    );
+    const original = await apiRequest<{ data: Record<string, unknown> }>(
+      session,
+      "GET",
+      `/calendar/${created.data.id}`,
+    );
+    let serveMoved = false;
+    const detailUrl = `**/api/calendar/${created.data.id}`;
+    await page.route(detailUrl, async (route) => {
+      if (route.request().method() !== "GET" || !serveMoved) {
+        return route.continue();
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            ...original.data,
+            startDate: "2026-12-03T00:00:00.000Z",
+            endDate: "2026-12-04T00:00:00.000Z",
+          },
+        }),
+      });
+    });
+
+    try {
+      await loginAs(page, "ketuaPengurus");
+      await page.goto("/calendar/events");
+      await page.getByPlaceholder(/Cari event/).fill(title);
+
+      const row = page.locator("tbody tr").filter({ hasText: title });
+      await expect(row).toBeVisible({ timeout: 15000 });
+      await row.getByRole("button").click();
+      await page.getByRole("menuitem", { name: /Edit/i }).click();
+
+      await expect(page).toHaveURL(
+        new RegExp(`/calendar/events/${created.data.id}/edit`),
+      );
+      await expect(
+        page.getByRole("heading", { name: /Ubah Agenda/i }),
+      ).toBeVisible({ timeout: 15000 });
+      await expect(page.locator("#title")).toHaveValue(title);
+
+      // The detail moves while the draft is open. A title-only save must not
+      // send either the draft's old schedule or the refetched one.
+      serveMoved = true;
+      const refetched = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/calendar/${created.data.id}`) &&
+          response.request().method() === "GET",
+      );
+      await refetchQuery(page, ["calendar-events", "detail", created.data.id]);
+      expect((await refetched).status()).toBe(200);
+      await expect(page.locator("#startDate")).toHaveValue(todayWib);
+
+      await page.locator("#title").fill(updatedTitle);
+      const titleOnlySaved = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/calendar/${created.data.id}`) &&
+          response.request().method() === "PUT",
+      );
+      await page.getByRole("button", { name: "Simpan" }).click();
+
+      const titleOnlyResponse = await titleOnlySaved;
+      expect(titleOnlyResponse.status()).toBe(200);
+      const titleOnlyBody = titleOnlyResponse
+        .request()
+        .postDataJSON() as UpdateCalendarEventPayload;
+      expect(titleOnlyBody.title).toBe(updatedTitle);
+      expect(titleOnlyBody.startDate).toBeUndefined();
+      expect(titleOnlyBody.endDate).toBeUndefined();
+      expect(titleOnlyBody.startTime).toBeUndefined();
+      expect(titleOnlyBody.endTime).toBeUndefined();
+      expect(titleOnlyBody.isAllDay).toBeUndefined();
+      await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
+      await page.unroute(detailUrl);
+
+      // Clear every optional field, then reopen to prove nothing survived.
+      await page.goto(`/calendar/events/${created.data.id}/edit`);
+      await expect(page.locator("#title")).toHaveValue(updatedTitle);
+      await page.locator("#endDate").fill("");
+      await page.locator("#description").fill("");
+      await page.locator("#location").fill("");
+      const clearedSaved = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/calendar/${created.data.id}`) &&
+          response.request().method() === "PUT",
+      );
+      await page.getByRole("button", { name: "Simpan" }).click();
+
+      const clearedResponse = await clearedSaved;
+      expect(clearedResponse.status()).toBe(200);
+      const clearedBody = (await clearedResponse.json()) as {
+        data: {
+          title: string;
+          endDate: string | null;
+          description: string | null;
+          location: string | null;
+        };
+      };
+      expect(clearedBody.data.title).toBe(updatedTitle);
+      expect(clearedBody.data.endDate).toBeNull();
+      expect(clearedBody.data.description).toBeNull();
+      expect(clearedBody.data.location).toBeNull();
+      await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
+
+      await page.goto(`/calendar/events/${created.data.id}/edit`);
+      await expect(page.locator("#title")).toHaveValue(updatedTitle);
+      await expect(page.locator("#endDate")).toHaveValue("");
+      await expect(page.locator("#description")).toHaveValue("");
+      await expect(page.locator("#location")).toHaveValue("");
+    } finally {
+      await page.unroute(detailUrl);
+      await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
+    }
+  });
+});
+
+test.describe("Kalender Akademik — pengawasan hanya membaca", () => {
+  test("menyembunyikan aksi tulis dan menolak formulir langsung", async ({
+    page,
+  }) => {
+    await loginAs(page, "pengawas");
+    await page.goto("/calendar");
+
+    await expect(
+      page.getByRole("heading", { name: /Kalender Akademik/i }),
+    ).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByRole("link", { name: /Tambah Event/i })).toHaveCount(
+      0,
+    );
+
+    await page.goto("/calendar/events");
+    await expect(
+      page.getByRole("heading", { name: /Manajemen Event/i }),
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("link", { name: /Tambah Event/i })).toHaveCount(
+      0,
+    );
+
+    const firstRow = page.locator("tbody tr").first();
+    await expect(firstRow).toBeVisible({ timeout: 15000 });
+    await firstRow.getByRole("button").click();
+    await expect(
+      page.getByRole("menuitem", { name: /Lihat Detail/i }),
+    ).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /Edit/i })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: /Hapus/i })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    await page.goto("/calendar/events/new");
+    await expect(page.getByText("Akses ditolak")).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.locator("#title")).toHaveCount(0);
+  });
+
+  test("dialog detail tidak menawarkan Edit Event", async ({ page }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const title = `Agenda baca e2e ${Date.now()}`;
+    const todayWib = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const tomorrowWib = new Date(Date.now() + 31 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/calendar",
+      {
+        title,
+        eventType: "MEETING",
+        startDate: `${todayWib}T00:00:00.000Z`,
+        endDate: `${tomorrowWib}T00:00:00.000Z`,
+        description: "Deskripsi awal",
+        location: "Aula utama",
+        isAllDay: true,
+        isPublic: true,
+      },
+    );
+
+    try {
+      await loginAs(page, "pengawas");
+      await page.goto("/calendar");
+
+      const eventButton = page.getByRole("button", { name: title }).first();
+      await expect(eventButton).toBeVisible({ timeout: 15000 });
+      await eventButton.click();
+
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Tutup" })).toBeVisible();
+      await expect(page.getByRole("link", { name: /Edit Event/i })).toHaveCount(
+        0,
+      );
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
+    }
+  });
+});
+
+test.describe("Manajemen Event — agenda kelas milik admin lain", () => {
+  test("admin unit melihat dan menghapus agenda kelas unitnya", async ({
+    page,
+  }) => {
+    const admin = await apiLogin(SEED_USERS.adminSdit);
+    const classes = await apiRequest<{
+      data: Array<{ id: string; unitId: string }>;
+    }>(admin, "GET", "/classes?limit=10");
+    const kelas = classes.data[0];
+    expect(
+      kelas,
+      "seed should provide a class for the unit admin",
+    ).toBeTruthy();
+
+    const superAdmin = await apiLogin(SEED_USERS.superAdmin);
+    const title = `Agenda kelas e2e ${Date.now()}`;
+    const wibToday = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const startDate = `${wibToday}T03:00:00.000Z`;
+    const created = await apiRequest<{ data: { id: string } }>(
+      superAdmin,
+      "POST",
+      "/calendar",
+      {
+        title,
+        eventType: "ACADEMIC",
+        startDate,
+        endDate: startDate,
+        isAllDay: false,
+        startTime: "10:00",
+        endTime: "11:00",
+        isPublic: false,
+        unitId: kelas.unitId,
+        classId: kelas.id,
+        scope: "SPECIFIC_CLASS",
+      },
+    );
+
+    try {
+      await loginAs(page, "adminSdit");
+      await page.goto("/calendar/events");
+
+      const row = page.locator("tr").filter({ hasText: title });
+      await expect(row).toBeVisible({ timeout: 15000 });
+
+      await row.getByRole("button").click();
+      await page.getByRole("menuitem", { name: "Hapus" }).click();
+      await page
+        .getByRole("alertdialog")
+        .getByRole("button", { name: "Hapus" })
+        .click();
+
+      await expect(row).toHaveCount(0, { timeout: 15000 });
+    } finally {
+      // The UI may already have deleted it; cleanup only needs to be sure.
+      await apiRequest(
+        superAdmin,
+        "DELETE",
+        `/calendar/${created.data.id}`,
+      ).catch(() => undefined);
+    }
+  });
+});
+
 test.describe("Kalender Akademik — agenda satu hari tidak merusak grid", () => {
   test("grid bulan tetap tergambar saat ada agenda tanpa tanggal selesai", async ({
     page,

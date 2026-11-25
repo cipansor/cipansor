@@ -123,7 +123,13 @@ export class CalendarController {
     try {
       const { unitId } = req.params;
       const limit = parseInt(req.query.limit as string) || 10;
-      const events = await calendarService.getUpcoming(unitId, limit);
+      const user = {
+        sub: req.user!.sub,
+        role: req.user!.role,
+        roleCode: req.user!.roleCode,
+        unitId: req.user!.unitId,
+      };
+      const events = await calendarService.getUpcoming(unitId, limit, user);
       res.json({ data: events });
     } catch (error) {
       next(error);
@@ -133,7 +139,13 @@ export class CalendarController {
   async getTodayEvents(req: Request, res: Response, next: NextFunction) {
     try {
       const { unitId } = req.params;
-      const events = await calendarService.getToday(unitId);
+      const user = {
+        sub: req.user!.sub,
+        role: req.user!.role,
+        roleCode: req.user!.roleCode,
+        unitId: req.user!.unitId,
+      };
+      const events = await calendarService.getToday(unitId, user);
       res.json({ data: events });
     } catch (error) {
       next(error);

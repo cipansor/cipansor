@@ -71,6 +71,9 @@ interface Hint {
 }
 
 const HINTS: Record<string, Hint> = {
+  // The web path is /calendar/events, but the API list is /calendar.
+  "/calendar/events/[id]/edit": { list: "/calendar" },
+
   // URL prefix and API prefix differ for these — point the resolver at the
   // endpoint the corresponding web hook actually calls.
   "/e-office/letter/[id]": { list: "/correspondence/letters" },

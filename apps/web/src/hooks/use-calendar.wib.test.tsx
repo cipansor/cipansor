@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { EventType } from "@cipansor/shared";
 
 /**
  * The academic calendar asks the API for one month's window. `useMonthEvents`
@@ -15,13 +16,19 @@ import type { ReactNode } from "react";
  * under UTC the old code happened to be right, which is why it went unnoticed.
  */
 
-const { get } = vi.hoisted(() => ({ get: vi.fn() }));
+const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock("@/lib/api", () => {
-  const api = { get };
+  const api = { get, post };
   return { api, default: api };
 });
 
-import { useMonthEvents } from "./use-calendar";
+import {
+  agendaUnitIdFor,
+  eventStartInstant,
+  useCreateCalendarEvent,
+  useMonthEvents,
+  useTodayEvents,
+} from "./use-calendar";
 
 const ORIGINAL_TZ = process.env.TZ;
 
@@ -38,6 +45,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.TZ = "Asia/Jakarta";
   get.mockResolvedValue({ data: { data: [] } });
+  post.mockResolvedValue({ data: { data: { id: "event-1" } } });
 });
 
 afterEach(() => {
@@ -104,5 +112,113 @@ describe("useMonthEvents", () => {
     expect(get).toHaveBeenCalledTimes(2);
     expect(result.current.data).toHaveLength(2);
     expect(get.mock.calls[1][1].params).toMatchObject({ page: 2 });
+  });
+});
+
+describe("useTodayEvents", () => {
+  it("asks the API for the unit's WIB agenda today", async () => {
+    const { result } = renderHook(() => useTodayEvents("unit-1"), {
+      wrapper,
+    });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(get).toHaveBeenCalledWith("/calendar/today/unit-1");
+  });
+
+  it("does not ask when no unit is known", () => {
+    const { result } = renderHook(() => useTodayEvents(undefined), {
+      wrapper,
+    });
+
+    expect(result.current.fetchStatus).toBe("idle");
+    expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("agendaUnitIdFor", () => {
+  it("uses the active-role unit even when the profile names another unit", () => {
+    expect(
+      agendaUnitIdFor("", { unitId: "unit-sdit", unit: { id: "unit-smp" } }),
+    ).toBe("unit-sdit");
+  });
+
+  it("lets an explicit unit filter win", () => {
+    expect(agendaUnitIdFor("unit-sma", { unitId: "unit-sdit" })).toBe(
+      "unit-sma",
+    );
+  });
+
+  it("returns empty when the session has no unit", () => {
+    expect(agendaUnitIdFor("", null)).toBe("");
+  });
+});
+
+describe("eventStartInstant", () => {
+  it("uses the WIB start time for a date-only startDate", () => {
+    expect(
+      eventStartInstant({
+        startDate: "2026-11-25",
+        startTime: "15:00",
+        isAllDay: false,
+      }).toISOString(),
+    ).toBe("2026-11-25T08:00:00.000Z");
+  });
+
+  it("keeps an all-day event on its date", () => {
+    expect(
+      eventStartInstant({
+        startDate: "2026-11-25T00:00:00.000Z",
+        startTime: "15:00",
+        isAllDay: true,
+      }).toISOString(),
+    ).toBe("2026-11-25T00:00:00.000Z");
+  });
+
+  it("trusts a real instant that already carries a time", () => {
+    expect(
+      eventStartInstant({
+        startDate: "2026-11-25T01:00:00.000Z",
+        startTime: "08:00",
+        isAllDay: false,
+      }).toISOString(),
+    ).toBe("2026-11-25T01:00:00.000Z");
+  });
+
+  it("keeps an early-morning WIB start on the same WIB day", () => {
+    expect(
+      eventStartInstant({
+        startDate: "2026-11-25",
+        startTime: "00:30",
+        isAllDay: false,
+      }).toISOString(),
+    ).toBe("2026-11-24T17:30:00.000Z");
+  });
+});
+
+describe("useCreateCalendarEvent", () => {
+  it("sends eventType and the form fields the shared schema expects", async () => {
+    const { result } = renderHook(() => useCreateCalendarEvent(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        title: "Rapat Wali Kelas",
+        eventType: EventType.MEETING,
+        startDate: "2026-11-25",
+        endDate: "2026-11-25",
+        isAllDay: true,
+        unitId: "unit-sdit",
+        recurrence: "WEEKLY",
+        recurrenceEnd: "2026-12-31",
+        isPublic: true,
+      });
+    });
+
+    const payload = post.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      eventType: "MEETING",
+      recurrence: "WEEKLY",
+      recurrenceEnd: "2026-12-31",
+    });
+    expect(payload).not.toHaveProperty("category");
   });
 });

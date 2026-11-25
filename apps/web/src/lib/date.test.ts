@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { todayWibDay, wibDayOf, wibWeekdayOf } from "./date";
+import {
+  formatTodayWib,
+  formatWibDate,
+  todayWibDay,
+  wibDayOf,
+  wibWeekdayOf,
+} from "./date";
 import { wibDay } from "./admission-intake";
 
 /**
@@ -29,6 +35,32 @@ describe("todayWibDay", () => {
     expect(todayWibDay(new Date("2026-10-31T17:00:00.000Z"))).toBe(
       "2026-11-01",
     );
+  });
+});
+
+describe("formatTodayWib", () => {
+  it("names the WIB day above a WIB-bounded list, not the device's day", () => {
+    // 1 Nov 2026 00:30 WIB = 31 Oct 2026 17:30 UTC: a UTC device would label
+    // the agenda "Sabtu, 31 Oktober 2026".
+    expect(formatTodayWib(new Date("2026-10-31T17:30:00.000Z"))).toBe(
+      "Minggu, 1 November 2026",
+    );
+  });
+});
+
+describe("formatWibDate", () => {
+  it("keeps a 00:30 WIB event on its WIB day on a UTC device", () => {
+    // 25 Nov 2026 00:30 WIB = 24 Nov 2026 17:30 UTC. date-fns would print
+    // "24 Nov 2026" here; the sidebar must agree with the month grid.
+    expect(formatWibDate(new Date("2026-11-24T17:30:00.000Z"))).toBe(
+      "25 Nov 2026",
+    );
+  });
+
+  it("accepts the string form and keeps the blank state", () => {
+    expect(formatWibDate("2026-11-24T17:30:00.000Z")).toBe("25 Nov 2026");
+    expect(formatWibDate(null)).toBe("-");
+    expect(formatWibDate("not a date")).toBe("-");
   });
 });
 

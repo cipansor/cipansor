@@ -123,6 +123,7 @@ import { seedWilayahIndonesia } from './seeds/wilayah-indonesia';
 import { seedKurikulumMerdeka, seedAccountCodes } from './seeds/kurikulum-merdeka';
 import { seedPAUDIndicators } from './seeds/paud-indicators';
 import { syncParentRoleAssignments, type ParentScopeClient } from '../src/utils/parent-scope';
+import { wibDay } from '../src/utils/wib';
 import { seedImmunizationReference } from './seeds/immunization-reference';
 import { seedStrategicPlans } from './seeds/strategic-plan-cipansor';
 import { currentAcademicYear, nextAcademicYear } from '../src/lib/academic-calendar';
@@ -4952,7 +4953,9 @@ async function main() {
         halaqohId: halaqoh.id,
         recordedById: teacherPesantrenUser.id,
         murojaahType: MurojaahType.YAUMIYAH,
-        murojaahDate: new Date(),
+        // A `@db.Date` column holds the WIB day; `new Date()` between 00:00 and
+        // 06:59 WIB is still the previous UTC day, which `getQuickStats` misses.
+        murojaahDate: wibDay(new Date()),
         juzStart: 1,
         juzEnd: 3,
         pagesReviewed: 30,
@@ -5166,6 +5169,7 @@ async function main() {
   await prisma.calendarEvent.createMany({
     data: [
       {
+        id: 'a1111111-1111-4111-8111-111111111111',
         title: 'Ujian Tengah Semester Ganjil',
         description: 'Pelaksanaan UTS semester ganjil untuk seluruh unit.',
         eventType: EventType.ACADEMIC,

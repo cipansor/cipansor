@@ -92,7 +92,7 @@ describe("canModifyCalendarEvent", () => {
     ).toBe(true);
   });
 
-  it("keeps an ordinary teacher to their own agenda", () => {
+  it("keeps an ordinary teacher out, even on their own agenda", () => {
     const teacher = user({
       role: "TEACHER",
       userRoles: [
@@ -105,7 +105,40 @@ describe("canModifyCalendarEvent", () => {
     });
     expect(
       canModifyCalendarEvent(teacher, event({ createdById: "user-1" })),
-    ).toBe(true);
+    ).toBe(false);
     expect(canModifyCalendarEvent(teacher, event({}))).toBe(false);
+  });
+  it("lets a Pengurus edit a foundation-wide agenda", () => {
+    const pengurus = user({
+      role: "STAFF",
+      unitId: null,
+      userRoles: [
+        {
+          isPrimary: true,
+          role: { code: "YAYASAN_KETUA" },
+          unit: null,
+        },
+      ],
+    });
+    expect(canModifyCalendarEvent(pengurus, event({ unitId: null }))).toBe(
+      true,
+    );
+  });
+
+  it("keeps a Pengurus out of a unit's class agenda", () => {
+    const pengurus = user({
+      role: "STAFF",
+      unitId: null,
+      userRoles: [
+        {
+          isPrimary: true,
+          role: { code: "YAYASAN_KETUA" },
+          unit: null,
+        },
+      ],
+    });
+    expect(
+      canModifyCalendarEvent(pengurus, event({ unitId: "unit-sdit" })),
+    ).toBe(false);
   });
 });

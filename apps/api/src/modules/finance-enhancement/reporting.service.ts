@@ -1,6 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
-import { wibDayOf } from '../../utils/wib';
+import { wibDayOf, wibMonthRange, wibMonthYear } from '@/utils/wib';
 import {
   AccountType,
   BalanceSheetReport,
@@ -586,11 +586,42 @@ export async function getBudgetRealizationReport(unitId: string, academicYearId:
   };
 }
 
+/**
+ * The month `offset` months after `base`, normalized back into 0-11.
+ *
+ * `wibMonthRange` builds its dates from the month number and does not roll
+ * over, so `baseMonth + i` past 11 would ask for month "13" and throw.
+ */
+function monthAfter(base: { year: number; month: number }, offset: number) {
+  const index = base.month + offset;
+  return { year: base.year + Math.floor(index / 12), month: ((index % 12) + 12) % 12 };
+}
+
+/**
+ * The bucket label ("Nov 26") of a calendar month, read from a UTC midnight so
+ * no server timezone can shift it. The web renders this string as-is, so the
+ * locale is pinned to the portal's language (Indonesian) rather than left to
+ * the host's default.
+ */
+function monthLabelOf({ year, month }: { year: number; month: number }): string {
+  return new Date(Date.UTC(year, month, 1)).toLocaleString('id-ID', {
+    month: 'short',
+    year: '2-digit',
+    timeZone: 'UTC',
+  });
+}
+
 export async function getCashFlowForecast(unitId: string, months: number = 6) {
   const now = new Date();
-  // Use end-of-day on the last day of the final month so that items with a
-  // non-midnight timestamp on that day aren't silently dropped by `<=` comparisons.
-  const endDate = new Date(now.getFullYear(), now.getMonth() + months, 0, 23, 59, 59, 999);
+  // The forecast is a report on the pesantren's clock: between 00:00 and 06:59
+  // WIB on the 1st the server (UTC) is still in the previous month, which put
+  // the month that had just ended in the first bucket and dropped the last
+  // requested month from the projection entirely (#1149).
+  const base = wibMonthYear(now);
+  const lastMonth = monthAfter(base, months - 1);
+  // End of the last requested WIB month, so items with a non-midnight timestamp
+  // on that day aren't silently dropped by `<=` comparisons.
+  const endDate = wibMonthRange(lastMonth.year, lastMonth.month).end;
 
   // 1. Get current cash balance
   // Identify cash/bank accounts using both the standard Indonesian COA code
@@ -650,11 +681,11 @@ export async function getCashFlowForecast(unitId: string, months: number = 6) {
   let runningBalance = initialBalance;
 
   for (let i = 0; i < months; i++) {
-    const monthDate = new Date(now.getFullYear(), now.getMonth() + i, 1);
-    // End-of-day on the last day of the month so items dated mid-day on that
-    // day are correctly bucketed into this month rather than dropped entirely.
-    const monthEnd = new Date(now.getFullYear(), now.getMonth() + i + 1, 0, 23, 59, 59, 999);
-    const monthLabel = monthDate.toLocaleString('default', { month: 'short', year: '2-digit' });
+    const bucket = monthAfter(base, i);
+    // WIB month bounds: the whole last day is included, and a date-only
+    // `Invoice.dueDate` stored at midnight UTC still lands in its own WIB month.
+    const { start: monthDate, end: monthEnd } = wibMonthRange(bucket.year, bucket.month);
+    const monthLabel = monthLabelOf(bucket);
 
     // Symmetric to the expense backlog: in the first month, include all
     // overdue receivables (dueDate < monthDate) so they aren't dropped.

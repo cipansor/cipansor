@@ -24,11 +24,17 @@ import {
   getTrialBalance,
   getGeneralLedger,
   getCashFlowStatement,
+  getCashFlowForecast,
 } from '../reporting.service';
 import { financeEnhancementController } from '../finance-enhancement.controller';
 
 function mockReqRes(query: Record<string, string> = {}) {
-  const req = { query, params: {}, body: {}, user: { id: 'user-1' } } as unknown as Request;
+  const req = {
+    query,
+    params: {},
+    body: {},
+    user: { id: 'user-1', role: 'SUPER_ADMIN' },
+  } as unknown as Request;
   const res = {
     statusCode: 200,
     jsonPayload: undefined as unknown,
@@ -144,5 +150,24 @@ describe('finance-enhancement report date bounds (WIB)', () => {
       cf.res
     );
     expect(vi.mocked(getCashFlowStatement)).toHaveBeenCalledWith('unit-1', wibStart, wibEnd);
+  });
+});
+
+describe('cash-flow forecast horizon', () => {
+  it.each([
+    ['1', 1],
+    ['0', 6],
+    ['-3', 6],
+    ['abc', 6],
+    ['999', 24],
+  ])('normalizes months=%s to %i at the edge', async (months, expected) => {
+    const { req, res } = mockReqRes({ unitId: 'unit-1', months });
+    await run(
+      financeEnhancementController.getCashFlowForecast.bind(financeEnhancementController),
+      req,
+      res
+    );
+
+    expect(vi.mocked(getCashFlowForecast)).toHaveBeenCalledWith('unit-1', expected);
   });
 });

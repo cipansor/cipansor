@@ -173,12 +173,34 @@ describe('listCalendarEventsQuerySchema', () => {
   });
 
   it('refuses a limit above the ceiling', () => {
-    expect(listCalendarEventsQuerySchema.safeParse({ limit: '500' }).success).toBe(false);
+    expect(listCalendarEventsQuerySchema.safeParse({ limit: '501' }).success).toBe(false);
   });
 
   it('accepts a search of the shared length and refuses one character more', () => {
     const atLimit = 'a'.repeat(CALENDAR_EVENT_SEARCH_MAX_LENGTH);
     expect(listCalendarEventsQuerySchema.safeParse({ search: atLimit }).success).toBe(true);
     expect(listCalendarEventsQuerySchema.safeParse({ search: `${atLimit}a` }).success).toBe(false);
+  });
+});
+
+describe('listCalendarEventsQuerySchema — the portal list flags', () => {
+  it('defaults manage to false and coerces paging', () => {
+    expect(listCalendarEventsQuerySchema.parse({})).toMatchObject({
+      manage: false,
+      page: 1,
+      limit: 50,
+    });
+    expect(
+      listCalendarEventsQuerySchema.parse({ manage: 'true', page: '2', limit: '25' })
+    ).toMatchObject({ manage: true, page: 2, limit: 25 });
+  });
+
+  it('rejects a manage value that is not a boolean', () => {
+    expect(() => listCalendarEventsQuerySchema.parse({ manage: 'yes' })).toThrow();
+  });
+
+  it('keeps page sizes above 100 readable, but bounded', () => {
+    expect(listCalendarEventsQuerySchema.parse({ limit: '101' }).limit).toBe(101);
+    expect(() => listCalendarEventsQuerySchema.parse({ limit: '501' })).toThrow();
   });
 });
