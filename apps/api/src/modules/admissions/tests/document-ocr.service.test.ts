@@ -134,6 +134,29 @@ describe('Document Verification Service', () => {
       expect(result.extractedData.nationalId).toBe('3201230110230001');
     });
 
+    it('leaves the birth place unread when the KK date is unreadable', async () => {
+      // The child's date is garbled; without a locatable date the place must not
+      // swallow the broken date and the next column (a false place mismatch).
+      const garbled = KK_TEXT.replace('CIAMIS         01-10-2023', 'CIAMIS         O1-IO-2O23');
+      const result = await parseAndVerifyDocument(
+        {
+          imageBase64: PNG_URI,
+          documentType: 'kk',
+          userInputData: {
+            fullName: 'Ahmad Fauzi',
+            nationalId: '3201230110230001',
+            familyCardNumber: '3201234567890001',
+            birthPlace: 'Ciamis',
+            birthDate: '2023-10-01',
+          },
+        },
+        { enabled: true, readText: readerFor(garbled) }
+      );
+
+      expect(result.extractedData.birthPlace).toBeUndefined();
+      expect(result.validation.birthPlaceMatch).toBeUndefined();
+    });
+
     it('reads an akta (name, place, date) and flags a wrong name', async () => {
       const result = await parseAndVerifyDocument(
         {
@@ -337,6 +360,32 @@ No. KK : 3201234567890001
       };
 
       await expect(tesseractReadText(PNG, factory)).rejects.toThrow();
+      await expect(tesseractReadText(PNG, factory)).resolves.toBe('ok');
+    });
+
+    it('releases the slot when recognition hangs', async () => {
+      vi.useFakeTimers();
+      let calls = 0;
+      const factory = () => {
+        calls += 1;
+        if (calls === 1) {
+          return Promise.resolve({
+            recognize: () => new Promise<never>(() => {}),
+            terminate: async () => {},
+          });
+        }
+        return Promise.resolve({
+          recognize: async () => ({ data: { text: 'ok' } }),
+          terminate: async () => {},
+        });
+      };
+
+      const first = tesseractReadText(PNG, factory);
+      const assertion = expect(first).rejects.toThrow(/timed out/);
+      await vi.advanceTimersByTimeAsync(30_000 + 1);
+      await assertion;
+      vi.useRealTimers();
+
       await expect(tesseractReadText(PNG, factory)).resolves.toBe('ok');
     });
   });

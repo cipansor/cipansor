@@ -285,8 +285,11 @@ function parseKkRow(row: string): { name?: string; nik?: string; place?: string;
   let place: string | undefined;
   if (gender && gender.index !== undefined) {
     const rest = after.slice(gender.index + gender[0].length);
+    // Only read a place when the birth date can be located: without it the
+    // "place" would swallow the garbled date (and the next column) and report a
+    // false mismatch against a correct birth place.
     const dateAt = rest.search(/\d{1,2}\s*[-/.]\s*\d{1,2}\s*[-/.]\s*\d{4}/);
-    place = norm(dateAt >= 0 ? rest.slice(0, dateAt) : rest) || undefined;
+    if (dateAt >= 0) place = norm(rest.slice(0, dateAt)) || undefined;
   }
   return {
     name: name || undefined,

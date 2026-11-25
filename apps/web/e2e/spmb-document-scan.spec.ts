@@ -1,5 +1,4 @@
 import { test, expect, type Page } from "@playwright/test";
-import { spmbFormContentFor } from "../src/config/spmb-form.i18n";
 
 /**
  * The SPMB form's own scan path: a parent chooses a KTP file in step 5, the
@@ -51,23 +50,31 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   page,
 }, testInfo) => {
   test.setTimeout(90_000);
-  const documents = spmbFormContentFor("id").documents;
   await openDocumentsStep(page);
 
-  await page.screenshot({
-    path: "test-results/spmb-document-scan-before.png",
-    fullPage: true,
-  });
-  // Attach to the HTML report so the reviewer sees the pair in the uploaded
-  // `playwright-report` artifact, not only in the (un-uploaded) test-results dir.
+  const beforeShot = testInfo.outputPath("before-scan.png");
+  await page.screenshot({ path: beforeShot, fullPage: true });
+  // `outputPath` is unique per test and project, so a parallel browser cannot
+  // overwrite the file this attachment reads.
   await testInfo.attach("before-scan", {
-    path: "test-results/spmb-document-scan-before.png",
+    path: beforeShot,
     contentType: "image/png",
   });
 
   const ktp = page
     .getByText("KTP Orang Tua / Wali", { exact: true })
     .locator("xpath=ancestor::div[contains(@class,'space-y-2')][1]");
+
+  let parseCalls = 0;
+  page.on("request", (req) => {
+    if (
+      req.method() === "POST" &&
+      req.url().includes("/admissions/public/parse-document")
+    ) {
+      parseCalls += 1;
+    }
+  });
+
   // Prove the form really reached the endpoint: a 404/500 also renders the
   // manual note, so the note alone would not catch a broken wiring.
   const responsePromise = page.waitForResponse(
@@ -89,20 +96,36 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
     });
   const response = await responsePromise;
   expect(response.status()).toBe(200);
-  expect((await response.json()).success).toBe(true);
+  const payload = await response.json();
+  expect(payload.success).toBe(true);
 
-  // Either note proves the verdict reached the reader: the manual note when the
-  // engine is off, the engine note when it is on.
-  const note = page
-    .getByText(documents.uncheckedNote)
-    .or(page.getByText(documents.ocrEngineNote));
-  await expect(note.first()).toBeVisible({ timeout: 30_000 });
-  await page.screenshot({
-    path: "test-results/spmb-document-scan-after.png",
-    fullPage: true,
+  // The note rendered must be the one the server returned, not any note.
+  const notes: string[] = payload.data?.validation?.notes ?? [];
+  const verdictNote = notes[notes.length - 1];
+  expect(verdictNote).toBeTruthy();
+  await expect(page.getByText(verdictNote).first()).toBeVisible({
+    timeout: 30_000,
   });
+  expect(parseCalls).toBe(1);
+
+  const afterShot = testInfo.outputPath("after-scan.png");
+  await page.screenshot({ path: afterShot, fullPage: true });
   await testInfo.attach("after-scan", {
-    path: "test-results/spmb-document-scan-after.png",
+    path: afterShot,
     contentType: "image/png",
   });
+
+  // Replacing the image with a PDF must drop the stale verdict and not scan it.
+  await ktp
+    .locator('input[type="file"]')
+    .first()
+    .setInputFiles({
+      name: "ktp.pdf",
+      mimeType: "application/pdf",
+      buffer: Buffer.from("%PDF-1.4\n"),
+    });
+  await expect(page.getByText(verdictNote).first()).toBeHidden({
+    timeout: 10_000,
+  });
+  expect(parseCalls).toBe(1);
 });
