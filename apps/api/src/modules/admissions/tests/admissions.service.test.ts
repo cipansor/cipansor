@@ -6,7 +6,12 @@ import { prisma } from '@/lib/prisma';
 // issued outside `$transaction` looks identical in call order but releases
 // before the wave update, so tests must be able to tell the two apart.
 const { txCalls } = vi.hoisted(() => ({
-  txCalls: { executeRaw: [] as unknown[][] },
+  txCalls: {
+    executeRaw: [] as unknown[][],
+    waveUpdateMany: [] as unknown[][],
+    registrantDelete: [] as unknown[][],
+    registrantUpdate: [] as unknown[][],
+  },
 }));
 
 vi.mock('@/lib/prisma', () => ({
@@ -69,6 +74,38 @@ vi.mock('@/lib/prisma', () => ({
               return (target.$executeRaw as any)(...args);
             };
           }
+          if (prop === 'admissionWave') {
+            return new Proxy(target.admissionWave, {
+              get(waveTarget, waveProp) {
+                if (waveProp === 'updateMany') {
+                  return (...args: unknown[]) => {
+                    txCalls.waveUpdateMany.push(args);
+                    return (waveTarget.updateMany as any)(...args);
+                  };
+                }
+                return Reflect.get(waveTarget, waveProp);
+              },
+            });
+          }
+          if (prop === 'registrant') {
+            return new Proxy(target.registrant, {
+              get(regTarget, regProp) {
+                if (regProp === 'delete') {
+                  return (...args: unknown[]) => {
+                    txCalls.registrantDelete.push(args);
+                    return (regTarget.delete as any)(...args);
+                  };
+                }
+                if (regProp === 'update') {
+                  return (...args: unknown[]) => {
+                    txCalls.registrantUpdate.push(args);
+                    return (regTarget.update as any)(...args);
+                  };
+                }
+                return Reflect.get(regTarget, regProp);
+              },
+            });
+          }
           return Reflect.get(target, prop);
         },
       });
@@ -101,6 +138,9 @@ describe('Admissions Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     txCalls.executeRaw.length = 0;
+    txCalls.waveUpdateMany.length = 0;
+    txCalls.registrantDelete.length = 0;
+    txCalls.registrantUpdate.length = 0;
     vi.mocked(prisma.admissionWave.count as any).mockResolvedValue(0);
     // Wave mocks are set per test; without a reset, a wave left by an earlier
     // test would be "found" by the next one (e.g. making a full period look
@@ -375,9 +415,12 @@ describe('Admissions Service', () => {
 
     // Retention, onboarding, and reassignment lock the registrant first. The
     // manual delete must do the same, or it can deadlock with any of them.
-    // The lock must also be issued on the transaction client: outside it,
-    // PostgreSQL releases the row lock before the wave update runs.
+    // The lock, counter update, and delete must all run on the transaction
+    // client: outside it, PostgreSQL releases the row lock before the wave
+    // update and commits each write separately.
     expect(txCalls.executeRaw).toHaveLength(1);
+    expect(txCalls.waveUpdateMany).toHaveLength(1);
+    expect(txCalls.registrantDelete).toHaveLength(1);
     const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
     const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];
     expect(registrantLock).toBeLessThan(waveLock);
@@ -426,9 +469,12 @@ describe('Admissions Service', () => {
 
       await service.deleteRegistrantForRetention('r-1');
 
-      // The lock must be taken inside the delete transaction; a lock issued
-      // before `$transaction` is released before the wave update runs.
+      // The lock, counter update, and delete must all run inside the delete
+      // transaction; a lock issued before `$transaction` is released before
+      // the wave update runs.
       expect(txCalls.executeRaw).toHaveLength(1);
+      expect(txCalls.waveUpdateMany).toHaveLength(1);
+      expect(txCalls.registrantDelete).toHaveLength(1);
       const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
       const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];
       expect(registrantLock).toBeLessThan(waveLock);
