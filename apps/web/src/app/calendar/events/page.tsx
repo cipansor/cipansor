@@ -75,7 +75,7 @@ export default function EventsListPage() {
 
   const { data: eventsData, isLoading } = useCalendarEvents({
     limit: 50,
-    category: categoryFilter || undefined,
+    eventType: categoryFilter || undefined,
   });
   const events = eventsData?.data || [];
 
@@ -212,7 +212,7 @@ export default function EventsListPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredEvents.map((event) => {
-                    const catConfig = getEventCategoryConfig(event.category);
+                    const catConfig = getEventCategoryConfig(event.eventType);
                     return (
                       <TableRow key={event.id}>
                         <TableCell>
@@ -242,15 +242,20 @@ export default function EventsListPage() {
                             {safeFormat(new Date(event.startDate), "d MMM", {
                               locale: idLocale,
                             })}
-                            {event.startDate !== event.endDate && (
-                              <>
-                                {" "}
-                                -{" "}
-                                {safeFormat(new Date(event.endDate), "d MMM", {
-                                  locale: idLocale,
-                                })}
-                              </>
-                            )}
+                            {event.endDate &&
+                              event.startDate !== event.endDate && (
+                                <>
+                                  {" "}
+                                  -{" "}
+                                  {safeFormat(
+                                    new Date(event.endDate),
+                                    "d MMM",
+                                    {
+                                      locale: idLocale,
+                                    },
+                                  )}
+                                </>
+                              )}
                           </div>
                         </TableCell>
                         <TableCell>

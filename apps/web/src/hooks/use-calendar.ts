@@ -1,52 +1,27 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  EventScope,
+  EventType,
+  type CalendarEvent as SharedCalendarEvent,
+} from "@cipansor/shared";
 import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
 
-export type EventCategory =
-  | "ACADEMIC"
-  | "RELIGIOUS"
-  | "EXTRACURRICULAR"
-  | "HOLIDAY"
-  | "MEETING"
-  | "EXAM"
-  | "OTHER";
+/** The API's event enum, shared with the backend (`@cipansor/shared`). */
+export type EventCategory = EventType;
 export type EventRecurrence =
   "NONE" | "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
 
-export interface CalendarEvent {
-  id: string;
-  title: string;
-  description?: string;
-  category: EventCategory;
-  /** The API's own enum (Prisma `EventType`); `category` is the legacy name. */
-  eventType?: string;
-  startDate: string;
-  endDate: string;
-  startTime?: string;
-  endTime?: string;
-  isAllDay: boolean;
-  location?: string;
-  unitId?: string;
-  classId?: string;
-  recurrence: EventRecurrence;
-  recurrenceEnd?: string;
-  color?: string;
-  isPublic: boolean;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
+/** The shared response shape, plus the relations the list endpoints include. */
+export type CalendarEvent = SharedCalendarEvent & {
   unit?: {
     id: string;
     name: string;
-  };
+  } | null;
   class?: {
     id: string;
     name: string;
-  };
-  creator?: {
-    id: string;
-    name: string;
-  };
-}
+  } | null;
+};
 
 export interface EventCategoryConfig {
   value: EventCategory;
@@ -59,7 +34,7 @@ export interface EventCategoryConfig {
 
 export const EVENT_CATEGORIES: EventCategoryConfig[] = [
   {
-    value: "ACADEMIC",
+    value: EventType.ACADEMIC,
     label: "Akademik",
     labelEn: "Academic",
     color: "#2563eb",
@@ -67,7 +42,7 @@ export const EVENT_CATEGORIES: EventCategoryConfig[] = [
     icon: "GraduationCap",
   },
   {
-    value: "RELIGIOUS",
+    value: EventType.RELIGIOUS,
     label: "Keagamaan",
     labelEn: "Religious",
     color: "#059669",
@@ -75,7 +50,7 @@ export const EVENT_CATEGORIES: EventCategoryConfig[] = [
     icon: "BookOpen",
   },
   {
-    value: "EXTRACURRICULAR",
+    value: EventType.EXTRACURRICULAR,
     label: "Ekstrakurikuler",
     labelEn: "Extracurricular",
     color: "#7c3aed",
@@ -83,7 +58,7 @@ export const EVENT_CATEGORIES: EventCategoryConfig[] = [
     icon: "Trophy",
   },
   {
-    value: "HOLIDAY",
+    value: EventType.HOLIDAY,
     label: "Hari Libur",
     labelEn: "Holiday",
     color: "#dc2626",
@@ -91,7 +66,7 @@ export const EVENT_CATEGORIES: EventCategoryConfig[] = [
     icon: "Calendar",
   },
   {
-    value: "MEETING",
+    value: EventType.MEETING,
     label: "Rapat",
     labelEn: "Meeting",
     color: "#ea580c",
@@ -99,15 +74,15 @@ export const EVENT_CATEGORIES: EventCategoryConfig[] = [
     icon: "Users",
   },
   {
-    value: "EXAM",
-    label: "Ujian",
-    labelEn: "Exam",
+    value: EventType.CEREMONY,
+    label: "Upacara",
+    labelEn: "Ceremony",
     color: "#0891b2",
     bgColor: "bg-cyan-100 text-cyan-800",
     icon: "FileText",
   },
   {
-    value: "OTHER",
+    value: EventType.OTHER,
     label: "Lainnya",
     labelEn: "Other",
     color: "#6b7280",
@@ -129,7 +104,7 @@ export interface CalendarEventParams {
   limit?: number;
   startDate?: string;
   endDate?: string;
-  category?: EventCategory;
+  eventType?: EventCategory;
   unitId?: string;
   classId?: string;
   isPublic?: boolean;
@@ -176,6 +151,20 @@ export function useMonthEvents(year: number, month: number, unitId?: string) {
 }
 
 /**
+ * The unit whose agenda the page asks for: an explicit filter, else the
+ * session's active-role unit. The profile's home unit (`user.unit`) is not it —
+ * a person whose role covers another unit would read that other unit's private
+ * agenda under their own name.
+ */
+export function agendaUnitIdFor(
+  selectedUnitId: string,
+  user:
+    { unitId?: string | null; unit?: { id: string } | null } | null | undefined,
+): string {
+  return selectedUnitId || user?.unitId || "";
+}
+
+/**
  * Today's agenda for a unit (`GET /calendar/today/:unitId`). The API bounds
  * "today" by the WIB calendar day, so the portal asks it rather than filtering
  * the month window on the browser clock. Nothing is asked until a unit is known.
@@ -215,11 +204,32 @@ export function useCreateCalendarEvent() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (data: CreateCalendarEventData) => {
-      const response = await api.post<ApiResponse<CalendarEvent>>(
-        "/calendar",
-        data,
-      );
+    mutationFn: async ({
+      category,
+      recurrence,
+      recurrenceEnd,
+      ...data
+    }: CreateCalendarEventData) => {
+      // The form keeps the portal's friendly name and recurrence; the API
+      // stores `eventType`, a scope and an iCal rule.
+      const response = await api.post<ApiResponse<CalendarEvent>>("/calendar", {
+        ...data,
+        eventType: category,
+        scope: data.classId
+          ? EventScope.SPECIFIC_CLASS
+          : data.unitId
+            ? EventScope.SPECIFIC_UNIT
+            : EventScope.ALL_UNITS,
+        isRecurring: recurrence !== "NONE",
+        recurrenceRule:
+          recurrence === "NONE"
+            ? undefined
+            : `FREQ=${recurrence}${
+                recurrenceEnd
+                  ? `;UNTIL=${recurrenceEnd.replace(/-/g, "")}T235959Z`
+                  : ""
+              }`,
+      });
       return response.data.data;
     },
     onSuccess: () => {

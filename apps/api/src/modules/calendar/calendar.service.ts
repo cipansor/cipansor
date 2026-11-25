@@ -316,9 +316,21 @@ export class CalendarService {
   }
 
   /**
+   * A unit's private events are readable only by a session whose active role
+   * covers that unit. A unit user naming another unit is refused, not silently
+   * served their own agenda under the other unit's name.
+   */
+  private assertUnitScope(unitId: string, currentUser: AuthenticatedUser) {
+    if (!seesAllUnits(currentUser) && currentUser.unitId !== unitId) {
+      throw Errors.forbidden('Tidak dapat melihat agenda unit lain');
+    }
+  }
+
+  /**
    * Get upcoming events
    */
-  async getUpcoming(unitId: string, limit: number = 10) {
+  async getUpcoming(unitId: string, limit: number = 10, currentUser: AuthenticatedUser) {
+    this.assertUnitScope(unitId, currentUser);
     const now = new Date();
 
     const where: Prisma.CalendarEventWhereInput = {
@@ -349,7 +361,8 @@ export class CalendarService {
    * on the UTC container made it `[07:00 yesterday, 07:00 today) WIB` and
    * returned yesterday's agenda all morning (#1152).
    */
-  async getToday(unitId: string) {
+  async getToday(unitId: string, currentUser: AuthenticatedUser) {
+    this.assertUnitScope(unitId, currentUser);
     const today = todayWib();
     const startDate = wibDayStart(today);
     const endDate = wibDayStart(shiftWibDay(today, 1));

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { todayWibDay, wibDayOf, wibWeekdayOf } from "./date";
+import { formatTodayWib, todayWibDay, wibDayOf, wibWeekdayOf } from "./date";
 import { wibDay } from "./admission-intake";
 
 /**
@@ -28,6 +28,16 @@ describe("todayWibDay", () => {
     );
     expect(todayWibDay(new Date("2026-10-31T17:00:00.000Z"))).toBe(
       "2026-11-01",
+    );
+  });
+});
+
+describe("formatTodayWib", () => {
+  it("names the WIB day above a WIB-bounded list, not the device's day", () => {
+    // 1 Nov 2026 00:30 WIB = 31 Oct 2026 17:30 UTC: a UTC device would label
+    // the agenda "Sabtu, 31 Oktober 2026".
+    expect(formatTodayWib(new Date("2026-10-31T17:30:00.000Z"))).toBe(
+      "Minggu, 1 November 2026",
     );
   });
 });

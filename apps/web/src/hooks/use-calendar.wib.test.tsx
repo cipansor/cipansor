@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
-import { renderHook, waitFor } from "@testing-library/react";
+import { act, renderHook, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { EventType } from "@cipansor/shared";
 
 /**
  * The academic calendar asks the API for one month's window. `useMonthEvents`
@@ -15,13 +16,18 @@ import type { ReactNode } from "react";
  * under UTC the old code happened to be right, which is why it went unnoticed.
  */
 
-const { get } = vi.hoisted(() => ({ get: vi.fn() }));
+const { get, post } = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn() }));
 vi.mock("@/lib/api", () => {
-  const api = { get };
+  const api = { get, post };
   return { api, default: api };
 });
 
-import { useMonthEvents, useTodayEvents } from "./use-calendar";
+import {
+  agendaUnitIdFor,
+  useCreateCalendarEvent,
+  useMonthEvents,
+  useTodayEvents,
+} from "./use-calendar";
 
 const ORIGINAL_TZ = process.env.TZ;
 
@@ -38,6 +44,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   process.env.TZ = "Asia/Jakarta";
   get.mockResolvedValue({ data: { data: [] } });
+  post.mockResolvedValue({ data: { data: { id: "event-1" } } });
 });
 
 afterEach(() => {
@@ -101,5 +108,53 @@ describe("useTodayEvents", () => {
 
     expect(result.current.fetchStatus).toBe("idle");
     expect(get).not.toHaveBeenCalled();
+  });
+});
+
+describe("agendaUnitIdFor", () => {
+  it("uses the active-role unit even when the profile names another unit", () => {
+    expect(
+      agendaUnitIdFor("", { unitId: "unit-sdit", unit: { id: "unit-smp" } }),
+    ).toBe("unit-sdit");
+  });
+
+  it("lets an explicit unit filter win", () => {
+    expect(agendaUnitIdFor("unit-sma", { unitId: "unit-sdit" })).toBe(
+      "unit-sma",
+    );
+  });
+
+  it("returns empty when the session has no unit", () => {
+    expect(agendaUnitIdFor("", null)).toBe("");
+  });
+});
+
+describe("useCreateCalendarEvent", () => {
+  it("sends eventType, scope and an iCal rule instead of the form fields", async () => {
+    const { result } = renderHook(() => useCreateCalendarEvent(), { wrapper });
+
+    await act(async () => {
+      await result.current.mutateAsync({
+        title: "Rapat Wali Kelas",
+        category: EventType.MEETING,
+        startDate: "2026-11-25",
+        endDate: "2026-11-25",
+        isAllDay: true,
+        unitId: "unit-sdit",
+        recurrence: "WEEKLY",
+        recurrenceEnd: "2026-12-31",
+        isPublic: true,
+      });
+    });
+
+    const payload = post.mock.calls[0][1] as Record<string, unknown>;
+    expect(payload).toMatchObject({
+      eventType: "MEETING",
+      scope: "SPECIFIC_UNIT",
+      isRecurring: true,
+      recurrenceRule: "FREQ=WEEKLY;UNTIL=20261231T235959Z",
+    });
+    expect(payload).not.toHaveProperty("category");
+    expect(payload).not.toHaveProperty("recurrence");
   });
 });

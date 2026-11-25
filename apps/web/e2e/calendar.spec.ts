@@ -185,25 +185,72 @@ test.describe("Kalender Akademik — agenda lintas bulan tetap tampil", () => {
  * The "Agenda Hari Ini" card reads `GET /calendar/today/:unitId`, whose window
  * is the WIB calendar day (#1152). A unit-scoped user supplies the unit, so the
  * card must request that endpoint rather than filtering the month window in the
- * browser.
+ * browser — and it must render what the endpoint returned, then obey the
+ * category filter (the card used to list the raw API result).
  */
 test.describe("Kalender Akademik — agenda hari ini", () => {
-  test("unit-scoped user reads today's agenda from /calendar/today", async ({
+  test("renders the API agenda and follows the category filter", async ({
     page,
   }) => {
-    await loginAs(page, "adminSdit");
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const wibToday = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    // 08:00 WIB — inside today whatever time the suite runs.
+    const startDate = `${wibToday}T01:00:00.000Z`;
+    const suffix = Date.now();
+    const meetingTitle = `Rapat agenda e2e ${suffix}`;
+    const religiousTitle = `Keagamaan agenda e2e ${suffix}`;
 
-    const todayRequest = page.waitForRequest((r) =>
-      r.url().includes("/calendar/today/"),
-    );
-    await page.goto("/calendar");
+    const create = (title: string, eventType: "MEETING" | "RELIGIOUS") =>
+      apiRequest<{ data: { id: string } }>(session, "POST", "/calendar", {
+        title,
+        eventType,
+        startDate,
+        endDate: startDate,
+        isAllDay: false,
+        startTime: "08:00",
+        endTime: "09:00",
+        isPublic: true,
+      });
 
-    expect(new URL((await todayRequest).url()).pathname).toContain(
-      "/calendar/today/",
-    );
-    await expect(page.getByText("Agenda Hari Ini")).toBeVisible({
-      timeout: 15000,
-    });
+    const meeting = await create(meetingTitle, "MEETING");
+    const religious = await create(religiousTitle, "RELIGIOUS");
+
+    try {
+      await loginAs(page, "adminSdit");
+      const agendaResponse = page.waitForResponse((r) =>
+        r.url().includes("/calendar/today/"),
+      );
+      await page.goto("/calendar");
+
+      const body = (await (await agendaResponse).json()) as {
+        data: { title: string }[];
+      };
+      expect(body.data.map((event) => event.title)).toEqual(
+        expect.arrayContaining([meetingTitle, religiousTitle]),
+      );
+
+      const agenda = page
+        .locator('[data-slot="card"]')
+        .filter({ hasText: "Agenda Hari Ini" });
+      await expect(agenda.getByText(meetingTitle)).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(agenda.getByText(religiousTitle)).toBeVisible();
+
+      // The legend's "Rapat" button narrows both the grid and the agenda.
+      await page
+        .getByRole("button", { name: "Rapat", exact: true })
+        .first()
+        .click();
+
+      await expect(agenda.getByText(meetingTitle)).toBeVisible();
+      await expect(agenda.getByText(religiousTitle)).toHaveCount(0);
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${meeting.data.id}`);
+      await apiRequest(session, "DELETE", `/calendar/${religious.data.id}`);
+    }
   });
 });
 

@@ -24,6 +24,19 @@ import { calendarService } from '../calendar.service';
 const NOW = new Date('2026-10-26T23:00:00.000Z');
 const UNIT = 'unit-sdit';
 
+const GLOBAL_USER = {
+  sub: 'super-admin',
+  role: 'SUPER_ADMIN',
+  roleCode: 'SUPER_ADMIN',
+  unitId: null,
+};
+const UNIT_USER = {
+  sub: 'admin-sdit',
+  role: 'UNIT_ADMIN',
+  roleCode: 'SDIT_ADMIN',
+  unitId: UNIT,
+};
+
 const EVENTS = [
   { id: 'yesterday-evening', startDate: new Date('2026-10-26T13:00:00.000Z') }, // 26 Oct 20:00 WIB
   { id: 'today-early', startDate: new Date('2026-10-26T22:00:00.000Z') }, // 27 Oct 05:00 WIB
@@ -60,15 +73,52 @@ afterEach(() => {
 
 describe('calendarService.getToday — the WIB calendar day', () => {
   it('asks for 27 Oct 2026 (00:00–24:00 WIB), not 26 Oct', async () => {
-    await calendarService.getToday(UNIT);
+    await calendarService.getToday(UNIT, GLOBAL_USER);
 
     expect(requestedWindow().gte.toISOString()).toBe('2026-10-26T17:00:00.000Z');
     expect(requestedWindow().lt.toISOString()).toBe('2026-10-27T17:00:00.000Z');
   });
 
   it('keeps today’s events and drops yesterday’s tail and tomorrow’s early hours', async () => {
-    const events = (await calendarService.getToday(UNIT)) as unknown as { id: string }[];
+    const events = (await calendarService.getToday(UNIT, GLOBAL_USER)) as unknown as {
+      id: string;
+    }[];
 
     expect(events.map((event) => event.id)).toEqual(['today-early', 'today-morning']);
+  });
+});
+
+describe('calendarService.getToday — unit scope', () => {
+  const requestedUnits = () =>
+    (
+      vi.mocked(prismaMock.calendarEvent.findMany).mock.calls[0][0]!.where as {
+        OR: { unitId: string | null; isPublic?: boolean }[];
+      }
+    ).OR;
+
+  it('lets a unit session read its own unit plus the foundation-wide public agenda', async () => {
+    await calendarService.getToday(UNIT, UNIT_USER);
+
+    expect(requestedUnits()).toEqual([{ unitId: UNIT }, { unitId: null, isPublic: true }]);
+  });
+
+  it('refuses a unit session naming another unit', async () => {
+    await expect(calendarService.getToday('unit-sma', UNIT_USER)).rejects.toThrow(
+      /agenda unit lain/
+    );
+    expect(prismaMock.calendarEvent.findMany).not.toHaveBeenCalled();
+  });
+
+  it('lets a foundation-scoped session read any unit', async () => {
+    await calendarService.getToday('unit-sma', GLOBAL_USER);
+
+    expect(requestedUnits()).toEqual([{ unitId: 'unit-sma' }, { unitId: null, isPublic: true }]);
+  });
+
+  it('applies the same scope to the upcoming list', async () => {
+    await expect(calendarService.getUpcoming('unit-sma', 10, UNIT_USER)).rejects.toThrow(
+      /agenda unit lain/
+    );
+    expect(prismaMock.calendarEvent.findMany).not.toHaveBeenCalled();
   });
 });

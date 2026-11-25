@@ -22,20 +22,33 @@ test.beforeEach(async ({ page }) => {
  * endpoint, not derive "today" from the browser clock.
  */
 test.describe("Dashboard - Today's WIB quick stats", () => {
-  test("reads today's attendance and murojaah from quick-stats", async ({
+  test("renders the values quick-stats returned, not just the card titles", async ({
     page,
   }) => {
-    const quickStats = page.waitForRequest((r) =>
+    const quickStats = page.waitForResponse((r) =>
       r.url().includes("/dashboard-enhancement/quick-stats"),
     );
 
     await page.reload();
-    await quickStats;
+    const body = (await (await quickStats).json()) as {
+      data: { todayAttendance: number; todayMurojaah: number };
+    };
 
-    await expect(page.getByText("Kehadiran Hari Ini")).toBeVisible({
-      timeout: 20000,
-    });
-    await expect(page.getByText("Murojaah Hari Ini")).toBeVisible();
+    const attendance = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Kehadiran Hari Ini" });
+    await expect(
+      attendance.getByText(String(body.data.todayAttendance), {
+        exact: true,
+      }),
+    ).toBeVisible({ timeout: 20000 });
+
+    const murojaah = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Murojaah Hari Ini" });
+    await expect(
+      murojaah.getByText(String(body.data.todayMurojaah), { exact: true }),
+    ).toBeVisible();
   });
 });
 
