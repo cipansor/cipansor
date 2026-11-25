@@ -1,6 +1,7 @@
 import { test, expect } from "./fixtures/auth.fixture";
 import { SEED_USERS, apiLogin, apiRequest, loginAs } from "./helpers/auth-api";
 import { settledContent } from "./helpers/page-state";
+import type { UpdateCalendarEventPayload } from "@cipansor/shared";
 
 /**
  * Calendar Module E2E Tests
@@ -459,14 +460,9 @@ test.describe("Edit Event — Pengurus yayasan", () => {
 
       const titleOnlyResponse = await titleOnlySaved;
       expect(titleOnlyResponse.status()).toBe(200);
-      const titleOnlyBody = titleOnlyResponse.request().postDataJSON() as {
-        title: string;
-        startDate?: string;
-        endDate?: string | null;
-        startTime?: string | null;
-        endTime?: string | null;
-        isAllDay?: boolean;
-      };
+      const titleOnlyBody = titleOnlyResponse
+        .request()
+        .postDataJSON() as UpdateCalendarEventPayload;
       expect(titleOnlyBody.title).toBe(updatedTitle);
       expect(titleOnlyBody.startDate).toBeUndefined();
       expect(titleOnlyBody.endDate).toBeUndefined();

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { safeFormat } from "@/lib/date";
 import { useRouter } from "next/navigation";
 import {
@@ -86,7 +86,7 @@ export function CalendarEventForm({ eventId }: { eventId?: string }) {
     );
   }
 
-  return <CalendarEventFormFields event={event} />;
+  return <CalendarEventFormFields key={event?.id ?? eventId} event={event} />;
 }
 
 function CalendarEventFormFields({ event }: { event?: CalendarEvent }) {
@@ -96,6 +96,15 @@ function CalendarEventFormFields({ event }: { event?: CalendarEvent }) {
   const sessionUnitId = useSessionUnitId();
   const canManage = useCanWriteCalendar();
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // The schedule the draft was built from, not the latest refetch: comparing
+  // against a later event would make a title-only edit look like a move.
+  const draftSchedule = useRef({
+    startDate: event ? event.startDate.slice(0, 10) : "",
+    endDate: event ? (event.endDate?.slice(0, 10) ?? "") : "",
+    startTime: event?.startTime ?? "",
+    endTime: event?.endTime ?? "",
+    isAllDay: event?.isAllDay ?? true,
+  });
   const [formData, setFormData] = useState({
     title: event?.title ?? "",
     description: event?.description ?? "",
@@ -190,12 +199,12 @@ function CalendarEventFormFields({ event }: { event?: CalendarEvent }) {
       // writer's concurrent move is not overwritten by this form's read.
       const scheduleChanged =
         !event ||
-        formData.startDate !== event.startDate.slice(0, 10) ||
-        formData.endDate !== (event.endDate?.slice(0, 10) ?? "") ||
-        formData.isAllDay !== event.isAllDay ||
+        formData.startDate !== draftSchedule.current.startDate ||
+        formData.endDate !== draftSchedule.current.endDate ||
+        formData.isAllDay !== draftSchedule.current.isAllDay ||
         (!formData.isAllDay &&
-          (formData.startTime !== (event.startTime ?? "") ||
-            formData.endTime !== (event.endTime ?? "")));
+          (formData.startTime !== draftSchedule.current.startTime ||
+            formData.endTime !== draftSchedule.current.endTime));
       const payload = {
         title: formData.title,
         description: cleared(formData.description),
