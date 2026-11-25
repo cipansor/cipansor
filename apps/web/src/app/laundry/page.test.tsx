@@ -487,8 +487,12 @@ describe("Laundry — a Bayar Nanti order can be settled", () => {
     useAuthStore.setState({
       user: {
         id: "u-operator",
-        role: "STAFF",
+        role: "UNIT_ADMIN",
         userRoles: [
+          {
+            role: { code: "YAYASAN_KETUA" },
+            unit: null,
+          },
           {
             isPrimary: true,
             role: { code: "SMPIT_ADMIN" },

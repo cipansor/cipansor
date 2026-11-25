@@ -91,6 +91,7 @@ import {
 } from "@/hooks/use-laundry";
 import { useStudents } from "@/hooks/use-students";
 import { useAuthStore } from "@/stores/auth";
+import { getActiveRoleAssignment, getActiveRoleCode } from "@/lib/rbac";
 
 const LAUNDRY_OPERATOR_LEGACY_ROLES = [
   "SUPER_ADMIN",
@@ -114,10 +115,8 @@ function canOperateLaundry(
     unitId?: string;
   } | null,
 ): boolean {
-  const active =
-    user?.userRoles?.find((assignment) => assignment.isPrimary) ??
-    user?.userRoles?.[0];
-  const code = active?.role?.code ?? user?.role;
+  const active = getActiveRoleAssignment(user);
+  const code = getActiveRoleCode(user) ?? user?.role;
   const unitId =
     active?.unit?.id ??
     (code && FOUNDATION_SCOPE_ROLE_CODES.includes(code)

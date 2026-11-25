@@ -337,13 +337,27 @@ export function deriveLegacyRole(roleCode: string): LegacyRole | undefined {
   return ROLE_CODE_TO_LEGACY[roleCode];
 }
 
+/** Minimal shape of a role assignment needed for RBAC decisions. */
+export interface RbacRoleAssignment {
+  isPrimary?: boolean;
+  role?: { code?: string | null } | null;
+}
+
 /** Minimal shape of the persisted user needed for RBAC decisions. */
 export interface RbacUser {
   role?: string | null;
-  userRoles?: Array<{
-    isPrimary?: boolean;
-    role?: { code?: string | null } | null;
-  }> | null;
+  userRoles?: RbacRoleAssignment[] | null;
+}
+
+/**
+ * The assignment whose role the API puts on the token: the primary one, or the
+ * first when none is marked primary.
+ */
+export function getActiveRoleAssignment<T extends RbacRoleAssignment>(
+  user: { userRoles?: T[] | null } | null | undefined,
+): T | undefined {
+  const assignments = user?.userRoles ?? [];
+  return assignments.find((a) => a?.isPrimary) ?? assignments[0] ?? undefined;
 }
 
 /**
@@ -353,10 +367,7 @@ export interface RbacUser {
 export function getActiveRoleCode(
   user: RbacUser | null | undefined,
 ): string | undefined {
-  const assignments = user?.userRoles ?? [];
-  const primary =
-    assignments.find((a) => a?.isPrimary) ?? assignments[0] ?? undefined;
-  return primary?.role?.code ?? undefined;
+  return getActiveRoleAssignment(user)?.role?.code ?? undefined;
 }
 
 /**

@@ -256,7 +256,7 @@ describe('Laundry Accounting Integration', () => {
     }
   });
 
-  it('restores the wallet and leaves one refund when cancellation follows an in-flight payment', async () => {
+  it('restores the wallet and leaves one refund when cancellation meets an in-flight payment', async () => {
     const state = {
       tx: {
         id: 'tx-1',
@@ -273,16 +273,55 @@ describe('Laundry Accounting Integration', () => {
       walletEntries: [] as Array<{ type: string; amount: { toString(): string } }>,
     };
 
-    // Serialise the two transactions the way the row lock does, so the test
-    // starts the payment first and the cancellation runs after it commits.
-    let queue = Promise.resolve();
-    (prisma.$transaction as any).mockImplementation((cb: any) => {
-      const run = queue.then(() => cb(prisma));
-      queue = run.catch(() => undefined);
-      return run;
+    // The mock row lock serialises only at `$queryRaw`, as Postgres does. The
+    // two transaction callbacks run concurrently; the payment is held just
+    // before its write so the cancellation reaches the lock first. Without the
+    // lock the cancellation would read UNPAID and skip the refund.
+    let releaseLock: (() => void) | undefined;
+    let locked: Promise<void> = Promise.resolve();
+    const acquireLock = () => {
+      let release!: () => void;
+      const previous = locked;
+      locked = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+      return previous.then(() => release);
+    };
+    let lockAttempts = 0;
+    let cancellationWaiting!: () => void;
+    const cancellationAtLock = new Promise<void>((resolve) => {
+      cancellationWaiting = resolve;
+    });
+    let paymentAtWrite!: () => void;
+    const paymentReachedWrite = new Promise<void>((resolve) => {
+      paymentAtWrite = resolve;
+    });
+    let releasePaymentWrite: () => void = () => {};
+    const paymentWriteGate = new Promise<void>((resolve) => {
+      releasePaymentWrite = resolve;
+    });
+
+    (prisma.$transaction as any).mockImplementation(async (cb: any) => {
+      try {
+        return await cb(prisma);
+      } finally {
+        releaseLock?.();
+        releaseLock = undefined;
+      }
+    });
+    (prisma.$queryRaw as any).mockImplementation(async () => {
+      lockAttempts += 1;
+      if (lockAttempts === 2) cancellationWaiting();
+      const release = await acquireLock();
+      releaseLock = release;
+      return [];
     });
     (prisma.laundryTransaction.findFirst as any).mockImplementation(async () => state.tx);
     (prisma.laundryTransaction.update as any).mockImplementation(async ({ data }: any) => {
+      if (data.paymentStatus === 'PAID') {
+        paymentAtWrite();
+        await paymentWriteGate;
+      }
       state.tx = { ...state.tx, ...data };
       return state.tx;
     });
@@ -301,9 +340,15 @@ describe('Laundry Accounting Integration', () => {
     const payment = transactionService.processPayment('tx-1', actor, {
       paymentMethod: 'WALLET',
     });
+    await paymentReachedWrite;
+
     const cancellation = transactionService.updateStatus('tx-1', actor, {
       status: 'CANCELLED',
     });
+    // Wait for the cancellation to reach the lock. If the service stopped
+    // taking it, let the test proceed to its assertions instead of timing out.
+    await Promise.race([cancellationAtLock, new Promise((resolve) => setTimeout(resolve, 100))]);
+    releasePaymentWrite();
 
     await expect(Promise.all([payment, cancellation])).resolves.toHaveLength(2);
     expect(state.tx.status).toBe('CANCELLED');
