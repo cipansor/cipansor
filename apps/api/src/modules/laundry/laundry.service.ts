@@ -133,6 +133,12 @@ export const pricingService = {
   },
 
   async delete(id: string, unitId: string) {
+    const pricing = await prisma.laundryPricing.findFirst({
+      where: { id, unitId },
+      select: { id: true },
+    });
+    if (!pricing) throw Errors.notFound('Tarif laundry');
+
     // Check if pricing has transactions
     const transactionCount = await prisma.laundryTransaction.count({
       where: { pricingId: id },

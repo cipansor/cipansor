@@ -55,10 +55,20 @@ import { prisma } from '@/lib/prisma';
 
 vi.mock('@/lib/prisma', () => ({
   prisma: {
-    laundryPricing: { findFirst: vi.fn(), create: vi.fn(), update: vi.fn() },
+    laundryPricing: {
+      findFirst: vi.fn(),
+      create: vi.fn(),
+      update: vi.fn(),
+      delete: vi.fn(),
+    },
     businessUnit: { findFirst: vi.fn() },
     santriWallet: { findUnique: vi.fn(), update: vi.fn() },
-    laundryTransaction: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
+    laundryTransaction: {
+      create: vi.fn(),
+      findFirst: vi.fn(),
+      update: vi.fn(),
+      count: vi.fn(),
+    },
     walletTransaction: { create: vi.fn() },
     journalEntry: { create: vi.fn(), findMany: vi.fn() },
     laundryStatusLog: { create: vi.fn() },
@@ -341,6 +351,29 @@ describe('Laundry Accounting Integration', () => {
         } as any)
       ).rejects.toMatchObject({ statusCode: 404 });
       expect(prisma.laundryPricing.update).not.toHaveBeenCalled();
+    });
+    it('does not delete a tier outside the caller unit', async () => {
+      (prisma.laundryPricing.findFirst as any).mockResolvedValue(null);
+
+      await expect(pricingService.delete('pricing-other', unitId)).rejects.toMatchObject({
+        statusCode: 404,
+      });
+      expect(prisma.laundryTransaction.count).not.toHaveBeenCalled();
+      expect(prisma.laundryPricing.update).not.toHaveBeenCalled();
+      expect(prisma.laundryPricing.delete).not.toHaveBeenCalled();
+    });
+
+    it('soft-deletes its own tier when transactions refer to it', async () => {
+      (prisma.laundryPricing.findFirst as any).mockResolvedValue({ id: 'pricing-1' });
+      (prisma.laundryTransaction.count as any).mockResolvedValue(1);
+
+      await pricingService.delete('pricing-1', unitId);
+
+      expect(prisma.laundryPricing.update).toHaveBeenCalledWith({
+        where: { id: 'pricing-1' },
+        data: { isActive: false },
+      });
+      expect(prisma.laundryPricing.delete).not.toHaveBeenCalled();
     });
   });
 

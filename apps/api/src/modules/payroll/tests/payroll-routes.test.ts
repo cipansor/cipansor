@@ -247,3 +247,62 @@ describe('the accepted paths still reach their service', () => {
     expect(payroll.payrollPeriodService.markAsPaid).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * R1.37 asks for regression tests that fail on the pre-#990 code and pass on
+ * this branch. These six are the cases the issue names, kept under their own
+ * marker so the body's evidence is greppable. The wider criterion matrix stays
+ * in `payroll-criteria.test.ts`; on `28e284d` every case below answers 200 or
+ * 400 instead of 403.
+ */
+describe('R1.37 — the security regressions that failed before the fix', () => {
+  it('R1.37 — SDIT_ADMIN is refused on GET /payroll/periods with 403', async () => {
+    as('SDIT_ADMIN');
+    const res = await authed(request(app).get('/payroll/periods'));
+    expect(res.status).toBe(403);
+    expect(payroll.payrollPeriodService.list).not.toHaveBeenCalled();
+  });
+
+  it('R1.37 — SDIT_ADMIN is refused on POST /payroll/components with 403', async () => {
+    as('SDIT_ADMIN');
+    const res = await authed(
+      request(app).post('/payroll/components').send({ code: 'X', name: 'X' })
+    );
+    expect(res.status).toBe(403);
+    expect(payroll.salaryComponentService.create).not.toHaveBeenCalled();
+  });
+
+  it('R1.37 — YAYASAN_KETUA is refused a component write (R1.23)', async () => {
+    as('YAYASAN_KETUA', null);
+    const res = await authed(
+      request(app).post('/payroll/components').send({ code: 'X', name: 'X' })
+    );
+    expect(res.status).toBe(403);
+    expect(payroll.salaryComponentService.create).not.toHaveBeenCalled();
+  });
+
+  it('R1.37 — Super_Admin is refused POST /payroll/components with 403', async () => {
+    as('SUPER_ADMIN', null);
+    const res = await authed(
+      request(app).post('/payroll/components').send({ code: 'X', name: 'X' })
+    );
+    expect(res.status).toBe(403);
+    expect(payroll.salaryComponentService.create).not.toHaveBeenCalled();
+  });
+
+  it('R1.37 — Super_Admin is refused POST /payroll/periods/p1/approve with 403', async () => {
+    as('SUPER_ADMIN', null);
+    const res = await authed(request(app).post('/payroll/periods/p1/approve').send({}));
+    expect(res.status).toBe(403);
+    expect(payroll.payrollPeriodService.approve).not.toHaveBeenCalled();
+  });
+
+  it('R1.37 — YAYASAN_PENGAWAS is refused POST /payroll/periods with 403', async () => {
+    as('YAYASAN_PENGAWAS', null);
+    const res = await authed(
+      request(app).post('/payroll/periods').send({ name: 'x', month: 1, year: 2026 })
+    );
+    expect(res.status).toBe(403);
+    expect(payroll.payrollPeriodService.create).not.toHaveBeenCalled();
+  });
+});

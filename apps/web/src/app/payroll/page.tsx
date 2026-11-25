@@ -169,9 +169,7 @@ function PayrollPageContent() {
   // Calculate stats
   const stats = {
     totalPeriods: periods.length,
-    pendingPeriods: periods.filter(
-      (p) => p.status === "DRAFT" || p.status === "CALCULATED",
-    ).length,
+    pendingPeriods: periods.filter((p) => p.status === "DRAFT").length,
     totalSalaries: salaries.length,
     totalComponents: components?.length || 0,
   };
@@ -462,7 +460,6 @@ function PayrollPageContent() {
                     <SelectContent>
                       <SelectItem value="all">Semua Status</SelectItem>
                       <SelectItem value="DRAFT">Draft</SelectItem>
-                      <SelectItem value="CALCULATED">Dihitung</SelectItem>
                       <SelectItem value="APPROVED">Disetujui</SelectItem>
                       <SelectItem value="PAID">Dibayar</SelectItem>
                       <SelectItem value="CANCELLED">Dibatalkan</SelectItem>

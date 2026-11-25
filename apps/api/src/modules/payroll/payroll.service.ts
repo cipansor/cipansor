@@ -646,7 +646,7 @@ export const payrollPeriodService = {
         payDate: data.payDate ? new Date(data.payDate) : null,
         status: 'DRAFT',
         createdById: actor.sub,
-      } as never,
+      },
     });
   },
 
@@ -669,7 +669,7 @@ export const payrollPeriodService = {
         startDate: data.startDate ? new Date(data.startDate) : undefined,
         endDate: data.endDate ? new Date(data.endDate) : undefined,
         payDate: data.payDate ? new Date(data.payDate) : undefined,
-      } as never,
+      },
     });
   },
 
