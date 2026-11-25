@@ -843,7 +843,7 @@ describe('Student Onboarding & Wave Quota Unit Tests', () => {
       // on the transaction client, or each write commits separately.
       expect(txCalls.executeRaw).toHaveLength(1);
       expect(txCalls.waveUpdateMany).toHaveLength(2);
-      expect(txCalls.waveUpdate).toHaveLength(1);
+      expect(txCalls.waveUpdate).toEqual([[{ where: { id: 'w-old' }, data: { status: 'OPEN' } }]]);
       expect(txCalls.registrantUpdate).toHaveLength(1);
       const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
       const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];

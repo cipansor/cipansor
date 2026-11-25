@@ -392,7 +392,7 @@ describe('Admissions Service', () => {
       where: { id: 'w-cap' },
       data: { status: 'OPEN' },
     });
-    expect(txCalls.waveUpdate).toHaveLength(1);
+    expect(txCalls.waveUpdate).toEqual([[{ where: { id: 'w-cap' }, data: { status: 'OPEN' } }]]);
 
     // Reset shared mocks to avoid leaking the capacity-full wave mock into
     // sibling tests (see the manually-closed test above).
