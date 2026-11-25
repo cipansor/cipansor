@@ -14,8 +14,29 @@ import type {
   ReplaceAdmissionFeesInput,
   UpdateAdmissionPeriodInput,
   UpdateAdmissionWaveInput,
+  DocumentParseRequest,
+  DocumentOcrResult,
 } from "@cipansor/shared";
 export type { RegistrationStatus };
+
+/**
+ * OCR parse for the public SPMB form. The endpoint is public and rate-limited,
+ * so it is a mutation (one call per file), not a query.
+ */
+export function useParseDocument() {
+  return useMutation({
+    mutationFn: async (payload: DocumentParseRequest) => {
+      const res = await api.post<{ data: DocumentOcrResult }>(
+        "/admissions/public/parse-document",
+        payload,
+        // The form shows its own manual-verification note; a global error toast
+        // would be a second notification for the same failure.
+        { skipErrorToast: true },
+      );
+      return res.data.data;
+    },
+  });
+}
 
 // Typed query params for the admissions list endpoints. These mirror the
 // request schemas in `apps/api/src/modules/admissions/admissions.schema.ts`

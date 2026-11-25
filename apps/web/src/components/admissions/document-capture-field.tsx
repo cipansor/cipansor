@@ -4,37 +4,28 @@ import React, { useState, useRef } from "react";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
-import {
-  Camera,
-  Upload,
-  CheckCircle2,
-  AlertCircle,
-  RefreshCw,
-} from "lucide-react";
+import { Camera, Upload, AlertCircle, RefreshCw } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import type { DocumentOcrResult, DocumentParseRequest } from "@cipansor/shared";
+import { useParseDocument } from "@/hooks/use-admissions";
 import type { SpmbFormContent } from "@/config/spmb-form.i18n";
 
 interface DocumentCaptureFieldProps {
   label: string;
   /** The field's own words, in the public page's language. */
   content: SpmbFormContent["documents"];
-  documentType: "ktp" | "kk" | "akta" | "foto" | "lainnya";
+  documentType: DocumentParseRequest["documentType"];
   file: File | null;
   onFileSelect: (file: File) => void;
-  userInputData?: {
-    fullName?: string;
-    nationalId?: string;
-    familyCardNumber?: string;
-  };
-  onOcrExtracted?: (extracted: {
-    nationalId?: string;
-    familyCardNumber?: string;
-  }) => void;
-  onOcrResult?: (result: {
-    status: "WARNING" | "MISMATCH";
-    notes: string[];
-  }) => void;
+  userInputData?: DocumentParseRequest["userInputData"];
+  onOcrExtracted?: (extracted: DocumentOcrResult["extractedData"]) => void;
+  onOcrResult?: (
+    result: {
+      status: DocumentOcrResult["validation"]["status"];
+      /** The API's Indonesian notes, stored for the Indonesian staff portal. */
+      notes: string[];
+    } | null,
+  ) => void;
 }
 
 export function DocumentCaptureField({
@@ -49,16 +40,53 @@ export function DocumentCaptureField({
 }: DocumentCaptureFieldProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const parseDocument = useParseDocument();
   const [isParsing, setIsParsing] = useState(false);
-  const [ocrStatus, setOcrStatus] = useState<{
-    matchScore?: number;
-    status?: "VALID" | "WARNING" | "MISMATCH";
-    notes?: string[];
-  } | null>(null);
+  const [ocrStatus, setOcrStatus] = useState<
+    | (Partial<DocumentOcrResult["validation"]> & { hasExtracted?: boolean })
+    | null
+  >(null);
+
+  // The API's own `notes` are Indonesian prose; the public form speaks three
+  // languages. Render the structured verdict in the reader's language instead.
+  const localizedNotes = (status: NonNullable<typeof ocrStatus>): string[] => {
+    if (!status.hasExtracted) {
+      // `ocrAttempted` separates a failed engine run from a document that was
+      // never scanned at all (the flag is off).
+      return [status.ocrAttempted ? content.uncheckedNote : content.manualNote];
+    }
+    const compared = [
+      status.nationalIdMatch,
+      status.familyCardMatch,
+      status.fullNameMatch,
+      status.birthPlaceMatch,
+      status.birthDateMatch,
+    ].filter((value) => value !== undefined);
+    if (compared.length === 0) {
+      // Something was read, but nothing could be compared: never claim a match.
+      return [content.ocrEngineNote, content.ocrPartialNote];
+    }
+    const fields: string[] = [];
+    if (status.nationalIdMatch === false)
+      fields.push(content.ocrField.nationalId);
+    if (status.familyCardMatch === false)
+      fields.push(content.ocrField.familyCardNumber);
+    if (status.fullNameMatch === false) fields.push(content.ocrField.fullName);
+    if (status.birthPlaceMatch === false)
+      fields.push(content.ocrField.birthPlace);
+    if (status.birthDateMatch === false)
+      fields.push(content.ocrField.birthDate);
+    return fields.length
+      ? [content.ocrEngineNote, content.ocrMismatchNote(fields.join(", "))]
+      : [content.ocrEngineNote, content.ocrMatchedNote];
+  };
 
   const processOcr = async (selectedFile: File) => {
     setOcrStatus(null);
     if (!selectedFile.type.startsWith("image/")) {
+      // A PDF carries no scan result; drop the previous file's verdict so it is
+      // never sent (and stored) for the replacement.
+      onOcrResult?.(null);
       return;
     }
 
@@ -71,40 +99,42 @@ export function DocumentCaptureField({
         reader.readAsDataURL(selectedFile);
       });
 
-      const res = await api.post("/admissions/public/parse-document", {
+      const data = await parseDocument.mutateAsync({
         imageBase64,
         documentType,
         userInputData,
       });
 
-      if (res.data?.data) {
-        const data = res.data.data;
-        setOcrStatus(data.validation);
+      if (data) {
+        const validation = {
+          ...data.validation,
+          hasExtracted: Boolean(
+            data.extractedData && Object.keys(data.extractedData).length > 0,
+          ),
+        };
+        setOcrStatus(validation);
         if (data.extractedData && onOcrExtracted) {
           onOcrExtracted(data.extractedData);
         }
-        if (
-          onOcrResult &&
-          data.validation?.status &&
-          data.validation.status !== "VALID"
-        ) {
+        if (onOcrResult && data.validation?.status) {
           onOcrResult({
             status: data.validation.status,
-            notes: data.validation.notes || [],
+            // The staff portal is Indonesian: store the API's own notes, not
+            // the applicant's language used on screen.
+            notes: data.validation.notes ?? [],
           });
         }
-        if (data.validation?.status === "VALID") {
-          toast.success(content.toastValid);
-        } else if (data.validation?.status === "WARNING") {
-          toast.warning(content.toastRecheck);
-        } else {
+        if (data.validation?.status === "MISMATCH") {
           toast.error(content.toastMismatch);
+        } else {
+          toast.warning(content.toastRecheck);
         }
       }
     } catch (err) {
       console.error("Failed to parse document OCR:", err);
       const fallbackStatus = {
         status: "WARNING" as const,
+        ocrAttempted: true,
         notes: [content.uncheckedNote],
       };
       setOcrStatus(fallbackStatus);
@@ -132,19 +162,13 @@ export function DocumentCaptureField({
         {ocrStatus && (
           <Badge
             variant={
-              ocrStatus.status === "VALID"
-                ? "default"
-                : ocrStatus.status === "WARNING"
-                  ? "secondary"
-                  : "destructive"
+              ocrStatus.status === "WARNING" ? "secondary" : "destructive"
             }
             className="text-xs"
           >
-            {ocrStatus.status === "VALID"
-              ? content.valid
-              : ocrStatus.status === "WARNING"
-                ? content.recheck
-                : content.mismatch}
+            {ocrStatus.status === "WARNING"
+              ? content.recheck
+              : content.mismatch}
           </Badge>
         )}
       </div>
@@ -200,15 +224,11 @@ export function DocumentCaptureField({
         </p>
       )}
 
-      {ocrStatus && ocrStatus.notes && ocrStatus.notes.length > 0 && (
+      {ocrStatus && localizedNotes(ocrStatus).length > 0 && (
         <div className="mt-2 text-xs text-slate-600 bg-white p-2 rounded border space-y-1">
-          {ocrStatus.notes.map((note, idx) => (
+          {localizedNotes(ocrStatus).map((note, idx) => (
             <p key={idx} className="flex items-center gap-1.5">
-              {ocrStatus.status === "VALID" ? (
-                <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />
-              ) : (
-                <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
-              )}
+              <AlertCircle className="h-3.5 w-3.5 text-amber-600 shrink-0" />
               {note}
             </p>
           ))}

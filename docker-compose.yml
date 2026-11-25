@@ -94,6 +94,13 @@ services:
       SCHEDULER_ENABLED: ${SCHEDULER_ENABLED:-true}
       OUTBOUND_MESSAGES_ENABLED: ${OUTBOUND_MESSAGES_ENABLED:-true}
       DOCUMENT_TEST_COPY: ${DOCUMENT_TEST_COPY:-false}
+      # SPMB document OCR (Tesseract.js WASM, #842). OFF by default: the owner's
+      # decision is that OCR only switches on in production after the yayasan
+      # publishes a Privacy Policy version that names machine reading and the
+      # 90-day retention, and after a re-run of the accuracy spike on redacted
+      # real documents. Enumerated here so flipping it is one variable, not a
+      # rebuild.
+      SPMB_OCR_ENABLED: ${SPMB_OCR_ENABLED:-false}
       # Which deployed copy this is (`local`/`staging`/`production`). Distinct
       # from NODE_ENV, which is `production` for staging AND production because
       # both run the same images. Default `production` because this compose file

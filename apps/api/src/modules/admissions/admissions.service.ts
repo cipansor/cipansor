@@ -1460,9 +1460,25 @@ export async function createPublicRegistrantDocumentService(
     schemaType = 'ijazah';
   }
 
+  // Fingerprint the bytes actually stored: a URL row holds no bytes, and the
+  // bytes behind a data URI are the only thing the row can be checked against.
+  let documentSha256: string | undefined;
+  if (docUrl.startsWith('data:')) {
+    const comma = docUrl.indexOf(',');
+    if (comma >= 0) {
+      documentSha256 = crypto
+        .createHash('sha256')
+        .update(Buffer.from(docUrl.slice(comma + 1), 'base64'))
+        .digest('hex');
+    }
+  }
+
   let ocrSummaryNote: string | undefined = undefined;
   if (ocrNotes && ocrNotes.length > 0) {
     ocrSummaryNote = `[Hasil Verifikasi: ${ocrStatus || 'WARNING'}] ${ocrNotes.join(' | ')}`;
+  }
+  if (documentSha256) {
+    ocrSummaryNote = `${ocrSummaryNote ? `${ocrSummaryNote} ` : ''}[SHA-256: ${documentSha256}]`;
   }
 
   const createRegistrantDocumentSchema = (await import('./admissions.schema'))

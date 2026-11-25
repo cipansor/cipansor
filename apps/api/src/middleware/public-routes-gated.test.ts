@@ -46,9 +46,11 @@ const DELIBERATELY_UNGATED: Record<string, string> = {
     'adalah permusuhan tanpa tambahan perlindungan. Dijaga registrationToken + documentUploadLimiter.',
   'admissions.routes.ts POST /public/parse-document':
     'Bantuan OCR tanpa status yang dipanggil peramban pada langkah Dokumen, sebelum pendaftaran dibuat. Tidak ' +
-    'menulis apa pun ke DB — hanya memvalidasi data yang dikirim pengunjung sendiri. Dijaga ' +
-    'publicRegistrantLimiter. Menuntut Turnstile di sini akan gagal-tertutup pada langkah unggah bagi ' +
-    'pengunjung yang jaringannya memfilter challenges.cloudflare.com, padahal permintaan ini tidak membuat baris.',
+    'menulis apa pun ke DB — hanya memvalidasi data yang dikirim pengunjung sendiri. Mesinnya Tesseract.js ' +
+    '(WASM) lokal dengan traineddata yang dibundel, jadi tidak ada gambar yang keluar sistem. Dijaga ' +
+    'documentOcrLimiter (6/menit/IP) begitu mesin dinyalakan. Menuntut Turnstile di sini akan gagal-tertutup ' +
+    'pada langkah unggah bagi pengunjung yang jaringannya memfilter challenges.cloudflare.com, padahal ' +
+    'permintaan ini tidak membuat baris.',
   'data-subject-requests.routes.ts POST /public/verify':
     'Langkah KEDUA alur permintaan data pribadi. Permintaannya sendiri hanya dapat lahir dari POST /public ' +
     'yang sudah dijaga requireTurnstile, jadi tidak ada permintaan yang dapat diverifikasi tanpa satu ' +

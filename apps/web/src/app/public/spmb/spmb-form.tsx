@@ -253,6 +253,22 @@ export function SpmbForm({
   const [ocrResults, setOcrResults] = useState<
     Record<string, { status: "WARNING" | "MISMATCH"; notes: string[] }>
   >({});
+  // A null result means the field no longer holds a scanned image (the
+  // applicant replaced it with a PDF), so its verdict must be dropped.
+  const setOcrResult =
+    (key: string) =>
+    (
+      res: {
+        status: "WARNING" | "MISMATCH";
+        notes: string[];
+      } | null,
+    ) =>
+      setOcrResults((prev) => {
+        const next = { ...prev };
+        if (res) next[key] = res;
+        else delete next[key];
+        return next;
+      });
   const [activeRegistration, setActiveRegistration] = useState<{
     registrantId: string;
     registrationToken: string;
@@ -1352,9 +1368,7 @@ export function SpmbForm({
                             onFileSelect={(f) =>
                               setFiles((prev) => ({ ...prev, photo: f }))
                             }
-                            onOcrResult={(res) =>
-                              setOcrResults((prev) => ({ ...prev, photo: res }))
-                            }
+                            onOcrResult={setOcrResult("photo")}
                           />
 
                           <DocumentCaptureField
@@ -1365,13 +1379,17 @@ export function SpmbForm({
                             userInputData={{
                               fullName:
                                 formData.fatherName || formData.motherName,
+                              // The KTP may belong to either parent; a name that
+                              // matches either is a match, not a mismatch.
+                              fullNameCandidates: [
+                                formData.fatherName,
+                                formData.motherName,
+                              ].filter((name): name is string => Boolean(name)),
                             }}
                             onFileSelect={(f) =>
                               setFiles((prev) => ({ ...prev, ktp: f }))
                             }
-                            onOcrResult={(res) =>
-                              setOcrResults((prev) => ({ ...prev, ktp: res }))
-                            }
+                            onOcrResult={setOcrResult("ktp")}
                           />
 
                           <DocumentCaptureField
@@ -1380,9 +1398,11 @@ export function SpmbForm({
                             documentType="kk"
                             file={files.familyCard}
                             userInputData={{
-                              fullName:
-                                formData.fatherName || formData.motherName,
+                              fullName: formData.fullName,
+                              nationalId: formData.nationalId,
                               familyCardNumber: formData.familyCardNumber,
+                              birthPlace: formData.birthPlace,
+                              birthDate: formData.birthDate,
                             }}
                             onFileSelect={(f) =>
                               setFiles((prev) => ({ ...prev, familyCard: f }))
@@ -1398,12 +1418,7 @@ export function SpmbForm({
                                 }));
                               }
                             }}
-                            onOcrResult={(res) =>
-                              setOcrResults((prev) => ({
-                                ...prev,
-                                familyCard: res,
-                              }))
-                            }
+                            onOcrResult={setOcrResult("familyCard")}
                           />
 
                           <DocumentCaptureField
@@ -1411,18 +1426,18 @@ export function SpmbForm({
                             content={t.documents}
                             documentType="akta"
                             file={files.birthCertificate}
+                            userInputData={{
+                              fullName: formData.fullName,
+                              birthPlace: formData.birthPlace,
+                              birthDate: formData.birthDate,
+                            }}
                             onFileSelect={(f) =>
                               setFiles((prev) => ({
                                 ...prev,
                                 birthCertificate: f,
                               }))
                             }
-                            onOcrResult={(res) =>
-                              setOcrResults((prev) => ({
-                                ...prev,
-                                birthCertificate: res,
-                              }))
-                            }
+                            onOcrResult={setOcrResult("birthCertificate")}
                           />
                         </div>
                       </div>
