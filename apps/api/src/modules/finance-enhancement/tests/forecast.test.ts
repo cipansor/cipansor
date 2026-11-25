@@ -98,4 +98,27 @@ describe('Finance Forecasting Logic', () => {
     expect(result.forecast[1].netFlow).toBe(3000000);
     expect(result.forecast[1].balance).toBe(13000000);
   });
+
+  it('labels every bucket in Indonesian, not the host locale', async () => {
+    // 1 Aug 2026 00:30 WIB. `en-US` would say Aug, Oct, Dec; the portal's
+    // Indonesian labels are the ones the web table renders as-is (#1149).
+    vi.setSystemTime(new Date('2026-07-31T17:30:00.000Z'));
+
+    (prisma.accountCode.findMany as any).mockResolvedValue([]);
+    (prisma.journalEntry.aggregate as any).mockResolvedValue({
+      _sum: { debit: new Decimal(0), credit: new Decimal(0) },
+    });
+    (prisma.invoice.findMany as any).mockResolvedValue([]);
+    (prisma.purchaseRequest.findMany as any).mockResolvedValue([]);
+
+    const result = await getCashFlowForecast(unitId, 5);
+
+    expect(result.forecast.map((bucket) => bucket.month)).toEqual([
+      'Agu 26',
+      'Sep 26',
+      'Okt 26',
+      'Nov 26',
+      'Des 26',
+    ]);
+  });
 });

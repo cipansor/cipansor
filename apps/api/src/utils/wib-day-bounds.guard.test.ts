@@ -122,6 +122,15 @@ describe('the dashboard bounds its day in WIB, not in the server clock', () => {
     }
   });
 
+  it('does not accept a day-only import in place of the month helpers', () => {
+    expect(wibImports("import { wibDayOf } from '@/utils/wib';")).not.toMatch(
+      /\bwibMonth(?:Year|Range)\b/
+    );
+    expect(wibImports("import { wibMonthYear, wibMonthRange } from '@/utils/wib';")).toMatch(
+      /\bwibMonth(?:Year|Range)\b/
+    );
+  });
+
   it('the month predicate catches the copy the ticket removed, and spares a UTC month', () => {
     expect(
       LOCAL_MONTH.test('const monthDate = new Date(now.getFullYear(), now.getMonth() + i, 1);')
