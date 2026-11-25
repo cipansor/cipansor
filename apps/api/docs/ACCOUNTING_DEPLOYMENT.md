@@ -60,7 +60,10 @@ This means:
    `ACCOUNT_MAPPING_KEYS`.
 3. If the unit operates **multiple Business Units** (e.g. two canteens),
    create BU-specific mappings using the key prefix
-   `BU_{businessUnitId}_{ACCOUNT_MAPPING_KEY}`. The canteen service
+   `BU_{businessUnitId}_{ACCOUNT_MAPPING_KEY}`. Only the keys the journals
+   actually read with that prefix are accepted: `SALES_REVENUE`,
+   `INVENTORY_ASSET`, `COGS` (canteen) and `LAUNDRY_REVENUE` (laundry). The
+   business unit must belong to the unit being configured. The canteen service
    automatically prefers BU-specific mappings over unit-level ones. See
    `apps/api/src/modules/canteen/canteen.service.ts:622`.
 4. Ensure the financial period covering the expected first sale date is

@@ -55,15 +55,14 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import { ACCOUNT_MAPPING_KEYS } from "@cipansor/shared";
 import { format } from "date-fns";
 import { id as localeID } from "date-fns/locale";
-import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api-error";
 import {
   changedAccountMappings,
   type AccountMappings,
 } from "@/lib/accounting-settings";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
   useAccountCodes,
@@ -78,6 +77,10 @@ import {
   FinanceReportPeriod,
 } from "@/hooks/use-finance-enhancement";
 import { useUnits } from "@/hooks/use-units";
+import {
+  useAccountingSettings,
+  useUpdateAccountingSettings,
+} from "@/hooks/use-accounting-settings";
 import {
   buildAccountTree,
   flattenAccountTree,
@@ -889,7 +892,6 @@ function ReportsTab() {
 const CLEAR_ACCOUNT = "__clear_account__";
 
 function AccountingSettingsTab() {
-  const queryClient = useQueryClient();
   const { data: units } = useUnits();
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [settings, setSettings] = useState<AccountMappings>({});
@@ -897,30 +899,15 @@ function AccountingSettingsTab() {
   const [invalidKeys, setInvalidKeys] = useState<string[]>([]);
   const [touchedKeys, setTouchedKeys] = useState<Set<string>>(new Set());
 
-  // Fetch settings when unit selected
-  const { data: fetchedSettings } = useQuery({
-    queryKey: ["accounting-settings", selectedUnitId],
-    queryFn: async () => {
-      if (!selectedUnitId) return { data: {}, invalidKeys: [] as string[] };
-      const res = await api.get<{
-        data: AccountMappings;
-        invalidKeys?: string[];
-      }>("/finance/accounting/settings", {
-        params: { unitId: selectedUnitId },
-      });
-      return {
-        data: res.data.data,
-        invalidKeys: res.data.invalidKeys ?? [],
-      };
-    },
-    enabled: !!selectedUnitId,
-  });
+  const { data: fetchedSettings } = useAccountingSettings(
+    selectedUnitId || undefined,
+  );
 
   // Sync settings when fetched data changes
   useEffect(() => {
     if (!fetchedSettings) return;
-    setSettings(fetchedSettings.data);
-    setInitialSettings(fetchedSettings.data);
+    setSettings(fetchedSettings.mappings);
+    setInitialSettings(fetchedSettings.mappings);
     setInvalidKeys(fetchedSettings.invalidKeys);
     setTouchedKeys(new Set());
   }, [fetchedSettings]);
@@ -930,25 +917,7 @@ function AccountingSettingsTab() {
     limit: 500, // Fetch all for selection
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async (newSettings: AccountMappings) => {
-      await api.post("/finance/accounting/settings", {
-        unitId: selectedUnitId,
-        settings: newSettings,
-      });
-    },
-    onSuccess: () => {
-      toast.success("Pengaturan berhasil disimpan");
-      setInitialSettings(settings);
-      setTouchedKeys(new Set());
-      void queryClient.invalidateQueries({
-        queryKey: ["accounting-settings", selectedUnitId],
-      });
-    },
-    onError: (error) => {
-      toast.error(getErrorMessage(error));
-    },
-  });
+  const updateMutation = useUpdateAccountingSettings();
 
   const handleSave = () => {
     if (!selectedUnitId) return;
@@ -961,39 +930,53 @@ function AccountingSettingsTab() {
       toast.info("Tidak ada perubahan untuk disimpan");
       return;
     }
-    updateMutation.mutate(changes);
+    updateMutation.mutate(
+      { unitId: selectedUnitId, settings: changes },
+      {
+        onSuccess: () => {
+          toast.success("Pengaturan berhasil disimpan");
+          setInitialSettings(settings);
+          setTouchedKeys(new Set());
+        },
+        onError: (error) => {
+          toast.error(getErrorMessage(error));
+        },
+      },
+    );
   };
 
   const MAPPINGS = [
     {
-      key: "ACCOUNT_MAPPING_CASH",
+      key: ACCOUNT_MAPPING_KEYS.CASH,
       label: "Akun Kas Tunai",
       description: "Akun default untuk penerimaan tunai (Kas)",
     },
     {
-      key: "ACCOUNT_MAPPING_BANK",
+      key: ACCOUNT_MAPPING_KEYS.BANK,
       label: "Akun Bank/Transfer",
       description: "Akun default untuk penerimaan transfer (Bank)",
     },
     {
-      key: "ACCOUNT_MAPPING_PAYROLL_EXPENSE",
+      key: ACCOUNT_MAPPING_KEYS.PAYROLL_EXPENSE,
       label: "Beban Gaji",
       description: "Akun beban untuk pencatatan gaji karyawan",
     },
     {
-      key: "ACCOUNT_MAPPING_TAX_PAYABLE",
+      key: ACCOUNT_MAPPING_KEYS.TAX_PAYABLE,
       label: "Utang PPh 21",
       description: "Akun kewajiban untuk mencatat PPh 21 gaji karyawan",
     },
     {
-      key: "ACCOUNT_MAPPING_INVENTORY_ASSET",
+      key: ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET,
       label: "Aset Inventaris",
       description: "Akun aset untuk pembelian inventaris baru",
     },
   ];
 
-  const taxMapping = settings["ACCOUNT_MAPPING_TAX_PAYABLE"];
-  const taxMappingInvalid = invalidKeys.includes("ACCOUNT_MAPPING_TAX_PAYABLE");
+  const taxMapping = settings[ACCOUNT_MAPPING_KEYS.TAX_PAYABLE];
+  const taxMappingInvalid = invalidKeys.includes(
+    ACCOUNT_MAPPING_KEYS.TAX_PAYABLE,
+  );
 
   return (
     <div className="space-y-6">
@@ -1064,7 +1047,7 @@ function AccountingSettingsTab() {
                       {(accounts?.data ?? [])
                         .filter(
                           (acc) =>
-                            mapping.key !== "ACCOUNT_MAPPING_TAX_PAYABLE" ||
+                            mapping.key !== ACCOUNT_MAPPING_KEYS.TAX_PAYABLE ||
                             (acc.type === "LIABILITY" &&
                               (acc.unitId === selectedUnitId ||
                                 acc.unitId == null)),

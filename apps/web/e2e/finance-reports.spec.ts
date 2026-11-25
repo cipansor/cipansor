@@ -42,8 +42,12 @@ test("Finance Accounting Settings - a valid PPh 21 account can be saved", async 
   // The settings are shared with payroll; put back exactly what was there so a
   // reused database does not pay salaries against this test's choice.
   const original = await apiRequest<{
-    data: Record<string, string | null>;
+    data: { mappings: Record<string, string | null>; invalidKeys: string[] };
   }>(session, "GET", `/finance/accounting/settings?unitId=${unit.id}`);
+  test.skip(
+    original.data.invalidKeys.includes(TAX),
+    "seed PPh 21 mapping is already invalid and cannot be restored through the API",
+  );
 
   try {
     await loginAs(page, "superAdmin");
@@ -58,7 +62,9 @@ test("Finance Accounting Settings - a valid PPh 21 account can be saved", async 
 
     const tax = page.getByRole("combobox", { name: "Utang PPh 21" });
     await tax.click();
-    const options = page.getByRole("option");
+    const options = page
+      .getByRole("option")
+      .filter({ hasNotText: "Kosongkan pemetaan" });
     const hasOptions = await expect(options.first())
       .toBeVisible({ timeout: 5000 })
       .then(() => true)
@@ -67,8 +73,7 @@ test("Finance Accounting Settings - a valid PPh 21 account can be saved", async 
       !hasOptions,
       "seed has no active liability account usable as PPh 21",
     );
-    const optionCount = await options.count();
-    const option = options.nth(optionCount > 1 ? 1 : 0);
+    const option = options.first();
     const selectedLabel = (await option.innerText()).trim();
     await option.click();
 
@@ -98,7 +103,7 @@ test("Finance Accounting Settings - a valid PPh 21 account can be saved", async 
     // silent catch would leave this test's PPh 21 choice behind for payroll.
     await apiRequest(session, "POST", "/finance/accounting/settings", {
       unitId: unit.id,
-      settings: original.data,
+      settings: original.data.mappings,
     });
   }
 });
@@ -117,11 +122,10 @@ test("Finance Accounting Settings - saving cash keeps an unusable PPh 21 mapping
   if (!unit) return;
 
   const original = await apiRequest<{
-    data: Record<string, string | null>;
-    invalidKeys: string[];
+    data: { mappings: Record<string, string | null>; invalidKeys: string[] };
   }>(session, "GET", `/finance/accounting/settings?unitId=${unit.id}`);
   test.skip(
-    original.invalidKeys?.includes(TAX),
+    original.data.invalidKeys.includes(TAX),
     "seed already has an unusable PPh 21 mapping",
   );
 
@@ -154,21 +158,20 @@ test("Finance Accounting Settings - saving cash keeps an unusable PPh 21 mapping
     );
 
     const invalid = await apiRequest<{
-      data: Record<string, string | null>;
-      invalidKeys: string[];
+      data: { mappings: Record<string, string | null>; invalidKeys: string[] };
     }>(session, "GET", `/finance/accounting/settings?unitId=${unit.id}`);
-    expect(invalid.data[TAX]).toBe(account.id);
-    expect(invalid.invalidKeys).toContain(TAX);
+    expect(invalid.data.mappings[TAX]).toBe(account.id);
+    expect(invalid.data.invalidKeys).toContain(TAX);
 
     const accounts = await apiRequest<{
       data: Array<{ id: string; code: string; name: string }>;
     }>(session, "GET", "/finance/accounting/accounts?isActive=true&limit=500");
     const currentCash = accounts.data.find(
-      (item) => item.id === original.data[CASH],
+      (item) => item.id === original.data.mappings[CASH],
     );
     const replacement = accounts.data.find(
       (item) =>
-        item.id !== original.data[CASH] &&
+        item.id !== original.data.mappings[CASH] &&
         `${item.code} - ${item.name}` !==
           (currentCash ? `${currentCash.code} - ${currentCash.name}` : ""),
     );
@@ -206,15 +209,14 @@ test("Finance Accounting Settings - saving cash keeps an unusable PPh 21 mapping
     await expect(page.getByText("Pengaturan berhasil disimpan")).toBeVisible();
 
     const after = await apiRequest<{
-      data: Record<string, string | null>;
-      invalidKeys: string[];
+      data: { mappings: Record<string, string | null>; invalidKeys: string[] };
     }>(session, "GET", `/finance/accounting/settings?unitId=${unit.id}`);
-    expect(after.data[TAX]).toBe(account.id);
-    expect(after.data[CASH]).toBe(replacement.id);
+    expect(after.data.mappings[TAX]).toBe(account.id);
+    expect(after.data.mappings[CASH]).toBe(replacement.id);
   } finally {
     await apiRequest(session, "POST", "/finance/accounting/settings", {
       unitId: unit.id,
-      settings: original.data,
+      settings: original.data.mappings,
     });
     await apiRequest(
       session,
@@ -222,6 +224,97 @@ test("Finance Accounting Settings - saving cash keeps an unusable PPh 21 mapping
       `/finance/accounting/accounts/${account.id}`,
       { type: "LIABILITY" },
     );
+    await apiRequest(
+      session,
+      "DELETE",
+      `/finance/accounting/accounts/${account.id}`,
+    );
+  }
+});
+
+test("Finance Accounting Settings - clearing a mapping removes it after reload", async ({
+  page,
+}) => {
+  test.setTimeout(120000);
+
+  const session = await apiLogin(SEED_USERS.superAdmin);
+  const units = await apiRequest<{
+    data: Array<{ id: string; name: string }>;
+  }>(session, "GET", "/units?limit=100");
+  const unit = units.data[0];
+  test.skip(!unit, "seed has no unit");
+  if (!unit) return;
+
+  const original = await apiRequest<{
+    data: { mappings: Record<string, string | null>; invalidKeys: string[] };
+  }>(session, "GET", `/finance/accounting/settings?unitId=${unit.id}`);
+  test.skip(
+    original.data.invalidKeys.includes(TAX),
+    "seed PPh 21 mapping is already invalid and cannot be restored through the API",
+  );
+
+  const stamp = Date.now();
+  const account = await apiRequest<{ id: string; code: string; name: string }>(
+    session,
+    "POST",
+    "/finance/accounting/accounts",
+    {
+      code: `E2E-CLEAR-${stamp}`,
+      name: `E2E Kosongkan ${stamp}`,
+      type: "LIABILITY",
+      normalBalance: "CREDIT",
+      isActive: true,
+    },
+  );
+
+  try {
+    await apiRequest(session, "POST", "/finance/accounting/settings", {
+      unitId: unit.id,
+      settings: { [TAX]: account.id },
+    });
+
+    await loginAs(page, "superAdmin");
+    await page.goto("/finance/accounting");
+    await page.getByRole("tab", { name: /Pengaturan/i }).click();
+    await page.getByRole("combobox", { name: "Pilih Unit" }).click();
+    await page
+      .getByRole("option", { name: unit.name, exact: true })
+      .first()
+      .click();
+
+    await page.getByRole("combobox", { name: "Utang PPh 21" }).click();
+    await page.getByRole("option", { name: /Kosongkan pemetaan/i }).click();
+
+    const saved = page.waitForResponse(
+      (response) =>
+        response.url().includes("/finance/accounting/settings") &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: /Simpan Pengaturan/i }).click();
+    expect((await saved).status()).toBeLessThan(300);
+    await expect(page.getByText("Pengaturan berhasil disimpan")).toBeVisible();
+
+    const cleared = await apiRequest<{
+      data: { mappings: Record<string, string | null>; invalidKeys: string[] };
+    }>(session, "GET", `/finance/accounting/settings?unitId=${unit.id}`);
+    expect(cleared.data.mappings[TAX]).toBeNull();
+    expect(cleared.data.invalidKeys).not.toContain(TAX);
+
+    await page.reload();
+    await page.getByRole("tab", { name: /Pengaturan/i }).click();
+    await page.getByRole("combobox", { name: "Pilih Unit" }).click();
+    await page
+      .getByRole("option", { name: unit.name, exact: true })
+      .first()
+      .click();
+    await expect(
+      page.getByRole("combobox", { name: "Utang PPh 21" }),
+    ).toContainText("Pilih Akun");
+  } finally {
+    await apiRequest(session, "POST", "/finance/accounting/settings", {
+      unitId: unit.id,
+      settings: original.data.mappings,
+    });
     await apiRequest(
       session,
       "DELETE",

@@ -85,14 +85,23 @@ describe('accounting settings are scoped to the actor’s unit', () => {
     expect(configService.setAccountMappings).not.toHaveBeenCalled();
   });
 
-  it('refuses a settings payload that is an array', async () => {
-    const { res, next } = await call(updateSettings as Handler, {
-      user: actor('SDIT_ADMIN', SD),
-      body: { unitId: SD, settings: ['ACCOUNT_MAPPING_CASH'] },
+  it('returns the mappings through the ApiResponse envelope', async () => {
+    vi.mocked(configService.getAccountMappingState).mockResolvedValueOnce({
+      settings: { ACCOUNT_MAPPING_CASH: 'acc-cash' },
+      invalidKeys: [],
     });
 
-    expect(res.status).toHaveBeenCalledWith(400);
-    expect(next).not.toHaveBeenCalled();
-    expect(configService.setAccountMappings).not.toHaveBeenCalled();
+    const { res } = await call(getSettings as Handler, {
+      user: actor('SDIT_ADMIN', SD),
+      query: { unitId: SD },
+    });
+
+    expect(res.json).toHaveBeenCalledWith({
+      success: true,
+      data: {
+        mappings: { ACCOUNT_MAPPING_CASH: 'acc-cash' },
+        invalidKeys: [],
+      },
+    });
   });
 });

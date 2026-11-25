@@ -5,6 +5,7 @@ import {
   FINANCE_UNIT_ROLE_CODES,
   SUPPORT_ROLE_CODES,
   TATA_USAHA_ROLE_CODES,
+  updateAccountingSettingsSchema,
 } from '@cipansor/shared';
 import * as controller from './finance.controller';
 import { bosController } from './bos.controller';
@@ -1078,6 +1079,7 @@ router.get(
 router.post(
   '/accounting/settings',
   authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  validate(updateAccountingSettingsSchema),
   accountingController.updateSettings
 );
 

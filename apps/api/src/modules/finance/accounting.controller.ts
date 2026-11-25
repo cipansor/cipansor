@@ -1,4 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
+import type { UpdateAccountingSettingsInput } from '@cipansor/shared';
+import { ApiResponse } from '@/utils/response';
 import * as service from './accounting.service';
 import * as reportsService from './reports.service';
 import * as configService from './accounting-config.service';
@@ -92,7 +94,7 @@ export async function getSettings(req: Request, res: Response, next: NextFunctio
     const unitId = writeUnitScope(req, requested);
     const { settings, invalidKeys } = await configService.getAccountMappingState(unitId);
 
-    res.json({ data: settings, invalidKeys });
+    res.json(ApiResponse.success({ mappings: settings, invalidKeys }));
   } catch (error) {
     next(error);
   }
@@ -100,19 +102,15 @@ export async function getSettings(req: Request, res: Response, next: NextFunctio
 
 export async function updateSettings(req: Request, res: Response, next: NextFunction) {
   try {
-    const { unitId: requestedUnitId, settings } = req.body;
-    if (!settings || typeof settings !== 'object' || Array.isArray(settings)) {
-      res.status(400).json({ message: 'Settings are required' });
-      return;
-    }
+    const { unitId: requestedUnitId, settings } = req.body as UpdateAccountingSettingsInput;
 
     // A unit admin may only write its own unit, whatever the body names; a
     // foundation role may name a unit it oversees.
     const unitId = writeUnitScope(req, requestedUnitId);
 
-    await configService.setAccountMappings(unitId, settings as Record<string, string | null>);
+    await configService.setAccountMappings(unitId, settings);
 
-    res.json({ message: 'Settings updated' });
+    res.json(ApiResponse.success(null, 'Pengaturan akuntansi diperbarui'));
   } catch (error) {
     next(error);
   }

@@ -1,27 +1,22 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
+import {
+  ACCOUNT_MAPPING_KEYS,
+  ACCOUNT_MAPPING_KEY_LIST,
+  isAccountMappingKey,
+  parseBusinessUnitMappingKey,
+} from '@cipansor/shared';
 import { Errors } from '../../middleware/error';
 
 type TransactionClient = Prisma.TransactionClient;
 
-export const ACCOUNT_MAPPING_KEYS = {
-  CASH: 'ACCOUNT_MAPPING_CASH',
-  BANK: 'ACCOUNT_MAPPING_BANK',
-  PAYROLL_EXPENSE: 'ACCOUNT_MAPPING_PAYROLL_EXPENSE',
-  TAX_PAYABLE: 'ACCOUNT_MAPPING_TAX_PAYABLE',
-  INVENTORY_ASSET: 'ACCOUNT_MAPPING_INVENTORY_ASSET',
-  ACCOUNTS_PAYABLE: 'ACCOUNT_MAPPING_ACCOUNTS_PAYABLE',
-  WALLET_LIABILITY: 'ACCOUNT_MAPPING_WALLET_LIABILITY',
-  SALES_REVENUE: 'ACCOUNT_MAPPING_SALES_REVENUE',
-  LAUNDRY_REVENUE: 'ACCOUNT_MAPPING_LAUNDRY_REVENUE',
-  COGS: 'ACCOUNT_MAPPING_COGS',
-};
-
-export const ACCOUNT_MAPPING_KEY_LIST: readonly string[] = Object.values(ACCOUNT_MAPPING_KEYS);
-
-export function isAccountMappingKey(key: string): boolean {
-  return ACCOUNT_MAPPING_KEY_LIST.includes(key);
-}
+export {
+  ACCOUNT_MAPPING_KEYS,
+  ACCOUNT_MAPPING_KEY_LIST,
+  BUSINESS_UNIT_MAPPING_KEYS,
+  isAccountMappingKey,
+  parseBusinessUnitMappingKey,
+} from '@cipansor/shared';
 
 export async function getAccountMapping(
   unitId: string,
@@ -133,7 +128,25 @@ export async function setAccountMappings(
     throw Errors.badRequest(`Kunci pengaturan tidak dikenal: ${unknown.join(', ')}`);
   }
 
+  const businessUnitIds = [
+    ...new Set(
+      entries
+        .map(([key]) => parseBusinessUnitMappingKey(key)?.businessUnitId)
+        .filter((id): id is string => !!id)
+    ),
+  ];
+
   return prisma.$transaction(async (tx) => {
+    if (businessUnitIds.length > 0) {
+      const owned = await tx.businessUnit.findMany({
+        where: { id: { in: businessUnitIds }, unitId },
+        select: { id: true },
+      });
+      if (owned.length !== businessUnitIds.length) {
+        throw Errors.badRequest('Unit usaha tidak berada dalam unit ini');
+      }
+    }
+
     for (const [key, accountId] of entries) {
       if (accountId !== null && accountId !== undefined) {
         if (typeof accountId !== 'string') {

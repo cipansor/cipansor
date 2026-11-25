@@ -3,6 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { prismaMock, txMock } = vi.hoisted(() => {
   const txMock = {
     accountCode: { findUnique: vi.fn() },
+    businessUnit: { findMany: vi.fn() },
     setting: { deleteMany: vi.fn(), upsert: vi.fn() },
   };
   return {
@@ -25,12 +26,14 @@ import {
 } from '../accounting-config.service';
 
 const UNIT = 'unit-sd';
+const BUSINESS_UNIT = '33333333-3333-4333-8333-333333333333';
 
 beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.$transaction.mockImplementation((async (callback: (tx: unknown) => unknown) =>
     callback(txMock)) as never);
   txMock.setting.upsert.mockResolvedValue({} as never);
+  txMock.businessUnit.findMany.mockResolvedValue([{ id: BUSINESS_UNIT }] as never);
 });
 
 describe('PPh 21 account mapping', () => {
@@ -97,6 +100,51 @@ describe('PPh 21 account mapping', () => {
 
     expect(txMock.setting.deleteMany).not.toHaveBeenCalled();
     expect(txMock.setting.upsert).not.toHaveBeenCalled();
+  });
+
+  it('stores a business-unit mapping the canteen service reads', async () => {
+    await setAccountMappings(UNIT, {
+      [`BU_${BUSINESS_UNIT}_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`]: 'acc-sales',
+    });
+
+    expect(txMock.businessUnit.findMany).toHaveBeenCalledWith({
+      where: { id: { in: [BUSINESS_UNIT] }, unitId: UNIT },
+      select: { id: true },
+    });
+    expect(txMock.setting.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          unitId_key: {
+            unitId: UNIT,
+            key: `BU_${BUSINESS_UNIT}_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`,
+          },
+        },
+      })
+    );
+  });
+
+  it('refuses a business unit that belongs to another unit', async () => {
+    txMock.businessUnit.findMany.mockResolvedValue([] as never);
+
+    await expect(
+      setAccountMappings(UNIT, {
+        [`BU_${BUSINESS_UNIT}_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`]: 'acc-sales',
+      })
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(txMock.setting.upsert).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [`BU_${BUSINESS_UNIT}_ACCOUNT_MAPPING_CASH`, 'a key no journal reads with a BU prefix'],
+    [`BU_${BUSINESS_UNIT}_CALENDAR_HOLIDAY_SYNC`, 'a non-accounting key under a BU prefix'],
+    [`BU_not-a-uuid_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`, 'a malformed business-unit id'],
+  ])('refuses %s (%s)', async (key) => {
+    await expect(setAccountMappings(UNIT, { [key]: null })).rejects.toMatchObject({
+      statusCode: 400,
+    });
+
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
   });
 
   it('refuses a key that is not an account mapping', async () => {
