@@ -13,7 +13,7 @@ import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 const { mocks } = vi.hoisted(() => ({
   mocks: {
     user: null as unknown,
-    recipients: { data: [], isLoading: false },
+    recipients: { data: [] as unknown[], isLoading: false },
     criteria: [] as unknown[],
     criteriaFailed: false,
     createCriterion: vi.fn(async () => ({})),
@@ -85,11 +85,21 @@ const recipient = {
   academicYear: { id: "ay-1", name: "2026/2027" },
 } as never;
 
-function asRole(roleCode: string, unitId: string | undefined = "unit-sd") {
+function asRole(
+  roleCode: string,
+  unitId: string | undefined = "unit-sd",
+  assignmentUnitId?: string,
+) {
   mocks.user = {
     id: "u-1",
     unitId,
-    userRoles: [{ isPrimary: true, role: { code: roleCode } }],
+    userRoles: [
+      {
+        isPrimary: true,
+        role: { code: roleCode },
+        unit: assignmentUnitId ? { id: assignmentUnitId } : undefined,
+      },
+    ],
   };
 }
 
@@ -142,6 +152,61 @@ describe("RecipientsDialog — scoring", () => {
   it("hides the action from a finance role of a different unit", () => {
     asRole("SMPIT_BENDAHARA", "unit-smp");
     render(<RecipientsDialog scholarship={program} onClose={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /hitung skor/i })).toBeNull();
+  });
+
+  it("reads the unit from the active assignment, not the profile's home unit", () => {
+    // Home unit SD IT, switched to Bendahara of SMP IT: the API token carries
+    // the assignment's unit, so the action must follow it.
+    asRole("SMPIT_BENDAHARA", "unit-sd", "unit-smp");
+    render(
+      <RecipientsDialog
+        scholarship={
+          {
+            ...(program as unknown as Record<string, unknown>),
+            unitId: "unit-smp",
+          } as never
+        }
+        onClose={vi.fn()}
+      />,
+    );
+    expect(screen.getByRole("button", { name: /hitung skor/i })).toBeDefined();
+  });
+
+  it("shows the stored score to a reviewer who may not compute one", () => {
+    asRole("YAYASAN_KETUA", undefined);
+    mocks.recipients = {
+      data: [
+        {
+          ...(recipient as unknown as Record<string, unknown>),
+          totalScore: 95,
+          assessments: [
+            {
+              criterionId: "c1",
+              name: "Hafalan Al-Quran",
+              weight: 3,
+              value: "10",
+              score: 100,
+              excluded: false,
+            },
+            {
+              criterionId: "c2",
+              name: "Wawancara",
+              weight: 1,
+              value: "MANUAL_REQUIRED",
+              score: null,
+              excluded: true,
+            },
+          ],
+        },
+      ],
+      isLoading: false,
+    };
+
+    render(<RecipientsDialog scholarship={program} onClose={vi.fn()} />);
+
+    expect(screen.getByText(/Skor total: 95\.0/)).toBeDefined();
+    expect(screen.getByText(/Perlu dinilai manual — -/)).toBeDefined();
     expect(screen.queryByRole("button", { name: /hitung skor/i })).toBeNull();
   });
 

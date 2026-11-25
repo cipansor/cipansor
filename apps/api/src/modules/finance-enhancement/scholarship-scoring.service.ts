@@ -38,6 +38,13 @@ export const MANUAL_REQUIRED = 'MANUAL_REQUIRED';
 export const UNKNOWN = 'UNKNOWN';
 export const NO_DATA = 'NO_DATA';
 
+/** Values that mark an excluded assessment when it is read back from the store. */
+export const EXCLUDED_VALUES: readonly string[] = [MANUAL_REQUIRED, UNKNOWN, NO_DATA];
+
+export function isExcludedValue(value: string): boolean {
+  return EXCLUDED_VALUES.includes(value);
+}
+
 const HAFALAN_KEYWORDS = ['hafalan', 'tahfidz'];
 const ACADEMIC_KEYWORDS = ['akademik', 'nilai'];
 const INCOME_KEYWORDS = ['penghasilan'];
@@ -54,6 +61,17 @@ export function criterionKind(name: string): CriterionKind {
 }
 
 const clamp = (value: number) => Math.min(100, Math.max(0, value));
+
+/**
+ * The leading number of a target such as `10 juz` or `85%`. The unit is a note
+ * for the reader, not part of the value; a target that carries no number falls
+ * back to the criterion's default.
+ */
+function targetNumber(value: string | null, fallback: number, parse: (text: string) => number) {
+  if (!value) return fallback;
+  const parsed = parse(value);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 /**
  * Score one criterion against the santri's facts.
@@ -73,12 +91,11 @@ function scoreOne(criterion: ScorableCriterion, facts: ScoringFacts): Scholarshi
       if (facts.tahfidzJuz === null) {
         return { ...base, value: NO_DATA, score: null, excluded: true };
       }
-      const target = criterion.targetValue ? Number(criterion.targetValue) : 30;
-      const denominator = Number.isFinite(target) && target > 0 ? target : 30;
+      const target = targetNumber(criterion.targetValue, 30, parseInt);
       return {
         ...base,
         value: String(facts.tahfidzJuz),
-        score: clamp((facts.tahfidzJuz / denominator) * 100),
+        score: clamp((facts.tahfidzJuz / target) * 100),
         excluded: false,
       };
     }
@@ -86,12 +103,11 @@ function scoreOne(criterion: ScorableCriterion, facts: ScoringFacts): Scholarshi
       if (facts.averageGrade === null) {
         return { ...base, value: NO_DATA, score: null, excluded: true };
       }
-      const target = criterion.targetValue ? Number(criterion.targetValue) : 100;
-      const denominator = Number.isFinite(target) && target > 0 ? target : 100;
+      const target = targetNumber(criterion.targetValue, 100, parseFloat);
       return {
         ...base,
         value: String(facts.averageGrade),
-        score: clamp((facts.averageGrade / denominator) * 100),
+        score: clamp((facts.averageGrade / target) * 100),
         excluded: false,
       };
     }
@@ -132,6 +148,9 @@ export function scoreCriteria(
 
   return {
     criteria: scored,
+    // Deprecated alias: this route used to answer with `assessments`. Keep it
+    // until no client reads it, so an older caller is not left without details.
+    assessments: scored,
     // Clamped: summing `100 * w` then dividing by `Σw` in floating point can
     // land at 100.00000000000001, and a score above 100 is not a score.
     totalScore: counted.length > 0 && totalWeight > 0 ? Math.min(100, Math.max(0, mean)) : null,
@@ -143,7 +162,7 @@ export function scoreCriteria(
 const SCORING_STUDENT_SELECT = {
   id: true,
   tahfidzRecords: { orderBy: { recordedAt: 'desc' }, take: 1, select: { juz: true } },
-  grades: { orderBy: { gradedAt: 'desc' }, take: 10, select: { score: true } },
+  grades: { orderBy: { gradedAt: 'desc' }, take: 10, select: { score: true, maxScore: true } },
   fatherIncome: true,
   fatherOccupation: true,
   motherIncome: true,
@@ -240,10 +259,24 @@ export class ScholarshipScoringService {
   }
 }
 
+/**
+ * A grade on the 0–100 scale the academic target is written on. The gradebook
+ * stores the points earned and the points possible separately, so a 20/20 exam
+ * is a perfect score, not a 20.
+ */
+function gradePercentage(grade: { score: unknown; maxScore?: unknown }): number {
+  const score = Number(grade.score);
+  const maxScore = Number(grade.maxScore);
+  if (Number.isFinite(score) && Number.isFinite(maxScore) && maxScore > 0) {
+    return (score / maxScore) * 100;
+  }
+  return score;
+}
+
 /** Reduce the loaded student columns to what `scoreCriteria` takes. */
 export function factsOf(student: {
   tahfidzRecords: Array<{ juz: number }>;
-  grades: Array<{ score: unknown }>;
+  grades: Array<{ score: unknown; maxScore?: unknown }>;
   fatherIncome: IncomeRange | null;
   fatherOccupation: Parameters<typeof householdIncome>[0]['fatherOccupation'];
   motherIncome: IncomeRange | null;
@@ -253,7 +286,7 @@ export function factsOf(student: {
 }): ScoringFacts {
   const averageGrade =
     student.grades.length > 0
-      ? student.grades.reduce((sum, g) => sum + Number(g.score), 0) / student.grades.length
+      ? student.grades.reduce((sum, g) => sum + gradePercentage(g), 0) / student.grades.length
       : null;
 
   return {

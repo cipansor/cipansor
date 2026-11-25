@@ -1,4 +1,6 @@
 import { requireUser } from '../../middleware/auth';
+import { asyncHandler } from '../../middleware/error';
+import { ApiResponse } from '../../utils/response';
 import { wibDayBound } from '../../utils/wib';
 import { Request, Response, NextFunction } from 'express';
 import { financeEnhancementService } from './finance-enhancement.service';
@@ -243,19 +245,15 @@ export class FinanceEnhancementController {
 
   // ==================== SCHOLARSHIP SCORING (Si-Beasiswa) ====================
 
-  async createScholarshipCriterion(req: Request, res: Response, next: NextFunction) {
-    try {
-      const input: CreateScholarshipCriterionInput = req.body;
-      const criterion = await scholarshipScoringService.createCriterion(
-        scopeActorOf(req),
-        req.params.id,
-        input
-      );
-      res.status(201).json({ success: true, data: criterion });
-    } catch (error) {
-      next(error);
-    }
-  }
+  createScholarshipCriterion = asyncHandler(async (req: Request, res: Response) => {
+    const input = req.body as CreateScholarshipCriterionInput;
+    const criterion = await scholarshipScoringService.createCriterion(
+      scopeActorOf(req),
+      req.params.id,
+      input
+    );
+    res.status(201).json(ApiResponse.success(criterion));
+  });
 
   async getScholarshipCriteria(req: Request, res: Response, next: NextFunction) {
     try {
@@ -269,17 +267,13 @@ export class FinanceEnhancementController {
     }
   }
 
-  async assessScholarshipRecipient(req: Request, res: Response, next: NextFunction) {
-    try {
-      const result = await scholarshipScoringService.assessRecipient(
-        scopeActorOf(req),
-        req.params.id
-      );
-      res.json({ success: true, data: result });
-    } catch (error) {
-      next(error);
-    }
-  }
+  assessScholarshipRecipient = asyncHandler(async (req: Request, res: Response) => {
+    const result = await scholarshipScoringService.assessRecipient(
+      scopeActorOf(req),
+      req.params.id
+    );
+    res.json(ApiResponse.success(result));
+  });
 
   // ==================== PAYMENT COMPONENTS ====================
 

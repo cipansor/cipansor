@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { IncomeRange, OccupationType } from '@prisma/client';
+import { createScholarshipCriterionSchema } from '@cipansor/shared';
 
 /**
  * Skor beasiswa (#1003, R11.1–R11.3, R11.7, R11.8, R11.12).
@@ -46,7 +47,7 @@ interface CriterionFixture {
 
 interface StudentFixture {
   tahfidzRecords?: Array<{ juz: number }>;
-  grades?: Array<{ score: unknown }>;
+  grades?: Array<{ score: unknown; maxScore?: unknown }>;
   fatherIncome?: IncomeRange | null;
   fatherOccupation?: OccupationType | null;
   motherIncome?: IncomeRange | null;
@@ -129,6 +130,36 @@ describe('scoreCriteria', () => {
     expect(result.totalScore).toBe(85);
   });
 
+  it('puts each grade on its own scale before averaging (CBT 20/20 is 100)', () => {
+    const result = scoreCriteria(
+      [{ id: 'c1', name: 'Nilai Akademik', weight: 1, targetValue: '100' }],
+      facts({
+        grades: [
+          { score: 20, maxScore: 20 },
+          { score: 80, maxScore: 100 },
+        ],
+      })
+    );
+
+    // (100 + 80) / 2 = 90, not (20 + 80) / 2 = 50.
+    expect(result.criteria[0]).toMatchObject({ value: '90', score: 90 });
+    expect(result.totalScore).toBe(90);
+  });
+
+  it('reads a target that carries its unit', () => {
+    const hafalan = scoreCriteria(
+      [{ id: 'c1', name: 'Hafalan', weight: 1, targetValue: '10 juz' }],
+      facts({ tahfidzRecords: [{ juz: 5 }] })
+    );
+    expect(hafalan.criteria[0].score).toBe(50);
+
+    const akademik = scoreCriteria(
+      [{ id: 'c1', name: 'Nilai Akademik', weight: 1, targetValue: '85%' }],
+      facts({ grades: [{ score: 85, maxScore: 100 }] })
+    );
+    expect(akademik.criteria[0].score).toBe(100);
+  });
+
   it('reads income across the household, not the father alone', () => {
     const fromMother = scoreCriteria(
       [{ id: 'c1', name: 'Penghasilan Orang Tua', weight: 1, targetValue: null }],
@@ -205,6 +236,14 @@ describe('scoreCriteria', () => {
     });
     expect(scoreCriteria(criteria, student)).toEqual(scoreCriteria(criteria, student));
   });
+
+  it('keeps the deprecated `assessments` alias beside `criteria`', () => {
+    const result = scoreCriteria(
+      [{ id: 'c1', name: 'Hafalan', weight: 1, targetValue: '10' }],
+      facts({ tahfidzRecords: [{ juz: 5 }] })
+    );
+    expect(result.assessments).toEqual(result.criteria);
+  });
 });
 
 describe('scholarshipScoringService.assessRecipient', () => {
@@ -268,6 +307,11 @@ describe('scholarshipScoringService.assessRecipient', () => {
       'motherOccupation',
       'tahfidzRecords',
     ]);
+    // The gradebook keeps points and points-possible apart; both are read.
+    expect(args.select.student.select.grades.select).toEqual({
+      score: true,
+      maxScore: true,
+    });
   });
 
   it('writes only the assessments and totalScore, leaving the decision columns alone (R11.7)', async () => {
@@ -380,5 +424,36 @@ describe('scholarshipScoringService.createCriterion', () => {
         scholarshipId: 'sch-1',
       },
     });
+  });
+});
+
+describe('createScholarshipCriterionSchema', () => {
+  it('accepts a target whose unit follows the number', () => {
+    expect(
+      createScholarshipCriterionSchema.safeParse({
+        name: 'Hafalan',
+        weight: 1,
+        type: 'NUMERIC',
+        targetValue: '10 juz',
+      }).success
+    ).toBe(true);
+    expect(
+      createScholarshipCriterionSchema.safeParse({
+        name: 'Nilai Akademik',
+        weight: 1,
+        type: 'NUMERIC',
+        targetValue: '85%',
+      }).success
+    ).toBe(true);
+  });
+
+  it('rejects a numeric target the scorer cannot read', () => {
+    const parsed = createScholarshipCriterionSchema.safeParse({
+      name: 'Hafalan',
+      weight: 1,
+      type: 'NUMERIC',
+      targetValue: 'sepuluh',
+    });
+    expect(parsed.success).toBe(false);
   });
 });

@@ -360,6 +360,8 @@ export function useScholarshipCriteria(scholarshipId: string) {
     queryFn: async () => {
       const response = await api.get<{ data: ScholarshipCriterion[] }>(
         `/finance-enhancement/scholarships/${scholarshipId}/criteria`,
+        // The dialog says the read was refused; a second toast would repeat it.
+        { skipErrorToast: true },
       );
       return response.data.data;
     },
@@ -374,6 +376,8 @@ export function useCreateScholarshipCriterion(scholarshipId: string) {
       const response = await api.post(
         `/finance-enhancement/scholarships/${scholarshipId}/criteria`,
         data,
+        // The form reports the refusal in place; a toast would repeat it.
+        { skipErrorToast: true },
       );
       return response.data;
     },
@@ -396,6 +400,9 @@ export function useAssessScholarshipRecipient(scholarshipId: string) {
     mutationFn: async (recipientId: string) => {
       const response = await api.post<{ data: ScholarshipAssessmentResult }>(
         `/finance-enhancement/scholarship-recipients/${recipientId}/assess`,
+        undefined,
+        // The dialog says "Skor tidak dihitung" itself (R11.9).
+        { skipErrorToast: true },
       );
       return response.data.data;
     },

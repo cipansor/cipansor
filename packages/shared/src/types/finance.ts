@@ -171,6 +171,10 @@ export interface ScholarshipRecipient {
   endDate?: Date | string | null;
   notes?: string | null;
   status: ScholarshipStatus | string;
+  /** The last score stored for this recipient, if any. */
+  totalScore?: number | null;
+  /** The last per-criterion scores stored for this recipient, if any. */
+  assessments?: ScholarshipCriterionScore[];
   createdAt?: Date;
   updatedAt?: Date;
 
@@ -215,6 +219,11 @@ export interface ScholarshipCriterionScore {
  */
 export interface ScholarshipAssessmentResult {
   criteria: ScholarshipCriterionScore[];
+  /**
+   * Deprecated alias of `criteria`, kept because the route once answered with
+   * this name. New callers read `criteria`.
+   */
+  assessments?: ScholarshipCriterionScore[];
   totalScore: number | null;
   complete: boolean;
 }
@@ -278,14 +287,6 @@ export interface AssignScholarshipInput {
   startDate: Date | string;
   endDate?: Date | string;
   notes?: string;
-}
-
-export interface CreateScholarshipCriterionInput {
-  name: string;
-  description?: string;
-  weight: number;
-  type: "NUMERIC" | "BOOLEAN" | "ENUM";
-  targetValue?: string;
 }
 
 export interface CreatePaymentComponentInput {

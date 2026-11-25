@@ -84,6 +84,10 @@ async function signIn(page: Page, user: { email: string; password: string }) {
 }
 
 test.describe("Skor penerima beasiswa", () => {
+  // `beforeAll` creates the shared criteria; parallel workers each run their
+  // own `beforeAll` and can all read the program before the first write lands.
+  test.describe.configure({ mode: "serial" });
+
   test.beforeAll(async () => {
     test.skip(
       await isProductionApi(),
@@ -142,6 +146,48 @@ test.describe("Skor penerima beasiswa", () => {
         );
       }
     }
+  });
+
+  test("formulir kriteria menolak isian tidak valid", async ({ page }) => {
+    await signIn(page, BEMDAHARA_SMPIT);
+    await page.goto("/finance/scholarships");
+    await page.getByRole("button", { name: /lihat/i }).first().click();
+
+    const weight = page.getByLabel("Bobot");
+    await page.getByLabel("Nama kriteria").fill("E2E Tidak Valid");
+    await weight.fill("0");
+
+    expect(
+      await weight.evaluate((el) => (el as HTMLInputElement).checkValidity()),
+    ).toBe(false);
+
+    await page.getByRole("button", { name: /tambah kriteria/i }).click();
+    await expect(page.getByText(/Kriteria berhasil ditambahkan/)).toHaveCount(
+      0,
+    );
+    await expect(page.getByLabel("Nama kriteria")).toBeVisible();
+  });
+
+  test("formulir kriteria menyimpan kriteria baru dari layar", async ({
+    page,
+  }) => {
+    await signIn(page, BEMDAHARA_SMPIT);
+    await page.goto("/finance/scholarships");
+    await page.getByRole("button", { name: /lihat/i }).first().click();
+
+    // No scoring keyword in the name: the new criterion is left out of the
+    // total, so this test does not move the score the others assert on.
+    const name = `E2E Formulir ${Date.now()}`;
+    await page.getByLabel("Nama kriteria").fill(name);
+    await page.getByLabel("Bobot").fill("2");
+    await page.getByLabel("Target").fill("10");
+    await page.getByRole("button", { name: /tambah kriteria/i }).click();
+
+    await expect(page.getByText(/Kriteria berhasil ditambahkan/)).toBeVisible();
+    await expect(page.getByText(name)).toBeVisible();
+    // The screen says the scores it already showed were computed before this
+    // criterion existed.
+    await expect(page.getByText(/Kriteria berubah/)).toBeVisible();
   });
 
   test("bendahara unit menghitung skor dari layar dan hasilnya tampil", async ({

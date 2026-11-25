@@ -4,6 +4,7 @@ import path from "node:path";
 import {
   canAccessRoute,
   deriveLegacyRole,
+  getActiveRoleUnitId,
   getDashboardForRole,
   getEffectiveRole,
   isLegacyRole,
@@ -1228,5 +1229,38 @@ describe("pages a role needs beyond its bucket (2026-09-25)", () => {
       );
       expect(services, code).toEqual([]);
     }
+  });
+});
+
+describe("getActiveRoleUnitId", () => {
+  it("reads the unit of the active assignment, not the profile's home unit", () => {
+    expect(
+      getActiveRoleUnitId({
+        unitId: "unit-sd",
+        userRoles: [
+          {
+            isPrimary: true,
+            role: { code: "SMPIT_BENDAHARA" },
+            unit: { id: "unit-smp" },
+          },
+          {
+            isPrimary: false,
+            role: { code: "SDIT_BENDAHARA" },
+            unit: { id: "unit-sd" },
+          },
+        ],
+      }),
+    ).toBe("unit-smp");
+  });
+
+  it("falls back to the profile unit when the assignment carries none", () => {
+    expect(
+      getActiveRoleUnitId({
+        unitId: "unit-sd",
+        userRoles: [
+          { isPrimary: true, role: { code: "YAYASAN_KETUA" }, unit: null },
+        ],
+      }),
+    ).toBe("unit-sd");
   });
 });

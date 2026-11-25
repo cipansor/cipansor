@@ -28,3 +28,5 @@ export * from "./extracurricular";
 export * from "./simaan";
 export * from "./foundation";
 export * from "./laundry";
+
+export * from "./finance";

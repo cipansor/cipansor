@@ -119,6 +119,77 @@ describe('getScholarshipRecipients', () => {
       financeEnhancementService.getScholarshipRecipients('sch-1', { page: 1, limit: 20 }, yayasan)
     ).resolves.toMatchObject({ success: true });
   });
+
+  it('membawa skor tersimpan untuk pembaca, dengan penanda tanpa nilai (R11.6)', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
+    prismaMock.scholarshipRecipient.count.mockResolvedValue(1);
+    prismaMock.scholarshipRecipient.findMany.mockResolvedValue([
+      {
+        id: 'r1',
+        scholarshipId: 'sch-1',
+        studentId: 's1',
+        academicYearId: 'ay-1',
+        startDate: new Date('2026-07-01'),
+        endDate: null,
+        notes: null,
+        status: 'ACTIVE',
+        totalScore: 95,
+        assessments: [
+          {
+            criterionId: 'c1',
+            value: '10',
+            score: 100,
+            criterion: { name: 'Hafalan', weight: 3 },
+          },
+          {
+            criterionId: 'c2',
+            value: 'MANUAL_REQUIRED',
+            score: 0,
+            criterion: { name: 'Wawancara', weight: 1 },
+          },
+        ],
+        createdAt: new Date('2026-07-01'),
+        updatedAt: new Date('2026-07-01'),
+        student: {
+          id: 's1',
+          nis: '0099',
+          user: { name: 'Fulan' },
+          enrollments: [{ class: { name: 'Kelas 1' } }],
+        },
+        academicYear: { name: '2026/2027' },
+      },
+    ]);
+
+    const res = await financeEnhancementService.getScholarshipRecipients(
+      'sch-1',
+      { page: 1, limit: 20 },
+      adminSd
+    );
+
+    expect(res.data[0].totalScore).toBe(95);
+    expect(res.data[0].assessments).toEqual([
+      {
+        criterionId: 'c1',
+        name: 'Hafalan',
+        weight: 3,
+        value: '10',
+        score: 100,
+        excluded: false,
+      },
+      {
+        criterionId: 'c2',
+        name: 'Wawancara',
+        weight: 1,
+        value: 'MANUAL_REQUIRED',
+        score: null,
+        excluded: true,
+      },
+    ]);
+
+    const args = prismaMock.scholarshipRecipient.findMany.mock.calls[0][0];
+    expect(args.select.totalScore).toBe(true);
+    expect(args.select.assessments).toBeDefined();
+  });
 });
 
 describe('getScholarshipCriteria', () => {

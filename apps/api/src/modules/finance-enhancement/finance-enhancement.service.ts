@@ -11,6 +11,7 @@ import {
   Scholarship,
   CreateScholarshipInput,
   ScholarshipRecipient,
+  ScholarshipCriterionScore,
   AssignScholarshipInput,
   PaymentComponent,
   CreatePaymentComponentInput,
@@ -23,6 +24,7 @@ import {
 } from '@cipansor/shared';
 import { Prisma } from '@prisma/client';
 import { checkPeriodStatus } from './period.service';
+import { isExcludedValue } from './scholarship-scoring.service';
 import { CLASS_ENROLLMENT_STATUS } from '@cipansor/shared';
 
 export class FinanceEnhancementService {
@@ -397,6 +399,16 @@ export class FinanceEnhancementService {
           endDate: true,
           notes: true,
           status: true,
+          totalScore: true,
+          assessments: {
+            select: {
+              criterionId: true,
+              value: true,
+              score: true,
+              criterion: { select: { name: true, weight: true } },
+            },
+            orderBy: { criterion: { createdAt: 'asc' } },
+          },
           createdAt: true,
           updatedAt: true,
           student: {
@@ -837,6 +849,23 @@ export class FinanceEnhancementService {
   }
 
   private mapToScholarshipRecipient(prismaRecipient: any): ScholarshipRecipient {
+    const assessments: ScholarshipCriterionScore[] | undefined = prismaRecipient.assessments?.map(
+      (assessment: any) => {
+        // The store keeps 0 for an excluded criterion (the column is not
+        // nullable); the read turns the marker back into "no score" so the
+        // screen does not present it as a judgement.
+        const excluded = isExcludedValue(assessment.value);
+        return {
+          criterionId: assessment.criterionId,
+          name: assessment.criterion?.name ?? '',
+          weight: assessment.criterion?.weight ?? 0,
+          value: assessment.value,
+          score: excluded ? null : assessment.score,
+          excluded,
+        };
+      }
+    );
+
     return {
       id: prismaRecipient.id,
       scholarshipId: prismaRecipient.scholarshipId,
@@ -846,6 +875,8 @@ export class FinanceEnhancementService {
       endDate: prismaRecipient.endDate,
       notes: prismaRecipient.notes,
       status: prismaRecipient.status,
+      totalScore: prismaRecipient.totalScore ?? null,
+      assessments,
       createdAt: prismaRecipient.createdAt,
       updatedAt: prismaRecipient.updatedAt,
       student: prismaRecipient.student

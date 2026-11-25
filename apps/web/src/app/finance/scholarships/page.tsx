@@ -62,7 +62,8 @@ import {
 } from "@/hooks/use-finance-enhancement";
 import { FINANCE_UNIT_ROLE_CODES } from "@cipansor/shared";
 import { useAuth } from "@/hooks/use-auth";
-import { getPrimaryRoleCode } from "@/lib/rbac";
+import { getActiveRoleUnitId, getPrimaryRoleCode } from "@/lib/rbac";
+import { getErrorMessage } from "@/lib/api-error";
 import { criterionValueLabel, formatCriterionScore } from "@/lib/income-range";
 import { useUnits } from "@/hooks/use-units";
 import { useStudents } from "@/hooks/use-students";
@@ -107,6 +108,24 @@ function formatTotal(total: number | null): string {
   return total === null || Number.isNaN(total) ? "-" : total.toFixed(1);
 }
 
+/**
+ * The score the API stored with the recipient, shaped like the answer of a
+ * fresh "hitung skor" — so a reviewer (who may not compute one) and a reloaded
+ * page show the same result.
+ */
+function storedResult(
+  recipient: ScholarshipRecipient,
+): ScholarshipAssessmentResult | undefined {
+  if (!recipient.assessments || recipient.assessments.length === 0) {
+    return undefined;
+  }
+  return {
+    criteria: recipient.assessments,
+    totalScore: recipient.totalScore ?? null,
+    complete: recipient.assessments.every((c) => !c.excluded),
+  };
+}
+
 export function RecipientsDialog({
   scholarship,
   onClose,
@@ -131,11 +150,16 @@ export function RecipientsDialog({
     Record<string, ScholarshipAssessmentResult>
   >({});
   const [scoreError, setScoreError] = useState<string | null>(null);
+  const [criteriaChanged, setCriteriaChanged] = useState(false);
 
   if (!scholarship) return null;
 
   const roleCode = getPrimaryRoleCode(user ?? null);
-  const mayScore = canScoreProgram(roleCode, user?.unitId, scholarship.unitId);
+  const mayScore = canScoreProgram(
+    roleCode,
+    getActiveRoleUnitId(user ?? null),
+    scholarship.unitId,
+  );
   const hasCriteria = (criteria?.length ?? 0) > 0;
 
   const handleAssess = async (recipientId: string) => {
@@ -163,9 +187,14 @@ export function RecipientsDialog({
         type: "NUMERIC",
         targetValue: (formData.get("targetValue") as string) || undefined,
       });
+      // Every result on screen was computed from the old set of criteria.
+      setResults({});
+      setCriteriaChanged(true);
       toast.success("Kriteria berhasil ditambahkan");
-    } catch {
-      toast.error("Gagal menambahkan kriteria");
+    } catch (error) {
+      // The hook skips the interceptor toast so the API's reason (for example
+      // an unreadable numeric target) is shown once, here.
+      toast.error(getErrorMessage(error));
     }
   };
 
@@ -263,6 +292,16 @@ export function RecipientsDialog({
           )}
         </div>
 
+        {criteriaChanged && (
+          <p
+            role="status"
+            className="text-sm text-amber-700 dark:text-amber-400"
+          >
+            Kriteria berubah. Skor yang sudah ada mungkin dihitung dengan
+            kriteria lama — hitung ulang untuk hasil terbaru.
+          </p>
+        )}
+
         {scoreError && (
           <p role="alert" className="text-sm text-destructive">
             {scoreError}
@@ -300,7 +339,8 @@ export function RecipientsDialog({
                 </TableRow>
               ) : (
                 recipients?.data?.map((recipient: ScholarshipRecipient) => {
-                  const result = results[recipient.id];
+                  const result =
+                    results[recipient.id] ?? storedResult(recipient);
                   return (
                     <TableRow key={recipient.id} className="align-top">
                       <TableCell className="font-medium">
