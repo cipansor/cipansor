@@ -331,6 +331,53 @@ No. KK : 3201234567890001
       expect(result.validation.birthPlaceMatch).toBe(true);
     });
 
+    it('reads the birth date, not the certificate number, on an akta', async () => {
+      const result = await parseAndVerifyDocument(
+        {
+          imageBase64: PNG_URI,
+          documentType: 'akta',
+          userInputData: { birthDate: '2012-10-24', fullName: 'Ahmad Fauzi' },
+        },
+        {
+          enabled: true,
+          readText: async () =>
+            [
+              'KUTIPAN AKTA KELAHIRAN',
+              'Nomor : 474.1/1234/2012',
+              'Nama : AHMAD FAUZI',
+              'Tempat Lahir : CIAMIS',
+              'Tanggal Lahir : 24-10-2012',
+            ].join('\n'),
+        }
+      );
+
+      expect(result.extractedData.birthDate).toBe('24-10-2012');
+      expect(result.validation.status).toBe('WARNING');
+    });
+
+    it('reads the birth date, not the expiry date, on a KTP', async () => {
+      const result = await parseAndVerifyDocument(
+        {
+          imageBase64: PNG_URI,
+          documentType: 'ktp',
+          userInputData: { birthDate: '2023-10-01', fullName: 'Ahmad Fauzi' },
+        },
+        {
+          enabled: true,
+          readText: async () =>
+            [
+              'PROVINSI JAWA BARAT',
+              'NIK : 3201230110230001',
+              'Nama : AHMAD FAUZI',
+              'Berlaku Hingga : 24-10-2027',
+              'Tempat/Tgl Lahir : CIAMIS, 01-10-2023',
+            ].join('\n'),
+        }
+      );
+
+      expect(result.extractedData.birthDate).toBe('01-10-2023');
+    });
+
     it('survives a corrupt image with the real worker and keeps serving', async () => {
       const corrupt = Buffer.concat([PNG.subarray(0, 8), Buffer.from('not an image')]);
       const corruptUri = `data:image/png;base64,${corrupt.toString('base64')}`;

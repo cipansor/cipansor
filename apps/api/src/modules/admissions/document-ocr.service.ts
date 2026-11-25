@@ -223,7 +223,13 @@ function valueAfterLabel(text: string, prefix: RegExp): string | undefined {
 }
 
 function readDate(text: string): string | undefined {
-  const m = text.match(/(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})/);
+  // A certificate number (`474.1/1234/2012`) also looks like a date and would
+  // otherwise win over the birth date printed after it, so a labelled date
+  // wins; the unlabelled pattern is only a fallback for garbled OCR.
+  const labelled = text.match(
+    /(?:TGL\.?\s*LAHIR|TANGGAL\s+LAHIR|LAHIR\s+(?:DI\s+\S+\s+)?PADA\s+TANGGAL)\s*:?\s*(?:[A-Za-z][A-Za-z .'-]{0,40}?,\s*)?(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})/i
+  );
+  const m = labelled ?? text.match(/(\d{1,2})\s*[-/.]\s*(\d{1,2})\s*[-/.]\s*(\d{4})/);
   if (!m) return undefined;
   return `${m[1].padStart(2, '0')}-${m[2].padStart(2, '0')}-${m[3]}`;
 }
