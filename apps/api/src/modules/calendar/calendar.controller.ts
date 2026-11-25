@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import type { CalendarEventDeleteQuery, ListCalendarEventsQuery } from '@cipansor/shared';
 import { calendarService } from './calendar.service';
 import {
   approveHolidayDraft,
@@ -33,20 +34,10 @@ function scopedHolidayUnit(
 export class CalendarController {
   async listEvents(req: Request, res: Response, next: NextFunction) {
     try {
-      const query = {
-        unitId: req.query.unitId as string | undefined,
-        classId: req.query.classId as string | undefined,
-        eventType: req.query.eventType as any,
-        startDate: req.query.startDate as string | undefined,
-        endDate: req.query.endDate as string | undefined,
-        month: req.query.month ? parseInt(req.query.month as string) : undefined,
-        year: req.query.year ? parseInt(req.query.year as string) : undefined,
-        search: req.query.search as string | undefined,
-        isPublic:
-          req.query.isPublic === 'true' ? true : req.query.isPublic === 'false' ? false : undefined,
-        page: parseInt(req.query.page as string) || 1,
-        limit: parseInt(req.query.limit as string) || 50,
-      };
+      // Parsed by the route's `listCalendarEventsQuerySchema`, so `eventType`
+      // is a real `EventType` (the page used to send `category`, which nothing
+      // read, and the filter silently did nothing — #1155).
+      const query = res.locals.validatedQuery as ListCalendarEventsQuery;
       const user = {
         sub: req.user!.sub,
         role: req.user!.role,
@@ -110,13 +101,18 @@ export class CalendarController {
   async deleteEvent(req: Request, res: Response, next: NextFunction) {
     try {
       const { id } = req.params;
+      // Which occurrences to remove: one, or the whole series. Validated by the
+      // route's `calendarEventDeleteQuerySchema`.
+      const { scope } = (res.locals.validatedQuery ?? {
+        scope: 'SINGLE',
+      }) as CalendarEventDeleteQuery;
       const user = {
         sub: req.user!.sub,
         role: req.user!.role,
         roleCode: req.user!.roleCode,
         unitId: req.user!.unitId,
       };
-      await calendarService.delete(id, user);
+      await calendarService.delete(id, user, scope);
       res.json({ success: true, message: 'Event deleted successfully' });
     } catch (error) {
       next(error);
@@ -183,15 +179,6 @@ export class CalendarController {
       };
       const result = await calendarService.bulkCreate(events, user);
       res.json({ data: result });
-    } catch (error) {
-      next(error);
-    }
-  }
-
-  async generateRecurringEvents(req: Request, res: Response, next: NextFunction) {
-    try {
-      // For now, just return a placeholder - recurrence can be complex
-      res.json({ message: 'Recurring event generation not yet implemented' });
     } catch (error) {
       next(error);
     }

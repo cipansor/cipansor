@@ -1,9 +1,33 @@
 import { Router } from 'express';
 import { UserRole } from '@prisma/client';
+import {
+  ADMIN_ROLE_CODES,
+  bulkCreateCalendarEventsSchema,
+  calendarEventDeleteQuerySchema,
+  createCalendarEventSchema,
+  listCalendarEventsQuerySchema,
+} from '@cipansor/shared';
 import { calendarController } from './calendar.controller';
-import { authenticate, authorize } from '@/middleware/auth';
+import { authenticate, authorize, hasPermission } from '@/middleware/auth';
+import { validate, validateQuery } from '@/middleware/validate';
+import { PERMISSIONS } from '@/modules/roles/permissions';
 
 const router = Router();
+
+// Writing the calendar is academic work. The legacy `authorize(SUPER_ADMIN,
+// UNIT_ADMIN)` buckets every yayasan code into UNIT_ADMIN, so the auditor role
+// (Pengawas) could publish unit holidays even though its permission set is
+// read-only. Gate the writes on the permission the operational academic roles
+// actually hold.
+const manageCalendar = hasPermission(PERMISSIONS.ACADEMIC_MANAGE);
+
+// Reviewing an imported holiday is admin work, not teaching work. A kepala
+// sekolah holds ACADEMIC_MANAGE and may create ordinary agenda, but approving a
+// draft changes a unit's work days for attendance and payroll. Gate on the
+// RoleCode list, not the legacy UNIT_ADMIN bucket: that bucket also contains
+// the read-only yayasan roles, and TEACHER contains the kepala sekolah. The
+// pair of gates leaves exactly SUPER_ADMIN and the four per-unit admins.
+const reviewHolidayDraft = [authorize(...ADMIN_ROLE_CODES), manageCalendar];
 
 // All routes require authentication
 router.use(authenticate);
@@ -15,6 +39,7 @@ router.use(authenticate);
 // GET /calendar - List all events
 router.get(
   '/',
+  validateQuery(listCalendarEventsQuerySchema),
   authorize(
     UserRole.SUPER_ADMIN,
     UserRole.UNIT_ADMIN,
@@ -71,45 +96,27 @@ router.get(
   calendarController.getHolidays.bind(calendarController)
 );
 
-// GET /calendar/:id - Get event by ID
-router.get(
-  '/:id',
-  authorize(
-    UserRole.SUPER_ADMIN,
-    UserRole.UNIT_ADMIN,
-    UserRole.TEACHER,
-    UserRole.STUDENT,
-    UserRole.PARENT
-  ),
-  calendarController.getEventById.bind(calendarController)
-);
-
-// POST /calendar - Create single event
+// POST /calendar - Create single event (and, when it repeats, its whole series)
 router.post(
   '/',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  manageCalendar,
+  validate(createCalendarEventSchema),
   calendarController.createEvent.bind(calendarController)
 );
 
 // POST /calendar/bulk - Bulk create events
 router.post(
   '/bulk',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  manageCalendar,
+  validate(bulkCreateCalendarEventsSchema),
   calendarController.bulkCreateEvents.bind(calendarController)
 );
 
 // POST /calendar/import - Import academic calendar
 router.post(
   '/import',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  manageCalendar,
   calendarController.importAcademicCalendar.bind(calendarController)
-);
-
-// POST /calendar/generate-recurring - Generate recurring events
-router.post(
-  '/generate-recurring',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  calendarController.generateRecurringEvents.bind(calendarController)
 );
 
 // GET /calendar/holidays/config - Holiday-source settings
@@ -131,7 +138,7 @@ router.put(
 // POST /calendar/holidays/sync - Fetch a year's national holidays into the calendar
 router.post(
   '/holidays/sync',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  manageCalendar,
   calendarController.syncHolidays.bind(calendarController)
 );
 
@@ -145,14 +152,14 @@ router.get(
 // POST /calendar/holidays/drafts/:id/approve - Adopt a draft into the live calendar
 router.post(
   '/holidays/drafts/:id/approve',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  reviewHolidayDraft,
   calendarController.approveHolidayDraft.bind(calendarController)
 );
 
 // POST /calendar/holidays/drafts/:id/reject - Drop a draft so it never affects work days
 router.post(
   '/holidays/drafts/:id/reject',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  reviewHolidayDraft,
   calendarController.rejectHolidayDraft.bind(calendarController)
 );
 
@@ -170,16 +177,13 @@ router.get(
 );
 
 // PUT /calendar/:id - Update event
-router.put(
-  '/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
-  calendarController.updateEvent.bind(calendarController)
-);
+router.put('/:id', manageCalendar, calendarController.updateEvent.bind(calendarController));
 
-// DELETE /calendar/:id - Delete event
+// DELETE /calendar/:id?scope=SINGLE|SERIES - Delete one occurrence or a whole series
 router.delete(
   '/:id',
-  authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN),
+  manageCalendar,
+  validateQuery(calendarEventDeleteQuerySchema),
   calendarController.deleteEvent.bind(calendarController)
 );
 

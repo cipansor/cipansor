@@ -35,6 +35,8 @@ import {
   EventCategory,
 } from "@/hooks/use-calendar";
 import { useUnits } from "@/hooks/use-units";
+import { usePermission } from "@/hooks/use-permission";
+import { PERMISSIONS } from "@/constants/permissions";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -79,6 +81,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function AcademicCalendarPage() {
+  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | "">(
@@ -99,7 +102,7 @@ export default function AcademicCalendarPage() {
   // Filter events by category
   const filteredEvents = useMemo(() => {
     if (!selectedCategory) return events;
-    return events.filter((e) => e.category === selectedCategory);
+    return events.filter((e) => e.eventType === selectedCategory);
   }, [events, selectedCategory]);
 
   // Generate calendar days
@@ -122,8 +125,9 @@ export default function AcademicCalendarPage() {
   const getEventsForDay = (date: Date): CalendarEvent[] => {
     const dateStr = format(date, "yyyy-MM-dd");
     return filteredEvents.filter((event) => {
-      const eventStart = event.startDate.split("T")[0];
-      const eventEnd = event.endDate.split("T")[0];
+      const eventStart = event.startDate.slice(0, 10);
+      // A one-day event has no `endDate`: it occupies its start day only.
+      const eventEnd = event.endDate ? event.endDate.slice(0, 10) : eventStart;
       return dateStr >= eventStart && dateStr <= eventEnd;
     });
   };
@@ -155,12 +159,14 @@ export default function AcademicCalendarPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link href="/calendar/events/new">
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Tambah Event
-              </Button>
-            </Link>
+            {canManage && (
+              <Link href="/calendar/events/new">
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Tambah Event
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
 
@@ -346,6 +352,7 @@ export default function AcademicCalendarPage() {
                       return (
                         <div
                           key={idx}
+                          data-testid="calendar-day"
                           className={`
                             min-h-[120px] border-b border-r p-1 transition-colors
                             ${!isCurrentMonth ? "bg-muted/30 text-muted-foreground" : ""}
@@ -367,7 +374,7 @@ export default function AcademicCalendarPage() {
                           <div className="space-y-1">
                             {dayEvents.slice(0, 3).map((event) => {
                               const catConfig = getEventCategoryConfig(
-                                event.category,
+                                event.eventType,
                               );
                               return (
                                 <button
@@ -436,7 +443,7 @@ export default function AcademicCalendarPage() {
                         new Date(b.startDate).getTime(),
                     )
                     .map((event) => {
-                      const catConfig = getEventCategoryConfig(event.category);
+                      const catConfig = getEventCategoryConfig(event.eventType);
                       const Icon =
                         iconMap[catConfig?.icon || "Calendar"] || CalendarIcon;
 
@@ -477,19 +484,21 @@ export default function AcademicCalendarPage() {
                                     locale: idLocale,
                                   },
                                 )}
-                                {event.startDate !== event.endDate && (
-                                  <>
-                                    {" "}
-                                    -{" "}
-                                    {safeFormat(
-                                      new Date(event.endDate),
-                                      "d MMM",
-                                      {
-                                        locale: idLocale,
-                                      },
-                                    )}
-                                  </>
-                                )}
+                                {event.endDate &&
+                                  event.startDate.slice(0, 10) !==
+                                    event.endDate.slice(0, 10) && (
+                                    <>
+                                      {" "}
+                                      -{" "}
+                                      {safeFormat(
+                                        new Date(event.endDate),
+                                        "d MMM",
+                                        {
+                                          locale: idLocale,
+                                        },
+                                      )}
+                                    </>
+                                  )}
                               </span>
                               {!event.isAllDay && event.startTime && (
                                 <span className="flex items-center gap-1">
@@ -525,7 +534,7 @@ export default function AcademicCalendarPage() {
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 {EVENT_CATEGORIES.slice(0, 4).map((cat) => {
                   const count = filteredEvents.filter(
-                    (e) => e.category === cat.value,
+                    (e) => e.eventType === cat.value,
                   ).length;
                   const Icon = iconMap[cat.icon] || CalendarIcon;
 
@@ -566,7 +575,7 @@ export default function AcademicCalendarPage() {
                 .filter((e) => new Date(e.startDate) >= new Date())
                 .slice(0, 5)
                 .map((event) => {
-                  const catConfig = getEventCategoryConfig(event.category);
+                  const catConfig = getEventCategoryConfig(event.eventType);
                   return (
                     <div
                       key={event.id}
@@ -613,14 +622,14 @@ export default function AcademicCalendarPage() {
                     <div
                       className="w-12 h-12 rounded-lg flex items-center justify-center shrink-0"
                       style={{
-                        backgroundColor: `${getEventCategoryConfig(selectedEvent.category)?.color}20`,
-                        color: getEventCategoryConfig(selectedEvent.category)
+                        backgroundColor: `${getEventCategoryConfig(selectedEvent.eventType)?.color}20`,
+                        color: getEventCategoryConfig(selectedEvent.eventType)
                           ?.color,
                       }}
                     >
                       {(() => {
                         const catConfig = getEventCategoryConfig(
-                          selectedEvent.category,
+                          selectedEvent.eventType,
                         );
                         const Icon =
                           iconMap[catConfig?.icon || "Calendar"] ||
@@ -632,11 +641,11 @@ export default function AcademicCalendarPage() {
                       <DialogTitle>{selectedEvent.title}</DialogTitle>
                       <Badge
                         className={
-                          getEventCategoryConfig(selectedEvent.category)
+                          getEventCategoryConfig(selectedEvent.eventType)
                             ?.bgColor
                         }
                       >
-                        {getEventCategoryConfig(selectedEvent.category)?.label}
+                        {getEventCategoryConfig(selectedEvent.eventType)?.label}
                       </Badge>
                     </div>
                   </div>
@@ -657,17 +666,19 @@ export default function AcademicCalendarPage() {
                           "d MMMM yyyy",
                           { locale: idLocale },
                         )}
-                        {selectedEvent.startDate !== selectedEvent.endDate && (
-                          <>
-                            {" "}
-                            -{" "}
-                            {format(
-                              new Date(selectedEvent.endDate),
-                              "d MMMM yyyy",
-                              { locale: idLocale },
-                            )}
-                          </>
-                        )}
+                        {selectedEvent.endDate &&
+                          selectedEvent.startDate.slice(0, 10) !==
+                            selectedEvent.endDate.slice(0, 10) && (
+                            <>
+                              {" "}
+                              -{" "}
+                              {format(
+                                new Date(selectedEvent.endDate),
+                                "d MMMM yyyy",
+                                { locale: idLocale },
+                              )}
+                            </>
+                          )}
                       </span>
                     </div>
 

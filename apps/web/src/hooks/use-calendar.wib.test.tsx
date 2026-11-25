@@ -82,4 +82,27 @@ describe("useMonthEvents", () => {
       endDate: "2026-01-31",
     });
   });
+
+  it("reads every page so a long series cannot hide the rest of the month", async () => {
+    get
+      .mockResolvedValueOnce({
+        data: {
+          data: [{ id: "1" }],
+          meta: { total: 2, page: 1, limit: 100, totalPages: 2 },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: [{ id: "2" }],
+          meta: { total: 2, page: 2, limit: 100, totalPages: 2 },
+        },
+      });
+
+    const { result } = renderHook(() => useMonthEvents(2026, 0), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(get).toHaveBeenCalledTimes(2);
+    expect(result.current.data).toHaveLength(2);
+    expect(get.mock.calls[1][1].params).toMatchObject({ page: 2 });
+  });
 });

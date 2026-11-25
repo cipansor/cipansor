@@ -80,6 +80,20 @@ describe('holidaysInRange', () => {
       { from: '2026-03-19', to: '2026-03-21', title: 'Idul Fitri' },
     ]);
   });
+
+  it('counts only whole-unit or yayasan holidays, never a class holiday', async () => {
+    m.calendarEvent.findMany.mockResolvedValue([]);
+
+    await holidaysInRange(
+      new Date('2026-03-01T00:00:00Z'),
+      new Date('2026-03-31T00:00:00Z'),
+      'unit-1'
+    );
+
+    // A class holiday closes that class; the staff register and payslip are
+    // unit-wide, so the query must exclude every row that names a class.
+    expect(m.calendarEvent.findMany.mock.calls[0][0].where.classId).toBeNull();
+  });
 });
 
 describe('isHolidayDay / isWorkDay', () => {
