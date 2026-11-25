@@ -109,6 +109,10 @@ vi.mock('@/utils/parent-scope', () => ({
 describe('Student Onboarding & Wave Quota Unit Tests', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    // No registrant holds the generated number unless a test says so; a stale
+    // implementation from an earlier test would send allocation into the
+    // "counter behind" repair path.
+    vi.mocked(prisma.registrant.findUnique as any).mockResolvedValue(null);
   });
 
   describe('StudentOnboardingOrchestrator.processEnrollment', () => {
@@ -763,6 +767,12 @@ describe('Student Onboarding & Wave Quota Unit Tests', () => {
       });
 
       await waveService.assignRegistrant('reg-1', 'w-new');
+
+      // Lock the registrant before any wave counter. The retention sweep and
+      // onboarding take the same order; the reverse is a deadlock.
+      const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
+      const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];
+      expect(registrantLock).toBeLessThan(waveLock);
 
       // The freed old wave must be flipped back to OPEN.
       expect(prisma.admissionWave.update).toHaveBeenCalledWith({

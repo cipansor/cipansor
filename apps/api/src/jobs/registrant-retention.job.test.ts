@@ -260,6 +260,38 @@ describe('purgeExpiredRegistrants', () => {
   });
 
   /**
+   * Validasi jadwal menerima pengumuman satu hari yang mendahului penutupan
+   * pendaftaran. Masa simpan baru boleh mulai saat pendaftaran ditutup, bukan
+   * saat pengumuman selesai — kalau tidak, data terhapus sebelum 90 hari.
+   */
+  it('tidak memakai pengumuman yang mendahului akhir pendaftaran', async () => {
+    const { prisma } = fakePrisma([
+      registrant({
+        id: 'pengumuman-sebelum-tutup',
+        registrationNo: 'PENGUMUMAN-DULU',
+        wave: wave({
+          resultsStartDate: new Date('2026-06-01T00:00:00.000Z'),
+          endDate: new Date('2026-06-08T16:59:59.999Z'),
+        }),
+      }),
+    ]);
+
+    // 30 Agustus = D+90 dari pengumuman 1 Juni, tetapi pendaftaran baru tutup
+    // 8 Juni; masa simpannya belum berakhir.
+    const tooEarly = await purgeExpiredRegistrants(prisma, {
+      now: new Date('2026-08-30T00:00:00.000Z'),
+    });
+    expect(tooEarly.expired).toHaveLength(0);
+
+    const onTime = await purgeExpiredRegistrants(prisma, {
+      now: new Date('2026-09-06T00:00:00.000Z'),
+    });
+    expect(onTime.expired).toEqual([
+      expect.objectContaining({ registrationNo: 'PENGUMUMAN-DULU', closeDay: '2026-06-08' }),
+    ]);
+  });
+
+  /**
    * `endDate` gelombang dan periode adalah timestamp yang ditulis
    * `wibDayEnd` (16.59.59,999Z). Batas tengah malam UTC melewatkan seluruh
    * hari cutoff dan membuat retensi jalur cadangan terlambat sehari.

@@ -52,6 +52,7 @@ vi.mock('@/lib/prisma', () => ({
       findFirst: vi.fn(),
     },
     $executeRaw: vi.fn(),
+    $queryRaw: vi.fn(),
     $transaction: vi.fn((cb) => cb(prisma)),
   },
 }));
@@ -80,10 +81,22 @@ describe('Admissions Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(prisma.admissionWave.count as any).mockResolvedValue(0);
+    // Wave mocks are set per test; without a reset, a wave left by an earlier
+    // test would be "found" by the next one (e.g. making a full period look
+    // claimable).
+    vi.mocked(prisma.admissionWave.findUnique as any).mockReset();
+    vi.mocked(prisma.admissionWave.findMany as any)
+      .mockReset()
+      .mockResolvedValue([]);
+    vi.mocked(prisma.admissionWave.update as any).mockReset();
+    vi.mocked(prisma.admissionWave.updateMany as any).mockReset();
     // The registration counter is incremented atomically; each test that
     // creates a registrant gets its own starting sequence.
     vi.mocked(prisma.admissionPeriod.update as any).mockResolvedValue({ registrationSeq: 1 });
     vi.mocked(prisma.$executeRaw as any).mockResolvedValue(1);
+    // Most tests do not have a row with the candidate number; tests that do
+    // override this with their own sequence.
+    vi.mocked(prisma.registrant.findUnique as any).mockResolvedValue(null);
   });
 
   it('should reject document upload when registration token is registrant id or non-timestamped token', async () => {
@@ -341,6 +354,30 @@ describe('Admissions Service', () => {
       expect(prisma.registrant.delete).toHaveBeenCalledWith({ where: { id: 'r-1' } });
     });
 
+    it('mengunci pendaftar sebelum gelombangnya (urutan yang sama dengan assignRegistrant)', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(
+        deletableRegistrant({ waveId: 'w-1' }) as any
+      );
+      vi.mocked(prisma.dataSubjectRequest.findFirst).mockResolvedValue(null as any);
+      vi.mocked(prisma.admissionWave.updateMany as any).mockResolvedValue({ count: 1 });
+      vi.mocked(prisma.admissionWave.findUnique as any).mockResolvedValue({
+        id: 'w-1',
+        status: 'OPEN',
+        registeredCount: 1,
+        quota: 10,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        endDate: new Date('2026-12-31T00:00:00.000Z'),
+        fullByCapacity: false,
+      } as any);
+      vi.mocked(prisma.registrant.delete).mockResolvedValue({ id: 'r-1' } as any);
+
+      await service.deleteRegistrantForRetention('r-1');
+
+      const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
+      const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];
+      expect(registrantLock).toBeLessThan(waveLock);
+    });
+
     it('refuses a registrant whose daftar-ulang payment landed after the sweep picked it', async () => {
       vi.mocked(prisma.registrant.findUnique).mockResolvedValue(
         deletableRegistrant({ registrationFeePaidAt: new Date('2026-05-01T00:00:00.000Z') }) as any
@@ -463,6 +500,44 @@ describe('Admissions Service', () => {
     // real Student record exists. Creating it here would require a non-null
     // studentId that doesn't yet exist.
     expect(prisma.invoice.create).not.toHaveBeenCalled();
+  });
+
+  it('melewati nomor yang sudah terpakai saat pencacah tertinggal (mis. setelah db:push)', async () => {
+    const mockPeriod = {
+      id: 'p1',
+      academicYear: { name: '2024/2025' },
+      unit: { name: 'SD IT' },
+      unitId: 'u1',
+      registrationFee: 100000,
+    };
+
+    vi.mocked(prisma.admissionPeriod.findUnique).mockResolvedValue(mockPeriod as any);
+    // The column still says 0 (or 1) while `00001` is already in the table.
+    vi.mocked(prisma.admissionPeriod.update as any).mockResolvedValue({ registrationSeq: 1 });
+    vi.mocked(prisma.registrant.findUnique as any)
+      .mockResolvedValueOnce({ id: 'legacy-00001' })
+      .mockResolvedValueOnce(null);
+    vi.mocked(prisma.$queryRaw as any).mockResolvedValue([{ registration_seq: 2 }]);
+    (vi.mocked(prisma.registrant.create) as any).mockImplementation(({ data }: any) =>
+      Promise.resolve({ ...data, id: 'r-new' })
+    );
+    vi.mocked(prisma.paymentType.findFirst).mockResolvedValue({ id: 'pt1' } as any);
+
+    const result = await service.createRegistrant({
+      admissionPeriodId: 'p1',
+      fullName: 'Stale Counter',
+      gender: 'MALE',
+      birthPlace: 'Jakarta',
+      birthDate: new Date().toISOString(),
+      address: 'Test Address',
+      fatherName: 'Father',
+      motherName: 'Mother',
+    } as any);
+
+    // The used number is skipped; the insert is not attempted with it, so the
+    // transaction never rolls the counter back to repeat the same value.
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(result.registrationNo).toBe('REG-2024-P1-00002');
   });
 
   it('should set wave status to FULL when increment causes registeredCount to reach quota even if initial read showed remaining slots', async () => {

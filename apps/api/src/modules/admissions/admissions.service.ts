@@ -378,6 +378,25 @@ async function generateRegistrationNo(
 
   const year = period.academicYear.name.split('/')[0];
 
+  // Include a short period-scoped suffix so two distinct AdmissionPeriods in
+  // the same academic year cannot generate the same `registrationNo`. The
+  // model's `registrationNo @unique` is GLOBAL (see prisma/schema.prisma:
+  // `registrationNo String @unique`), so without this suffix two periods
+  // would collide on `REG-{year}-{seq}` and the retry loop in
+  // `createRegistrant` would loop until MAX_ATTEMPTS, surfacing a 500.
+  // Use the first 4 hex chars of the period UUID — short enough to keep the
+  // human-readable format compact, but unique enough across periods.
+  const periodSuffix = admissionPeriodId.replace(/-/g, '').slice(0, 4).toUpperCase();
+  const format = (seq: number) => `REG-${year}-${periodSuffix}-${String(seq).padStart(5, '0')}`;
+
+  const candidateIsTaken = async (seq: number) =>
+    Boolean(
+      await client.registrant.findUnique({
+        where: { registrationNo: format(seq) },
+        select: { id: true },
+      })
+    );
+
   // A single atomic increment, not `count(*) + 1`: retention deletes the
   // earliest registrants of a period while later waves are still open, so a
   // count would hand out a number another registrant already holds. The
@@ -389,17 +408,39 @@ async function generateRegistrationNo(
     select: { registrationSeq: true },
   });
 
-  // Include a short period-scoped suffix so two distinct AdmissionPeriods in
-  // the same academic year cannot generate the same `registrationNo`. The
-  // model's `registrationNo @unique` is GLOBAL (see prisma/schema.prisma:
-  // `registrationNo String @unique`), so without this suffix two periods
-  // would collide on `REG-{year}-{seq}` and the retry loop in
-  // `createRegistrant` would loop until MAX_ATTEMPTS, surfacing a 500.
-  // Use the first 4 hex chars of the period UUID — short enough to keep the
-  // human-readable format compact, but unique enough across periods.
-  const periodSuffix = admissionPeriodId.replace(/-/g, '').slice(0, 4).toUpperCase();
+  if (!(await candidateIsTaken(registrationSeq))) {
+    return format(registrationSeq);
+  }
 
-  return `REG-${year}-${periodSuffix}-${String(registrationSeq).padStart(5, '0')}`;
+  // The counter can be behind rows that predate it: `db:push` adds the column
+  // with its default 0 and does not run the migration's backfill. Jump the
+  // counter above every number already issued in one atomic statement instead
+  // of reissuing a used number (whose unique-constraint failure would roll the
+  // increment back and repeat the same number on the next attempt). Keep the
+  // `regexp_match` form in sync with migration
+  // 20261124100000_admission_period_registration_seq.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const [repaired] = await client.$queryRaw<Array<{ registration_seq: number }>>`
+      UPDATE "admission_periods" AS p
+      SET "registration_seq" = GREATEST(
+        p."registration_seq" + 1,
+        COALESCE((
+          SELECT MAX((regexp_match(r."registration_no", '([0-9]+)$'))[1]::integer)
+          FROM "registrants" AS r
+          WHERE r."admission_period_id" = p."id"
+        ), 0) + 1
+      )
+      WHERE p."id" = ${admissionPeriodId}
+      RETURNING p."registration_seq"
+    `;
+
+    if (!repaired) throw new Error('Admission period not found');
+    if (!(await candidateIsTaken(repaired.registration_seq))) {
+      return format(repaired.registration_seq);
+    }
+  }
+
+  throw new Error('Unable to allocate a registration number');
 }
 
 export async function getRegistrants(
@@ -1174,8 +1215,13 @@ async function deleteRegistrantRow(
 export async function deleteRegistrant(id: string, actor?: AuthUser) {
   if (actor) await assertRegistrantUnitAccess(id, actor);
   // Wrap the read + decrement + delete in a single transaction so the wave
-  // counters cannot drift from the rows that exist.
+  // counters cannot drift from the rows that exist. Lock the registrant before
+  // its wave: onboarding, the retention sweep, and reassignment all take the
+  // same order (registrant then wave), so two paths cannot hold one each and
+  // wait on the other.
   return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM "registrants" WHERE id = ${id} FOR UPDATE`;
+
     const registrant = await tx.registrant.findUnique({
       where: { id },
       select: { status: true, waveId: true },

@@ -111,15 +111,26 @@ export function cutoffCloseDayFor(now: Date): string {
  * sesi satu hari disimpan dengan `endDate = null` (formulir gelombang meminta
  * petugas mengosongkan tanggal selesai), jadi mengabaikan tanggal mulai membuat
  * patokannya jatuh ke tahap sebelumnya dan data terhapus terlalu cepat.
+ *
+ * `endDate` gelombang (akhir pendaftaran) selalu menjadi batas bawah: validasi
+ * jadwal menerima pengumuman satu hari yang mendahului penutupan pendaftaran,
+ * dan dalam urutan itu pengumuman tidak boleh memulai masa simpan sebelum
+ * pendaftaran benar-benar ditutup.
  */
 function expiryFilter(dateCutoff: Date, timestampCutoff: Date) {
   return {
     OR: [
-      { wave: { reRegistrationEndDate: { not: null, lte: dateCutoff } } },
+      {
+        wave: {
+          reRegistrationEndDate: { not: null, lte: dateCutoff },
+          endDate: { lte: timestampCutoff },
+        },
+      },
       {
         wave: {
           reRegistrationEndDate: null,
           reRegistrationStartDate: { not: null, lte: dateCutoff },
+          endDate: { lte: timestampCutoff },
         },
       },
       {
@@ -127,6 +138,7 @@ function expiryFilter(dateCutoff: Date, timestampCutoff: Date) {
           reRegistrationEndDate: null,
           reRegistrationStartDate: null,
           resultsEndDate: { not: null, lte: dateCutoff },
+          endDate: { lte: timestampCutoff },
         },
       },
       {
@@ -135,6 +147,7 @@ function expiryFilter(dateCutoff: Date, timestampCutoff: Date) {
           reRegistrationStartDate: null,
           resultsEndDate: null,
           resultsStartDate: { not: null, lte: dateCutoff },
+          endDate: { lte: timestampCutoff },
         },
       },
       {
@@ -188,17 +201,23 @@ interface CandidateRow {
  * Tiap tahap memakai tanggal selesai, atau tanggal mulai bila selesai kosong —
  * sesi satu hari disimpan sebagai `endDate = null` dan hanya punya tanggal
  * mulai. Tanpa ini patokannya jatuh ke tahap sebelumnya.
+ *
+ * Akhir pendaftaran adalah batas bawah. Validasi jadwal menerima pengumuman
+ * satu hari yang mendahului penutupan pendaftaran, dan urutan itu tidak boleh
+ * memulai masa simpan sebelum pendaftaran ditutup.
  */
 function closeDayOf(row: CandidateRow): string {
   const wave = row.wave;
-  const closeInstant =
+  const stageDay = wibDayOf(
     wave?.reRegistrationEndDate ??
-    wave?.reRegistrationStartDate ??
-    wave?.resultsEndDate ??
-    wave?.resultsStartDate ??
-    wave?.endDate ??
-    row.admissionPeriod.endDate;
-  return wibDayOf(closeInstant);
+      wave?.reRegistrationStartDate ??
+      wave?.resultsEndDate ??
+      wave?.resultsStartDate ??
+      wave?.endDate ??
+      row.admissionPeriod.endDate
+  );
+  const registrationDay = wibDayOf(wave?.endDate ?? row.admissionPeriod.endDate);
+  return stageDay > registrationDay ? stageDay : registrationDay;
 }
 
 /**
