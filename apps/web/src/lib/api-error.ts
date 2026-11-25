@@ -153,18 +153,46 @@ export function parseApiError(error: unknown): ParsedApiError {
       // a bare `message` is the older shape some routes still send. Reading
       // only the latter showed "Data yang dikirim tidak sesuai format" for
       // every refusal whose reason the API had spelled out.
-      const envelope = responseData.error as { message?: unknown } | undefined;
+      const envelope = responseData.error as
+        { message?: unknown; details?: unknown } | undefined;
       message =
         (typeof envelope?.message === "string" && envelope.message) ||
         (responseData.message as string) ||
         "";
 
-      // Extract validation errors
+      // The API puts per-field reasons in `error.details` as
+      // `{ field, message }`; older routes used `errors` as
+      // `{ field: string[] }`. Read both.
+      if (Array.isArray(envelope?.details)) {
+        details = envelope.details.flatMap((detail) => {
+          if (typeof detail === "string") return [detail];
+          if (!detail || typeof detail !== "object") return [];
+          const { field, message: reason } = detail as {
+            field?: unknown;
+            message?: unknown;
+          };
+          if (typeof reason !== "string" || !reason) return [];
+          return [
+            typeof field === "string" && field ? `${field}: ${reason}` : reason,
+          ];
+        });
+      }
       if (responseData.errors && typeof responseData.errors === "object") {
         const errors = responseData.errors as Record<string, string[]>;
-        details = Object.entries(errors).flatMap(([field, messages]) =>
-          messages.map((msg) => `${field}: ${msg}`),
+        details.push(
+          ...Object.entries(errors).flatMap(([field, messages]) =>
+            messages.map((msg) => `${field}: ${msg}`),
+          ),
         );
+      }
+
+      // "Validation failed" alone is not actionable when the envelope carries
+      // the field reason; show that reason instead.
+      if (
+        /^(validation failed|validasi gagal)$/i.test(message.trim()) &&
+        details[0]
+      ) {
+        message = details[0];
       }
     } else if (err.message) {
       message = err.message as string;

@@ -187,6 +187,26 @@ test.describe("Skor penerima beasiswa", () => {
     await expect(page.getByLabel("Nama kriteria")).toBeVisible();
   });
 
+  test("formulir kriteria menampilkan alasan target hafalan berpersen", async ({
+    page,
+  }) => {
+    await signIn(page, BEMDAHARA_SMPIT);
+    await page.goto("/finance/scholarships");
+    await page.getByRole("button", { name: /lihat/i }).first().click();
+
+    await page.getByLabel("Nama kriteria").fill(`E2E Hafalan ${Date.now()}`);
+    await page.getByLabel("Bobot").fill("1");
+    await page.getByLabel("Target").fill("85%");
+    await page.getByRole("button", { name: /tambah kriteria/i }).click();
+
+    await expect(
+      page.getByText(/Target hafalan harus berupa jumlah juz/),
+    ).toBeVisible();
+    await expect(page.getByText(/Kriteria berhasil ditambahkan/)).toHaveCount(
+      0,
+    );
+  });
+
   test("formulir kriteria menyimpan kriteria baru dari layar", async ({
     page,
   }) => {

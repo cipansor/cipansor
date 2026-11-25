@@ -20,6 +20,27 @@ describe("parseApiError", () => {
     expect(parseApiError(error).isValidationError).toBe(true);
   });
 
+  it("shows the field reason when the envelope only says Validation failed", () => {
+    const error = axiosLike(400, {
+      success: false,
+      error: {
+        code: "VALIDATION_ERROR",
+        message: "Validation failed",
+        details: [
+          {
+            field: "targetValue",
+            message: "Target hafalan harus berupa jumlah juz, misalnya 10 juz",
+          },
+        ],
+      },
+    });
+
+    expect(getErrorMessage(error)).toContain("jumlah juz");
+    expect(parseApiError(error).details).toEqual([
+      "targetValue: Target hafalan harus berupa jumlah juz, misalnya 10 juz",
+    ]);
+  });
+
   it("still reads a bare message", () => {
     expect(getErrorMessage(axiosLike(409, { message: "Sudah ada." }))).toBe(
       "Sudah ada.",
