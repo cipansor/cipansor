@@ -373,7 +373,9 @@ test.describe("Tambah Event — Pengurus yayasan", () => {
         page.getByRole("heading", { name: /Tambah Event Baru/i }),
       ).toBeVisible({ timeout: 15000 });
       await expect(page.getByText("Akses ditolak")).toHaveCount(0);
-      await expect(page.getByText("Semua Unit", { exact: true })).toBeVisible();
+      await expect(page.getByRole("combobox", { name: "Unit" })).toHaveText(
+        /Semua Unit/,
+      );
 
       await page.locator("#title").fill(title);
       const saved = page.waitForResponse(
