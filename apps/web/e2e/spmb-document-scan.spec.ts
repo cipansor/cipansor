@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { spmbFormContentFor } from "../src/config/spmb-form.i18n";
 
 /**
  * The SPMB form's own scan path: a parent chooses a KTP file in step 5, the
@@ -50,6 +51,7 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   page,
 }, testInfo) => {
   test.setTimeout(90_000);
+  const documents = spmbFormContentFor("id").documents;
   await openDocumentsStep(page);
 
   const beforeShot = testInfo.outputPath("before-scan.png");
@@ -99,10 +101,10 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   const payload = await response.json();
   expect(payload.success).toBe(true);
 
-  // The note rendered must be the one the server returned, not any note.
-  const notes: string[] = payload.data?.validation?.notes ?? [];
-  const verdictNote = notes[notes.length - 1];
-  expect(verdictNote).toBeTruthy();
+  // The 1x1 PNG yields nothing to compare, so the server returns no extracted
+  // fields and the form must show the localized manual note — not a stale one.
+  expect(Object.keys(payload.data?.extractedData ?? {})).toHaveLength(0);
+  const verdictNote = documents.uncheckedNote;
   await expect(page.getByText(verdictNote).first()).toBeVisible({
     timeout: 30_000,
   });
@@ -127,5 +129,8 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   await expect(page.getByText(verdictNote).first()).toBeHidden({
     timeout: 10_000,
   });
+  // `processOcr` clears the note before reading the file; give a wrong POST a
+  // chance to appear before asserting none was made.
+  await page.waitForTimeout(1_000);
   expect(parseCalls).toBe(1);
 });
