@@ -76,6 +76,12 @@ export interface SpmbFormContent {
     female: string;
     nationalId: string;
     familyCard: string;
+    /**
+     * Shown under the NIK field when the 16 digits disagree with the birth date
+     * or the sex chosen above (Dukcapil: digits 7–12 are DD MM YY, +40 for
+     * girls). Empty string means "no complaint".
+     */
+    nikError: (problem: "format" | "date" | "birthDate" | "gender") => string;
   };
   parent: {
     fatherHeading: string;
@@ -281,6 +287,23 @@ const ID: SpmbFormContent = {
     female: "Perempuan",
     nationalId: "NIK",
     familyCard: "Nomor Kartu Keluarga",
+    nikError: (problem) => {
+      if (problem === "format") {
+        return "NIK harus 16 digit angka — periksa kembali angka pada KTP/KK";
+      }
+      // The public form has no appeal path, and a real NIK can disagree with the
+      // birth date the family uses (a Dukcapil mis-entry, a different date
+      // recognised at home). Leaving the field blank stays a way through.
+      const boleh = " Bila NIK memang tidak sesuai, kosongkan saja isian NIK.";
+      return problem === "date"
+        ? "NIK tidak memuat tanggal lahir yang sah — periksa kembali 16 digitnya." +
+            boleh
+        : problem === "birthDate"
+          ? "Tanggal lahir pada NIK tidak sama dengan tanggal lahir di atas." +
+            boleh
+          : "Jenis kelamin pada NIK tidak sama dengan jenis kelamin yang dipilih." +
+            boleh;
+    },
   },
   parent: {
     fatherHeading: "Data Ayah",
@@ -505,6 +528,20 @@ const EN: SpmbFormContent = {
     female: "Female",
     nationalId: "NIK (national ID number)",
     familyCard: "Kartu Keluarga (family card) number",
+    nikError: (problem) => {
+      if (problem === "format") {
+        return "The NIK must be 16 digits — check the numbers on the ID card";
+      }
+      const boleh =
+        " If the NIK really does not match, leave the NIK field empty.";
+      return problem === "date"
+        ? "These 16 digits do not contain a real birth date — check them again." +
+            boleh
+        : problem === "birthDate"
+          ? "The birth date in the NIK does not match the birth date above." +
+            boleh
+          : "The sex in the NIK does not match the sex selected." + boleh;
+    },
   },
   parent: {
     fatherHeading: "Father",
@@ -732,6 +769,18 @@ const AR: SpmbFormContent = {
     female: "أنثى",
     nationalId: "رقم الهوية الوطنية (NIK)",
     familyCard: "رقم بطاقة العائلة (Kartu Keluarga)",
+    nikError: (problem) => {
+      if (problem === "format") {
+        return "رقم الهوية الوطنية يجب أن يكون 16 رقمًا — راجعوا الأرقام في البطاقة";
+      }
+      const boleh =
+        " وإن كان الرقم فعلًا غير مطابق فاتركوا خانة رقم الهوية فارغة.";
+      return problem === "date"
+        ? "هذه الأرقام الستة عشر لا تحمل تاريخ ميلاد صحيحًا — راجعوها." + boleh
+        : problem === "birthDate"
+          ? "تاريخ الميلاد في رقم الهوية لا يطابق تاريخ الميلاد أعلاه." + boleh
+          : "الجنس في رقم الهوية لا يطابق الجنس المختار." + boleh;
+    },
   },
   parent: {
     fatherHeading: "بيانات الأب",
