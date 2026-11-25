@@ -117,6 +117,8 @@ export interface CalendarEventParams {
   month?: number;
   year?: number;
   search?: string;
+  /** The management list: a unit admin also sees its unit's class events. */
+  manage?: boolean;
 }
 
 export function useCalendarEvents(params: CalendarEventParams = {}) {

@@ -104,6 +104,7 @@ export default function EventsListPage() {
     // The API's own filter name. The page used to send `category`, which the
     // controller never read, so choosing a category filtered nothing (#1155).
     eventType: categoryFilter === "all" ? undefined : categoryFilter,
+    manage: true,
   });
   const events = eventsData?.data || [];
   const total = eventsData?.meta.total ?? 0;
