@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import {
   ACCOUNT_MAPPING_KEYS,
   ACCOUNT_MAPPING_KEY_LIST,
+  expectedAccountTypeForMapping,
   isAccountMappingKey,
   parseBusinessUnitMappingKey,
 } from '@cipansor/shared';
@@ -52,14 +53,16 @@ function isUsableAccount(
 ): boolean {
   if (!account || !account.isActive) return false;
   if (account.unitId !== null && account.unitId !== unitId) return false;
-  return key !== ACCOUNT_MAPPING_KEYS.TAX_PAYABLE || account.type === 'LIABILITY';
+  const expectedType = expectedAccountTypeForMapping(key);
+  return !expectedType || account.type === expectedType;
 }
 
 /**
  * A mapping the journals will actually post to. Every mapped account must be
- * active and owned by the unit (or shared foundation-wide); PPh 21 must also be
- * a liability. Otherwise the settings look saved while the journal silently
- * ignores the choice.
+ * active, owned by the unit (or shared foundation-wide), and of the type its
+ * slot needs — a cash account in a revenue slot would debit and credit cash.
+ * Otherwise the settings look saved while the journal silently ignores the
+ * choice.
  */
 async function isUsableAccountMapping(
   unitId: string,
@@ -94,9 +97,10 @@ async function assertUsableAccountMapping(
   if (!account.isActive) {
     throw Errors.badRequest(`Akun pemetaan ${key} tidak aktif`);
   }
-  if (key === ACCOUNT_MAPPING_KEYS.TAX_PAYABLE && account.type !== 'LIABILITY') {
+  const expectedType = expectedAccountTypeForMapping(key);
+  if (expectedType && account.type !== expectedType) {
     throw Errors.badRequest(
-      'Akun Utang PPh 21 harus akun kewajiban aktif milik unit ini atau akun bersama'
+      `Akun pemetaan ${key} harus bertipe ${expectedType}, bukan ${account.type}`
     );
   }
 }
@@ -126,7 +130,10 @@ export async function getAccountMappingState(unitId: string) {
   const settings = await getAccountMappings(unitId);
 
   const [ownedBusinessUnits, businessUnitSettings] = await Promise.all([
-    prisma.businessUnit.findMany({ where: { unitId }, select: { id: true } }),
+    prisma.businessUnit.findMany({
+      where: { unitId },
+      select: { id: true, name: true, type: true },
+    }),
     prisma.setting.findMany({
       where: { unitId, key: { startsWith: 'BU_' } },
       select: { key: true, value: true },
@@ -148,7 +155,7 @@ export async function getAccountMappingState(unitId: string) {
     }
   }
 
-  return { settings, invalidKeys };
+  return { settings, invalidKeys, businessUnits: ownedBusinessUnits };
 }
 
 /**
@@ -251,9 +258,12 @@ export async function getAccountOrFallback(
   fallbackNameSearch?: string,
   tx: TransactionClient | typeof prisma = prisma
 ) {
+  const mappingKeys = typeof key === 'string' ? [key] : key;
+  const expectedType = expectedAccountTypeForMapping(mappingKeys[0] ?? '');
+
   // 1. Try the mappings in order (a business-unit key, then the unit-level
   //    fallback). Old cross-unit rows are ignored rather than posted.
-  for (const mappingKey of typeof key === 'string' ? [key] : key) {
+  for (const mappingKey of mappingKeys) {
     const mappedId = await getAccountMapping(unitId, mappingKey, tx);
     if (!mappedId) continue;
 
@@ -264,7 +274,12 @@ export async function getAccountOrFallback(
   // 2. Fallback by code — scoped to this unit's own chart of accounts.
   if (fallbackCode) {
     const account = await tx.accountCode.findFirst({
-      where: { code: fallbackCode, isActive: true, unitId },
+      where: {
+        code: fallbackCode,
+        isActive: true,
+        unitId,
+        ...(expectedType ? { type: expectedType } : {}),
+      },
     });
     if (account) return account;
   }
@@ -276,6 +291,7 @@ export async function getAccountOrFallback(
         name: { contains: fallbackNameSearch, mode: 'insensitive' },
         isActive: true,
         unitId,
+        ...(expectedType ? { type: expectedType } : {}),
       },
     });
     if (account) return account;

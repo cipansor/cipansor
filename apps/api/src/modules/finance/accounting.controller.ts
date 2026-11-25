@@ -92,9 +92,10 @@ export async function getSettings(req: Request, res: Response, next: NextFunctio
   try {
     const requested = typeof req.query.unitId === 'string' ? req.query.unitId : undefined;
     const unitId = writeUnitScope(req, requested);
-    const { settings, invalidKeys } = await configService.getAccountMappingState(unitId);
+    const { settings, invalidKeys, businessUnits } =
+      await configService.getAccountMappingState(unitId);
 
-    res.json(ApiResponse.success({ mappings: settings, invalidKeys }));
+    res.json(ApiResponse.success({ mappings: settings, invalidKeys, businessUnits }));
   } catch (error) {
     next(error);
   }

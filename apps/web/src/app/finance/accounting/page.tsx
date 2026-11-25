@@ -55,7 +55,10 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
-import { ACCOUNT_MAPPING_KEYS } from "@cipansor/shared";
+import {
+  ACCOUNT_MAPPING_KEYS,
+  expectedAccountTypeForMapping,
+} from "@cipansor/shared";
 import { format } from "date-fns";
 import { id as localeID } from "date-fns/locale";
 import { getErrorMessage } from "@/lib/api-error";
@@ -77,7 +80,6 @@ import {
   FinanceReportPeriod,
 } from "@/hooks/use-finance-enhancement";
 import { useUnits } from "@/hooks/use-units";
-import { useBusinessUnits } from "@/hooks/use-business-unit";
 import {
   useAccountingSettings,
   useUpdateAccountingSettings,
@@ -910,7 +912,6 @@ const BUSINESS_UNIT_MAPPING_KEYS_BY_TYPE: Record<string, string[]> = {
 
 function AccountingSettingsTab() {
   const { data: units } = useUnits();
-  const { data: allBusinessUnits } = useBusinessUnits();
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [settings, setSettings] = useState<AccountMappings>({});
   const [initialSettings, setInitialSettings] = useState<AccountMappings>({});
@@ -1003,9 +1004,8 @@ function AccountingSettingsTab() {
     },
   ];
 
-  const businessUnits = (allBusinessUnits ?? []).filter(
+  const businessUnits = (fetchedSettings?.businessUnits ?? []).filter(
     (businessUnit) =>
-      businessUnit.unitId === selectedUnitId &&
       (BUSINESS_UNIT_MAPPING_KEYS_BY_TYPE[businessUnit.type]?.length ?? 0) > 0,
   );
   const invalidBusinessUnitKeys = invalidKeys.filter((key) =>
@@ -1013,9 +1013,9 @@ function AccountingSettingsTab() {
   );
 
   const taxMapping = settings[ACCOUNT_MAPPING_KEYS.TAX_PAYABLE];
-  const taxMappingInvalid = invalidKeys.includes(
-    ACCOUNT_MAPPING_KEYS.TAX_PAYABLE,
-  );
+  const invalidUnitMappingLabels = MAPPINGS.filter((mapping) =>
+    invalidKeys.includes(mapping.key),
+  ).map((mapping) => mapping.label);
 
   return (
     <div className="space-y-6">
@@ -1043,15 +1043,17 @@ function AccountingSettingsTab() {
           {selectedUnitId ? (
             <div className="space-y-4">
               {fetchedSettings !== undefined &&
-                (taxMappingInvalid || !taxMapping) && (
+                (invalidUnitMappingLabels.length > 0 || !taxMapping) && (
                   <div
                     role="alert"
                     className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
                   >
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <p>
-                      {taxMappingInvalid
-                        ? "Akun Utang PPh 21 yang tersimpan tidak lagi aktif, bukan akun kewajiban, atau bukan milik unit ini. Pilih akun pengganti; pemetaan lama tetap tersimpan sampai Anda mengubahnya."
+                      {invalidUnitMappingLabels.length > 0
+                        ? `Pemetaan ${invalidUnitMappingLabels.join(
+                            ", ",
+                          )} tidak lagi aktif, bertipe salah, atau bukan milik unit ini. Pilih akun pengganti; pemetaan lama tetap tersimpan sampai Anda mengubahnya.`
                         : "Pemetaan Utang PPh 21 belum diisi. Pembayaran gaji dengan potongan PPh 21 akan ditolak sampai akun ini dipilih."}
                     </p>
                   </div>
@@ -1074,13 +1076,16 @@ function AccountingSettingsTab() {
                         — Kosongkan pemetaan —
                       </SelectItem>
                       {(accounts?.data ?? [])
-                        .filter(
-                          (acc) =>
-                            mapping.key !== ACCOUNT_MAPPING_KEYS.TAX_PAYABLE ||
-                            (acc.type === "LIABILITY" &&
-                              (acc.unitId === selectedUnitId ||
-                                acc.unitId == null)),
-                        )
+                        .filter((acc) => {
+                          const expectedType = expectedAccountTypeForMapping(
+                            mapping.key,
+                          );
+                          return (
+                            (!expectedType || acc.type === expectedType) &&
+                            (acc.unitId === selectedUnitId ||
+                              acc.unitId == null)
+                          );
+                        })
                         .map((acc) => (
                           <SelectItem key={acc.id} value={acc.id}>
                             {acc.code} - {acc.name}
@@ -1136,11 +1141,22 @@ function AccountingSettingsTab() {
                                 <SelectItem value={CLEAR_ACCOUNT}>
                                   — Kosongkan pemetaan —
                                 </SelectItem>
-                                {(accounts?.data ?? []).map((acc) => (
-                                  <SelectItem key={acc.id} value={acc.id}>
-                                    {acc.code} - {acc.name}
-                                  </SelectItem>
-                                ))}
+                                {(accounts?.data ?? [])
+                                  .filter((acc) => {
+                                    const expectedType =
+                                      expectedAccountTypeForMapping(key);
+                                    return (
+                                      (!expectedType ||
+                                        acc.type === expectedType) &&
+                                      (acc.unitId === selectedUnitId ||
+                                        acc.unitId == null)
+                                    );
+                                  })
+                                  .map((acc) => (
+                                    <SelectItem key={acc.id} value={acc.id}>
+                                      {acc.code} - {acc.name}
+                                    </SelectItem>
+                                  ))}
                               </SelectContent>
                             </Select>
                           </div>

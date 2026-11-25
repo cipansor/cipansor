@@ -70,6 +70,7 @@ import {
   Calendar,
 } from "lucide-react";
 import { toast } from "sonner";
+import { useBusinessUnits } from "@/hooks/use-business-unit";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
 
@@ -194,6 +195,7 @@ async function fetchTransactions(params?: Record<string, string>) {
 async function createTransaction(data: {
   studentId: string;
   unitId: string;
+  businessUnitId?: string;
   items: { pricingId: string; quantity: number; weight?: number }[];
   paymentMethod: string;
   notes?: string;
@@ -668,6 +670,10 @@ function TransactionsTab() {
     queryKey: ["units"],
     queryFn: fetchUnits,
   });
+  const { data: laundryBusinessUnits } = useBusinessUnits({
+    type: "LAUNDRY",
+    isActive: true,
+  });
 
   const { data: pricingData } = useQuery({
     queryKey: ["laundry-pricing", selectedUnit],
@@ -763,6 +769,9 @@ function TransactionsTab() {
     createMutation.mutate({
       studentId: selectedStudent.id,
       unitId: selectedUnit,
+      businessUnitId: (laundryBusinessUnits ?? []).find(
+        (businessUnit) => businessUnit.unitId === selectedUnit,
+      )?.id,
       items: selectedItems.map((i) => ({
         pricingId: i.pricingId,
         quantity: i.quantity,

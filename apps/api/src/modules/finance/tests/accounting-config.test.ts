@@ -39,10 +39,12 @@ beforeEach(() => {
   txMock.accountCode.findUnique.mockResolvedValue({
     unitId: UNIT,
     isActive: true,
-    type: 'EXPENSE',
+    type: 'ASSET',
   } as never);
   prismaMock.setting.findMany.mockResolvedValue([] as never);
-  prismaMock.businessUnit.findMany.mockResolvedValue([{ id: BUSINESS_UNIT }] as never);
+  prismaMock.businessUnit.findMany.mockResolvedValue([
+    { id: BUSINESS_UNIT, name: 'Kantin Pesantren', type: 'CANTEEN' },
+  ] as never);
 });
 
 describe('PPh 21 account mapping', () => {
@@ -141,6 +143,12 @@ describe('PPh 21 account mapping', () => {
   });
 
   it('stores a business-unit mapping the canteen service reads', async () => {
+    txMock.accountCode.findUnique.mockResolvedValue({
+      unitId: UNIT,
+      isActive: true,
+      type: 'REVENUE',
+    } as never);
+
     await setAccountMappings(UNIT, {
       [`BU_${BUSINESS_UNIT}_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`]: 'acc-sales',
     });
@@ -195,11 +203,9 @@ describe('PPh 21 account mapping', () => {
   });
 
   it('writes every mapping through the same transaction', async () => {
-    txMock.accountCode.findUnique.mockResolvedValue({
-      unitId: UNIT,
-      isActive: true,
-      type: 'LIABILITY',
-    } as never);
+    txMock.accountCode.findUnique
+      .mockResolvedValueOnce({ unitId: UNIT, isActive: true, type: 'ASSET' } as never)
+      .mockResolvedValueOnce({ unitId: UNIT, isActive: true, type: 'LIABILITY' } as never);
 
     await setAccountMappings(UNIT, {
       [ACCOUNT_MAPPING_KEYS.CASH]: 'acc-new-cash',
@@ -209,6 +215,33 @@ describe('PPh 21 account mapping', () => {
     expect(prismaMock.$transaction).toHaveBeenCalledTimes(1);
     expect(txMock.setting.upsert).toHaveBeenCalledTimes(2);
     expect(prismaMock.setting.upsert).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [ACCOUNT_MAPPING_KEYS.CASH, 'LIABILITY'],
+    [ACCOUNT_MAPPING_KEYS.SALES_REVENUE, 'ASSET'],
+    [ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET, 'EXPENSE'],
+    [ACCOUNT_MAPPING_KEYS.COGS, 'REVENUE'],
+    [ACCOUNT_MAPPING_KEYS.PAYROLL_EXPENSE, 'ASSET'],
+  ])('refuses %s mapped to a %s account', async (key, type) => {
+    txMock.accountCode.findUnique.mockResolvedValue({
+      unitId: UNIT,
+      isActive: true,
+      type,
+    } as never);
+
+    await expect(setAccountMappings(UNIT, { [key]: 'acc-wrong-type' })).rejects.toMatchObject({
+      statusCode: 400,
+    });
+    expect(txMock.setting.upsert).not.toHaveBeenCalled();
+  });
+
+  it('returns the business units owned by the unit for the mapping form', async () => {
+    const { businessUnits } = await getAccountMappingState(UNIT);
+
+    expect(businessUnits).toEqual([
+      { id: BUSINESS_UNIT, name: 'Kantin Pesantren', type: 'CANTEEN' },
+    ]);
   });
 
   it('returns the stored PPh 21 id and flags it when no longer usable', async () => {
@@ -316,7 +349,7 @@ describe('PPh 21 account mapping', () => {
       id: 'acc-sd',
       unitId: UNIT,
       isActive: true,
-      type: 'EXPENSE',
+      type: 'ASSET',
     } as never);
 
     const account = await getAccountOrFallback(UNIT, ACCOUNT_MAPPING_KEYS.CASH, '1101');
@@ -334,11 +367,9 @@ describe('PPh 21 account mapping', () => {
   });
 
   it('leaves the cash mapping untouched when a later PPh 21 mapping is invalid', async () => {
-    txMock.accountCode.findUnique.mockResolvedValue({
-      unitId: UNIT,
-      isActive: true,
-      type: 'EXPENSE',
-    } as never);
+    txMock.accountCode.findUnique
+      .mockResolvedValueOnce({ unitId: UNIT, isActive: true, type: 'ASSET' } as never)
+      .mockResolvedValueOnce({ unitId: UNIT, isActive: true, type: 'EXPENSE' } as never);
 
     await expect(
       setAccountMappings(UNIT, {

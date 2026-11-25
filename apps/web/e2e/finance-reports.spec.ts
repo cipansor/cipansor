@@ -1,7 +1,7 @@
 import { test, expect } from "@playwright/test";
 import { apiLogin, apiRequest, loginAs, SEED_USERS } from "./helpers/auth-api";
 
-// The two settings tests share one unit's account mappings.
+// The settings tests write the same kinds of mappings, so keep them serial.
 test.describe.configure({ mode: "serial" });
 
 const TAX = "ACCOUNT_MAPPING_TAX_PAYABLE";
@@ -9,12 +9,18 @@ const CASH = "ACCOUNT_MAPPING_CASH";
 
 // The projects run concurrently against the same database. Give each one its
 // own unit so the settings tests never restore each other's mappings.
+const SETTINGS_UNIT_BY_PROJECT: Record<string, string> = {
+  chromium: "SD IT Cipansor",
+  firefox: "SMA Qur'an Cipansor",
+  webkit: "TK Qur'an Cipansor",
+  "mobile-chrome": "Pesantren Cipansor",
+};
+
 function settingsUnitFor(
   units: Array<{ id: string; name: string }>,
   projectName: string,
 ) {
-  const preferred =
-    projectName === "mobile-chrome" ? "SMA Qur'an Cipansor" : "SD IT Cipansor";
+  const preferred = SETTINGS_UNIT_BY_PROJECT[projectName];
   return units.find((unit) => unit.name === preferred) ?? units[0];
 }
 
@@ -114,17 +120,20 @@ test("Finance Accounting Settings - a valid PPh 21 account can be saved", async 
       page.getByRole("combobox", { name: "Utang PPh 21" }),
     ).toContainText(selectedLabel);
   } finally {
-    // A failed restore must fail the test: the database is reused, and a
-    // silent catch would leave this test's PPh 21 choice behind for payroll.
-    await apiRequest(session, "POST", "/finance/accounting/settings", {
-      unitId: unit.id,
-      settings: original.data.mappings,
-    });
-    await apiRequest(
-      session,
-      "DELETE",
-      `/finance/accounting/accounts/${account.id}`,
-    );
+    // Restore only the key this test changed: sending every stored mapping
+    // would fail on an unrelated legacy row and leave the test account behind.
+    try {
+      await apiRequest(session, "POST", "/finance/accounting/settings", {
+        unitId: unit.id,
+        settings: { [TAX]: original.data.mappings[TAX] ?? null },
+      });
+    } finally {
+      await apiRequest(
+        session,
+        "DELETE",
+        `/finance/accounting/accounts/${account.id}`,
+      );
+    }
   }
 });
 
@@ -145,8 +154,9 @@ test("Finance Accounting Settings - saving cash keeps an unusable PPh 21 mapping
     data: { mappings: Record<string, string | null>; invalidKeys: string[] };
   }>(session, "GET", `/finance/accounting/settings?unitId=${unit.id}`);
   test.skip(
-    original.data.invalidKeys.includes(TAX),
-    "seed already has an unusable PPh 21 mapping",
+    original.data.invalidKeys.includes(TAX) ||
+      original.data.invalidKeys.includes(CASH),
+    "seed already has an unusable PPh 21 or cash mapping",
   );
 
   const stamp = Date.now();
@@ -240,21 +250,27 @@ test("Finance Accounting Settings - saving cash keeps an unusable PPh 21 mapping
     expect(after.data.mappings[TAX]).toBe(account.id);
     expect(after.data.mappings[CASH]).toBe(replacement.id);
   } finally {
-    await apiRequest(session, "POST", "/finance/accounting/settings", {
-      unitId: unit.id,
-      settings: original.data.mappings,
-    });
-    await apiRequest(
-      session,
-      "PUT",
-      `/finance/accounting/accounts/${account.id}`,
-      { type: "LIABILITY" },
-    );
-    await apiRequest(
-      session,
-      "DELETE",
-      `/finance/accounting/accounts/${account.id}`,
-    );
+    try {
+      await apiRequest(session, "POST", "/finance/accounting/settings", {
+        unitId: unit.id,
+        settings: {
+          [TAX]: original.data.mappings[TAX] ?? null,
+          [CASH]: original.data.mappings[CASH] ?? null,
+        },
+      });
+    } finally {
+      await apiRequest(
+        session,
+        "PUT",
+        `/finance/accounting/accounts/${account.id}`,
+        { type: "LIABILITY" },
+      );
+      await apiRequest(
+        session,
+        "DELETE",
+        `/finance/accounting/accounts/${account.id}`,
+      );
+    }
   }
 });
 
@@ -337,15 +353,18 @@ test("Finance Accounting Settings - clearing a mapping removes it after reload",
       page.getByRole("combobox", { name: "Utang PPh 21" }),
     ).toContainText("Pilih Akun");
   } finally {
-    await apiRequest(session, "POST", "/finance/accounting/settings", {
-      unitId: unit.id,
-      settings: original.data.mappings,
-    });
-    await apiRequest(
-      session,
-      "DELETE",
-      `/finance/accounting/accounts/${account.id}`,
-    );
+    try {
+      await apiRequest(session, "POST", "/finance/accounting/settings", {
+        unitId: unit.id,
+        settings: { [TAX]: original.data.mappings[TAX] ?? null },
+      });
+    } finally {
+      await apiRequest(
+        session,
+        "DELETE",
+        `/finance/accounting/accounts/${account.id}`,
+      );
+    }
   }
 });
 
@@ -363,10 +382,40 @@ test("Finance Accounting Settings - a business-unit mapping is shown and can be 
       unitId: string;
     }>;
   }>(session, "GET", "/business-units");
-  const wantedType =
-    testInfo.project.name === "mobile-chrome" ? "LAUNDRY" : "CANTEEN";
+  const projectMapping =
+    testInfo.project.name === "firefox"
+      ? {
+          type: "CANTEEN",
+          key: "ACCOUNT_MAPPING_COGS",
+          label: "Beban Pokok Penjualan",
+          accountType: "EXPENSE",
+          normalBalance: "DEBIT",
+        }
+      : testInfo.project.name === "webkit"
+        ? {
+            type: "CANTEEN",
+            key: "ACCOUNT_MAPPING_INVENTORY_ASSET",
+            label: "Aset Persediaan",
+            accountType: "ASSET",
+            normalBalance: "DEBIT",
+          }
+        : testInfo.project.name === "mobile-chrome"
+          ? {
+              type: "LAUNDRY",
+              key: "ACCOUNT_MAPPING_LAUNDRY_REVENUE",
+              label: "Pendapatan Laundry",
+              accountType: "REVENUE",
+              normalBalance: "CREDIT",
+            }
+          : {
+              type: "CANTEEN",
+              key: "ACCOUNT_MAPPING_SALES_REVENUE",
+              label: "Pendapatan",
+              accountType: "REVENUE",
+              normalBalance: "CREDIT",
+            };
   const businessUnit = businessUnits.data.find(
-    (item) => item.type === wantedType,
+    (item) => item.type === projectMapping.type,
   );
   test.skip(!businessUnit, "seed has no canteen or laundry business unit");
   if (!businessUnit) return;
@@ -378,12 +427,8 @@ test("Finance Accounting Settings - a business-unit mapping is shown and can be 
   test.skip(!unit, "business unit has no parent unit");
   if (!unit) return;
 
-  const mappingKey =
-    businessUnit.type === "CANTEEN"
-      ? `BU_${businessUnit.id}_ACCOUNT_MAPPING_SALES_REVENUE`
-      : `BU_${businessUnit.id}_ACCOUNT_MAPPING_LAUNDRY_REVENUE`;
-  const label =
-    businessUnit.type === "CANTEEN" ? "Pendapatan" : "Pendapatan Laundry";
+  const mappingKey = `BU_${businessUnit.id}_${projectMapping.key}`;
+  const label = projectMapping.label;
 
   const original = await apiRequest<{
     data: { mappings: Record<string, string | null>; invalidKeys: string[] };
@@ -405,8 +450,8 @@ test("Finance Accounting Settings - a business-unit mapping is shown and can be 
     {
       code: `E2E-BU-${stamp}`,
       name: `E2E Unit Usaha ${stamp}`,
-      type: "REVENUE",
-      normalBalance: "CREDIT",
+      type: projectMapping.accountType,
+      normalBalance: projectMapping.normalBalance,
       isActive: true,
     },
   );
@@ -486,14 +531,45 @@ test("Finance Accounting Settings - a business-unit mapping is shown and can be 
       page.getByRole("combobox", { name: `${businessUnit.name} — ${label}` }),
     ).toContainText("Pilih Akun");
   } finally {
-    await apiRequest(session, "POST", "/finance/accounting/settings", {
-      unitId: businessUnit.unitId,
-      settings: { [mappingKey]: original.data.mappings[mappingKey] ?? null },
-    });
-    await apiRequest(
-      session,
-      "DELETE",
-      `/finance/accounting/accounts/${account.id}`,
-    );
+    try {
+      await apiRequest(session, "POST", "/finance/accounting/settings", {
+        unitId: businessUnit.unitId,
+        settings: { [mappingKey]: original.data.mappings[mappingKey] ?? null },
+      });
+    } finally {
+      await apiRequest(
+        session,
+        "DELETE",
+        `/finance/accounting/accounts/${account.id}`,
+      );
+    }
   }
+});
+
+test("Finance Accounting Settings - a yayasan treasurer sees business-unit mappings without a token unit", async ({
+  page,
+}) => {
+  test.setTimeout(90000);
+
+  const session = await apiLogin(SEED_USERS.superAdmin);
+  const units = await apiRequest<{
+    data: Array<{ id: string; name: string }>;
+  }>(session, "GET", "/units?limit=100");
+  const unit = units.data.find((item) => item.name === "SMP IT Cipansor");
+  test.skip(!unit, "seed has no SMP IT unit");
+  if (!unit) return;
+
+  await loginAs(page, "yayasanBendahara");
+  await page.goto("/finance/accounting");
+  await page.getByRole("tab", { name: /Pengaturan/i }).click();
+  await page.getByRole("combobox", { name: "Pilih Unit" }).click();
+  await page
+    .getByRole("option", { name: unit.name, exact: true })
+    .first()
+    .click();
+
+  await expect(page.getByText("Pemetaan per Unit Usaha")).toBeVisible();
+  await expect(
+    page.getByRole("combobox", { name: / — / }).first(),
+  ).toBeVisible();
 });

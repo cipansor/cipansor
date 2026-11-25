@@ -135,6 +135,20 @@ describe('Canteen Transaction Accounting', () => {
       'Pendapatan Kantin',
       prisma
     );
+    expect(getAccountOrFallback).toHaveBeenCalledWith(
+      'unit-1',
+      'BU_bu-1_INVENTORY_ASSET',
+      '1104',
+      'Persediaan',
+      prisma
+    );
+    expect(getAccountOrFallback).toHaveBeenCalledWith(
+      'unit-1',
+      ['BU_bu-1_COGS', 'COGS'],
+      '5101',
+      'Beban Pokok Penjualan Kantin',
+      prisma
+    );
   });
 
   it('should create journal entries on transaction', async () => {

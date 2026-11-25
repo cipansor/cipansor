@@ -588,7 +588,7 @@ describe('decommission purge — migrations', () => {
       accountingConfig.indexOf('export async function getAccountOrFallback'),
       accountingConfig.indexOf('export async function getAccountOrFallback') + 1200
     );
-    expect(fallback).toMatch(/where: \{ code: fallbackCode, isActive: true, unitId \}/);
+    expect(fallback).toMatch(/where: \{\s*code: fallbackCode,\s*isActive: true,\s*unitId,/);
     // No `(unit_id, ...)` UNIQUE, so the generic catalog rule cannot reach it
     // either; `code` alone is unique (0_init `account_codes_code_key`).
     const acctBody = SCHEMA.slice(SCHEMA.indexOf('model AccountCode {'));

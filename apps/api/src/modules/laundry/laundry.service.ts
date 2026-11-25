@@ -269,6 +269,16 @@ export const transactionService = {
         throw new Error('Jenis layanan tidak ditemukan');
       }
 
+      if (data.businessUnitId) {
+        const businessUnit = await tx.businessUnit.findFirst({
+          where: { id: data.businessUnitId, unitId },
+          select: { id: true },
+        });
+        if (!businessUnit) {
+          throw Errors.badRequest('Unit usaha tidak ditemukan untuk unit ini');
+        }
+      }
+
       // Calculate totals
       const weight = new Prisma.Decimal(data.weight);
       const minWeight = pricing.minWeight;
@@ -331,6 +341,7 @@ export const transactionService = {
           status: 'RECEIVED',
           estimatedAt,
           notes: data.notes,
+          businessUnit: data.businessUnitId ? { connect: { id: data.businessUnitId } } : undefined,
           receivedBy: { connect: { id: userId } },
           items: data.items
             ? {

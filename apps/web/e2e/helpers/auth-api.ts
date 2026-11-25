@@ -76,6 +76,10 @@ export const SEED_USERS = {
     password: "SuperAdmin123!",
   },
   adminSdit: { email: "admin.sdit@cipansor.or.id", password: "Admin123!" },
+  yayasanBendahara: {
+    email: "yayasan.bendahara@cipansor.or.id",
+    password: "Cipansor123!",
+  },
   teacher: { email: "fatimah@cipansor.or.id", password: "Teacher123!" },
   parent: { email: "parent3@cipansor.or.id", password: "Parent123!" },
   student: { email: "student3@cipansor.or.id", password: "Student123!" },

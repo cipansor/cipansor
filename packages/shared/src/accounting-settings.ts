@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AccountType } from "./types/finance";
 
 /** Account-mapping keys the finance settings form and journals share. */
 export const ACCOUNT_MAPPING_KEYS = {
@@ -20,6 +21,27 @@ export type AccountMappingKey =
 export const ACCOUNT_MAPPING_KEY_LIST = Object.values(
   ACCOUNT_MAPPING_KEYS,
 ) as readonly AccountMappingKey[];
+
+/**
+ * The account type each mapping must point at. The journals post these keys
+ * blindly, so a cash account in a revenue slot would debit and credit cash and
+ * leave the income statement empty.
+ */
+export const ACCOUNT_MAPPING_EXPECTED_TYPES: Record<
+  AccountMappingKey,
+  AccountType
+> = {
+  [ACCOUNT_MAPPING_KEYS.CASH]: AccountType.ASSET,
+  [ACCOUNT_MAPPING_KEYS.BANK]: AccountType.ASSET,
+  [ACCOUNT_MAPPING_KEYS.PAYROLL_EXPENSE]: AccountType.EXPENSE,
+  [ACCOUNT_MAPPING_KEYS.TAX_PAYABLE]: AccountType.LIABILITY,
+  [ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET]: AccountType.ASSET,
+  [ACCOUNT_MAPPING_KEYS.ACCOUNTS_PAYABLE]: AccountType.LIABILITY,
+  [ACCOUNT_MAPPING_KEYS.WALLET_LIABILITY]: AccountType.LIABILITY,
+  [ACCOUNT_MAPPING_KEYS.SALES_REVENUE]: AccountType.REVENUE,
+  [ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE]: AccountType.REVENUE,
+  [ACCOUNT_MAPPING_KEYS.COGS]: AccountType.EXPENSE,
+};
 
 /**
  * Keys the canteen and laundry services actually read with a `BU_<id>_`
@@ -52,12 +74,24 @@ export function parseBusinessUnitMappingKey(
   return { businessUnitId: match[1], mappingKey };
 }
 
+/** The unit-level key behind a mapping key, with or without a `BU_` prefix. */
+export function accountMappingKeyOf(key: string): AccountMappingKey | null {
+  const parsed = parseBusinessUnitMappingKey(key);
+  if (parsed) return parsed.mappingKey;
+  return (ACCOUNT_MAPPING_KEY_LIST as readonly string[]).includes(key)
+    ? (key as AccountMappingKey)
+    : null;
+}
+
+/** The account type a stored mapping must have, or null for an unknown key. */
+export function expectedAccountTypeForMapping(key: string): AccountType | null {
+  const mappingKey = accountMappingKeyOf(key);
+  return mappingKey ? ACCOUNT_MAPPING_EXPECTED_TYPES[mappingKey] : null;
+}
+
 /** A unit-level mapping key, or a business-unit key the journals read. */
 export function isAccountMappingKey(key: string): boolean {
-  return (
-    (ACCOUNT_MAPPING_KEY_LIST as readonly string[]).includes(key) ||
-    parseBusinessUnitMappingKey(key) !== null
-  );
+  return accountMappingKeyOf(key) !== null;
 }
 
 const accountMappingsSchema = z
@@ -86,7 +120,18 @@ export type UpdateAccountingSettingsInput = z.infer<
   typeof updateAccountingSettingsSchema
 >;
 
+export type AccountingBusinessUnitType =
+  "CANTEEN" | "LAUNDRY" | "COOPERATIVE" | "BOOKSTORE" | "CATERING" | "OTHER";
+
+export interface AccountingSettingsBusinessUnit {
+  id: string;
+  name: string;
+  type: AccountingBusinessUnitType;
+}
+
 export interface AccountingSettingsData {
   mappings: Record<string, string | null>;
   invalidKeys: string[];
+  /** Business units owned by the requested unit, for the per-unit mapping form. */
+  businessUnits: AccountingSettingsBusinessUnit[];
 }

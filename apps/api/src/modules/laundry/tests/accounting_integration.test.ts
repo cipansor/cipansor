@@ -56,6 +56,7 @@ import { prisma } from '@/lib/prisma';
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     laundryPricing: { findFirst: vi.fn() },
+    businessUnit: { findFirst: vi.fn() },
     santriWallet: { findUnique: vi.fn(), update: vi.fn() },
     laundryTransaction: { create: vi.fn(), findFirst: vi.fn(), update: vi.fn() },
     walletTransaction: { create: vi.fn() },
@@ -141,6 +142,7 @@ describe('Laundry Accounting Integration', () => {
       id: 'wallet-1',
       balance: new MockDecimal(50000),
     });
+    (prisma.businessUnit.findFirst as any).mockResolvedValue({ id: 'bu-1' });
     (prisma.laundryTransaction.create as any).mockResolvedValue({
       id: 'tx-1',
       transactionNo: 'LDR-20240101-0001',
@@ -156,6 +158,17 @@ describe('Laundry Accounting Integration', () => {
       businessUnitId: 'bu-1',
     } as any);
 
+    expect(prisma.laundryTransaction.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          businessUnit: { connect: { id: 'bu-1' } },
+        }),
+      })
+    );
+    expect(prisma.businessUnit.findFirst).toHaveBeenCalledWith({
+      where: { id: 'bu-1', unitId },
+      select: { id: true },
+    });
     expect(getAccountOrFallback).toHaveBeenCalledWith(
       unitId,
       ['BU_bu-1_LAUNDRY_REVENUE', 'LAUNDRY_REVENUE'],
@@ -163,6 +176,30 @@ describe('Laundry Accounting Integration', () => {
       'Pendapatan Laundry',
       prisma
     );
+  });
+
+  it('refuses a business unit owned by another unit', async () => {
+    (prisma.laundryPricing.findFirst as any).mockResolvedValue({
+      id: 'pricing-1',
+      name: 'Regular',
+      pricePerKg: new MockDecimal(10000),
+      minWeight: new MockDecimal(1),
+      processDays: 2,
+      isActive: true,
+    });
+    (prisma.businessUnit.findFirst as any).mockResolvedValue(null);
+
+    await expect(
+      transactionService.create(unitId, userId, {
+        studentId,
+        pricingId: 'pricing-1',
+        weight: 2,
+        paymentMethod: 'CASH',
+        items: [{ itemType: 'Shirt', quantity: 5 }],
+        businessUnitId: 'bu-other',
+      } as any)
+    ).rejects.toMatchObject({ statusCode: 400 });
+    expect(prisma.laundryTransaction.create).not.toHaveBeenCalled();
   });
 
   it('should reverse journal entries when a paid laundry transaction is CANCELLED', async () => {

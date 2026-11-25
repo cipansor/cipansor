@@ -4,7 +4,11 @@ import type { Request, Response } from 'express';
 vi.mock('../accounting.service', () => ({}));
 vi.mock('../reports.service', () => ({}));
 vi.mock('../accounting-config.service', () => ({
-  getAccountMappingState: vi.fn(async () => ({ settings: {}, invalidKeys: [] })),
+  getAccountMappingState: vi.fn(async () => ({
+    settings: {},
+    invalidKeys: [],
+    businessUnits: [],
+  })),
   setAccountMappings: vi.fn(async () => undefined),
 }));
 
@@ -89,6 +93,7 @@ describe('accounting settings are scoped to the actor’s unit', () => {
     vi.mocked(configService.getAccountMappingState).mockResolvedValueOnce({
       settings: { ACCOUNT_MAPPING_CASH: 'acc-cash' },
       invalidKeys: [],
+      businessUnits: [],
     });
 
     const { res } = await call(getSettings as Handler, {
@@ -101,6 +106,7 @@ describe('accounting settings are scoped to the actor’s unit', () => {
       data: {
         mappings: { ACCOUNT_MAPPING_CASH: 'acc-cash' },
         invalidKeys: [],
+        businessUnits: [],
       },
     });
   });

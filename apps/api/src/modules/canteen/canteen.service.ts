@@ -735,6 +735,11 @@ export const transactionService = {
       const accountPrefix = data.businessUnitId ? `BU_${data.businessUnitId}_` : '';
       const mappingKeys = (key: string) =>
         data.businessUnitId ? [`${accountPrefix}${key}`, key] : key;
+      // The unit-level inventory slot is for office purchases; a business-unit
+      // sale must not post its trading stock there. Without a BU mapping the
+      // code/name fallback below finds the unit's own inventory account.
+      const businessUnitInventoryKey = (key: string) =>
+        data.businessUnitId ? `${accountPrefix}${key}` : key;
 
       const salesAccount = periodOpen
         ? await getAccountOrFallback(
@@ -749,7 +754,7 @@ export const transactionService = {
       const inventoryAccount = periodOpen
         ? await getAccountOrFallback(
             unitId,
-            mappingKeys(ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET),
+            businessUnitInventoryKey(ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET),
             '1104',
             'Persediaan',
             tx
