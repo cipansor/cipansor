@@ -83,6 +83,32 @@ const NETWORK_ERROR_CODES = [
 ];
 
 /**
+ * Field names are API property names; people read labels. Only the fields the
+ * shared parser sees often need an entry; anything else falls back to the path
+ * the API sent.
+ */
+const FIELD_LABELS: Record<string, string> = {
+  targetValue: "Target",
+  name: "Nama",
+  weight: "Bobot",
+  type: "Tipe",
+  scholarshipId: "Program beasiswa",
+  studentId: "Santri",
+  academicYearId: "Tahun ajaran",
+  amount: "Jumlah",
+  notes: "Catatan",
+  startDate: "Tanggal mulai",
+  endDate: "Tanggal selesai",
+  email: "Email",
+  password: "Kata sandi",
+};
+
+function fieldLabel(field: string): string {
+  const leaf = field.split(".").filter(Boolean).pop() ?? field;
+  return FIELD_LABELS[leaf] ?? field;
+}
+
+/**
  * Parse API error response into a user-friendly format
  */
 export function parseApiError(error: unknown): ParsedApiError {
@@ -173,7 +199,9 @@ export function parseApiError(error: unknown): ParsedApiError {
           };
           if (typeof reason !== "string" || !reason) return [];
           return [
-            typeof field === "string" && field ? `${field}: ${reason}` : reason,
+            typeof field === "string" && field
+              ? `${fieldLabel(field)}: ${reason}`
+              : reason,
           ];
         });
       }
@@ -181,7 +209,7 @@ export function parseApiError(error: unknown): ParsedApiError {
         const errors = responseData.errors as Record<string, string[]>;
         details.push(
           ...Object.entries(errors).flatMap(([field, messages]) =>
-            messages.map((msg) => `${field}: ${msg}`),
+            messages.map((msg) => `${fieldLabel(field)}: ${msg}`),
           ),
         );
       }

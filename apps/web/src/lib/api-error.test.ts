@@ -36,11 +36,22 @@ describe("parseApiError", () => {
     });
 
     expect(getErrorMessage(error)).toBe(
-      "targetValue: Target hafalan harus berupa jumlah juz, misalnya 10 juz",
+      "Target: Target hafalan harus berupa jumlah juz, misalnya 10 juz",
     );
     expect(parseApiError(error).details).toEqual([
-      "targetValue: Target hafalan harus berupa jumlah juz, misalnya 10 juz",
+      "Target: Target hafalan harus berupa jumlah juz, misalnya 10 juz",
     ]);
+  });
+
+  it("falls back to the API field name when it has no label", () => {
+    const error = axiosLike(400, {
+      error: {
+        message: "Validation failed",
+        details: [{ field: "customField", message: "Tidak boleh kosong" }],
+      },
+    });
+
+    expect(getErrorMessage(error)).toBe("customField: Tidak boleh kosong");
   });
 
   it("still reads a bare message", () => {
