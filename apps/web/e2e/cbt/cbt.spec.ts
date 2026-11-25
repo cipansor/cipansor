@@ -10,6 +10,11 @@ interface SeedExam {
   id: string;
   title: string;
   status: string;
+  unitId?: string;
+  academicYearId?: string;
+  subjectId?: string;
+  classId?: string;
+  teacherId?: string;
   _count?: { attempts: number };
 }
 
@@ -62,7 +67,11 @@ test.describe("CBT Exams & Grading", () => {
     // they never pass Playwright's "stable" gate, so force-click once visible.
     const pickFirst = async (index: number) => {
       const trigger = page.locator('button[role="combobox"]').nth(index);
-      await trigger.scrollIntoViewIfNeeded();
+      // Center it: the iOS install banner is fixed to the bottom and would
+      // swallow the click on the last combobox (Bank Soal) on mobile Safari.
+      await trigger.evaluate((el) =>
+        el.scrollIntoView({ block: "center", inline: "center" }),
+      );
       await trigger.click({ force: true });
       const listbox = page.getByRole("listbox");
       await expect(listbox).toBeVisible();
@@ -96,6 +105,67 @@ test.describe("CBT Exams & Grading", () => {
     expect(created, "created exam should be persisted").toBeTruthy();
     if (created) {
       await apiRequest(session, "DELETE", `/cbt/exams/${created.id}`);
+    }
+  });
+
+  test("Should render item analysis for an exam with a question bank", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const exams = await apiRequest<{ data: SeedExam[] }>(
+      session,
+      "GET",
+      "/cbt/exams?limit=50",
+    );
+    const reference = exams.data?.[0];
+    expect(reference, "seed should provide an exam").toBeTruthy();
+
+    const banks = await apiRequest<{ data: Array<{ id: string }> }>(
+      session,
+      "GET",
+      "/cbt/banks?limit=1",
+    );
+    const bank = banks.data?.[0];
+    expect(bank, "seed should provide a question bank").toBeTruthy();
+
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/cbt/exams",
+      {
+        title: `Analisis Soal E2E ${Date.now()}`,
+        unitId: reference!.unitId,
+        academicYearId: reference!.academicYearId,
+        subjectId: reference!.subjectId,
+        classId: reference!.classId,
+        teacherId: reference!.teacherId,
+        questionBankId: bank!.id,
+        type: "DAILY_TEST",
+        scheduledAt: "2026-12-11T08:00:00.000Z",
+        status: "DRAFT",
+      },
+    );
+    const examId = created.data.id;
+
+    try {
+      await page.goto(`/cbt/exams/${examId}/monitoring`);
+      await expect(
+        page.getByRole("heading", { name: /monitoring ujian/i }),
+      ).toBeVisible({ timeout: 15000 });
+
+      const difficultyTab = page.getByRole("tab", { name: /analisis soal/i });
+      await expect(difficultyTab).toBeVisible();
+      await difficultyTab.click({ force: true });
+      await expect(
+        page.getByText(/rata-rata keberhasilan/i).first(),
+      ).toBeVisible({ timeout: 15000 });
+      await expect(
+        page.getByText(/analisis butir soal/i).first(),
+      ).toBeVisible();
+    } finally {
+      await apiRequest(session, "DELETE", `/cbt/exams/${examId}`);
     }
   });
 

@@ -1,7 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { api, type ApiResponse } from "@/lib/api";
-import { SecurityEventType } from "@cipansor/shared";
-import type { ExamDifficultyInsights } from "@cipansor/shared";
+import {
+  examDifficultyInsightsSchema,
+  SecurityEventType,
+  type ExamDifficultyInsights,
+} from "@cipansor/shared";
 
 // Types
 export { QuestionType } from "@cipansor/shared";
@@ -106,10 +109,10 @@ export const useExamDifficultyInsights = (examId: string) => {
   return useQuery({
     queryKey: ["exam-difficulty-insights", examId],
     queryFn: async (): Promise<ExamDifficultyInsights> => {
-      const { data } = await api.get<ApiResponse<ExamDifficultyInsights>>(
+      const { data } = await api.get<ApiResponse<unknown>>(
         `/cbt/exams/${examId}/difficulty-insights`,
       );
-      return data.data;
+      return examDifficultyInsightsSchema.parse(data.data);
     },
     enabled: !!examId,
   });

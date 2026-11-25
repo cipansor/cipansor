@@ -22,3 +22,49 @@ export const recordSecurityLogSchema = z.object({
 });
 
 export type RecordSecurityLogInput = z.infer<typeof recordSecurityLogSchema>;
+
+/**
+ * Response contract for `GET /cbt/exams/:id/difficulty-insights`.
+ *
+ * The distractor count belongs to the canonical option id. When several option
+ * texts share that id, `option` is null and `options` lists every text that
+ * shares it; the student form submits only the id, so the count cannot be
+ * attributed to one of those texts.
+ */
+export const examDistractorAnalysisRowSchema = z.object({
+  optionId: z.string().nullable(),
+  option: z.unknown(),
+  options: z.array(z.unknown()),
+  ambiguous: z.boolean(),
+  count: z.number(),
+  percentage: z.number(),
+});
+
+export const examQuestionInsightSchema = z.object({
+  questionId: z.string(),
+  content: z.string(),
+  successRate: z.number(),
+  difficultyIndex: z.number().nullable(),
+  discriminationIndex: z.number().nullable(),
+  distractorAnalysis: z.array(examDistractorAnalysisRowSchema).optional(),
+  totalGraded: z.number(),
+  isKiller: z.boolean(),
+  needsReview: z.boolean(),
+});
+
+export const examDifficultyInsightsSchema = z.object({
+  examId: z.string(),
+  title: z.string(),
+  questionInsights: z.array(examQuestionInsightSchema),
+  averageSuccessRate: z.number(),
+  totalParticipants: z.number(),
+  discriminationGroupSize: z.number().nullable(),
+});
+
+export type ExamDistractorAnalysisRow = z.infer<
+  typeof examDistractorAnalysisRowSchema
+>;
+export type ExamQuestionInsight = z.infer<typeof examQuestionInsightSchema>;
+export type ExamDifficultyInsights = z.infer<
+  typeof examDifficultyInsightsSchema
+>;
