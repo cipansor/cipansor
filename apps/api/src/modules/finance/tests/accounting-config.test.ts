@@ -2,15 +2,16 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const { prismaMock, txMock } = vi.hoisted(() => {
   const txMock = {
-    accountCode: { findUnique: vi.fn() },
+    accountCode: { findUnique: vi.fn(), findFirst: vi.fn() },
     businessUnit: { findMany: vi.fn() },
     setting: { deleteMany: vi.fn(), upsert: vi.fn() },
   };
   return {
     txMock,
     prismaMock: {
-      accountCode: { findUnique: vi.fn() },
-      setting: { findUnique: vi.fn(), upsert: vi.fn() },
+      accountCode: { findUnique: vi.fn(), findFirst: vi.fn() },
+      businessUnit: { findMany: vi.fn() },
+      setting: { findUnique: vi.fn(), findMany: vi.fn(), upsert: vi.fn() },
       $transaction: vi.fn(),
     },
   };
@@ -22,6 +23,7 @@ import {
   ACCOUNT_MAPPING_KEYS,
   getAccountMappingState,
   getAccountMappings,
+  getAccountOrFallback,
   setAccountMappings,
 } from '../accounting-config.service';
 
@@ -34,6 +36,13 @@ beforeEach(() => {
     callback(txMock)) as never);
   txMock.setting.upsert.mockResolvedValue({} as never);
   txMock.businessUnit.findMany.mockResolvedValue([{ id: BUSINESS_UNIT }] as never);
+  txMock.accountCode.findUnique.mockResolvedValue({
+    unitId: UNIT,
+    isActive: true,
+    type: 'EXPENSE',
+  } as never);
+  prismaMock.setting.findMany.mockResolvedValue([] as never);
+  prismaMock.businessUnit.findMany.mockResolvedValue([{ id: BUSINESS_UNIT }] as never);
 });
 
 describe('PPh 21 account mapping', () => {
@@ -74,12 +83,41 @@ describe('PPh 21 account mapping', () => {
     expect(txMock.setting.upsert).not.toHaveBeenCalled();
   });
 
-  it('does not apply the liability check to other mappings', async () => {
+  it('accepts an active account of the unit for non-liability mappings', async () => {
     await setAccountMappings(UNIT, { [ACCOUNT_MAPPING_KEYS.CASH]: 'acc-cash' });
 
-    expect(txMock.accountCode.findUnique).not.toHaveBeenCalled();
+    expect(txMock.accountCode.findUnique).toHaveBeenCalledWith({
+      where: { id: 'acc-cash' },
+      select: { unitId: true, isActive: true, type: true },
+    });
     expect(txMock.setting.upsert).toHaveBeenCalled();
     expect(txMock.setting.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('refuses another unit’s account for a business-unit mapping', async () => {
+    txMock.accountCode.findUnique.mockResolvedValue({
+      unitId: 'unit-smp',
+      isActive: true,
+      type: 'REVENUE',
+    } as never);
+
+    await expect(
+      setAccountMappings(UNIT, {
+        [`BU_${BUSINESS_UNIT}_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`]: 'acc-smp',
+      })
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(txMock.setting.upsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses an account that does not exist', async () => {
+    txMock.accountCode.findUnique.mockResolvedValue(null as never);
+
+    await expect(
+      setAccountMappings(UNIT, { [ACCOUNT_MAPPING_KEYS.CASH]: 'missing' })
+    ).rejects.toMatchObject({ statusCode: 400 });
+
+    expect(txMock.setting.upsert).not.toHaveBeenCalled();
   });
 
   it('saving only the cash account leaves a stored invalid PPh 21 row untouched', async () => {
@@ -196,6 +234,54 @@ describe('PPh 21 account mapping', () => {
     expect(invalidKeys).toContain(ACCOUNT_MAPPING_KEYS.TAX_PAYABLE);
   });
 
+  it('returns stored business-unit mappings owned by the unit', async () => {
+    const businessUnitKey = `BU_${BUSINESS_UNIT}_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`;
+    prismaMock.setting.findMany.mockResolvedValue([
+      { key: businessUnitKey, value: { accountId: 'acc-sales' } },
+    ] as never);
+    prismaMock.accountCode.findUnique.mockResolvedValue({
+      unitId: UNIT,
+      isActive: true,
+      type: 'REVENUE',
+    } as never);
+
+    const { settings, invalidKeys } = await getAccountMappingState(UNIT);
+
+    expect(settings[businessUnitKey]).toBe('acc-sales');
+    expect(invalidKeys).not.toContain(businessUnitKey);
+  });
+
+  it('drops a business-unit mapping once it is cleared', async () => {
+    const businessUnitKey = `BU_${BUSINESS_UNIT}_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`;
+    prismaMock.setting.findMany
+      .mockResolvedValueOnce([{ key: businessUnitKey, value: { accountId: 'acc-sales' } }] as never)
+      .mockResolvedValueOnce([] as never);
+    prismaMock.accountCode.findUnique.mockResolvedValue({
+      unitId: UNIT,
+      isActive: true,
+      type: 'REVENUE',
+    } as never);
+
+    expect((await getAccountMappingState(UNIT)).settings[businessUnitKey]).toBe('acc-sales');
+    expect((await getAccountMappingState(UNIT)).settings[businessUnitKey]).toBeUndefined();
+  });
+
+  it('ignores a stored business-unit mapping owned by another unit', async () => {
+    prismaMock.businessUnit.findMany.mockResolvedValue([] as never);
+    prismaMock.setting.findMany.mockResolvedValue([
+      {
+        key: `BU_${BUSINESS_UNIT}_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`,
+        value: { accountId: 'acc-sales' },
+      },
+    ] as never);
+
+    const { settings } = await getAccountMappingState(UNIT);
+
+    expect(settings).not.toHaveProperty(
+      `BU_${BUSINESS_UNIT}_${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`
+    );
+  });
+
   it('returns a usable stored PPh 21 mapping', async () => {
     prismaMock.setting.findUnique.mockImplementation((async ({
       where,
@@ -214,6 +300,28 @@ describe('PPh 21 account mapping', () => {
     const settings = await getAccountMappings(UNIT);
 
     expect(settings[ACCOUNT_MAPPING_KEYS.TAX_PAYABLE]).toBe('acc-pph21');
+  });
+
+  it('ignores a stored cross-unit mapping and uses the scoped fallback', async () => {
+    prismaMock.setting.findUnique.mockResolvedValue({
+      value: { accountId: 'acc-smp' },
+    } as never);
+    prismaMock.accountCode.findUnique.mockResolvedValue({
+      id: 'acc-smp',
+      unitId: 'unit-smp',
+      isActive: true,
+      type: 'EXPENSE',
+    } as never);
+    prismaMock.accountCode.findFirst.mockResolvedValue({
+      id: 'acc-sd',
+      unitId: UNIT,
+      isActive: true,
+      type: 'EXPENSE',
+    } as never);
+
+    const account = await getAccountOrFallback(UNIT, ACCOUNT_MAPPING_KEYS.CASH, '1101');
+
+    expect(account).toMatchObject({ id: 'acc-sd' });
   });
 
   it('clears a mapping when the value is null', async () => {

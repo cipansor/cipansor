@@ -387,10 +387,16 @@ export const transactionService = {
 
         if (periodOpen) {
           const accountPrefix = data.businessUnitId ? `BU_${data.businessUnitId}_` : '';
+          const salesMappingKeys = data.businessUnitId
+            ? [
+                `${accountPrefix}${ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE}`,
+                ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE,
+              ]
+            : ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE;
 
           const salesAccount = await getAccountOrFallback(
             unitId,
-            `${accountPrefix}${ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE}`,
+            salesMappingKeys,
             '4102',
             'Pendapatan Laundry',
             tx
@@ -662,10 +668,16 @@ export const transactionService = {
 
       if (periodOpen) {
         const accountPrefix = updated.businessUnitId ? `BU_${updated.businessUnitId}_` : '';
+        const salesMappingKeys = updated.businessUnitId
+          ? [
+              `${accountPrefix}${ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE}`,
+              ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE,
+            ]
+          : ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE;
 
         const salesAccount = await getAccountOrFallback(
           unitId,
-          `${accountPrefix}${ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE}`,
+          salesMappingKeys,
           '4102',
           'Pendapatan Laundry',
           tx

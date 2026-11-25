@@ -50,6 +50,7 @@ vi.mock('@prisma/client', async (importOriginal) => ({
 }));
 
 import { transactionService } from '../laundry.service';
+import { getAccountOrFallback } from '../../finance/accounting-config.service';
 import { prisma } from '@/lib/prisma';
 
 vi.mock('@/lib/prisma', () => ({
@@ -125,6 +126,43 @@ describe('Laundry Accounting Integration', () => {
 
     // Verify journal entries
     expect(prisma.journalEntry.create).toHaveBeenCalledTimes(2);
+  });
+
+  it('tries the business-unit mapping before the unit-level mapping', async () => {
+    (prisma.laundryPricing.findFirst as any).mockResolvedValue({
+      id: 'pricing-1',
+      name: 'Regular',
+      pricePerKg: new MockDecimal(10000),
+      minWeight: new MockDecimal(1),
+      processDays: 2,
+      isActive: true,
+    });
+    (prisma.santriWallet.findUnique as any).mockResolvedValue({
+      id: 'wallet-1',
+      balance: new MockDecimal(50000),
+    });
+    (prisma.laundryTransaction.create as any).mockResolvedValue({
+      id: 'tx-1',
+      transactionNo: 'LDR-20240101-0001',
+      total: new MockDecimal(20000),
+    });
+
+    await transactionService.create(unitId, userId, {
+      studentId,
+      pricingId: 'pricing-1',
+      weight: 2,
+      paymentMethod: 'WALLET',
+      items: [{ itemType: 'Shirt', quantity: 5 }],
+      businessUnitId: 'bu-1',
+    } as any);
+
+    expect(getAccountOrFallback).toHaveBeenCalledWith(
+      unitId,
+      ['BU_bu-1_LAUNDRY_REVENUE', 'LAUNDRY_REVENUE'],
+      '4102',
+      'Pendapatan Laundry',
+      prisma
+    );
   });
 
   it('should reverse journal entries when a paid laundry transaction is CANCELLED', async () => {

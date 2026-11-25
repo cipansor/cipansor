@@ -77,6 +77,7 @@ import {
   FinanceReportPeriod,
 } from "@/hooks/use-finance-enhancement";
 import { useUnits } from "@/hooks/use-units";
+import { useBusinessUnits } from "@/hooks/use-business-unit";
 import {
   useAccountingSettings,
   useUpdateAccountingSettings,
@@ -891,8 +892,25 @@ function ReportsTab() {
 // Accounting Settings Tab
 const CLEAR_ACCOUNT = "__clear_account__";
 
+const BUSINESS_UNIT_MAPPING_LABELS: Record<string, string> = {
+  [ACCOUNT_MAPPING_KEYS.SALES_REVENUE]: "Pendapatan",
+  [ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET]: "Aset Persediaan",
+  [ACCOUNT_MAPPING_KEYS.COGS]: "Beban Pokok Penjualan",
+  [ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE]: "Pendapatan Laundry",
+};
+
+const BUSINESS_UNIT_MAPPING_KEYS_BY_TYPE: Record<string, string[]> = {
+  CANTEEN: [
+    ACCOUNT_MAPPING_KEYS.SALES_REVENUE,
+    ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET,
+    ACCOUNT_MAPPING_KEYS.COGS,
+  ],
+  LAUNDRY: [ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE],
+};
+
 function AccountingSettingsTab() {
   const { data: units } = useUnits();
+  const { data: allBusinessUnits } = useBusinessUnits();
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [settings, setSettings] = useState<AccountMappings>({});
   const [initialSettings, setInitialSettings] = useState<AccountMappings>({});
@@ -918,6 +936,18 @@ function AccountingSettingsTab() {
   });
 
   const updateMutation = useUpdateAccountingSettings();
+
+  const setMappingValue = (key: string, value: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      [key]: value === CLEAR_ACCOUNT ? null : value,
+    }));
+    setTouchedKeys((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  };
 
   const handleSave = () => {
     if (!selectedUnitId) return;
@@ -973,6 +1003,15 @@ function AccountingSettingsTab() {
     },
   ];
 
+  const businessUnits = (allBusinessUnits ?? []).filter(
+    (businessUnit) =>
+      businessUnit.unitId === selectedUnitId &&
+      (BUSINESS_UNIT_MAPPING_KEYS_BY_TYPE[businessUnit.type]?.length ?? 0) > 0,
+  );
+  const invalidBusinessUnitKeys = invalidKeys.filter((key) =>
+    key.startsWith("BU_"),
+  );
+
   const taxMapping = settings[ACCOUNT_MAPPING_KEYS.TAX_PAYABLE];
   const taxMappingInvalid = invalidKeys.includes(
     ACCOUNT_MAPPING_KEYS.TAX_PAYABLE,
@@ -1025,17 +1064,7 @@ function AccountingSettingsTab() {
                   </p>
                   <Select
                     value={settings[mapping.key] ?? ""}
-                    onValueChange={(val) => {
-                      setSettings((prev) => ({
-                        ...prev,
-                        [mapping.key]: val === CLEAR_ACCOUNT ? null : val,
-                      }));
-                      setTouchedKeys((prev) => {
-                        const next = new Set(prev);
-                        next.add(mapping.key);
-                        return next;
-                      });
-                    }}
+                    onValueChange={(val) => setMappingValue(mapping.key, val)}
                   >
                     <SelectTrigger aria-label={mapping.label}>
                       <SelectValue placeholder="Pilih Akun" />
@@ -1061,6 +1090,66 @@ function AccountingSettingsTab() {
                   </Select>
                 </div>
               ))}
+
+              {businessUnits.length > 0 && (
+                <div className="space-y-4 rounded-md border p-4">
+                  <div>
+                    <h3 className="font-medium">Pemetaan per Unit Usaha</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Opsional. Pemetaan ini dipakai jurnal otomatis unit usaha
+                      sebelum pemetaan tingkat unit.
+                    </p>
+                  </div>
+                  {invalidBusinessUnitKeys.length > 0 && (
+                    <p
+                      role="alert"
+                      className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                    >
+                      Sebagian pemetaan unit usaha tidak lagi aktif atau bukan
+                      milik unit ini. Pilih akun pengganti; pemetaan lama tetap
+                      tersimpan sampai Anda mengubahnya.
+                    </p>
+                  )}
+                  {businessUnits.map((businessUnit) => (
+                    <div key={businessUnit.id} className="space-y-3">
+                      <p className="font-medium">{businessUnit.name}</p>
+                      {BUSINESS_UNIT_MAPPING_KEYS_BY_TYPE[
+                        businessUnit.type
+                      ].map((mappingKey) => {
+                        const key = `BU_${businessUnit.id}_${mappingKey}`;
+                        const label =
+                          BUSINESS_UNIT_MAPPING_LABELS[mappingKey] ??
+                          mappingKey;
+                        return (
+                          <div key={key} className="space-y-2">
+                            <Label>{label}</Label>
+                            <Select
+                              value={settings[key] ?? ""}
+                              onValueChange={(val) => setMappingValue(key, val)}
+                            >
+                              <SelectTrigger
+                                aria-label={`${businessUnit.name} — ${label}`}
+                              >
+                                <SelectValue placeholder="Pilih Akun" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={CLEAR_ACCOUNT}>
+                                  — Kosongkan pemetaan —
+                                </SelectItem>
+                                {(accounts?.data ?? []).map((acc) => (
+                                  <SelectItem key={acc.id} value={acc.id}>
+                                    {acc.code} - {acc.name}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="pt-4">
                 <Button

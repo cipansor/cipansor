@@ -50,6 +50,7 @@ vi.mock('@prisma/client', async (importOriginal) => {
 });
 
 import { transactionService } from '../canteen.service';
+import { getAccountOrFallback } from '../../finance/accounting-config.service';
 import { prisma } from '@/lib/prisma';
 import { JournalReferenceType } from '@cipansor/shared';
 
@@ -76,6 +77,9 @@ vi.mock('@/lib/prisma', () => ({
     canteenStockMovement: {
       create: vi.fn(),
     },
+    businessUnit: {
+      findFirst: vi.fn(),
+    },
     financialPeriod: {
       findFirst: vi.fn(),
     },
@@ -89,8 +93,8 @@ vi.mock('../../finance/accounting-config.service', () => ({
   ACCOUNT_MAPPING_KEYS: {
     CASH: 'CASH',
     INVENTORY_ASSET: 'INVENTORY_ASSET',
-    CANTEEN_REVENUE: 'CANTEEN_REVENUE',
-    CANTEEN_COGS: 'CANTEEN_COGS',
+    SALES_REVENUE: 'SALES_REVENUE',
+    COGS: 'COGS',
   },
 }));
 
@@ -99,6 +103,38 @@ describe('Canteen Transaction Accounting', () => {
     vi.clearAllMocks();
     (prisma.$queryRaw as any).mockResolvedValue([{ id: 'item-1' }]);
     (prisma.financialPeriod.findFirst as any).mockResolvedValue({ status: 'OPEN' });
+  });
+
+  it('tries the business-unit mapping before the unit-level mapping', async () => {
+    (prisma.canteenItem.findMany as any).mockResolvedValue([
+      {
+        id: 'item-1',
+        price: new MockDecimal(10000),
+        costPrice: new MockDecimal(7000),
+        stock: 10,
+        name: 'Item 1',
+      },
+    ]);
+    (prisma.canteenTransaction.create as any).mockResolvedValue({
+      id: 'tx-1',
+      transactionNo: 'TX-001',
+    });
+    (prisma.businessUnit.findFirst as any).mockResolvedValue({ id: 'bu-1' });
+
+    await transactionService.create('unit-1', 'cashier-1', {
+      items: [{ itemId: 'item-1', quantity: 1 }],
+      paymentMethod: 'CASH',
+      discount: 0,
+      businessUnitId: 'bu-1',
+    });
+
+    expect(getAccountOrFallback).toHaveBeenCalledWith(
+      'unit-1',
+      ['BU_bu-1_SALES_REVENUE', 'SALES_REVENUE'],
+      '4101',
+      'Pendapatan Kantin',
+      prisma
+    );
   });
 
   it('should create journal entries on transaction', async () => {

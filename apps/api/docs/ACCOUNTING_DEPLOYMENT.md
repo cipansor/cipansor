@@ -63,9 +63,11 @@ This means:
    `BU_{businessUnitId}_{ACCOUNT_MAPPING_KEY}`. Only the keys the journals
    actually read with that prefix are accepted: `SALES_REVENUE`,
    `INVENTORY_ASSET`, `COGS` (canteen) and `LAUNDRY_REVENUE` (laundry). The
-   business unit must belong to the unit being configured. The canteen service
-   automatically prefers BU-specific mappings over unit-level ones. See
-   `apps/api/src/modules/canteen/canteen.service.ts:622`.
+   business unit must belong to the unit being configured, and the account
+   must be active and owned by that unit (or shared). The canteen and laundry
+   services try the BU-specific mapping first, then the unit-level mapping,
+   then the code/name fallback. See
+   `apps/api/src/modules/canteen/canteen.service.ts:735`.
 4. Ensure the financial period covering the expected first sale date is
    **open** (`is_closed = false`).
 
