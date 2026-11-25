@@ -22,6 +22,7 @@ const prismaMock = vi.hoisted(() => ({
   journalEntry: { findMany: vi.fn(), create: vi.fn() },
   santriWallet: { findUnique: vi.fn(), update: vi.fn() },
   walletTransaction: { create: vi.fn() },
+  $queryRaw: vi.fn(),
   $transaction: vi.fn(),
 }));
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }));

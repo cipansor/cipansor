@@ -113,6 +113,29 @@ describe('laundry controller', () => {
     expect(transactionService.create).not.toHaveBeenCalled();
   });
 
+  it('processPayment: a Super_Admin without a unit still reaches the service', async () => {
+    (transactionService.processPayment as any).mockResolvedValue({ id: 't1' });
+    const user = { sub: 'u-super', roleCode: 'SUPER_ADMIN' } as any;
+    const { req, res } = mockReqRes({
+      params: { id: 't1' } as any,
+      body: { paymentMethod: 'CASH' } as any,
+      user,
+    });
+    await run(controller.processPayment, req, res);
+
+    expect(transactionService.processPayment).toHaveBeenCalledWith('t1', user, {
+      paymentMethod: 'CASH',
+    });
+    expect((res as any).statusCode).toBe(200);
+  });
+
+  it('processPayment: needs a user id', async () => {
+    const { req, res } = mockReqRes({ user: {} as any });
+    await run(controller.processPayment, req, res);
+    expect((res as any).statusCode).toBe(400);
+    expect(transactionService.processPayment).not.toHaveBeenCalled();
+  });
+
   it('createTransaction: creates with unit + user and returns 201', async () => {
     (transactionService.create as any).mockResolvedValue({ id: 't1' });
     const { req, res } = mockReqRes({ body: { items: [] } as any });

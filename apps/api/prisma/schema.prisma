@@ -6409,6 +6409,7 @@ model LaundryTransaction {
   total         Decimal   @db.Decimal(15, 2)
   paymentMethod String    @map("payment_method") // WALLET, CASH, PENDING
   paymentStatus String    @default("UNPAID") @map("payment_status") // UNPAID, PAID, REFUNDED
+  paidAt        DateTime? @map("paid_at") // when the money arrived; null until paid
   status        String    @default("RECEIVED") // RECEIVED, WASHING, DRYING, IRONING, READY, DELIVERED, CANCELLED
   receivedAt    DateTime  @default(now()) @map("received_at")
   estimatedAt   DateTime  @map("estimated_at") // Estimasi selesai
@@ -6436,6 +6437,7 @@ model LaundryTransaction {
   @@index([transactionNo])
   @@index([status])
   @@index([createdAt])
+  @@index([paidAt])
   @@map("laundry_transactions")
 }
 
