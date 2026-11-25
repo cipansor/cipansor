@@ -137,6 +137,14 @@ describe('laundry transaction number follows the WIB calendar', () => {
     expect(created.transactionNo).toBe('LDR-20260615-0001');
   });
 
+  it('serialises number allocation with a transaction-scoped advisory lock', async () => {
+    await withUtcNow('2026-10-31T17:30:00Z', async () => {
+      await transactionService.create('unit-1', 'user-1', input as any);
+    });
+    const [strings] = (prisma.$queryRaw as any).mock.calls[0];
+    expect(strings.join('?')).toContain('pg_advisory_xact_lock');
+  });
+
   it('continues the sequence within the WIB day', async () => {
     (prisma.laundryTransaction.findFirst as any).mockResolvedValue({
       transactionNo: 'LDR-20261101-0007',

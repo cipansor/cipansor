@@ -36,26 +36,32 @@ interface CreatedTransaction {
 async function createReceivedTransaction(
   session: AuthSession,
   paymentMethod: "CASH" | "PENDING" = "CASH",
+  studentId?: string,
 ): Promise<CreatedTransaction> {
   const pricing = await apiRequest<{ data: Array<{ id: string }> }>(
     session,
     "GET",
     "/laundry/pricing",
   );
-  const students = await apiRequest<{ data: Array<{ id: string }> }>(
-    session,
-    "GET",
-    "/students?limit=1",
-  );
   expect(pricing.data.length, "seed tanpa tarif laundry").toBeGreaterThan(0);
-  expect(students.data.length, "seed tanpa santri").toBeGreaterThan(0);
+
+  let selectedStudentId = studentId;
+  if (!selectedStudentId) {
+    const students = await apiRequest<{ data: Array<{ id: string }> }>(
+      session,
+      "GET",
+      "/students?limit=1",
+    );
+    expect(students.data.length, "seed tanpa santri").toBeGreaterThan(0);
+    selectedStudentId = students.data[0].id;
+  }
 
   const created = await apiRequest<{ data: CreatedTransaction }>(
     session,
     "POST",
     "/laundry/transactions",
     {
-      studentId: students.data[0].id,
+      studentId: selectedStudentId,
       pricingId: pricing.data[0].id,
       weight: 2,
       paymentMethod,
@@ -418,5 +424,53 @@ test.describe("Petugas mengelola tarif laundry (R22.8)", () => {
       0,
       { timeout: 15000 },
     );
+  });
+});
+
+test.describe("Pencarian laundry menyaring baris nyata (R22.11)", () => {
+  test.describe.configure({ mode: "serial" });
+
+  test("nama, NIS, nomor transaksi, dan huruf besar/kecil", async ({
+    page,
+  }) => {
+    test.setTimeout(180_000);
+    const session = await apiLoginNew(LAUNDRY_ADMIN);
+    const students = await apiRequest<{
+      data: Array<{
+        id: string;
+        nis: string;
+        user?: { name?: string };
+      }>;
+    }>(session, "GET", "/students?limit=1");
+    const student = students.data[0];
+    expect(student?.user?.name, "seed tanpa nama santri").toBeTruthy();
+    const transaction = await createReceivedTransaction(
+      session,
+      "CASH",
+      student.id,
+    );
+    await injectSession(page, session);
+
+    await gotoAuthedPage(page, "/laundry", /^Laundry$/);
+    const search = page.getByLabel("Cari transaksi");
+    const row = () =>
+      page.getByRole("row").filter({ hasText: transaction.transactionNo });
+
+    // Name match, typed in the opposite case from the stored name.
+    await search.fill(student.user!.name!.toLowerCase());
+    await expect(row()).toBeVisible({ timeout: 15000 });
+
+    await search.fill(student.nis);
+    await expect(row()).toBeVisible({ timeout: 15000 });
+
+    // `transactionNo` is stored with upper-case LDR-; a lower-case query must
+    // still find it, which proves `mode: "insensitive"`.
+    await search.fill(transaction.transactionNo.toLowerCase());
+    await expect(row()).toBeVisible({ timeout: 15000 });
+
+    await search.fill(`tidak-ada-${Date.now()}`);
+    await expect(page.getByText("Belum ada transaksi laundry")).toBeVisible({
+      timeout: 15000,
+    });
   });
 });

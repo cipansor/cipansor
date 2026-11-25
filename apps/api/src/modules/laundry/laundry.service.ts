@@ -99,14 +99,22 @@ export const pricingService = {
 // TRANSACTION SERVICE
 // =============================================================================
 
-const generateTransactionNo = async (unitId: string): Promise<string> => {
+const generateTransactionNo = async (
+  tx: Prisma.TransactionClient,
+  unitId: string
+): Promise<string> => {
   // The date on the transaction number is a WIB calendar day, not the UTC one:
   // the container runs UTC, so a 00:00–07:00 WIB transaction would otherwise be
   // numbered with yesterday — and merged into yesterday's sequence.
   const dateStr = todayWib().replace(/-/g, '');
   const prefix = `LDR-${dateStr}`;
 
-  const lastTransaction = await prisma.laundryTransaction.findFirst({
+  // Two officers saving at once would otherwise read the same last number and
+  // both try to insert it. The lock is released when this transaction commits.
+  const lockKey = `${unitId}:${dateStr}`;
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint) IS NULL AS locked`;
+
+  const lastTransaction = await tx.laundryTransaction.findFirst({
     where: { transactionNo: { startsWith: prefix } },
     orderBy: { transactionNo: 'desc' },
     select: { transactionNo: true },
@@ -162,8 +170,9 @@ export const transactionService = {
    * `search` that matches the santri's name, NIS or the transaction number,
    * case-insensitively — all inside `laundryReadScope`.
    *
-   * The santri is read with `select`, never `include: { student }`: include on
-   * a relation sends every column, NIK and No. KK among them (R24.10).
+   * The santri is read with `select` so the query fetches only the columns the
+   * Portal shows; including the relation sends every column, NIK and No. KK
+   * among them (R24.10).
    */
   async getAll(scope: Prisma.LaundryTransactionWhereInput, query: ListTransactionsQuery) {
     const { page, limit } = query;
@@ -334,7 +343,7 @@ export const transactionService = {
       const paidAt = paymentStatus === 'PAID' ? new Date() : null;
 
       // Generate transaction number
-      const transactionNo = await generateTransactionNo(unitId);
+      const transactionNo = await generateTransactionNo(tx, unitId);
       const estimatedAt = calculateEstimatedDate(pricing.processDays);
 
       // Create transaction

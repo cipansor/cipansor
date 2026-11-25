@@ -355,11 +355,11 @@ describe("Laundry — the tarif tab uses the per-kilogram contract (R22.8)", () 
           unitId: "unit-smp",
           businessUnitId: null,
           name: "Cuci Setrika Reguler",
-          description: null,
+          description: "Cuci dan setrika",
           pricePerKg: "6000",
           minWeight: "1",
           processDays: 2,
-          isExpress: false,
+          isExpress: true,
           isActive: true,
           createdAt: "2026-11-20T00:00:00.000Z",
           updatedAt: "2026-11-20T00:00:00.000Z",
@@ -371,9 +371,12 @@ describe("Laundry — the tarif tab uses the per-kilogram contract (R22.8)", () 
     await userEvent.click(screen.getByRole("tab", { name: /Tarif/ }));
 
     expect(await screen.findByText("Cuci Setrika Reguler")).toBeInTheDocument();
+    expect(screen.getByText("Cuci dan setrika")).toBeInTheDocument();
     expect(screen.getByText("1 kg")).toBeInTheDocument();
     expect(screen.getByText("2 hari")).toBeInTheDocument();
     expect(screen.getByText(/6\.000/)).toBeInTheDocument();
+    expect(screen.getByText("Express")).toBeInTheDocument();
+    expect(screen.getByText("Aktif")).toBeInTheDocument();
   });
 });
 
@@ -382,11 +385,11 @@ const tier = {
   unitId: "unit-smp",
   businessUnitId: null,
   name: "Cuci Setrika Reguler",
-  description: null,
+  description: "Cuci dan setrika",
   pricePerKg: "6000",
   minWeight: "1",
   processDays: 2,
-  isExpress: false,
+  isExpress: true,
   isActive: true,
   createdAt: "2026-11-20T00:00:00.000Z",
   updatedAt: "2026-11-20T00:00:00.000Z",
