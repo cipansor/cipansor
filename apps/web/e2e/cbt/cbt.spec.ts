@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import type { QuestionOptionObject } from "@cipansor/shared";
 import {
   apiLogin,
   apiRequest,
@@ -13,14 +14,10 @@ interface SeedExam {
   _count?: { attempts: number };
 }
 
-interface QuestionOption {
-  id: string;
-  text: string;
-}
-
 interface BankQuestion {
   id: string;
-  options: QuestionOption[];
+  content: string;
+  options: QuestionOptionObject[];
   answerKey: string;
 }
 

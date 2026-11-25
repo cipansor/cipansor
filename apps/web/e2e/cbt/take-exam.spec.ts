@@ -1,5 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
-import type { QuestionOption } from "@cipansor/shared";
+import type { ExamAttempt, Question, QuestionOption } from "@cipansor/shared";
 import {
   apiLogin,
   apiRequest,
@@ -36,13 +36,9 @@ const SMPIT_STUDENT: SeedUser = {
  * against real data (Playwright mocks are avoided per apps/web/AGENTS.md).
  */
 
-interface QuestionDto {
-  id: string;
-  type: string;
-  content: string;
+type QuestionDto = Pick<Question, "id" | "type" | "content" | "points"> & {
   options: QuestionOption[];
-  points: number;
-}
+};
 
 function optionText(option: QuestionOption): string {
   return typeof option === "string" ? option : option.text;
@@ -56,24 +52,13 @@ interface Attempt {
   status: string;
   tabSwitchCount?: number;
 }
-interface AttemptAnswer {
-  questionId: string;
-  answer: string | null;
-  isCorrect: boolean | null;
-  score: string | number | null;
-}
-interface FullAttempt {
-  id: string;
-  status: string;
-  tabSwitchCount: number;
-  score?: string | number | null;
-  answers?: AttemptAnswer[];
+type FullAttempt = Omit<ExamAttempt, "exam"> & {
   exam: {
     questionBank: {
       questions: QuestionDto[];
     };
   };
-}
+};
 
 /** Create a question bank + 2 MCQ questions + a scheduled exam via the API. */
 async function createCbtExam(
