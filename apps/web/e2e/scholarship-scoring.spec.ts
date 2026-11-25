@@ -200,7 +200,7 @@ test.describe("Skor penerima beasiswa", () => {
     await page.getByRole("button", { name: /tambah kriteria/i }).click();
 
     await expect(
-      page.getByText(/Target hafalan harus berupa jumlah juz/),
+      page.getByText(/Target: Target hafalan harus berupa jumlah juz/),
     ).toBeVisible();
     await expect(page.getByText(/Kriteria berhasil ditambahkan/)).toHaveCount(
       0,

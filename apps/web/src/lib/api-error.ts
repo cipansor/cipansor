@@ -15,6 +15,8 @@ export interface ParsedApiError {
   title: string;
   message: string;
   details?: string[];
+  /** Raw API field path -> reason, for forms that map errors to inputs. */
+  fieldErrors?: Record<string, string>;
   code?: string;
   statusCode: number;
   isNetworkError: boolean;
@@ -170,6 +172,15 @@ export function parseApiError(error: unknown): ParsedApiError {
     // Extract message from response
     let message = "";
     let details: string[] = [];
+    const fieldErrors: Record<string, string> = {};
+    const addDetail = (field: string | null, reason: string) => {
+      details.push(field ? `${fieldLabel(field)}: ${reason}` : reason);
+      if (field) {
+        fieldErrors[field] = fieldErrors[field]
+          ? `${fieldErrors[field]}; ${reason}`
+          : reason;
+      }
+    };
 
     const responseData = (err.response as Record<string, unknown>)
       ?.data as Record<string, unknown>;
@@ -190,28 +201,25 @@ export function parseApiError(error: unknown): ParsedApiError {
       // `{ field, message }`; older routes used `errors` as
       // `{ field: string[] }`. Read both.
       if (Array.isArray(envelope?.details)) {
-        details = envelope.details.flatMap((detail) => {
-          if (typeof detail === "string") return [detail];
-          if (!detail || typeof detail !== "object") return [];
+        envelope.details.forEach((detail) => {
+          if (typeof detail === "string") {
+            details.push(detail);
+            return;
+          }
+          if (!detail || typeof detail !== "object") return;
           const { field, message: reason } = detail as {
             field?: unknown;
             message?: unknown;
           };
-          if (typeof reason !== "string" || !reason) return [];
-          return [
-            typeof field === "string" && field
-              ? `${fieldLabel(field)}: ${reason}`
-              : reason,
-          ];
+          if (typeof reason !== "string" || !reason) return;
+          addDetail(typeof field === "string" && field ? field : null, reason);
         });
       }
       if (responseData.errors && typeof responseData.errors === "object") {
         const errors = responseData.errors as Record<string, string[]>;
-        details.push(
-          ...Object.entries(errors).flatMap(([field, messages]) =>
-            messages.map((msg) => `${fieldLabel(field)}: ${msg}`),
-          ),
-        );
+        for (const [field, messages] of Object.entries(errors)) {
+          for (const msg of messages) addDetail(field, msg);
+        }
       }
 
       // "Validation failed" alone is not actionable; the field name says which
@@ -232,6 +240,8 @@ export function parseApiError(error: unknown): ParsedApiError {
       title: errorInfo.title,
       message: message || errorInfo.message,
       details: details.length > 0 ? details : undefined,
+      fieldErrors:
+        Object.keys(fieldErrors).length > 0 ? fieldErrors : undefined,
       code: err.code as string | undefined,
       statusCode,
       isNetworkError: statusCode === 0,
@@ -284,22 +294,7 @@ export function isAuthError(error: unknown): boolean {
  * Format validation errors for display
  */
 export function formatValidationErrors(error: unknown): Record<string, string> {
-  const parsed = parseApiError(error);
-
-  if (!parsed.details) {
-    return {};
-  }
-
-  const formatted: Record<string, string> = {};
-
-  for (const detail of parsed.details) {
-    const [field, ...messageParts] = detail.split(": ");
-    if (field && messageParts.length > 0) {
-      formatted[field] = messageParts.join(": ");
-    }
-  }
-
-  return formatted;
+  return parseApiError(error).fieldErrors ?? {};
 }
 
 /**

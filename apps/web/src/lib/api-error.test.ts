@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { getErrorMessage, parseApiError } from "./api-error";
+import {
+  formatValidationErrors,
+  getErrorMessage,
+  parseApiError,
+} from "./api-error";
 
 const axiosLike = (status: number, data: unknown) => ({
   response: { status, data },
@@ -52,6 +56,24 @@ describe("parseApiError", () => {
     });
 
     expect(getErrorMessage(error)).toBe("customField: Tidak boleh kosong");
+  });
+
+  it("keeps API field paths as validation keys even when labels collide", () => {
+    const error = axiosLike(400, {
+      error: {
+        message: "Validation failed",
+        details: [
+          { field: "student.name", message: "Wajib diisi" },
+          { field: "guardian.name", message: "Wajib diisi" },
+        ],
+      },
+    });
+
+    expect(formatValidationErrors(error)).toEqual({
+      "student.name": "Wajib diisi",
+      "guardian.name": "Wajib diisi",
+    });
+    expect(getErrorMessage(error)).toBe("Nama: Wajib diisi");
   });
 
   it("still reads a bare message", () => {
