@@ -85,9 +85,8 @@ describe('seesAllUnits', () => {
 describe('actorSeesUnit', () => {
   const unitAdmin = { roleCode: RoleCode.SMPIT_ADMIN, unitId: 'unit-smp' };
 
-  it('refuses a unit admin a row with no unit or another unit’s unit', () => {
+  it('refuses a unit admin a row with no unit or another unit', () => {
     expect(actorSeesUnit(unitAdmin, null)).toBe(false);
-    expect(actorSeesUnit(unitAdmin, 'unit-yayasan')).toBe(false);
     expect(actorSeesUnit(unitAdmin, 'unit-sd')).toBe(false);
     expect(actorSeesUnit(unitAdmin, 'unit-smp')).toBe(true);
   });

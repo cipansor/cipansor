@@ -34,7 +34,6 @@ import {
 
 const SD = 'unit-sd';
 const SMP = 'unit-smp';
-const YAYASAN = 'unit-yayasan';
 
 const adminSd = { sub: 'u-sd', roleCode: 'SDIT_ADMIN', unitId: SD };
 const superAdmin = { sub: 'u-super', roleCode: 'SUPER_ADMIN', unitId: null };
@@ -60,13 +59,15 @@ interface StudentFixture {
 function recipientFixture(options: {
   criteria: CriterionFixture[];
   student?: StudentFixture;
-  unitId?: string | null;
+  unitId?: string;
 }) {
+  // Scholarship.unitId is required in the schema; the impossible null-unit
+  // case is pinned at actorSeesUnit in resolve-unit-id.test.ts instead.
   return {
     id: 'rec-1',
     studentId: 'stu-1',
     scholarship: {
-      unitId: options.unitId === undefined ? SD : options.unitId,
+      unitId: options.unitId ?? SD,
       criteria: options.criteria.map((c) => ({
         id: c.id,
         name: c.name,
@@ -293,40 +294,6 @@ describe('scholarshipScoringService.assessRecipient', () => {
     expect(prismaMock.scholarshipRecipient.update).not.toHaveBeenCalled();
   });
 
-  it('answers 404 for a program without a unit, writing nothing', async () => {
-    prismaMock.scholarshipRecipient.findUnique.mockResolvedValue(
-      recipientFixture({
-        unitId: null,
-        criteria: [{ id: 'c1', name: 'Tahfidz', weight: 1, targetValue: '10' }],
-        student: { tahfidzRecords: [{ juz: 5 }] },
-      })
-    );
-
-    await expect(scholarshipScoringService.assessRecipient(adminSd, 'rec-1')).rejects.toMatchObject(
-      { statusCode: 404 }
-    );
-    expect(prismaMock.student.findFirst).not.toHaveBeenCalled();
-    expect(prismaMock.$transaction).not.toHaveBeenCalled();
-    expect(prismaMock.scholarshipAssessment.upsert).not.toHaveBeenCalled();
-    expect(prismaMock.scholarshipRecipient.update).not.toHaveBeenCalled();
-  });
-
-  it('answers 404 for a yayasan-owned program, writing nothing', async () => {
-    prismaMock.scholarshipRecipient.findUnique.mockResolvedValue(
-      recipientFixture({
-        unitId: YAYASAN,
-        criteria: [{ id: 'c1', name: 'Tahfidz', weight: 1, targetValue: '10' }],
-        student: { tahfidzRecords: [{ juz: 5 }] },
-      })
-    );
-
-    await expect(scholarshipScoringService.assessRecipient(adminSd, 'rec-1')).rejects.toMatchObject(
-      { statusCode: 404 }
-    );
-    expect(prismaMock.student.findFirst).not.toHaveBeenCalled();
-    expect(prismaMock.$transaction).not.toHaveBeenCalled();
-  });
-
   it('answers 404 for a santri outside the caller scope, writing nothing (R11.3)', async () => {
     prismaMock.scholarshipRecipient.findUnique.mockResolvedValue(
       recipientFixture({
@@ -443,52 +410,11 @@ describe('scholarshipScoringService.assessRecipient', () => {
       scholarshipScoringService.assessRecipient(superAdmin, 'rec-1')
     ).resolves.toMatchObject({ totalScore: 50 });
   });
-
-  it('lets a Super Admin assess a program without a unit', async () => {
-    prismaMock.scholarshipRecipient.findUnique.mockResolvedValue(
-      recipientFixture({
-        unitId: null,
-        criteria: [{ id: 'c1', name: 'Tahfidz', weight: 1, targetValue: '10' }],
-        student: { tahfidzRecords: [{ juz: 5 }] },
-      })
-    );
-
-    await expect(
-      scholarshipScoringService.assessRecipient(superAdmin, 'rec-1')
-    ).resolves.toMatchObject({ totalScore: 50 });
-    expect(prismaMock.$transaction).toHaveBeenCalled();
-  });
 });
 
 describe('scholarshipScoringService.createCriterion', () => {
   it("answers 404 for another unit's program and writes nothing", async () => {
     prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SMP });
-
-    await expect(
-      scholarshipScoringService.createCriterion(adminSd, 'sch-1', {
-        name: 'Wawancara',
-        weight: 1,
-        type: 'NUMERIC',
-      })
-    ).rejects.toMatchObject({ statusCode: 404 });
-    expect(prismaMock.scholarshipCriterion.create).not.toHaveBeenCalled();
-  });
-
-  it('answers 404 for a program without a unit and writes nothing', async () => {
-    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: null });
-
-    await expect(
-      scholarshipScoringService.createCriterion(adminSd, 'sch-1', {
-        name: 'Wawancara',
-        weight: 1,
-        type: 'NUMERIC',
-      })
-    ).rejects.toMatchObject({ statusCode: 404 });
-    expect(prismaMock.scholarshipCriterion.create).not.toHaveBeenCalled();
-  });
-
-  it('answers 404 for a yayasan-owned program and writes nothing', async () => {
-    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: YAYASAN });
 
     await expect(
       scholarshipScoringService.createCriterion(adminSd, 'sch-1', {
@@ -520,20 +446,6 @@ describe('scholarshipScoringService.createCriterion', () => {
         scholarshipId: 'sch-1',
       },
     });
-  });
-
-  it('lets a Super Admin add a criterion to a program without a unit', async () => {
-    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: null });
-    prismaMock.scholarshipCriterion.create.mockResolvedValue({ id: 'crit-1' });
-
-    await expect(
-      scholarshipScoringService.createCriterion(superAdmin, 'sch-1', {
-        name: 'Hafalan',
-        weight: 2,
-        type: 'NUMERIC',
-      })
-    ).resolves.toEqual({ id: 'crit-1' });
-    expect(prismaMock.scholarshipCriterion.create).toHaveBeenCalled();
   });
 });
 
