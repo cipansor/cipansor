@@ -341,12 +341,6 @@ export function deriveLegacyRole(roleCode: string): LegacyRole | undefined {
 export interface RbacRoleAssignment {
   isPrimary?: boolean;
   role?: { code?: string | null } | null;
-}
-
-/** Minimal shape of a role assignment needed for RBAC decisions. */
-export interface RbacRoleAssignment {
-  isPrimary?: boolean;
-  role?: { code?: string | null } | null;
   unit?: { id?: string | null } | null;
 }
 

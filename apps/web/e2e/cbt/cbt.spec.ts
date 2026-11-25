@@ -1,5 +1,5 @@
 import { test, expect } from "@playwright/test";
-import type { QuestionOptionObject } from "@cipansor/shared";
+import type { Question, QuestionOptionObject } from "@cipansor/shared";
 import {
   apiLogin,
   apiRequest,
@@ -14,12 +14,10 @@ interface SeedExam {
   _count?: { attempts: number };
 }
 
-interface BankQuestion {
-  id: string;
-  content: string;
+type BankQuestion = Pick<Question, "id" | "content"> & {
   options: QuestionOptionObject[];
   answerKey: string;
-}
+};
 
 type AuthSession = Awaited<ReturnType<typeof apiLogin>>;
 
