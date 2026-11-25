@@ -220,12 +220,20 @@ test.describe("CBT Exams & Grading", () => {
     ).toBeTruthy();
     if (!exam) return;
 
+    const topicMasteryResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/cbt/exams/${exam.id}/topic-mastery`),
+    );
+
     await page.goto(`/cbt/exams/${exam.id}/monitoring`);
     await expect(
       page.getByRole("heading", { name: /monitoring ujian/i }),
     ).toBeVisible({ timeout: 15000 });
-    // The monitoring page also asks for topic mastery; an exam without a bank
-    // must not flash an error toast for either request.
+
+    // The monitoring page also asks for topic mastery. Wait for that response
+    // before asserting, so a toast from either request cannot arrive later.
+    expect((await topicMasteryResponse).status()).toBe(404);
     await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, {
       timeout: 3000,
     });
