@@ -3,6 +3,7 @@ import {
   EventScope,
   EventType,
   type CalendarEvent as SharedCalendarEvent,
+  type CalendarEventListParams,
 } from "@cipansor/shared";
 import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
 
@@ -99,20 +100,7 @@ export const EVENT_RECURRENCES: { value: EventRecurrence; label: string }[] = [
   { value: "YEARLY", label: "Setiap Tahun" },
 ];
 
-export interface CalendarEventParams {
-  page?: number;
-  limit?: number;
-  startDate?: string;
-  endDate?: string;
-  eventType?: EventCategory;
-  unitId?: string;
-  classId?: string;
-  isPublic?: boolean;
-  month?: number;
-  year?: number;
-  /** Management screen: let a unit admin see its unit's class events. */
-  manage?: boolean;
-}
+export type CalendarEventParams = CalendarEventListParams;
 
 /**
  * The instant a non-all-day event really starts. The create form sends a

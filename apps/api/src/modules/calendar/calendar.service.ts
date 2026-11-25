@@ -8,23 +8,7 @@ import {
 } from '@cipansor/shared';
 import { isFoundationScopedRole, seesAllUnits } from '@/utils/resolve-unit-id';
 import { shiftWibDay, todayWib, wibDayOf, wibDayStart, wibTimeOnDay } from '@/utils/wib';
-
-interface ListEventsQuery {
-  unitId?: string;
-  classId?: string;
-  eventType?: EventType;
-  startDate?: string;
-  endDate?: string;
-  month?: number;
-  year?: number;
-  search?: string;
-  isPublic?: boolean;
-  /** The management screen may show class events to the unit admin; the
-   * calendar itself must not. */
-  manage?: boolean;
-  page: number;
-  limit: number;
-}
+import type { CalendarEventsQuery } from './calendar.schema';
 
 interface CreateEventInput {
   unitId?: string;
@@ -84,7 +68,7 @@ export class CalendarService {
   /**
    * List calendar events
    */
-  async findAll(query: ListEventsQuery, currentUser: AuthenticatedUser) {
+  async findAll(query: CalendarEventsQuery, currentUser: AuthenticatedUser) {
     const {
       page,
       limit,
@@ -122,7 +106,7 @@ export class CalendarService {
     }
 
     if (eventType) {
-      where.eventType = eventType;
+      where.eventType = eventType as EventType;
     }
 
     if (isPublic !== undefined) {
@@ -259,7 +243,7 @@ export class CalendarService {
       unitId = currentUser.unitId;
     }
 
-    let classId = input.classId || null;
+    const classId = input.classId || null;
     if (classId) {
       const kelas = await prisma.class.findFirst({
         where: { id: classId, deletedAt: null },
@@ -591,7 +575,28 @@ export class CalendarService {
       }),
     ]);
 
-    return [...todayRows, ...futureRows]
+    // `startTime` is null for an all-day event, and PostgreSQL sorts nulls last
+    // within a date. The effective start (07:00 WIB) can still be earlier than
+    // a timed row that made the cut, so when the limit lands mid-date read that
+    // whole WIB day before sorting; otherwise an earlier event is lost.
+    const boundaryDay =
+      futureRows.length === limit ? wibDayOf(futureRows[futureRows.length - 1].startDate) : null;
+    const boundaryRows = boundaryDay
+      ? await prisma.calendarEvent.findMany({
+          where: {
+            ...scope,
+            startDate: {
+              gte: wibDayStart(boundaryDay),
+              lt: wibDayStart(shiftWibDay(boundaryDay, 1)),
+            },
+          },
+          orderBy: [{ startDate: 'asc' }, { startTime: 'asc' }],
+          include,
+        })
+      : [];
+
+    const byId = new Map([...futureRows, ...boundaryRows].map((event) => [event.id, event]));
+    return [...todayRows, ...byId.values()]
       .filter((event) => eventStartInstant(event) >= now)
       .sort((a, b) => eventStartInstant(a).getTime() - eventStartInstant(b).getTime())
       .slice(0, limit);

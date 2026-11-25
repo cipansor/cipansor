@@ -44,7 +44,7 @@ describe('CalendarService.findAll date window', () => {
 
   it('returns events that overlap the window, not only those starting in it', async () => {
     await calendarService.findAll(
-      { page: 1, limit: 50, startDate: '2026-01-01', endDate: '2026-01-31' },
+      { page: 1, limit: 50, manage: false, startDate: '2026-01-01', endDate: '2026-01-31' },
       board
     );
     const where = lastWhere();
@@ -64,7 +64,10 @@ describe('CalendarService.findAll date window', () => {
   });
 
   it('gives the month/year filter the same overlap treatment', async () => {
-    await calendarService.findAll({ page: 1, limit: 50, month: 1, year: 2026 }, board);
+    await calendarService.findAll(
+      { page: 1, limit: 50, manage: false, month: 1, year: 2026 },
+      board
+    );
     const where = lastWhere();
     expect(where.AND).toContainEqual({ startDate: { lte: new Date(2026, 0, 31) } });
     expect(where.AND).toContainEqual({
@@ -76,7 +79,7 @@ describe('CalendarService.findAll date window', () => {
   });
 
   it('leaves the range unconstrained when no dates are given', async () => {
-    await calendarService.findAll({ page: 1, limit: 50 }, board);
+    await calendarService.findAll({ page: 1, limit: 50, manage: false }, board);
     const where = lastWhere();
     expect(where.AND).toBeUndefined();
     expect(where.startDate).toBeUndefined();

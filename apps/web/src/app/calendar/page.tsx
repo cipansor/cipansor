@@ -71,6 +71,7 @@ import {
 } from "date-fns";
 import { id as idLocale } from "date-fns/locale";
 import Link from "next/link";
+import { useCanWriteCalendar } from "@/hooks/use-calendar-permissions";
 
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   GraduationCap,
@@ -83,6 +84,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function AcademicCalendarPage() {
+  const canWrite = useCanWriteCalendar();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | "">(
@@ -182,14 +184,16 @@ export default function AcademicCalendarPage() {
               Jadwal kegiatan dan event pesantren
             </p>
           </div>
-          <div className="flex gap-2">
-            <Link href="/calendar/events/new">
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Tambah Event
-              </Button>
-            </Link>
-          </div>
+          {canWrite && (
+            <div className="flex gap-2">
+              <Link href="/calendar/events/new">
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Tambah Event
+                </Button>
+              </Link>
+            </div>
+          )}
         </div>
 
         {/* Filters & Controls */}

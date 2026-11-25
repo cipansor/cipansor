@@ -66,9 +66,11 @@ import {
 
 import { id as idLocale } from "date-fns/locale";
 import Link from "next/link";
+import { useCanWriteCalendar } from "@/hooks/use-calendar-permissions";
 import { toast } from "sonner";
 
 export default function EventsListPage() {
+  const canWrite = useCanWriteCalendar();
   const [search, setSearch] = useState("");
   const [categoryFilter, setCategoryFilter] = useState<EventCategory | "">("");
   const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -122,12 +124,14 @@ export default function EventsListPage() {
                 Lihat Kalender
               </Button>
             </Link>
-            <Link href="/calendar/events/new">
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Tambah Event
-              </Button>
-            </Link>
+            {canWrite && (
+              <Link href="/calendar/events/new">
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Tambah Event
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
 
@@ -192,12 +196,14 @@ export default function EventsListPage() {
               <div className="text-center py-12 text-muted-foreground">
                 <CalendarIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>Tidak ada event ditemukan</p>
-                <Link href="/calendar/events/new">
-                  <Button variant="outline" className="mt-4">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Buat Event Baru
-                  </Button>
-                </Link>
+                {canWrite && (
+                  <Link href="/calendar/events/new">
+                    <Button variant="outline" className="mt-4">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Buat Event Baru
+                    </Button>
+                  </Link>
+                )}
               </div>
             ) : (
               <Table>
@@ -296,19 +302,25 @@ export default function EventsListPage() {
                                   Lihat Detail
                                 </DropdownMenuItem>
                               </Link>
-                              <Link href={`/calendar/events/${event.id}/edit`}>
-                                <DropdownMenuItem>
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                              </Link>
-                              <DropdownMenuItem
-                                className="text-red-600"
-                                onClick={() => setDeleteId(event.id)}
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Hapus
-                              </DropdownMenuItem>
+                              {canWrite && (
+                                <>
+                                  <Link
+                                    href={`/calendar/events/${event.id}/edit`}
+                                  >
+                                    <DropdownMenuItem>
+                                      <Edit className="h-4 w-4 mr-2" />
+                                      Edit
+                                    </DropdownMenuItem>
+                                  </Link>
+                                  <DropdownMenuItem
+                                    className="text-red-600"
+                                    onClick={() => setDeleteId(event.id)}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Hapus
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

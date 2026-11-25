@@ -391,4 +391,33 @@ describe('calendarService.getUpcoming — the real WIB start, not the stored dat
       vi.useRealTimers();
     }
   });
+
+  it('keeps an earlier all-day event when the limit lands on its date', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-25T06:00:00.000Z')); // 13:00 WIB
+
+    const allDay = {
+      id: 'all-day',
+      startDate: new Date('2026-11-26T00:00:00.000Z'), // 07:00 WIB
+      startTime: null,
+      isAllDay: true,
+    };
+    const meeting = {
+      id: 'meeting',
+      startDate: new Date('2026-11-26T00:00:00.000Z'),
+      startTime: '09:00',
+      isAllDay: false,
+    };
+    prismaMock.calendarEvent.findMany
+      .mockResolvedValueOnce([]) // today
+      .mockResolvedValueOnce([meeting]) // the one future row that fits
+      .mockResolvedValueOnce([allDay, meeting]); // the whole boundary day
+
+    try {
+      const events = await calendarService.getUpcoming(UNIT, 1, UNIT_ADMIN);
+      expect(events.map((event) => event.id)).toEqual(['all-day']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });

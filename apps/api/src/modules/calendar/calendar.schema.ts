@@ -184,3 +184,12 @@ export type ImportAcademicCalendarInput = z.infer<typeof importAcademicCalendarS
 export type GenerateRecurringEventsInput = z.infer<typeof generateRecurringEventsSchema>;
 export type SetReminderInput = z.infer<typeof setReminderSchema>;
 export type CalendarStatisticsQuery = z.infer<typeof calendarStatisticsQuerySchema>;
+
+// The list query contract lives in @cipansor/shared so the web hook and this
+// validator cannot drift. `ListEventsQuery` above is the legacy academic-
+// calendar schema, unused by the live `/calendar` route.
+export {
+  calendarEventsQuerySchema,
+  type CalendarEventsQuery,
+  type CalendarEventListParams,
+} from '@cipansor/shared';

@@ -353,6 +353,113 @@ test.describe("Tambah Event — unit admin", () => {
   });
 });
 
+test.describe("Kalender Akademik — pengawasan hanya membaca", () => {
+  test("menyembunyikan aksi tulis dan menolak formulir langsung", async ({
+    page,
+  }) => {
+    await loginAs(page, "pengawas");
+    await page.goto("/calendar");
+
+    await expect(
+      page.getByRole("heading", { name: /Kalender Akademik/i }),
+    ).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.getByRole("link", { name: /Tambah Event/i })).toHaveCount(
+      0,
+    );
+
+    await page.goto("/calendar/events");
+    await expect(
+      page.getByRole("heading", { name: /Manajemen Event/i }),
+    ).toBeVisible({ timeout: 15000 });
+    await expect(page.getByRole("link", { name: /Tambah Event/i })).toHaveCount(
+      0,
+    );
+
+    const firstRow = page.locator("tbody tr").first();
+    await expect(firstRow).toBeVisible({ timeout: 15000 });
+    await firstRow.getByRole("button").click();
+    await expect(
+      page.getByRole("menuitem", { name: /Lihat Detail/i }),
+    ).toBeVisible();
+    await expect(page.getByRole("menuitem", { name: /Edit/i })).toHaveCount(0);
+    await expect(page.getByRole("menuitem", { name: /Hapus/i })).toHaveCount(0);
+    await page.keyboard.press("Escape");
+
+    await page.goto("/calendar/events/new");
+    await expect(page.getByText("Akses ditolak")).toBeVisible({
+      timeout: 15000,
+    });
+    await expect(page.locator("#title")).toHaveCount(0);
+  });
+});
+
+test.describe("Manajemen Event — agenda kelas milik admin lain", () => {
+  test("admin unit melihat dan menghapus agenda kelas unitnya", async ({
+    page,
+  }) => {
+    const admin = await apiLogin(SEED_USERS.adminSdit);
+    const classes = await apiRequest<{
+      data: Array<{ id: string; unitId: string }>;
+    }>(admin, "GET", "/classes?limit=10");
+    const kelas = classes.data[0];
+    expect(
+      kelas,
+      "seed should provide a class for the unit admin",
+    ).toBeTruthy();
+
+    const superAdmin = await apiLogin(SEED_USERS.superAdmin);
+    const title = `Agenda kelas e2e ${Date.now()}`;
+    const wibToday = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const startDate = `${wibToday}T03:00:00.000Z`;
+    const created = await apiRequest<{ data: { id: string } }>(
+      superAdmin,
+      "POST",
+      "/calendar",
+      {
+        title,
+        eventType: "ACADEMIC",
+        startDate,
+        endDate: startDate,
+        isAllDay: false,
+        startTime: "10:00",
+        endTime: "11:00",
+        isPublic: false,
+        unitId: kelas.unitId,
+        classId: kelas.id,
+        scope: "SPECIFIC_CLASS",
+      },
+    );
+
+    try {
+      await loginAs(page, "adminSdit");
+      await page.goto("/calendar/events");
+
+      const row = page.locator("tr").filter({ hasText: title });
+      await expect(row).toBeVisible({ timeout: 15000 });
+
+      await row.getByRole("button").click();
+      await page.getByRole("menuitem", { name: "Hapus" }).click();
+      await page
+        .getByRole("alertdialog")
+        .getByRole("button", { name: "Hapus" })
+        .click();
+
+      await expect(row).toHaveCount(0, { timeout: 15000 });
+    } finally {
+      // The UI may already have deleted it; cleanup only needs to be sure.
+      await apiRequest(
+        superAdmin,
+        "DELETE",
+        `/calendar/${created.data.id}`,
+      ).catch(() => undefined);
+    }
+  });
+});
+
 test.describe("Calendar - Performance", () => {
   test("should load calendar quickly", async ({ page }) => {
     await loginAs(page, "superAdmin");

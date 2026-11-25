@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { updateEventSchema } from '../calendar.schema';
+import { calendarEventsQuerySchema, updateEventSchema } from '../calendar.schema';
 
 describe('calendar update schemas (Zod 4 partial-overwrite regression)', () => {
   describe('updateEventSchema', () => {
@@ -16,5 +16,22 @@ describe('calendar update schemas (Zod 4 partial-overwrite regression)', () => {
       const parsed = updateEventSchema.parse({ isAllDay: true, isImportant: true });
       expect(parsed).toEqual({ isAllDay: true, isImportant: true });
     });
+  });
+});
+
+describe('calendarEventsQuerySchema', () => {
+  it('defaults manage to false and coerces paging', () => {
+    expect(calendarEventsQuerySchema.parse({})).toEqual({
+      manage: false,
+      page: 1,
+      limit: 50,
+    });
+    expect(
+      calendarEventsQuerySchema.parse({ manage: 'true', page: '2', limit: '25' })
+    ).toMatchObject({ manage: true, page: 2, limit: 25 });
+  });
+
+  it('rejects a manage value that is not a boolean', () => {
+    expect(() => calendarEventsQuerySchema.parse({ manage: 'yes' })).toThrow();
   });
 });

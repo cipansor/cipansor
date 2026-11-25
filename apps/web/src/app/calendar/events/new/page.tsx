@@ -42,8 +42,10 @@ import {
   Clock,
   Repeat,
   Globe,
+  ShieldAlert,
 } from "lucide-react";
 import Link from "next/link";
+import { useCanWriteCalendar } from "@/hooks/use-calendar-permissions";
 import { toast } from "sonner";
 
 export default function NewEventPage() {
@@ -73,6 +75,7 @@ export default function NewEventPage() {
   const classes = classesData?.data || [];
 
   const { user } = useAuthStore();
+  const canWrite = useCanWriteCalendar();
   const roleCode = getActiveRoleCode(user);
   const canPublishFoundationWide =
     !!roleCode && CALENDAR_FOUNDATION_WRITE_ROLE_CODES.includes(roleCode);
@@ -142,6 +145,28 @@ export default function NewEventPage() {
   const selectedCategory = EVENT_CATEGORIES.find(
     (c) => c.value === formData.category,
   );
+
+  if (user && !canWrite) {
+    return (
+      <MainLayout>
+        <Card className="mx-auto mt-10 max-w-xl">
+          <CardContent className="space-y-4 py-10 text-center">
+            <ShieldAlert className="mx-auto h-12 w-12 text-muted-foreground" />
+            <div>
+              <h1 className="text-xl font-semibold">Akses ditolak</h1>
+              <p className="mt-1 text-muted-foreground">
+                Peran Anda hanya dapat membaca kalender. Hubungi admin unit atau
+                pengurus yayasan untuk menambah event.
+              </p>
+            </div>
+            <Link href="/calendar">
+              <Button variant="outline">Kembali ke Kalender</Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
