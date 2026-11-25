@@ -47,11 +47,16 @@ const TU_SMPIT = {
 
 let scholarshipId = "";
 let recipientId = "";
+let recipientNis = "";
+let recipientHadScore = false;
 let originalStatus = "";
 
 interface RecipientRow {
   id: string;
   status: string;
+  totalScore?: number | null;
+  assessments?: Array<unknown>;
+  student?: { nis?: string };
 }
 
 interface AssessmentResponse {
@@ -105,14 +110,21 @@ test.describe("Skor penerima beasiswa", () => {
     const recipients = await apiRequest<{ data: RecipientRow[] }>(
       session,
       "GET",
-      `${API}/scholarships/${program.id}/recipients?limit=1`,
+      `${API}/scholarships/${program.id}/recipients?limit=50`,
     );
-    const recipient = recipients.data[0];
+    // Prefer a recipient without a stored score, so the screen assertion below
+    // cannot pass on a result that was already there.
+    const recipient =
+      recipients.data.find((r) => !r.assessments?.length) ?? recipients.data[0];
     if (!recipient)
       throw new Error("Tidak ada penerima beasiswa pada data seed");
+    if (!recipient.student?.nis)
+      throw new Error("Penerima beasiswa pada data seed tidak punya NIS");
 
     scholarshipId = program.id;
     recipientId = recipient.id;
+    recipientNis = recipient.student.nis;
+    recipientHadScore = !!recipient.assessments?.length;
     originalStatus = recipient.status;
 
     // One criterion of each kind the scorer can read, plus one it cannot, so the
@@ -203,10 +215,20 @@ test.describe("Skor penerima beasiswa", () => {
     // "Lihat" opens the program's recipients — the seeded program is the first row.
     await page.getByRole("button", { name: /lihat/i }).first().click();
 
-    const scoreButton = page
-      .getByRole("button", { name: /hitung skor/i })
+    // The row of the recipient this spec picked in `beforeAll`, not the first
+    // row and not any row in the dialog.
+    const targetRow = page
+      .getByRole("row")
+      .filter({ hasText: recipientNis })
       .first();
+    const scoreButton = targetRow.getByRole("button", {
+      name: /hitung skor/i,
+    });
     await expect(scoreButton).toBeVisible();
+
+    if (!recipientHadScore) {
+      await expect(targetRow.getByText(/Skor total:/)).toHaveCount(0);
+    }
 
     // The click must actually ask the server: the table can already show a
     // stored score, so asserting only on the text would pass without a call.
@@ -228,12 +250,12 @@ test.describe("Skor penerima beasiswa", () => {
     const total = body.data.totalScore;
     expect(total).not.toBeNull();
 
-    // What the screen shows is the total the API just answered.
+    // What the clicked row shows is the total the API just answered.
     await expect(
-      page.getByText(`Skor total: ${(total as number).toFixed(1)}`).first(),
+      targetRow.getByText(`Skor total: ${(total as number).toFixed(1)}`),
     ).toBeVisible({ timeout: 15_000 });
     // The criterion the machine cannot read is named, not scored 0 (R11.5).
-    await expect(page.getByText(/Perlu dinilai manual/i).first()).toBeVisible();
+    await expect(targetRow.getByText(/Perlu dinilai manual/i).first()).toBeVisible();
     // The caveat that the score is decision support, not the decision (R11.16).
     await expect(page.getByText(/pendukung keputusan/i).first()).toBeVisible();
   });

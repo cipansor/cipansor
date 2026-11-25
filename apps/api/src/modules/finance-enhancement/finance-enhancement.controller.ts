@@ -233,15 +233,11 @@ export class FinanceEnhancementController {
     }
   }
 
-  async assignScholarship(req: Request, res: Response, next: NextFunction) {
-    try {
-      const input: AssignScholarshipInput = req.body;
-      const result = await financeEnhancementService.assignScholarship(input);
-      res.status(201).json({ success: true, data: result });
-    } catch (error) {
-      next(error);
-    }
-  }
+  assignScholarship = asyncHandler(async (req: Request, res: Response) => {
+    const input = req.body as AssignScholarshipInput;
+    const result = await financeEnhancementService.assignScholarship(input, scopeActorOf(req));
+    res.status(201).json(ApiResponse.success(result));
+  });
 
   // ==================== SCHOLARSHIP SCORING (Si-Beasiswa) ====================
 

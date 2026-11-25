@@ -1,7 +1,12 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { actorSeesUnit } from '@/utils/resolve-unit-id';
-import { onlyScopedStudents, studentScope, type ScopeActor } from '@/utils/student-scope';
+import {
+  assertStudentInUnit,
+  onlyScopedStudents,
+  studentScope,
+  type ScopeActor,
+} from '@/utils/student-scope';
 import {
   AccountCode,
   CreateAccountCodeInput,
@@ -62,6 +67,7 @@ const SCHOLARSHIP_RECIPIENT_SELECT = {
     },
   },
   academicYear: { select: { name: true } },
+  scholarship: { select: { id: true, name: true } },
 } satisfies Prisma.ScholarshipRecipientSelect;
 
 type ScholarshipRecipientRow = Prisma.ScholarshipRecipientGetPayload<{
@@ -468,7 +474,15 @@ export class FinanceEnhancementService {
     });
   }
 
-  async assignScholarship(input: AssignScholarshipInput): Promise<ScholarshipRecipient> {
+  async assignScholarship(
+    input: AssignScholarshipInput,
+    actor: ScopeActor
+  ): Promise<ScholarshipRecipient> {
+    const unitId = await this.assertScholarshipVisible(input.scholarshipId, actor);
+    // The recipient's active class travels back in the answer, so the student
+    // must be one this caller may see in the program's own unit.
+    await assertStudentInUnit(input.studentId, unitId, actor);
+
     const existing = await prisma.scholarshipRecipient.findFirst({
       where: {
         scholarshipId: input.scholarshipId,
@@ -898,6 +912,10 @@ export class FinanceEnhancementService {
       academicYear: {
         id: prismaRecipient.academicYearId,
         name: prismaRecipient.academicYear.name,
+      },
+      scholarship: {
+        id: prismaRecipient.scholarship.id,
+        name: prismaRecipient.scholarship.name,
       },
     };
   }

@@ -11,8 +11,14 @@ import { expectNoSensitiveStudentFields } from '../../../../tests/helpers/sensit
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     scholarship: { findUnique: vi.fn() },
-    scholarshipRecipient: { findMany: vi.fn(), count: vi.fn() },
+    scholarshipRecipient: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+    },
     scholarshipCriterion: { findMany: vi.fn() },
+    student: { findFirst: vi.fn() },
   },
 }));
 
@@ -30,7 +36,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.scholarshipRecipient.findMany.mockResolvedValue([]);
   prismaMock.scholarshipRecipient.count.mockResolvedValue(0);
+  prismaMock.scholarshipRecipient.findFirst.mockResolvedValue(null);
   prismaMock.scholarshipCriterion.findMany.mockResolvedValue([]);
+  prismaMock.student.findFirst.mockResolvedValue({ id: 's1' });
 });
 
 describe('getScholarshipRecipients', () => {
@@ -135,6 +143,7 @@ describe('getScholarshipRecipients', () => {
           enrollments: [{ class: { name: 'Kelas 1' } }],
         },
         academicYear: { name: '2026/2027' },
+        scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
       },
     ]);
 
@@ -193,6 +202,7 @@ describe('getScholarshipRecipients', () => {
           enrollments: [{ class: { name: 'Kelas 1' } }],
         },
         academicYear: { name: '2026/2027' },
+        scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
       },
     ]);
 
@@ -225,6 +235,87 @@ describe('getScholarshipRecipients', () => {
     const args = prismaMock.scholarshipRecipient.findMany.mock.calls[0][0];
     expect(args.select.totalScore).toBe(true);
     expect(args.select.assessments).toBeDefined();
+  });
+});
+
+describe('assignScholarship', () => {
+  const input = {
+    scholarshipId: 'sch-1',
+    studentId: 's1',
+    academicYearId: 'ay-1',
+    startDate: '2026-07-01T00:00:00.000Z',
+  };
+
+  it('menolak program unit lain sebelum membaca santri', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SMP });
+
+    await expect(financeEnhancementService.assignScholarship(input, adminSd)).rejects.toMatchObject(
+      { statusCode: 404 }
+    );
+
+    expect(prismaMock.student.findFirst).not.toHaveBeenCalled();
+    expect(prismaMock.scholarshipRecipient.create).not.toHaveBeenCalled();
+  });
+
+  it('menolak santri di luar unit program dan cakupan pemanggil', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
+    prismaMock.student.findFirst.mockResolvedValue(null);
+
+    await expect(financeEnhancementService.assignScholarship(input, adminSd)).rejects.toMatchObject(
+      { statusCode: 404 }
+    );
+
+    expect(prismaMock.student.findFirst).toHaveBeenCalledWith({
+      where: { AND: [{ id: 's1' }, { unitId: SD }, { unitId: SD }] },
+      select: { id: true },
+    });
+    expect(prismaMock.scholarshipRecipient.create).not.toHaveBeenCalled();
+  });
+
+  it('menyimpan penerima dan mengembalikan nama program serta kelas aktif', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
+    prismaMock.scholarshipRecipient.create.mockResolvedValue({
+      id: 'r1',
+      scholarshipId: 'sch-1',
+      studentId: 's1',
+      academicYearId: 'ay-1',
+      startDate: new Date('2026-07-01'),
+      endDate: null,
+      notes: null,
+      status: 'ACTIVE',
+      totalScore: null,
+      assessments: [],
+      createdAt: new Date('2026-07-01'),
+      updatedAt: new Date('2026-07-01'),
+      student: {
+        id: 's1',
+        nis: '0099',
+        user: { name: 'Fulan' },
+        enrollments: [{ class: { name: 'Kelas 1' } }],
+      },
+      academicYear: { name: '2026/2027' },
+      scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
+    });
+
+    const res = await financeEnhancementService.assignScholarship(input, adminSd);
+
+    expect(prismaMock.scholarshipRecipient.create).toHaveBeenCalledWith({
+      data: {
+        scholarshipId: 'sch-1',
+        studentId: 's1',
+        academicYearId: 'ay-1',
+        startDate: new Date(input.startDate),
+        endDate: null,
+        notes: undefined,
+        status: 'ACTIVE',
+      },
+      select: expect.any(Object),
+    });
+    expect(res).toMatchObject({
+      id: 'r1',
+      scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
+      student: { nis: '0099', name: 'Fulan', class: 'Kelas 1' },
+    });
   });
 });
 

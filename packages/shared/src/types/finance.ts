@@ -178,7 +178,7 @@ export interface ScholarshipRecipient {
   createdAt?: Date;
   updatedAt?: Date;
 
-  scholarship?: Scholarship;
+  scholarship?: Pick<Scholarship, "id" | "name">;
   student?: any;
   academicYear?: { id: string; name: string };
 }
