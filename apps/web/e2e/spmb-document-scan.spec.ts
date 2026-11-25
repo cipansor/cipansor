@@ -49,7 +49,7 @@ async function openDocumentsStep(page: Page) {
 
 test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   page,
-}) => {
+}, testInfo) => {
   test.setTimeout(90_000);
   const documents = spmbFormContentFor("id").documents;
   await openDocumentsStep(page);
@@ -57,6 +57,12 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   await page.screenshot({
     path: "test-results/spmb-document-scan-before.png",
     fullPage: true,
+  });
+  // Attach to the HTML report so the reviewer sees the pair in the uploaded
+  // `playwright-report` artifact, not only in the (un-uploaded) test-results dir.
+  await testInfo.attach("before-scan", {
+    path: "test-results/spmb-document-scan-before.png",
+    contentType: "image/png",
   });
 
   const ktp = page
@@ -94,5 +100,9 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   await page.screenshot({
     path: "test-results/spmb-document-scan-after.png",
     fullPage: true,
+  });
+  await testInfo.attach("after-scan", {
+    path: "test-results/spmb-document-scan-after.png",
+    contentType: "image/png",
   });
 });
