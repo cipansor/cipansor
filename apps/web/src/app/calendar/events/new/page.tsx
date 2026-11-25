@@ -32,7 +32,10 @@ import {
 import { useUnits } from "@/hooks/use-units";
 import { useClasses } from "@/hooks/use-classes";
 import { useAuth } from "@/hooks/use-auth";
-import { useOverseesAllUnits } from "@/components/shared/unit-scope";
+import {
+  useOverseesAllUnits,
+  useSessionUnitId,
+} from "@/components/shared/unit-scope";
 import { usePermission } from "@/hooks/use-permission";
 import { PERMISSIONS } from "@/constants/permissions";
 import {
@@ -51,6 +54,7 @@ export default function NewEventPage() {
   const router = useRouter();
   const { user, isLoading: authLoading } = useAuth();
   const overseesAllUnits = useOverseesAllUnits();
+  const sessionUnitId = useSessionUnitId();
   const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
@@ -74,16 +78,21 @@ export default function NewEventPage() {
   });
 
   const { data: units = [] } = useUnits();
-  // A unit admin can only write into their own unit, so offering classes from
-  // every unit here would list choices the API refuses.
-  const ownUnitId = user?.unitId ?? user?.unit?.id;
+  // A unit-bound writer is scoped by the active role assignment, not the
+  // profile: the API refuses a different unit, and the class list must match
+  // the unit the event will actually be saved into.
+  const ownUnitId = sessionUnitId;
   const effectiveUnitId = overseesAllUnits
     ? formData.unitId || undefined
     : ownUnitId;
   const { data: classesData } = useClasses({ unitId: effectiveUnitId });
   const classes = classesData?.data || [];
+  const activeAssignment =
+    user?.userRoles?.find((assignment) => assignment.isPrimary) ??
+    user?.userRoles?.[0];
   const ownUnitName =
     units.find((u) => u.id === ownUnitId)?.name ??
+    activeAssignment?.unit?.name ??
     user?.unit?.name ??
     "Unit akun";
 
@@ -140,9 +149,10 @@ export default function NewEventPage() {
         endTime: formData.isAllDay ? undefined : formData.endTime || undefined,
         isAllDay: formData.isAllDay,
         location: formData.location || undefined,
-        unitId: overseesAllUnits
-          ? formData.unitId || undefined
-          : ownUnitId || undefined,
+        // A unit-bound writer sends no unit at all: the API sets it from the
+        // active assignment, and sending the profile unit made it refuse the
+        // request when the two differed. Only a foundation role chooses one.
+        unitId: overseesAllUnits ? formData.unitId || undefined : undefined,
         classId: formData.classId || undefined,
         recurrence: formData.recurrence,
         recurrenceEnd:

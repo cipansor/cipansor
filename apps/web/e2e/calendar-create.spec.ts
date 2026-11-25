@@ -217,6 +217,46 @@ test.describe("Kalender Akademik — Tambah Agenda", () => {
     }
   });
 
+  test("kepala sekolah membuka formulir dan menyimpan agenda unitnya", async ({
+    page,
+  }) => {
+    const title = `Agenda kepala e2e ${STAMP}`;
+    const session = await loginAs(page, "kepalaSdit");
+
+    try {
+      // The API admits a kepala sekolah through ACADEMIC_MANAGE; the portal's
+      // route guard did not, and bounced the form back to /dashboard.
+      await page.goto("/calendar/events/new");
+      await expect(page).toHaveURL(/\/calendar\/events\/new$/);
+      await expect(
+        page.getByText(/Agenda disimpan untuk unit ini/),
+      ).toBeVisible();
+
+      await page.getByLabel("Judul Event *").fill(title);
+      await page.getByRole("button", { name: /Simpan/ }).click();
+
+      await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
+      const listed = await apiRequest<Listed>(
+        session,
+        "GET",
+        `/calendar?limit=100&search=${encodeURIComponent(title)}`,
+      );
+      const found = listed.data.find((e) => e.title === title);
+      expect(found?.unitId).toBe(session.user.unitId);
+    } finally {
+      const left = await apiRequest<Listed>(
+        session,
+        "GET",
+        `/calendar?limit=100&search=${encodeURIComponent(title)}`,
+      ).catch(() => ({ data: [] }));
+      for (const e of left.data) {
+        await apiRequest(session, "DELETE", `/calendar/${e.id}`).catch(
+          () => undefined,
+        );
+      }
+    }
+  });
+
   test("form menolak jam terbalik pada hari yang sama", async ({ page }) => {
     const today = new Date(Date.now() + 7 * 3_600_000)
       .toISOString()

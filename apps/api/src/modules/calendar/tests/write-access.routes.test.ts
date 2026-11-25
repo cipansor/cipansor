@@ -75,10 +75,17 @@ const WRITES: Write[] = [
   ['a bulk import', 'post', '/calendar/bulk', { events: [validEvent] }],
   ['an academic-calendar import', 'post', '/calendar/import', { events: [] }],
   ['a holiday sync', 'post', '/calendar/holidays/sync', {}],
-  ['a holiday draft approval', 'post', `/calendar/holidays/drafts/${EVENT_ID}/approve`, {}],
-  ['a holiday draft rejection', 'post', `/calendar/holidays/drafts/${EVENT_ID}/reject`, {}],
   ['an edit', 'put', `/calendar/${EVENT_ID}`, { title: 'Revisi' }],
   ['a delete', 'delete', `/calendar/${EVENT_ID}`],
+];
+
+// Approving or rejecting an imported holiday changes work days, so it is
+// narrower than the rest of the calendar writes: only SUPER_ADMIN and the
+// per-unit admins may do it. A kepala sekolah may write ordinary agenda but
+// must not adopt a holiday.
+const HOLIDAY_REVIEW_WRITES: Write[] = [
+  ['a holiday draft approval', 'post', `/calendar/holidays/drafts/${EVENT_ID}/approve`, {}],
+  ['a holiday draft rejection', 'post', `/calendar/holidays/drafts/${EVENT_ID}/reject`, {}],
 ];
 
 const send = (roleCode: string, method: Method, path: string, body?: object) =>
@@ -88,6 +95,20 @@ describe.each(['SUPER_ADMIN', 'SDIT_ADMIN', 'SDIT_KEPALA_SEKOLAH'])('%s', (roleC
   it.each(WRITES)('may write %s', async (_label, method, path, body) => {
     const res = await send(roleCode, method, path, body);
     expect(res.status).not.toBe(403);
+  });
+});
+
+describe.each(['SUPER_ADMIN', 'SDIT_ADMIN'])('%s', (roleCode) => {
+  it.each(HOLIDAY_REVIEW_WRITES)('may review %s', async (_label, method, path, body) => {
+    const res = await send(roleCode, method, path, body);
+    expect(res.status).not.toBe(403);
+  });
+});
+
+describe('SDIT_KEPALA_SEKOLAH', () => {
+  it.each(HOLIDAY_REVIEW_WRITES)('is refused %s: 403', async (_label, method, path, body) => {
+    const res = await send('SDIT_KEPALA_SEKOLAH', method, path, body);
+    expect(res.status).toBe(403);
   });
 });
 
@@ -101,8 +122,11 @@ describe.each([
   'SDIT_SISWA',
   'SDIT_ORANG_TUA',
 ])('%s', (roleCode) => {
-  it.each(WRITES)('is refused %s: 403', async (_label, method, path, body) => {
-    const res = await send(roleCode, method, path, body);
-    expect(res.status).toBe(403);
-  });
+  it.each([...WRITES, ...HOLIDAY_REVIEW_WRITES])(
+    'is refused %s: 403',
+    async (_label, method, path, body) => {
+      const res = await send(roleCode, method, path, body);
+      expect(res.status).toBe(403);
+    }
+  );
 });

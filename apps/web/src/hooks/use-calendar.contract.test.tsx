@@ -92,6 +92,13 @@ describe("useCalendarEvents", () => {
       search: "rapat",
     });
   });
+
+  it("leaves the error to the list instead of showing it twice", async () => {
+    const { result } = renderHook(() => useCalendarEvents(), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(get.mock.calls[0][1].skipErrorToast).toBe(true);
+  });
 });
 
 describe("useDeleteCalendarEvent", () => {

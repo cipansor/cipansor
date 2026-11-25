@@ -20,6 +20,14 @@ const router = Router();
 // actually hold.
 const manageCalendar = hasPermission(PERMISSIONS.ACADEMIC_MANAGE);
 
+// Reviewing an imported holiday is admin work, not teaching work. A kepala
+// sekolah holds ACADEMIC_MANAGE and may create ordinary agenda, but approving a
+// draft changes a unit's work days for attendance and payroll. `authorize`
+// alone cannot express this: the legacy UNIT_ADMIN bucket also contains the
+// read-only yayasan roles, and TEACHER contains the kepala sekolah. The pair of
+// gates leaves exactly SUPER_ADMIN and the per-unit admins.
+const reviewHolidayDraft = [authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN), manageCalendar];
+
 // All routes require authentication
 router.use(authenticate);
 
@@ -143,14 +151,14 @@ router.get(
 // POST /calendar/holidays/drafts/:id/approve - Adopt a draft into the live calendar
 router.post(
   '/holidays/drafts/:id/approve',
-  manageCalendar,
+  reviewHolidayDraft,
   calendarController.approveHolidayDraft.bind(calendarController)
 );
 
 // POST /calendar/holidays/drafts/:id/reject - Drop a draft so it never affects work days
 router.post(
   '/holidays/drafts/:id/reject',
-  manageCalendar,
+  reviewHolidayDraft,
   calendarController.rejectHolidayDraft.bind(calendarController)
 );
 

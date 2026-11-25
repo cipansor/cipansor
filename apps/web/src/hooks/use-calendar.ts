@@ -125,6 +125,9 @@ export function useCalendarEvents(params: CalendarEventParams = {}) {
     queryFn: async () => {
       const response = await api.get<CalendarEventList>("/calendar", {
         params,
+        // The list renders the failure itself; the interceptor's toast would
+        // report the same error a second time.
+        skipErrorToast: true,
       });
       return response.data;
     },
