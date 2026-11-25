@@ -5,7 +5,6 @@ import {
   injectSession,
   SEED_USERS,
 } from "../helpers/auth-api";
-import { dismissToasts } from "../helpers/page-helpers";
 
 interface SeedExam {
   id: string;
@@ -225,7 +224,11 @@ test.describe("CBT Exams & Grading", () => {
     await expect(
       page.getByRole("heading", { name: /monitoring ujian/i }),
     ).toBeVisible({ timeout: 15000 });
-    await dismissToasts(page, 3000);
+    // The monitoring page also asks for topic mastery; an exam without a bank
+    // must not flash an error toast for either request.
+    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, {
+      timeout: 3000,
+    });
 
     const difficultyTab = page.getByRole("tab", { name: /analisis soal/i });
     const insightsResponse = page.waitForResponse(
