@@ -14,7 +14,7 @@ interface SeedExam {
   _count?: { attempts: number };
 }
 
-type BankQuestion = Pick<Question, "id" | "content"> & {
+type BankQuestion = Omit<Question, "options" | "answerKey"> & {
   options: QuestionOptionObject[];
   answerKey: string;
 };
