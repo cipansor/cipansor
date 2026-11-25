@@ -793,13 +793,13 @@ function stringColumns(model: string): string[] {
     .map((f) => f.name);
 }
 
-// Dua berkas: penyapuan teks bebas tinggal di `erasure-sweep.ts` (satu tempat,
+// Dua berkas: penyapuan teks bebas tinggal di `erasure-sweep.service.ts` (satu tempat,
 // karena ia menyapu ~70 model), dan penjaga harus melihat keduanya — kalau
 // hanya layanan utama yang dibaca, setiap kolom di berkas sapuan terbaca
 // "ditandai disapu tetapi tidak ditulis".
 const serviceSource = [
   readFileSync(resolve(__dirname, '../data-subject-requests.service.ts'), 'utf8'),
-  readFileSync(resolve(__dirname, '../erasure-sweep.ts'), 'utf8'),
+  readFileSync(resolve(__dirname, '../erasure-sweep.service.ts'), 'utf8'),
 ].join('\n');
 
 describe('penjaga cakupan penyapuan ERASURE', () => {

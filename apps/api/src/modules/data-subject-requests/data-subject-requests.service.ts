@@ -7,8 +7,8 @@ import { isPdpOfficer } from '@/lib/pdp-officers';
 import { Errors } from '@/middleware/error';
 import { notificationService } from '@/modules/notifications';
 import { deleteIdentityDocument } from '@/utils/identity-document-store';
-import { uploadPathFromUrl } from '@/utils/letter-uploaded-file';
-import { sweepStudentText, sweepUserText } from './erasure-sweep';
+import { uploadFilenameFromUrl, uploadPathFromUrl } from '@/utils/letter-uploaded-file';
+import { sweepStudentText, sweepUserText } from './erasure-sweep.service';
 import {
   DATA_SUBJECT_REQUEST_DUE_HOURS,
   DATA_SUBJECT_REQUEST_ERASURE_DEFAULT_DAYS,
@@ -1278,9 +1278,9 @@ async function eraseStudent(
 
   // Sisa teks bebas pada tabel yang menaut santri: perilaku, nilai, hafalan,
   // laporan harian, tugas, portofolio, keuangan, alumni, sertifikat. Daftarnya
-  // satu tempat di `erasure-sweep.ts`, dan penjaganya
+  // satu tempat di `erasure-sweep.service.ts`, dan penjaganya
   // `tests/erasure-coverage.guard.test.ts`.
-  absorbOutcome(await sweepStudentText(tx, student.id, marker));
+  absorbOutcome(await sweepStudentText(tx, student.id, marker, now));
 
   outcome.erased.push(
     'identitas santri',
@@ -1576,8 +1576,20 @@ async function executeErasure(
     filesToDelete.push(...outcome.files);
   };
 
+  // Satu permintaan dapat menunjuk subjek yang sama lewat beberapa kolom
+  // (`subjectStudentId` dan `subjectUserId` milik santri itu, atau pendaftaran
+  // yang sudah menjadi santri). Menyapu dua kali dalam satu transaksi hanya
+  // mengulang kueri dan menulis penanda yang sama; jejak yang dicatat pun
+  // menjadi ganda. Setiap santri disapu sekali.
+  const erasedStudentIds = new Set<string>();
+  const eraseStudentOnce = async (studentId: string) => {
+    if (erasedStudentIds.has(studentId)) return;
+    erasedStudentIds.add(studentId);
+    absorb(await eraseStudentAndRegistrations(tx, studentId, marker, now));
+  };
+
   if (request.subjectStudentId) {
-    absorb(await eraseStudentAndRegistrations(tx, request.subjectStudentId, marker, now));
+    await eraseStudentOnce(request.subjectStudentId);
   }
 
   if (request.subjectRegistrantId) {
@@ -1585,56 +1597,52 @@ async function executeErasure(
       where: { id: request.subjectRegistrantId },
       select: { studentId: true },
     });
-    absorb(await eraseRegistrant(tx, request.subjectRegistrantId, marker, now));
     // Arah sebaliknya: pendaftaran yang sudah menjadi santri menunjuk baris
-    // `Student`, dan baris itu memegang identitas yang sama.
+    // `Student`, dan baris itu memegang identitas yang sama. Jalur itu sudah
+    // menyapu setiap pendaftaran yang menunjuk santri tersebut — termasuk yang
+    // sedang diproses — jadi tidak ada penyapuan pendaftar yang terpisah.
     if (registration?.studentId) {
-      absorb(await eraseStudent(tx, registration.studentId, marker, now));
-      const siblings = await tx.registrant.findMany({
-        where: { studentId: registration.studentId, id: { not: request.subjectRegistrantId } },
-        select: { id: true },
-      });
-      for (const sibling of siblings) {
-        absorb(await eraseRegistrant(tx, sibling.id, marker, now));
-      }
+      await eraseStudentOnce(registration.studentId);
+    } else {
+      absorb(await eraseRegistrant(tx, request.subjectRegistrantId, marker, now));
     }
   }
 
   if (request.subjectUserId) {
-    await tx.user.update({
-      where: { id: request.subjectUserId },
-      data: {
-        name: marker,
-        email: `dihapus-${request.subjectUserId}@invalid.local`,
-        phone: null,
-        passwordHash: null,
-        resetTokenHash: null,
-        twoFactorSecret: null,
-        twoFactorSecretPending: null,
-        twoFactorRecoveryCodes: [],
-        fcmToken: null,
-        isActive: false,
-        deletedAt: now,
-      },
-    });
-    erased.push('identitas akun');
-
-    absorb(await eraseUserIdentity(tx, request.subjectUserId, marker, now));
-    // Tabel yang menaut subjek lewat `userId` saja — pesan, pengaduan,
-    // notifikasi, baris pasien — tidak tersapu oleh jalur santri di atas.
-    absorb(await sweepUserText(tx, request.subjectUserId, marker));
-
     // Baris `Student` menaut `User` lewat `userId` yang unik: subjek yang
     // mewakili dirinya sendiri (GUARDIAN) dapat menunjuk seorang santri yang
-    // sudah dewasa. Mengosongkan `User` saja meninggalkan NIK/KK/akta dan
-    // identitas orang tuanya pada `Student` — orang yang sama, masih dapat
-    // dikenali. Jalur ini juga menutup pendaftaran SPMB yang menunjuk santri itu.
+    // sudah dewasa. Jalur santri sudah mengosongkan akun itu (nama, surel,
+    // kredensial), menyapu `UserIdentity`, dan menyapu tabel yang menaut lewat
+    // `userId` — jadi mengerjakannya lagi di sini hanya mengulang tulisan.
     const linkedStudent = await tx.student.findUnique({
       where: { userId: request.subjectUserId },
       select: { id: true },
     });
     if (linkedStudent) {
-      absorb(await eraseStudentAndRegistrations(tx, linkedStudent.id, marker, now));
+      await eraseStudentOnce(linkedStudent.id);
+    } else {
+      await tx.user.update({
+        where: { id: request.subjectUserId },
+        data: {
+          name: marker,
+          email: `dihapus-${request.subjectUserId}@invalid.local`,
+          phone: null,
+          passwordHash: null,
+          resetTokenHash: null,
+          twoFactorSecret: null,
+          twoFactorSecretPending: null,
+          twoFactorRecoveryCodes: [],
+          fcmToken: null,
+          isActive: false,
+          deletedAt: now,
+        },
+      });
+      erased.push('identitas akun');
+
+      absorb(await eraseUserIdentity(tx, request.subjectUserId, marker, now));
+      // Tabel yang menaut subjek lewat `userId` saja — pesan, pengaduan,
+      // notifikasi, baris pasien — tidak tersapu oleh jalur santri di atas.
+      absorb(await sweepUserText(tx, request.subjectUserId, marker));
     }
   }
 
@@ -1773,22 +1781,62 @@ async function executeErasure(
  * korban. Karena transaksi di atas sudah mengosongkan penunjuk milik subjek
  * yang dihapus, keberadaan penunjuk lain setelah commit berarti berkas itu
  * bukan (hanya) miliknya — dan penghapusan dilewati.
+ *
+ * Perbandingannya lewat **nama berkas**, bukan URL utuh: penghapusan memakai
+ * `uploadPathFromUrl`, yang membuang host dan hanya menyisakan nama di
+ * `/uploads`. Dua URL berbeda yang menunjuk unggahan yang sama (host lain,
+ * host lama, atau path root-relative) adalah penunjuk yang sama bagi berkas di
+ * disk; membandingkan URL utuh akan menganggapnya "tidak ditunjuk" lalu
+ * menghapus berkas milik baris yang lain.
  */
-async function uploadStillReferenced(url: string): Promise<boolean> {
+function uploadFileKey(url: unknown): string | null {
+  if (typeof url !== 'string' || !url) return null;
+  let pathname: string;
+  try {
+    // `http://uploads.invalid` hanya memberi basis agar path root-relative
+    // (`/uploads/…`) juga dapat dibaca; host tidak pernah ikut dibandingkan.
+    pathname = new URL(url, 'http://uploads.invalid').pathname;
+  } catch {
+    return null;
+  }
+  const marker = '/uploads/';
+  const at = pathname.lastIndexOf(marker);
+  if (at === -1) return null;
+  return pathname.slice(at + marker.length);
+}
+
+async function uploadStillReferenced(
+  url: string
+): Promise<{ referenced: boolean; model?: string; field?: string }> {
+  const filename = uploadFilenameFromUrl(url);
+  // Tanpa nama berkas yang sah, kepemilikannya tidak dapat dibuktikan — dan
+  // berkas yang tidak dapat dibuktikan bukan milik subjek ini.
+  if (!filename) return { referenced: true };
   for (const { model, field } of urlColumns()) {
     // Nama delegasi Prisma = nama model dengan huruf pertama kecil.
     const delegate = model.charAt(0).toLowerCase() + model.slice(1);
     const client = (
-      prisma as unknown as Record<string, { count?: (args: unknown) => Promise<number> }>
+      prisma as unknown as Record<
+        string,
+        { findMany?: (args: unknown) => Promise<Array<Record<string, unknown>>> }
+      >
     )[delegate];
-    // Model tanpa `count` (tidak mungkin pada klien yang tergenerasi) dilewati,
-    // bukan dianggap "tidak menunjuk": satu galat tak terduga di sini berarti
-    // berkas yang tidak boleh hilang ikut terhapus.
-    if (typeof client?.count !== 'function') continue;
-    const count = await client.count({ where: { [field]: url } });
-    if (count > 0) return true;
+    // Model tanpa `findMany` (tidak mungkin pada klien yang tergenerasi)
+    // dilewati, bukan dianggap "tidak menunjuk": satu galat tak terduga di sini
+    // berarti berkas yang tidak boleh hilang ikut terhapus.
+    if (typeof client?.findMany !== 'function') continue;
+    // `contains` menjangkau URL dengan query string atau host lain; hasilnya
+    // diverifikasi lewat identitas berkasnya, jadi nama yang hanya berbagi
+    // akhiran tidak dihitung sebagai penunjuk.
+    const rows = await client.findMany({
+      where: { [field]: { contains: filename } },
+      select: { [field]: true },
+    });
+    if (rows.some((row) => uploadFileKey(row[field]) === filename)) {
+      return { referenced: true, model, field };
+    }
   }
-  return false;
+  return { referenced: false };
 }
 
 /**
@@ -1809,13 +1857,20 @@ function urlColumns(): Array<{ model: string; field: string }> {
 }
 
 async function deleteStoredFiles(fileUrls: string[], requestNo: string): Promise<void> {
+  const seen = new Set<string>();
   for (const url of fileUrls) {
     const filePath = uploadPathFromUrl(url);
-    if (!filePath) continue;
+    // Beberapa baris dapat menunjuk unggahan yang sama; satu berkas cukup
+    // diperiksa dan dihapus sekali.
+    if (!filePath || seen.has(filePath)) continue;
+    seen.add(filePath);
     try {
-      if (await uploadStillReferenced(url)) {
+      const reference = await uploadStillReferenced(url);
+      if (reference.referenced) {
         logger.warn('[PDP] Berkas masih ditunjuk baris lain; penghapusan dilewati', {
           requestNo,
+          model: reference.model,
+          field: reference.field,
         });
         continue;
       }

@@ -1088,6 +1088,9 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       userId: 'usr-1',
       photoUrl: null,
     } as any);
+    vi.mocked(prisma.announcement.findMany).mockResolvedValueOnce([
+      { id: 'ann-1', attachmentUrl: null },
+    ] as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
     );
@@ -1097,6 +1100,15 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     const announcement = vi.mocked(prisma.announcement.updateMany).mock.calls[0][0] as any;
     expect(announcement.where).toEqual({ scope: 'BOARDERS', studentIds: { equals: ['stu-1'] } });
     expect(announcement.data.content).toContain('UU PDP');
+    // Salinan di lonceng penerima (termasuk wali yang bukan pemilik akun
+    // santri) ikut disapu; tanpa ini wali masih membaca isinya.
+    const delivered = vi
+      .mocked(prisma.notification.updateMany)
+      .mock.calls.map((call) => call[0] as any)
+      .find((call) => call.where?.announcementId);
+    expect(delivered?.where).toEqual({ announcementId: { in: ['ann-1'] } });
+    expect(delivered?.data.message).toContain('UU PDP');
+    expect(delivered?.data.data).toEqual(Prisma.DbNull);
   });
 
   it('menyapu kotak pesan, pengaduan, dan notifikasi milik akun subjek', async () => {
@@ -1184,6 +1196,7 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       photoUrl: null,
     } as any);
     vi.mocked(prisma.permit.findMany).mockResolvedValueOnce([{ id: 'permit-1' }] as any);
+    vi.mocked(prisma.permitAttachment.findMany).mockResolvedValueOnce([{ id: 'att-1' }] as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
     );
@@ -1191,9 +1204,42 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
 
     const attachment = vi.mocked(prisma.permitAttachment.updateMany).mock.calls[0][0] as any;
-    expect(attachment.where).toEqual({ permitId: { in: ['permit-1'] }, erasedAt: null });
+    expect(attachment.where).toEqual({ id: { in: ['att-1'] }, erasedAt: null });
     expect(attachment.data.content).toBeNull();
     expect(attachment.data.erasedAt).toBeInstanceOf(Date);
+  });
+
+  it('mempertahankan surat dokter yang belum jatuh tempo saat penghapusan', async () => {
+    // Kebijakan surat dokter menyimpannya sampai akhir tahun ajaran izin.
+    // Penyapuan tidak boleh mengosongkan isinya lebih awal: pemutus izin masih
+    // berhak membukanya, dan pekerjaan retensi yang menghapus setelah batas.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.permit.findMany).mockResolvedValueOnce([{ id: 'permit-1' }] as any);
+    vi.mocked(prisma.permitAttachment.findMany).mockResolvedValueOnce([] as any);
+    vi.mocked(prisma.permitAttachment.count).mockResolvedValueOnce(1);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    expect(prisma.permitAttachment.updateMany).not.toHaveBeenCalled();
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.newValues.retained).toContain('surat dokter sampai akhir tahun ajaran izin');
   });
 
   it('menutup sertifikat dari verifikasi publik dan menghapus PDF-nya', async () => {
@@ -1216,8 +1262,10 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     } as any);
     vi.mocked(prisma.digitalCertificate.findMany).mockResolvedValueOnce([
       {
+        id: 'cert-1',
         pdfUrl: 'https://portal.cipansor.or.id/uploads/ijazah.pdf',
         thumbnailUrl: 'https://portal.cipansor.or.id/uploads/ijazah.png',
+        metadata: { juz: 5, juzName: 'Al-Maidah', teacherName: 'Ust. Ahmad' },
       },
     ] as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
@@ -1230,7 +1278,11 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     expect(certificate.data.isPublic).toBe(false);
     expect(certificate.data.title).toContain('UU PDP');
     expect(certificate.data.pdfUrl).toBeNull();
-    expect(certificate.data.metadata).toEqual(Prisma.DbNull);
+    // Capaian terstruktur tidak ikut terhapus; identitas pengajar dibuang.
+    expect(certificate.data.metadata).toBeUndefined();
+    const metadataUpdate = vi.mocked(prisma.digitalCertificate.update).mock.calls[0][0] as any;
+    expect(metadataUpdate.where).toEqual({ id: 'cert-1' });
+    expect(metadataUpdate.data.metadata).toEqual({ juz: 5, juzName: 'Al-Maidah' });
 
     const removed = vi.mocked(fs.unlink).mock.calls.map((c) => String(c[0]));
     expect(removed.some((p) => p.endsWith('ijazah.pdf'))).toBe(true);
@@ -1262,7 +1314,10 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
 
     const answer = vi.mocked(prisma.examAnswer.updateMany).mock.calls[0][0] as any;
-    expect(answer.where).toEqual({ attemptId: { in: ['att-1'] } });
+    expect(answer.where).toEqual({
+      attemptId: { in: ['att-1'] },
+      question: { type: 'ESSAY' },
+    });
     expect(answer.data.answer).toEqual(Prisma.DbNull);
 
     const log = vi.mocked(prisma.examSecurityLog.updateMany).mock.calls[0][0] as any;
@@ -1291,8 +1346,13 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
     );
-    // Masih ada satu baris (mis. dokumen korban) yang menunjuk berkas yang sama.
-    vi.mocked(prisma.studentDocument.count).mockResolvedValue(1);
+    // Masih ada satu baris (mis. dokumen korban) yang menunjuk berkas yang
+    // sama lewat URL host lain. Perbandingan URL utuh akan menganggapnya
+    // "tidak ditunjuk"; identitas berkasnya (nama di `/uploads`) sama, jadi
+    // penghapusan harus dilewati.
+    vi.mocked(prisma.studentDocument.findMany).mockResolvedValue([
+      { fileUrl: 'https://cdn-lama.example/uploads/berkas-korban.pdf' },
+    ] as any);
 
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
 
@@ -1326,6 +1386,80 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     expect(fs.unlink).toHaveBeenCalledTimes(1);
   });
 
+  it('menghapus foto alumni yang URL-nya dibaca sebelum kolomnya dikosongkan', async () => {
+    // `Alumni.photo` adalah kolom teks sekaligus penunjuk berkas. Membaca URL
+    // setelah `photo: null` tidak menemukan apa pun, sehingga fotonya tinggal
+    // di `/uploads` tanpa satu baris pun yang menunjuknya.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.alumni.findMany)
+      .mockResolvedValueOnce([
+        { id: 'al-1', photo: 'https://portal.cipansor.or.id/uploads/alumni.jpg' },
+      ] as any)
+      .mockResolvedValue([] as any);
+    vi.mocked(prisma.alumni.updateMany)
+      .mockResolvedValueOnce({ count: 1 } as any)
+      .mockResolvedValue({ count: 0 } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+    vi.mocked(fs.unlink).mockResolvedValue(undefined as never);
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    const alumni = vi.mocked(prisma.alumni.updateMany).mock.calls[0][0] as any;
+    expect(alumni.data.photo).toBeNull();
+    const removed = vi.mocked(fs.unlink).mock.calls.map((c) => String(c[0]));
+    expect(removed.some((p) => p.endsWith('alumni.jpg'))).toBe(true);
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.newValues.erased).toContain('identitas alumni dan riwayatnya');
+  });
+
+  it('menyapu akun santri sekali saat subjek menunjuk santri dan akun yang sama', async () => {
+    // Permintaan mandiri seorang santri dapat membawa `subjectStudentId` dan
+    // `subjectUserId` sekaligus. Jalur santri sudah menyapu akun, identitas
+    // penandatangan, dan tabel ber-`userId`; mengulanginya di cabang akun
+    // menulis penanda yang sama dua kali dalam satu transaksi.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectUserId: 'usr-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    expect(prisma.student.update).toHaveBeenCalledTimes(1);
+    expect(prisma.userIdentity.updateMany).toHaveBeenCalledTimes(1);
+    expect(prisma.message.updateMany).toHaveBeenCalledTimes(1);
+  });
+
   it('penghapusan santri ikut menghapus pendaftaran SPMB yang menunjuknya', async () => {
     // `Registrant.studentId` diisi saat onboarding; baris pendaftaran menyimpan
     // salinan penuh data anak dan orang tuanya. Menghapus `Student` saja
@@ -1345,10 +1479,12 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       userId: 'usr-1',
       photoUrl: null,
     } as any);
-    vi.mocked(prisma.registrant.findMany).mockResolvedValue([{ id: 'reg-1' }] as any);
-    vi.mocked(prisma.registrantDocument.findMany).mockResolvedValue([
-      { fileUrl: 'https://portal.cipansor.or.id/uploads/akta.pdf' },
-    ] as any);
+    vi.mocked(prisma.registrant.findMany)
+      .mockResolvedValueOnce([{ id: 'reg-1' }] as any)
+      .mockResolvedValue([] as any);
+    vi.mocked(prisma.registrantDocument.findMany)
+      .mockResolvedValueOnce([{ fileUrl: 'https://portal.cipansor.or.id/uploads/akta.pdf' }] as any)
+      .mockResolvedValue([] as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
     );
@@ -1425,14 +1561,15 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       userId: 'usr-1',
       photoUrl: null,
     } as any);
-    vi.mocked(prisma.studentDocument.findMany).mockResolvedValue([
-      { fileUrl: 'https://portal.cipansor.or.id/uploads/akta.pdf' },
-      { fileUrl: 'https://portal.cipansor.or.id/uploads/kk.pdf' },
-    ] as any);
+    vi.mocked(prisma.studentDocument.findMany)
+      .mockResolvedValueOnce([
+        { fileUrl: 'https://portal.cipansor.or.id/uploads/akta.pdf' },
+        { fileUrl: 'https://portal.cipansor.or.id/uploads/kk.pdf' },
+      ] as any)
+      .mockResolvedValue([] as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
     );
-    vi.mocked(prisma.studentDocument.count).mockResolvedValue(0);
     vi.mocked(fs.unlink).mockResolvedValue(undefined as never);
 
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
@@ -1467,13 +1604,12 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       photoUrl: null,
     } as any);
     // Hanya dokumen identitas yang boleh dihapus yang dikembalikan penyaring.
-    vi.mocked(prisma.studentDocument.findMany).mockResolvedValue([
-      { fileUrl: 'https://portal.cipansor.or.id/uploads/akta.pdf' },
-    ] as any);
+    vi.mocked(prisma.studentDocument.findMany)
+      .mockResolvedValueOnce([{ fileUrl: 'https://portal.cipansor.or.id/uploads/akta.pdf' }] as any)
+      .mockResolvedValue([] as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
     );
-    vi.mocked(prisma.studentDocument.count).mockResolvedValue(0);
     vi.mocked(fs.unlink).mockResolvedValue(undefined as never);
 
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
@@ -1503,9 +1639,9 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       }) as any
     );
     vi.mocked(prisma.registrant.findUnique).mockResolvedValue({ studentId: null } as any);
-    vi.mocked(prisma.registrantDocument.findMany).mockResolvedValue([
-      { fileUrl: 'https://portal.cipansor.or.id/uploads/kk.pdf' },
-    ] as any);
+    vi.mocked(prisma.registrantDocument.findMany)
+      .mockResolvedValueOnce([{ fileUrl: 'https://portal.cipansor.or.id/uploads/kk.pdf' }] as any)
+      .mockResolvedValue([] as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
     );
@@ -2107,6 +2243,11 @@ describe('data-subject-requests — penemuan lanjutan', () => {
     expect(student.data.guardianName).toBeNull();
     expect(student.data.guardianPhone).toBeNull();
     expect(student.data.guardianNik).toBeNull();
+    // Santri ini tidak punya portofolio maupun baris alumni; rekaman tidak
+    // boleh menyebut kelompok yang tidak pernah diubah.
+    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+    expect(audit.data.newValues.erased).not.toContain('portofolio dan umpan baliknya');
+    expect(audit.data.newValues.erased).not.toContain('identitas alumni dan riwayatnya');
   });
 
   // ---------- A2: baris permintaan menyimpan PII ----------
