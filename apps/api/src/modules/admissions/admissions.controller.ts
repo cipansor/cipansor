@@ -209,7 +209,8 @@ export const getPublicIntakes = asyncHandler(async (_req: Request, res: Response
 
 export const createPublicRegistrantDocument = asyncHandler(async (req: Request, res: Response) => {
   const { registrantId } = req.params;
-  const { type, url, base64, fileName, registrationToken, ocrNotes, ocrStatus } = req.body;
+  const { type, url, base64, fileName, registrationToken, ocrNotes, ocrStatus, ocrSha256 } =
+    req.body;
 
   const document = await service.createPublicRegistrantDocumentService({
     registrantId,
@@ -220,6 +221,7 @@ export const createPublicRegistrantDocument = asyncHandler(async (req: Request, 
     registrationToken,
     ocrNotes,
     ocrStatus,
+    ocrSha256,
   });
 
   res.status(201).json(ApiResponse.success(document));

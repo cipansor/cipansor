@@ -12,30 +12,24 @@ import {
   RefreshCw,
 } from "lucide-react";
 import { toast } from "sonner";
-import { api } from "@/lib/api";
+import type { DocumentOcrResult, DocumentParseRequest } from "@cipansor/shared";
+import { useParseDocument } from "@/hooks/use-admissions";
 import type { SpmbFormContent } from "@/config/spmb-form.i18n";
 
 interface DocumentCaptureFieldProps {
   label: string;
   /** The field's own words, in the public page's language. */
   content: SpmbFormContent["documents"];
-  documentType: "ktp" | "kk" | "akta" | "foto" | "lainnya";
+  documentType: DocumentParseRequest["documentType"];
   file: File | null;
   onFileSelect: (file: File) => void;
-  userInputData?: {
-    fullName?: string;
-    nationalId?: string;
-    familyCardNumber?: string;
-    birthPlace?: string;
-    birthDate?: string;
-  };
-  onOcrExtracted?: (extracted: {
-    nationalId?: string;
-    familyCardNumber?: string;
-  }) => void;
+  userInputData?: DocumentParseRequest["userInputData"];
+  onOcrExtracted?: (extracted: DocumentOcrResult["extractedData"]) => void;
   onOcrResult?: (result: {
-    status: "WARNING" | "MISMATCH";
+    status: DocumentOcrResult["validation"]["status"];
+    /** The API's Indonesian notes, stored for the Indonesian staff portal. */
     notes: string[];
+    sha256?: string;
   }) => void;
 }
 
@@ -51,6 +45,7 @@ export function DocumentCaptureField({
 }: DocumentCaptureFieldProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const parseDocument = useParseDocument();
   const [isParsing, setIsParsing] = useState(false);
   const [ocrStatus, setOcrStatus] = useState<{
     matchScore?: number;
@@ -68,6 +63,17 @@ export function DocumentCaptureField({
   // languages. Render the structured verdict in the reader's language instead.
   const localizedNotes = (status: NonNullable<typeof ocrStatus>): string[] => {
     if (!status.hasExtracted) return [content.uncheckedNote];
+    const compared = [
+      status.nationalIdMatch,
+      status.familyCardMatch,
+      status.fullNameMatch,
+      status.birthPlaceMatch,
+      status.birthDateMatch,
+    ].filter((value) => value !== undefined);
+    if (compared.length === 0) {
+      // Something was read, but nothing could be compared: never claim a match.
+      return [content.ocrEngineNote, content.ocrPartialNote];
+    }
     const fields: string[] = [];
     if (status.nationalIdMatch === false)
       fields.push(content.ocrField.nationalId);
@@ -98,14 +104,13 @@ export function DocumentCaptureField({
         reader.readAsDataURL(selectedFile);
       });
 
-      const res = await api.post("/admissions/public/parse-document", {
+      const data = await parseDocument.mutateAsync({
         imageBase64,
         documentType,
         userInputData,
       });
 
-      if (res.data?.data) {
-        const data = res.data.data;
+      if (data) {
         const validation = {
           ...data.validation,
           hasExtracted: Boolean(
@@ -116,22 +121,19 @@ export function DocumentCaptureField({
         if (data.extractedData && onOcrExtracted) {
           onOcrExtracted(data.extractedData);
         }
-        if (
-          onOcrResult &&
-          data.validation?.status &&
-          data.validation.status !== "VALID"
-        ) {
+        if (onOcrResult && data.validation?.status) {
           onOcrResult({
             status: data.validation.status,
-            notes: localizedNotes(validation),
+            // The staff portal is Indonesian: store the API's own notes, not
+            // the applicant's language used on screen.
+            notes: data.validation.notes ?? [],
+            sha256: data.sha256,
           });
         }
-        if (data.validation?.status === "VALID") {
-          toast.success(content.toastValid);
-        } else if (data.validation?.status === "WARNING") {
-          toast.warning(content.toastRecheck);
-        } else {
+        if (data.validation?.status === "MISMATCH") {
           toast.error(content.toastMismatch);
+        } else {
+          toast.warning(content.toastRecheck);
         }
       }
     } catch (err) {

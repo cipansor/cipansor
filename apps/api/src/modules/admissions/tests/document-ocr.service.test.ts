@@ -179,6 +179,79 @@ describe('Document Verification Service', () => {
       expect(result.validation.status).toBe('WARNING');
       expect(result.validation.notes.some((n) => n.includes('gagal'))).toBe(true);
     });
+
+    it('compares a KTP against the parent whose name it carries', async () => {
+      const result = await parseAndVerifyDocument(
+        {
+          imageBase64: PNG_URI,
+          documentType: 'ktp',
+          userInputData: {
+            fullName: 'Budi Santoso',
+            fullNameCandidates: ['Budi Santoso', 'Siti Aminah'],
+          },
+        },
+        { enabled: true, readText: readerFor(KTP_TEXT.replace('AHMAD FAUZI', 'SITI AMINAH')) }
+      );
+
+      expect(result.validation.fullNameMatch).toBe(true);
+      expect(result.validation.notes.some((n) => n.includes('Nama pada dokumen'))).toBe(false);
+    });
+
+    it('does not borrow a member NIK when the KK head is unreadable', async () => {
+      const noHead = KK_TEXT.replace('No. KK : 3201234567890001\n', '');
+      const result = await parseAndVerifyDocument(
+        { imageBase64: PNG_URI, documentType: 'kk', userInputData: { fullName: 'Ahmad Fauzi' } },
+        { enabled: true, readText: readerFor(noHead) }
+      );
+
+      expect(result.extractedData.familyCardNumber).toBeUndefined();
+    });
+
+    it('matches the full name, not the first token, when two members share it', async () => {
+      const twoAhmads = `KARTU KELUARGA
+No. KK : 3201234567890001
+1    AHMAD HIDAYAT   3201230101800002   LAKI-LAKI   CIAMIS   01-01-1980
+2    AHMAD FAUZI     3201230110230001   LAKI-LAKI   CIAMIS   01-10-2023`;
+      const result = await parseAndVerifyDocument(
+        { imageBase64: PNG_URI, documentType: 'kk', userInputData: { fullName: 'Ahmad Fauzi' } },
+        { enabled: true, readText: readerFor(twoAhmads) }
+      );
+
+      expect(result.extractedData.nationalId).toBe('3201230110230001');
+      expect(result.extractedData.fullName).toBe('AHMAD FAUZI');
+    });
+
+    it('keeps an abbreviated birth place whole (KAB. CIAMIS)', async () => {
+      const akta = AKTA_TEXT.replace('Tempat Lahir : CIAMIS', 'Tempat Lahir : KAB. CIAMIS');
+      const result = await parseAndVerifyDocument(
+        {
+          imageBase64: PNG_URI,
+          documentType: 'akta',
+          userInputData: { fullName: 'Ahmad Fauzi', birthPlace: 'KAB. CIAMIS' },
+        },
+        { enabled: true, readText: readerFor(akta) }
+      );
+
+      expect(result.extractedData.birthPlace).toBe('KAB CIAMIS');
+      expect(result.validation.birthPlaceMatch).toBe(true);
+    });
+
+    it('survives a corrupt image with the real worker and keeps serving', async () => {
+      const corrupt = Buffer.concat([PNG.subarray(0, 8), Buffer.from('not an image')]);
+      const corruptUri = `data:image/png;base64,${corrupt.toString('base64')}`;
+      const first = await parseAndVerifyDocument(
+        { imageBase64: corruptUri, documentType: 'ktp' },
+        { enabled: true }
+      );
+      expect(first.validation.status).toBe('WARNING');
+      expect(first.validation.notes.some((n) => n.includes('gagal'))).toBe(true);
+
+      const second = await parseAndVerifyDocument(
+        { imageBase64: PNG_URI, documentType: 'ktp' },
+        { enabled: true }
+      );
+      expect(second.success).toBe(true);
+    }, 30000);
   });
 
   describe('documents the engine does not read', () => {

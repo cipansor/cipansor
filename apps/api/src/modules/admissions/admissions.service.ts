@@ -1192,8 +1192,17 @@ export async function createRegistrantDocument(
 export async function createPublicRegistrantDocumentService(
   data: CreatePublicRegistrantDocumentRequest & { registrantId: string }
 ) {
-  const { registrantId, type, url, base64, fileName, registrationToken, ocrNotes, ocrStatus } =
-    data;
+  const {
+    registrantId,
+    type,
+    url,
+    base64,
+    fileName,
+    registrationToken,
+    ocrNotes,
+    ocrStatus,
+    ocrSha256,
+  } = data;
 
   const registrant = await prisma.registrant.findUnique({
     where: { id: registrantId },
@@ -1330,6 +1339,9 @@ export async function createPublicRegistrantDocumentService(
   let ocrSummaryNote: string | undefined = undefined;
   if (ocrNotes && ocrNotes.length > 0) {
     ocrSummaryNote = `[Hasil Verifikasi: ${ocrStatus || 'WARNING'}] ${ocrNotes.join(' | ')}`;
+  }
+  if (ocrSha256) {
+    ocrSummaryNote = `${ocrSummaryNote ? `${ocrSummaryNote} ` : ''}[SHA-256: ${ocrSha256}]`;
   }
 
   const createRegistrantDocumentSchema = (await import('./admissions.schema'))

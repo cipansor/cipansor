@@ -251,7 +251,10 @@ export function SpmbForm({
   });
 
   const [ocrResults, setOcrResults] = useState<
-    Record<string, { status: "WARNING" | "MISMATCH"; notes: string[] }>
+    Record<
+      string,
+      { status: "WARNING" | "MISMATCH"; notes: string[]; sha256?: string }
+    >
   >({});
   const [activeRegistration, setActiveRegistration] = useState<{
     registrantId: string;
@@ -419,6 +422,7 @@ export function SpmbForm({
             registrationToken,
             ocrNotes: ocr?.notes,
             ocrStatus: ocr?.status,
+            ocrSha256: ocr?.sha256,
           },
         );
       } catch (err: any) {
@@ -1365,6 +1369,12 @@ export function SpmbForm({
                             userInputData={{
                               fullName:
                                 formData.fatherName || formData.motherName,
+                              // The KTP may belong to either parent; a name that
+                              // matches either is a match, not a mismatch.
+                              fullNameCandidates: [
+                                formData.fatherName,
+                                formData.motherName,
+                              ].filter((name): name is string => Boolean(name)),
                             }}
                             onFileSelect={(f) =>
                               setFiles((prev) => ({ ...prev, ktp: f }))

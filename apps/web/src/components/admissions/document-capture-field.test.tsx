@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import { render, screen, fireEvent } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import type { ReactElement } from "react";
 import { DocumentCaptureField } from "./document-capture-field";
 import { spmbFormContentFor } from "@/config/spmb-form.i18n";
 
@@ -13,6 +15,15 @@ const imageFile = () =>
   new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "ktp.png", {
     type: "image/png",
   });
+
+function renderWithQuery(ui: ReactElement) {
+  const queryClient = new QueryClient({
+    defaultOptions: { mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>{ui}</QueryClientProvider>,
+  );
+}
 
 /**
  * The API's `validation.notes` are Indonesian prose. The public form speaks
@@ -37,7 +48,7 @@ describe("DocumentCaptureField", () => {
       },
     });
 
-    render(
+    renderWithQuery(
       <DocumentCaptureField
         label="KTP"
         content={spmbFormContentFor("en").documents}

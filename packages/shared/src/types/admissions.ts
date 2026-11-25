@@ -30,6 +30,12 @@ export interface DocumentParseRequest {
   documentType: "ktp" | "kk" | "akta" | "foto" | "lainnya";
   userInputData?: {
     fullName?: string;
+    /**
+     * Other names the document may legitimately carry — the father, mother and
+     * guardian from the form. A KTP may belong to any of them, so a name that
+     * matches any candidate is a match, not a mismatch.
+     */
+    fullNameCandidates?: string[];
     nationalId?: string;
     familyCardNumber?: string;
     birthPlace?: string;

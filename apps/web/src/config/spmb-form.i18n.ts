@@ -133,6 +133,8 @@ export interface SpmbFormContent {
     ocrEngineNote: string;
     /** Shown when every compared field matched. */
     ocrMatchedNote: string;
+    /** Shown when the document was read but nothing could be compared. */
+    ocrPartialNote: string;
     /** Shown when at least one field differs; `fields` is a comma-joined list. */
     ocrMismatchNote: (fields: string) => string;
     ocrField: {
@@ -376,6 +378,8 @@ const ID: SpmbFormContent = {
       "Isi dokumen dibaca mesin di sistem yayasan sendiri, tanpa pihak ketiga. Hasil ini menandai kecocokan isian, bukan bukti keaslian.",
     ocrMatchedNote:
       "Semua isian yang dibandingkan cocok. Petugas tetap memeriksa dokumennya.",
+    ocrPartialNote:
+      "Dokumen terbaca, tetapi belum ada isian yang bisa dibandingkan. Petugas akan memeriksanya.",
     ocrMismatchNote: (fields) =>
       `Tidak sama dengan isian: ${fields}. Periksa kembali sebelum verifikasi.`,
     ocrField: {
@@ -633,6 +637,8 @@ const EN: SpmbFormContent = {
       "The document was read by a machine inside the yayasan's own system, with no third party. This only flags whether the fields match; it is not proof of authenticity.",
     ocrMatchedNote:
       "Every compared field matches. Staff will still review the document.",
+    ocrPartialNote:
+      "The document was read, but nothing could be compared yet. Staff will review it.",
     ocrMismatchNote: (fields) =>
       `Does not match the form: ${fields}. Please check before verification.`,
     ocrField: {
@@ -878,6 +884,8 @@ const AR: SpmbFormContent = {
     ocrEngineNote:
       "قُرئت الوثيقة آليًا داخل نظام المعهد نفسه، دون أي طرف ثالث. هذا يبيّن مطابقة الحقول فقط، وليس دليلًا على صحتها.",
     ocrMatchedNote: "جميع الحقول المقارنة مطابقة. سيظّل الموظف يراجع الوثيقة.",
+    ocrPartialNote:
+      "قُرئت الوثيقة، لكن لم يمكن مقارنة أي حقل بعد. سيراجعها الموظف.",
     ocrMismatchNote: (fields) =>
       `لا تطابق الاستمارة: ${fields}. يرجى المراجعة قبل التحقق.`,
     ocrField: {
