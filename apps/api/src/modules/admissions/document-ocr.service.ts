@@ -81,45 +81,105 @@ function releaseOcrSlot(): void {
   }
 }
 
+type OcrWorker = {
+  recognize(image: Buffer): Promise<{ data: { text?: string } }>;
+  terminate(): Promise<unknown>;
+};
+
+type OcrWorkerOptions = {
+  langPath: string;
+  gzip: boolean;
+  cacheMethod: 'none';
+  logger: () => void;
+  errorHandler: (err: unknown) => void;
+};
+
+type OcrWorkerFactory = (options: OcrWorkerOptions) => Promise<OcrWorker>;
+
+const defaultWorkerFactory: OcrWorkerFactory = async (options) => {
+  const { createWorker } = await import('tesseract.js');
+  return createWorker(engData.code, 1, options);
+};
+
+const OCR_INIT_TIMEOUT_MS = 30_000;
+const OCR_RECOGNIZE_TIMEOUT_MS = 30_000;
+
+async function withTimeout<T>(promise: Promise<T>, ms: number, label: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 /**
  * The real OCR engine: Tesseract.js compiled to WebAssembly, reading the
  * traineddata bundled in `@tesseract.js-data/eng` so no image (and no request)
- * leaves this deployment. A worker is created per call and terminated after;
- * `acquireOcrSlot` bounds how many run at once. The 2026-11-25 spike on
- * `node:26-alpine` measured ~0.4–0.6 s/page and ~205 MB peak RSS.
+ * leaves this deployment. `acquireOcrSlot` bounds how many run at once. The
+ * 2026-11-25 spike on `node:26-alpine` measured ~0.4–0.6 s/page and ~205 MB
+ * peak RSS.
+ *
+ * Tesseract reports a failed model load through `errorHandler` without
+ * rejecting `createWorker`, so both phases race that handler and carry a
+ * timeout: a stuck init must still release its slot.
  */
-async function tesseractReadText(image: Buffer): Promise<string> {
+export async function tesseractReadText(
+  image: Buffer,
+  createWorker: OcrWorkerFactory = defaultWorkerFactory
+): Promise<string> {
   await acquireOcrSlot();
+  let finished = false;
+  let worker: OcrWorker | undefined;
   try {
-    const { createWorker } = await import('tesseract.js');
     let rejectOnWorkerError: (reason: unknown) => void = () => {};
     const workerError = new Promise<never>((_, reject) => {
       rejectOnWorkerError = reject;
     });
-    const worker = await createWorker(engData.code, 1, {
+    const workerPromise = createWorker({
       langPath: engData.langPath,
       gzip: engData.gzip,
       // The traineddata is already a local file; caching it again would drop a
       // 14 MB `eng.traineddata` into the process CWD.
       cacheMethod: 'none',
       logger: () => {},
-      // Tesseract reports worker-level failures (a corrupt image, a crashed
-      // wasm worker) through this callback. Without it the callback throws
-      // outside the promise, and `main.ts` treats that as an uncaughtException
-      // and stops the API. Route it into the promise instead.
+      // Route worker-level failures (a corrupt image, a failed model load, a
+      // crashed wasm worker) into the promise. Left unhandled, the callback
+      // throws outside it, and `main.ts` treats that as an uncaughtException
+      // and stops the API.
       errorHandler: (err) => rejectOnWorkerError(err),
     });
-    try {
-      const { data } = await Promise.race([worker.recognize(image), workerError]);
-      return data.text ?? '';
-    } finally {
+    workerPromise.then(
+      (created) => {
+        // A worker that arrives after the race was lost must not leak.
+        if (finished) void created.terminate().catch(() => {});
+        else worker = created;
+      },
+      () => {}
+    );
+    worker = await withTimeout(
+      Promise.race([workerPromise, workerError]),
+      OCR_INIT_TIMEOUT_MS,
+      'OCR worker init'
+    );
+    const { data } = await withTimeout(
+      Promise.race([worker.recognize(image), workerError]),
+      OCR_RECOGNIZE_TIMEOUT_MS,
+      'OCR recognize'
+    );
+    return data.text ?? '';
+  } finally {
+    finished = true;
+    if (worker) {
       try {
         await worker.terminate();
       } catch {
         // A worker that already crashed cannot be terminated again.
       }
     }
-  } finally {
     releaseOcrSlot();
   }
 }
@@ -177,9 +237,13 @@ function readPlace(text: string): string | undefined {
   return norm(raw) || undefined;
 }
 
-/** Only the numbered member rows, never the head or the header. */
+/**
+ * The numbered member rows. The NIK may arrive with OCR-inserted spaces
+ * (`3201 2301 1023 0001`), so the run is matched loosely here and normalised
+ * in `parseKkRow`.
+ */
 function kkMemberRows(text: string): string[] {
-  return lines(text).filter((l) => /^\s*\d+\s+.+\s+\d{16}\s+/.test(l));
+  return lines(text).filter((l) => /^\s*\d+\s+\D/.test(l) && /\d[\d ]{14,}\d/.test(l));
 }
 
 /**
@@ -190,10 +254,7 @@ function kkMemberRows(text: string): string[] {
 function kkChildRow(text: string, name?: string, nik?: string): string {
   const rows = kkMemberRows(text);
   if (nik) {
-    const byNik = rows.find((l) => {
-      const numbers: string[] = l.match(/\d{16}/g) ?? [];
-      return numbers.includes(nik);
-    });
+    const byNik = rows.find((l) => parseKkRow(l).nik === nik);
     if (byNik) return byNik;
   }
   const target = name ? norm(name) : '';
@@ -211,15 +272,27 @@ function kkChildRow(text: string, name?: string, nik?: string): string {
  * the header instead of the child's row.
  */
 function parseKkRow(row: string): { name?: string; nik?: string; place?: string; date?: string } {
-  const m = row.match(
-    /^\s*\d+\s+(.+?)\s+(\d{16})\s+(?:LAKI-LAKI|PEREMPUAN)\s+(.+?)\s+(\d{1,2}\s*[-/.]\s*\d{1,2}\s*[-/.]\s*\d{4})\s*$/i
-  );
-  if (!m) return {};
+  const nikMatch = row.match(/\d[\d ]{14,}\d/);
+  if (!nikMatch || nikMatch.index === undefined) return {};
+  const nik = nikMatch[0].replace(/\s+/g, '');
+  if (nik.length !== 16) return {};
+  // Name from the leading columns; the rest of the row may carry extra columns
+  // (religion, marital status) after the date, so nothing requires the row to
+  // end there.
+  const name = norm(row.slice(0, nikMatch.index).replace(/^\s*\d+\s+/, ''));
+  const after = row.slice(nikMatch.index + nikMatch[0].length);
+  const gender = after.match(/LAKI-LAKI|PEREMPUAN/i);
+  let place: string | undefined;
+  if (gender && gender.index !== undefined) {
+    const rest = after.slice(gender.index + gender[0].length);
+    const dateAt = rest.search(/\d{1,2}\s*[-/.]\s*\d{1,2}\s*[-/.]\s*\d{4}/);
+    place = norm(dateAt >= 0 ? rest.slice(0, dateAt) : rest) || undefined;
+  }
   return {
-    name: norm(m[1]),
-    nik: m[2],
-    place: norm(m[3]),
-    date: canonicalDate(m[4]),
+    name: name || undefined,
+    nik,
+    place,
+    date: canonicalDate(after),
   };
 }
 

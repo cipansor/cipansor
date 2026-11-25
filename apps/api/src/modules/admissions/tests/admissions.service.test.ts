@@ -525,20 +525,38 @@ describe('Admissions Service', () => {
       Promise.resolve({ id: 'doc-1', ...data })
     );
 
+    const dataUri =
+      'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
+    const staleHash = 'f'.repeat(64);
+    const expectedSha = crypto
+      .createHash('sha256')
+      .update(Buffer.from(dataUri.slice(dataUri.indexOf(',') + 1), 'base64'))
+      .digest('hex');
+
     await service.createPublicRegistrantDocumentService({
       registrantId,
       type: 'KK',
-      url: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==',
+      url: dataUri,
       registrationToken: validToken,
       ocrNotes: ['NIK tidak cocok', 'Kertas tampak rusak'],
       ocrStatus: 'MISMATCH',
+      // A stale browser hash must not be stored: the stored bytes are the truth.
+      ocrSha256: staleHash,
     });
 
-    // The note must carry the verification status so reviewers see the mismatch.
+    // The note must carry the verification status so reviewers see the mismatch,
+    // and the fingerprint of the bytes actually stored (not the stale client one).
     expect(prisma.registrantDocument.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          notes: '[Hasil Verifikasi: MISMATCH] NIK tidak cocok | Kertas tampak rusak',
+          notes: `[Hasil Verifikasi: MISMATCH] NIK tidak cocok | Kertas tampak rusak [SHA-256: ${expectedSha}]`,
+        }),
+      })
+    );
+    expect(prisma.registrantDocument.create).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({
+          notes: expect.stringContaining(staleHash),
         }),
       })
     );

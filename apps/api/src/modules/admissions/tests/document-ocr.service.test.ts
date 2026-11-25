@@ -1,5 +1,5 @@
 import { describe, it, expect, vi } from 'vitest';
-import { parseAndVerifyDocument } from '../document-ocr.service';
+import { parseAndVerifyDocument, tesseractReadText } from '../document-ocr.service';
 
 // A real 1x1 PNG binary buffer (magic bytes 0x89 0x50 0x4E 0x47 ...). Its
 // content is irrelevant to these tests: the OCR engine is injected, so the
@@ -221,6 +221,44 @@ No. KK : 3201234567890001
       expect(result.extractedData.fullName).toBe('AHMAD FAUZI');
     });
 
+    it('reads the child row when a column follows the birth date', async () => {
+      const withReligion = `KARTU KELUARGA
+No. KK : 3201234567890001
+3    AHMAD FAUZI     3201230110230001   LAKI-LAKI   CIAMIS   01-10-2023   ISLAM`;
+      const result = await parseAndVerifyDocument(
+        {
+          imageBase64: PNG_URI,
+          documentType: 'kk',
+          userInputData: { fullName: 'Ahmad Fauzi', birthDate: '2023-10-02' },
+        },
+        { enabled: true, readText: readerFor(withReligion) }
+      );
+
+      expect(result.extractedData.nationalId).toBe('3201230110230001');
+      expect(result.extractedData.birthDate).toBe('01-10-2023');
+      expect(result.validation.birthDateMatch).toBe(false);
+    });
+
+    it('normalises a NIK that OCR grouped with spaces', async () => {
+      const grouped = `KARTU KELUARGA
+No. KK : 3201234567890001
+3    AHMAD FAUZI     3201 2301 1023 0001   LAKI-LAKI   CIAMIS   01-10-2023`;
+      const result = await parseAndVerifyDocument(
+        {
+          imageBase64: PNG_URI,
+          documentType: 'kk',
+          userInputData: {
+            fullName: 'Ahmad Fauzi',
+            nationalId: '3201230110230001',
+          },
+        },
+        { enabled: true, readText: readerFor(grouped) }
+      );
+
+      expect(result.extractedData.nationalId).toBe('3201230110230001');
+      expect(result.validation.nationalIdMatch).toBe(true);
+    });
+
     it('keeps an abbreviated birth place whole (KAB. CIAMIS)', async () => {
       const akta = AKTA_TEXT.replace('Tempat Lahir : CIAMIS', 'Tempat Lahir : KAB. CIAMIS');
       const result = await parseAndVerifyDocument(
@@ -246,11 +284,14 @@ No. KK : 3201234567890001
       expect(first.validation.status).toBe('WARNING');
       expect(first.validation.notes.some((n) => n.includes('gagal'))).toBe(true);
 
+      // A valid image must reach the engine (not fall back to manual), which
+      // only happens if the failed scan gave its slot back.
       const second = await parseAndVerifyDocument(
         { imageBase64: PNG_URI, documentType: 'ktp' },
         { enabled: true }
       );
-      expect(second.success).toBe(true);
+      expect(second.validation.notes.some((n) => n.includes('dibaca mesin'))).toBe(true);
+      expect(second.validation.notes.some((n) => n.includes('gagal'))).toBe(false);
     }, 30000);
   });
 
@@ -274,6 +315,29 @@ No. KK : 3201234567890001
         { enabled: true, readText }
       );
       expect(readText).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('OCR worker lifecycle', () => {
+    it('releases the slot when the model fails to load', async () => {
+      let calls = 0;
+      const fakeWorker = {
+        recognize: async () => ({ data: { text: 'ok' } }),
+        terminate: async () => {},
+      };
+      const factory = (options: { errorHandler: (err: unknown) => void }) => {
+        calls += 1;
+        if (calls === 1) {
+          // Tesseract reports a failed `loadLanguage` through the callback and
+          // leaves `createWorker` pending; the slot must still come back.
+          options.errorHandler(new Error('loadLanguage failed'));
+          return new Promise<never>(() => {});
+        }
+        return Promise.resolve(fakeWorker);
+      };
+
+      await expect(tesseractReadText(PNG, factory)).rejects.toThrow();
+      await expect(tesseractReadText(PNG, factory)).resolves.toBe('ok');
     });
   });
 });

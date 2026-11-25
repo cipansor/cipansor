@@ -29,6 +29,9 @@ export function useParseDocument() {
       const res = await api.post<{ data: DocumentOcrResult }>(
         "/admissions/public/parse-document",
         payload,
+        // The form shows its own manual-verification note; a global error toast
+        // would be a second notification for the same failure.
+        { skipErrorToast: true },
       );
       return res.data.data;
     },

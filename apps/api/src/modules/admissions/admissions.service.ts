@@ -1336,12 +1336,26 @@ export async function createPublicRegistrantDocumentService(
     schemaType = 'ijazah';
   }
 
+  // Fingerprint the bytes actually stored, not a hash the browser computed for
+  // an earlier file: an applicant can replace a scanned image with a PDF, and
+  // the client hash would then name a file the row does not hold.
+  let documentSha256 = ocrSha256;
+  if (docUrl.startsWith('data:')) {
+    const comma = docUrl.indexOf(',');
+    if (comma >= 0) {
+      documentSha256 = crypto
+        .createHash('sha256')
+        .update(Buffer.from(docUrl.slice(comma + 1), 'base64'))
+        .digest('hex');
+    }
+  }
+
   let ocrSummaryNote: string | undefined = undefined;
   if (ocrNotes && ocrNotes.length > 0) {
     ocrSummaryNote = `[Hasil Verifikasi: ${ocrStatus || 'WARNING'}] ${ocrNotes.join(' | ')}`;
   }
-  if (ocrSha256) {
-    ocrSummaryNote = `${ocrSummaryNote ? `${ocrSummaryNote} ` : ''}[SHA-256: ${ocrSha256}]`;
+  if (documentSha256) {
+    ocrSummaryNote = `${ocrSummaryNote ? `${ocrSummaryNote} ` : ''}[SHA-256: ${documentSha256}]`;
   }
 
   const createRegistrantDocumentSchema = (await import('./admissions.schema'))

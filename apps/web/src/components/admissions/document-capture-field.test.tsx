@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import type { ReactElement } from "react";
 import { DocumentCaptureField } from "./document-capture-field";
@@ -68,5 +68,45 @@ describe("DocumentCaptureField", () => {
       await screen.findByText(/Does not match the form: NIK/),
     ).toBeTruthy();
     expect(screen.queryByText(/NIK pada dokumen/)).toBeNull();
+  });
+
+  it("drops the previous verdict when the file becomes a PDF", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          extractedData: { nationalId: "3201230110230001" },
+          validation: { status: "MISMATCH", nationalIdMatch: false, notes: [] },
+        },
+      },
+    });
+    const onOcrResult = vi.fn();
+    renderWithQuery(
+      <DocumentCaptureField
+        label="KTP"
+        content={spmbFormContentFor("en").documents}
+        documentType="ktp"
+        file={null}
+        onFileSelect={() => {}}
+        onOcrResult={onOcrResult}
+      />,
+    );
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [imageFile()] } });
+    await waitFor(() =>
+      expect(onOcrResult).toHaveBeenCalledWith(
+        expect.objectContaining({ status: "MISMATCH" }),
+      ),
+    );
+
+    onOcrResult.mockClear();
+    fireEvent.change(input, {
+      target: {
+        files: [new File(["%PDF-1.4"], "ktp.pdf", { type: "application/pdf" })],
+      },
+    });
+    expect(onOcrResult).toHaveBeenCalledWith(null);
   });
 });

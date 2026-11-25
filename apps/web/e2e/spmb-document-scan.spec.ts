@@ -62,6 +62,13 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   const ktp = page
     .getByText("KTP Orang Tua / Wali", { exact: true })
     .locator("xpath=ancestor::div[contains(@class,'space-y-2')][1]");
+  // Prove the form really reached the endpoint: a 404/500 also renders the
+  // manual note, so the note alone would not catch a broken wiring.
+  const responsePromise = page.waitForResponse(
+    (res) =>
+      res.url().includes("/admissions/public/parse-document") &&
+      res.request().method() === "POST",
+  );
   await ktp
     .locator('input[type="file"]')
     .first()
@@ -74,6 +81,9 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
         "base64",
       ),
     });
+  const response = await responsePromise;
+  expect(response.status()).toBe(200);
+  expect((await response.json()).success).toBe(true);
 
   await expect(page.getByText(documents.uncheckedNote)).toBeVisible({
     timeout: 30_000,

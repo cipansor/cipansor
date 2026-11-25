@@ -25,12 +25,14 @@ interface DocumentCaptureFieldProps {
   onFileSelect: (file: File) => void;
   userInputData?: DocumentParseRequest["userInputData"];
   onOcrExtracted?: (extracted: DocumentOcrResult["extractedData"]) => void;
-  onOcrResult?: (result: {
-    status: DocumentOcrResult["validation"]["status"];
-    /** The API's Indonesian notes, stored for the Indonesian staff portal. */
-    notes: string[];
-    sha256?: string;
-  }) => void;
+  onOcrResult?: (
+    result: {
+      status: DocumentOcrResult["validation"]["status"];
+      /** The API's Indonesian notes, stored for the Indonesian staff portal. */
+      notes: string[];
+      sha256?: string;
+    } | null,
+  ) => void;
 }
 
 export function DocumentCaptureField({
@@ -92,6 +94,9 @@ export function DocumentCaptureField({
   const processOcr = async (selectedFile: File) => {
     setOcrStatus(null);
     if (!selectedFile.type.startsWith("image/")) {
+      // A PDF carries no scan result; drop the previous file's verdict so it is
+      // never sent (and stored) for the replacement.
+      onOcrResult?.(null);
       return;
     }
 

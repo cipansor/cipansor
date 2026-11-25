@@ -256,6 +256,23 @@ export function SpmbForm({
       { status: "WARNING" | "MISMATCH"; notes: string[]; sha256?: string }
     >
   >({});
+  // A null result means the field no longer holds a scanned image (the
+  // applicant replaced it with a PDF), so its verdict must be dropped.
+  const setOcrResult =
+    (key: string) =>
+    (
+      res: {
+        status: "WARNING" | "MISMATCH";
+        notes: string[];
+        sha256?: string;
+      } | null,
+    ) =>
+      setOcrResults((prev) => {
+        const next = { ...prev };
+        if (res) next[key] = res;
+        else delete next[key];
+        return next;
+      });
   const [activeRegistration, setActiveRegistration] = useState<{
     registrantId: string;
     registrationToken: string;
@@ -1356,9 +1373,7 @@ export function SpmbForm({
                             onFileSelect={(f) =>
                               setFiles((prev) => ({ ...prev, photo: f }))
                             }
-                            onOcrResult={(res) =>
-                              setOcrResults((prev) => ({ ...prev, photo: res }))
-                            }
+                            onOcrResult={setOcrResult("photo")}
                           />
 
                           <DocumentCaptureField
@@ -1379,9 +1394,7 @@ export function SpmbForm({
                             onFileSelect={(f) =>
                               setFiles((prev) => ({ ...prev, ktp: f }))
                             }
-                            onOcrResult={(res) =>
-                              setOcrResults((prev) => ({ ...prev, ktp: res }))
-                            }
+                            onOcrResult={setOcrResult("ktp")}
                           />
 
                           <DocumentCaptureField
@@ -1410,12 +1423,7 @@ export function SpmbForm({
                                 }));
                               }
                             }}
-                            onOcrResult={(res) =>
-                              setOcrResults((prev) => ({
-                                ...prev,
-                                familyCard: res,
-                              }))
-                            }
+                            onOcrResult={setOcrResult("familyCard")}
                           />
 
                           <DocumentCaptureField
@@ -1434,12 +1442,7 @@ export function SpmbForm({
                                 birthCertificate: f,
                               }))
                             }
-                            onOcrResult={(res) =>
-                              setOcrResults((prev) => ({
-                                ...prev,
-                                birthCertificate: res,
-                              }))
-                            }
+                            onOcrResult={setOcrResult("birthCertificate")}
                           />
                         </div>
                       </div>
