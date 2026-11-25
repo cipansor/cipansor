@@ -50,6 +50,7 @@ vi.mock('@prisma/client', async (importOriginal) => ({
 }));
 
 import { transactionService } from '../laundry.service';
+import { getAccountOrFallback } from '../../finance/accounting-config.service';
 import { prisma } from '@/lib/prisma';
 
 vi.mock('@/lib/prisma', () => ({
