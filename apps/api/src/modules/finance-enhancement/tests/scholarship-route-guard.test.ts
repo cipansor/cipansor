@@ -21,6 +21,11 @@ vi.mock('../finance-enhancement.service', () => ({
       meta: { pagination: { page: 1, limit: 20, total: 0, totalPages: 0 } },
     })),
     getScholarshipCriteria: vi.fn(async () => []),
+    assignScholarship: vi.fn(async () => ({
+      id: 'rec-new',
+      scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
+      student: { nis: '0099', name: 'Fulan', class: 'Kelas 1' },
+    })),
   },
 }));
 vi.mock('../scholarship-scoring.service', () => ({
@@ -33,6 +38,7 @@ vi.mock('../scholarship-scoring.service', () => ({
 import { verifyToken } from '@/lib/jwt';
 import { errorHandler } from '@/middleware/error';
 import { financeEnhancementRoutes } from '../index';
+import { financeEnhancementService } from '../finance-enhancement.service';
 import { scholarshipScoringService } from '../scholarship-scoring.service';
 
 const app = express();
@@ -111,5 +117,36 @@ describe.each([
     const res = await authed(request(app)[method](`/finance-enhancement${path}`).send(body));
 
     expect(res.status).toBeLessThan(400);
+  });
+});
+
+describe('POST /scholarship-recipients', () => {
+  const input = {
+    scholarshipId: '11111111-1111-4111-8111-111111111111',
+    studentId: '22222222-2222-4222-8222-222222222222',
+    academicYearId: '33333333-3333-4333-8333-333333333333',
+    startDate: '2026-07-01T00:00:00.000Z',
+  };
+
+  it('answers 201 with the ApiResponse envelope and the token actor', async () => {
+    as('SDIT_ADMIN', 'unit-sd');
+
+    const res = await authed(
+      request(app).post('/finance-enhancement/scholarship-recipients').send(input)
+    );
+
+    expect(res.status).toBe(201);
+    expect(res.body).toMatchObject({
+      success: true,
+      data: {
+        id: 'rec-new',
+        scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
+      },
+    });
+    expect(financeEnhancementService.assignScholarship).toHaveBeenCalledWith(input, {
+      sub: 'u1',
+      roleCode: 'SDIT_ADMIN',
+      unitId: 'unit-sd',
+    });
   });
 });

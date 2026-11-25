@@ -103,6 +103,38 @@ export function canScoreProgram(
   return !!userUnitId && userUnitId === programUnitId;
 }
 
+/**
+ * The assignment form pairs a program and a santri. A scholarship belongs to a
+ * unit and the API refuses a pair from different units, so each picker offers
+ * only the other side's unit once one side is chosen.
+ */
+export function assignableScholarships<T extends { unitId: string }>(
+  scholarships: T[],
+  student: { unitId: string } | undefined,
+): T[] {
+  return student
+    ? scholarships.filter((s) => s.unitId === student.unitId)
+    : scholarships;
+}
+
+export function assignableStudents<T extends { unitId: string }>(
+  students: T[],
+  scholarship: { unitId: string } | undefined,
+): T[] {
+  return scholarship
+    ? students.filter((s) => s.unitId === scholarship.unitId)
+    : students;
+}
+
+/** The `/students` read normalizes the display name onto the row. */
+type StudentOption = {
+  id: string;
+  nis: string;
+  unitId: string;
+  name?: string;
+  user?: { name?: string };
+};
+
 /** The score total to one decimal, "-" when every criterion was excluded. */
 function formatTotal(total: number | null): string {
   return total === null || Number.isNaN(total) ? "-" : total.toFixed(1);
@@ -440,16 +472,13 @@ export default function ScholarshipsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
+  const [assignStudentId, setAssignStudentId] = useState("");
+  const [assignScholarshipId, setAssignScholarshipId] = useState("");
   const [selectedScholarshipForView, setSelectedScholarshipForView] =
     useState<Scholarship | null>(null);
 
   const { data: unitsData } = useUnits();
   const { data: academicYears } = useAcademicYears();
-  const { data: studentsData } = useStudents({
-    unitId: selectedUnitId === "ALL" ? undefined : selectedUnitId,
-    search: studentSearch, // Added search
-    limit: 20, // Reduced limit, rely on search
-  });
 
   const {
     data: scholarshipsData,
@@ -459,6 +488,28 @@ export default function ScholarshipsPage() {
     unitId: selectedUnitId === "ALL" ? undefined : selectedUnitId,
     limit: 100,
   });
+
+  const selectedAssignScholarship = scholarshipsData?.data.find(
+    (s) => s.id === assignScholarshipId,
+  );
+  const { data: studentsData } = useStudents({
+    unitId:
+      selectedAssignScholarship?.unitId ??
+      (selectedUnitId === "ALL" ? undefined : selectedUnitId),
+    search: studentSearch, // Added search
+    limit: 20, // Reduced limit, rely on search
+  });
+  const selectedAssignStudent = studentsData?.data.find(
+    (s) => s.id === assignStudentId,
+  );
+  const assignablePrograms = assignableScholarships(
+    scholarshipsData?.data ?? [],
+    selectedAssignStudent,
+  );
+  const assignableStudentOptions = assignableStudents(
+    (studentsData?.data ?? []) as StudentOption[],
+    selectedAssignScholarship,
+  );
 
   const createScholarship = useCreateScholarship();
   const assignScholarship = useAssignScholarship();
@@ -484,6 +535,38 @@ export default function ScholarshipsPage() {
     }
   };
 
+  const handleAssignStudentChange = (studentId: string) => {
+    setAssignStudentId(studentId);
+    const student = studentsData?.data.find((s) => s.id === studentId);
+    if (
+      student &&
+      selectedAssignScholarship &&
+      student.unitId !== selectedAssignScholarship.unitId
+    ) {
+      setAssignScholarshipId("");
+    }
+  };
+
+  const handleAssignScholarshipChange = (scholarshipId: string) => {
+    setAssignScholarshipId(scholarshipId);
+    const scholarship = scholarshipsData?.data.find(
+      (s) => s.id === scholarshipId,
+    );
+    if (
+      scholarship &&
+      selectedAssignStudent &&
+      scholarship.unitId !== selectedAssignStudent.unitId
+    ) {
+      setAssignStudentId("");
+    }
+  };
+
+  const resetAssignForm = () => {
+    setAssignStudentId("");
+    setAssignScholarshipId("");
+    setStudentSearch("");
+  };
+
   const handleAssign = async (formData: FormData) => {
     try {
       await assignScholarship.mutateAsync({
@@ -494,6 +577,7 @@ export default function ScholarshipsPage() {
         notes: formData.get("notes") as string,
       });
       toast.success("Beasiswa berhasil diberikan ke santri");
+      resetAssignForm();
       setIsAssignDialogOpen(false);
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Gagal memberikan beasiswa");
@@ -522,7 +606,10 @@ export default function ScholarshipsPage() {
           <div className="flex gap-2">
             <Dialog
               open={isAssignDialogOpen}
-              onOpenChange={setIsAssignDialogOpen}
+              onOpenChange={(open) => {
+                setIsAssignDialogOpen(open);
+                if (!open) resetAssignForm();
+              }}
             >
               <DialogTrigger asChild>
                 <Button variant="secondary">
@@ -548,14 +635,19 @@ export default function ScholarshipsPage() {
                         onChange={(e) => setStudentSearch(e.target.value)}
                         className="mb-2"
                       />
-                      <Select name="studentId" required>
+                      <Select
+                        name="studentId"
+                        required
+                        value={assignStudentId}
+                        onValueChange={handleAssignStudentChange}
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih santri" />
                         </SelectTrigger>
                         <SelectContent>
-                          {studentsData?.data.map((s: any) => (
+                          {assignableStudentOptions.map((s) => (
                             <SelectItem key={s.id} value={s.id}>
-                              {s.user.name} ({s.nis})
+                              {s.name || s.user?.name || s.nis} ({s.nis})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -563,12 +655,17 @@ export default function ScholarshipsPage() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="scholarshipId">Program Beasiswa</Label>
-                      <Select name="scholarshipId" required>
+                      <Select
+                        name="scholarshipId"
+                        required
+                        value={assignScholarshipId}
+                        onValueChange={handleAssignScholarshipChange}
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih program" />
                         </SelectTrigger>
                         <SelectContent>
-                          {scholarshipsData?.data.map((s) => (
+                          {assignablePrograms.map((s) => (
                             <SelectItem key={s.id} value={s.id}>
                               {s.name}
                             </SelectItem>

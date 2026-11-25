@@ -62,7 +62,12 @@ vi.mock("@/hooks/use-finance-enhancement", async (importOriginal) => ({
   }),
 }));
 
-import { RecipientsDialog, canScoreProgram } from "./page";
+import {
+  RecipientsDialog,
+  assignableScholarships,
+  assignableStudents,
+  canScoreProgram,
+} from "./page";
 
 const program = {
   id: "sch-1",
@@ -110,6 +115,32 @@ beforeEach(() => {
   mocks.criteriaFailed = false;
   mocks.assessState = { isPending: false, variables: undefined };
   asRole("SDIT_BENDAHARA");
+});
+
+describe("assignableScholarships / assignableStudents", () => {
+  const programs = [
+    { id: "sch-sd", name: "Beasiswa SD", unitId: "unit-sd" },
+    { id: "sch-smp", name: "Beasiswa SMP", unitId: "unit-smp" },
+  ];
+  const students = [
+    { id: "stu-sd", name: "Santri SD", unitId: "unit-sd" },
+    { id: "stu-smp", name: "Santri SMP", unitId: "unit-smp" },
+  ];
+
+  it("offers only programs of the chosen santri's unit", () => {
+    expect(assignableScholarships(programs, students[0])).toEqual([
+      programs[0],
+    ]);
+  });
+
+  it("offers only santri of the chosen program's unit", () => {
+    expect(assignableStudents(students, programs[1])).toEqual([students[1]]);
+  });
+
+  it("offers both lists while neither side is chosen", () => {
+    expect(assignableScholarships(programs, undefined)).toEqual(programs);
+    expect(assignableStudents(students, undefined)).toEqual(students);
+  });
 });
 
 describe("canScoreProgram", () => {

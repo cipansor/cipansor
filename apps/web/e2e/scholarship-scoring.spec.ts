@@ -48,6 +48,7 @@ const TU_SMPIT = {
 let scholarshipId = "";
 let recipientId = "";
 let recipientNis = "";
+let recipientAcademicYear = "";
 let recipientHadScore = false;
 let originalStatus = "";
 
@@ -57,6 +58,7 @@ interface RecipientRow {
   totalScore?: number | null;
   assessments?: Array<unknown>;
   student?: { nis?: string };
+  academicYear?: { name?: string };
 }
 
 interface AssessmentResponse {
@@ -120,10 +122,15 @@ test.describe("Skor penerima beasiswa", () => {
       throw new Error("Tidak ada penerima beasiswa pada data seed");
     if (!recipient.student?.nis)
       throw new Error("Penerima beasiswa pada data seed tidak punya NIS");
+    if (!recipient.academicYear?.name)
+      throw new Error(
+        "Penerima beasiswa pada data seed tidak punya tahun ajaran",
+      );
 
     scholarshipId = program.id;
     recipientId = recipient.id;
     recipientNis = recipient.student.nis;
+    recipientAcademicYear = recipient.academicYear.name;
     recipientHadScore = !!recipient.assessments?.length;
     originalStatus = recipient.status;
 
@@ -216,10 +223,12 @@ test.describe("Skor penerima beasiswa", () => {
     await page.getByRole("button", { name: /lihat/i }).first().click();
 
     // The row of the recipient this spec picked in `beforeAll`, not the first
-    // row and not any row in the dialog.
+    // row and not any row in the dialog. A santri may hold the same program in
+    // two academic years, so the year is part of the identity too.
     const targetRow = page
       .getByRole("row")
       .filter({ hasText: recipientNis })
+      .filter({ hasText: recipientAcademicYear })
       .first();
     const scoreButton = targetRow.getByRole("button", {
       name: /hitung skor/i,
@@ -236,8 +245,7 @@ test.describe("Skor penerima beasiswa", () => {
       const path = new URL(res.url()).pathname;
       return (
         res.request().method() === "POST" &&
-        path.includes("/scholarship-recipients/") &&
-        path.endsWith("/assess")
+        path.endsWith(`/scholarship-recipients/${recipientId}/assess`)
       );
     });
     await scoreButton.click();
@@ -255,7 +263,9 @@ test.describe("Skor penerima beasiswa", () => {
       targetRow.getByText(`Skor total: ${(total as number).toFixed(1)}`),
     ).toBeVisible({ timeout: 15_000 });
     // The criterion the machine cannot read is named, not scored 0 (R11.5).
-    await expect(targetRow.getByText(/Perlu dinilai manual/i).first()).toBeVisible();
+    await expect(
+      targetRow.getByText(/Perlu dinilai manual/i).first(),
+    ).toBeVisible();
     // The caveat that the score is decision support, not the decision (R11.16).
     await expect(page.getByText(/pendukung keputusan/i).first()).toBeVisible();
   });
