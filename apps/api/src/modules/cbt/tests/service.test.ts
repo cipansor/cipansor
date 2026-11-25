@@ -1232,7 +1232,19 @@ describe('CBT Service', () => {
       expect(analysis).toHaveLength(3);
       const dRows = analysis.filter((row) => (row.option as any).id === 'opt-D');
       expect(dRows).toHaveLength(1);
-      expect(dRows[0]).toEqual(expect.objectContaining({ count: 1, percentage: 100 }));
+      expect(dRows[0]).toEqual(
+        expect.objectContaining({
+          count: 1,
+          percentage: 100,
+          // Form santri hanya mengirim id; kedua teks yang berbagi id harus
+          // terlihat supaya angka itu tidak dikira milik teks pertama saja.
+          ambiguous: true,
+          options: [
+            expect.objectContaining({ text: '4' }),
+            expect.objectContaining({ text: '4 (lama)' }),
+          ],
+        })
+      );
       expect(analysis.reduce((sum, row) => sum + row.percentage, 0)).toBe(100);
     });
   });

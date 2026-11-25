@@ -1478,7 +1478,14 @@ export class CBTService {
 
       // Best Practice: Distractor analysis for multiple choice questions
       let distractorAnalysis:
-        Array<{ option: Prisma.JsonValue; count: number; percentage: number }> | undefined;
+        | Array<{
+            option: Prisma.JsonValue;
+            count: number;
+            percentage: number;
+            ambiguous?: boolean;
+            options?: Prisma.JsonValue[];
+          }>
+        | undefined;
       if (q.type === 'MULTIPLE_CHOICE' && Array.isArray(q.options)) {
         // Counted through the same canonical form the grader uses. These two
         // used to normalise differently — the analysis unwrapped `{ id: … }`
@@ -1507,22 +1514,36 @@ export class CBTService {
         });
 
         // A question can end up with two options sharing an id after a teacher
-        // removes one and adds another. Counting each row would give the same
-        // answers to both and make the shares exceed 100%; report one row per
-        // distinct choice instead.
+        // removes one and adds another. The student form submits only the id,
+        // so the count belongs to the id, not to either text. Report one row
+        // per id and mark it ambiguous with every text that shares it; silently
+        // attaching the combined count to the first text would hide that.
+        const optionsById = new Map<string, Prisma.JsonValue[]>();
+        for (const opt of q.options as Prisma.JsonValue[]) {
+          const keyStr = canonicalAnswer(q.type, opt);
+          if (keyStr === null) continue;
+          const group = optionsById.get(keyStr) ?? [];
+          group.push(opt);
+          optionsById.set(keyStr, group);
+        }
+
         const seenOptions = new Set<string>();
         distractorAnalysis = [];
         for (const opt of q.options as Prisma.JsonValue[]) {
           const keyStr = canonicalAnswer(q.type, opt);
-          if (keyStr !== null) {
-            if (seenOptions.has(keyStr)) continue;
-            seenOptions.add(keyStr);
+          if (keyStr === null) {
+            distractorAnalysis.push({ option: opt, count: 0, percentage: 0 });
+            continue;
           }
-          const count = keyStr === null ? 0 : optionCounts[keyStr] || 0;
+          if (seenOptions.has(keyStr)) continue;
+          seenOptions.add(keyStr);
+          const count = optionCounts[keyStr] || 0;
+          const group = optionsById.get(keyStr) ?? [opt];
           distractorAnalysis.push({
             option: opt,
             count,
             percentage: mappableAnswers > 0 ? (count / mappableAnswers) * 100 : 0,
+            ...(group.length > 1 ? { ambiguous: true, options: group } : {}),
           });
         }
       }
