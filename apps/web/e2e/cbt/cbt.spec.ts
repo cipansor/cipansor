@@ -220,6 +220,37 @@ test.describe("CBT Exams & Grading", () => {
     }
   });
 
+  test("Should trim option ids when marking the key", async ({ page }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const bankId = await createQuestionBank(session, "spasi");
+
+    try {
+      await apiRequest(session, "POST", `/cbt/banks/${bankId}/questions`, {
+        type: "MULTIPLE_CHOICE",
+        content: `Soal spasi E2E ${Date.now()}`,
+        options: [
+          { id: "A", text: "Bandung" },
+          { id: " B ", text: "Jakarta" },
+          { id: "C", text: "Surabaya" },
+        ],
+        answerKey: "B",
+        points: 10,
+      });
+
+      await page.goto(`/cbt/banks/${bankId}`);
+      await expect(
+        page.locator('[data-option-id="B"][data-correct="true"]'),
+      ).toContainText("Jakarta");
+      await expect(
+        page.locator('[data-option-id="A"][data-correct="false"]'),
+      ).toContainText("Bandung");
+    } finally {
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
+    }
+  });
+
   test("Should clear the key when the keyed option is removed", async ({
     page,
   }) => {

@@ -51,7 +51,12 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { MainLayout } from "@/components/layout";
-import { nextOptionId, uniqueOptionIds } from "./option-ids";
+import {
+  answerKeyIdOf,
+  nextOptionId,
+  optionIdOf,
+  uniqueOptionIds,
+} from "./option-ids";
 import {
   ArrowLeft,
   BookOpen,
@@ -147,8 +152,13 @@ function ExamBankDetailPageContent() {
       type: q.type,
       content: q.content,
       points: q.points,
-      options: uniqueOptionIds(q.options || []),
-      answerKey: q.answerKey,
+      options: uniqueOptionIds(
+        (q.options || []).map((option: any, index: number) => ({
+          ...option,
+          id: optionIdOf(option?.id, index),
+        })),
+      ),
+      answerKey: answerKeyIdOf(q.answerKey) ?? "",
       explanation: q.explanation || "",
     });
     setQuestionDialogOpen(true);
@@ -172,11 +182,16 @@ function ExamBankDetailPageContent() {
   };
 
   const onQuestionSubmit = async (values: z.infer<typeof questionSchema>) => {
+    const normalizedOptions = values.options?.map((option, index) => ({
+      ...option,
+      id: optionIdOf(option.id, index),
+    }));
     const data = {
       ...values,
-      options: values.options
-        ? uniqueOptionIds(values.options)
-        : values.options,
+      options: normalizedOptions
+        ? uniqueOptionIds(normalizedOptions)
+        : normalizedOptions,
+      answerKey: answerKeyIdOf(values.answerKey) ?? "",
     };
     try {
       if (editingQuestionId) {
@@ -198,9 +213,9 @@ function ExamBankDetailPageContent() {
   };
 
   const handleRemoveOption = (index: number) => {
-    const removedId = options[index]?.id;
+    const removedId = optionIdOf(options[index]?.id, index);
     removeOption(index);
-    if (removedId && form.getValues("answerKey") === removedId) {
+    if (answerKeyIdOf(form.getValues("answerKey")) === removedId) {
       // The key belonged to the deleted option. Do not choose another one for
       // the teacher: clear it and let validation force a deliberate choice.
       form.setValue("answerKey", "", { shouldValidate: true });
@@ -601,15 +616,10 @@ function ExamBankDetailPageContent() {
                       {q.type === QuestionType.MULTIPLE_CHOICE && q.options && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                           {q.options.map((opt: any, optIdx: number) => {
-                            const optionId =
-                              typeof opt?.id === "string" && opt.id.trim()
-                                ? opt.id
-                                : String.fromCharCode(65 + optIdx);
-                            const answerKey =
-                              typeof q.answerKey === "string"
-                                ? q.answerKey
-                                : q.answerKey?.id;
-                            const isCorrect = optionId === answerKey;
+                            const optionId = optionIdOf(opt?.id, optIdx);
+                            const answerKey = answerKeyIdOf(q.answerKey);
+                            const isCorrect =
+                              answerKey !== null && optionId === answerKey;
                             return (
                               <div
                                 key={`${optionId}-${optIdx}`}

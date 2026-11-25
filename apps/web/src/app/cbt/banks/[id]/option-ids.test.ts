@@ -1,7 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { nextOptionId, uniqueOptionIds } from "./option-ids";
+import {
+  answerKeyIdOf,
+  nextOptionId,
+  optionIdOf,
+  uniqueOptionIds,
+} from "./option-ids";
 
 describe("option ids", () => {
+  it("trims stored ids and keys the way the API compares them", () => {
+    expect(optionIdOf(" B ", 3)).toBe("B");
+    expect(optionIdOf(undefined, 2)).toBe("C");
+    expect(answerKeyIdOf(" B ")).toBe("B");
+    expect(answerKeyIdOf({ id: " B " })).toBe("B");
+    expect(answerKeyIdOf("   ")).toBeNull();
+  });
+
   it("picks the first unused letter, so a removed option is filled again", () => {
     expect(nextOptionId([])).toBe("A");
     expect(nextOptionId(["A", "C", "D"])).toBe("B");

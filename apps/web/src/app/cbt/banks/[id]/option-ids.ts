@@ -1,5 +1,24 @@
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+/** The id to show for an option: its trimmed stored id, or its letter by position. */
+export function optionIdOf(id: unknown, index: number): string {
+  const trimmed = typeof id === "string" ? id.trim() : "";
+  return trimmed || String.fromCharCode(65 + index);
+}
+
+/** The answer key's id, trimmed; accepts a bare id or the `{ id }` shape. */
+export function answerKeyIdOf(answerKey: unknown): string | null {
+  const value =
+    typeof answerKey === "string"
+      ? answerKey
+      : answerKey && typeof answerKey === "object" && "id" in answerKey
+        ? (answerKey as { id?: unknown }).id
+        : null;
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed || null;
+}
+
 /** The first unused option id: A…Z, then OPT27, OPT28, … */
 export function nextOptionId(
   ids: readonly string[],
