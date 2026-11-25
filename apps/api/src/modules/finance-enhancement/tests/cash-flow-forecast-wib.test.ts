@@ -82,6 +82,13 @@ describe.each(['UTC', 'Asia/Jakarta', 'America/New_York'])(
       expect(forecast.map((row) => row.month)).toEqual(['Nov 26']);
     });
 
+    it('returns no buckets for a non-positive horizon instead of throwing', async () => {
+      for (const months of [0, -1]) {
+        const { forecast } = await getCashFlowForecast('unit-1', months);
+        expect(forecast).toEqual([]);
+      }
+    });
+
     it('folds the overdue receivable into the running WIB month, not the ended one', async () => {
       const { forecast } = await getCashFlowForecast('unit-1', 3);
 
