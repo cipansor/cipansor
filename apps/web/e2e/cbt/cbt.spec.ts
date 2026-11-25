@@ -13,6 +13,16 @@ interface SeedExam {
   _count?: { attempts: number };
 }
 
+interface QuestionOption {
+  id: string;
+  text: string;
+}
+
+interface BankQuestion {
+  id: string;
+  options: QuestionOption[];
+}
+
 test.describe("CBT Exams & Grading", () => {
   test("Should navigate to exams page and view list", async ({ page }) => {
     const session = await apiLogin(SEED_USERS.superAdmin);
@@ -96,6 +106,94 @@ test.describe("CBT Exams & Grading", () => {
     expect(created, "created exam should be persisted").toBeTruthy();
     if (created) {
       await apiRequest(session, "DELETE", `/cbt/exams/${created.id}`);
+    }
+  });
+
+  test("Should keep option ids unique after deleting and adding an option", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const [units, subjects, teachers] = await Promise.all([
+      apiRequest<{ data: Array<{ id: string; name: string }> }>(
+        session,
+        "GET",
+        "/units",
+      ),
+      apiRequest<{ data: Array<{ id: string }> }>(
+        session,
+        "GET",
+        "/curriculum/subjects",
+      ),
+      apiRequest<{ data: Array<{ id: string }> }>(
+        session,
+        "GET",
+        "/hr/teachers",
+      ),
+    ]);
+    expect(subjects.data?.[0], "seeded subject required").toBeTruthy();
+    expect(teachers.data?.[0], "seeded teacher required").toBeTruthy();
+
+    const bank = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/cbt/banks",
+      {
+        title: `Bank opsi E2E ${Date.now()}`,
+        description: "E2E option ids",
+        unitId: units.data?.[0]?.id,
+        subjectId: subjects.data[0].id,
+        teacherId: teachers.data[0].id,
+      },
+    );
+
+    try {
+      await page.goto(`/cbt/banks/${bank.data.id}`);
+      await page.getByRole("button", { name: /Tambah Soal/i }).click();
+
+      await page
+        .locator('textarea[name="content"]')
+        .fill(`Soal opsi E2E ${Date.now()}`);
+
+      // Start from A/B/C/D, remove B, then add one: the new option must fill
+      // the gap with B, not create a second D.
+      const optionRow = (index: number) =>
+        page
+          .locator(`input[name="options.${index}.text"]`)
+          .locator(
+            'xpath=ancestor::div[contains(@class,"flex items-center gap-3")]',
+          );
+      await optionRow(1).getByRole("button").click();
+      await page.getByRole("button", { name: /Tambah Opsi/i }).click();
+
+      await expect(
+        page.locator('input[name="options.3.text"]'),
+      ).toHaveAttribute("placeholder", /Teks pilihan B/);
+      for (const [index, text] of [
+        [0, "satu"],
+        [1, "dua"],
+        [2, "tiga"],
+        [3, "empat"],
+      ] as const) {
+        await page.locator(`input[name="options.${index}.text"]`).fill(text);
+      }
+
+      await page.getByRole("button", { name: /Simpan Pertanyaan/i }).click();
+      await expect(page.getByRole("dialog")).toBeHidden();
+
+      const saved = await apiRequest<{
+        data: { questions: BankQuestion[] };
+      }>(session, "GET", `/cbt/banks/${bank.data.id}`);
+      const question = saved.data.questions.find((q) =>
+        q.options.some((o) => o.text === "satu"),
+      );
+      expect(question, "question should be persisted").toBeTruthy();
+      const ids = question!.options.map((o) => o.id);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(ids).toContain("B");
+    } finally {
+      await apiRequest(session, "DELETE", `/cbt/banks/${bank.data.id}`);
     }
   });
 

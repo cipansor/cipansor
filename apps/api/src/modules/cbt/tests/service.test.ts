@@ -121,6 +121,32 @@ describe('CBT Service', () => {
       });
     });
 
+    it('refuses duplicate option ids before writing the question', async () => {
+      vi.mocked(prisma.questionBank.findUnique).mockResolvedValue({
+        id: 'bank-1',
+        teacher: { userId: 'user-1' },
+      } as any);
+
+      await expect(
+        CBTService.addQuestion(
+          {
+            bankId: 'bank-1',
+            type: 'MULTIPLE_CHOICE' as any,
+            content: 'Berapa 2+2?',
+            options: [
+              { id: 'A', text: '3' },
+              { id: 'C', text: '4' },
+              { id: 'D', text: '5' },
+              { id: 'D', text: '6' },
+            ],
+            answerKey: 'D',
+          },
+          { id: 'user-1', role: 'TEACHER' }
+        )
+      ).rejects.toThrow(/lebih dari sekali/i);
+      expect(prisma.question.create).not.toHaveBeenCalled();
+    });
+
     it('should throw error if unauthorized to add question', async () => {
       vi.mocked(prisma.questionBank.findUnique).mockResolvedValue({
         id: 'bank-1',
@@ -1055,6 +1081,44 @@ describe('CBT Service', () => {
       expect(qInsight.distractorAnalysis![0]).toEqual(
         expect.objectContaining({ count: 1, percentage: 50 })
       );
+    });
+
+    it('counts a duplicated option id once instead of twice', async () => {
+      const mockExam = {
+        id: 'exam-dup',
+        title: 'Exam Title',
+        questionBank: {
+          questions: [
+            {
+              id: 'q1',
+              type: 'MULTIPLE_CHOICE',
+              content: 'What is 2+2?',
+              options: [
+                { id: 'A', text: '3' },
+                { id: 'C', text: '4' },
+                { id: 'D', text: '5' },
+                { id: 'D', text: '6' },
+              ],
+            },
+          ],
+        },
+        attempts: [
+          {
+            id: 'a1',
+            status: 'COMPLETED',
+            score: 100,
+            answers: [{ questionId: 'q1', answer: 'D', score: 10, isCorrect: true }],
+          },
+        ],
+      };
+
+      vi.mocked(prisma.exam.findUnique).mockResolvedValue(mockExam as any);
+
+      const insights = await CBTService.getExamDifficultyInsights('exam-dup');
+      const analysis = insights!.questionInsights[0].distractorAnalysis!;
+
+      expect(analysis.map((a) => a.count)).toEqual([0, 0, 1, 0]);
+      expect(analysis.map((a) => a.percentage)).toEqual([0, 0, 100, 0]);
     });
   });
 });

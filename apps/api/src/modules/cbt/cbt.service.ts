@@ -1441,9 +1441,16 @@ export class CBTService {
           }
         });
 
+        const countedOptions = new Set<string>();
+
         distractorAnalysis = (q.options as Prisma.JsonValue[]).map((opt) => {
           const keyStr = canonicalAnswer(q.type, opt);
-          const count = keyStr === null ? 0 : optionCounts[keyStr] || 0;
+          // An older row can carry two options with the same id. The answer
+          // cannot tell them apart, so only the first one owns the count; the
+          // duplicate must not report the same 100% a second time.
+          const count =
+            keyStr !== null && !countedOptions.has(keyStr) ? optionCounts[keyStr] || 0 : 0;
+          if (keyStr !== null) countedOptions.add(keyStr);
           return {
             option: opt,
             count,

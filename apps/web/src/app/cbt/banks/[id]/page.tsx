@@ -51,6 +51,7 @@ import { useForm, useFieldArray } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
 import { MainLayout } from "@/components/layout";
+import { nextOptionId, uniqueOptionIds } from "./option-ids";
 import {
   ArrowLeft,
   BookOpen,
@@ -120,6 +121,7 @@ function ExamBankDetailPageContent() {
   });
 
   const questionType = form.watch("type");
+  const options = form.watch("options") ?? [];
 
   if (isLoading) {
     return (
@@ -145,7 +147,7 @@ function ExamBankDetailPageContent() {
       type: q.type,
       content: q.content,
       points: q.points,
-      options: q.options || [],
+      options: uniqueOptionIds(q.options || []),
       answerKey: q.answerKey,
       explanation: q.explanation || "",
     });
@@ -170,22 +172,37 @@ function ExamBankDetailPageContent() {
   };
 
   const onQuestionSubmit = async (values: z.infer<typeof questionSchema>) => {
+    const data = {
+      ...values,
+      options: values.options
+        ? uniqueOptionIds(values.options)
+        : values.options,
+    };
     try {
       if (editingQuestionId) {
         await updateQuestion.mutateAsync({
           bankId,
           questionId: editingQuestionId,
-          data: values,
+          data,
         });
       } else {
         await addQuestion.mutateAsync({
           bankId,
-          data: values,
+          data,
         });
       }
       setQuestionDialogOpen(false);
     } catch (error) {
       console.error(error);
+    }
+  };
+
+  const handleRemoveOption = (index: number) => {
+    const removedId = options[index]?.id;
+    removeOption(index);
+    if (removedId && form.getValues("answerKey") === removedId) {
+      const remaining = options.filter((_, i) => i !== index);
+      form.setValue("answerKey", remaining[0]?.id ?? "");
     }
   };
 
@@ -411,7 +428,7 @@ function ExamBankDetailPageContent() {
                           size="sm"
                           onClick={() =>
                             appendOption({
-                              id: String.fromCharCode(65 + optionFields.length),
+                              id: nextOptionId(options.map((o) => o.id)),
                               text: "",
                             })
                           }
@@ -422,7 +439,8 @@ function ExamBankDetailPageContent() {
                       {optionFields.map((field, index) => (
                         <div key={field.id} className="flex items-center gap-3">
                           <span className="font-bold w-6 text-center">
-                            {String.fromCharCode(65 + index)}
+                            {options[index]?.id ??
+                              String.fromCharCode(65 + index)}
                           </span>
                           <FormField
                             control={form.control}
@@ -431,7 +449,10 @@ function ExamBankDetailPageContent() {
                               <FormItem className="flex-1 m-0">
                                 <FormControl>
                                   <Input
-                                    placeholder={`Teks pilihan ${String.fromCharCode(65 + index)}...`}
+                                    placeholder={`Teks pilihan ${
+                                      options[index]?.id ??
+                                      String.fromCharCode(65 + index)
+                                    }...`}
                                     {...inputField}
                                   />
                                 </FormControl>
@@ -444,7 +465,7 @@ function ExamBankDetailPageContent() {
                             variant="ghost"
                             size="icon"
                             className="text-red-500"
-                            onClick={() => removeOption(index)}
+                            onClick={() => handleRemoveOption(index)}
                           >
                             <Trash2 className="w-4 h-4" />
                           </Button>
@@ -470,12 +491,9 @@ function ExamBankDetailPageContent() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {optionFields.map((opt, idx) => (
-                                <SelectItem
-                                  key={opt.id}
-                                  value={String.fromCharCode(65 + idx)}
-                                >
-                                  Opsi {String.fromCharCode(65 + idx)}
+                              {options.map((opt) => (
+                                <SelectItem key={opt.id} value={opt.id}>
+                                  Opsi {opt.id}
                                 </SelectItem>
                               ))}
                             </SelectContent>
