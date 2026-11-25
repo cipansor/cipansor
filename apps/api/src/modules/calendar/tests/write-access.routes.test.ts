@@ -67,7 +67,7 @@ const validEvent = {
   isAllDay: true,
 };
 
-type Method = 'post' | 'put' | 'delete';
+type Method = 'get' | 'post' | 'put' | 'delete';
 type Write = [string, Method, string, object?];
 
 const WRITES: Write[] = [
@@ -134,6 +134,64 @@ it('refuses a governance role that somehow holds ACADEMIC_MANAGE', async () => {
     const res = await send('YAYASAN_PENGAWAS', method, path, body);
     expect(res.status).toBe(403);
   }
+});
+
+describe.each([
+  'SUPER_ADMIN',
+  'SDIT_ADMIN',
+  'SDIT_KEPALA_SEKOLAH',
+  'YAYASAN_KETUA',
+  'YAYASAN_ANGGOTA',
+])('%s may read holiday drafts', (roleCode) => {
+  it('reaches the draft list', async () => {
+    const res = await send(roleCode, 'get', '/calendar/holidays/drafts');
+    expect(res.status).toBe(200);
+  });
+});
+
+describe.each(['YAYASAN_PENGAWAS', 'SDIT_GURU', 'SDIT_TATA_USAHA'])(
+  '%s may not read holiday drafts',
+  (roleCode) => {
+    it('is refused the draft list: 403', async () => {
+      const res = await send(roleCode, 'get', '/calendar/holidays/drafts');
+      expect(res.status).toBe(403);
+    });
+  }
+);
+
+describe.each(['SUPER_ADMIN', 'SDIT_ADMIN', 'YAYASAN_PENGAWAS'])(
+  '%s may read the holiday-sync config',
+  (roleCode) => {
+    it('reaches the config', async () => {
+      const res = await send(roleCode, 'get', '/calendar/holidays/config');
+      expect(res.status).toBe(200);
+    });
+  }
+);
+
+describe.each(['SDIT_KEPALA_SEKOLAH', 'SDIT_GURU'])(
+  '%s may not read the holiday-sync config',
+  (roleCode) => {
+    it('is refused the config: 403', async () => {
+      const res = await send(roleCode, 'get', '/calendar/holidays/config');
+      expect(res.status).toBe(403);
+    });
+  }
+);
+
+describe('the holiday-sync config is super-admin only', () => {
+  it('lets SUPER_ADMIN change it', async () => {
+    const res = await send('SUPER_ADMIN', 'put', '/calendar/holidays/config', {});
+    expect(res.status).not.toBe(403);
+  });
+
+  it.each(['SDIT_ADMIN', 'SDIT_KEPALA_SEKOLAH', 'YAYASAN_KETUA'])(
+    'refuses %s: 403',
+    async (roleCode) => {
+      const res = await send(roleCode, 'put', '/calendar/holidays/config', {});
+      expect(res.status).toBe(403);
+    }
+  );
 });
 
 describe.each([

@@ -76,6 +76,12 @@ describe.each(['UTC', 'Asia/Jakarta', 'America/New_York'])(
       expect(forecast).toHaveLength(3);
     });
 
+    it('returns exactly one bucket for a one-month horizon', async () => {
+      const { forecast } = await getCashFlowForecast('unit-1', 1);
+
+      expect(forecast.map((row) => row.month)).toEqual(['Nov 26']);
+    });
+
     it('folds the overdue receivable into the running WIB month, not the ended one', async () => {
       const { forecast } = await getCashFlowForecast('unit-1', 3);
 

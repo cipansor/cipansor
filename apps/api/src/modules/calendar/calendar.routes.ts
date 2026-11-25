@@ -25,11 +25,10 @@ const router = Router();
 const manageCalendar = authorize(...CALENDAR_WRITE_ROLE_CODES);
 
 // Reviewing an imported holiday is admin work, not teaching work. A kepala
-// sekolah holds ACADEMIC_MANAGE and may create ordinary agenda, but approving a
-// draft changes a unit's work days for attendance and payroll. Gate on the
-// RoleCode list, not the legacy UNIT_ADMIN bucket: that bucket also contains
-// the read-only yayasan roles, and TEACHER contains the kepala sekolah. The
-// pair of gates leaves exactly SUPER_ADMIN and the four per-unit admins.
+// sekolah may create ordinary agenda, but approving a draft changes a unit's
+// work days for attendance and payroll. `ADMIN_ROLE_CODES` is exactly
+// SUPER_ADMIN and the four per-unit admins: the legacy UNIT_ADMIN bucket also
+// contains the read-only yayasan roles, and TEACHER contains the kepala sekolah.
 const reviewHolidayDraft = authorize(...ADMIN_ROLE_CODES);
 
 // All routes require authentication
