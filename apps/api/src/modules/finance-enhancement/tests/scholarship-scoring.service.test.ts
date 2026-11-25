@@ -467,8 +467,8 @@ describe('scholarshipScoringService.createCriterion', () => {
 });
 
 describe('createScholarshipCriterionSchema', () => {
-  it('accepts a target whose unit follows the number', () => {
-    for (const targetValue of ['10 juz', '85%', '85,5%', '85.5%', '7,5', '7.5']) {
+  it('accepts a juz target for a hafalan criterion', () => {
+    for (const targetValue of ['10 juz', '7,5', '7.5']) {
       expect(
         createScholarshipCriterionSchema.safeParse({
           name: 'Hafalan',
@@ -477,6 +477,36 @@ describe('createScholarshipCriterionSchema', () => {
           targetValue,
         }).success
       ).toBe(true);
+    }
+  });
+
+  it('accepts a percentage target for an academic criterion', () => {
+    for (const targetValue of ['85%', '85,5%', '85.5%', '7,5', '7.5']) {
+      expect(
+        createScholarshipCriterionSchema.safeParse({
+          name: 'Nilai Akademik',
+          weight: 1,
+          type: 'NUMERIC',
+          targetValue,
+        }).success
+      ).toBe(true);
+    }
+  });
+
+  it('rejects a percentage target for a hafalan criterion', () => {
+    for (const name of ['Hafalan', 'Hafalan Al-Quran', 'TAHFIDZ', 'setoran hafalan']) {
+      for (const targetValue of ['85%', '85,5%', '85.5%']) {
+        const parsed = createScholarshipCriterionSchema.safeParse({
+          name,
+          weight: 1,
+          type: 'NUMERIC',
+          targetValue,
+        });
+        expect(parsed.success).toBe(false);
+        if (!parsed.success) {
+          expect(parsed.error.issues[0]?.message).toContain('jumlah juz');
+        }
+      }
     }
   });
 

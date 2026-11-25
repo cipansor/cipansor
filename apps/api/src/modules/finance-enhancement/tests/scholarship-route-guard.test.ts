@@ -120,6 +120,39 @@ describe.each([
   });
 });
 
+describe('POST /scholarships/:id/criteria target validation', () => {
+  const create = (body: Record<string, unknown>) =>
+    authed(
+      request(app)
+        .post('/finance-enhancement/scholarships/sch-1/criteria')
+        .send({
+          weight: 1,
+          type: 'NUMERIC',
+          ...body,
+        })
+    );
+
+  it('refuses a percentage target on a hafalan criterion before the service runs', async () => {
+    as('SDIT_ADMIN', 'unit-sd');
+
+    const res = await create({ name: 'Hafalan Al-Quran', targetValue: '85%' });
+
+    expect(res.status).toBe(400);
+    expect(JSON.stringify(res.body)).toContain('jumlah juz');
+    expect(scholarshipScoringService.createCriterion).not.toHaveBeenCalled();
+  });
+
+  it('accepts juz for hafalan and a percentage for academic', async () => {
+    as('SDIT_ADMIN', 'unit-sd');
+
+    expect((await create({ name: 'Hafalan Al-Quran', targetValue: '10 juz' })).status).toBeLessThan(
+      400
+    );
+    expect((await create({ name: 'Nilai Akademik', targetValue: '85%' })).status).toBeLessThan(400);
+    expect(scholarshipScoringService.createCriterion).toHaveBeenCalledTimes(2);
+  });
+});
+
 describe('POST /scholarship-recipients', () => {
   const input = {
     scholarshipId: '11111111-1111-4111-8111-111111111111',

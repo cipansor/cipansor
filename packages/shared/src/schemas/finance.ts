@@ -6,6 +6,18 @@ export interface ScholarshipTarget {
   percent: boolean;
 }
 
+const HAFALAN_CRITERION_KEYWORDS = ["hafalan", "tahfidz"];
+
+/**
+ * Whether a criterion name means memorisation, using the same keywords the
+ * scorer uses. Kept here so the create schema and `scoreOne` cannot disagree
+ * about which targets are juz.
+ */
+export function isHafalanCriterion(name: string): boolean {
+  const lower = name.toLowerCase();
+  return HAFALAN_CRITERION_KEYWORDS.some((keyword) => lower.includes(keyword));
+}
+
 /**
  * The leading number of a target such as `10 juz`, `85%`, `7.5` or `85,5%`.
  * Both separators are accepted because the form is free text; the unit after
@@ -48,6 +60,20 @@ export const createScholarshipCriterionSchema = z
       // use its default or divide by zero.
       message:
         "Target numerik harus berupa angka positif, misalnya 30, 85,5% atau 10 juz",
+      path: ["targetValue"],
+    },
+  )
+  .refine(
+    (data) =>
+      data.type !== "NUMERIC" ||
+      !data.targetValue ||
+      !isHafalanCriterion(data.name) ||
+      !parseScholarshipTarget(data.targetValue)?.percent,
+    {
+      // A percentage is a share of the grades, not a number of juz; scoring it
+      // as juz would read 85% as 85 juz. Old rows that carry one are still
+      // excluded by the scorer instead of producing a tiny score.
+      message: "Target hafalan harus berupa jumlah juz, misalnya 10 juz",
       path: ["targetValue"],
     },
   );

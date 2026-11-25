@@ -5,6 +5,7 @@ import { actorSeesUnit } from '@/utils/resolve-unit-id';
 import { studentScope, type ScopeActor } from '@/utils/student-scope';
 import { householdIncome, needScore, type HouseholdIncome } from '@/utils/household-income';
 import {
+  isHafalanCriterion,
   parseScholarshipTarget,
   type CreateScholarshipCriterionInput,
   type ScholarshipAssessmentResult,
@@ -46,7 +47,6 @@ export function isExcludedValue(value: string): boolean {
   return EXCLUDED_VALUES.includes(value);
 }
 
-const HAFALAN_KEYWORDS = ['hafalan', 'tahfidz'];
 const ACADEMIC_KEYWORDS = ['akademik', 'nilai'];
 const INCOME_KEYWORDS = ['penghasilan'];
 
@@ -55,7 +55,7 @@ export type CriterionKind = 'HAFALAN' | 'AKADEMIK' | 'PENGHASILAN' | 'MANUAL';
 
 export function criterionKind(name: string): CriterionKind {
   const lower = name.toLowerCase();
-  if (HAFALAN_KEYWORDS.some((k) => lower.includes(k))) return 'HAFALAN';
+  if (isHafalanCriterion(name)) return 'HAFALAN';
   if (ACADEMIC_KEYWORDS.some((k) => lower.includes(k))) return 'AKADEMIK';
   if (INCOME_KEYWORDS.some((k) => lower.includes(k))) return 'PENGHASILAN';
   return 'MANUAL';
