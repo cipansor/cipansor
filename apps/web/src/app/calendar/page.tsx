@@ -35,6 +35,8 @@ import {
   EventCategory,
 } from "@/hooks/use-calendar";
 import { useUnits } from "@/hooks/use-units";
+import { usePermission } from "@/hooks/use-permission";
+import { PERMISSIONS } from "@/constants/permissions";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -79,6 +81,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function AcademicCalendarPage() {
+  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | "">(
@@ -156,12 +159,14 @@ export default function AcademicCalendarPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Link href="/calendar/events/new">
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Tambah Event
-              </Button>
-            </Link>
+            {canManage && (
+              <Link href="/calendar/events/new">
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Tambah Event
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
 

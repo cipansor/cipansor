@@ -174,12 +174,16 @@ export class CalendarService {
 
     // Search runs before pagination, on the server: filtering the page the
     // browser already has hid every later occurrence of a recurring agenda.
+    // `%` and `_` are LIKE wildcards, so a literal "100%" would also match
+    // "100"; escape them (and the escape character itself) before Prisma sends
+    // the value as a pattern.
     if (search) {
+      const literalSearch = search.replace(/[\\%_]/g, '\\$&');
       and.push({
         OR: [
-          { title: { contains: search, mode: 'insensitive' } },
-          { description: { contains: search, mode: 'insensitive' } },
-          { location: { contains: search, mode: 'insensitive' } },
+          { title: { contains: literalSearch, mode: 'insensitive' } },
+          { description: { contains: literalSearch, mode: 'insensitive' } },
+          { location: { contains: literalSearch, mode: 'insensitive' } },
         ],
       });
     }
@@ -191,7 +195,11 @@ export class CalendarService {
         where,
         skip,
         take: limit,
-        orderBy: { startDate: 'asc' },
+        // `id` breaks ties between events that start on the same day: without
+        // it the database may order a tie differently per query, so a row can
+        // appear on two pages or on none while the month grid stitches pages
+        // together.
+        orderBy: [{ startDate: 'asc' }, { id: 'asc' }],
         include: {
           unit: { select: { id: true, name: true } },
           class: { select: { id: true, name: true } },

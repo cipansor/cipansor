@@ -30,20 +30,25 @@ export type EventRecurrenceCode = (typeof EVENT_RECURRENCE_VALUES)[number];
 export const calendarDay = z.iso.date("Tanggal tidak valid (yyyy-MM-dd)");
 
 /**
- * A calendar day, or an ISO instant that is normalised to the day it names.
- * The instant must be midnight UTC (`…T00:00:00.000Z`): a datetime carrying a
- * wall-clock time would name one day in WIB and another in UTC, and the column
- * stores the day.
+ * A calendar day, or an ISO instant normalised to the WIB day it falls on.
+ *
+ * The column stores a calendar day, and every school day is a WIB day. Slicing
+ * the text of an instant took its *UTC* day, so `2026-11-25T17:00:00Z` (the
+ * first minute of 26 November in WIB) was filed under the 25th. Shifting the
+ * instant by the fixed UTC+7 offset first derives the day a person in the
+ * pesantren means.
  */
+const WIB_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+function wibDayOfInstant(value: string): string {
+  return new Date(new Date(value).getTime() + WIB_OFFSET_MS)
+    .toISOString()
+    .slice(0, 10);
+}
+
 const dayOrInstant = z.union([
   calendarDay,
-  z.iso
-    .datetime({ offset: true })
-    .refine(
-      (v) => v.slice(11, 19) === "00:00:00",
-      "Tanggal agenda harus berupa tanggal",
-    )
-    .transform((v) => v.slice(0, 10)),
+  z.iso.datetime({ offset: true }).transform(wibDayOfInstant),
 ]);
 
 /** "HH:mm", the value an `<input type="time">` holds. */
@@ -168,6 +173,13 @@ export type CalendarEventDeleteQuery = z.output<
 >;
 
 /**
+ * The most characters the list's `search` accepts. Shared with the search box
+ * so the form cannot send a value the API refuses — a 220-character paste used
+ * to turn the whole list into "no events" because the query was rejected.
+ */
+export const CALENDAR_EVENT_SEARCH_MAX_LENGTH = 200;
+
+/**
  * The list's filters. `eventType` is the model's own name: the page used to
  * send `category`, which the controller never read, so the filter silently did
  * nothing (#1155).
@@ -180,7 +192,7 @@ export const listCalendarEventsQuerySchema = z.object({
   endDate: calendarDay.optional(),
   month: z.coerce.number().int().min(1).max(12).optional(),
   year: z.coerce.number().int().min(2000).max(2100).optional(),
-  search: z.string().max(200).optional(),
+  search: z.string().max(CALENDAR_EVENT_SEARCH_MAX_LENGTH).optional(),
   isPublic: z
     .enum(["true", "false"])
     .transform((v) => v === "true")

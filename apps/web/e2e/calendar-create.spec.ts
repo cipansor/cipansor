@@ -24,7 +24,12 @@ interface Created {
   data: { id: string; eventType: string; startDate: string };
 }
 interface Listed {
-  data: { id: string; title: string; eventType: string }[];
+  data: {
+    id: string;
+    title: string;
+    eventType: string;
+    unitId: string | null;
+  }[];
 }
 
 test.beforeAll(async () => {
@@ -170,6 +175,48 @@ test.describe("Kalender Akademik — Tambah Agenda", () => {
     }
   });
 
+  test("admin unit menyimpan agenda ke unitnya, tanpa memilih unit lain", async ({
+    page,
+  }) => {
+    const title = `Agenda unit e2e ${STAMP}`;
+    const session = await loginAs(page, "adminSdit");
+
+    try {
+      await page.goto("/calendar/events/new");
+
+      // A unit admin writes into their own unit: no unit picker, and the
+      // class list is that unit's list.
+      await expect(
+        page.getByText(/Agenda disimpan untuk unit ini/),
+      ).toBeVisible();
+      await expect(page.getByText("Kelas (Opsional)")).toBeVisible();
+      await expect(page.getByRole("combobox", { name: "Unit" })).toHaveCount(0);
+
+      await page.getByLabel("Judul Event *").fill(title);
+      await page.getByRole("button", { name: /Simpan/ }).click();
+
+      await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
+      const listed = await apiRequest<Listed>(
+        session,
+        "GET",
+        `/calendar?limit=100&search=${encodeURIComponent(title)}`,
+      );
+      const found = listed.data.find((e) => e.title === title);
+      expect(found?.unitId).toBe(session.user.unitId);
+    } finally {
+      const left = await apiRequest<Listed>(
+        session,
+        "GET",
+        `/calendar?limit=100&search=${encodeURIComponent(title)}`,
+      ).catch(() => ({ data: [] }));
+      for (const e of left.data) {
+        await apiRequest(session, "DELETE", `/calendar/${e.id}`).catch(
+          () => undefined,
+        );
+      }
+    }
+  });
+
   test("form menolak jam terbalik pada hari yang sama", async ({ page }) => {
     const today = new Date(Date.now() + 7 * 3_600_000)
       .toISOString()
@@ -265,6 +312,71 @@ test.describe("Kalender Akademik — hapus satu kemunculan atau seluruh rangkaia
           () => undefined,
         );
       }
+    }
+  });
+});
+
+/**
+ * Deleting the only row on the last page must fall back to the page that still
+ * has rows. Before this, the list kept requesting the vanished page, answered
+ * "Tidak ada event ditemukan", and the pager (hidden at one page) offered no
+ * way back — 50 agendas were still there.
+ */
+test.describe("Kalender Akademik — halaman terakhir setelah penghapusan", () => {
+  const wibDay = (offset: number) =>
+    new Date(Date.now() + offset * 86_400_000 + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+
+  test("kembali ke halaman pertama saat halaman kedua menjadi kosong", async ({
+    page,
+  }) => {
+    const title = `Halaman terakhir e2e ${STAMP}`;
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const created = await apiRequest<Created>(session, "POST", "/calendar", {
+      title,
+      eventType: "MEETING",
+      startDate: wibDay(60),
+      isAllDay: true,
+      isPublic: true,
+      recurrence: "DAILY",
+      recurrenceEnd: wibDay(110),
+    });
+
+    try {
+      await loginAs(page, "superAdmin");
+      await page.goto("/calendar/events");
+      await page.getByPlaceholder("Cari event...").fill(title);
+
+      // 51 occurrences fill page 1 (50) and leave one on page 2.
+      const next = page.getByRole("button", { name: "Halaman berikutnya" });
+      await expect(next).toBeVisible({ timeout: 15000 });
+      await next.click();
+
+      const rows = page.getByRole("row").filter({ hasText: title });
+      await expect(rows).toHaveCount(1, { timeout: 15000 });
+
+      await rows.first().getByRole("button").last().click({ force: true });
+      await page.getByRole("menuitem", { name: /Hapus/ }).click();
+      const dialog = page.getByRole("alertdialog");
+      await dialog.getByLabel(/Hanya agenda ini/).check();
+      await dialog.getByRole("button", { name: "Hapus" }).click();
+
+      // The page falls back to page 1 where the other 50 rows still are.
+      await expect(page.getByText("Tidak ada event ditemukan")).toHaveCount(0, {
+        timeout: 15000,
+      });
+      await expect(rows).toHaveCount(50, { timeout: 15000 });
+      await expect(
+        page.getByRole("button", { name: "Halaman berikutnya" }),
+      ).toHaveCount(0);
+    } finally {
+      // One delete removes the still-live occurrences, including the parent.
+      await apiRequest(
+        session,
+        "DELETE",
+        `/calendar/${created.data.id}?scope=SERIES`,
+      ).catch(() => undefined);
     }
   });
 });

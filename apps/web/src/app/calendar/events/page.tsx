@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { safeFormat } from "@/lib/date";
 import { MainLayout } from "@/components/layout/main-layout";
 import {
@@ -53,7 +53,12 @@ import {
   CalendarEvent,
 } from "@/hooks/use-calendar";
 import { Pagination } from "@/components/shared/pagination";
-import type { CalendarEventDeleteScope } from "@cipansor/shared";
+import { usePermission } from "@/hooks/use-permission";
+import { PERMISSIONS } from "@/constants/permissions";
+import {
+  CALENDAR_EVENT_SEARCH_MAX_LENGTH,
+  type CalendarEventDeleteScope,
+} from "@cipansor/shared";
 import {
   Calendar as CalendarIcon,
   Plus,
@@ -83,7 +88,12 @@ export default function EventsListPage() {
   const [deleteScope, setDeleteScope] =
     useState<CalendarEventDeleteScope>("SINGLE");
 
-  const { data: eventsData, isLoading } = useCalendarEvents({
+  const {
+    data: eventsData,
+    isLoading,
+    isError,
+    refetch,
+  } = useCalendarEvents({
     page,
     limit: 50,
     // Search runs on the server, before pagination: filtering the 50 rows the
@@ -95,6 +105,16 @@ export default function EventsListPage() {
   });
   const events = eventsData?.data || [];
   const total = eventsData?.meta.total ?? 0;
+  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
+
+  // Deleting the last row of the last page leaves the requested page beyond
+  // the new total. The API answers an empty page, so without this the list said
+  // "no events" and the pager (hidden at one page) offered no way back.
+  useEffect(() => {
+    if (eventsData && page > Math.max(1, eventsData.meta.totalPages)) {
+      setPage(Math.max(1, eventsData.meta.totalPages));
+    }
+  }, [eventsData, page]);
 
   const deleteEvent = useDeleteCalendarEvent();
 
@@ -141,12 +161,14 @@ export default function EventsListPage() {
                 Lihat Kalender
               </Button>
             </Link>
-            <Link href="/calendar/events/new">
-              <Button>
-                <Plus className="h-4 w-4 mr-2" />
-                Tambah Event
-              </Button>
-            </Link>
+            {canManage && (
+              <Link href="/calendar/events/new">
+                <Button>
+                  <Plus className="h-4 w-4 mr-2" />
+                  Tambah Event
+                </Button>
+              </Link>
+            )}
           </div>
         </div>
 
@@ -157,7 +179,8 @@ export default function EventsListPage() {
               <div className="flex-1 relative">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
                 <Input
-                  placeholder="Cari event..."
+                  placeholder={`Cari event... (maks. ${CALENDAR_EVENT_SEARCH_MAX_LENGTH} karakter)`}
+                  maxLength={CALENDAR_EVENT_SEARCH_MAX_LENGTH}
                   value={search}
                   onChange={(e) => {
                     setSearch(e.target.value);
@@ -209,16 +232,34 @@ export default function EventsListPage() {
                   <Skeleton key={i} className="h-16" />
                 ))}
               </div>
+            ) : isError ? (
+              <div
+                role="alert"
+                className="text-center py-12 text-muted-foreground"
+              >
+                <CalendarIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                <p>Daftar agenda gagal dimuat.</p>
+                <p className="text-sm">Periksa koneksi lalu coba lagi.</p>
+                <Button
+                  variant="outline"
+                  className="mt-4"
+                  onClick={() => refetch()}
+                >
+                  Coba lagi
+                </Button>
+              </div>
             ) : events.length === 0 ? (
               <div className="text-center py-12 text-muted-foreground">
                 <CalendarIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
                 <p>Tidak ada event ditemukan</p>
-                <Link href="/calendar/events/new">
-                  <Button variant="outline" className="mt-4">
-                    <Plus className="h-4 w-4 mr-2" />
-                    Buat Event Baru
-                  </Button>
-                </Link>
+                {canManage && (
+                  <Link href="/calendar/events/new">
+                    <Button variant="outline" className="mt-4">
+                      <Plus className="h-4 w-4 mr-2" />
+                      Buat Event Baru
+                    </Button>
+                  </Link>
+                )}
               </div>
             ) : (
               <Table>
@@ -316,22 +357,28 @@ export default function EventsListPage() {
                                   Lihat Detail
                                 </DropdownMenuItem>
                               </Link>
-                              <Link href={`/calendar/events/${event.id}/edit`}>
-                                <DropdownMenuItem>
-                                  <Edit className="h-4 w-4 mr-2" />
-                                  Edit
-                                </DropdownMenuItem>
-                              </Link>
-                              <DropdownMenuItem
-                                className="text-red-600"
-                                onClick={() => {
-                                  setDeleteScope("SINGLE");
-                                  setDeleteTarget(event);
-                                }}
-                              >
-                                <Trash2 className="h-4 w-4 mr-2" />
-                                Hapus
-                              </DropdownMenuItem>
+                              {canManage && (
+                                <>
+                                  <Link
+                                    href={`/calendar/events/${event.id}/edit`}
+                                  >
+                                    <DropdownMenuItem>
+                                      <Edit className="h-4 w-4 mr-2" />
+                                      Edit
+                                    </DropdownMenuItem>
+                                  </Link>
+                                  <DropdownMenuItem
+                                    className="text-red-600"
+                                    onClick={() => {
+                                      setDeleteScope("SINGLE");
+                                      setDeleteTarget(event);
+                                    }}
+                                  >
+                                    <Trash2 className="h-4 w-4 mr-2" />
+                                    Hapus
+                                  </DropdownMenuItem>
+                                </>
+                              )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

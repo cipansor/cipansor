@@ -1,5 +1,9 @@
 import { describe, it, expect } from 'vitest';
-import { createCalendarEventSchema, listCalendarEventsQuerySchema } from '@cipansor/shared';
+import {
+  CALENDAR_EVENT_SEARCH_MAX_LENGTH,
+  createCalendarEventSchema,
+  listCalendarEventsQuerySchema,
+} from '@cipansor/shared';
 
 /**
  * The calendar's write contract (#1155).
@@ -51,14 +55,28 @@ describe('createCalendarEventSchema', () => {
     expect(parsed.startDate).toBe('2026-03-02');
   });
 
-  it('refuses a datetime that carries a time of day', () => {
-    // It would name one day in WIB and another in UTC, and the column stores a day.
-    expect(
-      createCalendarEventSchema.safeParse({
-        ...valid,
-        startDate: '2026-03-02T13:00:00.000Z',
-      }).success
-    ).toBe(false);
+  it('converts an ISO instant to the WIB day it falls on', () => {
+    // 17:00Z is already 00:00 on the next day in WIB (UTC+7). Slicing the text
+    // would file the agenda under the previous day.
+    const parsed = createCalendarEventSchema.parse({
+      ...valid,
+      startDate: '2026-03-02T17:00:00.000Z',
+    });
+    expect(parsed.startDate).toBe('2026-03-03');
+  });
+
+  it('keeps the WIB day of an instant that carries an offset', () => {
+    const parsed = createCalendarEventSchema.parse({
+      ...valid,
+      startDate: '2026-03-02T23:30:00+07:00',
+    });
+    expect(parsed.startDate).toBe('2026-03-02');
+  });
+
+  it('keeps a plain calendar day untouched', () => {
+    expect(createCalendarEventSchema.parse({ ...valid, startDate: '2026-03-02' }).startDate).toBe(
+      '2026-03-02'
+    );
   });
 
   it('requires a start time when the event is not all-day', () => {
@@ -156,5 +174,11 @@ describe('listCalendarEventsQuerySchema', () => {
 
   it('refuses a limit above the ceiling', () => {
     expect(listCalendarEventsQuerySchema.safeParse({ limit: '500' }).success).toBe(false);
+  });
+
+  it('accepts a search of the shared length and refuses one character more', () => {
+    const atLimit = 'a'.repeat(CALENDAR_EVENT_SEARCH_MAX_LENGTH);
+    expect(listCalendarEventsQuerySchema.safeParse({ search: atLimit }).success).toBe(true);
+    expect(listCalendarEventsQuerySchema.safeParse({ search: `${atLimit}a` }).success).toBe(false);
   });
 });

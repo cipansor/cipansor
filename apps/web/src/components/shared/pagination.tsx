@@ -54,7 +54,7 @@ export function Pagination({
    * A pager whose "next" button is not on screen is a table that ends at row 10.
    *
    * `flex-wrap` on the inner groups rather than a fixed second breakpoint, so
-   * this also survives the long form ("Showing 91 to 100 of 1.204 results") and
+   * this also survives the long form ("Menampilkan 91–100 dari 1.204 hasil") and
    * a 320px screen, neither of which a hand-picked breakpoint would have
    * covered.
    */
@@ -62,11 +62,11 @@ export function Pagination({
     <div className="flex flex-col items-center justify-between gap-3 px-2 py-4 sm:flex-row sm:gap-4">
       <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-2 text-sm text-muted-foreground">
         <span>
-          Showing {startItem} to {endItem} of {safeTotal} results
+          Menampilkan {startItem}–{endItem} dari {safeTotal} hasil
         </span>
         {onPageSizeChange && (
           <div className="flex items-center gap-2">
-            <span>Rows per page:</span>
+            <span>Baris per halaman:</span>
             <Select
               value={String(pageSize)}
               onValueChange={(value) => onPageSizeChange(Number(value))}
@@ -108,7 +108,7 @@ export function Pagination({
           <ChevronLeft className="h-4 w-4" />
         </Button>
         <span className="flex items-center gap-1 text-sm">
-          Page <strong>{page}</strong> of <strong>{totalPages}</strong>
+          Halaman <strong>{page}</strong> dari <strong>{totalPages}</strong>
         </span>
         <Button
           variant="outline"
