@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import { parseAndVerifyDocument, tesseractReadText } from '../document-ocr.service';
 
 // A real 1x1 PNG binary buffer (magic bytes 0x89 0x50 0x4E 0x47 ...). Its
@@ -372,6 +372,41 @@ No. KK : 3201234567890001
         { enabled: true, readText }
       );
       expect(readText).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('SPMB_OCR_ENABLED default', () => {
+    const initial = process.env.SPMB_OCR_ENABLED;
+
+    afterEach(() => {
+      if (initial === undefined) delete process.env.SPMB_OCR_ENABLED;
+      else process.env.SPMB_OCR_ENABLED = initial;
+    });
+
+    it.each([undefined, '', 'false', 'TRUE', '1'])(
+      'keeps OCR off for SPMB_OCR_ENABLED=%s',
+      async (value) => {
+        if (value === undefined) delete process.env.SPMB_OCR_ENABLED;
+        else process.env.SPMB_OCR_ENABLED = value;
+
+        const readText = readerFor(KTP_TEXT);
+        const result = await parseAndVerifyDocument(
+          { imageBase64: PNG_URI, documentType: 'ktp' },
+          { readText }
+        );
+
+        expect(readText).not.toHaveBeenCalled();
+        expect(result.validation.ocrAttempted).toBe(false);
+      }
+    );
+
+    it('runs the engine when SPMB_OCR_ENABLED=true', async () => {
+      process.env.SPMB_OCR_ENABLED = 'true';
+
+      const readText = readerFor(KTP_TEXT);
+      await parseAndVerifyDocument({ imageBase64: PNG_URI, documentType: 'ktp' }, { readText });
+
+      expect(readText).toHaveBeenCalledTimes(1);
     });
   });
 
