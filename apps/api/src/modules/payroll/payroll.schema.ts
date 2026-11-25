@@ -109,10 +109,11 @@ export const listEmployeeSalariesQuerySchema = z.object({
 
 export const listPayrollPeriodsQuerySchema = z.object({
   unitId: z.string().uuid().optional(),
-  year: z.string().optional(),
+  // Express parses a numeric query value as a number; coerce before validating.
+  year: z.coerce.string().optional(),
   status: z.enum(['DRAFT', 'APPROVED', 'PAID', 'CANCELLED']).optional(),
-  page: z.string().default('1'),
-  limit: z.string().default('20'),
+  page: z.coerce.string().default('1'),
+  limit: z.coerce.string().default('20'),
 });
 
 export const listPayrollsQuerySchema = z.object({

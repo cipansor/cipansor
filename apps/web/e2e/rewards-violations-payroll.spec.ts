@@ -358,7 +358,7 @@ test.describe("Payroll — tombol periode mengikuti kebijakan API", () => {
       const named = page.getByRole("row", {
         name: /E2E otorisasi kosong/i,
       });
-      expect(await named.count(), "the new period should be listed").toBe(1);
+      await expect(named, "the new period should be listed").toHaveCount(1);
       await named.getByRole("button").last().click();
 
       await expect(
