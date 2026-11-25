@@ -297,7 +297,7 @@ describe('Laundry Accounting Integration', () => {
       expect(prisma.laundryPricing.update).not.toHaveBeenCalled();
     });
 
-    it('still edits an inactive tier whose link went stale', async () => {
+    it('still edits an inactive tier whose unchanged link went stale', async () => {
       (prisma.laundryPricing.findFirst as any).mockResolvedValue({
         id: 'pricing-1',
         businessUnitId: 'bu-1',
@@ -306,13 +306,30 @@ describe('Laundry Accounting Integration', () => {
 
       await pricingService.update('pricing-1', unitId, {
         name: 'Setrika Baru',
+        businessUnitId: 'bu-1',
       } as any);
 
       expect(prisma.businessUnit.findFirst).not.toHaveBeenCalled();
       expect(prisma.laundryPricing.update).toHaveBeenCalledWith({
         where: { id: 'pricing-1' },
-        data: { name: 'Setrika Baru' },
+        data: expect.objectContaining({ name: 'Setrika Baru' }),
       });
+    });
+
+    it('refuses a different link on an inactive tier', async () => {
+      (prisma.laundryPricing.findFirst as any).mockResolvedValue({
+        id: 'pricing-1',
+        businessUnitId: 'bu-1',
+        isActive: false,
+      });
+      (prisma.businessUnit.findFirst as any).mockResolvedValue(null);
+
+      await expect(
+        pricingService.update('pricing-1', unitId, {
+          businessUnitId: 'bu-2',
+        } as any)
+      ).rejects.toMatchObject({ statusCode: 400 });
+      expect(prisma.laundryPricing.update).not.toHaveBeenCalled();
     });
 
     it('does not update a tier outside the caller unit', async () => {

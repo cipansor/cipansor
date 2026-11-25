@@ -100,7 +100,8 @@ export const pricingService = {
       const businessUnitId =
         data.businessUnitId !== undefined ? data.businessUnitId : existing.businessUnitId;
       const finalIsActive = data.isActive ?? existing.isActive;
-      const linkChanged = data.businessUnitId !== undefined;
+      const linkChanged =
+        data.businessUnitId !== undefined && data.businessUnitId !== existing.businessUnitId;
       if (businessUnitId && (linkChanged || finalIsActive)) {
         await lockBusinessUnit(tx, businessUnitId);
         if (!(await isLaundryBusinessUnitOfUnit(tx, unitId, businessUnitId))) {
