@@ -156,6 +156,7 @@ beforeEach(() => {
 afterEach(() => {
   vi.useRealTimers();
   vi.clearAllMocks();
+  vi.unstubAllGlobals();
 });
 
 describe("SpmbAnnouncement", () => {
@@ -499,5 +500,124 @@ describe("SpmbAnnouncement", () => {
       vi.advanceTimersByTime(5000);
     });
     expect(screen.queryByTestId("spmb-announcement-dialog")).toBeNull();
+  });
+});
+
+/**
+ * WebKit ignores `scroll-padding-bottom` when focus scrolls the page, so a Tab
+ * into the footer stopped with the link inside the card — the failure that kept
+ * `main` red (#1177). The component now moves the focused element itself.
+ */
+describe("SpmbAnnouncement — keyboard focus stays clear of the card", () => {
+  /** jsdom has no layout, so every rect is zero unless a test says otherwise. */
+  function stubRect(el: Element, top: number, bottom: number) {
+    Object.defineProperty(el, "getBoundingClientRect", {
+      configurable: true,
+      value: () => ({
+        top,
+        bottom,
+        left: 0,
+        right: 200,
+        width: 200,
+        height: bottom - top,
+        x: 0,
+        y: top,
+        toJSON: () => ({}),
+      }),
+    });
+  }
+
+  function outsideLink() {
+    const link = document.createElement("a");
+    link.href = "#kontak";
+    link.textContent = "Kontak";
+    document.body.appendChild(link);
+    return link;
+  }
+
+  it("scrolls a focused footer link out from behind the card", () => {
+    const scrollBy = vi.fn();
+    vi.stubGlobal("scrollBy", scrollBy);
+    render(<SpmbAnnouncement locale="id" />);
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    stubRect(screen.getByTestId("spmb-announcement-dialog"), 600, 800);
+    const link = outsideLink();
+    // The browser parked the link at the viewport edge, inside the card.
+    stubRect(link, 770, 790);
+    try {
+      link.focus();
+      fireEvent.focusIn(link);
+      expect(scrollBy).toHaveBeenCalled();
+      // 790 (link bottom) - 600 (card top) + 8 of clearance.
+      expect(scrollBy.mock.calls[0][0]).toMatchObject({ top: 198 });
+    } finally {
+      link.remove();
+    }
+  });
+
+  it("leaves a focused element above the card alone", () => {
+    const scrollBy = vi.fn();
+    vi.stubGlobal("scrollBy", scrollBy);
+    render(<SpmbAnnouncement locale="id" />);
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    stubRect(screen.getByTestId("spmb-announcement-dialog"), 600, 800);
+    const link = outsideLink();
+    stubRect(link, 300, 320);
+    try {
+      link.focus();
+      fireEvent.focusIn(link);
+      expect(scrollBy).not.toHaveBeenCalled();
+    } finally {
+      link.remove();
+    }
+  });
+
+  it("does not scroll for focus inside the card itself", () => {
+    const scrollBy = vi.fn();
+    vi.stubGlobal("scrollBy", scrollBy);
+    render(<SpmbAnnouncement locale="id" />);
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    const card = screen.getByTestId("spmb-announcement-dialog");
+    stubRect(card, 600, 800);
+    act(() => {
+      within(card).getByRole("button", { name: "Nanti saja" }).focus();
+    });
+    expect(scrollBy).not.toHaveBeenCalled();
+  });
+
+  it("removes the reserve and the handler when the card closes", () => {
+    const scrollBy = vi.fn();
+    vi.stubGlobal("scrollBy", scrollBy);
+    render(<SpmbAnnouncement locale="id" />);
+    act(() => {
+      vi.advanceTimersByTime(5000);
+    });
+    stubRect(screen.getByTestId("spmb-announcement-dialog"), 600, 800);
+    act(() => {
+      vi.advanceTimersByTime(16); // the requestAnimationFrame that measures
+    });
+    // 768 (jsdom's viewport height) - 600 + 8.
+    expect(document.documentElement.style.scrollPaddingBottom).toBe("176px");
+    expect(document.body.style.paddingBottom).toBe("176px");
+
+    fireEvent.click(screen.getByRole("button", { name: "Nanti saja" }));
+    expect(document.documentElement.style.scrollPaddingBottom).toBe("");
+    expect(document.body.style.paddingBottom).toBe("");
+
+    const link = outsideLink();
+    stubRect(link, 770, 790);
+    try {
+      link.focus();
+      fireEvent.focusIn(link);
+      expect(scrollBy).not.toHaveBeenCalled();
+    } finally {
+      link.remove();
+    }
   });
 });

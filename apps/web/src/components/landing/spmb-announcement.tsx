@@ -132,6 +132,15 @@ function rememberShownThisVisit(periodId: string) {
  * `scroll-padding-bottom` makes the browser scroll a focused element clear of
  * the card, and the same space at the end of the body lets the last links of
  * the footer scroll above it too. Both are removed when the card closes.
+ *
+ * `scroll-padding-bottom` alone is not enough: WebKit ignores it when focus
+ * scrolls the page, so a Tab into the footer stopped with the link exactly at
+ * the viewport edge — inside the card. The `focusin` handler therefore moves a
+ * focused element out of the card itself, on every engine; the body padding is
+ * the scroll room that makes the last links reachable. It runs once on the
+ * event and once in the next frame, because an engine may scroll the element
+ * into view only after dispatching the event; the second run is a no-op when
+ * the first one already cleared it.
  */
 function useReserveBottom(
   open: boolean,
@@ -153,11 +162,34 @@ function useReserveBottom(
       root.style.scrollPaddingBottom = `${space}px`;
       body.style.paddingBottom = `${space}px`;
     };
+
+    const clearFocused = () => {
+      const card = ref.current;
+      const focused = document.activeElement;
+      if (!card || !focused || focused === document.body) return;
+      if (card.contains(focused)) return;
+      const box = card.getBoundingClientRect();
+      const rect = focused.getBoundingClientRect();
+      const overlaps = rect.bottom > box.top && rect.top < box.bottom;
+      if (!overlaps) return;
+      window.scrollBy({ top: Math.ceil(rect.bottom - box.top) + 8 });
+    };
+
+    let focusFrame = 0;
+    const onFocusIn = () => {
+      clearFocused();
+      window.cancelAnimationFrame(focusFrame);
+      focusFrame = window.requestAnimationFrame(clearFocused);
+    };
+
     const frame = window.requestAnimationFrame(apply);
     window.addEventListener("resize", apply);
+    document.addEventListener("focusin", onFocusIn);
     return () => {
       window.cancelAnimationFrame(frame);
+      window.cancelAnimationFrame(focusFrame);
       window.removeEventListener("resize", apply);
+      document.removeEventListener("focusin", onFocusIn);
       root.style.scrollPaddingBottom = before.scroll;
       body.style.paddingBottom = before.pad;
     };
