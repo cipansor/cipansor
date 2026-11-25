@@ -66,9 +66,10 @@ describe('transactionService reads apply the scope', () => {
 
   it('lists every unit for a cross-unit reader, and narrows by the query within it', async () => {
     await transactionService.getAll({}, { studentId: 's1' } as never);
-    const where = prismaMock.laundryTransaction.findMany.mock.calls[0][0].where;
-    expect(where).not.toHaveProperty('unitId');
-    expect(where.studentId).toBe('s1');
+    const args = prismaMock.laundryTransaction.findMany.mock.calls[0][0];
+    expect(args.where).not.toHaveProperty('unitId');
+    expect(args.where.studentId).toBe('s1');
+    expect(args.orderBy).toEqual({ createdAt: 'desc' });
   });
 
   it('a wali reading by id or by santri never escapes their children', async () => {

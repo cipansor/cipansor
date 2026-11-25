@@ -99,14 +99,20 @@ export const pricingService = {
 // TRANSACTION SERVICE
 // =============================================================================
 
-const generateTransactionNo = async (unitId: string): Promise<string> => {
+const generateTransactionNo = async (tx: Prisma.TransactionClient): Promise<string> => {
   // The date on the transaction number is a WIB calendar day, not the UTC one:
   // the container runs UTC, so a 00:00–07:00 WIB transaction would otherwise be
   // numbered with yesterday — and merged into yesterday's sequence.
   const dateStr = todayWib().replace(/-/g, '');
   const prefix = `LDR-${dateStr}`;
 
-  const lastTransaction = await prisma.laundryTransaction.findFirst({
+  // The number sequence is shared by every unit (the prefix carries the date,
+  // not the unit), so two officers saving at once — in the same unit or not —
+  // would read the same last number and both try to insert it. The lock is
+  // released when this transaction commits.
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${dateStr})::bigint) IS NULL AS locked`;
+
+  const lastTransaction = await tx.laundryTransaction.findFirst({
     where: { transactionNo: { startsWith: prefix } },
     orderBy: { transactionNo: 'desc' },
     select: { transactionNo: true },
@@ -126,6 +132,9 @@ const calculateEstimatedDate = (processDays: number): Date => {
   date.setDate(date.getDate() + processDays);
   return date;
 };
+
+/** The database stores money in two decimals; round once and reuse that value. */
+const roundMoney = (value: Prisma.Decimal): Prisma.Decimal => new Prisma.Decimal(value.toFixed(2));
 
 /**
  * The laundry transactions a reader may see. Laundry is an asrama service: one
@@ -154,10 +163,19 @@ export function laundryReadScope(actor: ScopeActor): Prisma.LaundryTransactionWh
 }
 
 export const transactionService = {
+  /**
+   * The list (R22.4, R22.11): newest first, a full `pagination`, and a
+   * `search` that matches the santri's name, NIS or the transaction number,
+   * case-insensitively — all inside `laundryReadScope`.
+   *
+   * The santri is read with `select` so the query fetches only the columns the
+   * Portal shows; including the relation sends every column, NIK and No. KK
+   * among them (R24.10).
+   */
   async getAll(scope: Prisma.LaundryTransactionWhereInput, query: ListTransactionsQuery) {
-    const page = parseInt(query.page || '1');
-    const limit = parseInt(query.limit || '20');
+    const { page, limit } = query;
     const skip = (page - 1) * limit;
+    const search = query.search?.trim();
 
     const where: Prisma.LaundryTransactionWhereInput = {
       ...scope,
@@ -171,6 +189,17 @@ export const transactionService = {
             lte: new Date(query.endDate + 'T23:59:59.999Z'),
           },
         }),
+      ...(search && {
+        OR: [
+          { transactionNo: { contains: search, mode: 'insensitive' as const } },
+          { student: { nis: { contains: search, mode: 'insensitive' as const } } },
+          {
+            student: {
+              user: { name: { contains: search, mode: 'insensitive' as const } },
+            },
+          },
+        ],
+      }),
     };
 
     const [transactions, total] = await Promise.all([
@@ -283,9 +312,9 @@ export const transactionService = {
       const weight = new Prisma.Decimal(data.weight);
       const minWeight = pricing.minWeight;
       const effectiveWeight = weight.lessThan(minWeight) ? minWeight : weight;
-      const subtotal = effectiveWeight.mul(pricing.pricePerKg);
-      const discount = new Prisma.Decimal(data.discount || 0);
-      const total = subtotal.sub(discount);
+      const subtotal = roundMoney(effectiveWeight.mul(pricing.pricePerKg));
+      const discount = roundMoney(new Prisma.Decimal(data.discount || 0));
+      const total = roundMoney(subtotal.sub(discount));
 
       // Check wallet if payment method is WALLET
       let walletId: string | undefined;
@@ -319,8 +348,10 @@ export const transactionService = {
         paymentStatus = 'PAID';
       }
 
+      const paidAt = paymentStatus === 'PAID' ? new Date() : null;
+
       // Generate transaction number
-      const transactionNo = await generateTransactionNo(unitId);
+      const transactionNo = await generateTransactionNo(tx);
       const estimatedAt = calculateEstimatedDate(pricing.processDays);
 
       // Create transaction
@@ -338,6 +369,7 @@ export const transactionService = {
           total,
           paymentMethod: data.paymentMethod,
           paymentStatus,
+          paidAt,
           status: 'RECEIVED',
           estimatedAt,
           notes: data.notes,
@@ -393,7 +425,7 @@ export const transactionService = {
 
       // ─── ACCOUNTING INTEGRATION (AUTOMATED JOURNALS) ───
       if (paymentStatus === 'PAID') {
-        const journalDate = new Date();
+        const journalDate = paidAt ?? new Date();
         const periodOpen = await isPeriodOpen(unitId, journalDate, tx);
 
         if (periodOpen) {
@@ -478,21 +510,38 @@ export const transactionService = {
    */
   async updateStatus(id: string, actor: WriteActor & ScopeActor, data: UpdateStatusInput) {
     const userId = actor.sub;
-    const transaction = await prisma.laundryTransaction.findFirst({
-      where: { id, ...laundryReadScope(actor) },
-    });
-
-    if (!transaction || !unitWritable(actor, transaction.unitId)) {
-      throw Errors.notFound('Transaksi');
-    }
-
-    const unitId = transaction.unitId;
-    const current = transaction.status as LaundryStatusCode;
-    if (!laundryTransitionAllowed(current, data.status)) {
-      throw Errors.conflict(`Status tidak dapat diubah dari ${current} ke ${data.status}`);
-    }
 
     return prisma.$transaction(async (tx) => {
+      // Check reach before taking the lock: an out-of-unit request must not
+      // hold up a legitimate status change on that row.
+      const reachable = await tx.laundryTransaction.findFirst({
+        where: { id, ...laundryReadScope(actor) },
+        select: { unitId: true },
+      });
+
+      if (!reachable || !unitWritable(actor, reachable.unitId)) {
+        throw Errors.notFound('Transaksi');
+      }
+
+      // Serialise with processPayment. Without the row lock both requests read
+      // the pre-payment row: the cancellation skips the refund and the payment
+      // still debits the wallet.
+      await tx.$queryRaw`SELECT id FROM laundry_transactions WHERE id = ${id} FOR UPDATE`;
+
+      const transaction = await tx.laundryTransaction.findFirst({
+        where: { id, ...laundryReadScope(actor) },
+      });
+
+      if (!transaction || !unitWritable(actor, transaction.unitId)) {
+        throw Errors.notFound('Transaksi');
+      }
+
+      const unitId = transaction.unitId;
+      const current = transaction.status as LaundryStatusCode;
+      if (!laundryTransitionAllowed(current, data.status)) {
+        throw Errors.conflict(`Status tidak dapat diubah dari ${current} ke ${data.status}`);
+      }
+
       const updateData: Prisma.LaundryTransactionUpdateInput = {
         status: data.status,
       };
@@ -516,7 +565,8 @@ export const transactionService = {
         });
 
         if (wallet) {
-          const newBalance = wallet.balance.add(transaction.total);
+          const refund = roundMoney(transaction.total);
+          const newBalance = wallet.balance.add(refund);
           await tx.santriWallet.update({
             where: { id: wallet.id },
             data: { balance: newBalance },
@@ -526,7 +576,7 @@ export const transactionService = {
             data: {
               wallet: { connect: { id: wallet.id } },
               type: 'REFUND',
-              amount: transaction.total,
+              amount: refund,
               balanceBefore: wallet.balance,
               balanceAfter: newBalance,
               reference: transaction.id,
@@ -597,25 +647,48 @@ export const transactionService = {
     });
   },
 
-  async processPayment(id: string, unitId: string, userId: string, data: ProcessPaymentInput) {
-    const transaction = await prisma.laundryTransaction.findFirst({
-      where: { id, unitId },
-      include: { student: true },
-    });
-
-    if (!transaction) {
-      throw new Error('Transaksi tidak ditemukan');
-    }
-
-    if (transaction.paymentStatus === 'PAID') {
-      throw new Error('Transaksi sudah dibayar');
-    }
-
-    if (transaction.status === 'CANCELLED') {
-      throw new Error('Transaksi sudah dibatalkan');
-    }
+  async processPayment(id: string, actor: WriteActor & ScopeActor, data: ProcessPaymentInput) {
+    const userId = actor.sub;
 
     return prisma.$transaction(async (tx) => {
+      // Check reach before taking the lock, as updateStatus does: a request
+      // from another unit must not delay this row's own payment or cancellation.
+      const reachable = await tx.laundryTransaction.findFirst({
+        where: { id, ...laundryReadScope(actor) },
+        select: { unitId: true },
+      });
+
+      if (!reachable || !unitWritable(actor, reachable.unitId)) {
+        throw Errors.notFound('Transaksi');
+      }
+
+      // Same lock as updateStatus: a cancellation waits for this payment and
+      // then sees PAID, so it refunds instead of skipping the refund.
+      await tx.$queryRaw`SELECT id FROM laundry_transactions WHERE id = ${id} FOR UPDATE`;
+
+      const transaction = await tx.laundryTransaction.findFirst({
+        where: { id, ...laundryReadScope(actor) },
+      });
+
+      if (!transaction || !unitWritable(actor, transaction.unitId)) {
+        throw Errors.notFound('Transaksi');
+      }
+
+      if (transaction.paymentStatus === 'PAID') {
+        throw Errors.conflict('Transaksi sudah dibayar');
+      }
+
+      if (transaction.paymentStatus === 'REFUNDED') {
+        throw Errors.conflict('Pembayaran transaksi sudah dikembalikan');
+      }
+
+      if (transaction.status === 'CANCELLED') {
+        throw Errors.conflict('Transaksi sudah dibatalkan');
+      }
+
+      const unitId = transaction.unitId;
+      const paidAt = new Date();
+      const amount = roundMoney(transaction.total);
       let walletId: string | undefined;
 
       if (data.paymentMethod === 'WALLET') {
@@ -624,17 +697,17 @@ export const transactionService = {
         });
 
         if (!wallet) {
-          throw new Error('Wallet santri tidak ditemukan');
+          throw Errors.badRequest('Wallet santri tidak ditemukan');
         }
 
-        if (wallet.balance.lessThan(transaction.total)) {
-          throw new Error(
+        if (wallet.balance.lessThan(amount)) {
+          throw Errors.badRequest(
             `Saldo wallet tidak mencukupi (saldo: Rp ${wallet.balance.toNumber().toLocaleString('id-ID')})`
           );
         }
 
         // Deduct wallet balance
-        const newBalance = wallet.balance.sub(transaction.total);
+        const newBalance = wallet.balance.sub(amount);
         await tx.santriWallet.update({
           where: { id: wallet.id },
           data: { balance: newBalance },
@@ -647,7 +720,7 @@ export const transactionService = {
           data: {
             wallet: { connect: { id: wallet.id } },
             type: 'PURCHASE',
-            amount: transaction.total,
+            amount,
             balanceBefore: wallet.balance,
             balanceAfter: newBalance,
             reference: transaction.id,
@@ -663,6 +736,7 @@ export const transactionService = {
         data: {
           paymentMethod: data.paymentMethod,
           paymentStatus: 'PAID',
+          paidAt,
           walletId,
         },
         include: {
@@ -674,7 +748,7 @@ export const transactionService = {
       });
 
       // ─── ACCOUNTING INTEGRATION (AUTOMATED JOURNALS) FOR LATE PAYMENT ───
-      const journalDate = new Date();
+      const journalDate = paidAt;
       const periodOpen = await isPeriodOpen(unitId, journalDate, tx);
 
       if (periodOpen) {
@@ -720,7 +794,7 @@ export const transactionService = {
               accountId: paymentAccount.id,
               date: journalDate,
               description: `Pendapatan Laundry #${updated.transactionNo} (Pelunasan)`,
-              debit: updated.total,
+              debit: amount,
               credit: 0,
               reference: updated.id,
               referenceType: JournalReferenceType.LAUNDRY as any,
@@ -735,7 +809,7 @@ export const transactionService = {
               date: journalDate,
               description: `Pendapatan Laundry #${updated.transactionNo} (Pelunasan)`,
               debit: 0,
-              credit: updated.total,
+              credit: amount,
               reference: updated.id,
               referenceType: JournalReferenceType.LAUNDRY as any,
               createdById: userId,
@@ -749,43 +823,54 @@ export const transactionService = {
   },
 
   async getStats(scope: Prisma.LaundryTransactionWhereInput, startDate?: string, endDate?: string) {
-    const dateFilter =
-      startDate && endDate
-        ? {
-            createdAt: {
-              // Both ends are WIB calendar days: `new Date('2026-11-01')` is
-              // 07:00 WIB, which dropped the first day's 00:00–06:59 WIB orders
-              // and pulled in those of the morning after the last day.
-              gte: wibDayStart(startDate),
-              lte: wibDayEnd(endDate),
-            },
-          }
-        : {
-            createdAt: {
-              // WIB midnight, not the UTC container's: otherwise every order
-              // taken 00:00–06:59 WIB counted towards yesterday's figures.
-              gte: wibDayStart(todayWib()),
-            },
-          };
+    // Both ends are WIB calendar days. Orders are counted on `createdAt`;
+    // money is counted on `paidAt`, so a bill from Monday paid on Tuesday
+    // belongs to Tuesday's income and to Monday's transaction count.
+    const day = startDate && endDate ? { startDate, endDate } : null;
+    const createdFilter = {
+      createdAt: {
+        gte: wibDayStart(day?.startDate ?? todayWib()),
+        lte: wibDayEnd(day?.endDate ?? todayWib()),
+      },
+    };
+    const paidFilter = {
+      paidAt: {
+        gte: wibDayStart(day?.startDate ?? todayWib()),
+        lte: wibDayEnd(day?.endDate ?? todayWib()),
+      },
+    };
 
-    const [periodStats, statusBreakdown, pendingPayments, pendingPickup] = await Promise.all([
-      prisma.laundryTransaction.aggregate({
-        where: { ...scope, status: { not: 'CANCELLED' }, ...dateFilter },
-        _sum: { total: true, weight: true },
-        _count: { id: true },
-      }),
-      prisma.laundryTransaction.groupBy({
-        by: ['status'],
-        where: { ...scope, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
-        _count: { id: true },
-      }),
-      prisma.laundryTransaction.count({
-        where: { ...scope, paymentStatus: 'UNPAID', status: { not: 'CANCELLED' } },
-      }),
-      prisma.laundryTransaction.count({
-        where: { ...scope, status: 'READY' },
-      }),
-    ]);
+    const [periodStats, paidStats, statusBreakdown, pendingPayments, pendingPickup] =
+      await Promise.all([
+        prisma.laundryTransaction.aggregate({
+          where: { ...scope, status: { not: 'CANCELLED' }, ...createdFilter },
+          _sum: { weight: true },
+          _count: { id: true },
+        }),
+        // Revenue is money received, not money billed: a Bayar Nanti order
+        // counts towards the period's transactions and weight, but only a PAID
+        // one towards the income card.
+        prisma.laundryTransaction.aggregate({
+          where: {
+            ...scope,
+            status: { not: 'CANCELLED' },
+            paymentStatus: 'PAID',
+            ...paidFilter,
+          },
+          _sum: { total: true },
+        }),
+        prisma.laundryTransaction.groupBy({
+          by: ['status'],
+          where: { ...scope, status: { notIn: ['DELIVERED', 'CANCELLED'] } },
+          _count: { id: true },
+        }),
+        prisma.laundryTransaction.count({
+          where: { ...scope, paymentStatus: 'UNPAID', status: { not: 'CANCELLED' } },
+        }),
+        prisma.laundryTransaction.count({
+          where: { ...scope, status: 'READY' },
+        }),
+      ]);
 
     return {
       period: {
@@ -793,7 +878,7 @@ export const transactionService = {
         endDate: endDate || todayWib(),
       },
       summary: {
-        totalRevenue: periodStats._sum.total?.toNumber() || 0,
+        totalRevenue: paidStats._sum.total?.toNumber() || 0,
         totalWeight: periodStats._sum.weight?.toNumber() || 0,
         totalTransactions: periodStats._count.id,
         pendingPayments,

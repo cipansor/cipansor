@@ -1,6 +1,10 @@
 import { Request, Response } from 'express';
 import { asyncHandler } from '../../middleware/error';
-import { ListTransactionsQuerySchema, type TransactionStatsQuery } from './laundry.schema';
+import {
+  ListTransactionsQuerySchema,
+  type ListTransactionsQuery,
+  type TransactionStatsQuery,
+} from './laundry.schema';
 import { laundryReadScope, pricingService, transactionService } from './laundry.service';
 import { ApiResponse } from '../../utils/response';
 
@@ -67,8 +71,12 @@ export const deletePricing = asyncHandler(async (req: Request, res: Response) =>
 
 /** GET /api/laundry/transactions */
 export const listTransactions = asyncHandler(async (req: Request, res: Response) => {
-  const parsedQuery = ListTransactionsQuerySchema.parse(req.query);
-  const result = await transactionService.getAll(laundryReadScope(req.user!), parsedQuery);
+  // The route validates (`ListTransactionsQuerySchema`), so page and limit are
+  // already numbers; the fallback keeps a direct controller call (tests) working.
+  const query =
+    (res.locals.validatedQuery as ListTransactionsQuery | undefined) ??
+    ListTransactionsQuerySchema.parse(req.query);
+  const result = await transactionService.getAll(laundryReadScope(req.user!), query);
   return res.json(
     ApiResponse.success(result.data, 'Berhasil mengambil data transaksi', result.pagination)
   );
@@ -133,18 +141,12 @@ export const updateStatus = asyncHandler(async (req: Request, res: Response) => 
 
 /** POST /api/laundry/transactions/:id/pay */
 export const processPayment = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = req.user?.unitId;
   const userId = req.user?.sub;
-  if (!unitId || !userId) {
-    return res
-      .status(400)
-      .json(ApiResponse.error('Unit ID atau User ID tidak ditemukan', 'REQUIRED'));
+  if (!userId) {
+    return res.status(400).json(ApiResponse.error('User ID tidak ditemukan', 'REQUIRED'));
   }
-  const transaction = await transactionService.processPayment(
-    req.params.id,
-    unitId,
-    userId,
-    req.body
-  );
+  // The service takes the reach from the token, like updateStatus: a Super_Admin
+  // without a unit pays into the transaction's own unit.
+  const transaction = await transactionService.processPayment(req.params.id, req.user!, req.body);
   return res.json(ApiResponse.success(transaction, 'Pembayaran laundry berhasil'));
 });

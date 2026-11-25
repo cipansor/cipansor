@@ -31,6 +31,13 @@ import {
 } from "@/hooks/use-calendar";
 import { useUnits } from "@/hooks/use-units";
 import { useClasses } from "@/hooks/use-classes";
+import { useAuth } from "@/hooks/use-auth";
+import {
+  useOverseesAllUnits,
+  useSessionUnitId,
+} from "@/components/shared/unit-scope";
+import { usePermission } from "@/hooks/use-permission";
+import { PERMISSIONS } from "@/constants/permissions";
 import {
   Calendar as CalendarIcon,
   ArrowLeft,
@@ -45,11 +52,18 @@ import { toast } from "sonner";
 
 export default function NewEventPage() {
   const router = useRouter();
+  const { user, isLoading: authLoading } = useAuth();
+  const overseesAllUnits = useOverseesAllUnits();
+  const sessionUnitId = useSessionUnitId();
+  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     title: "",
     description: "",
-    category: "ACADEMIC" as EventCategory,
+    // The field the API stores. It was `category` here and in the payload, a
+    // name the model does not have, so `eventType` reached Prisma undefined and
+    // every save failed (#1155).
+    eventType: "ACADEMIC" as EventCategory,
     startDate: safeFormat(new Date(), "yyyy-MM-dd"),
     endDate: safeFormat(new Date(), "yyyy-MM-dd"),
     startTime: "",
@@ -64,10 +78,23 @@ export default function NewEventPage() {
   });
 
   const { data: units = [] } = useUnits();
-  const { data: classesData } = useClasses({
-    unitId: formData.unitId || undefined,
-  });
+  // A unit-bound writer is scoped by the active role assignment, not the
+  // profile: the API refuses a different unit, and the class list must match
+  // the unit the event will actually be saved into.
+  const ownUnitId = sessionUnitId;
+  const effectiveUnitId = overseesAllUnits
+    ? formData.unitId || undefined
+    : ownUnitId;
+  const { data: classesData } = useClasses({ unitId: effectiveUnitId });
   const classes = classesData?.data || [];
+  const activeAssignment =
+    user?.userRoles?.find((assignment) => assignment.isPrimary) ??
+    user?.userRoles?.[0];
+  const ownUnitName =
+    units.find((u) => u.id === ownUnitId)?.name ??
+    activeAssignment?.unit?.name ??
+    user?.unit?.name ??
+    "Unit akun";
 
   const createEvent = useCreateCalendarEvent();
 
@@ -83,38 +110,95 @@ export default function NewEventPage() {
       toast.error("Tanggal mulai harus diisi");
       return;
     }
+    if (formData.endDate && formData.endDate < formData.startDate) {
+      toast.error("Tanggal selesai tidak boleh sebelum tanggal mulai");
+      return;
+    }
+    if (!formData.isAllDay && !formData.startTime) {
+      toast.error("Waktu mulai harus diisi bila agenda tidak sepanjang hari");
+      return;
+    }
+    if (
+      !formData.isAllDay &&
+      formData.startTime &&
+      formData.endTime &&
+      // Only a same-day event must end after it starts. With a later end date
+      // 22:00–06:00 is an eight-hour agenda that crosses midnight.
+      (!formData.endDate || formData.endDate === formData.startDate) &&
+      formData.endTime < formData.startTime
+    ) {
+      toast.error("Waktu selesai tidak boleh sebelum waktu mulai");
+      return;
+    }
+    if (formData.recurrence !== "NONE" && !formData.recurrenceEnd) {
+      toast.error("Agenda berulang harus punya tanggal berakhir");
+      return;
+    }
 
     setIsSubmitting(true);
     try {
       await createEvent.mutateAsync({
         title: formData.title,
         description: formData.description || undefined,
-        category: formData.category,
+        eventType: formData.eventType,
         startDate: formData.startDate,
-        endDate: formData.endDate || formData.startDate,
+        // An empty end date means one day, not "same as start": sending it
+        // back made every one-day event look like a range.
+        endDate: formData.endDate || undefined,
         startTime: formData.isAllDay ? undefined : formData.startTime,
-        endTime: formData.isAllDay ? undefined : formData.endTime,
+        endTime: formData.isAllDay ? undefined : formData.endTime || undefined,
         isAllDay: formData.isAllDay,
         location: formData.location || undefined,
-        unitId: formData.unitId || undefined,
+        // A unit-bound writer sends no unit at all: the API sets it from the
+        // active assignment, and sending the profile unit made it refuse the
+        // request when the two differed. Only a foundation role chooses one.
+        unitId: overseesAllUnits ? formData.unitId || undefined : undefined,
         classId: formData.classId || undefined,
         recurrence: formData.recurrence,
         recurrenceEnd:
           formData.recurrence !== "NONE" ? formData.recurrenceEnd : undefined,
         isPublic: formData.isPublic,
       });
-      toast.success("Event berhasil dibuat");
+      toast.success(
+        formData.recurrence === "NONE"
+          ? "Agenda berhasil dibuat"
+          : "Agenda dan seluruh rangkaiannya berhasil dibuat",
+      );
       router.push("/calendar/events");
     } catch {
-      toast.error("Gagal membuat event");
+      toast.error("Gagal membuat agenda");
     } finally {
       setIsSubmitting(false);
     }
   };
 
   const selectedCategory = EVENT_CATEGORIES.find(
-    (c) => c.value === formData.category,
+    (c) => c.value === formData.eventType,
   );
+
+  if (!authLoading && !canManage) {
+    return (
+      <MainLayout>
+        <Card>
+          <CardHeader>
+            <CardTitle>Tidak dapat menambah agenda</CardTitle>
+            <CardDescription>
+              Peran Anda hanya dapat membaca kalender. Hubungi admin unit bila
+              agenda perlu dibuat.
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Link href="/calendar/events">
+              <Button variant="outline">
+                <ArrowLeft className="h-4 w-4 mr-2" />
+                Kembali ke daftar agenda
+              </Button>
+            </Link>
+          </CardContent>
+        </Card>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -177,17 +261,17 @@ export default function NewEventPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Kategori *</Label>
+                    <Label htmlFor="eventType">Kategori *</Label>
                     <Select
-                      value={formData.category}
+                      value={formData.eventType}
                       onValueChange={(v) =>
                         setFormData({
                           ...formData,
-                          category: v as EventCategory,
+                          eventType: v as EventCategory,
                         })
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="eventType">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -361,7 +445,7 @@ export default function NewEventPage() {
                 </CardHeader>
                 <CardContent className="space-y-4">
                   <div className="space-y-2">
-                    <Label>Ulangi Event</Label>
+                    <Label htmlFor="recurrence">Ulangi Event</Label>
                     <Select
                       value={formData.recurrence}
                       onValueChange={(v) =>
@@ -371,7 +455,7 @@ export default function NewEventPage() {
                         })
                       }
                     >
-                      <SelectTrigger>
+                      <SelectTrigger id="recurrence">
                         <SelectValue />
                       </SelectTrigger>
                       <SelectContent>
@@ -430,41 +514,62 @@ export default function NewEventPage() {
                   </div>
 
                   <div className="space-y-2">
-                    <Label>Unit (Opsional)</Label>
-                    <Select
-                      value={formData.unitId}
-                      onValueChange={(v) =>
-                        setFormData({ ...formData, unitId: v, classId: "" })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Semua Unit" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Semua Unit</SelectItem>
-                        {units.map((unit) => (
-                          <SelectItem key={unit.id} value={unit.id}>
-                            {unit.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
-
-                  {formData.unitId && (
-                    <div className="space-y-2">
-                      <Label>Kelas (Opsional)</Label>
+                    <Label htmlFor={overseesAllUnits ? "unitId" : undefined}>
+                      Unit
+                    </Label>
+                    {overseesAllUnits ? (
                       <Select
-                        value={formData.classId}
+                        value={formData.unitId || "all"}
                         onValueChange={(v) =>
-                          setFormData({ ...formData, classId: v })
+                          setFormData({
+                            ...formData,
+                            unitId: v === "all" ? "" : v,
+                            classId: "",
+                          })
                         }
                       >
-                        <SelectTrigger>
+                        <SelectTrigger id="unitId">
+                          <SelectValue placeholder="Semua Unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          {/* Radix refuses an empty-string item, so "all" is the
+                              sentinel for "no unit". */}
+                          <SelectItem value="all">Semua Unit</SelectItem>
+                          {units.map((unit) => (
+                            <SelectItem key={unit.id} value={unit.id}>
+                              {unit.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    ) : (
+                      <div className="rounded-md border bg-muted/40 px-3 py-2">
+                        <p className="text-sm font-medium">{ownUnitName}</p>
+                        <p className="text-xs text-muted-foreground">
+                          Agenda disimpan untuk unit ini. Hanya pengurus yayasan
+                          yang dapat memilih unit lain.
+                        </p>
+                      </div>
+                    )}
+                  </div>
+
+                  {effectiveUnitId && (
+                    <div className="space-y-2">
+                      <Label htmlFor="classId">Kelas (Opsional)</Label>
+                      <Select
+                        value={formData.classId || "all"}
+                        onValueChange={(v) =>
+                          setFormData({
+                            ...formData,
+                            classId: v === "all" ? "" : v,
+                          })
+                        }
+                      >
+                        <SelectTrigger id="classId">
                           <SelectValue placeholder="Semua Kelas" />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="">Semua Kelas</SelectItem>
+                          <SelectItem value="all">Semua Kelas</SelectItem>
                           {classes.map((cls) => (
                             <SelectItem key={cls.id} value={cls.id}>
                               {cls.name}

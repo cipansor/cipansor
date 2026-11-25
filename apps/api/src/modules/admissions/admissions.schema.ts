@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { AdmissionStatus } from '@prisma/client';
-import { quranAbilitySchema, registrantConsentFields } from '@cipansor/shared';
+import { checkNik, nikSchema, quranAbilitySchema, registrantConsentFields } from '@cipansor/shared';
 
 // Admission Period schemas
 // The intake's own fields (period and waves) are a contract with the portal's
@@ -24,55 +24,99 @@ export const queryAdmissionPeriodSchema = z.object({
 });
 
 // Registrant schemas
-export const createRegistrantSchema = z.object({
-  admissionPeriodId: z.string().uuid(),
-  fullName: z.string().min(2).max(100), // Updated from 'name'
-  nickname: z.string().optional(),
-  gender: z.enum(['MALE', 'FEMALE']),
-  birthPlace: z.string().min(2).max(100),
-  birthDate: z.string().datetime(),
-  address: z.string().min(5),
+export const createRegistrantSchema = z
+  .object({
+    admissionPeriodId: z.string().uuid(),
+    fullName: z.string().min(2).max(100), // Updated from 'name'
+    nickname: z.string().optional(),
+    gender: z.enum(['MALE', 'FEMALE']),
+    birthPlace: z.string().min(2).max(100),
+    birthDate: z.string().datetime(),
+    address: z.string().min(5),
 
-  // Optional identity fields
-  nationalId: z.string().optional(),
-  familyCardNumber: z.string().optional(),
+    // Optional identity fields
+    nationalId: nikSchema,
+    familyCardNumber: z.string().optional(),
 
-  // Location details
-  village: z.string().optional(),
-  district: z.string().optional(),
-  city: z.string().optional(),
-  province: z.string().optional(),
-  postalCode: z.string().optional(),
+    // Location details
+    village: z.string().optional(),
+    district: z.string().optional(),
+    city: z.string().optional(),
+    province: z.string().optional(),
+    postalCode: z.string().optional(),
 
-  // Contact
-  phone: z.string().max(20).optional(),
-  email: z.string().email().optional().or(z.literal('')),
+    // Contact
+    phone: z.string().max(20).optional(),
+    email: z.string().email().optional().or(z.literal('')),
 
-  // Education
-  previousSchool: z.string().max(200).optional(),
-  previousSchoolAddress: z.string().optional(),
-  graduationYear: z.number().int().optional(),
+    // Education
+    previousSchool: z.string().max(200).optional(),
+    previousSchoolAddress: z.string().optional(),
+    graduationYear: z.number().int().optional(),
 
-  // Parents
-  fatherName: z.string().min(1).max(100),
-  fatherOccupation: z.string().optional(),
-  fatherPhone: z.string().optional(),
-  fatherEmail: z.string().email().optional().or(z.literal('')),
+    // Parents
+    fatherName: z.string().min(1).max(100),
+    fatherOccupation: z.string().optional(),
+    fatherPhone: z.string().optional(),
+    fatherEmail: z.string().email().optional().or(z.literal('')),
 
-  motherName: z.string().min(1).max(100),
-  motherOccupation: z.string().optional(),
-  motherPhone: z.string().optional(),
+    motherName: z.string().min(1).max(100),
+    motherOccupation: z.string().optional(),
+    motherPhone: z.string().optional(),
 
-  // Quran
-  quranAbility: quranAbilitySchema.optional(),
-  memorizedJuz: z.number().int().optional(),
+    // Quran
+    quranAbility: quranAbilitySchema.optional(),
+    memorizedJuz: z.number().int().optional(),
 
-  notes: z.string().optional(),
+    notes: z.string().optional(),
 
-  // Marketing fields
-  source: z.string().optional(),
-  campaignId: z.string().uuid().optional(),
-});
+    // Marketing fields
+    source: z.string().optional(),
+    campaignId: z.string().uuid().optional(),
+  })
+  /**
+   * NIK memuat tanggal lahir dan jenis kelaminnya sendiri (Dukcapil), jadi
+   * salah ketik NIK atau salah isi tanggal lahir/jenis kelamin bisa ditangkap
+   * tanpa membaca gambar apa pun. Diperiksa di tepi, di schema yang dipakai
+   * jalur publik maupun jalur admin — bukan di service, supaya kedua permukaan
+   * menjawab 400 yang sama.
+   *
+   * NIK kosong tetap diterima: anak yang belum punya NIK tetap boleh
+   * mendaftar, dan jalur admin mengumpulkan data secara luring.
+   */
+  .superRefine((data, ctx) => {
+    const check = checkNik({
+      nationalId: data.nationalId,
+      birthDate: data.birthDate,
+      gender: data.gender,
+    });
+
+    if (check.status === 'invalid-date') {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['nationalId'],
+        message:
+          'NIK tidak memuat tanggal lahir yang sah — periksa kembali 16 digitnya. Bila NIK memang tidak sesuai, kosongkan isian NIK — pendaftaran tetap dapat dikirim.',
+      });
+    } else if (check.status === 'mismatch') {
+      if (check.fields.includes('birthDate')) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['nationalId'],
+          message:
+            'Tanggal lahir pada NIK tidak sama dengan tanggal lahir yang diisi. Bila NIK memang tidak sesuai, kosongkan isian NIK — pendaftaran tetap dapat dikirim.',
+        });
+      }
+      if (check.fields.includes('gender')) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['nationalId'],
+          message:
+            'Jenis kelamin pada NIK tidak sama dengan jenis kelamin yang dipilih. Bila NIK memang tidak sesuai, kosongkan isian NIK — pendaftaran tetap dapat dikirim.',
+        });
+      }
+    }
+  });
 
 export const updateRegistrantSchema = z.object({
   fullName: z.string().min(2).max(100).optional(),

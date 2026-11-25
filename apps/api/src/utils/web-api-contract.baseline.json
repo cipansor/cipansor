@@ -38,7 +38,6 @@
     "POST /payroll/staff-salary/{id}/components  apps/web/src/hooks/use-hr.ts",
     "POST /rewards/categories  apps/web/src/hooks/use-rewards.ts",
     "POST /violations/categories  apps/web/src/hooks/use-violations.ts",
-    "PUT /laundry/transactions/{id}/status  apps/web/src/app/laundry/page.tsx",
     "PUT /payroll/slips/{id}  apps/web/src/hooks/use-hr.ts",
     "PUT /payroll/staff-salary/{id}  apps/web/src/hooks/use-hr.ts",
     "PUT /rewards/categories/{id}  apps/web/src/hooks/use-rewards.ts",

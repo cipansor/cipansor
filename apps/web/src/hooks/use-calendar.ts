@@ -1,118 +1,101 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
+import api, { ApiResponse } from "@/lib/api";
+import {
+  EventType,
+  EVENT_TYPES,
+  type CalendarEvent as SharedCalendarEvent,
+  type CalendarEventDeleteScope,
+  type CalendarEventList,
+  type CreateCalendarEventPayload,
+  type EventRecurrenceCode,
+} from "@cipansor/shared";
 
-export type EventCategory =
-  | "ACADEMIC"
-  | "RELIGIOUS"
-  | "EXTRACURRICULAR"
-  | "HOLIDAY"
-  | "MEETING"
-  | "EXAM"
-  | "OTHER";
-export type EventRecurrence =
-  "NONE" | "DAILY" | "WEEKLY" | "MONTHLY" | "YEARLY";
-
-export interface CalendarEvent {
-  id: string;
-  title: string;
-  description?: string;
-  category: EventCategory;
-  startDate: string;
-  endDate: string;
-  startTime?: string;
-  endTime?: string;
-  isAllDay: boolean;
-  location?: string;
-  unitId?: string;
-  classId?: string;
-  recurrence: EventRecurrence;
-  recurrenceEnd?: string;
-  color?: string;
-  isPublic: boolean;
-  createdBy: string;
-  createdAt: string;
-  updatedAt: string;
-  unit?: {
-    id: string;
-    name: string;
-  };
-  class?: {
-    id: string;
-    name: string;
-  };
-  creator?: {
-    id: string;
-    name: string;
-  };
-}
+/**
+ * The academic calendar's data layer.
+ *
+ * The types are the shared contract (`@cipansor/shared`), not a local copy:
+ * the page used to declare its own `CalendarEvent` with `category`,
+ * `recurrence`, `recurrenceEnd` and a required `endDate`, none of which the API
+ * returns. A badge therefore looked up a field that never arrived and rendered
+ * blank on every row, for every role (#1155).
+ */
+export type EventCategory = EventType;
+export type EventRecurrence = EventRecurrenceCode;
+export type CalendarEvent = SharedCalendarEvent;
 
 export interface EventCategoryConfig {
   value: EventCategory;
   label: string;
-  labelEn: string;
   color: string;
   bgColor: string;
   icon: string;
 }
 
-export const EVENT_CATEGORIES: EventCategoryConfig[] = [
-  {
-    value: "ACADEMIC",
+/**
+ * The label, colour and icon of each category, in the order the form offers
+ * them. `EVENT_TYPES` comes from shared, so this list cannot drift from the
+ * Prisma enum: a value the API stores always has an entry here, and a value
+ * offered here is always one the API accepts.
+ */
+const CATEGORY_STYLES: Record<
+  EventCategory,
+  Omit<EventCategoryConfig, "value">
+> = {
+  ACADEMIC: {
     label: "Akademik",
-    labelEn: "Academic",
     color: "#2563eb",
     bgColor: "bg-blue-100 text-blue-800",
     icon: "GraduationCap",
   },
-  {
-    value: "RELIGIOUS",
+  RELIGIOUS: {
     label: "Keagamaan",
-    labelEn: "Religious",
     color: "#059669",
     bgColor: "bg-emerald-100 text-emerald-800",
     icon: "BookOpen",
   },
-  {
-    value: "EXTRACURRICULAR",
+  EXTRACURRICULAR: {
     label: "Ekstrakurikuler",
-    labelEn: "Extracurricular",
     color: "#7c3aed",
     bgColor: "bg-purple-100 text-purple-800",
     icon: "Trophy",
   },
-  {
-    value: "HOLIDAY",
-    label: "Hari Libur",
-    labelEn: "Holiday",
-    color: "#dc2626",
-    bgColor: "bg-red-100 text-red-800",
-    icon: "Calendar",
-  },
-  {
-    value: "MEETING",
+  MEETING: {
     label: "Rapat",
-    labelEn: "Meeting",
     color: "#ea580c",
     bgColor: "bg-orange-100 text-orange-800",
     icon: "Users",
   },
-  {
-    value: "EXAM",
-    label: "Ujian",
-    labelEn: "Exam",
+  CEREMONY: {
+    label: "Upacara",
+    color: "#b45309",
+    bgColor: "bg-amber-100 text-amber-800",
+    icon: "Flag",
+  },
+  HOLIDAY: {
+    label: "Hari Libur",
+    color: "#dc2626",
+    bgColor: "bg-red-100 text-red-800",
+    icon: "Calendar",
+  },
+  EXAM: {
+    label: "Ujian/Asesmen",
     color: "#0891b2",
     bgColor: "bg-cyan-100 text-cyan-800",
     icon: "FileText",
   },
-  {
-    value: "OTHER",
+  OTHER: {
     label: "Lainnya",
-    labelEn: "Other",
     color: "#6b7280",
     bgColor: "bg-gray-100 text-gray-800",
     icon: "MoreHorizontal",
   },
-];
+};
+
+// `EVENT_TYPES` is a const tuple of string literals (so Zod can build an enum
+// from it); its members are the enum's values, hence the cast.
+export const EVENT_CATEGORIES: EventCategoryConfig[] = (
+  EVENT_TYPES as readonly EventCategory[]
+).map((value) => ({ value, ...CATEGORY_STYLES[value] }));
 
 export const EVENT_RECURRENCES: { value: EventRecurrence; label: string }[] = [
   { value: "NONE", label: "Tidak Berulang" },
@@ -127,22 +110,25 @@ export interface CalendarEventParams {
   limit?: number;
   startDate?: string;
   endDate?: string;
-  category?: EventCategory;
+  eventType?: EventCategory;
   unitId?: string;
   classId?: string;
   isPublic?: boolean;
   month?: number;
   year?: number;
+  search?: string;
 }
 
 export function useCalendarEvents(params: CalendarEventParams = {}) {
   return useQuery({
     queryKey: ["calendar-events", params],
     queryFn: async () => {
-      const response = await api.get<PaginatedResponse<CalendarEvent>>(
-        "/calendar",
-        { params },
-      );
+      const response = await api.get<CalendarEventList>("/calendar", {
+        params,
+        // The list renders the failure itself; the interceptor's toast would
+        // report the same error a second time.
+        skipErrorToast: true,
+      });
       return response.data;
     },
   });
@@ -162,34 +148,25 @@ export function useMonthEvents(year: number, month: number, unitId?: string) {
       const endDate = new Date(Date.UTC(year, month + 1, 0))
         .toISOString()
         .slice(0, 10);
-      const response = await api.get<ApiResponse<CalendarEvent[]>>(
-        "/calendar",
-        {
-          params: { startDate, endDate, unitId, limit: 100 },
-        },
-      );
-      return response.data.data;
+
+      // Read every page: a daily agenda fills the first 100 rows on its own,
+      // and stopping there hid the rest of the month from the grid.
+      const events: CalendarEvent[] = [];
+      for (let page = 1; ; page += 1) {
+        const response = await api.get<CalendarEventList>("/calendar", {
+          params: { startDate, endDate, unitId, page, limit: 100 },
+        });
+        events.push(...response.data.data);
+        if (page >= (response.data.meta?.totalPages ?? 1)) break;
+      }
+
+      return events;
     },
   });
 }
 
-export interface CreateCalendarEventData {
-  title: string;
-  description?: string;
-  category: EventCategory;
-  startDate: string;
-  endDate: string;
-  startTime?: string;
-  endTime?: string;
-  isAllDay: boolean;
-  location?: string;
-  unitId?: string;
-  classId?: string;
-  recurrence: EventRecurrence;
-  recurrenceEnd?: string;
-  color?: string;
-  isPublic: boolean;
-}
+/** What the form sends: the shared contract, with days as the form holds them. */
+export type CreateCalendarEventData = CreateCalendarEventPayload;
 
 export function useCreateCalendarEvent() {
   const queryClient = useQueryClient();
@@ -212,8 +189,14 @@ export function useDeleteCalendarEvent() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async (id: string) => {
-      await api.delete(`/calendar/${id}`);
+    mutationFn: async ({
+      id,
+      scope = "SINGLE",
+    }: {
+      id: string;
+      scope?: CalendarEventDeleteScope;
+    }) => {
+      await api.delete(`/calendar/${id}`, { params: { scope } });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
@@ -223,11 +206,13 @@ export function useDeleteCalendarEvent() {
 
 // Helper function to get event color
 export function getEventCategoryColor(category: EventCategory): string {
-  return EVENT_CATEGORIES.find((c) => c.value === category)?.color || "#6b7280";
+  return CATEGORY_STYLES[category]?.color ?? "#6b7280";
 }
 
 export function getEventCategoryConfig(
-  category: EventCategory,
+  category: EventCategory | string | null | undefined,
 ): EventCategoryConfig | undefined {
-  return EVENT_CATEGORIES.find((c) => c.value === category);
+  if (!category) return undefined;
+  const style = CATEGORY_STYLES[category as EventCategory];
+  return style ? { value: category as EventCategory, ...style } : undefined;
 }

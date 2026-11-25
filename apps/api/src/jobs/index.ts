@@ -39,3 +39,11 @@ export {
   type EscalationRetrySummary,
 } from './chatbot-escalation-retry.job';
 export { runHolidaySync } from './holiday-sync.job';
+export {
+  purgeExpiredRegistrants,
+  retentionStartFor,
+  REGISTRANT_RETENTION_DAYS,
+  REGISTRANT_RETENTION_AUDIT_ACTION,
+  type RegistrantRetentionSummary,
+  type ExpiredRegistrant,
+} from './registrant-retention.job';
