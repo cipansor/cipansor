@@ -783,9 +783,11 @@ export default function AcademicCalendarPage() {
                     >
                       Tutup
                     </Button>
-                    <Link href={`/calendar/events/${selectedEvent.id}/edit`}>
-                      <Button variant="default">Edit Event</Button>
-                    </Link>
+                    {canWrite && (
+                      <Link href={`/calendar/events/${selectedEvent.id}/edit`}>
+                        <Button variant="default">Edit Event</Button>
+                      </Link>
+                    )}
                   </div>
                 </div>
               </>

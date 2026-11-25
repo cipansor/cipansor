@@ -22,7 +22,10 @@ export const calendarEventsQuerySchema = z.object({
   isPublic: booleanQuery.optional(),
   manage: booleanQuery.default(false),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(50),
+  // Keep headroom above the portal's 100-row month request: the route used to
+  // accept any page size, and an external reader asking for 101 must not start
+  // failing with 400. 500 still bounds a single query.
+  limit: z.coerce.number().int().min(1).max(500).default(50),
 });
 
 export type CalendarEventsQuery = z.infer<typeof calendarEventsQuerySchema>;

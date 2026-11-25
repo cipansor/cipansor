@@ -1,0 +1,71 @@
+import { describe, it, expect, vi, beforeEach } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+
+// Exercise the real controller and route, not the controller stub used by
+// calendar-routes-access.test.ts: a malformed list query must reach the Zod
+// validator and come back as 400 before the service is called.
+
+vi.mock('@/lib/jwt', () => ({ verifyToken: vi.fn() }));
+vi.mock('@/lib/redis', () => ({
+  redis: { get: vi.fn(), set: vi.fn(), setex: vi.fn(), del: vi.fn() },
+}));
+vi.mock('../calendar.service', () => ({
+  calendarService: { findAll: vi.fn() },
+}));
+vi.mock('../holiday-sync.service', () => ({
+  approveHolidayDraft: vi.fn(),
+  getHolidaySyncConfig: vi.fn(),
+  listHolidayDrafts: vi.fn(),
+  rejectHolidayDraft: vi.fn(),
+  syncHolidaysForYear: vi.fn(),
+  updateHolidaySyncConfig: vi.fn(),
+}));
+
+import { verifyToken } from '@/lib/jwt';
+import { errorHandler } from '@/middleware/error';
+import calendarRoutes from '../calendar.routes';
+import { calendarService } from '../calendar.service';
+
+const app = express();
+app.use(express.json());
+app.use('/calendar', calendarRoutes);
+app.use(errorHandler);
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(verifyToken).mockImplementation((() => ({
+    type: 'access',
+    permissions: [],
+    sub: 'u-SDIT_ADMIN',
+    roleCode: 'SDIT_ADMIN',
+    unitId: 'unit-sd',
+  })) as unknown as typeof verifyToken);
+  vi.mocked(calendarService.findAll).mockResolvedValue({
+    data: [],
+    pagination: { page: 1, limit: 50, total: 0, totalPages: 0 },
+  } as never);
+});
+
+const list = (query: string) =>
+  request(app).get(`/calendar?${query}`).set('Authorization', 'Bearer SDIT_ADMIN');
+
+describe('GET /calendar — list query validation', () => {
+  it('returns 400 for an invalid manage value and never calls the service', async () => {
+    const res = await list('manage=yes');
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(calendarService.findAll).not.toHaveBeenCalled();
+  });
+
+  it('accepts a page size above the portal’s 100-row month request', async () => {
+    const res = await list('limit=101');
+
+    expect(res.status).toBe(200);
+    expect(calendarService.findAll).toHaveBeenCalledWith(
+      expect.objectContaining({ limit: 101, manage: false }),
+      expect.anything()
+    );
+  });
+});

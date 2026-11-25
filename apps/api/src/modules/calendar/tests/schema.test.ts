@@ -34,4 +34,9 @@ describe('calendarEventsQuerySchema', () => {
   it('rejects a manage value that is not a boolean', () => {
     expect(() => calendarEventsQuerySchema.parse({ manage: 'yes' })).toThrow();
   });
+
+  it('keeps page sizes above 100 readable, but bounded', () => {
+    expect(calendarEventsQuerySchema.parse({ limit: '101' }).limit).toBe(101);
+    expect(() => calendarEventsQuerySchema.parse({ limit: '501' })).toThrow();
+  });
 });

@@ -393,6 +393,43 @@ test.describe("Kalender Akademik — pengawasan hanya membaca", () => {
     });
     await expect(page.locator("#title")).toHaveCount(0);
   });
+
+  test("dialog detail tidak menawarkan Edit Event", async ({ page }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const title = `Agenda baca e2e ${Date.now()}`;
+    const todayWib = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/calendar",
+      {
+        title,
+        eventType: "MEETING",
+        startDate: `${todayWib}T00:00:00.000Z`,
+        isAllDay: true,
+        isPublic: true,
+      },
+    );
+
+    try {
+      await loginAs(page, "pengawas");
+      await page.goto("/calendar");
+
+      const eventButton = page.getByRole("button", { name: title }).first();
+      await expect(eventButton).toBeVisible({ timeout: 15000 });
+      await eventButton.click();
+
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expect(page.getByRole("button", { name: "Tutup" })).toBeVisible();
+      await expect(page.getByRole("link", { name: /Edit Event/i })).toHaveCount(
+        0,
+      );
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
+    }
+  });
 });
 
 test.describe("Manajemen Event — agenda kelas milik admin lain", () => {
