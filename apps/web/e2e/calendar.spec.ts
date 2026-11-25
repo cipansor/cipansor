@@ -428,6 +428,7 @@ test.describe("Edit Event — Pengurus yayasan", () => {
     try {
       await loginAs(page, "ketuaPengurus");
       await page.goto("/calendar/events");
+      await page.getByPlaceholder(/Cari event/).fill(title);
 
       const row = page.locator("tbody tr").filter({ hasText: title });
       await expect(row).toBeVisible({ timeout: 15000 });
