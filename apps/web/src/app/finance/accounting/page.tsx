@@ -51,6 +51,7 @@ import {
   PieChart,
   Settings,
   Save,
+  AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
@@ -884,7 +885,7 @@ function ReportsTab() {
 function AccountingSettingsTab() {
   const { data: units } = useUnits();
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
-  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [settings, setSettings] = useState<Record<string, string | null>>({});
 
   // Fetch settings when unit selected
   const { data: fetchedSettings } = useQuery({
@@ -912,7 +913,7 @@ function AccountingSettingsTab() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (newSettings: Record<string, string>) => {
+    mutationFn: async (newSettings: Record<string, string | null>) => {
       await api.post("/finance/accounting/settings", {
         unitId: selectedUnitId,
         settings: newSettings,
@@ -984,6 +985,19 @@ function AccountingSettingsTab() {
 
           {selectedUnitId ? (
             <div className="space-y-4">
+              {fetchedSettings !== undefined &&
+                !settings["ACCOUNT_MAPPING_TAX_PAYABLE"] && (
+                  <div
+                    role="alert"
+                    className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                  >
+                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                    <p>
+                      Pemetaan Utang PPh 21 belum diisi. Pembayaran gaji dengan
+                      potongan PPh 21 akan ditolak sampai akun ini dipilih.
+                    </p>
+                  </div>
+                )}
               {MAPPINGS.map((mapping) => (
                 <div key={mapping.key} className="space-y-2">
                   <Label>{mapping.label}</Label>

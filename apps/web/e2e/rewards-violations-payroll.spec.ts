@@ -257,6 +257,11 @@ test.describe("Payroll — dialog slip gaji", () => {
  * empty one.
  */
 test.describe("Payroll — tombol periode mengikuti kebijakan API", () => {
+  // Both tests ask `openMonth` for a free month; in parallel they can read the
+  // same list before either creates its period and then collide on the unit's
+  // one-active-period-per-month rule.
+  test.describe.configure({ mode: "serial" });
+
   const CREATOR = {
     email: "sdit.bendahara@cipansor.or.id",
     password: "Cipansor123!",

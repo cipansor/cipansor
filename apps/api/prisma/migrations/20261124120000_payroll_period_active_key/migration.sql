@@ -15,16 +15,19 @@
 --   1. Decide, per (unit_id, month, year), which period stays the canonical
 --      row; archive or renumber the cancelled/replacement rows outside the
 --      period key (or delete them if the business accepts losing the history).
---   2. DROP INDEX "payroll_periods_active_key_key";
---      DROP INDEX "payroll_periods_unit_id_month_year_idx";
---   3. CREATE UNIQUE INDEX "payroll_periods_unit_id_month_year_key"
---        ON "payroll_periods"("unit_id", "month", "year");
---      CREATE INDEX "payroll_periods_unit_id_idx"
---        ON "payroll_periods"("unit_id");
---   4. ALTER TABLE "payroll_periods" DROP COLUMN "active_key";
---   Step 3 fails while duplicates remain, which is the intended guard: the
---   old constraint cannot describe a history that now holds more than one row
---   per month.
+--   2. Run the statements below as ONE transaction. The old unique index is
+--      created first: while duplicates remain it fails and the transaction
+--      rolls back, so the active_key guard is never lost.
+--
+--   BEGIN;
+--   CREATE UNIQUE INDEX "payroll_periods_unit_id_month_year_key"
+--     ON "payroll_periods"("unit_id", "month", "year");
+--   DROP INDEX "payroll_periods_active_key_key";
+--   DROP INDEX "payroll_periods_unit_id_month_year_idx";
+--   CREATE INDEX "payroll_periods_unit_id_idx"
+--     ON "payroll_periods"("unit_id");
+--   ALTER TABLE "payroll_periods" DROP COLUMN "active_key";
+--   COMMIT;
 
 ALTER TABLE "payroll_periods" ADD COLUMN "active_key" TEXT;
 

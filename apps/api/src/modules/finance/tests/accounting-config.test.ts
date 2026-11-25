@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const { prismaMock, txMock } = vi.hoisted(() => {
   const txMock = {
     accountCode: { findUnique: vi.fn() },
-    setting: { upsert: vi.fn() },
+    setting: { deleteMany: vi.fn(), upsert: vi.fn() },
   };
   return {
     txMock,
@@ -134,6 +134,15 @@ describe('PPh 21 account mapping', () => {
     const settings = await getAccountMappings(UNIT);
 
     expect(settings[ACCOUNT_MAPPING_KEYS.TAX_PAYABLE]).toBe('acc-pph21');
+  });
+
+  it('clears a mapping when the value is null', async () => {
+    await setAccountMappings(UNIT, { [ACCOUNT_MAPPING_KEYS.TAX_PAYABLE]: null });
+
+    expect(txMock.setting.deleteMany).toHaveBeenCalledWith({
+      where: { unitId: UNIT, key: ACCOUNT_MAPPING_KEYS.TAX_PAYABLE },
+    });
+    expect(txMock.setting.upsert).not.toHaveBeenCalled();
   });
 
   it('leaves the cash mapping untouched when a later PPh 21 mapping is invalid', async () => {

@@ -102,15 +102,23 @@ export async function getAccountMappings(unitId: string) {
  * stale/invalid PPh 21 mapping writes neither: the portal's failure message and
  * the stored settings always describe the same state.
  */
-export async function setAccountMappings(unitId: string, mappings: Record<string, string>) {
-  const entries = Object.entries(mappings).filter(([, accountId]) => accountId);
+export async function setAccountMappings(
+  unitId: string,
+  mappings: Record<string, string | null | undefined>
+) {
+  const entries = Object.entries(mappings);
 
   return prisma.$transaction(async (tx) => {
     for (const [key, accountId] of entries) {
-      await assertUsableAccountMapping(unitId, key, accountId, tx);
+      if (accountId) await assertUsableAccountMapping(unitId, key, accountId, tx);
     }
 
     for (const [key, accountId] of entries) {
+      if (!accountId) {
+        await tx.setting.deleteMany({ where: { unitId, key } });
+        continue;
+      }
+
       await tx.setting.upsert({
         where: {
           unitId_key: {

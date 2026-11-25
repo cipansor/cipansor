@@ -825,8 +825,9 @@ export const payrollPeriodService = {
           const taxPayableAcc = await resolveTaxPayableAccount(period.unitId, tx);
           if (!taxPayableAcc) {
             throw Errors.conflict(
-              'Akun Utang PPh 21 unit ini tidak ditemukan di Chart of Accounts, ' +
-                'jadi jurnal penggajian tidak dapat dibuat dan pembayaran dibatalkan.'
+              'Pemetaan Akun Utang PPh 21 unit ini belum diisi atau akunnya tidak aktif, ' +
+                'jadi jurnal penggajian tidak dapat dibuat dan pembayaran dibatalkan. ' +
+                'Isi pemetaannya di Laporan Keuangan → Pengaturan.'
             );
           }
           await tx.journalEntry.create({

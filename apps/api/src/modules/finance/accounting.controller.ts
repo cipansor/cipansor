@@ -109,7 +109,7 @@ export async function updateSettings(req: Request, res: Response, next: NextFunc
       return;
     }
 
-    await configService.setAccountMappings(unitId, settings as Record<string, string>);
+    await configService.setAccountMappings(unitId, settings as Record<string, string | null>);
 
     res.json({ message: 'Settings updated' });
   } catch (error) {

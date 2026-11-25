@@ -225,7 +225,10 @@ describe('payrollPeriodService.markAsPaid — a journal that cannot be written',
 
     await expect(
       payrollPeriodService.markAsPaid(TREASURER, PERIOD.id, new Date('2026-06-25'))
-    ).rejects.toMatchObject({ statusCode: 409 });
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining('Laporan Keuangan → Pengaturan'),
+    });
     expect(accountCode.findFirst).not.toHaveBeenCalled();
   });
 
