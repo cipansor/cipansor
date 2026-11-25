@@ -6785,8 +6785,13 @@ async function main() {
       bankId: qBank.id,
       type: 'MULTIPLE_CHOICE',
       content: 'Berapakah hasil dari operasi bilangan bulat: -15 + 8 x (-2)?',
-      options: ['-31', '-14', '46', '1'],
-      answerKey: '-31',
+      options: [
+        { id: 'A', text: '-31' },
+        { id: 'B', text: '-14' },
+        { id: 'C', text: '46' },
+        { id: 'D', text: '1' },
+      ],
+      answerKey: 'A',
       points: 25,
     },
   });
@@ -6797,8 +6802,13 @@ async function main() {
       type: 'MULTIPLE_CHOICE',
       content:
         'Suhu mula-mula suatu ruangan adalah -5 derajat Celcius. Setelah penghangat ruangan dinyalakan, suhunya naik 12 derajat Celcius. Berapa suhu ruangan sekarang?',
-      options: ['-17', '7', '17', '-7'],
-      answerKey: '7',
+      options: [
+        { id: 'A', text: '-17' },
+        { id: 'B', text: '7' },
+        { id: 'C', text: '17' },
+        { id: 'D', text: '-7' },
+      ],
+      answerKey: 'B',
       points: 25,
     },
   });
@@ -6823,7 +6833,7 @@ async function main() {
       data: {
         attemptId: examAttempt.id,
         questionId: question1.id,
-        answer: '-31',
+        answer: 'A',
         isCorrect: true,
         score: new Prisma.Decimal(25.0),
       },
@@ -6833,7 +6843,7 @@ async function main() {
       data: {
         attemptId: examAttempt.id,
         questionId: question2.id,
-        answer: '7',
+        answer: 'B',
         isCorrect: true,
         score: new Prisma.Decimal(25.0),
       },

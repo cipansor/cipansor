@@ -1,4 +1,5 @@
 import { test, expect } from "@playwright/test";
+import type { Question, QuestionOptionObject } from "@cipansor/shared";
 import {
   apiLogin,
   apiRequest,
@@ -10,7 +11,55 @@ interface SeedExam {
   id: string;
   title: string;
   status: string;
+  unitId?: string;
+  academicYearId?: string;
+  subjectId?: string;
+  classId?: string;
+  teacherId?: string;
+  questionBank?: { title: string } | null;
   _count?: { attempts: number };
+}
+
+type BankQuestion = Omit<Question, "options" | "answerKey"> & {
+  options: QuestionOptionObject[];
+  answerKey: string;
+};
+
+type AuthSession = Awaited<ReturnType<typeof apiLogin>>;
+
+async function createQuestionBank(
+  session: AuthSession,
+  label: string,
+): Promise<string> {
+  const [units, subjects, teachers] = await Promise.all([
+    apiRequest<{ data: Array<{ id: string; name: string }> }>(
+      session,
+      "GET",
+      "/units",
+    ),
+    apiRequest<{ data: Array<{ id: string }> }>(
+      session,
+      "GET",
+      "/curriculum/subjects",
+    ),
+    apiRequest<{ data: Array<{ id: string }> }>(session, "GET", "/hr/teachers"),
+  ]);
+  expect(subjects.data?.[0], "seeded subject required").toBeTruthy();
+  expect(teachers.data?.[0], "seeded teacher required").toBeTruthy();
+
+  const bank = await apiRequest<{ data: { id: string } }>(
+    session,
+    "POST",
+    "/cbt/banks",
+    {
+      title: `Bank ${label} E2E ${Date.now()}`,
+      description: `E2E ${label}`,
+      unitId: units.data?.[0]?.id,
+      subjectId: subjects.data[0].id,
+      teacherId: teachers.data[0].id,
+    },
+  );
+  return bank.data.id;
 }
 
 test.describe("CBT Exams & Grading", () => {
@@ -62,7 +111,11 @@ test.describe("CBT Exams & Grading", () => {
     // they never pass Playwright's "stable" gate, so force-click once visible.
     const pickFirst = async (index: number) => {
       const trigger = page.locator('button[role="combobox"]').nth(index);
-      await trigger.scrollIntoViewIfNeeded();
+      // Center it: the iOS install banner is fixed to the bottom and would
+      // swallow the click on the last combobox (Bank Soal) on mobile Safari.
+      await trigger.evaluate((el) =>
+        el.scrollIntoView({ block: "center", inline: "center" }),
+      );
       await trigger.click({ force: true });
       const listbox = page.getByRole("listbox");
       await expect(listbox).toBeVisible();
@@ -97,6 +150,407 @@ test.describe("CBT Exams & Grading", () => {
     if (created) {
       await apiRequest(session, "DELETE", `/cbt/exams/${created.id}`);
     }
+  });
+
+  test("Should keep option ids unique after deleting and adding an option", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const bankId = await createQuestionBank(session, "opsi");
+
+    try {
+      await page.goto(`/cbt/banks/${bankId}`);
+      await page.getByRole("button", { name: /Tambah Soal/i }).click();
+
+      await page
+        .locator('textarea[name="content"]')
+        .fill(`Soal opsi E2E ${Date.now()}`);
+
+      // Start from A/B/C/D, remove B, then add one: the new option must fill
+      // the gap with B, not create a second D.
+      const optionRow = (index: number) =>
+        page
+          .locator(`input[name="options.${index}.text"]`)
+          .locator(
+            'xpath=ancestor::div[contains(@class,"flex items-center gap-3")]',
+          );
+      await optionRow(1).getByRole("button").click();
+      await page.getByRole("button", { name: /Tambah Opsi/i }).click();
+
+      await expect(
+        page.locator('input[name="options.3.text"]'),
+      ).toHaveAttribute("placeholder", /Teks pilihan B/);
+      for (const [index, text] of [
+        [0, "satu"],
+        [1, "tiga"],
+        [2, "empat"],
+        [3, "dua"],
+      ] as const) {
+        await page.locator(`input[name="options.${index}.text"]`).fill(text);
+      }
+
+      // Choose the newly added B as the key. The saved order is A/C/D/B, so a
+      // list that marks by position would point at C instead.
+      await page.getByRole("dialog").getByRole("combobox").nth(1).click();
+      await page
+        .getByRole("listbox")
+        .getByRole("option", { name: "Opsi B" })
+        .click();
+
+      await page.getByRole("button", { name: /Simpan Pertanyaan/i }).click();
+      await expect(page.getByRole("dialog")).toBeHidden();
+
+      const saved = await apiRequest<{
+        data: { questions: BankQuestion[] };
+      }>(session, "GET", `/cbt/banks/${bankId}`);
+      const question = saved.data.questions.find((q) =>
+        q.options.some((o) => o.text === "satu"),
+      );
+      expect(question, "question should be persisted").toBeTruthy();
+      const ids = question!.options.map((o) => o.id);
+      expect(ids).toEqual(["A", "C", "D", "B"]);
+      expect(new Set(ids).size).toBe(ids.length);
+      expect(question!.answerKey).toBe("B");
+
+      await expect(
+        page.locator('[data-option-id="B"][data-correct="true"]'),
+      ).toContainText("dua");
+      await expect(
+        page.locator('[data-option-id="C"][data-correct="false"]'),
+      ).toContainText("tiga");
+    } finally {
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
+    }
+  });
+
+  test("Should trim option ids when marking the key", async ({ page }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const bankId = await createQuestionBank(session, "spasi");
+
+    try {
+      await apiRequest(session, "POST", `/cbt/banks/${bankId}/questions`, {
+        type: "MULTIPLE_CHOICE",
+        content: `Soal spasi E2E ${Date.now()}`,
+        options: [
+          { id: "A", text: "Bandung" },
+          { id: " B ", text: "Jakarta" },
+          { id: "C", text: "Surabaya" },
+        ],
+        answerKey: "B",
+        points: 10,
+      });
+
+      await page.goto(`/cbt/banks/${bankId}`);
+      await expect(
+        page.locator('[data-option-id="B"][data-correct="true"]'),
+      ).toContainText("Jakarta");
+      await expect(
+        page.locator('[data-option-id="A"][data-correct="false"]'),
+      ).toContainText("Bandung");
+    } finally {
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
+    }
+  });
+
+  test("Should keep the key when saving an edit with a blank option id", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const bankId = await createQuestionBank(session, "kunci-geser");
+    const content = `Soal kunci geser E2E ${Date.now()}`;
+
+    try {
+      await apiRequest(session, "POST", `/cbt/banks/${bankId}/questions`, {
+        type: "MULTIPLE_CHOICE",
+        content,
+        options: [
+          { id: "A", text: "Bandung" },
+          { id: " ", text: "Surabaya" },
+          { id: "B", text: "Jakarta" },
+        ],
+        answerKey: "B",
+        points: 10,
+      });
+
+      await page.goto(`/cbt/banks/${bankId}`);
+      // The list itself must already show one correct option: the blank id
+      // must not make Surabaya look like the key as well.
+      await expect(page.locator('[data-correct="true"]')).toHaveCount(1);
+      await expect(
+        page.locator('[data-option-id="B"][data-correct="true"]'),
+      ).toContainText("Jakarta");
+      await expect(page.locator('[data-option-id="C"]')).toContainText(
+        "Surabaya",
+      );
+
+      const card = page.locator("div.group").filter({ hasText: content });
+      await card.hover();
+      await card.getByRole("button", { name: /Edit/i }).click();
+
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("combobox").nth(1)).toContainText("Opsi B");
+
+      const rowLabel = (index: number) =>
+        dialog
+          .locator(`input[name="options.${index}.text"]`)
+          .locator(
+            'xpath=ancestor::div[contains(@class,"flex items-center gap-3")]',
+          )
+          .locator("span")
+          .first();
+      await expect(rowLabel(0)).toHaveText("A");
+      await expect(rowLabel(1)).toHaveText("C");
+      await expect(rowLabel(2)).toHaveText("B");
+      await expect(dialog.locator('input[name="options.2.text"]')).toHaveValue(
+        "Jakarta",
+      );
+
+      // Change only the question text: the key must still name Jakarta.
+      await dialog
+        .locator('textarea[name="content"]')
+        .fill(`${content} (teks diperbaiki)`);
+      await dialog.getByRole("button", { name: /Simpan Pertanyaan/i }).click();
+      await expect(dialog).toBeHidden();
+
+      const saved = await apiRequest<{
+        data: { questions: BankQuestion[] };
+      }>(session, "GET", `/cbt/banks/${bankId}`);
+      const question = saved.data.questions.find((q) =>
+        q.content.includes("teks diperbaiki"),
+      );
+      expect(question, "edited question should be persisted").toBeTruthy();
+      expect(
+        Object.fromEntries(question!.options.map((o) => [o.text, o.id])),
+      ).toMatchObject({ Bandung: "A", Surabaya: "C", Jakarta: "B" });
+      expect(question!.answerKey).toBe("B");
+
+      await expect(
+        page.locator('[data-option-id="B"][data-correct="true"]'),
+      ).toContainText("Jakarta");
+      await expect(page.locator('[data-correct="true"]')).toHaveCount(1);
+    } finally {
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
+    }
+  });
+
+  test("Should clear the key when the keyed option is removed", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const bankId = await createQuestionBank(session, "kunci");
+
+    try {
+      await page.goto(`/cbt/banks/${bankId}`);
+      await page.getByRole("button", { name: /Tambah Soal/i }).click();
+
+      await page
+        .locator('textarea[name="content"]')
+        .fill(`Soal kunci E2E ${Date.now()}`);
+
+      const optionRow = (index: number) =>
+        page
+          .locator(`input[name="options.${index}.text"]`)
+          .locator(
+            'xpath=ancestor::div[contains(@class,"flex items-center gap-3")]',
+          );
+
+      // A is the default key. Removing it must leave the key empty rather than
+      // silently promoting B.
+      await optionRow(0).getByRole("button").click();
+      for (const [index, text] of [
+        [0, "dua"],
+        [1, "tiga"],
+        [2, "empat"],
+      ] as const) {
+        await page.locator(`input[name="options.${index}.text"]`).fill(text);
+      }
+
+      await page.getByRole("button", { name: /Simpan Pertanyaan/i }).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expect(page.getByText("Kunci jawaban wajib diisi")).toBeVisible();
+
+      await page.getByRole("dialog").getByRole("combobox").nth(1).click();
+      await page
+        .getByRole("listbox")
+        .getByRole("option", { name: "Opsi C" })
+        .click();
+      await page.getByRole("button", { name: /Simpan Pertanyaan/i }).click();
+      await expect(page.getByRole("dialog")).toBeHidden();
+    } finally {
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
+    }
+  });
+
+  test("Should render item analysis for an exam with a question bank", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const exams = await apiRequest<{ data: SeedExam[] }>(
+      session,
+      "GET",
+      "/cbt/exams?limit=50",
+    );
+    const reference = exams.data?.[0];
+    expect(reference, "seed should provide an exam").toBeTruthy();
+
+    // Create a dedicated bank. The shared list is ordered by updatedAt, so
+    // another spec's temporary bank can be deactivated between our GET and the
+    // exam POST; a bank we own cannot disappear mid-test.
+    const bank = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/cbt/banks",
+      {
+        title: `Bank Analisis E2E ${Date.now()}`,
+        description: "E2E item-analysis bank",
+        unitId: reference!.unitId,
+        subjectId: reference!.subjectId,
+        teacherId: reference!.teacherId,
+      },
+    );
+    const bankId = bank.data.id;
+    const questionContent = `Soal analisis E2E ${Date.now()}`;
+    let examId: string | null = null;
+
+    try {
+      await apiRequest(session, "POST", `/cbt/banks/${bankId}/questions`, {
+        type: "MULTIPLE_CHOICE",
+        content: questionContent,
+        options: [
+          { id: "a", text: "Pilihan A" },
+          { id: "b", text: "Pilihan B" },
+          { id: "c", text: "Pilihan C" },
+          { id: "d", text: "Pilihan D" },
+        ],
+        answerKey: "a",
+        points: 10,
+      });
+
+      const created = await apiRequest<{ data: { id: string } }>(
+        session,
+        "POST",
+        "/cbt/exams",
+        {
+          title: `Analisis Soal E2E ${Date.now()}`,
+          unitId: reference!.unitId,
+          academicYearId: reference!.academicYearId,
+          subjectId: reference!.subjectId,
+          classId: reference!.classId,
+          teacherId: reference!.teacherId,
+          questionBankId: bankId,
+          type: "DAILY_TEST",
+          scheduledAt: "2026-12-11T08:00:00.000Z",
+          status: "DRAFT",
+        },
+      );
+      examId = created.data.id;
+
+      await page.goto(`/cbt/exams/${examId}/monitoring`);
+      await expect(
+        page.getByRole("heading", { name: /monitoring ujian/i }),
+      ).toBeVisible({ timeout: 15000 });
+
+      const difficultyTab = page.getByRole("tab", { name: /analisis soal/i });
+      await expect(difficultyTab).toBeVisible();
+      await difficultyTab.click({ force: true });
+      await expect(
+        page.getByText(/rata-rata keberhasilan/i).first(),
+      ).toBeVisible({ timeout: 15000 });
+      await expect(
+        page.getByText(/analisis butir soal/i).first(),
+      ).toBeVisible();
+      await expect(page.getByText(questionContent).first()).toBeVisible();
+    } finally {
+      if (examId) {
+        await apiRequest(session, "DELETE", `/cbt/exams/${examId}`).catch(
+          () => undefined,
+        );
+      }
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`).catch(
+        () => undefined,
+      );
+    }
+  });
+
+  test("Should keep an exam without a question bank quiet in item analysis", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const exams = await apiRequest<{ data: SeedExam[] }>(
+      session,
+      "GET",
+      "/cbt/exams?limit=50",
+    );
+    const exam = exams.data?.find((e) => !e.questionBank);
+    expect(
+      exam,
+      "seed should provide an exam without a question bank",
+    ).toBeTruthy();
+    if (!exam) return;
+
+    const topicMasteryResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/cbt/exams/${exam.id}/topic-mastery`),
+    );
+
+    await page.goto(`/cbt/exams/${exam.id}/monitoring`);
+    await expect(
+      page.getByRole("heading", { name: /monitoring ujian/i }),
+    ).toBeVisible({ timeout: 15000 });
+
+    // The monitoring page also asks for topic mastery. Wait for that response
+    // before asserting, so a toast from either request cannot arrive later.
+    expect((await topicMasteryResponse).status()).toBe(404);
+    // waitForResponse resolves on the response headers, before the Axios
+    // interceptor has processed the rejection.
+    await page.waitForLoadState("networkidle");
+    await expect
+      .poll(async () => page.locator("[data-sonner-toast]").count(), {
+        timeout: 2000,
+        intervals: [250],
+      })
+      .toBe(0);
+
+    const difficultyTab = page.getByRole("tab", { name: /analisis soal/i });
+    const insightsResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/cbt/exams/${exam.id}/difficulty-insights`),
+    );
+    await difficultyTab.click({ force: true });
+
+    // The controller answers 404 for an exam with no bank; the tab must treat
+    // that as an empty state, not as a user-facing error.
+    expect((await insightsResponse).status()).toBe(404);
+    await expect(difficultyTab).toHaveAttribute("aria-selected", "true");
+    // The tab has no navigation of its own, so networkidle can resolve before
+    // the query does. Require the panel to exist, then wait for its spinner to
+    // disappear: that only happens once React Query has settled the 404, which
+    // is after the Axios interceptor has run.
+    const difficultyPanel = page.locator(
+      '[role="tabpanel"][data-state="active"]',
+    );
+    await expect(difficultyPanel).toHaveCount(1);
+    await expect(difficultyPanel.locator(".animate-spin")).toHaveCount(0);
+    await expect
+      .poll(async () => page.locator("[data-sonner-toast]").count(), {
+        timeout: 2000,
+        intervals: [250],
+      })
+      .toBe(0);
   });
 
   test("Should monitor exam and grade an attempt", async ({ page }) => {

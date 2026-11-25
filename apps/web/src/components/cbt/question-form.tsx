@@ -47,6 +47,12 @@ const questionSchema = z.object({
 
 type QuestionFormData = z.infer<typeof questionSchema>;
 
+function initialOptions(options: Question["options"]) {
+  return (options ?? []).map((option) =>
+    typeof option === "string" ? { id: option, text: option } : option,
+  );
+}
+
 interface QuestionFormProps {
   initialData?: Question;
   onSubmit: (data: any) => void;
@@ -67,12 +73,14 @@ export function QuestionForm({
       content: initialData?.content || "",
       points: initialData?.points || 5,
       explanation: initialData?.explanation || "",
-      options: initialData?.options || [
-        { id: "opt-1", text: "" },
-        { id: "opt-2", text: "" },
-        { id: "opt-3", text: "" },
-        { id: "opt-4", text: "" },
-      ],
+      options: initialData?.options
+        ? initialOptions(initialData.options)
+        : [
+            { id: "opt-1", text: "" },
+            { id: "opt-2", text: "" },
+            { id: "opt-3", text: "" },
+            { id: "opt-4", text: "" },
+          ],
       answerKey: initialData?.answerKey || null,
     },
   });

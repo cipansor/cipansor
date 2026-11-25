@@ -633,20 +633,29 @@ function ExamPlayer({
                           onValueChange={handleAnswerChange}
                           className="space-y-3"
                         >
-                          {currentQuestion.options.map((opt: any) => (
-                            <div
-                              key={opt.id}
-                              className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-accent cursor-pointer transition-colors"
-                            >
-                              <RadioGroupItem value={opt.id} id={opt.id} />
-                              <label
-                                htmlFor={opt.id}
-                                className="flex-1 cursor-pointer font-medium"
+                          {currentQuestion.options.map((option, index) => {
+                            const opt =
+                              typeof option === "string"
+                                ? { id: option, text: option }
+                                : option;
+                            return (
+                              <div
+                                key={`${opt.id}-${index}`}
+                                className="flex items-center space-x-3 p-3 rounded-lg border hover:bg-accent cursor-pointer transition-colors"
                               >
-                                {opt.text}
-                              </label>
-                            </div>
-                          ))}
+                                <RadioGroupItem
+                                  value={opt.id}
+                                  id={`option-${index}`}
+                                />
+                                <label
+                                  htmlFor={`option-${index}`}
+                                  className="flex-1 cursor-pointer font-medium"
+                                >
+                                  {opt.text}
+                                </label>
+                              </div>
+                            );
+                          })}
                         </RadioGroup>
                       )}
 

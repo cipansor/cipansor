@@ -92,6 +92,17 @@ describe('kontrak kunci jawaban', () => {
       );
     });
 
+    it('menolak dua opsi dengan id yang sama', () => {
+      const options = [{ id: 'A' }, { id: 'B' }, { id: 'D' }, { id: 'D' }];
+      expect(() => normalizeAnswerKeyForStorage('MULTIPLE_CHOICE', 'D', options)).toThrowError(
+        /lebih dari sekali/i
+      );
+      // A draft without a key is still refused: the row would be ungradeable.
+      expect(() => normalizeAnswerKeyForStorage('MULTIPLE_CHOICE', null, options)).toThrowError(
+        /lebih dari sekali/i
+      );
+    });
+
     it('soal boleh disimpan sebagai draf tanpa kunci', () => {
       expect(normalizeAnswerKeyForStorage('MULTIPLE_CHOICE', null, [])).toBeNull();
       expect(normalizeAnswerKeyForStorage('ESSAY', 'apa pun', null)).toBeNull();

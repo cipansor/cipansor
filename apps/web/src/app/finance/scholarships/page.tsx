@@ -51,11 +51,20 @@ import {
   useCreateScholarship,
   useAssignScholarship,
   useScholarshipRecipients,
+  useScholarshipCriteria,
+  useCreateScholarshipCriterion,
+  useAssessScholarshipRecipient,
   type Scholarship,
   type ScholarshipRecipient,
+  type ScholarshipAssessmentResult,
   ScholarshipSource,
   ScholarshipType,
 } from "@/hooks/use-finance-enhancement";
+import { FINANCE_UNIT_ROLE_CODES } from "@cipansor/shared";
+import { useAuth } from "@/hooks/use-auth";
+import { getActiveRoleUnitId, getPrimaryRoleCode } from "@/lib/rbac";
+import { getErrorMessage } from "@/lib/api-error";
+import { criterionValueLabel, formatCriterionScore } from "@/lib/income-range";
 import { useUnits } from "@/hooks/use-units";
 import { useStudents } from "@/hooks/use-students";
 import { useAcademicYears } from "@/hooks/use-academic-years";
@@ -76,29 +85,251 @@ const TYPE_LABELS: Record<ScholarshipType, string> = {
   [ScholarshipType.FIXED_AMOUNT]: "Bantuan Tetap (Fixed)",
 };
 
-function RecipientsDialog({
+/** Peran_Keuangan_Unit — who may compute a score and write a criterion (R11.15). */
+const FINANCE_UNIT_ROLES: readonly string[] = FINANCE_UNIT_ROLE_CODES;
+
+/**
+ * Whether this account may score for this program: a finance-unit role, and for
+ * a non-Super-Admin only within its own unit. The API enforces the same rule;
+ * this decides whether the button exists at all (R11.11).
+ */
+export function canScoreProgram(
+  roleCode: string | undefined,
+  userUnitId: string | null | undefined,
+  programUnitId: string,
+): boolean {
+  if (!roleCode || !FINANCE_UNIT_ROLES.includes(roleCode)) return false;
+  if (roleCode === "SUPER_ADMIN") return true;
+  return !!userUnitId && userUnitId === programUnitId;
+}
+
+/**
+ * The assignment form pairs a program and a santri. A scholarship belongs to a
+ * unit and the API refuses a pair from different units, so each picker offers
+ * only the other side's unit once one side is chosen.
+ */
+export function assignableScholarships<T extends { unitId: string }>(
+  scholarships: T[],
+  student: { unitId: string } | undefined,
+): T[] {
+  return student
+    ? scholarships.filter((s) => s.unitId === student.unitId)
+    : scholarships;
+}
+
+export function assignableStudents<T extends { unitId: string }>(
+  students: T[],
+  scholarship: { unitId: string } | undefined,
+): T[] {
+  return scholarship
+    ? students.filter((s) => s.unitId === scholarship.unitId)
+    : students;
+}
+
+/** The score total to one decimal, "-" when every criterion was excluded. */
+function formatTotal(total: number | null): string {
+  return total === null || Number.isNaN(total) ? "-" : total.toFixed(1);
+}
+
+/**
+ * The score the API stored with the recipient, shaped like the answer of a
+ * fresh "hitung skor" — so a reviewer (who may not compute one) and a reloaded
+ * page show the same result.
+ */
+function storedResult(
+  recipient: ScholarshipRecipient,
+): ScholarshipAssessmentResult | undefined {
+  if (!recipient.assessments || recipient.assessments.length === 0) {
+    return undefined;
+  }
+  return {
+    criteria: recipient.assessments,
+    totalScore: recipient.totalScore ?? null,
+    complete: recipient.assessments.every((c) => !c.excluded),
+  };
+}
+
+export function RecipientsDialog({
   scholarship,
   onClose,
 }: {
   scholarship: Scholarship | null;
   onClose: () => void;
 }) {
+  const { user } = useAuth();
   const { data: recipients, isLoading } = useScholarshipRecipients(
     scholarship?.id || "",
     { limit: 50 },
   );
+  const {
+    data: criteria,
+    isLoading: criteriaLoading,
+    isError: criteriaFailed,
+  } = useScholarshipCriteria(scholarship?.id || "");
+  const createCriterion = useCreateScholarshipCriterion(scholarship?.id || "");
+  const assess = useAssessScholarshipRecipient(scholarship?.id || "");
+
+  const [results, setResults] = useState<
+    Record<string, ScholarshipAssessmentResult>
+  >({});
+  const [scoreError, setScoreError] = useState<string | null>(null);
+  const [criteriaChanged, setCriteriaChanged] = useState(false);
 
   if (!scholarship) return null;
 
+  const roleCode = getPrimaryRoleCode(user ?? null);
+  const mayScore = canScoreProgram(
+    roleCode,
+    getActiveRoleUnitId(user ?? null),
+    scholarship.unitId,
+  );
+  const hasCriteria = (criteria?.length ?? 0) > 0;
+
+  const handleAssess = async (recipientId: string) => {
+    setScoreError(null);
+    try {
+      const result = await assess.mutateAsync(recipientId);
+      setResults((prev) => ({ ...prev, [recipientId]: result }));
+    } catch {
+      // R11.9: say the score was not computed, and keep any previous score out
+      // of sight for this recipient.
+      setResults((prev) => {
+        const next = { ...prev };
+        delete next[recipientId];
+        return next;
+      });
+      setScoreError("Skor tidak dihitung. Silakan coba lagi.");
+    }
+  };
+
+  const handleCreateCriterion = async (formData: FormData) => {
+    try {
+      await createCriterion.mutateAsync({
+        name: formData.get("name") as string,
+        weight: Number(formData.get("weight")),
+        type: "NUMERIC",
+        targetValue: (formData.get("targetValue") as string) || undefined,
+      });
+      // Every result on screen was computed from the old set of criteria.
+      setResults({});
+      setCriteriaChanged(true);
+      toast.success("Kriteria berhasil ditambahkan");
+    } catch (error) {
+      // The hook skips the interceptor toast so the API's reason (for example
+      // an unreadable numeric target) is shown once, here.
+      toast.error(getErrorMessage(error));
+    }
+  };
+
   return (
     <Dialog open={!!scholarship} onOpenChange={(open) => !open && onClose()}>
-      <DialogContent className="max-w-3xl">
+      <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Penerima Beasiswa: {scholarship.name}</DialogTitle>
           <DialogDescription>
             Daftar santri penerima beasiswa ini.
           </DialogDescription>
         </DialogHeader>
+
+        <p className="text-sm text-muted-foreground">
+          Skor beasiswa hanya pendukung keputusan. Keputusan penerimaan tetap
+          dicatat oleh petugas, bukan ditentukan oleh mesin.
+        </p>
+
+        {/* Criteria of the program (R11.13) */}
+        <div className="mt-2 space-y-2">
+          <h3 className="text-sm font-semibold">Kriteria Penilaian</h3>
+          {criteriaLoading ? (
+            <p className="text-sm text-muted-foreground">Memuat kriteria...</p>
+          ) : criteriaFailed ? (
+            // Not the same as "no criteria": the API refused the read, so
+            // saying the program has none would be a guess.
+            <p className="text-sm text-muted-foreground">
+              Kriteria tidak dapat ditampilkan untuk akun ini.
+            </p>
+          ) : !hasCriteria ? (
+            <p className="text-sm text-muted-foreground">
+              Program ini belum memiliki kriteria penilaian.
+            </p>
+          ) : (
+            <div className="border rounded-md">
+              <Table>
+                <TableHeader>
+                  <TableRow>
+                    <TableHead>Kriteria</TableHead>
+                    <TableHead>Bobot</TableHead>
+                    <TableHead>Target</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {criteria?.map((criterion) => (
+                    <TableRow key={criterion.id}>
+                      <TableCell>{criterion.name}</TableCell>
+                      <TableCell>{criterion.weight}</TableCell>
+                      <TableCell>{criterion.targetValue || "-"}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          )}
+
+          {mayScore && (
+            <form
+              action={handleCreateCriterion}
+              className="flex flex-col sm:flex-row gap-2 items-end"
+            >
+              <div className="space-y-1 flex-1">
+                <Label htmlFor="criterion-name">Nama kriteria</Label>
+                <Input
+                  id="criterion-name"
+                  name="name"
+                  placeholder="Hafalan Al-Quran"
+                  required
+                />
+              </div>
+              <div className="space-y-1 w-24">
+                <Label htmlFor="criterion-weight">Bobot</Label>
+                <Input
+                  id="criterion-weight"
+                  name="weight"
+                  type="number"
+                  min="0.1"
+                  step="0.1"
+                  defaultValue="1"
+                  required
+                />
+              </div>
+              <div className="space-y-1 w-32">
+                <Label htmlFor="criterion-target">Target</Label>
+                <Input
+                  id="criterion-target"
+                  name="targetValue"
+                  placeholder="30"
+                />
+              </div>
+              <Button type="submit" disabled={createCriterion.isPending}>
+                {createCriterion.isPending ? "Menyimpan..." : "Tambah kriteria"}
+              </Button>
+            </form>
+          )}
+        </div>
+
+        {criteriaChanged && (
+          <p
+            role="status"
+            className="text-sm text-amber-700 dark:text-amber-400"
+          >
+            Kriteria berubah. Skor yang sudah ada mungkin dihitung dengan
+            kriteria lama — hitung ulang untuk hasil terbaru.
+          </p>
+        )}
+
+        {scoreError && (
+          <p role="alert" className="text-sm text-destructive">
+            {scoreError}
+          </p>
+        )}
 
         <div className="mt-4 border rounded-md">
           <Table>
@@ -110,55 +341,108 @@ function RecipientsDialog({
                 <TableHead>Tahun Ajaran</TableHead>
                 <TableHead>Status</TableHead>
                 <TableHead>Mulai</TableHead>
+                {mayScore && <TableHead className="text-right">Aksi</TableHead>}
               </TableRow>
             </TableHeader>
             <TableBody>
               {isLoading ? (
                 <TableRow>
-                  <TableCell colSpan={6} className="text-center py-4">
+                  <TableCell colSpan={7} className="text-center py-4">
                     Memuat data...
                   </TableCell>
                 </TableRow>
               ) : recipients?.data?.length === 0 ? (
                 <TableRow>
                   <TableCell
-                    colSpan={6}
+                    colSpan={7}
                     className="text-center py-4 text-muted-foreground"
                   >
                     Belum ada penerima.
                   </TableCell>
                 </TableRow>
               ) : (
-                recipients?.data?.map((recipient: any) => (
-                  <TableRow key={recipient.id}>
-                    <TableCell className="font-medium">
-                      {recipient.student?.name || "Unknown"}
-                    </TableCell>
-                    <TableCell>{recipient.student?.nis || "-"}</TableCell>
-                    <TableCell>{recipient.student?.class || "-"}</TableCell>
-                    <TableCell>{recipient.academicYear?.name || "-"}</TableCell>
-                    <TableCell>
-                      <Badge
-                        variant={
-                          recipient.status === "ACTIVE"
-                            ? "default"
-                            : "secondary"
-                        }
-                      >
-                        {recipient.status}
-                      </Badge>
-                    </TableCell>
-                    <TableCell>
-                      {safeFormat(
-                        new Date(recipient.startDate),
-                        "dd MMM yyyy",
-                        {
-                          locale: localeID,
-                        },
+                recipients?.data?.map((recipient: ScholarshipRecipient) => {
+                  const result =
+                    results[recipient.id] ?? storedResult(recipient);
+                  return (
+                    <TableRow key={recipient.id} className="align-top">
+                      <TableCell className="font-medium">
+                        {recipient.student?.name || "Unknown"}
+                        {result && (
+                          <div className="mt-2 space-y-1">
+                            {result.criteria.length === 0 ? (
+                              <p className="text-xs text-muted-foreground">
+                                Program ini belum memiliki kriteria penilaian.
+                              </p>
+                            ) : (
+                              <>
+                                {result.criteria.map((c) => (
+                                  <div
+                                    key={c.criterionId}
+                                    className="text-xs text-muted-foreground"
+                                  >
+                                    {c.name}: {criterionValueLabel(c.value)} —{" "}
+                                    {formatCriterionScore(c.score)}
+                                  </div>
+                                ))}
+                                <div className="text-xs font-medium flex items-center gap-2">
+                                  <span>
+                                    Skor total: {formatTotal(result.totalScore)}
+                                  </span>
+                                  {!result.complete && (
+                                    <Badge variant="secondary">
+                                      belum lengkap
+                                    </Badge>
+                                  )}
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </TableCell>
+                      <TableCell>{recipient.student?.nis || "-"}</TableCell>
+                      <TableCell>{recipient.student?.class || "-"}</TableCell>
+                      <TableCell>
+                        {recipient.academicYear?.name || "-"}
+                      </TableCell>
+                      <TableCell>
+                        <Badge
+                          variant={
+                            recipient.status === "ACTIVE"
+                              ? "default"
+                              : "secondary"
+                          }
+                        >
+                          {recipient.status}
+                        </Badge>
+                      </TableCell>
+                      <TableCell>
+                        {safeFormat(
+                          new Date(recipient.startDate),
+                          "dd MMM yyyy",
+                          {
+                            locale: localeID,
+                          },
+                        )}
+                      </TableCell>
+                      {mayScore && (
+                        <TableCell className="text-right">
+                          <Button
+                            size="sm"
+                            variant="outline"
+                            onClick={() => handleAssess(recipient.id)}
+                            disabled={
+                              assess.isPending &&
+                              assess.variables === recipient.id
+                            }
+                          >
+                            Hitung skor
+                          </Button>
+                        </TableCell>
                       )}
-                    </TableCell>
-                  </TableRow>
-                ))
+                    </TableRow>
+                  );
+                })
               )}
             </TableBody>
           </Table>
@@ -179,16 +463,13 @@ export default function ScholarshipsPage() {
   const [isAddDialogOpen, setIsAddDialogOpen] = useState(false);
   const [isAssignDialogOpen, setIsAssignDialogOpen] = useState(false);
   const [studentSearch, setStudentSearch] = useState("");
+  const [assignStudentId, setAssignStudentId] = useState("");
+  const [assignScholarshipId, setAssignScholarshipId] = useState("");
   const [selectedScholarshipForView, setSelectedScholarshipForView] =
     useState<Scholarship | null>(null);
 
   const { data: unitsData } = useUnits();
   const { data: academicYears } = useAcademicYears();
-  const { data: studentsData } = useStudents({
-    unitId: selectedUnitId === "ALL" ? undefined : selectedUnitId,
-    search: studentSearch, // Added search
-    limit: 20, // Reduced limit, rely on search
-  });
 
   const {
     data: scholarshipsData,
@@ -198,6 +479,28 @@ export default function ScholarshipsPage() {
     unitId: selectedUnitId === "ALL" ? undefined : selectedUnitId,
     limit: 100,
   });
+
+  const selectedAssignScholarship = scholarshipsData?.data.find(
+    (s) => s.id === assignScholarshipId,
+  );
+  const { data: studentsData } = useStudents({
+    unitId:
+      selectedAssignScholarship?.unitId ??
+      (selectedUnitId === "ALL" ? undefined : selectedUnitId),
+    search: studentSearch, // Added search
+    limit: 20, // Reduced limit, rely on search
+  });
+  const selectedAssignStudent = studentsData?.data.find(
+    (s) => s.id === assignStudentId,
+  );
+  const assignablePrograms = assignableScholarships(
+    scholarshipsData?.data ?? [],
+    selectedAssignStudent,
+  );
+  const assignableStudentOptions = assignableStudents(
+    studentsData?.data ?? [],
+    selectedAssignScholarship,
+  );
 
   const createScholarship = useCreateScholarship();
   const assignScholarship = useAssignScholarship();
@@ -223,6 +526,43 @@ export default function ScholarshipsPage() {
     }
   };
 
+  const handleAssignStudentChange = (studentId: string) => {
+    setAssignStudentId(studentId);
+    const student = studentsData?.data.find((s) => s.id === studentId);
+    if (
+      student &&
+      selectedAssignScholarship &&
+      student.unitId !== selectedAssignScholarship.unitId
+    ) {
+      setAssignScholarshipId("");
+    }
+  };
+
+  const handleAssignScholarshipChange = (scholarshipId: string) => {
+    setAssignScholarshipId(scholarshipId);
+    const scholarship = scholarshipsData?.data.find(
+      (s) => s.id === scholarshipId,
+    );
+    if (
+      scholarship &&
+      selectedAssignStudent &&
+      scholarship.unitId !== selectedAssignStudent.unitId
+    ) {
+      setAssignStudentId("");
+    }
+  };
+
+  const resetAssignForm = () => {
+    setAssignStudentId("");
+    setAssignScholarshipId("");
+    setStudentSearch("");
+  };
+
+  const handleAssignDialogOpenChange = (open: boolean) => {
+    setIsAssignDialogOpen(open);
+    if (!open) resetAssignForm();
+  };
+
   const handleAssign = async (formData: FormData) => {
     try {
       await assignScholarship.mutateAsync({
@@ -233,7 +573,7 @@ export default function ScholarshipsPage() {
         notes: formData.get("notes") as string,
       });
       toast.success("Beasiswa berhasil diberikan ke santri");
-      setIsAssignDialogOpen(false);
+      handleAssignDialogOpenChange(false);
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Gagal memberikan beasiswa");
     }
@@ -261,7 +601,7 @@ export default function ScholarshipsPage() {
           <div className="flex gap-2">
             <Dialog
               open={isAssignDialogOpen}
-              onOpenChange={setIsAssignDialogOpen}
+              onOpenChange={handleAssignDialogOpenChange}
             >
               <DialogTrigger asChild>
                 <Button variant="secondary">
@@ -287,14 +627,19 @@ export default function ScholarshipsPage() {
                         onChange={(e) => setStudentSearch(e.target.value)}
                         className="mb-2"
                       />
-                      <Select name="studentId" required>
+                      <Select
+                        name="studentId"
+                        required
+                        value={assignStudentId}
+                        onValueChange={handleAssignStudentChange}
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih santri" />
                         </SelectTrigger>
                         <SelectContent>
-                          {studentsData?.data.map((s: any) => (
+                          {assignableStudentOptions.map((s) => (
                             <SelectItem key={s.id} value={s.id}>
-                              {s.user.name} ({s.nis})
+                              {s.name} ({s.nis})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -302,12 +647,17 @@ export default function ScholarshipsPage() {
                     </div>
                     <div className="space-y-2">
                       <Label htmlFor="scholarshipId">Program Beasiswa</Label>
-                      <Select name="scholarshipId" required>
+                      <Select
+                        name="scholarshipId"
+                        required
+                        value={assignScholarshipId}
+                        onValueChange={handleAssignScholarshipChange}
+                      >
                         <SelectTrigger>
                           <SelectValue placeholder="Pilih program" />
                         </SelectTrigger>
                         <SelectContent>
-                          {scholarshipsData?.data.map((s) => (
+                          {assignablePrograms.map((s) => (
                             <SelectItem key={s.id} value={s.id}>
                               {s.name}
                             </SelectItem>
@@ -353,7 +703,7 @@ export default function ScholarshipsPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setIsAssignDialogOpen(false)}
+                      onClick={() => handleAssignDialogOpenChange(false)}
                     >
                       Batal
                     </Button>

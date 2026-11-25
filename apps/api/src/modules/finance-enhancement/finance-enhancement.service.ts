@@ -1,7 +1,12 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { actorSeesUnit } from '@/utils/resolve-unit-id';
-import type { ScopeActor } from '@/utils/student-scope';
+import {
+  assertStudentInUnit,
+  onlyScopedStudents,
+  studentScope,
+  type ScopeActor,
+} from '@/utils/student-scope';
 import {
   AccountCode,
   CreateAccountCodeInput,
@@ -11,6 +16,7 @@ import {
   Scholarship,
   CreateScholarshipInput,
   ScholarshipRecipient,
+  ScholarshipCriterionScore,
   AssignScholarshipInput,
   PaymentComponent,
   CreatePaymentComponentInput,
@@ -23,7 +29,50 @@ import {
 } from '@cipansor/shared';
 import { Prisma } from '@prisma/client';
 import { checkPeriodStatus } from './period.service';
+import { isExcludedValue } from './scholarship-scoring.service';
 import { CLASS_ENROLLMENT_STATUS } from '@cipansor/shared';
+
+/** The recipient columns the screen shows, including the stored assessment. */
+const SCHOLARSHIP_RECIPIENT_SELECT = {
+  id: true,
+  scholarshipId: true,
+  studentId: true,
+  academicYearId: true,
+  startDate: true,
+  endDate: true,
+  notes: true,
+  status: true,
+  totalScore: true,
+  assessments: {
+    select: {
+      criterionId: true,
+      value: true,
+      score: true,
+      criterion: { select: { name: true, weight: true } },
+    },
+    orderBy: { criterion: { createdAt: 'asc' } },
+  },
+  createdAt: true,
+  updatedAt: true,
+  student: {
+    select: {
+      id: true,
+      nis: true,
+      user: { select: { name: true } },
+      enrollments: {
+        where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
+        select: { class: { select: { name: true } } },
+        take: 1,
+      },
+    },
+  },
+  academicYear: { select: { name: true } },
+  scholarship: { select: { id: true, name: true } },
+} satisfies Prisma.ScholarshipRecipientSelect;
+
+type ScholarshipRecipientRow = Prisma.ScholarshipRecipientGetPayload<{
+  select: typeof SCHOLARSHIP_RECIPIENT_SELECT;
+}>;
 
 export class FinanceEnhancementService {
   // ==================== ACCOUNT CODES ====================
@@ -379,7 +428,13 @@ export class FinanceEnhancementService {
 
     const { status, page, limit } = params;
 
-    const whereClause: Prisma.ScholarshipRecipientWhereInput = { scholarshipId: id };
+    const whereClause: Prisma.ScholarshipRecipientWhereInput = {
+      scholarshipId: id,
+      // A recipient whose santri moved out of the caller's scope is not
+      // readable here — the same rule `assessRecipient` applies — or the
+      // stored income band would travel with the old unit.
+      ...onlyScopedStudents(studentScope(actor)),
+    };
     if (status) whereClause.status = status;
 
     const [data, total] = await Promise.all([
@@ -388,31 +443,7 @@ export class FinanceEnhancementService {
         // Only what the screen shows: id, name, NIS and the active class. The
         // old `include: { student }` sent every santri column — NIK, No. KK and
         // the parents' NIK and income (#988, R26.11, R24.10).
-        select: {
-          id: true,
-          scholarshipId: true,
-          studentId: true,
-          academicYearId: true,
-          startDate: true,
-          endDate: true,
-          notes: true,
-          status: true,
-          createdAt: true,
-          updatedAt: true,
-          student: {
-            select: {
-              id: true,
-              nis: true,
-              user: { select: { name: true } },
-              enrollments: {
-                where: { status: CLASS_ENROLLMENT_STATUS.ACTIVE },
-                select: { class: { select: { name: true } } },
-                take: 1,
-              },
-            },
-          },
-          academicYear: { select: { name: true } },
-        },
+        select: SCHOLARSHIP_RECIPIENT_SELECT,
         orderBy: { createdAt: 'desc' },
         skip: (page - 1) * limit,
         take: limit,
@@ -443,7 +474,15 @@ export class FinanceEnhancementService {
     });
   }
 
-  async assignScholarship(input: AssignScholarshipInput): Promise<ScholarshipRecipient> {
+  async assignScholarship(
+    input: AssignScholarshipInput,
+    actor: ScopeActor
+  ): Promise<ScholarshipRecipient> {
+    const unitId = await this.assertScholarshipVisible(input.scholarshipId, actor);
+    // The recipient's active class travels back in the answer, so the student
+    // must be one this caller may see in the program's own unit.
+    await assertStudentInUnit(input.studentId, unitId, actor);
+
     const existing = await prisma.scholarshipRecipient.findFirst({
       where: {
         scholarshipId: input.scholarshipId,
@@ -466,12 +505,7 @@ export class FinanceEnhancementService {
         notes: input.notes,
         status: 'ACTIVE',
       },
-      include: {
-        scholarship: { select: { name: true } },
-        student: {
-          include: { user: { select: { name: true } } },
-        },
-      },
+      select: SCHOLARSHIP_RECIPIENT_SELECT,
     });
 
     return this.mapToScholarshipRecipient(recipient);
@@ -836,7 +870,26 @@ export class FinanceEnhancementService {
     };
   }
 
-  private mapToScholarshipRecipient(prismaRecipient: any): ScholarshipRecipient {
+  private mapToScholarshipRecipient(
+    prismaRecipient: ScholarshipRecipientRow
+  ): ScholarshipRecipient {
+    const assessments: ScholarshipCriterionScore[] = prismaRecipient.assessments.map(
+      (assessment) => {
+        // The store keeps 0 for an excluded criterion (the column is not
+        // nullable); the read turns the marker back into "no score" so the
+        // screen does not present it as a judgement.
+        const excluded = isExcludedValue(assessment.value);
+        return {
+          criterionId: assessment.criterionId,
+          name: assessment.criterion.name,
+          weight: assessment.criterion.weight,
+          value: assessment.value,
+          score: excluded ? null : assessment.score,
+          excluded,
+        };
+      }
+    );
+
     return {
       id: prismaRecipient.id,
       scholarshipId: prismaRecipient.scholarshipId,
@@ -846,18 +899,24 @@ export class FinanceEnhancementService {
       endDate: prismaRecipient.endDate,
       notes: prismaRecipient.notes,
       status: prismaRecipient.status,
+      totalScore: prismaRecipient.totalScore ?? null,
+      assessments,
       createdAt: prismaRecipient.createdAt,
       updatedAt: prismaRecipient.updatedAt,
-      student: prismaRecipient.student
-        ? {
-            id: prismaRecipient.student.id,
-            nis: prismaRecipient.student.nis,
-            name: prismaRecipient.student.user?.name || '',
-            class: prismaRecipient.student.enrollments?.[0]?.class?.name || '-',
-          }
-        : undefined,
-      academicYear: prismaRecipient.academicYear,
-      scholarship: prismaRecipient.scholarship,
+      student: {
+        id: prismaRecipient.student.id,
+        nis: prismaRecipient.student.nis,
+        name: prismaRecipient.student.user?.name || '',
+        class: prismaRecipient.student.enrollments[0]?.class.name || '-',
+      },
+      academicYear: {
+        id: prismaRecipient.academicYearId,
+        name: prismaRecipient.academicYear.name,
+      },
+      scholarship: {
+        id: prismaRecipient.scholarship.id,
+        name: prismaRecipient.scholarship.name,
+      },
     };
   }
 }
