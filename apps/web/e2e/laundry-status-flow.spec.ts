@@ -408,7 +408,7 @@ test.describe("Petugas mengelola tarif laundry (R22.8)", () => {
     test.setTimeout(180_000);
     const session = await apiLoginNew(LAUNDRY_ADMIN);
     const businessUnits = await apiRequest<{
-      data: Array<{ id: string; name: string; type: string }>;
+      data: Array<{ id: string; name: string; code: string; type: string }>;
     }>(session, "GET", "/business-units?type=LAUNDRY");
     const laundryUnit = businessUnits.data[0];
     expect(laundryUnit, "seed tanpa unit usaha laundry").toBeTruthy();
@@ -424,7 +424,9 @@ test.describe("Petugas mengelola tarif laundry (R22.8)", () => {
     await create.getByLabel("Berat Minimal (kg)").fill("1.25");
     await create.getByRole("combobox", { name: "Unit Usaha Laundry" }).click();
     await page
-      .getByRole("option", { name: laundryUnit.name, exact: true })
+      .getByRole("option", {
+        name: `${laundryUnit.name} (${laundryUnit.code})`,
+      })
       .click();
     await create.getByRole("button", { name: "Tambah", exact: true }).click();
     await expect(
@@ -549,19 +551,24 @@ test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
     const finance = await apiLoginNew(SEED_USERS.superAdmin);
     const stamp = Date.now();
     const unitName = `Zz E2E Laundry ${stamp}`;
+    const firstCode = `E2E-LDR-A-${stamp}`;
+    const secondCode = `E2E-LDR-B-${stamp}`;
     let businessUnitId: string | undefined;
+    let secondBusinessUnitId: string | undefined;
     let unitId: string | undefined;
     let accountId: string | undefined;
+    let secondAccountId: string | undefined;
     let cashAccountId: string | undefined;
     let originalCashMapping: string | null | undefined;
     let pricingId: string | undefined;
+    let secondPricingId: string | undefined;
 
     try {
       const businessUnit = await apiRequest<{
         data: { id: string; unitId: string };
       }>(session, "POST", "/business-units", {
         name: unitName,
-        code: `E2E-LDR-${stamp}`,
+        code: firstCode,
         type: "LAUNDRY",
       });
       businessUnitId = businessUnit.data.id;
@@ -584,6 +591,15 @@ test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
         "the unit's current financial period is closed",
       );
 
+      const secondBusinessUnit = await apiRequest<{
+        data: { id: string; unitId: string };
+      }>(session, "POST", "/business-units", {
+        name: unitName,
+        code: secondCode,
+        type: "LAUNDRY",
+      });
+      secondBusinessUnitId = secondBusinessUnit.data.id;
+
       const account = await apiRequest<{
         id: string;
         code: string;
@@ -596,6 +612,20 @@ test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
         isActive: true,
       });
       accountId = account.id;
+
+      const secondAccount = await apiRequest<{ id: string }>(
+        finance,
+        "POST",
+        "/finance/accounting/accounts",
+        {
+          code: `E2E-LDR-REV2-${stamp}`,
+          name: `E2E Pendapatan Laundry B ${stamp}`,
+          type: "REVENUE",
+          normalBalance: "CREDIT",
+          isActive: true,
+        },
+      );
+      secondAccountId = secondAccount.id;
 
       const cash = await apiRequest<{ id: string }>(
         finance,
@@ -617,10 +647,12 @@ test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
       originalCashMapping = originalSettings.data.mappings.ACCOUNT_MAPPING_CASH;
 
       const mappingKey = `BU_${businessUnitId}_ACCOUNT_MAPPING_LAUNDRY_REVENUE`;
+      const secondMappingKey = `BU_${secondBusinessUnitId}_ACCOUNT_MAPPING_LAUNDRY_REVENUE`;
       await apiRequest(finance, "POST", "/finance/accounting/settings", {
         unitId,
         settings: {
           [mappingKey]: accountId,
+          [secondMappingKey]: secondAccountId,
           ACCOUNT_MAPPING_CASH: cashAccountId,
         },
       });
@@ -636,7 +668,9 @@ test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
       await dialog
         .getByRole("combobox", { name: "Unit Usaha Laundry" })
         .click();
-      await page.getByRole("option", { name: unitName, exact: true }).click();
+      await page
+        .getByRole("option", { name: `${unitName} (${firstCode})` })
+        .click();
       await dialog.getByRole("button", { name: "Tambah" }).click();
       await expect(
         page.getByText("Tarif laundry berhasil ditambahkan"),
@@ -663,24 +697,84 @@ test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
       expect(storedTier, "tarif baru tidak tersimpan").toBeTruthy();
       pricingId = storedTier!.id;
 
-      const students = await apiRequest<{
-        data: Array<{ id: string }>;
-      }>(session, "GET", "/students?limit=1");
-      expect(students.data[0], "seed tanpa santri").toBeTruthy();
+      const duplicateTier = await apiRequest<{ data: { id: string } }>(
+        session,
+        "POST",
+        "/laundry/pricing",
+        {
+          name: tierName,
+          pricePerKg: 9000,
+          minWeight: 1,
+          processDays: 2,
+          isExpress: false,
+          isActive: true,
+          businessUnitId: secondBusinessUnitId,
+        },
+      );
+      secondPricingId = duplicateTier.data.id;
 
-      const transaction = await apiRequest<{
-        data: {
-          id: string;
-          transactionNo: string;
-          businessUnitId: string | null;
-        };
-      }>(session, "POST", "/laundry/transactions", {
-        studentId: students.data[0].id,
-        pricingId,
-        weight: 2,
-        paymentMethod: "CASH",
+      // The duplicate was created through the API, outside React Query's
+      // cache; reload so the dialog offers both equal tariffs.
+      await page.reload();
+      await expect(page.getByRole("tab", { name: /Transaksi/ })).toBeVisible({
+        timeout: 15000,
       });
-      expect(transaction.data.businessUnitId).toBe(businessUnitId);
+
+      const students = await apiRequest<{
+        data: Array<{ id: string; nis: string; user: { name: string } }>;
+      }>(session, "GET", "/students?limit=1");
+      const student = students.data[0];
+      expect(student, "seed tanpa santri").toBeTruthy();
+
+      await page.getByRole("tab", { name: /Transaksi/ }).click();
+      await page.getByRole("button", { name: /Transaksi Baru/ }).click();
+      const transactionDialog = page.getByRole("dialog");
+      await transactionDialog.getByLabel("Cari Santri").fill(student.user.name);
+      await transactionDialog
+        .getByRole("button", { name: new RegExp(student.user.name) })
+        .click();
+      await transactionDialog
+        .getByRole("combobox", { name: "Pilih tarif" })
+        .click();
+
+      const firstOption = page.getByRole("option", {
+        name: new RegExp(`${tierName}.*${firstCode}`),
+      });
+      const secondOption = page.getByRole("option", {
+        name: new RegExp(`${tierName}.*${secondCode}`),
+      });
+      await expect(firstOption).toBeVisible({ timeout: 15000 });
+      await expect(secondOption).toBeVisible({ timeout: 15000 });
+      await firstOption.click();
+
+      const weight = transactionDialog.getByLabel("Berat (kg)");
+      await weight.fill("2");
+      await transactionDialog
+        .getByRole("button", { name: "Buat Transaksi" })
+        .click();
+      await expect(
+        page.getByText("Transaksi laundry berhasil dibuat"),
+      ).toBeVisible({ timeout: 15000 });
+
+      let transactionNo: string | undefined;
+      await expect
+        .poll(
+          async () => {
+            const rows = await apiRequest<{
+              data: Array<{
+                transactionNo: string;
+                businessUnitId: string | null;
+              }>;
+            }>(session, "GET", "/laundry/transactions?limit=5");
+            const created = rows.data.find(
+              (row) => row.businessUnitId === businessUnitId,
+            );
+            transactionNo = created?.transactionNo;
+            return transactionNo;
+          },
+          { timeout: 15000 },
+        )
+        .toBeTruthy();
 
       await expect
         .poll(
@@ -694,9 +788,16 @@ test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
               session,
               "GET",
               `/finance-enhancement/journal-entries?search=${encodeURIComponent(
-                transaction.data.transactionNo,
+                transactionNo!,
               )}&limit=20`,
             );
+            const wrong = journal.data.find(
+              (entry) => entry.accountId === secondAccountId,
+            );
+            expect(
+              wrong,
+              "jurnal memakai akun unit usaha yang salah",
+            ).toBeUndefined();
             return journal.data.find(
               (entry) =>
                 entry.accountId === accountId && Number(entry.credit) > 0,
@@ -707,25 +808,35 @@ test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
         .toBeTruthy();
     } finally {
       if (businessUnitId && unitId) {
+        const settings: Record<string, string | null> = {
+          [`BU_${businessUnitId}_ACCOUNT_MAPPING_LAUNDRY_REVENUE`]: null,
+        };
+        if (secondBusinessUnitId) {
+          settings[
+            `BU_${secondBusinessUnitId}_ACCOUNT_MAPPING_LAUNDRY_REVENUE`
+          ] = null;
+        }
+        if (originalCashMapping !== undefined) {
+          settings.ACCOUNT_MAPPING_CASH = originalCashMapping;
+        }
         await apiRequest(finance, "POST", "/finance/accounting/settings", {
           unitId,
-          settings: {
-            [`BU_${businessUnitId}_ACCOUNT_MAPPING_LAUNDRY_REVENUE`]: null,
-            ACCOUNT_MAPPING_CASH: originalCashMapping ?? null,
-          },
+          settings,
         }).catch(() => undefined);
-        await apiRequest(finance, "PUT", `/business-units/${businessUnitId}`, {
-          isActive: false,
-        }).catch(() => undefined);
+        for (const id of [businessUnitId, secondBusinessUnitId]) {
+          if (!id) continue;
+          await apiRequest(finance, "PUT", `/business-units/${id}`, {
+            isActive: false,
+          }).catch(() => undefined);
+        }
       }
-      if (pricingId) {
-        await apiRequest(
-          session,
-          "DELETE",
-          `/laundry/pricing/${pricingId}`,
-        ).catch(() => undefined);
+      for (const id of [pricingId, secondPricingId]) {
+        if (!id) continue;
+        await apiRequest(session, "DELETE", `/laundry/pricing/${id}`).catch(
+          () => undefined,
+        );
       }
-      for (const id of [accountId, cashAccountId]) {
+      for (const id of [accountId, secondAccountId, cashAccountId]) {
         if (!id) continue;
         await apiRequest(finance, "PUT", `/finance/accounting/accounts/${id}`, {
           isActive: false,

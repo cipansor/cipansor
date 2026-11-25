@@ -280,8 +280,12 @@ function PricingTab() {
   };
 
   const saving = createPricing.isPending || updatePricing.isPending;
-  const businessUnitName = (id: string | null) =>
-    businessUnits.find((businessUnit) => businessUnit.id === id)?.name;
+  const businessUnitLabel = (id: string | null) => {
+    const businessUnit = businessUnits.find((entry) => entry.id === id);
+    return businessUnit
+      ? `${businessUnit.name} (${businessUnit.code})`
+      : "Tidak dikenal";
+  };
 
   return (
     <div className="space-y-4">
@@ -402,7 +406,7 @@ function PricingTab() {
                     <SelectItem value="__none__">Tidak ditautkan</SelectItem>
                     {businessUnits.map((businessUnit) => (
                       <SelectItem key={businessUnit.id} value={businessUnit.id}>
-                        {businessUnit.name}
+                        {businessUnit.name} ({businessUnit.code})
                         {businessUnit.isActive ? "" : " (nonaktif)"}
                       </SelectItem>
                     ))}
@@ -522,7 +526,7 @@ function PricingTab() {
                     {businessUnitsLoading ? (
                       <span className="text-muted-foreground">Memuat…</span>
                     ) : item.businessUnitId ? (
-                      (businessUnitName(item.businessUnitId) ?? "Tidak dikenal")
+                      businessUnitLabel(item.businessUnitId)
                     ) : (
                       <Badge variant="outline">Belum tertaut</Badge>
                     )}
@@ -600,12 +604,24 @@ function NewTransactionDialog() {
   const [items, setItems] = useState<LaundryItemInput[]>([]);
 
   const { data: pricing = [] } = useLaundryPricing();
+  const { data: businessUnits = [] } = useBusinessUnits({ type: "LAUNDRY" });
   const { data: studentPage } = useStudents({
     search: studentSearch || undefined,
     limit: 10,
   });
   const createTransaction = useCreateLaundryTransaction();
   const students = studentSearch.length > 2 ? (studentPage?.data ?? []) : [];
+  const tierLabel = (tier: LaundryPricingDTO) => {
+    const unit = tier.businessUnitId
+      ? businessUnits.find((entry) => entry.id === tier.businessUnitId)
+      : null;
+    const unitLabel = tier.businessUnitId
+      ? unit
+        ? `${unit.name} (${unit.code})`
+        : "Unit usaha tidak dikenal"
+      : "Tanpa unit usaha";
+    return `${tier.name} — ${formatCurrency(tier.pricePerKg)}/kg — ${unitLabel}`;
+  };
 
   const reset = () => {
     setStudentSearch("");
@@ -728,7 +744,7 @@ function NewTransactionDialog() {
                     .filter((tier) => tier.isActive)
                     .map((tier) => (
                       <SelectItem key={tier.id} value={tier.id}>
-                        {tier.name} — {formatCurrency(tier.pricePerKg)}/kg
+                        {tierLabel(tier)}
                       </SelectItem>
                     ))}
                 </SelectContent>

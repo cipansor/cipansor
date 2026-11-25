@@ -123,6 +123,17 @@ export const businessUnitService = {
     const bu = await prisma.businessUnit.findFirst({ where });
     if (!bu) throw Errors.notFound('Business Unit');
 
+    if (bu.type === 'LAUNDRY' && data.type && data.type !== 'LAUNDRY') {
+      const linked = await prisma.laundryPricing.count({
+        where: { businessUnitId: id, isActive: true },
+      });
+      if (linked > 0) {
+        throw Errors.conflict(
+          `Unit usaha masih dipakai ${linked} tarif laundry aktif; nonaktifkan atau pindahkan tarif itu sebelum mengubah jenis`
+        );
+      }
+    }
+
     if (data.code) {
       const existing = await prisma.businessUnit.findUnique({
         where: { unitId_code: { unitId: bu.unitId, code: data.code } },

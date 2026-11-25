@@ -423,7 +423,9 @@ describe("Laundry — a tariff names the laundry unit that owns it (R22.8)", () 
     await userEvent.click(screen.getByRole("tab", { name: /Tarif/ }));
 
     const linked = screen.getByRole("row", { name: /Reguler/ });
-    expect(within(linked).getByText("Jasa Laundry Al-Hikmah")).toBeVisible();
+    expect(
+      within(linked).getByText(/Jasa Laundry Al-Hikmah \(LDR-01\)/),
+    ).toBeVisible();
     const old = screen.getByRole("row", { name: /Setrika Lama/ });
     expect(within(old).getByText("Belum tertaut")).toBeVisible();
   });
@@ -454,7 +456,9 @@ describe("Laundry — a tariff names the laundry unit that owns it (R22.8)", () 
       within(dialog).getByRole("combobox", { name: "Unit Usaha Laundry" }),
     );
     await userEvent.click(
-      await screen.findByRole("option", { name: "Jasa Laundry Al-Hikmah" }),
+      await screen.findByRole("option", {
+        name: /Jasa Laundry Al-Hikmah \(LDR-01\)/,
+      }),
     );
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Tambah" }),
@@ -491,7 +495,9 @@ describe("Laundry — a tariff names the laundry unit that owns it (R22.8)", () 
       within(dialog).getByRole("combobox", { name: "Unit Usaha Laundry" }),
     );
     await userEvent.click(
-      await screen.findByRole("option", { name: "Jasa Laundry Al-Hikmah" }),
+      await screen.findByRole("option", {
+        name: /Jasa Laundry Al-Hikmah \(LDR-01\)/,
+      }),
     );
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Simpan" }),
@@ -753,6 +759,90 @@ describe("Laundry — the new-transaction form keeps two decimals", () => {
     // The API derives the business unit from the tier; the form must not
     // guess one from a separately loaded list.
     expect(mutate.mock.calls[0][0]).not.toHaveProperty("businessUnitId");
+  });
+});
+
+describe("Laundry — a tariff choice names its business unit", () => {
+  const baseUnit = {
+    id: "bu-1",
+    name: "Laundry",
+    code: "LDR-01",
+    type: "LAUNDRY" as const,
+    isActive: true,
+    unitId: "unit-smp",
+    monthlyRevenue: 0,
+    monthlyTransactions: 0,
+  };
+
+  it("distinguishes equal tariffs by code and sends the chosen tier", async () => {
+    const mutate = vi.fn();
+    useCreateLaundryTransaction.mockReturnValue({ mutate, isPending: false });
+    useStudents.mockReturnValue({
+      data: {
+        data: [{ id: "std-1", name: "Ahmad Fauzi", nis: "2024001" }],
+      },
+    });
+    useLaundryPricing.mockReturnValue({
+      data: [
+        {
+          ...tier,
+          id: "p-asrama",
+          name: "Reguler",
+          pricePerKg: "6000",
+          businessUnitId: "bu-asrama",
+        },
+        {
+          ...tier,
+          id: "p-sekolah",
+          name: "Reguler",
+          pricePerKg: "6000",
+          businessUnitId: "bu-sekolah",
+        },
+      ],
+      isLoading: false,
+    });
+    useBusinessUnits.mockReturnValue({
+      data: [
+        { ...baseUnit, id: "bu-asrama", code: "LDR-ASR" },
+        { ...baseUnit, id: "bu-sekolah", code: "LDR-SKL" },
+      ],
+      isLoading: false,
+      isError: false,
+    });
+
+    render(<LaundryPage />);
+    await userEvent.click(
+      screen.getByRole("button", { name: /Transaksi Baru/ }),
+    );
+    const dialog = screen.getByRole("dialog");
+    await userEvent.type(within(dialog).getByLabelText("Cari Santri"), "Ahmad");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: /Ahmad Fauzi/ }),
+    );
+    await userEvent.click(
+      within(dialog).getByRole("combobox", { name: "Pilih tarif" }),
+    );
+
+    const options = await screen.findAllByRole("option", { name: /Reguler/ });
+    expect(options).toHaveLength(2);
+    expect(options[0].textContent).not.toBe(options[1].textContent);
+    expect(options[0].textContent).toMatch(/Laundry \(LDR-ASR\)/);
+    expect(options[1].textContent).toMatch(/Laundry \(LDR-SKL\)/);
+
+    await userEvent.click(
+      screen.getByRole("option", { name: /Laundry \(LDR-SKL\)/ }),
+    );
+    const weight = within(dialog).getByLabelText("Berat (kg)");
+    await userEvent.clear(weight);
+    await userEvent.type(weight, "2");
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Buat Transaksi" }),
+    );
+
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({ pricingId: "p-sekolah", weight: 2 }),
+      expect.anything(),
+    );
   });
 });
 

@@ -78,11 +78,13 @@ export const pricingService = {
   async update(id: string, unitId: string, data: UpdatePricingInput) {
     const existing = await prisma.laundryPricing.findFirst({
       where: { id, unitId },
-      select: { id: true },
+      select: { id: true, businessUnitId: true },
     });
     if (!existing) throw Errors.notFound('Tarif laundry');
 
-    if (data.businessUnitId && !(await isLaundryBusinessUnitOfUnit(unitId, data.businessUnitId))) {
+    const businessUnitId =
+      data.businessUnitId !== undefined ? data.businessUnitId : existing.businessUnitId;
+    if (businessUnitId && !(await isLaundryBusinessUnitOfUnit(unitId, businessUnitId))) {
       throw Errors.badRequest('Unit usaha laundry tidak ditemukan untuk unit ini');
     }
 

@@ -14,6 +14,7 @@ vi.mock('@/lib/prisma', () => ({
     },
     canteenTransaction: { groupBy: vi.fn() },
     laundryTransaction: { groupBy: vi.fn() },
+    laundryPricing: { count: vi.fn() },
   },
 }));
 
@@ -77,6 +78,45 @@ describe('BusinessUnitService', () => {
     (prisma.businessUnit.findFirst as any).mockResolvedValue(null);
 
     await expect(businessUnitService.getById('bu1', 'other-unit')).rejects.toThrow();
+  });
+
+  it('refuses a type change while active laundry tariffs still point at the unit', async () => {
+    (prisma.businessUnit.findFirst as any).mockResolvedValue({
+      id: 'bu1',
+      unitId: 'unit-1',
+      type: 'LAUNDRY',
+    });
+    (prisma.laundryPricing.count as any).mockResolvedValue(2);
+
+    await expect(
+      businessUnitService.update('bu1', 'unit-1', { type: 'CANTEEN' as any })
+    ).rejects.toMatchObject({
+      statusCode: 409,
+      message: expect.stringContaining('tarif laundry aktif'),
+    });
+    expect(prisma.businessUnit.update).not.toHaveBeenCalled();
+  });
+
+  it('allows a type change once no active tariff uses the unit', async () => {
+    (prisma.businessUnit.findFirst as any).mockResolvedValue({
+      id: 'bu1',
+      unitId: 'unit-1',
+      type: 'LAUNDRY',
+    });
+    (prisma.laundryPricing.count as any).mockResolvedValue(0);
+    (prisma.businessUnit.update as any).mockResolvedValue({
+      id: 'bu1',
+      type: 'CANTEEN',
+    });
+
+    await businessUnitService.update('bu1', 'unit-1', {
+      type: 'CANTEEN' as any,
+    });
+
+    expect(prisma.businessUnit.update).toHaveBeenCalledWith({
+      where: { id: 'bu1' },
+      data: { type: 'CANTEEN' },
+    });
   });
 
   describe('current-month window follows the WIB calendar (not the host clock)', () => {
