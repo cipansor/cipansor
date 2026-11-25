@@ -90,11 +90,17 @@ function scoreOne(criterion: ScorableCriterion, facts: ScoringFacts): Scholarshi
       if (facts.tahfidzJuz === null) {
         return { ...base, value: NO_DATA, score: null, excluded: true };
       }
-      const target = targetNumber(criterion.targetValue, 30);
+      const target = parseScholarshipTarget(criterion.targetValue);
+      // A percentage target on a juz criterion would score every santri
+      // against 85 juz; say the target is unusable instead of scoring it.
+      if (target?.percent) {
+        return { ...base, value: MANUAL_REQUIRED, score: null, excluded: true };
+      }
+      const juzTarget = target?.value ?? 30;
       return {
         ...base,
         value: String(facts.tahfidzJuz),
-        score: clamp((facts.tahfidzJuz / target) * 100),
+        score: clamp((facts.tahfidzJuz / juzTarget) * 100),
         excluded: false,
       };
     }

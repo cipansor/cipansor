@@ -37,7 +37,7 @@ const criterionArb: fc.Arbitrary<ScorableCriterion> = fc.record({
   weight: fc.double({ min: 0.1, max: 10, noNaN: true }),
   targetValue: fc.oneof(
     fc.constant(null),
-    fc.constantFrom('5', '10', '30', '100'),
+    fc.constantFrom('5', '10', '30', '100', '85%'),
     fc.constant('abc') // a target that is not a number must not produce NaN
   ),
 });

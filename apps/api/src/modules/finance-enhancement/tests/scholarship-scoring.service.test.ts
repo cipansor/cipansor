@@ -28,6 +28,7 @@ vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }));
 import {
   criterionKind,
   factsOf,
+  MANUAL_REQUIRED,
   scoreCriteria,
   scholarshipScoringService,
 } from '../scholarship-scoring.service';
@@ -160,6 +161,22 @@ describe('scoreCriteria', () => {
       facts({ grades: [{ score: 85, maxScore: 100 }] })
     );
     expect(akademik.criteria[0].score).toBe(100);
+  });
+
+  it('marks a percentage target on a hafalan criterion as manual, not a tiny score', () => {
+    const result = scoreCriteria(
+      [{ id: 'c1', name: 'Hafalan Al-Quran', weight: 1, targetValue: '85%' }],
+      facts({ tahfidzRecords: [{ juz: 5 }] })
+    );
+
+    // 5 juz against "85%" is not 5.88/100; the target's unit is unusable here.
+    expect(result.criteria[0]).toMatchObject({
+      value: MANUAL_REQUIRED,
+      score: null,
+      excluded: true,
+    });
+    expect(result.totalScore).toBeNull();
+    expect(result.complete).toBe(false);
   });
 
   it('reads a decimal target written with a comma or a dot', () => {
