@@ -1191,5 +1191,49 @@ describe('CBT Service', () => {
         expect.objectContaining({ count: 0, percentage: 0 }),
       ]);
     });
+
+    it('tidak menggandakan persentase ketika id opsi duplikat', async () => {
+      // Formulir dapat menghasilkan dua opsi ber-id sama setelah guru menghapus
+      // satu opsi lalu menambah opsi baru. Keduanya tidak boleh menampilkan
+      // jawaban yang sama sebagai 100%.
+      const mockExam = {
+        id: 'exam-1',
+        title: 'Exam Title',
+        questionBank: {
+          questions: [
+            {
+              id: 'q1',
+              type: 'MULTIPLE_CHOICE',
+              content: 'What is 2+2?',
+              options: [
+                { id: 'opt-A', text: '1' },
+                { id: 'opt-C', text: '3' },
+                { id: 'opt-D', text: '4' },
+                { id: 'opt-D', text: '4 (lama)' },
+              ],
+            },
+          ],
+        },
+        attempts: [
+          {
+            id: 'a1',
+            status: 'COMPLETED',
+            score: 10,
+            answers: [{ questionId: 'q1', answer: 'opt-D', score: 10, isCorrect: true }],
+          },
+        ],
+      };
+
+      vi.mocked(prisma.exam.findUnique).mockResolvedValue(mockExam as any);
+
+      const insights = await CBTService.getExamDifficultyInsights('exam-1');
+      const analysis = insights!.questionInsights[0].distractorAnalysis!;
+
+      expect(analysis).toHaveLength(3);
+      const dRows = analysis.filter((row) => (row.option as any).id === 'opt-D');
+      expect(dRows).toHaveLength(1);
+      expect(dRows[0]).toEqual(expect.objectContaining({ count: 1, percentage: 100 }));
+      expect(analysis.reduce((sum, row) => sum + row.percentage, 0)).toBe(100);
+    });
   });
 });

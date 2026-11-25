@@ -1506,15 +1506,25 @@ export class CBTService {
           }
         });
 
-        distractorAnalysis = (q.options as Prisma.JsonValue[]).map((opt) => {
+        // A question can end up with two options sharing an id after a teacher
+        // removes one and adds another. Counting each row would give the same
+        // answers to both and make the shares exceed 100%; report one row per
+        // distinct choice instead.
+        const seenOptions = new Set<string>();
+        distractorAnalysis = [];
+        for (const opt of q.options as Prisma.JsonValue[]) {
           const keyStr = canonicalAnswer(q.type, opt);
+          if (keyStr !== null) {
+            if (seenOptions.has(keyStr)) continue;
+            seenOptions.add(keyStr);
+          }
           const count = keyStr === null ? 0 : optionCounts[keyStr] || 0;
-          return {
+          distractorAnalysis.push({
             option: opt,
             count,
             percentage: mappableAnswers > 0 ? (count / mappableAnswers) * 100 : 0,
-          };
-        });
+          });
+        }
       }
 
       return {
