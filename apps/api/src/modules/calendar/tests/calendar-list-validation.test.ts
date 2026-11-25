@@ -11,7 +11,7 @@ vi.mock('@/lib/redis', () => ({
   redis: { get: vi.fn(), set: vi.fn(), setex: vi.fn(), del: vi.fn() },
 }));
 vi.mock('../calendar.service', () => ({
-  calendarService: { findAll: vi.fn() },
+  calendarService: { findAll: vi.fn(), update: vi.fn() },
 }));
 vi.mock('../holiday-sync.service', () => ({
   approveHolidayDraft: vi.fn(),
@@ -45,6 +45,7 @@ beforeEach(() => {
     data: [],
     pagination: { page: 1, limit: 50, total: 0, totalPages: 0 },
   } as never);
+  vi.mocked(calendarService.update).mockResolvedValue({ id: 'event-1' } as never);
 });
 
 const list = (query: string) =>
@@ -65,6 +66,30 @@ describe('GET /calendar — list query validation', () => {
     expect(res.status).toBe(200);
     expect(calendarService.findAll).toHaveBeenCalledWith(
       expect.objectContaining({ limit: 101, manage: false }),
+      expect.anything()
+    );
+  });
+});
+
+describe('PUT /calendar/:id — update body validation', () => {
+  const update = (body: Record<string, unknown>) =>
+    request(app).put('/calendar/event-1').set('Authorization', 'Bearer SDIT_ADMIN').send(body);
+
+  it('returns 400 for a title longer than the create contract allows', async () => {
+    const res = await update({ title: 'x'.repeat(201) });
+
+    expect(res.status).toBe(400);
+    expect(res.body.error.code).toBe('VALIDATION_ERROR');
+    expect(calendarService.update).not.toHaveBeenCalled();
+  });
+
+  it('passes an explicit null through to the service', async () => {
+    const res = await update({ title: 'Revisi', endDate: null });
+
+    expect(res.status).toBe(200);
+    expect(calendarService.update).toHaveBeenCalledWith(
+      'event-1',
+      expect.objectContaining({ title: 'Revisi', endDate: null }),
       expect.anything()
     );
   });

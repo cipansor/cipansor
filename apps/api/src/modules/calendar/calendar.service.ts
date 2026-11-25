@@ -13,6 +13,7 @@ import {
   type EventRecurrenceCode,
   type ListCalendarEventsQuery,
   type ParsedCalendarEventPayload,
+  type UpdateCalendarEventPayload,
 } from '@cipansor/shared';
 import { isFoundationScopedRole, seesAllUnits } from '@/utils/resolve-unit-id';
 import { dayDate, shiftWibDay, todayWib, wibDayOf, wibDayStart, wibTimeOnDay } from '@/utils/wib';
@@ -23,24 +24,11 @@ type ListEventsQuery = ListCalendarEventsQuery;
 /** A parsed payload: every default filled in and every day normalised. */
 type CreateEventInput = ParsedCalendarEventPayload;
 
-interface UpdateEventInput {
-  title?: string;
-  description?: string;
-  eventType?: EventType;
+type UpdateEventInput = UpdateCalendarEventPayload & {
   scope?: EventScope;
-  startDate?: string;
-  endDate?: string;
-  isAllDay?: boolean;
-  startTime?: string;
-  endTime?: string;
-  location?: string;
-  isOnline?: boolean;
-  onlineUrl?: string;
   isRecurring?: boolean;
   recurrenceRule?: string;
-  isPublic?: boolean;
-  color?: string;
-}
+};
 
 // User type from JwtPayload
 interface AuthenticatedUser {
@@ -536,6 +524,41 @@ export class CalendarService {
     }
     const scope = expectedScope;
 
+    // Validate the *merged* event, not just the fields in this request: a
+    // start date moved past an old end date, or an all-day event left with an
+    // old clock time, is invalid even though only one column was sent.
+    const nextStartDate = input.startDate ? new Date(input.startDate) : event.startDate;
+    const nextEndDate =
+      input.endDate === null ? null : input.endDate ? new Date(input.endDate) : event.endDate;
+    if (nextEndDate && nextEndDate < nextStartDate) {
+      throw Errors.badRequest('Tanggal selesai tidak boleh sebelum tanggal mulai');
+    }
+
+    const nextIsAllDay = input.isAllDay ?? event.isAllDay;
+    const nextStartTime = nextIsAllDay
+      ? null
+      : input.startTime === null
+        ? null
+        : (input.startTime ?? event.startTime);
+    const nextEndTime = nextIsAllDay
+      ? null
+      : input.endTime === null
+        ? null
+        : (input.endTime ?? event.endTime);
+    if (!nextIsAllDay && !nextStartTime) {
+      throw Errors.badRequest('Waktu mulai harus diisi bila agenda tidak sepanjang hari');
+    }
+    if (
+      !nextIsAllDay &&
+      nextStartTime &&
+      nextEndTime &&
+      (!nextEndDate ||
+        nextStartDate.toISOString().slice(0, 10) === nextEndDate.toISOString().slice(0, 10)) &&
+      nextEndTime < nextStartTime
+    ) {
+      throw Errors.badRequest('Waktu selesai tidak boleh sebelum waktu mulai');
+    }
+
     const updated = await prisma.calendarEvent.update({
       where: { id },
       data: {
@@ -543,11 +566,11 @@ export class CalendarService {
         description: input.description,
         eventType: input.eventType,
         scope,
-        startDate: input.startDate ? new Date(input.startDate) : undefined,
-        endDate: input.endDate ? new Date(input.endDate) : undefined,
+        startDate: nextStartDate,
+        endDate: nextEndDate,
         isAllDay: input.isAllDay,
-        startTime: input.startTime,
-        endTime: input.endTime,
+        startTime: nextStartTime,
+        endTime: nextEndTime,
         location: input.location,
         isOnline: input.isOnline,
         onlineUrl: input.onlineUrl,

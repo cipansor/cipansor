@@ -9,6 +9,7 @@ import {
   calendarEventDeleteQuerySchema,
   createCalendarEventSchema,
   listCalendarEventsQuerySchema,
+  updateCalendarEventSchema,
 } from '@cipansor/shared';
 import { calendarController } from './calendar.controller';
 import { authenticate, authorize } from '@/middleware/auth';
@@ -149,7 +150,12 @@ router.get(
 );
 
 // PUT /calendar/:id - Update event
-router.put('/:id', manageCalendar, calendarController.updateEvent.bind(calendarController));
+router.put(
+  '/:id',
+  manageCalendar,
+  validate(updateCalendarEventSchema),
+  calendarController.updateEvent.bind(calendarController)
+);
 
 // DELETE /calendar/:id?scope=SINGLE|SERIES - Delete one occurrence or a whole series
 router.delete(

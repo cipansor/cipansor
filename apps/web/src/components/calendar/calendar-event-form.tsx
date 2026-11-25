@@ -107,7 +107,7 @@ function CalendarEventFormFields({ event }: { event?: CalendarEvent }) {
       ? event.startDate.slice(0, 10)
       : safeFormat(new Date(), "yyyy-MM-dd"),
     endDate: event
-      ? (event.endDate ?? event.startDate).slice(0, 10)
+      ? (event.endDate?.slice(0, 10) ?? "")
       : safeFormat(new Date(), "yyyy-MM-dd"),
     startTime: event?.startTime ?? "",
     endTime: event?.endTime ?? "",
@@ -181,23 +181,39 @@ function CalendarEventFormFields({ event }: { event?: CalendarEvent }) {
 
     setIsSubmitting(true);
     try {
+      // On edit, a cleared field must be sent as null: Axios drops
+      // `undefined`, and the API would keep the old value. A create keeps the
+      // optional field absent.
+      const cleared = (value: string) =>
+        value.trim() ? value : event ? null : undefined;
       const payload = {
         title: formData.title,
-        description: formData.description || undefined,
+        description: cleared(formData.description),
         eventType: formData.eventType,
         startDate: formData.startDate,
-        // An empty end date means one day, not "same as start": sending it
-        // back made every one-day event look like a range.
-        endDate: formData.endDate || undefined,
-        startTime: formData.isAllDay ? undefined : formData.startTime,
-        endTime: formData.isAllDay ? undefined : formData.endTime || undefined,
+        // An empty end date means one day, not "same as start".
+        endDate: formData.endDate || (event ? null : undefined),
+        startTime: formData.isAllDay
+          ? event
+            ? null
+            : undefined
+          : cleared(formData.startTime),
+        endTime: formData.isAllDay
+          ? event
+            ? null
+            : undefined
+          : cleared(formData.endTime),
         isAllDay: formData.isAllDay,
-        location: formData.location || undefined,
+        location: cleared(formData.location),
         // A unit-bound writer sends no unit at all: the API sets it from the
         // active assignment, and sending the profile unit made it refuse the
         // request when the two differed. Only a foundation role chooses one.
-        unitId: overseesAllUnits ? formData.unitId || undefined : undefined,
-        classId: formData.classId || undefined,
+        unitId: event
+          ? undefined
+          : overseesAllUnits
+            ? formData.unitId || undefined
+            : undefined,
+        classId: event ? undefined : formData.classId || undefined,
         recurrence: formData.recurrence,
         recurrenceEnd:
           formData.recurrence !== "NONE" ? formData.recurrenceEnd : undefined,
@@ -269,7 +285,7 @@ function CalendarEventFormFields({ event }: { event?: CalendarEvent }) {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <CalendarIcon className="h-6 w-6 text-primary" />
-            {event ? "Edit Event" : "Tambah Event Baru"}
+            {event ? "Ubah Agenda" : "Tambah Event Baru"}
           </h1>
           <p className="text-muted-foreground">
             {event

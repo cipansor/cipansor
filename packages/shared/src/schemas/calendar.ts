@@ -153,6 +153,49 @@ export const createCalendarEventSchema = z
     }
   });
 
+/**
+ * The partial update contract. `null` is a value, not "leave it alone": the
+ * edit form sends it for a field the user cleared, and the API forwards it to
+ * Prisma so an old end date, description or time cannot survive the edit.
+ */
+export const updateCalendarEventSchema = z
+  .object({
+    title: z
+      .string()
+      .trim()
+      .min(1, "Judul agenda harus diisi")
+      .max(200)
+      .optional(),
+    description: z.string().max(2000).nullable().optional(),
+    eventType: z.enum(EVENT_TYPES, "Kategori agenda tidak dikenal").optional(),
+    startDate: dayOrInstant.optional(),
+    endDate: dayOrInstant.nullable().optional(),
+    isAllDay: z.boolean().optional(),
+    startTime: clockTime.nullable().optional(),
+    endTime: clockTime.nullable().optional(),
+    location: z.string().max(200).nullable().optional(),
+    isOnline: z.boolean().optional(),
+    onlineUrl: z.string().max(500).nullable().optional(),
+    isPublic: z.boolean().optional(),
+    color: hexColor.nullable().optional(),
+  })
+  .superRefine((value, ctx) => {
+    if (!value.startDate || !value.endDate) return;
+    const start = Date.parse(`${value.startDate}T00:00:00.000Z`);
+    const end = Date.parse(`${value.endDate}T00:00:00.000Z`);
+    if (end < start) {
+      ctx.addIssue({
+        code: "custom",
+        path: ["endDate"],
+        message: "Tanggal selesai tidak boleh sebelum tanggal mulai",
+      });
+    }
+  });
+
+export type UpdateCalendarEventPayload = z.input<
+  typeof updateCalendarEventSchema
+>;
+
 export type CreateCalendarEventPayload = z.input<
   typeof createCalendarEventSchema
 >;

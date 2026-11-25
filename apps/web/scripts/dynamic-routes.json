@@ -117,5 +117,6 @@
   "/violations/[id]": "/violations/e0ce7651-6148-4583-a169-9f2d29d97757",
   "/violations/[id]/edit": "/violations/e0ce7651-6148-4583-a169-9f2d29d97757/edit",
   "/violations/types/[id]/edit": "/violations/types/ketertiban/edit",
-  "/wallet/[studentId]": "/wallet/a346ad1a-0716-471d-927f-a87e28242689"
+  "/wallet/[studentId]": "/wallet/a346ad1a-0716-471d-927f-a87e28242689",
+  "/calendar/events/[id]/edit": "/calendar/events/a1111111-1111-4111-8111-111111111111/edit"
 }

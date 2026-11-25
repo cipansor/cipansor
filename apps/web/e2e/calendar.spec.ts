@@ -439,7 +439,7 @@ test.describe("Edit Event — Pengurus yayasan", () => {
         new RegExp(`/calendar/events/${created.data.id}/edit`),
       );
       await expect(
-        page.getByRole("heading", { name: /Edit Event/i }),
+        page.getByRole("heading", { name: /Ubah Agenda/i }),
       ).toBeVisible({ timeout: 15000 });
       await expect(page.locator("#title")).toHaveValue(title);
 
@@ -455,7 +455,7 @@ test.describe("Edit Event — Pengurus yayasan", () => {
       expect(response.status()).toBe(200);
       const body = (await response.json()) as { data: { title: string } };
       expect(body.data.title).toBe(updatedTitle);
-      await expect(page).toHaveURL(/\/calendar\/events/, { timeout: 15000 });
+      await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
     } finally {
       await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
     }

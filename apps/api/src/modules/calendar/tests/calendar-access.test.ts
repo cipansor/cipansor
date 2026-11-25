@@ -290,6 +290,11 @@ describe('calendarService.update — no scope escalation', () => {
       classId: 'class-1',
       scope: EventScope.SPECIFIC_CLASS,
       isPublic: false,
+      isAllDay: true,
+      startDate: new Date('2026-11-25'),
+      endDate: null,
+      startTime: null,
+      endTime: null,
       createdById: UNIT_ADMIN.sub,
     });
     prismaMock.calendarEvent.update.mockResolvedValue({ id: 'event-1' });
@@ -318,6 +323,11 @@ describe('calendarService.update — no scope escalation', () => {
       classId: 'class-1',
       scope: EventScope.SPECIFIC_CLASS,
       isPublic: false,
+      isAllDay: true,
+      startDate: new Date('2026-11-25'),
+      endDate: null,
+      startTime: null,
+      endTime: null,
       createdById: FOUNDATION.sub,
     });
 
@@ -327,6 +337,91 @@ describe('calendarService.update — no scope escalation', () => {
     expect(prismaMock.calendarEvent.update).not.toHaveBeenCalled();
   });
 
+  it('clears the old end date when an agenda moves across months', async () => {
+    prismaMock.calendarEvent.findUnique.mockResolvedValue({
+      id: 'event-1',
+      unitId: UNIT,
+      classId: null,
+      scope: EventScope.SPECIFIC_UNIT,
+      isPublic: true,
+      isAllDay: true,
+      startDate: new Date('2026-11-28'),
+      endDate: new Date('2026-11-30'),
+      startTime: null,
+      endTime: null,
+      createdById: UNIT_ADMIN.sub,
+    });
+
+    await calendarService.update('event-1', { startDate: '2026-12-02', endDate: null }, UNIT_ADMIN);
+
+    const data = (
+      prismaMock.calendarEvent.update.mock.calls.at(-1)![0] as {
+        data: { startDate: Date; endDate: Date | null };
+      }
+    ).data;
+    expect(data.startDate).toEqual(new Date('2026-12-02'));
+    expect(data.endDate).toBeNull();
+  });
+
+  it('clears the clock times when an agenda becomes all-day', async () => {
+    prismaMock.calendarEvent.findUnique.mockResolvedValue({
+      id: 'event-1',
+      unitId: UNIT,
+      classId: null,
+      scope: EventScope.SPECIFIC_UNIT,
+      isPublic: true,
+      isAllDay: false,
+      startDate: new Date('2026-11-28'),
+      endDate: null,
+      startTime: '09:00',
+      endTime: '10:00',
+      createdById: UNIT_ADMIN.sub,
+    });
+
+    await calendarService.update('event-1', { isAllDay: true }, UNIT_ADMIN);
+
+    const data = (
+      prismaMock.calendarEvent.update.mock.calls.at(-1)![0] as {
+        data: { startTime: string | null; endTime: string | null };
+      }
+    ).data;
+    expect(data.startTime).toBeNull();
+    expect(data.endTime).toBeNull();
+  });
+
+  it('refuses a start date moved past the existing end date', async () => {
+    prismaMock.calendarEvent.findUnique.mockResolvedValue({
+      id: 'event-1',
+      unitId: UNIT,
+      classId: null,
+      scope: EventScope.SPECIFIC_UNIT,
+      isPublic: true,
+      isAllDay: true,
+      startDate: new Date('2026-11-28'),
+      endDate: new Date('2026-11-30'),
+      startTime: null,
+      endTime: null,
+      createdById: UNIT_ADMIN.sub,
+    });
+
+    await expect(
+      calendarService.update('event-1', { startDate: '2026-12-02' }, UNIT_ADMIN)
+    ).rejects.toThrow(/sebelum tanggal mulai/);
+    expect(prismaMock.calendarEvent.update).not.toHaveBeenCalled();
+  });
+
+  it('forwards explicit nulls for cleared text fields', async () => {
+    await calendarService.update('event-1', { description: null, location: null }, UNIT_ADMIN);
+
+    const data = (
+      prismaMock.calendarEvent.update.mock.calls.at(-1)![0] as {
+        data: { description: string | null; location: string | null };
+      }
+    ).data;
+    expect(data.description).toBeNull();
+    expect(data.location).toBeNull();
+  });
+
   it('lets a Pengurus keep a foundation-wide event foundation-wide', async () => {
     prismaMock.calendarEvent.findUnique.mockResolvedValue({
       id: 'event-1',
@@ -334,6 +429,11 @@ describe('calendarService.update — no scope escalation', () => {
       classId: null,
       scope: EventScope.ALL_UNITS,
       isPublic: true,
+      isAllDay: true,
+      startDate: new Date('2026-11-25'),
+      endDate: null,
+      startTime: null,
+      endTime: null,
       createdById: FOUNDATION.sub,
     });
 
@@ -353,6 +453,11 @@ describe("calendarService — a unit admin manages its unit, not another's", () 
     classId: 'class-1',
     scope: EventScope.SPECIFIC_CLASS,
     isPublic: false,
+    isAllDay: true,
+    startDate: new Date('2026-11-25'),
+    endDate: null,
+    startTime: null,
+    endTime: null,
     createdById: 'super-admin',
   };
 
