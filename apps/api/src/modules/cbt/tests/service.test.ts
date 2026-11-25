@@ -505,9 +505,19 @@ describe('CBT Service', () => {
         options: [{ id: 'opt-B', text: 'B' }],
       } as any);
 
-      await expect(
-        CBTService.submitAnswer('attempt-1', 'q-1', 'nama saya Budi', 'std-1')
-      ).rejects.toThrow('tidak ada di antara opsi');
+      const error = await CBTService.submitAnswer(
+        'attempt-1',
+        'q-1',
+        'nama saya Budi',
+        'std-1'
+      ).then(
+        () => null,
+        (err: Error) => err
+      );
+
+      expect(error?.message).toContain('harus berupa id salah satu opsi');
+      // `errorHandler` mencatat pesan galat; teks kiriman tidak boleh ikut.
+      expect(error?.message).not.toContain('nama saya Budi');
       expect(prisma.examAnswer.upsert).not.toHaveBeenCalled();
     });
 
@@ -1131,6 +1141,55 @@ describe('CBT Service', () => {
       expect(qInsight.distractorAnalysis![0]).toEqual(
         expect.objectContaining({ count: 1, percentage: 50 })
       );
+    });
+
+    it('mengeluarkan jawaban yang opsinya sudah dihapus dari penyebut distribusi', async () => {
+      // Guru dapat menghapus opsi setelah jawaban dinilai. ERASURE hanya
+      // mengosongkan isi jawaban itu dan mempertahankan skornya, jadi
+      // distribusi harus memakai penyebut pilihan yang masih dapat dipetakan —
+      // bukan `totalGraded`, yang masih memuat jawaban berskor tersebut.
+      const mockExam = {
+        id: 'exam-1',
+        title: 'Exam Title',
+        questionBank: {
+          questions: [
+            {
+              id: 'q1',
+              type: 'MULTIPLE_CHOICE',
+              content: 'What is 2+2?',
+              options: [
+                { id: 'opt1', text: '4' },
+                { id: 'opt2', text: '5' },
+              ],
+            },
+          ],
+        },
+        attempts: [
+          {
+            id: 'a1',
+            status: 'COMPLETED',
+            score: 10,
+            answers: [{ questionId: 'q1', answer: 'opt-old', score: 10, isCorrect: true }],
+          },
+          {
+            id: 'a2',
+            status: 'COMPLETED',
+            score: 0,
+            answers: [{ questionId: 'q1', answer: 'opt1', score: 0, isCorrect: false }],
+          },
+        ],
+      };
+
+      vi.mocked(prisma.exam.findUnique).mockResolvedValue(mockExam as any);
+
+      const insights = await CBTService.getExamDifficultyInsights('exam-1');
+      const qInsight = insights!.questionInsights[0];
+
+      expect(qInsight.totalGraded).toBe(2);
+      expect(qInsight.distractorAnalysis).toEqual([
+        expect.objectContaining({ count: 1, percentage: 100 }),
+        expect.objectContaining({ count: 0, percentage: 0 }),
+      ]);
     });
   });
 });

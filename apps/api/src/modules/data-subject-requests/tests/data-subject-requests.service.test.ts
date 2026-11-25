@@ -1413,6 +1413,8 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       {
         id: 'ans-raw',
         answer: 'nama saya Budi',
+        score: 10,
+        isCorrect: true,
         question: { type: 'MULTIPLE_CHOICE', options: [{ id: 'opt-B' }] },
       },
     ] as any);
@@ -1435,9 +1437,11 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       { where: { id: 'ans-essay' }, data: { answer: Prisma.DbNull } },
       { where: { id: 'ans-mc' }, data: { answer: 'opt-B' } },
       { where: { id: 'ans-tf' }, data: { answer: 'true' } },
+      // Opsi yang sudah dihapus guru tidak boleh menghapus poin yang sudah
+      // dinilai: isi jawaban dikosongkan, `score`/`isCorrect` tetap.
       {
         where: { id: 'ans-raw' },
-        data: { answer: Prisma.DbNull, score: null, isCorrect: null },
+        data: { answer: Prisma.DbNull },
       },
     ]);
 
@@ -1524,7 +1528,13 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
 
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
 
-    expect(fs.unlink).toHaveBeenCalledWith(expect.stringContaining('berkas-korban.pdf'));
+    // Nama yang diharapkan dan nama salinan sama-sama berakhiran
+    // `berkas-korban.pdf`; cocokkan jalur `/uploads/berkas-korban.pdf` secara
+    // utuh supaya uji tidak lulus ketika yang dihapus justru salinannya.
+    expect(fs.unlink).toHaveBeenCalledWith(expect.stringMatching(/\/uploads\/berkas-korban\.pdf$/));
+    expect(fs.unlink).not.toHaveBeenCalledWith(
+      expect.stringMatching(/\/uploads\/salinan-berkas-korban\.pdf$/)
+    );
   });
 
   it('menghapus berkas yang sudah tidak ditunjuk siapa pun', async () => {

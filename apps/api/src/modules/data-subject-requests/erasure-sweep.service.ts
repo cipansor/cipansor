@@ -1,5 +1,5 @@
 import { Prisma, QuestionType } from '@prisma/client';
-import { canonicalAnswer, optionIdentifiers } from '@/modules/cbt/answer-key';
+import { canonicalAnswer, optionIdentifiers } from '@/modules/cbt';
 import { dayOf, wibDayOf } from '@/utils/wib';
 
 /**
@@ -620,9 +620,9 @@ export async function sweepStudentText(
   // menerima JSON mentah dari klien: jawaban bisa berbentuk
   // `{ id: 'opt-B', catatan: 'nama saya …' }` atau prosa yang ditempelkan pada
   // id. Nilai kanonisnya dipertahankan agar analisis butir soal tetap utuh;
-  // muatan lain dibuang. Jawaban yang tidak dapat dipetakan ke opsi sah
-  // dikosongkan dan dikeluarkan dari analisis (skor dan `isCorrect` null),
-  // karena teks seperti itu tidak dapat dibuktikan bukan data pribadi.
+  // muatan lain dibuang. Jawaban yang tidak dapat dipetakan ke opsi **saat ini**
+  // juga hanya kehilangan isinya: guru dapat menghapus opsi setelah jawaban
+  // dinilai, dan skor yang sudah sah tidak boleh hilang saat esai dinilai ulang.
   const attempts = await tx.examAttempt.findMany({
     where: { studentId },
     select: { id: true },
@@ -655,10 +655,7 @@ export async function sweepStudentText(
             optionIdentifiers(row.question.options).includes(canonical)));
       await tx.examAnswer.update({
         where: { id: row.id },
-        data:
-          valid && canonical !== null
-            ? { answer: canonical }
-            : { answer: Prisma.DbNull, score: null, isCorrect: null },
+        data: valid && canonical !== null ? { answer: canonical } : { answer: Prisma.DbNull },
       });
     }
     // Log pengawasan ujian mencatat perilaku anak (berpindah tab, lama

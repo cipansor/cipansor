@@ -73,8 +73,10 @@ function studentAnswerForStorage(
   if (type === QuestionType.MULTIPLE_CHOICE) {
     const ids = optionIdentifiers(options);
     if (!ids.includes(canonical)) {
+      // Jangan mengutip nilai kiriman: teks itu bisa berisi data pribadi, dan
+      // `errorHandler` mencatat pesan galat ke log yang tidak disapu ERASURE.
       throw Errors.badRequest(
-        `Jawaban "${canonical}" tidak ada di antara opsi soal ini (${ids.join(', ')}).`
+        `Jawaban harus berupa id salah satu opsi soal ini (${ids.join(', ')}).`
       );
     }
   }
@@ -1482,11 +1484,25 @@ export class CBTService {
         // used to normalise differently — the analysis unwrapped `{ id: … }`
         // wrappers and the grader did not — so they could disagree about which
         // option a student had picked.
+        //
+        // The denominator is the answers whose choice still maps to a current
+        // option, not every graded answer. ERASURE clears the content of an
+        // answer whose option a teacher later removed but keeps its historical
+        // score; counting that answer in the denominator would make the
+        // displayed shares stop summing to 100%.
+        const optionKeys = (q.options as Prisma.JsonValue[])
+          .map((opt) => canonicalAnswer(q.type, opt))
+          .filter((key): key is string => key !== null);
+        const currentOptions = new Set(optionKeys);
         const optionCounts: Record<string, number> = {};
+        let mappableAnswers = 0;
         answers.forEach((ans) => {
           if (ans && ans.answer != null) {
             const keyStr = canonicalAnswer(q.type, ans.answer);
-            if (keyStr !== null) optionCounts[keyStr] = (optionCounts[keyStr] || 0) + 1;
+            if (keyStr !== null && currentOptions.has(keyStr)) {
+              optionCounts[keyStr] = (optionCounts[keyStr] || 0) + 1;
+              mappableAnswers += 1;
+            }
           }
         });
 
@@ -1496,7 +1512,7 @@ export class CBTService {
           return {
             option: opt,
             count,
-            percentage: totalGraded > 0 ? (count / totalGraded) * 100 : 0,
+            percentage: mappableAnswers > 0 ? (count / mappableAnswers) * 100 : 0,
           };
         });
       }
