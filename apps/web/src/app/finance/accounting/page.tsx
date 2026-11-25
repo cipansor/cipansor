@@ -1016,6 +1016,18 @@ function AccountingSettingsTab() {
   const invalidUnitMappingLabels = MAPPINGS.filter((mapping) =>
     invalidKeys.includes(mapping.key),
   ).map((mapping) => mapping.label);
+  const unitMappingWarning =
+    invalidUnitMappingLabels.length > 0
+      ? `Pemetaan ${invalidUnitMappingLabels.join(
+          ", ",
+        )} tidak lagi aktif, bertipe salah, atau bukan milik unit ini. Pilih akun pengganti; pemetaan lama tetap tersimpan sampai Anda mengubahnya.`
+      : "";
+  const taxMappingWarning = taxMapping
+    ? ""
+    : "Pemetaan Utang PPh 21 belum diisi. Pembayaran gaji dengan potongan PPh 21 akan ditolak sampai akun ini dipilih.";
+  const unitMappingAlert = [unitMappingWarning, taxMappingWarning]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className="space-y-6">
@@ -1042,22 +1054,15 @@ function AccountingSettingsTab() {
 
           {selectedUnitId ? (
             <div className="space-y-4">
-              {fetchedSettings !== undefined &&
-                (invalidUnitMappingLabels.length > 0 || !taxMapping) && (
-                  <div
-                    role="alert"
-                    className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
-                  >
-                    <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-                    <p>
-                      {invalidUnitMappingLabels.length > 0
-                        ? `Pemetaan ${invalidUnitMappingLabels.join(
-                            ", ",
-                          )} tidak lagi aktif, bertipe salah, atau bukan milik unit ini. Pilih akun pengganti; pemetaan lama tetap tersimpan sampai Anda mengubahnya.`
-                        : "Pemetaan Utang PPh 21 belum diisi. Pembayaran gaji dengan potongan PPh 21 akan ditolak sampai akun ini dipilih."}
-                    </p>
-                  </div>
-                )}
+              {fetchedSettings !== undefined && unitMappingAlert && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>{unitMappingAlert}</p>
+                </div>
+              )}
               {MAPPINGS.map((mapping) => (
                 <div key={mapping.key} className="space-y-2">
                   <Label>{mapping.label}</Label>
