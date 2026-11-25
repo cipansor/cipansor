@@ -100,6 +100,10 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   expect(response.status()).toBe(200);
   const payload = await response.json();
   expect(payload.success).toBe(true);
+  // A bare `data: {}` would also leave the manual note on screen; require the
+  // validation the endpoint promises.
+  expect(payload.data?.validation?.status).toBeTruthy();
+  expect(Array.isArray(payload.data?.validation?.notes)).toBe(true);
 
   // The 1x1 PNG yields nothing to compare, so the server returns no extracted
   // fields and the form must show the localized manual note — not a stale one.
