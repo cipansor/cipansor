@@ -39,13 +39,21 @@ export enum QuestionType {
   TRUE_FALSE = "TRUE_FALSE",
 }
 
+export interface QuestionOptionObject {
+  id: string;
+  text: string;
+}
+
+/** A stored option: the current object shape, or a legacy bare string. */
+export type QuestionOption = QuestionOptionObject | string;
+
 export interface Question {
   id: string;
   bankId?: string;
   type: QuestionType;
   content: string;
-  options?: any;
-  answerKey?: any;
+  options?: QuestionOption[];
+  answerKey?: string | boolean | { id?: string } | null;
   explanation?: string;
   points: number;
   order: number;

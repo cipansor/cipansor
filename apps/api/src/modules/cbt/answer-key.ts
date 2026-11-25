@@ -111,6 +111,23 @@ export function optionIdentifiers(options: unknown): string[] {
 }
 
 /**
+ * A multiple-choice question's options are choices, not labels: two options
+ * with the same id cannot be told apart by an answer, and the distractor
+ * analysis would report the same count for both. Refuse the row at write time.
+ */
+export function assertUniqueOptionIdentifiers(options: unknown): void {
+  const seen = new Set<string>();
+  for (const id of optionIdentifiers(options)) {
+    if (seen.has(id)) {
+      throw Errors.badRequest(
+        `ID opsi "${id}" muncul lebih dari sekali; setiap opsi harus punya id unik.`
+      );
+    }
+    seen.add(id);
+  }
+}
+
+/**
  * Validate and normalise a key on the way into the database, so a key that can
  * never match is refused when the teacher writes it rather than discovered in
  * a student's score. Returns the value to persist.
@@ -123,6 +140,7 @@ export function normalizeAnswerKeyForStorage(
   answerKey: unknown,
   options: unknown
 ): string | null {
+  if (type === 'MULTIPLE_CHOICE') assertUniqueOptionIdentifiers(options);
   if (BASE_TYPE[type] === 'none') return null;
 
   if (answerKey === null || answerKey === undefined || answerKey === '') {

@@ -30,3 +30,4 @@ export * from "./simaan";
 export * from "./foundation";
 export * from "./laundry";
 export * from "./payroll";
+export * from "./finance";

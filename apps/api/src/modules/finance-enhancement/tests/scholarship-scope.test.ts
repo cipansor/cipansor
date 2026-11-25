@@ -11,8 +11,14 @@ import { expectNoSensitiveStudentFields } from '../../../../tests/helpers/sensit
 const { prismaMock } = vi.hoisted(() => ({
   prismaMock: {
     scholarship: { findUnique: vi.fn() },
-    scholarshipRecipient: { findMany: vi.fn(), count: vi.fn() },
+    scholarshipRecipient: {
+      findMany: vi.fn(),
+      count: vi.fn(),
+      findFirst: vi.fn(),
+      create: vi.fn(),
+    },
     scholarshipCriterion: { findMany: vi.fn() },
+    student: { findFirst: vi.fn() },
   },
 }));
 
@@ -30,7 +36,9 @@ beforeEach(() => {
   vi.clearAllMocks();
   prismaMock.scholarshipRecipient.findMany.mockResolvedValue([]);
   prismaMock.scholarshipRecipient.count.mockResolvedValue(0);
+  prismaMock.scholarshipRecipient.findFirst.mockResolvedValue(null);
   prismaMock.scholarshipCriterion.findMany.mockResolvedValue([]);
+  prismaMock.student.findFirst.mockResolvedValue({ id: 's1' });
 });
 
 describe('getScholarshipRecipients', () => {
@@ -71,6 +79,40 @@ describe('getScholarshipRecipients', () => {
     ]);
   });
 
+  it('membatasi penerima pada santri dalam cakupan unit pemanggil', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
+
+    await financeEnhancementService.getScholarshipRecipients(
+      'sch-1',
+      { page: 1, limit: 20 },
+      adminSd
+    );
+
+    const args = prismaMock.scholarshipRecipient.findMany.mock.calls[0][0];
+    // A recipient whose santri moved to another unit is out of scope, so the
+    // stored income band must not travel to the old unit's treasurer.
+    expect(args.where).toMatchObject({
+      scholarshipId: 'sch-1',
+      student: { unitId: SD },
+    });
+    expect(prismaMock.scholarshipRecipient.count.mock.calls[0][0].where).toMatchObject({
+      student: { unitId: SD },
+    });
+  });
+
+  it('pengurus yayasan tidak dibatasi unit santri', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SMP });
+
+    await financeEnhancementService.getScholarshipRecipients(
+      'sch-1',
+      { page: 1, limit: 20 },
+      yayasan
+    );
+
+    const args = prismaMock.scholarshipRecipient.findMany.mock.calls[0][0];
+    expect(args.where.student).toBeUndefined();
+  });
+
   it('jawabannya tidak memuat kolom santri yang sensitif (R24.7)', async () => {
     prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
     prismaMock.scholarshipRecipient.count.mockResolvedValue(1);
@@ -86,6 +128,8 @@ describe('getScholarshipRecipients', () => {
         endDate: null,
         notes: null,
         status: 'ACTIVE',
+        totalScore: null,
+        assessments: [],
         createdAt: new Date('2026-07-01'),
         updatedAt: new Date('2026-07-01'),
         student: {
@@ -99,6 +143,7 @@ describe('getScholarshipRecipients', () => {
           enrollments: [{ class: { name: 'Kelas 1' } }],
         },
         academicYear: { name: '2026/2027' },
+        scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
       },
     ]);
 
@@ -118,6 +163,159 @@ describe('getScholarshipRecipients', () => {
     await expect(
       financeEnhancementService.getScholarshipRecipients('sch-1', { page: 1, limit: 20 }, yayasan)
     ).resolves.toMatchObject({ success: true });
+  });
+
+  it('membawa skor tersimpan untuk pembaca, dengan penanda tanpa nilai (R11.6)', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
+    prismaMock.scholarshipRecipient.count.mockResolvedValue(1);
+    prismaMock.scholarshipRecipient.findMany.mockResolvedValue([
+      {
+        id: 'r1',
+        scholarshipId: 'sch-1',
+        studentId: 's1',
+        academicYearId: 'ay-1',
+        startDate: new Date('2026-07-01'),
+        endDate: null,
+        notes: null,
+        status: 'ACTIVE',
+        totalScore: 95,
+        assessments: [
+          {
+            criterionId: 'c1',
+            value: '10',
+            score: 100,
+            criterion: { name: 'Hafalan', weight: 3 },
+          },
+          {
+            criterionId: 'c2',
+            value: 'MANUAL_REQUIRED',
+            score: 0,
+            criterion: { name: 'Wawancara', weight: 1 },
+          },
+        ],
+        createdAt: new Date('2026-07-01'),
+        updatedAt: new Date('2026-07-01'),
+        student: {
+          id: 's1',
+          nis: '0099',
+          user: { name: 'Fulan' },
+          enrollments: [{ class: { name: 'Kelas 1' } }],
+        },
+        academicYear: { name: '2026/2027' },
+        scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
+      },
+    ]);
+
+    const res = await financeEnhancementService.getScholarshipRecipients(
+      'sch-1',
+      { page: 1, limit: 20 },
+      adminSd
+    );
+
+    expect(res.data[0].totalScore).toBe(95);
+    expect(res.data[0].assessments).toEqual([
+      {
+        criterionId: 'c1',
+        name: 'Hafalan',
+        weight: 3,
+        value: '10',
+        score: 100,
+        excluded: false,
+      },
+      {
+        criterionId: 'c2',
+        name: 'Wawancara',
+        weight: 1,
+        value: 'MANUAL_REQUIRED',
+        score: null,
+        excluded: true,
+      },
+    ]);
+
+    const args = prismaMock.scholarshipRecipient.findMany.mock.calls[0][0];
+    expect(args.select.totalScore).toBe(true);
+    expect(args.select.assessments).toBeDefined();
+  });
+});
+
+describe('assignScholarship', () => {
+  const input = {
+    scholarshipId: 'sch-1',
+    studentId: 's1',
+    academicYearId: 'ay-1',
+    startDate: '2026-07-01T00:00:00.000Z',
+  };
+
+  it('menolak program unit lain sebelum membaca santri', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SMP });
+
+    await expect(financeEnhancementService.assignScholarship(input, adminSd)).rejects.toMatchObject(
+      { statusCode: 404 }
+    );
+
+    expect(prismaMock.student.findFirst).not.toHaveBeenCalled();
+    expect(prismaMock.scholarshipRecipient.create).not.toHaveBeenCalled();
+  });
+
+  it('menolak santri di luar unit program dan cakupan pemanggil', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
+    prismaMock.student.findFirst.mockResolvedValue(null);
+
+    await expect(financeEnhancementService.assignScholarship(input, adminSd)).rejects.toMatchObject(
+      { statusCode: 404 }
+    );
+
+    expect(prismaMock.student.findFirst).toHaveBeenCalledWith({
+      where: { AND: [{ id: 's1' }, { unitId: SD }, { unitId: SD }] },
+      select: { id: true },
+    });
+    expect(prismaMock.scholarshipRecipient.create).not.toHaveBeenCalled();
+  });
+
+  it('menyimpan penerima dan mengembalikan nama program serta kelas aktif', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
+    prismaMock.scholarshipRecipient.create.mockResolvedValue({
+      id: 'r1',
+      scholarshipId: 'sch-1',
+      studentId: 's1',
+      academicYearId: 'ay-1',
+      startDate: new Date('2026-07-01'),
+      endDate: null,
+      notes: null,
+      status: 'ACTIVE',
+      totalScore: null,
+      assessments: [],
+      createdAt: new Date('2026-07-01'),
+      updatedAt: new Date('2026-07-01'),
+      student: {
+        id: 's1',
+        nis: '0099',
+        user: { name: 'Fulan' },
+        enrollments: [{ class: { name: 'Kelas 1' } }],
+      },
+      academicYear: { name: '2026/2027' },
+      scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
+    });
+
+    const res = await financeEnhancementService.assignScholarship(input, adminSd);
+
+    expect(prismaMock.scholarshipRecipient.create).toHaveBeenCalledWith({
+      data: {
+        scholarshipId: 'sch-1',
+        studentId: 's1',
+        academicYearId: 'ay-1',
+        startDate: new Date(input.startDate),
+        endDate: null,
+        notes: undefined,
+        status: 'ACTIVE',
+      },
+      select: expect.any(Object),
+    });
+    expect(res).toMatchObject({
+      id: 'r1',
+      scholarship: { id: 'sch-1', name: 'Beasiswa Prestasi' },
+      student: { nis: '0099', name: 'Fulan', class: 'Kelas 1' },
+    });
   });
 });
 

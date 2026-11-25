@@ -3,6 +3,7 @@ import { RoleCode } from '@prisma/client';
 import {
   FOUNDATION_SCOPE_ROLES,
   CROSS_UNIT_SCOPE_ROLES,
+  actorSeesUnit,
   isFoundationScopedRole,
   seesAllUnits,
   tokenUnitId,
@@ -78,6 +79,20 @@ describe('seesAllUnits', () => {
   it('is false when neither roleCode nor a SUPER_ADMIN legacy role is present', () => {
     expect(seesAllUnits({})).toBe(false);
     expect(seesAllUnits({ roleCode: null, role: null })).toBe(false);
+  });
+});
+
+describe('actorSeesUnit', () => {
+  const unitAdmin = { roleCode: RoleCode.SMPIT_ADMIN, unitId: 'unit-smp' };
+
+  it('refuses a unit admin a row with no unit or another unit', () => {
+    expect(actorSeesUnit(unitAdmin, null)).toBe(false);
+    expect(actorSeesUnit(unitAdmin, 'unit-sd')).toBe(false);
+    expect(actorSeesUnit(unitAdmin, 'unit-smp')).toBe(true);
+  });
+
+  it('keeps a Super Admin able to reach a row with no unit', () => {
+    expect(actorSeesUnit({ roleCode: RoleCode.SUPER_ADMIN, unitId: null }, null)).toBe(true);
   });
 });
 
