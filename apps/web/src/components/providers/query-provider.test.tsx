@@ -29,4 +29,18 @@ describe("handleQueryError", () => {
     handleQueryError(error, undefined, undefined, {});
     expect(toastError).not.toHaveBeenCalled();
   });
+
+  it("stays silent only for the status the request expected", () => {
+    const expected = new AxiosError("nope");
+    expected.response = { status: 404 } as never;
+    expected.config = { skipErrorToastForStatus: [404] } as never;
+    handleQueryError(expected, undefined, undefined, {});
+    expect(toastError).not.toHaveBeenCalled();
+
+    const unexpected = new AxiosError("boom");
+    unexpected.response = { status: 500 } as never;
+    unexpected.config = { skipErrorToastForStatus: [404] } as never;
+    handleQueryError(unexpected, undefined, undefined, {});
+    expect(toastError).toHaveBeenCalled();
+  });
 });

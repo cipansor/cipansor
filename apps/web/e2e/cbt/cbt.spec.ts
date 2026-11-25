@@ -11,6 +11,12 @@ interface SeedExam {
   id: string;
   title: string;
   status: string;
+  unitId?: string;
+  academicYearId?: string;
+  subjectId?: string;
+  classId?: string;
+  teacherId?: string;
+  questionBank?: { title: string } | null;
   _count?: { attempts: number };
 }
 
@@ -105,7 +111,11 @@ test.describe("CBT Exams & Grading", () => {
     // they never pass Playwright's "stable" gate, so force-click once visible.
     const pickFirst = async (index: number) => {
       const trigger = page.locator('button[role="combobox"]').nth(index);
-      await trigger.scrollIntoViewIfNeeded();
+      // Center it: the iOS install banner is fixed to the bottom and would
+      // swallow the click on the last combobox (Bank Soal) on mobile Safari.
+      await trigger.evaluate((el) =>
+        el.scrollIntoView({ block: "center", inline: "center" }),
+      );
       await trigger.click({ force: true });
       const listbox = page.getByRole("listbox");
       await expect(listbox).toBeVisible();
@@ -377,6 +387,170 @@ test.describe("CBT Exams & Grading", () => {
     } finally {
       await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
     }
+  });
+
+  test("Should render item analysis for an exam with a question bank", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const exams = await apiRequest<{ data: SeedExam[] }>(
+      session,
+      "GET",
+      "/cbt/exams?limit=50",
+    );
+    const reference = exams.data?.[0];
+    expect(reference, "seed should provide an exam").toBeTruthy();
+
+    // Create a dedicated bank. The shared list is ordered by updatedAt, so
+    // another spec's temporary bank can be deactivated between our GET and the
+    // exam POST; a bank we own cannot disappear mid-test.
+    const bank = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/cbt/banks",
+      {
+        title: `Bank Analisis E2E ${Date.now()}`,
+        description: "E2E item-analysis bank",
+        unitId: reference!.unitId,
+        subjectId: reference!.subjectId,
+        teacherId: reference!.teacherId,
+      },
+    );
+    const bankId = bank.data.id;
+    const questionContent = `Soal analisis E2E ${Date.now()}`;
+    let examId: string | null = null;
+
+    try {
+      await apiRequest(session, "POST", `/cbt/banks/${bankId}/questions`, {
+        type: "MULTIPLE_CHOICE",
+        content: questionContent,
+        options: [
+          { id: "a", text: "Pilihan A" },
+          { id: "b", text: "Pilihan B" },
+          { id: "c", text: "Pilihan C" },
+          { id: "d", text: "Pilihan D" },
+        ],
+        answerKey: "a",
+        points: 10,
+      });
+
+      const created = await apiRequest<{ data: { id: string } }>(
+        session,
+        "POST",
+        "/cbt/exams",
+        {
+          title: `Analisis Soal E2E ${Date.now()}`,
+          unitId: reference!.unitId,
+          academicYearId: reference!.academicYearId,
+          subjectId: reference!.subjectId,
+          classId: reference!.classId,
+          teacherId: reference!.teacherId,
+          questionBankId: bankId,
+          type: "DAILY_TEST",
+          scheduledAt: "2026-12-11T08:00:00.000Z",
+          status: "DRAFT",
+        },
+      );
+      examId = created.data.id;
+
+      await page.goto(`/cbt/exams/${examId}/monitoring`);
+      await expect(
+        page.getByRole("heading", { name: /monitoring ujian/i }),
+      ).toBeVisible({ timeout: 15000 });
+
+      const difficultyTab = page.getByRole("tab", { name: /analisis soal/i });
+      await expect(difficultyTab).toBeVisible();
+      await difficultyTab.click({ force: true });
+      await expect(
+        page.getByText(/rata-rata keberhasilan/i).first(),
+      ).toBeVisible({ timeout: 15000 });
+      await expect(
+        page.getByText(/analisis butir soal/i).first(),
+      ).toBeVisible();
+      await expect(page.getByText(questionContent).first()).toBeVisible();
+    } finally {
+      if (examId) {
+        await apiRequest(session, "DELETE", `/cbt/exams/${examId}`).catch(
+          () => undefined,
+        );
+      }
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`).catch(
+        () => undefined,
+      );
+    }
+  });
+
+  test("Should keep an exam without a question bank quiet in item analysis", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const exams = await apiRequest<{ data: SeedExam[] }>(
+      session,
+      "GET",
+      "/cbt/exams?limit=50",
+    );
+    const exam = exams.data?.find((e) => !e.questionBank);
+    expect(
+      exam,
+      "seed should provide an exam without a question bank",
+    ).toBeTruthy();
+    if (!exam) return;
+
+    const topicMasteryResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/cbt/exams/${exam.id}/topic-mastery`),
+    );
+
+    await page.goto(`/cbt/exams/${exam.id}/monitoring`);
+    await expect(
+      page.getByRole("heading", { name: /monitoring ujian/i }),
+    ).toBeVisible({ timeout: 15000 });
+
+    // The monitoring page also asks for topic mastery. Wait for that response
+    // before asserting, so a toast from either request cannot arrive later.
+    expect((await topicMasteryResponse).status()).toBe(404);
+    // waitForResponse resolves on the response headers, before the Axios
+    // interceptor has processed the rejection.
+    await page.waitForLoadState("networkidle");
+    await expect
+      .poll(async () => page.locator("[data-sonner-toast]").count(), {
+        timeout: 2000,
+        intervals: [250],
+      })
+      .toBe(0);
+
+    const difficultyTab = page.getByRole("tab", { name: /analisis soal/i });
+    const insightsResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/cbt/exams/${exam.id}/difficulty-insights`),
+    );
+    await difficultyTab.click({ force: true });
+
+    // The controller answers 404 for an exam with no bank; the tab must treat
+    // that as an empty state, not as a user-facing error.
+    expect((await insightsResponse).status()).toBe(404);
+    await expect(difficultyTab).toHaveAttribute("aria-selected", "true");
+    // The tab has no navigation of its own, so networkidle can resolve before
+    // the query does. Require the panel to exist, then wait for its spinner to
+    // disappear: that only happens once React Query has settled the 404, which
+    // is after the Axios interceptor has run.
+    const difficultyPanel = page.locator(
+      '[role="tabpanel"][data-state="active"]',
+    );
+    await expect(difficultyPanel).toHaveCount(1);
+    await expect(difficultyPanel.locator(".animate-spin")).toHaveCount(0);
+    await expect
+      .poll(async () => page.locator("[data-sonner-toast]").count(), {
+        timeout: 2000,
+        intervals: [250],
+      })
+      .toBe(0);
   });
 
   test("Should monitor exam and grade an attempt", async ({ page }) => {

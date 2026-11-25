@@ -456,8 +456,7 @@ function DifficultyInsightsTab({ examId }: { examId: string }) {
           </CardHeader>
           <CardContent>
             <div className="text-2xl font-bold">
-              {insights.questionInsights?.filter((q: any) => q.isKiller)
-                .length || 0}{" "}
+              {insights.questionInsights?.filter((q) => q.isKiller).length || 0}{" "}
               Soal
             </div>
           </CardContent>
@@ -471,7 +470,7 @@ function DifficultyInsightsTab({ examId }: { examId: string }) {
           <CardContent>
             <div className="text-2xl font-bold">
               {hasDiscrimination
-                ? `${insights.questionInsights?.filter((q: any) => (q.discriminationIndex ?? 0) >= 0.4).length || 0} Soal`
+                ? `${insights.questionInsights?.filter((q) => (q.discriminationIndex ?? 0) >= 0.4).length || 0} Soal`
                 : "-"}
             </div>
             {!hasDiscrimination && (
@@ -494,7 +493,7 @@ function DifficultyInsightsTab({ examId }: { examId: string }) {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {insights.questionInsights?.map((q: any, index: number) => {
+            {insights.questionInsights?.map((q, index: number) => {
               const p = q.difficultyIndex;
               const diffLabel =
                 p == null
@@ -537,7 +536,7 @@ function DifficultyInsightsTab({ examId }: { examId: string }) {
                       >
                         {diffLabel}
                       </Badge>
-                      {discLabel && (
+                      {discLabel && d != null && (
                         <Badge
                           variant={d < 0.2 ? "destructive" : "outline"}
                           className="text-[10px] h-4"

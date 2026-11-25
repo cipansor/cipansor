@@ -25,6 +25,7 @@ export function handleQueryError(
   if (error instanceof AxiosError && error.config?.skipErrorToast) return;
   if (error instanceof AxiosError) {
     const status = error.response?.status;
+    if (error.config?.skipErrorToastForStatus?.includes(status ?? 0)) return;
     const message = error.response?.data?.message || error.message;
 
     // Handle specific status codes
