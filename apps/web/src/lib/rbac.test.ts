@@ -1166,7 +1166,9 @@ describe("pages a role needs beyond its bucket (2026-09-25)", () => {
   // its bucket-mate that must stay out.
   it.each([
     ["SMPIT_KEPALA_SEKOLAH", "TEACHER", "/perencanaan/abc", true],
+    ["SMPIT_KEPALA_SEKOLAH", "TEACHER", "/calendar/events/new", true],
     ["SMPIT_GURU", "TEACHER", "/perencanaan", false],
+    ["SMPIT_GURU", "TEACHER", "/calendar", false],
     ["PUSTAKAWAN", "STAFF", "/library/digital", true],
     ["SMPIT_TATA_USAHA", "STAFF", "/library", false],
     ["PERAWAT", "STAFF", "/library", false],

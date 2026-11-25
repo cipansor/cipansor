@@ -1913,6 +1913,13 @@ const kepalaSekolahNavigation: NavGroup[] = [
         icon: ClipboardCheck,
       },
       {
+        // The API admits every kepala sekolah through ACADEMIC_MANAGE; without
+        // this entry the form was reachable only by typing its URL.
+        title: "Kalender Akademik",
+        href: "/calendar",
+        icon: CalendarDays,
+      },
+      {
         // The kepala sekolah is a salaried employee and clocks in like every
         // other one (decided 2026-10-09); an exemption is a setting, not a
         // missing menu item.

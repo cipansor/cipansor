@@ -3,6 +3,7 @@ import bcrypt from 'bcryptjs';
 import { config } from '../../config';
 import { prisma } from '../../lib/prisma';
 import { Prisma, AdmissionStatus, Gender } from '@prisma/client';
+import type { DataSubjectRequestStatus } from '@prisma/client';
 import type {
   CreatePublicRegistrantDocumentRequest,
   IntakeWindow,
@@ -376,21 +377,70 @@ async function generateRegistrationNo(
   if (!period) throw new Error('Admission period not found');
 
   const year = period.academicYear.name.split('/')[0];
-  const count = await client.registrant.count({
-    where: { admissionPeriodId },
-  });
 
   // Include a short period-scoped suffix so two distinct AdmissionPeriods in
   // the same academic year cannot generate the same `registrationNo`. The
   // model's `registrationNo @unique` is GLOBAL (see prisma/schema.prisma:
   // `registrationNo String @unique`), so without this suffix two periods
-  // would collide on `REG-{year}-{count+1}` and the retry loop in
+  // would collide on `REG-{year}-{seq}` and the retry loop in
   // `createRegistrant` would loop until MAX_ATTEMPTS, surfacing a 500.
   // Use the first 4 hex chars of the period UUID — short enough to keep the
   // human-readable format compact, but unique enough across periods.
   const periodSuffix = admissionPeriodId.replace(/-/g, '').slice(0, 4).toUpperCase();
+  const format = (seq: number) => `REG-${year}-${periodSuffix}-${String(seq).padStart(5, '0')}`;
 
-  return `REG-${year}-${periodSuffix}-${String(count + 1).padStart(5, '0')}`;
+  const candidateIsTaken = async (seq: number) =>
+    Boolean(
+      await client.registrant.findUnique({
+        where: { registrationNo: format(seq) },
+        select: { id: true },
+      })
+    );
+
+  // A single atomic increment, not `count(*) + 1`: retention deletes the
+  // earliest registrants of a period while later waves are still open, so a
+  // count would hand out a number another registrant already holds. The
+  // `UPDATE ... registration_seq = registration_seq + 1 RETURNING` row-locks
+  // the period, so concurrent registrations each get their own number.
+  const { registrationSeq } = await client.admissionPeriod.update({
+    where: { id: admissionPeriodId },
+    data: { registrationSeq: { increment: 1 } },
+    select: { registrationSeq: true },
+  });
+
+  if (!(await candidateIsTaken(registrationSeq))) {
+    return format(registrationSeq);
+  }
+
+  // The counter can be behind rows that predate it: `db:push` adds the column
+  // with its default 0 and does not run the migration's backfill. Jump the
+  // counter above every number already issued in one atomic statement instead
+  // of reissuing a used number (whose unique-constraint failure would roll the
+  // increment back and repeat the same number on the next attempt). Keep the
+  // `regexp_match` form in sync with migration
+  // 20261124100000_admission_period_registration_seq.
+  for (let attempt = 0; attempt < 5; attempt++) {
+    const [repaired] = await client.$queryRaw<Array<{ registration_seq: number }>>`
+      UPDATE "admission_periods" AS p
+      SET "registration_seq" = GREATEST(
+        p."registration_seq" + 1,
+        COALESCE((
+          SELECT MAX((regexp_match(r."registration_no", '([0-9]+)$'))[1]::integer)
+          FROM "registrants" AS r
+          WHERE r."admission_period_id" = p."id"
+        ), 0) + 1
+      )
+      WHERE p."id" = ${admissionPeriodId}
+      RETURNING p."registration_seq"
+    `;
+
+    if (!repaired) throw new Error('Admission period not found');
+    if (!(await candidateIsTaken(repaired.registration_seq))) {
+      return format(repaired.registration_seq);
+    }
+  }
+
+  throw new Error('Unable to allocate a registration number');
 }
 
 export async function getRegistrants(
@@ -541,13 +591,10 @@ export async function createRegistrant(
   actor?: AuthUser,
   consent?: RegistrantConsentRecord
 ) {
-  // Race-safety: `generateRegistrationNo` derives the next number from
-  // `count(*) + 1`. Under PostgreSQL's default READ COMMITTED isolation,
-  // two concurrent transactions can read the same count and try to insert
-  // the same `registrationNo`, which then fails the unique constraint
-  // (`Registrant.registrationNo @unique`) with Prisma error P2002. Retry
-  // a small number of times so the second/third concurrent caller gets a
-  // valid sequential number instead of a 500.
+  // `generateRegistrationNo` increments the period's counter atomically, so a
+  // concurrent caller should get its own number. The retry stays as a safety
+  // net: a `registrationNo` collision (P2002) retries with a fresh number
+  // instead of surfacing a 500.
   const MAX_ATTEMPTS = 5;
   let lastError: unknown;
   for (let attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
@@ -1094,15 +1141,87 @@ export async function enrollRegistrant(
   return result;
 }
 
+/** Status permintaan hak subjek yang subjeknya belum boleh hilang. */
+const OPEN_DATA_SUBJECT_REQUEST_STATUSES: DataSubjectRequestStatus[] = [
+  'RECEIVED',
+  'VERIFIED',
+  'PROCESSING',
+];
+
+/**
+ * Decrement the wave counters and delete one registrant row, inside the
+ * caller's transaction.
+ *
+ * Shared by the operator delete and the retention sweep so both keep
+ * `registeredCount`/`acceptedCount` in sync with the rows that actually exist.
+ * Without this, deleting a registrant assigned to a wave would leave the
+ * counters permanently inflated, eventually marking waves FULL while slots are
+ * free.
+ */
+async function deleteRegistrantRow(
+  tx: Prisma.TransactionClient,
+  registrant: { id: string; status: AdmissionStatus; waveId: string | null }
+) {
+  if (registrant.waveId) {
+    await tx.admissionWave.updateMany({
+      where: { id: registrant.waveId, registeredCount: { gt: 0 } },
+      data: { registeredCount: { decrement: 1 } },
+    });
+
+    const wave = await tx.admissionWave.findUnique({
+      where: { id: registrant.waveId },
+      select: {
+        id: true,
+        status: true,
+        registeredCount: true,
+        quota: true,
+        startDate: true,
+        endDate: true,
+        fullByCapacity: true,
+      },
+    });
+    const now = new Date();
+    // Reopen only a FULL wave that became FULL by capacity (`fullByCapacity`
+    // true) — i.e. a cancelled slot in a wave that simply filled up. A wave
+    // an operator deliberately marked FULL below quota (`fullByCapacity`
+    // false/null, e.g. manual early-close) stays closed: `createRegistrantOnce`
+    // also treats FULL as terminal for manual closure, so never silently
+    // reopen it just because one registrant was removed.
+    if (
+      wave &&
+      wave.status === 'FULL' &&
+      wave.fullByCapacity === true &&
+      wave.registeredCount < wave.quota &&
+      wave.startDate <= now &&
+      wave.endDate >= now
+    ) {
+      await tx.admissionWave.update({
+        where: { id: wave.id },
+        data: { status: 'OPEN' },
+      });
+    }
+
+    if (registrant.status === AdmissionStatus.ACCEPTED) {
+      await tx.admissionWave.updateMany({
+        where: { id: registrant.waveId, acceptedCount: { gt: 0 } },
+        data: { acceptedCount: { decrement: 1 } },
+      });
+    }
+  }
+
+  return tx.registrant.delete({ where: { id: registrant.id } });
+}
+
 export async function deleteRegistrant(id: string, actor?: AuthUser) {
   if (actor) await assertRegistrantUnitAccess(id, actor);
-  // Wrap the read + decrement + delete in a single transaction so that the
-  // wave's `registeredCount` (and `acceptedCount` if the registrant was
-  // ACCEPTED) stays in sync with the registrants that actually exist.
-  // Without this, deleting a registrant that was assigned to a wave would
-  // leave the wave's counters permanently inflated, eventually marking
-  // waves as FULL even when slots are free.
+  // Wrap the read + decrement + delete in a single transaction so the wave
+  // counters cannot drift from the rows that exist. Lock the registrant before
+  // its wave: onboarding, the retention sweep, and reassignment all take the
+  // same order (registrant then wave), so two paths cannot hold one each and
+  // wait on the other.
   return prisma.$transaction(async (tx) => {
+    await tx.$executeRaw`SELECT id FROM "registrants" WHERE id = ${id} FOR UPDATE`;
+
     const registrant = await tx.registrant.findUnique({
       where: { id },
       select: { status: true, waveId: true },
@@ -1116,54 +1235,68 @@ export async function deleteRegistrant(id: string, actor?: AuthUser) {
       throw new Error('Cannot delete enrolled registrant');
     }
 
-    if (registrant.waveId) {
-      await tx.admissionWave.updateMany({
-        where: { id: registrant.waveId, registeredCount: { gt: 0 } },
-        data: { registeredCount: { decrement: 1 } },
-      });
+    return deleteRegistrantRow(tx, { id, ...registrant });
+  });
+}
 
-      const wave = await tx.admissionWave.findUnique({
-        where: { id: registrant.waveId },
-        select: {
-          id: true,
-          status: true,
-          registeredCount: true,
-          quota: true,
-          startDate: true,
-          endDate: true,
-          fullByCapacity: true,
-        },
-      });
-      const now = new Date();
-      // Reopen only a FULL wave that became FULL by capacity (`fullByCapacity`
-      // true) — i.e. a cancelled slot in a wave that simply filled up. A wave
-      // an operator deliberately marked FULL below quota (`fullByCapacity`
-      // false/null, e.g. manual early-close) stays closed: `createRegistrantOnce`
-      // also treats FULL as terminal for manual closure, so never silently
-      // reopen it just because one registrant was removed.
-      if (
-        wave &&
-        wave.status === 'FULL' &&
-        wave.fullByCapacity === true &&
-        wave.registeredCount < wave.quota &&
-        wave.startDate <= now &&
-        wave.endDate >= now
-      ) {
-        await tx.admissionWave.update({
-          where: { id: wave.id },
-          data: { status: 'OPEN' },
-        });
-      }
+/**
+ * Delete a registrant for the retention sweep, re-checking every retention
+ * condition under a row lock inside the delete transaction.
+ *
+ * The sweep picks its candidates first and deletes them one by one. While it
+ * works through that list, an operator can record a daftar-ulang payment, a
+ * guardian can open a data-subject request, or onboarding can turn the
+ * registrant into a santri. Reading the row again under `FOR UPDATE` — the
+ * same lock onboarding takes — serialises the two: whichever commits first
+ * decides, and the sweep refuses a row that no longer qualifies instead of
+ * destroying the payment record, the open request's subject, or a new santri.
+ *
+ * Throws when the row no longer qualifies; the caller reports it as failed and
+ * moves on to the next registrant.
+ */
+export async function deleteRegistrantForRetention(id: string): Promise<void> {
+  await prisma.$transaction(async (tx) => {
+    // `$executeRaw` (not `$queryRaw`): a lock returns `void`, which `$queryRaw`
+    // cannot deserialise. Same form onboarding uses on this table.
+    await tx.$executeRaw`SELECT id FROM "registrants" WHERE id = ${id} FOR UPDATE`;
 
-      if (registrant.status === AdmissionStatus.ACCEPTED) {
-        await tx.admissionWave.updateMany({
-          where: { id: registrant.waveId, acceptedCount: { gt: 0 } },
-          data: { acceptedCount: { decrement: 1 } },
-        });
-      }
+    const registrant = await tx.registrant.findUnique({
+      where: { id },
+      select: {
+        status: true,
+        waveId: true,
+        studentId: true,
+        registrationFeePaidAt: true,
+      },
+    });
+
+    if (!registrant) {
+      throw new Error('Registrant not found');
     }
 
-    return tx.registrant.delete({ where: { id } });
+    if (registrant.status === AdmissionStatus.ENROLLED || registrant.studentId) {
+      throw new Error('Cannot delete enrolled registrant');
+    }
+
+    // The row is the only record of the daftar-ulang payment; losing it would
+    // erase financial evidence the campaign report and the tax rules require.
+    if (registrant.registrationFeePaidAt) {
+      throw new Error('Registrant has paid the registration fee');
+    }
+
+    const openRequest = await tx.dataSubjectRequest.findFirst({
+      where: {
+        subjectRegistrantId: id,
+        status: { in: OPEN_DATA_SUBJECT_REQUEST_STATUSES },
+      },
+      select: { id: true },
+    });
+
+    if (openRequest) {
+      throw new Error('Registrant has an open data subject request');
+    }
+
+    await deleteRegistrantRow(tx, { id, status: registrant.status, waveId: registrant.waveId });
   });
 }
 

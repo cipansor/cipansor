@@ -555,32 +555,42 @@ export async function submitPublicRequest(
   const dueAt = computeDueAt(input.type, now);
   const subjectLabel = `${registrant.fullName || registrant.name} (No. ${input.registrationNo})`;
 
-  const created = await createRequestWithRequestNo(
-    (tx, requestNo) =>
-      tx.dataSubjectRequest.create({
-        data: {
-          requestNo,
-          type: input.type,
-          subjectCategory: 'REGISTRANT',
-          subjectRegistrantId: registrant.id,
-          subjectLabel,
-          requesterName: input.requesterName,
-          requesterContact: input.requesterContact,
-          requesterRelation: input.requesterRelation ?? null,
-          detail: input.detail,
-          dueAt,
-          verificationCodeHash: hashVerificationCode(code),
-          verificationExpiresAt: new Date(
-            now.getTime() + DATA_SUBJECT_VERIFICATION_TTL_MINUTES * 60 * 1000
-          ),
-          actions: [
-            openingAction(input.requesterName, null, now),
-          ] as unknown as Prisma.InputJsonValue,
-        },
-        select: { requestNo: true, dueAt: true },
-      }),
-    now
-  );
+  const created = await createRequestWithRequestNo(async (tx, requestNo) => {
+    // Serialise with the retention sweep, which locks this row before it
+    // deletes. Whichever transaction commits first decides: if the request
+    // is recorded first the sweep sees it and withholds the registrant; if
+    // the registrant is gone first, no request is created for a subject that
+    // no longer exists.
+    await tx.$executeRaw`SELECT id FROM "registrants" WHERE id = ${registrant.id} FOR UPDATE`;
+    const stillThere = await tx.registrant.findUnique({
+      where: { id: registrant.id },
+      select: { id: true },
+    });
+    if (!stillThere) throw Errors.notFound('Data pendaftaran');
+
+    return tx.dataSubjectRequest.create({
+      data: {
+        requestNo,
+        type: input.type,
+        subjectCategory: 'REGISTRANT',
+        subjectRegistrantId: registrant.id,
+        subjectLabel,
+        requesterName: input.requesterName,
+        requesterContact: input.requesterContact,
+        requesterRelation: input.requesterRelation ?? null,
+        detail: input.detail,
+        dueAt,
+        verificationCodeHash: hashVerificationCode(code),
+        verificationExpiresAt: new Date(
+          now.getTime() + DATA_SUBJECT_VERIFICATION_TTL_MINUTES * 60 * 1000
+        ),
+        actions: [
+          openingAction(input.requesterName, null, now),
+        ] as unknown as Prisma.InputJsonValue,
+      },
+      select: { requestNo: true, dueAt: true },
+    });
+  }, now);
 
   const delivered = await sendVerificationCode(contact, code, created.requestNo);
   if (!delivered) {

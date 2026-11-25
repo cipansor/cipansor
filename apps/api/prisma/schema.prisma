@@ -1952,6 +1952,12 @@ model AdmissionPeriod {
   startDate       DateTime @map("start_date")
   endDate         DateTime @map("end_date")
   quota           Int      @default(0)
+  /// Nomor urut pendaftar tertinggi yang pernah diterbitkan untuk periode ini.
+  /// Hanya bertambah: retensi menghapus pendaftar gelombang lama sementara
+  /// gelombang berikutnya masih terbuka, sehingga nomor yang dihitung dari
+  /// `count(*) + 1` bisa terbit ulang dan bertabrakan dengan nomor yang masih
+  /// dipakai. `generateRegistrationNo` menaikkannya secara atomik.
+  registrationSeq Int      @default(0) @map("registration_seq")
   registrationFee Decimal  @default(0) @map("registration_fee") @db.Decimal(15, 2)
   isActive        Boolean  @default(true) @map("is_active")
   /// One line per requirement, in the order the brochure prints them.
@@ -4660,12 +4666,13 @@ model SpecialDiet {
 // =====================================
 
 enum EventType {
-  ACADEMIC // Akademik (ujian, libur, dll)
+  ACADEMIC // Akademik (kegiatan belajar, kunjungan, dll)
   RELIGIOUS // Keagamaan (Maulid, Isra Miraj, dll)
   EXTRACURRICULAR // Kegiatan ekskul
   MEETING // Rapat
   CEREMONY // Upacara
   HOLIDAY // Libur
+  EXAM // Ujian/asesmen (PTS, PAS, asesmen sumatif)
   OTHER // Lainnya
 }
 
@@ -4694,9 +4701,15 @@ model CalendarEvent {
   location       String?
   isOnline       Boolean    @default(false) @map("is_online")
   onlineUrl      String?    @map("online_url")
-  // Recurrence
+  // Recurrence. A series is materialised: the first occurrence is the parent
+  // (`isRecurring: true`, `recurrenceRule` in iCal RRULE form) and every later
+  // occurrence is its own row pointing back at it. Six readers scan
+  // `calendar_events` by date — the list, today, statistics, the attendance
+  // reminder, the work calendar and the notification scheduler — and each one
+  // is right about a materialised row without carrying expansion logic.
   isRecurring    Boolean    @default(false) @map("is_recurring")
   recurrenceRule String?    @map("recurrence_rule") // iCal RRULE format
+  recurrenceParentId String? @map("recurrence_parent_id")
   // Visibility
   isPublic       Boolean    @default(true) @map("is_public")
   /// A draft is not yet part of the live calendar. A holiday import lands here
@@ -4716,10 +4729,18 @@ model CalendarEvent {
   class     Class? @relation(fields: [classId], references: [id])
   createdBy User   @relation("EventCreator", fields: [createdById], references: [id])
 
+  // A series: the parent occurrence and its materialised children. Both sides
+  // are named — Prisma 7 requires an explicit name on a self-relation. A child
+  // is removed with its parent (`onDelete: Cascade`), and a soft delete of the
+  // whole series touches every row rather than the parent alone.
+  recurrenceParent   CalendarEvent?  @relation("EventSeries", fields: [recurrenceParentId], references: [id], onDelete: Cascade)
+  recurrenceChildren CalendarEvent[] @relation("EventSeries")
+
   @@index([unitId])
   @@index([classId])
   @@index([eventType])
   @@index([startDate])
+  @@index([recurrenceParentId])
   @@map("calendar_events")
 }
 
@@ -6394,6 +6415,7 @@ model LaundryTransaction {
   total         Decimal   @db.Decimal(15, 2)
   paymentMethod String    @map("payment_method") // WALLET, CASH, PENDING
   paymentStatus String    @default("UNPAID") @map("payment_status") // UNPAID, PAID, REFUNDED
+  paidAt        DateTime? @map("paid_at") // when the money arrived; null until paid
   status        String    @default("RECEIVED") // RECEIVED, WASHING, DRYING, IRONING, READY, DELIVERED, CANCELLED
   receivedAt    DateTime  @default(now()) @map("received_at")
   estimatedAt   DateTime  @map("estimated_at") // Estimasi selesai
@@ -6421,6 +6443,7 @@ model LaundryTransaction {
   @@index([transactionNo])
   @@index([status])
   @@index([createdAt])
+  @@index([paidAt])
   @@map("laundry_transactions")
 }
 

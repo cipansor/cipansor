@@ -2,6 +2,19 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import * as service from '../admissions.service';
 import { prisma } from '@/lib/prisma';
 
+// Calls made through the transaction client, not the base client. A lock
+// issued outside `$transaction` looks identical in call order but releases
+// before the wave update, so tests must be able to tell the two apart.
+const { txCalls } = vi.hoisted(() => ({
+  txCalls: {
+    executeRaw: [] as unknown[][],
+    waveUpdate: [] as unknown[][],
+    waveUpdateMany: [] as unknown[][],
+    registrantDelete: [] as unknown[][],
+    registrantUpdate: [] as unknown[][],
+  },
+}));
+
 vi.mock('@/lib/prisma', () => ({
   prisma: {
     admissionPeriod: {
@@ -46,7 +59,65 @@ vi.mock('@/lib/prisma', () => ({
     privacyPolicyVersion: {
       findUnique: vi.fn(),
     },
-    $transaction: vi.fn((cb) => cb(prisma)),
+    // The retention delete re-checks open data-subject requests under a row
+    // lock (`$executeRaw` is Prisma's lock form; a lock returns `void`).
+    dataSubjectRequest: {
+      findFirst: vi.fn(),
+    },
+    $executeRaw: vi.fn(),
+    $queryRaw: vi.fn(),
+    $transaction: vi.fn((cb) => {
+      const tx = new Proxy(prisma, {
+        get(target, prop) {
+          if (prop === '$executeRaw') {
+            return (...args: unknown[]) => {
+              txCalls.executeRaw.push(args);
+              return (target.$executeRaw as any)(...args);
+            };
+          }
+          if (prop === 'admissionWave') {
+            return new Proxy(target.admissionWave, {
+              get(waveTarget, waveProp) {
+                if (waveProp === 'update') {
+                  return (...args: unknown[]) => {
+                    txCalls.waveUpdate.push(args);
+                    return (waveTarget.update as any)(...args);
+                  };
+                }
+                if (waveProp === 'updateMany') {
+                  return (...args: unknown[]) => {
+                    txCalls.waveUpdateMany.push(args);
+                    return (waveTarget.updateMany as any)(...args);
+                  };
+                }
+                return Reflect.get(waveTarget, waveProp);
+              },
+            });
+          }
+          if (prop === 'registrant') {
+            return new Proxy(target.registrant, {
+              get(regTarget, regProp) {
+                if (regProp === 'delete') {
+                  return (...args: unknown[]) => {
+                    txCalls.registrantDelete.push(args);
+                    return (regTarget.delete as any)(...args);
+                  };
+                }
+                if (regProp === 'update') {
+                  return (...args: unknown[]) => {
+                    txCalls.registrantUpdate.push(args);
+                    return (regTarget.update as any)(...args);
+                  };
+                }
+                return Reflect.get(regTarget, regProp);
+              },
+            });
+          }
+          return Reflect.get(target, prop);
+        },
+      });
+      return cb(tx);
+    }),
   },
 }));
 
@@ -73,7 +144,30 @@ vi.mock('@prisma/client', async (importOriginal) => {
 describe('Admissions Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    txCalls.executeRaw.length = 0;
+    txCalls.waveUpdate.length = 0;
+    txCalls.waveUpdateMany.length = 0;
+    txCalls.registrantDelete.length = 0;
+    txCalls.registrantUpdate.length = 0;
     vi.mocked(prisma.admissionWave.count as any).mockResolvedValue(0);
+    // Wave mocks are set per test; without a reset, a wave left by an earlier
+    // test would be "found" by the next one (e.g. making a full period look
+    // claimable).
+    vi.mocked(prisma.admissionWave.findUnique as any).mockReset();
+    vi.mocked(prisma.admissionWave.findMany as any)
+      .mockReset()
+      .mockResolvedValue([]);
+    vi.mocked(prisma.admissionWave.update as any).mockReset();
+    vi.mocked(prisma.admissionWave.updateMany as any).mockReset();
+    // The registration counter is incremented atomically; each test that
+    // creates a registrant gets its own starting sequence.
+    vi.mocked(prisma.admissionPeriod.update as any).mockResolvedValue({ registrationSeq: 1 });
+    vi.mocked(prisma.$executeRaw as any)
+      .mockReset()
+      .mockResolvedValue(1);
+    // Most tests do not have a row with the candidate number; tests that do
+    // override this with their own sequence.
+    vi.mocked(prisma.registrant.findUnique as any).mockResolvedValue(null);
   });
 
   it('should reject document upload when registration token is registrant id or non-timestamped token', async () => {
@@ -292,11 +386,13 @@ describe('Admissions Service', () => {
 
     await service.deleteRegistrant('r-1');
 
-    // Auto-filled waves regain a slot on cancellation and re-open.
+    // Auto-filled waves regain a slot on cancellation and re-open, inside the
+    // same transaction as the counter decrement and the delete.
     expect(prisma.admissionWave.update).toHaveBeenCalledWith({
       where: { id: 'w-cap' },
       data: { status: 'OPEN' },
     });
+    expect(txCalls.waveUpdate).toEqual([[{ where: { id: 'w-cap' }, data: { status: 'OPEN' } }]]);
 
     // Reset shared mocks to avoid leaking the capacity-full wave mock into
     // sibling tests (see the manually-closed test above).
@@ -305,6 +401,135 @@ describe('Admissions Service', () => {
     vi.mocked(prisma.registrant.findUnique as any).mockReset();
     vi.mocked(prisma.registrant.delete as any).mockReset();
     vi.mocked(prisma.admissionPeriod.findUnique as any).mockReset();
+  });
+
+  it('mengunci pendaftar sebelum gelombangnya saat penghapusan manual', async () => {
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValue({
+      id: 'r-1',
+      status: 'REGISTERED',
+      waveId: 'w-1',
+    } as any);
+    vi.mocked(prisma.admissionWave.updateMany as any).mockResolvedValue({ count: 1 });
+    vi.mocked(prisma.admissionWave.findUnique as any).mockResolvedValue({
+      id: 'w-1',
+      status: 'OPEN',
+      registeredCount: 1,
+      quota: 10,
+      startDate: new Date('2026-01-01T00:00:00.000Z'),
+      endDate: new Date('2026-12-31T00:00:00.000Z'),
+      fullByCapacity: false,
+    } as any);
+    vi.mocked(prisma.registrant.delete as any).mockResolvedValue({ id: 'r-1' });
+
+    await service.deleteRegistrant('r-1');
+
+    // Retention, onboarding, and reassignment lock the registrant first. The
+    // manual delete must do the same, or it can deadlock with any of them.
+    // The lock, counter update, and delete must all run on the transaction
+    // client: outside it, PostgreSQL releases the row lock before the wave
+    // update and commits each write separately.
+    expect(txCalls.executeRaw).toHaveLength(1);
+    expect(txCalls.waveUpdateMany).toHaveLength(1);
+    expect(txCalls.registrantDelete).toHaveLength(1);
+    const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
+    const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];
+    expect(registrantLock).toBeLessThan(waveLock);
+  });
+
+  describe('deleteRegistrantForRetention', () => {
+    function deletableRegistrant(over: Record<string, unknown> = {}) {
+      return {
+        status: 'REJECTED',
+        waveId: null,
+        studentId: null,
+        registrationFeePaidAt: null,
+        ...over,
+      };
+    }
+
+    it('deletes a registrant that still satisfies every retention condition', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(deletableRegistrant() as any);
+      vi.mocked(prisma.dataSubjectRequest.findFirst).mockResolvedValue(null as any);
+      vi.mocked(prisma.registrant.delete).mockResolvedValue({ id: 'r-1' } as any);
+
+      await service.deleteRegistrantForRetention('r-1');
+
+      // The row is locked before it is read, so onboarding (which takes the
+      // same lock) cannot turn it into a santri between the check and delete.
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      expect(prisma.registrant.delete).toHaveBeenCalledWith({ where: { id: 'r-1' } });
+    });
+
+    it('mengunci pendaftar sebelum gelombangnya (urutan yang sama dengan assignRegistrant)', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(
+        deletableRegistrant({ waveId: 'w-1' }) as any
+      );
+      vi.mocked(prisma.dataSubjectRequest.findFirst).mockResolvedValue(null as any);
+      vi.mocked(prisma.admissionWave.updateMany as any).mockResolvedValue({ count: 1 });
+      vi.mocked(prisma.admissionWave.findUnique as any).mockResolvedValue({
+        id: 'w-1',
+        status: 'OPEN',
+        registeredCount: 1,
+        quota: 10,
+        startDate: new Date('2026-01-01T00:00:00.000Z'),
+        endDate: new Date('2026-12-31T00:00:00.000Z'),
+        fullByCapacity: false,
+      } as any);
+      vi.mocked(prisma.registrant.delete).mockResolvedValue({ id: 'r-1' } as any);
+
+      await service.deleteRegistrantForRetention('r-1');
+
+      // The lock, counter update, and delete must all run inside the delete
+      // transaction; a lock issued before `$transaction` is released before
+      // the wave update runs.
+      expect(txCalls.executeRaw).toHaveLength(1);
+      expect(txCalls.waveUpdateMany).toHaveLength(1);
+      expect(txCalls.registrantDelete).toHaveLength(1);
+      const registrantLock = vi.mocked(prisma.$executeRaw).mock.invocationCallOrder[0];
+      const waveLock = vi.mocked(prisma.admissionWave.updateMany).mock.invocationCallOrder[0];
+      expect(registrantLock).toBeLessThan(waveLock);
+    });
+
+    it('refuses a registrant whose daftar-ulang payment landed after the sweep picked it', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(
+        deletableRegistrant({ registrationFeePaidAt: new Date('2026-05-01T00:00:00.000Z') }) as any
+      );
+
+      await expect(service.deleteRegistrantForRetention('r-1')).rejects.toThrow(
+        /paid the registration fee/
+      );
+      expect(prisma.registrant.delete).not.toHaveBeenCalled();
+    });
+
+    it('refuses a registrant with an open data-subject request', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(deletableRegistrant() as any);
+      vi.mocked(prisma.dataSubjectRequest.findFirst).mockResolvedValue({ id: 'dsr-1' } as any);
+
+      await expect(service.deleteRegistrantForRetention('r-1')).rejects.toThrow(
+        /open data subject request/
+      );
+      // Only unfinished requests withhold; the query must ask for exactly them.
+      expect(prisma.dataSubjectRequest.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            subjectRegistrantId: 'r-1',
+            status: { in: ['RECEIVED', 'VERIFIED', 'PROCESSING'] },
+          }),
+        })
+      );
+      expect(prisma.registrant.delete).not.toHaveBeenCalled();
+    });
+
+    it('refuses a registrant that became a santri after the sweep picked it', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(
+        deletableRegistrant({ status: 'ENROLLED', studentId: 'std-1' }) as any
+      );
+
+      await expect(service.deleteRegistrantForRetention('r-1')).rejects.toThrow(
+        /enrolled registrant/
+      );
+      expect(prisma.registrant.delete).not.toHaveBeenCalled();
+    });
   });
 
   it('should reject registration when all waves for a period are full', async () => {
@@ -350,7 +575,7 @@ describe('Admissions Service', () => {
     };
 
     vi.mocked(prisma.admissionPeriod.findUnique).mockResolvedValue(mockPeriod as any);
-    vi.mocked(prisma.registrant.count).mockResolvedValue(10);
+    vi.mocked(prisma.admissionPeriod.update as any).mockResolvedValue({ registrationSeq: 11 });
     (vi.mocked(prisma.registrant.create) as any).mockImplementation(({ data }: any) =>
       Promise.resolve({ ...data, id: 'r1' })
     );
@@ -374,10 +599,57 @@ describe('Admissions Service', () => {
     // globally-unique `registrationNo`. For id='p1' the suffix is 'P1'.
     expect(result.registrationNo).toBe('REG-2024-P1-00011');
     expect(result.fullName).toBe('Test Student');
+    // The number comes from an atomic counter, not `count(*) + 1`: retention
+    // deletes early rows while a later wave is still open, so a count would
+    // reissue a number another registrant already holds.
+    expect(prisma.admissionPeriod.update).toHaveBeenCalledWith({
+      where: { id: 'p1' },
+      data: { registrationSeq: { increment: 1 } },
+      select: { registrationSeq: true },
+    });
+    expect(prisma.registrant.count).not.toHaveBeenCalled();
     // Invoice creation is intentionally deferred to enrollment time, when a
     // real Student record exists. Creating it here would require a non-null
     // studentId that doesn't yet exist.
     expect(prisma.invoice.create).not.toHaveBeenCalled();
+  });
+
+  it('melewati nomor yang sudah terpakai saat pencacah tertinggal (mis. setelah db:push)', async () => {
+    const mockPeriod = {
+      id: 'p1',
+      academicYear: { name: '2024/2025' },
+      unit: { name: 'SD IT' },
+      unitId: 'u1',
+      registrationFee: 100000,
+    };
+
+    vi.mocked(prisma.admissionPeriod.findUnique).mockResolvedValue(mockPeriod as any);
+    // The column still says 0 (or 1) while `00001` is already in the table.
+    vi.mocked(prisma.admissionPeriod.update as any).mockResolvedValue({ registrationSeq: 1 });
+    vi.mocked(prisma.registrant.findUnique as any)
+      .mockResolvedValueOnce({ id: 'legacy-00001' })
+      .mockResolvedValueOnce(null);
+    vi.mocked(prisma.$queryRaw as any).mockResolvedValue([{ registration_seq: 2 }]);
+    (vi.mocked(prisma.registrant.create) as any).mockImplementation(({ data }: any) =>
+      Promise.resolve({ ...data, id: 'r-new' })
+    );
+    vi.mocked(prisma.paymentType.findFirst).mockResolvedValue({ id: 'pt1' } as any);
+
+    const result = await service.createRegistrant({
+      admissionPeriodId: 'p1',
+      fullName: 'Stale Counter',
+      gender: 'MALE',
+      birthPlace: 'Jakarta',
+      birthDate: new Date().toISOString(),
+      address: 'Test Address',
+      fatherName: 'Father',
+      motherName: 'Mother',
+    } as any);
+
+    // The used number is skipped; the insert is not attempted with it, so the
+    // transaction never rolls the counter back to repeat the same value.
+    expect(prisma.$queryRaw).toHaveBeenCalled();
+    expect(result.registrationNo).toBe('REG-2024-P1-00002');
   });
 
   it('should set wave status to FULL when increment causes registeredCount to reach quota even if initial read showed remaining slots', async () => {

@@ -337,15 +337,35 @@ export function deriveLegacyRole(roleCode: string): LegacyRole | undefined {
   return ROLE_CODE_TO_LEGACY[roleCode];
 }
 
+/** Minimal shape of a role assignment needed for RBAC decisions. */
+export interface RbacRoleAssignment {
+  isPrimary?: boolean;
+  role?: { code?: string | null } | null;
+}
+
+/** Minimal shape of a role assignment needed for RBAC decisions. */
+export interface RbacRoleAssignment {
+  isPrimary?: boolean;
+  role?: { code?: string | null } | null;
+  unit?: { id?: string | null } | null;
+}
+
 /** Minimal shape of the persisted user needed for RBAC decisions. */
 export interface RbacUser {
   role?: string | null;
   unitId?: string | null;
-  userRoles?: Array<{
-    isPrimary?: boolean;
-    role?: { code?: string | null } | null;
-    unit?: { id?: string | null } | null;
-  }> | null;
+  userRoles?: RbacRoleAssignment[] | null;
+}
+
+/**
+ * The assignment whose role the API puts on the token: the primary one, or the
+ * first when none is marked primary.
+ */
+export function getActiveRoleAssignment<T extends RbacRoleAssignment>(
+  user: { userRoles?: T[] | null } | null | undefined,
+): T | undefined {
+  const assignments = user?.userRoles ?? [];
+  return assignments.find((a) => a?.isPrimary) ?? assignments[0] ?? undefined;
 }
 
 /**
@@ -355,10 +375,7 @@ export interface RbacUser {
 export function getActiveRoleCode(
   user: RbacUser | null | undefined,
 ): string | undefined {
-  const assignments = user?.userRoles ?? [];
-  const primary =
-    assignments.find((a) => a?.isPrimary) ?? assignments[0] ?? undefined;
-  return primary?.role?.code ?? undefined;
+  return getActiveRoleAssignment(user)?.role?.code ?? undefined;
 }
 
 /**
@@ -426,11 +443,13 @@ export const roleCodeRouteAccess: Readonly<Record<string, readonly string[]>> =
     SMAQ_ADMIN: ["/rapor-pesantren"],
     // The head drafts the RKA Unit their PK must anchor to
     // (`canAuthorUnitPlan` on the API), and reads their unit's page and its
-    // accreditation (Profil Unit).
-    TKQ_KEPALA_SEKOLAH: ["/perencanaan", "/units"],
-    SDIT_KEPALA_SEKOLAH: ["/perencanaan", "/units"],
-    SMPIT_KEPALA_SEKOLAH: ["/perencanaan", "/units"],
-    SMAQ_KEPALA_SEKOLAH: ["/perencanaan", "/units"],
+    // accreditation (Profil Unit). The academic calendar is theirs too: the API
+    // admits every `_KEPALA_SEKOLAH` through ACADEMIC_MANAGE, while the TEACHER
+    // bucket does not carry `/calendar`.
+    TKQ_KEPALA_SEKOLAH: ["/perencanaan", "/units", "/calendar"],
+    SDIT_KEPALA_SEKOLAH: ["/perencanaan", "/units", "/calendar"],
+    SMPIT_KEPALA_SEKOLAH: ["/perencanaan", "/units", "/calendar"],
+    SMAQ_KEPALA_SEKOLAH: ["/perencanaan", "/units", "/calendar"],
     PUSTAKAWAN: ["/library"],
     // Laboratory equipment: the role holds INVENTORY_VIEW / INVENTORY_MANAGE.
     // `/practicum` is Amaliyah Tadris (teaching practice), not a laboratory.
@@ -498,10 +517,7 @@ export function getDashboardForRole(
 export function getPrimaryRoleCode(
   user: RbacUser | null | undefined,
 ): string | undefined {
-  const assignments = user?.userRoles ?? [];
-  const primary =
-    assignments.find((a) => a?.isPrimary) ?? assignments[0] ?? undefined;
-  return primary?.role?.code ?? undefined;
+  return getActiveRoleAssignment(user)?.role?.code ?? undefined;
 }
 
 /**
@@ -513,8 +529,5 @@ export function getPrimaryRoleCode(
 export function getActiveRoleUnitId(
   user: RbacUser | null | undefined,
 ): string | undefined {
-  const assignments = user?.userRoles ?? [];
-  const primary =
-    assignments.find((a) => a?.isPrimary) ?? assignments[0] ?? undefined;
-  return primary?.unit?.id ?? user?.unitId ?? undefined;
+  return getActiveRoleAssignment(user)?.unit?.id ?? user?.unitId ?? undefined;
 }
