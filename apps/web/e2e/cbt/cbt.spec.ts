@@ -5,6 +5,7 @@ import {
   injectSession,
   SEED_USERS,
 } from "../helpers/auth-api";
+import { dismissToasts } from "../helpers/page-helpers";
 
 interface SeedExam {
   id: string;
@@ -15,6 +16,7 @@ interface SeedExam {
   subjectId?: string;
   classId?: string;
   teacherId?: string;
+  questionBank?: { title: string } | null;
   _count?: { attempts: number };
 }
 
@@ -199,6 +201,48 @@ test.describe("CBT Exams & Grading", () => {
         () => undefined,
       );
     }
+  });
+
+  test("Should keep an exam without a question bank quiet in item analysis", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const exams = await apiRequest<{ data: SeedExam[] }>(
+      session,
+      "GET",
+      "/cbt/exams?limit=50",
+    );
+    const exam = exams.data?.find((e) => !e.questionBank);
+    expect(
+      exam,
+      "seed should provide an exam without a question bank",
+    ).toBeTruthy();
+    if (!exam) return;
+
+    await page.goto(`/cbt/exams/${exam.id}/monitoring`);
+    await expect(
+      page.getByRole("heading", { name: /monitoring ujian/i }),
+    ).toBeVisible({ timeout: 15000 });
+    await dismissToasts(page, 3000);
+
+    const difficultyTab = page.getByRole("tab", { name: /analisis soal/i });
+    const insightsResponse = page.waitForResponse(
+      (response) =>
+        response.request().method() === "GET" &&
+        response.url().includes(`/cbt/exams/${exam.id}/difficulty-insights`),
+    );
+    await difficultyTab.click({ force: true });
+
+    // The controller answers 404 for an exam with no bank; the tab must treat
+    // that as an empty state, not as a user-facing error.
+    expect((await insightsResponse).status()).toBe(404);
+    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, {
+      timeout: 3000,
+    });
+    await expect(difficultyTab).toHaveAttribute("aria-selected", "true");
+    await expect(page.getByText(/data tidak ditemukan/i)).toHaveCount(0);
   });
 
   test("Should monitor exam and grade an attempt", async ({ page }) => {

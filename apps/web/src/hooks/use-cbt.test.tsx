@@ -9,7 +9,7 @@ vi.mock("@/lib/api", () => {
   return { api, default: api };
 });
 
-import { useExamDifficultyInsights } from "./use-cbt";
+import { useExamDifficultyInsights, useTopicMastery } from "./use-cbt";
 
 function wrapper(client: QueryClient) {
   return function Wrapper({ children }: { children: ReactNode }) {
@@ -113,5 +113,21 @@ describe("useExamDifficultyInsights", () => {
     const row =
       result.current.data?.questionInsights[0].distractorAnalysis?.[0];
     expect(row?.option).toMatchObject({ optionId: "A", text: "Jakarta" });
+  });
+});
+
+describe("useTopicMastery", () => {
+  it("treats an exam without a question bank as an empty section", async () => {
+    get.mockRejectedValue({ response: { status: 404 } });
+    const client = makeClient();
+    const { result } = renderHook(() => useTopicMastery("exam-1"), {
+      wrapper: wrapper(client),
+    });
+
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(result.current.data).toBeNull();
+    expect(get).toHaveBeenCalledWith("/cbt/exams/exam-1/topic-mastery", {
+      skipErrorToastForStatus: [404],
+    });
   });
 });

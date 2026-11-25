@@ -94,12 +94,25 @@ export const useTopicMastery = (examId: string) => {
   return useQuery({
     queryKey: ["exam-topic-mastery", examId],
     queryFn: async () => {
-      const { data } = await api.get(`/cbt/exams/${examId}/topic-mastery`);
-      return {
-        items: data.data,
-        topicMastery: data.topicMastery,
-        _meta: data._meta,
-      };
+      try {
+        const { data } = await api.get(`/cbt/exams/${examId}/topic-mastery`, {
+          skipErrorToastForStatus: [404],
+        });
+        return {
+          items: data.data,
+          topicMastery: data.topicMastery,
+          _meta: data._meta,
+        };
+      } catch (error) {
+        // An exam without a question bank has no topic mastery; that is an
+        // empty section, not a user-facing error.
+        if (
+          (error as { response?: { status?: number } }).response?.status === 404
+        ) {
+          return null;
+        }
+        throw error;
+      }
     },
     enabled: !!examId,
   });
