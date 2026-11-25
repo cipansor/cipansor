@@ -412,6 +412,9 @@ test.describe("Edit Event — Pengurus yayasan", () => {
     const todayWib = new Date(Date.now() + 7 * 3_600_000)
       .toISOString()
       .slice(0, 10);
+    const tomorrowWib = new Date(Date.now() + 8 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
     const created = await apiRequest<{ data: { id: string } }>(
       session,
       "POST",
@@ -420,6 +423,9 @@ test.describe("Edit Event — Pengurus yayasan", () => {
         title,
         eventType: "MEETING",
         startDate: `${todayWib}T00:00:00.000Z`,
+        endDate: `${tomorrowWib}T00:00:00.000Z`,
+        description: "Deskripsi awal",
+        location: "Aula utama",
         isAllDay: true,
         isPublic: true,
       },
@@ -444,6 +450,9 @@ test.describe("Edit Event — Pengurus yayasan", () => {
       await expect(page.locator("#title")).toHaveValue(title);
 
       await page.locator("#title").fill(updatedTitle);
+      await page.locator("#endDate").fill("");
+      await page.locator("#description").fill("");
+      await page.locator("#location").fill("");
       const saved = page.waitForResponse(
         (response) =>
           response.url().includes(`/calendar/${created.data.id}`) &&
@@ -453,9 +462,26 @@ test.describe("Edit Event — Pengurus yayasan", () => {
 
       const response = await saved;
       expect(response.status()).toBe(200);
-      const body = (await response.json()) as { data: { title: string } };
+      const body = (await response.json()) as {
+        data: {
+          title: string;
+          endDate: string | null;
+          description: string | null;
+          location: string | null;
+        };
+      };
       expect(body.data.title).toBe(updatedTitle);
+      expect(body.data.endDate).toBeNull();
+      expect(body.data.description).toBeNull();
+      expect(body.data.location).toBeNull();
       await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
+
+      // Reopen: a cleared date must stay cleared, not fall back to the start.
+      await page.goto(`/calendar/events/${created.data.id}/edit`);
+      await expect(page.locator("#title")).toHaveValue(updatedTitle);
+      await expect(page.locator("#endDate")).toHaveValue("");
+      await expect(page.locator("#description")).toHaveValue("");
+      await expect(page.locator("#location")).toHaveValue("");
     } finally {
       await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
     }
@@ -509,6 +535,9 @@ test.describe("Kalender Akademik — pengawasan hanya membaca", () => {
     const todayWib = new Date(Date.now() + 7 * 3_600_000)
       .toISOString()
       .slice(0, 10);
+    const tomorrowWib = new Date(Date.now() + 8 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
     const created = await apiRequest<{ data: { id: string } }>(
       session,
       "POST",
@@ -517,6 +546,9 @@ test.describe("Kalender Akademik — pengawasan hanya membaca", () => {
         title,
         eventType: "MEETING",
         startDate: `${todayWib}T00:00:00.000Z`,
+        endDate: `${tomorrowWib}T00:00:00.000Z`,
+        description: "Deskripsi awal",
+        location: "Aula utama",
         isAllDay: true,
         isPublic: true,
       },

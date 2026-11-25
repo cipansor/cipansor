@@ -83,6 +83,17 @@ describe('PUT /calendar/:id — update body validation', () => {
     expect(calendarService.update).not.toHaveBeenCalled();
   });
 
+  it('keeps scope in the parsed body so the service can reject it', async () => {
+    const res = await update({ title: 'Revisi', scope: 'ALL_UNITS' });
+
+    expect(res.status).toBe(200);
+    expect(calendarService.update).toHaveBeenCalledWith(
+      'event-1',
+      expect.objectContaining({ title: 'Revisi', scope: 'ALL_UNITS' }),
+      expect.anything()
+    );
+  });
+
   it('passes an explicit null through to the service', async () => {
     const res = await update({ title: 'Revisi', endDate: null });
 

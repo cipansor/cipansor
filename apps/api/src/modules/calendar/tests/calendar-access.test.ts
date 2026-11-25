@@ -302,7 +302,7 @@ describe('calendarService.update — no scope escalation', () => {
 
   it('refuses a unit admin turning a class event into a foundation event', async () => {
     await expect(
-      calendarService.update('event-1', { scope: EventScope.ALL_UNITS }, UNIT_ADMIN)
+      calendarService.update('event-1', { title: 'Baru', scope: EventScope.ALL_UNITS }, UNIT_ADMIN)
     ).rejects.toThrow(/pengurus yayasan/);
     expect(prismaMock.calendarEvent.update).not.toHaveBeenCalled();
   });
@@ -408,6 +408,22 @@ describe('calendarService.update — no scope escalation', () => {
       calendarService.update('event-1', { startDate: '2026-12-02' }, UNIT_ADMIN)
     ).rejects.toThrow(/sebelum tanggal mulai/);
     expect(prismaMock.calendarEvent.update).not.toHaveBeenCalled();
+  });
+
+  it('does not rewrite the schedule on a title-only edit', async () => {
+    await calendarService.update('event-1', { title: 'Baru' }, UNIT_ADMIN);
+
+    const data = (
+      prismaMock.calendarEvent.update.mock.calls.at(-1)![0] as {
+        data: Record<string, unknown>;
+      }
+    ).data;
+    expect(data.title).toBe('Baru');
+    expect(data.startDate).toBeUndefined();
+    expect(data.endDate).toBeUndefined();
+    expect(data.startTime).toBeUndefined();
+    expect(data.endTime).toBeUndefined();
+    expect(data.isAllDay).toBeUndefined();
   });
 
   it('forwards explicit nulls for cleared text fields', async () => {

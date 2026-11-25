@@ -24,7 +24,7 @@ type ListEventsQuery = ListCalendarEventsQuery;
 /** A parsed payload: every default filled in and every day normalised. */
 type CreateEventInput = ParsedCalendarEventPayload;
 
-type UpdateEventInput = UpdateCalendarEventPayload & {
+type UpdateEventInput = Omit<UpdateCalendarEventPayload, 'scope'> & {
   scope?: EventScope;
   isRecurring?: boolean;
   recurrenceRule?: string;
@@ -524,39 +524,44 @@ export class CalendarService {
     }
     const scope = expectedScope;
 
-    // Validate the *merged* event, not just the fields in this request: a
-    // start date moved past an old end date, or an all-day event left with an
-    // old clock time, is invalid even though only one column was sent.
-    const nextStartDate = input.startDate ? new Date(input.startDate) : event.startDate;
-    const nextEndDate =
-      input.endDate === null ? null : input.endDate ? new Date(input.endDate) : event.endDate;
-    if (nextEndDate && nextEndDate < nextStartDate) {
-      throw Errors.badRequest('Tanggal selesai tidak boleh sebelum tanggal mulai');
-    }
+    const scheduleChanged =
+      input.startDate !== undefined ||
+      input.endDate !== undefined ||
+      input.isAllDay !== undefined ||
+      input.startTime !== undefined ||
+      input.endTime !== undefined;
+    if (scheduleChanged) {
+      const nextStartDate = input.startDate ? new Date(input.startDate) : event.startDate;
+      const nextEndDate =
+        input.endDate === null ? null : input.endDate ? new Date(input.endDate) : event.endDate;
+      if (nextEndDate && nextEndDate < nextStartDate) {
+        throw Errors.badRequest('Tanggal selesai tidak boleh sebelum tanggal mulai');
+      }
 
-    const nextIsAllDay = input.isAllDay ?? event.isAllDay;
-    const nextStartTime = nextIsAllDay
-      ? null
-      : input.startTime === null
+      const nextIsAllDay = input.isAllDay ?? event.isAllDay;
+      const nextStartTime = nextIsAllDay
         ? null
-        : (input.startTime ?? event.startTime);
-    const nextEndTime = nextIsAllDay
-      ? null
-      : input.endTime === null
+        : input.startTime === null
+          ? null
+          : (input.startTime ?? event.startTime);
+      const nextEndTime = nextIsAllDay
         ? null
-        : (input.endTime ?? event.endTime);
-    if (!nextIsAllDay && !nextStartTime) {
-      throw Errors.badRequest('Waktu mulai harus diisi bila agenda tidak sepanjang hari');
-    }
-    if (
-      !nextIsAllDay &&
-      nextStartTime &&
-      nextEndTime &&
-      (!nextEndDate ||
-        nextStartDate.toISOString().slice(0, 10) === nextEndDate.toISOString().slice(0, 10)) &&
-      nextEndTime < nextStartTime
-    ) {
-      throw Errors.badRequest('Waktu selesai tidak boleh sebelum waktu mulai');
+        : input.endTime === null
+          ? null
+          : (input.endTime ?? event.endTime);
+      if (!nextIsAllDay && !nextStartTime) {
+        throw Errors.badRequest('Waktu mulai harus diisi bila agenda tidak sepanjang hari');
+      }
+      if (
+        !nextIsAllDay &&
+        nextStartTime &&
+        nextEndTime &&
+        (!nextEndDate ||
+          nextStartDate.toISOString().slice(0, 10) === nextEndDate.toISOString().slice(0, 10)) &&
+        nextEndTime < nextStartTime
+      ) {
+        throw Errors.badRequest('Waktu selesai tidak boleh sebelum waktu mulai');
+      }
     }
 
     const updated = await prisma.calendarEvent.update({
@@ -566,11 +571,15 @@ export class CalendarService {
         description: input.description,
         eventType: input.eventType,
         scope,
-        startDate: nextStartDate,
-        endDate: nextEndDate,
+        // Write only what the request changes: a title-only edit must not
+        // rewrite a schedule another writer changed after this read.
+        startDate: input.startDate ? new Date(input.startDate) : undefined,
+        endDate:
+          input.endDate === null ? null : input.endDate ? new Date(input.endDate) : undefined,
         isAllDay: input.isAllDay,
-        startTime: nextStartTime,
-        endTime: nextEndTime,
+        startTime:
+          input.isAllDay === true ? null : input.startTime === null ? null : input.startTime,
+        endTime: input.isAllDay === true ? null : input.endTime === null ? null : input.endTime,
         location: input.location,
         isOnline: input.isOnline,
         onlineUrl: input.onlineUrl,

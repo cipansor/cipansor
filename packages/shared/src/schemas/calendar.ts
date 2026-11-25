@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { EVENT_TYPES } from "../types/calendar";
+import { EVENT_TYPES, EventScope } from "../types/calendar";
 
 const booleanQuery = z
   .union([z.boolean(), z.enum(["true", "false"])])
@@ -178,7 +178,11 @@ export const updateCalendarEventSchema = z
     onlineUrl: z.string().max(500).nullable().optional(),
     isPublic: z.boolean().optional(),
     color: hexColor.nullable().optional(),
+    scope: z.enum(EventScope).optional(),
+    isRecurring: z.boolean().optional(),
+    recurrenceRule: z.string().max(500).nullable().optional(),
   })
+  .strict()
   .superRefine((value, ctx) => {
     if (!value.startDate || !value.endDate) return;
     const start = Date.parse(`${value.startDate}T00:00:00.000Z`);

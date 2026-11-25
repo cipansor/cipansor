@@ -8,7 +8,7 @@ import {
   type CalendarEventList,
   type CalendarEventListParams,
   type CreateCalendarEventPayload,
-  type UpdateCalendarEventInput,
+  type UpdateCalendarEventPayload,
   type EventRecurrenceCode,
 } from "@cipansor/shared";
 
@@ -237,7 +237,7 @@ export function useUpdateCalendarEvent() {
       data,
     }: {
       id: string;
-      data: UpdateCalendarEventInput;
+      data: UpdateCalendarEventPayload;
     }) => {
       const response = await api.put<ApiResponse<CalendarEvent>>(
         `/calendar/${id}`,
