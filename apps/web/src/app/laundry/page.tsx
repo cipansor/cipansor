@@ -66,6 +66,7 @@ import {
   LAUNDRY_STATUS_LABELS,
   LAUNDRY_STATUS_VALUES,
   ROLE_CODE_TO_LEGACY,
+  FOUNDATION_SCOPE_ROLE_CODES,
   isLegacyRole,
   laundryItemCount,
   laundryStatusOptions,
@@ -104,14 +105,24 @@ const LAUNDRY_OPERATOR_LEGACY_ROLES = [
  */
 function canOperateLaundry(
   user: {
-    role?: string | { role?: { code?: string } };
-    userRoles?: Array<{ isPrimary?: boolean; role?: { code?: string } | null }>;
+    role?: string;
+    userRoles?: Array<{
+      isPrimary?: boolean;
+      role?: { code?: string } | null;
+      unit?: { id?: string } | null;
+    }>;
     unitId?: string;
   } | null,
 ): boolean {
-  const code =
-    user?.userRoles?.find((assignment) => assignment.isPrimary)?.role?.code ??
-    (typeof user?.role === "string" ? user.role : user?.role?.role?.code);
+  const active =
+    user?.userRoles?.find((assignment) => assignment.isPrimary) ??
+    user?.userRoles?.[0];
+  const code = active?.role?.code ?? user?.role;
+  const unitId =
+    active?.unit?.id ??
+    (code && FOUNDATION_SCOPE_ROLE_CODES.includes(code)
+      ? undefined
+      : user?.unitId);
   const legacy = code
     ? isLegacyRole(code)
       ? code
@@ -123,7 +134,7 @@ function canOperateLaundry(
   ) {
     return false;
   }
-  return legacy === "SUPER_ADMIN" || Boolean(user?.unitId);
+  return legacy === "SUPER_ADMIN" || Boolean(unitId);
 }
 
 /**

@@ -488,6 +488,17 @@ export const transactionService = {
     const userId = actor.sub;
 
     return prisma.$transaction(async (tx) => {
+      // Check reach before taking the lock: an out-of-unit request must not
+      // hold up a legitimate status change on that row.
+      const reachable = await tx.laundryTransaction.findFirst({
+        where: { id, ...laundryReadScope(actor) },
+        select: { unitId: true },
+      });
+
+      if (!reachable || !unitWritable(actor, reachable.unitId)) {
+        throw Errors.notFound('Transaksi');
+      }
+
       // Serialise with processPayment. Without the row lock both requests read
       // the pre-payment row: the cancellation skips the refund and the payment
       // still debits the wallet.
@@ -616,6 +627,17 @@ export const transactionService = {
     const userId = actor.sub;
 
     return prisma.$transaction(async (tx) => {
+      // Check reach before taking the lock, as updateStatus does: a request
+      // from another unit must not delay this row's own payment or cancellation.
+      const reachable = await tx.laundryTransaction.findFirst({
+        where: { id, ...laundryReadScope(actor) },
+        select: { unitId: true },
+      });
+
+      if (!reachable || !unitWritable(actor, reachable.unitId)) {
+        throw Errors.notFound('Transaksi');
+      }
+
       // Same lock as updateStatus: a cancellation waits for this payment and
       // then sees PAID, so it refunds instead of skipping the refund.
       await tx.$queryRaw`SELECT id FROM laundry_transactions WHERE id = ${id} FOR UPDATE`;

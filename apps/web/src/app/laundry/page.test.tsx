@@ -133,7 +133,14 @@ beforeEach(() => {
   useAuthStore.setState({
     user: {
       id: "u-admin",
-      role: { role: { code: "SMPIT_ADMIN" } },
+      role: "STAFF",
+      userRoles: [
+        {
+          isPrimary: true,
+          role: { code: "SMPIT_ADMIN" },
+          unit: { id: "unit-smp" },
+        },
+      ],
       unitId: "unit-smp",
     } as never,
   });
@@ -453,7 +460,14 @@ describe("Laundry — a Bayar Nanti order can be settled", () => {
     useAuthStore.setState({
       user: {
         id: "u-musyrif",
-        role: { role: { code: "MUSYRIF" } },
+        role: "STAFF",
+        userRoles: [
+          {
+            isPrimary: true,
+            role: { code: "MUSYRIF" },
+            unit: { id: "unit-pesantren" },
+          },
+        ],
         unitId: "unit-pesantren",
       } as never,
     });
@@ -467,6 +481,57 @@ describe("Laundry — a Bayar Nanti order can be settled", () => {
 
     expect(screen.queryByRole("button", { name: /Lunasi/ })).toBeNull();
     expect(screen.queryByText("Ubah Status")).toBeNull();
+  });
+
+  it("uses the active role's unit when the profile has none", async () => {
+    useAuthStore.setState({
+      user: {
+        id: "u-operator",
+        role: "STAFF",
+        userRoles: [
+          {
+            isPrimary: true,
+            role: { code: "SMPIT_ADMIN" },
+            unit: { id: "unit-smp" },
+          },
+        ],
+      } as never,
+    });
+    useLaundryTransaction.mockReturnValue({
+      data: transaction({ paymentStatus: "UNPAID", paymentMethod: "PENDING" }),
+      isLoading: false,
+    });
+
+    render(<LaundryPage />);
+    await userEvent.click(screen.getByLabelText("Lihat detail"));
+
+    expect(screen.getByRole("button", { name: "Lunasi Tunai" })).toBeVisible();
+    expect(screen.getByText("Ubah Status")).toBeVisible();
+  });
+
+  it("falls back to the first role assignment when none is primary", async () => {
+    useAuthStore.setState({
+      user: {
+        id: "u-operator",
+        role: "STAFF",
+        userRoles: [
+          {
+            role: { code: "SMPIT_ADMIN" },
+            unit: { id: "unit-smp" },
+          },
+        ],
+      } as never,
+    });
+    useLaundryTransaction.mockReturnValue({
+      data: transaction({ paymentStatus: "UNPAID", paymentMethod: "PENDING" }),
+      isLoading: false,
+    });
+
+    render(<LaundryPage />);
+    await userEvent.click(screen.getByLabelText("Lihat detail"));
+
+    expect(screen.getByRole("button", { name: "Lunasi Tunai" })).toBeVisible();
+    expect(screen.getByText("Ubah Status")).toBeVisible();
   });
 
   it("disables both action groups while one mutation is in flight", async () => {

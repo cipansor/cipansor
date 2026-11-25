@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { MockDecimal } = vi.hoisted(() => {
   const Decimal = function (this: any, v: any) {
@@ -88,6 +88,10 @@ describe('Laundry Accounting Integration', () => {
     vi.clearAllMocks();
     (prisma.laundryTransaction.findFirst as any).mockResolvedValue(null);
     (prisma.$queryRaw as any).mockResolvedValue([]);
+  });
+
+  afterEach(() => {
+    (prisma.$transaction as any).mockImplementation((cb: any) => cb(prisma));
   });
 
   it('should create journal entries when a laundry transaction is paid via WALLET', async () => {
@@ -192,7 +196,7 @@ describe('Laundry Accounting Integration', () => {
     expect(refundEntry.amount.toString()).toBe('7500.63');
   });
 
-  it('locks the transaction before reading it, so payment and cancellation serialise', async () => {
+  it('checks reach before locking, then locks before re-reading the row', async () => {
     for (const operation of [
       () =>
         transactionService.updateStatus(
@@ -208,18 +212,105 @@ describe('Laundry Accounting Integration', () => {
         ),
     ]) {
       const order: string[] = [];
+      let reads = 0;
       (prisma.$queryRaw as any).mockImplementation(async () => {
         order.push('lock');
         return [];
       });
       (prisma.laundryTransaction.findFirst as any).mockImplementation(async () => {
+        reads += 1;
+        if (reads === 1) {
+          order.push('reach');
+          return { unitId };
+        }
         order.push('read');
         return null;
       });
 
       await expect(operation()).rejects.toMatchObject({ statusCode: 404 });
-      expect(order).toEqual(['lock', 'read']);
+      expect(order).toEqual(['reach', 'lock', 'read']);
     }
+  });
+
+  it('does not lock a row outside the actor unit', async () => {
+    for (const operation of [
+      () =>
+        transactionService.updateStatus(
+          'tx-1',
+          { sub: userId, roleCode: 'SMPIT_ADMIN', unitId },
+          { status: 'CANCELLED' }
+        ),
+      () =>
+        transactionService.processPayment(
+          'tx-1',
+          { sub: userId, roleCode: 'SMPIT_ADMIN', unitId },
+          { paymentMethod: 'CASH' }
+        ),
+    ]) {
+      (prisma.laundryTransaction.findFirst as any).mockResolvedValue({
+        unitId: 'unit-other',
+      });
+
+      await expect(operation()).rejects.toMatchObject({ statusCode: 404 });
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+    }
+  });
+
+  it('restores the wallet and leaves one refund when cancellation follows an in-flight payment', async () => {
+    const state = {
+      tx: {
+        id: 'tx-1',
+        unitId,
+        studentId,
+        transactionNo: 'LDR-20240101-0001',
+        status: 'RECEIVED',
+        paymentStatus: 'UNPAID',
+        paymentMethod: 'PENDING',
+        walletId: null as string | null,
+        total: new MockDecimal(20000),
+      },
+      wallet: { id: 'wallet-1', balance: new MockDecimal(50000) },
+      walletEntries: [] as Array<{ type: string; amount: { toString(): string } }>,
+    };
+
+    // Serialise the two transactions the way the row lock does, so the test
+    // starts the payment first and the cancellation runs after it commits.
+    let queue = Promise.resolve();
+    (prisma.$transaction as any).mockImplementation((cb: any) => {
+      const run = queue.then(() => cb(prisma));
+      queue = run.catch(() => undefined);
+      return run;
+    });
+    (prisma.laundryTransaction.findFirst as any).mockImplementation(async () => state.tx);
+    (prisma.laundryTransaction.update as any).mockImplementation(async ({ data }: any) => {
+      state.tx = { ...state.tx, ...data };
+      return state.tx;
+    });
+    (prisma.santriWallet.findUnique as any).mockImplementation(async () => state.wallet);
+    (prisma.santriWallet.update as any).mockImplementation(async ({ data }: any) => {
+      state.wallet = { ...state.wallet, balance: data.balance };
+      return state.wallet;
+    });
+    (prisma.walletTransaction.create as any).mockImplementation(async ({ data }: any) => {
+      state.walletEntries.push({ type: data.type, amount: data.amount });
+      return data;
+    });
+    (prisma.journalEntry.findMany as any).mockResolvedValue([]);
+
+    const actor = { sub: userId, roleCode: 'SMPIT_ADMIN', unitId };
+    const payment = transactionService.processPayment('tx-1', actor, {
+      paymentMethod: 'WALLET',
+    });
+    const cancellation = transactionService.updateStatus('tx-1', actor, {
+      status: 'CANCELLED',
+    });
+
+    await expect(Promise.all([payment, cancellation])).resolves.toHaveLength(2);
+    expect(state.tx.status).toBe('CANCELLED');
+    expect(state.tx.paymentStatus).toBe('REFUNDED');
+    expect(state.wallet.balance.toString()).toBe('50000');
+    expect(state.walletEntries.map((entry) => entry.type)).toEqual(['PURCHASE', 'REFUND']);
+    expect(state.walletEntries.map((entry) => entry.amount.toString())).toEqual(['20000', '20000']);
   });
 
   it('rejects a wallet payment with 400 when the balance is short', async () => {
