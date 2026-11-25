@@ -30,8 +30,11 @@ test.describe("Perencanaan - Features", () => {
 
     const hasStats = await page
       .locator('text="Total Rencana"')
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasStats || page.url().includes("perencanaan")).toBeTruthy();
   });
@@ -43,8 +46,11 @@ test.describe("Perencanaan - Features", () => {
 
     const hasList = await page
       .locator('text="Daftar Rencana"')
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasList || page.url().includes("perencanaan")).toBeTruthy();
   });

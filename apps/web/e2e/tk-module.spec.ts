@@ -33,7 +33,12 @@ async function pickFromCombobox(
   index: number,
 ): Promise<boolean> {
   const trigger = comboboxes(page).nth(index);
-  if (!(await trigger.isVisible({ timeout: 5000 }).catch(() => false)))
+  if (
+    !(await trigger.waitFor({ state: "visible", timeout: 5000 }).then(
+      () => true,
+      () => false,
+    ))
+  )
     return false;
   await trigger.click();
   const listbox = page.getByRole("listbox");
@@ -89,19 +94,33 @@ test.describe("TK Assessment", () => {
     page,
   }) => {
     if (!(await pickFromCombobox(page, 0))) {
-      test.skip(true, "No classes available for testing");
+      throw new Error(
+        "No classes available for testing — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
       return;
     }
     if (!(await pickFromCombobox(page, 1))) {
-      test.skip(true, "No indicators seeded for this aspect");
+      throw new Error(
+        "No indicators seeded for this aspect — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
       return;
     }
     await waitForLoadingComplete(page);
 
     // Students for the class now render with achievement-level radios.
     const levelRadio = page.locator('button[role="radio"]').first();
-    if (!(await levelRadio.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip(true, "No students in the selected class");
+    if (
+      !(await levelRadio.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      ))
+    ) {
+      throw new Error(
+        "No students in the selected class — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
       return;
     }
     await expect(levelRadio).toBeVisible();
@@ -109,11 +128,17 @@ test.describe("TK Assessment", () => {
 
   test("should set an achievement level and save", async ({ page }) => {
     if (!(await pickFromCombobox(page, 0))) {
-      test.skip(true, "No classes available");
+      throw new Error(
+        "No classes available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
       return;
     }
     if (!(await pickFromCombobox(page, 1))) {
-      test.skip(true, "No indicators seeded");
+      throw new Error(
+        "No indicators seeded — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
       return;
     }
     await waitForLoadingComplete(page);
@@ -125,8 +150,16 @@ test.describe("TK Assessment", () => {
     // itu yang dilakukan di sini. Pola yang sama berlaku untuk kontrol Radix
     // lain di repo ini.
     const levelRadio = page.locator('button[role="radio"]').first();
-    if (!(await levelRadio.isVisible({ timeout: 5000 }).catch(() => false))) {
-      test.skip(true, "No students to assess");
+    if (
+      !(await levelRadio.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      ))
+    ) {
+      throw new Error(
+        "No students to assess — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
       return;
     }
     const radioId = await levelRadio.getAttribute("id");
@@ -151,8 +184,11 @@ test.describe("TK Dashboard", () => {
     if (
       await heading
         .first()
-        .isVisible({ timeout: 5000 })
-        .catch(() => false)
+        .waitFor({ state: "visible", timeout: 5000 })
+        .then(
+          () => true,
+          () => false,
+        )
     ) {
       await expect(heading.first()).toBeVisible();
     } else {

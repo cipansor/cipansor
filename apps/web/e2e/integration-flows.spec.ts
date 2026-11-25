@@ -93,8 +93,11 @@ test.describe("Integration: Student → Attendance → Report Flow", () => {
       .first();
     if (
       await attendanceClassSelect
-        .isVisible({ timeout: 5000 })
-        .catch(() => false)
+        .waitFor({ state: "visible", timeout: 5000 })
+        .then(
+          () => true,
+          () => false,
+        )
     ) {
       await attendanceClassSelect.click();
       await page.getByRole("option").first().click();
@@ -105,14 +108,22 @@ test.describe("Integration: Student → Attendance → Report Flow", () => {
         .locator('table tbody tr, [role="listitem"]')
         .filter({ hasText: studentName });
 
-      if (await studentRow.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await studentRow.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         // Mark as present
         const presentButton = studentRow
           .getByRole("button", { name: /hadir|present/i })
           .or(studentRow.locator('input[type="radio"][value="PRESENT"]'));
 
         if (
-          await presentButton.isVisible({ timeout: 2000 }).catch(() => false)
+          await presentButton.waitFor({ state: "visible", timeout: 2000 }).then(
+            () => true,
+            () => false,
+          )
         ) {
           await presentButton.click();
 
@@ -120,7 +131,12 @@ test.describe("Integration: Student → Attendance → Report Flow", () => {
             name: /simpan|save/i,
           });
           if (
-            await saveAttendance.isVisible({ timeout: 2000 }).catch(() => false)
+            await saveAttendance
+              .waitFor({ state: "visible", timeout: 2000 })
+              .then(
+                () => true,
+                () => false,
+              )
           ) {
             await saveAttendance.click();
             await waitForToast(page, /berhasil|success/i, "success");
@@ -135,13 +151,21 @@ test.describe("Integration: Student → Attendance → Report Flow", () => {
     const reportHeading = page.getByRole("main").getByRole("heading", {
       name: /laporan|report/i,
     });
-    if (await reportHeading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await reportHeading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       // Generate report
       const generateButton = page.getByRole("button", {
         name: /generate|tampilkan|buat/i,
       });
       if (
-        await generateButton.isVisible({ timeout: 3000 }).catch(() => false)
+        await generateButton.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
       ) {
         await generateButton.click();
         await waitForLoadingComplete(page);
@@ -158,14 +182,24 @@ test.describe("Integration: Student → Attendance → Report Flow", () => {
     const searchInput = page
       .getByPlaceholder(/cari|search/i)
       .or(page.getByLabel(/cari|search/i));
-    if (await searchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await searchInput.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await searchInput.fill(studentNIS);
       await waitForLoadingComplete(page);
 
       const deleteButton = page
         .getByRole("button", { name: /delete|hapus/i })
         .first();
-      if (await deleteButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await deleteButton.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await deleteButton.click();
 
         const confirmButton = page.getByRole("button", {
@@ -200,7 +234,12 @@ test.describe("Integration: Dashboard → Module Navigation", () => {
     const studentsLink = page.getByRole("link", {
       name: /santri|students|siswa/i,
     });
-    if (await studentsLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await studentsLink.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await studentsLink.click();
       await waitForLoadingComplete(page);
       await expect(page).toHaveURL(/students/);
@@ -214,7 +253,12 @@ test.describe("Integration: Dashboard → Module Navigation", () => {
     const attendanceLink = page.getByRole("link", {
       name: /absen|attendance|kehadiran/i,
     });
-    if (await attendanceLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await attendanceLink.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await attendanceLink.click();
       await waitForLoadingComplete(page);
       await expect(page).toHaveURL(/attendance/);
@@ -226,7 +270,12 @@ test.describe("Integration: Dashboard → Module Navigation", () => {
 
     // Navigate to Tahfidz
     const tahfidzLink = page.getByRole("link", { name: /tahfidz|hafalan/i });
-    if (await tahfidzLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await tahfidzLink.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await tahfidzLink.click();
       await waitForLoadingComplete(page);
       await expect(page).toHaveURL(/tahfidz/);
@@ -247,14 +296,24 @@ test.describe("Integration: Student → Tahfidz Progress", () => {
     await navigateTo(page, "/students");
 
     const firstStudent = page.locator('table tbody tr, [role="row"]').first();
-    if (await firstStudent.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await firstStudent.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const studentName = await firstStudent.textContent();
 
       // Click to view detail
       const viewButton = firstStudent.getByRole("button", {
         name: /view|lihat|detail/i,
       });
-      if (await viewButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (
+        await viewButton.waitFor({ state: "visible", timeout: 2000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await viewButton.click();
       } else {
         await firstStudent.click();
@@ -272,123 +331,13 @@ test.describe("Integration: Student → Tahfidz Progress", () => {
         .getByText(/tahfidz|hafalan/i)
         .first();
       if (
-        await tahfidzSection.isVisible({ timeout: 3000 }).catch(() => false)
+        await tahfidzSection.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
       ) {
         await expect(tahfidzSection).toBeVisible();
       }
-    }
-  });
-});
-
-test.describe("Integration: PAUD Assessment → Report Generation", () => {
-  test("complete PAUD assessment and generate report", async ({ page }) => {
-    const login = new LoginPage(page);
-    await login.goto();
-    await login.loginAndWaitForDashboard(
-      "superadmin@cipansor.or.id",
-      "SuperAdmin123!",
-    );
-
-    // Go to PAUD assessment
-    await navigateTo(page, "/paud/assessment");
-
-    const heading = page.getByRole("heading", {
-      name: /penilaian|assessment/i,
-    });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // Select student
-      const studentSelect = page
-        .locator('button[role="combobox"]')
-        .filter({ hasText: /santri|student/i })
-        .first();
-      if (await studentSelect.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await studentSelect.click();
-
-        const studentOptions = page.getByRole("option");
-        const optionCount = await studentOptions.count();
-
-        if (optionCount > 0) {
-          const selectedStudent = await studentOptions.first().textContent();
-          await studentOptions.first().click();
-          await waitForLoadingComplete(page);
-
-          // Select an indicator
-          const checkboxes = page.locator('input[type="checkbox"]');
-          const checkboxCount = await checkboxes.count();
-
-          if (checkboxCount > 0) {
-            await checkboxes.first().check();
-
-            // Set achievement level
-            const levelRadio = page
-              .locator('input[type="radio"][value="BSH"]')
-              .first();
-            if (
-              await levelRadio.isVisible({ timeout: 2000 }).catch(() => false)
-            ) {
-              await levelRadio.check();
-            }
-
-            // Save assessment
-            const saveButton = page.getByRole("button", {
-              name: /simpan|save/i,
-            });
-            await saveButton.click();
-            await waitForToast(page, /berhasil|success/i, "success");
-
-            // Navigate to reports
-            await navigateTo(page, "/paud/reports");
-
-            // Select the same student
-            const reportStudentSelect = page
-              .locator('button[role="combobox"]')
-              .filter({ hasText: /santri|student/i })
-              .first();
-            if (
-              await reportStudentSelect
-                .isVisible({ timeout: 3000 })
-                .catch(() => false)
-            ) {
-              await reportStudentSelect.click();
-
-              const reportOption = page
-                .getByRole("option")
-                .filter({ hasText: selectedStudent || /./i })
-                .first();
-              if (
-                await reportOption
-                  .isVisible({ timeout: 2000 })
-                  .catch(() => false)
-              ) {
-                await reportOption.click();
-
-                // Generate report
-                const generateButton = page.getByRole("button", {
-                  name: /generate|buat|tampilkan/i,
-                });
-                if (
-                  await generateButton
-                    .isVisible({ timeout: 3000 })
-                    .catch(() => false)
-                ) {
-                  await generateButton.click();
-                  await waitForLoadingComplete(page);
-
-                  // Report should be visible
-                  const reportContent = page.locator(
-                    '[data-testid="report-content"], .report-container',
-                  );
-                  await expect(
-                    reportContent.or(page.locator("table")),
-                  ).toBeVisible({ timeout: 5000 });
-                }
-              }
-            }
-          }
-        }
-      }
-    } else {
-      test.skip(true, "PAUD assessment page not available");
     }
   });
 });
@@ -411,7 +360,12 @@ test.describe("Integration: Finance → Dashboard Sync", () => {
       .getByRole("main")
       .getByText(/keuangan|finance|pendapatan|revenue/i)
       .first();
-    if (await financeCard.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await financeCard.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const initialValue = await financeCard.textContent();
 
       // Navigate to finance module

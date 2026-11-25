@@ -43,8 +43,11 @@ test.describe("Library - Features", () => {
     const hasCatalog = await page
       .locator('table, [class*="card"], [class*="book"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasCatalog || page.url().includes("library")).toBeTruthy();
   });
@@ -62,8 +65,11 @@ test.describe("Library - Features", () => {
         'input[type="search"], input[placeholder*="cari"], input[placeholder*="search"]',
       )
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasSearch || page.url().includes("library")).toBeTruthy();
   });
@@ -79,8 +85,11 @@ test.describe("Library - Features", () => {
     const hasAddButton = await page
       .getByRole("button", { name: /tambah|add|create/i })
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasAddButton || page.url().includes("library")).toBeTruthy();
   });

@@ -5,6 +5,12 @@ import {
   navigateTo,
   fillForm,
 } from "./helpers/page-helpers";
+import {
+  apiLogin,
+  apiRequest,
+  SEED_USERS,
+  type AuthSession,
+} from "./helpers/auth-api";
 
 /**
  * Finance Module E2E Tests
@@ -18,7 +24,12 @@ test.describe("Finance - Payment Management", () => {
     await navigateTo(page, "/finance/payments");
 
     const heading = page.getByRole("heading", { name: /pembayaran|payment/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       // Should show table with payments
       const table = page.locator("table");
       await expect(table).toBeVisible({ timeout: 5000 });
@@ -34,12 +45,20 @@ test.describe("Finance - Payment Management", () => {
         const headerCell = page.getByRole("columnheader", {
           name: new RegExp(header, "i"),
         });
-        if (await headerCell.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (
+          await headerCell.waitFor({ state: "visible", timeout: 2000 }).then(
+            () => true,
+            () => false,
+          )
+        ) {
           await expect(headerCell).toBeVisible();
         }
       }
     } else {
-      test.skip(true, "Finance payments page not available");
+      throw new Error(
+        "Finance payments page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -47,11 +66,21 @@ test.describe("Finance - Payment Management", () => {
     await navigateTo(page, "/finance/payments");
 
     const heading = page.getByRole("heading", { name: /pembayaran|payment/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const addButton = page
         .getByRole("button", { name: /tambah|add|create/i })
         .first();
-      if (await addButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await addButton.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await addButton.click();
         await waitForLoadingComplete(page);
 
@@ -61,7 +90,10 @@ test.describe("Finance - Payment Management", () => {
           .filter({ hasText: /siswa|student/i })
           .first();
         if (
-          await studentSelect.isVisible({ timeout: 3000 }).catch(() => false)
+          await studentSelect.waitFor({ state: "visible", timeout: 3000 }).then(
+            () => true,
+            () => false,
+          )
         ) {
           await studentSelect.click();
           const studentOptions = page.getByRole("option");
@@ -72,7 +104,12 @@ test.describe("Finance - Payment Management", () => {
 
         // Fill amount
         const amountInput = page.getByLabel(/jumlah|amount/i);
-        if (await amountInput.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (
+          await amountInput.waitFor({ state: "visible", timeout: 2000 }).then(
+            () => true,
+            () => false,
+          )
+        ) {
           await amountInput.fill("500000");
         }
 
@@ -82,7 +119,10 @@ test.describe("Finance - Payment Management", () => {
           .filter({ hasText: /metode|method/i })
           .first();
         if (
-          await methodSelect.isVisible({ timeout: 2000 }).catch(() => false)
+          await methodSelect.waitFor({ state: "visible", timeout: 2000 }).then(
+            () => true,
+            () => false,
+          )
         ) {
           await methodSelect.click();
           await page.getByRole("option", { name: /tunai|cash/i }).click();
@@ -95,7 +135,10 @@ test.describe("Finance - Payment Management", () => {
         await waitForToast(page, /berhasil|success/i, "success");
       }
     } else {
-      test.skip(true, "Finance payments page not available");
+      throw new Error(
+        "Finance payments page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -103,16 +146,29 @@ test.describe("Finance - Payment Management", () => {
     await navigateTo(page, "/finance/payments");
 
     const heading = page.getByRole("heading", { name: /pembayaran|payment/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const filterButton = page.getByRole("button", { name: /filter|status/i });
-      if (await filterButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await filterButton.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await filterButton.click();
 
         const statusOption = page
           .getByRole("option", { name: /lunas|paid/i })
           .or(page.getByRole("menuitem", { name: /lunas|paid/i }));
         if (
-          await statusOption.isVisible({ timeout: 2000 }).catch(() => false)
+          await statusOption.waitFor({ state: "visible", timeout: 2000 }).then(
+            () => true,
+            () => false,
+          )
         ) {
           await statusOption.click();
           await waitForLoadingComplete(page);
@@ -123,7 +179,10 @@ test.describe("Finance - Payment Management", () => {
         }
       }
     } else {
-      test.skip(true, "Finance payments page not available");
+      throw new Error(
+        "Finance payments page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 });
@@ -131,81 +190,85 @@ test.describe("Finance - Payment Management", () => {
 test.describe("Finance - Invoice Management", () => {
   test.use({ storageState: ".auth/superAdmin.json" });
 
-  test("should display invoice list", async ({ page }) => {
-    await navigateTo(page, "/finance/invoices");
+  // The list is filtered to the active academic year, and the seed leaves that
+  // year without bills — so the suite creates the one bill it then reads.
+  let session: AuthSession;
+  let billId: string | undefined;
 
-    const heading = page.getByRole("heading", { name: /tagihan|invoice/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const table = page.locator("table");
-      await expect(table).toBeVisible({ timeout: 5000 });
-    } else {
-      test.skip(true, "Finance invoices page not available");
+  test.beforeAll(async () => {
+    session = await apiLogin(SEED_USERS.superAdmin);
+    const students = await apiRequest<{ data: Array<{ id: string }> }>(
+      session,
+      "GET",
+      "/students?limit=1",
+    );
+    const types = await apiRequest<{ data: Array<{ id: string }> }>(
+      session,
+      "GET",
+      "/finance/payment-types?isActive=true&limit=1",
+    );
+    const dueDate = new Date(Date.now() + 7 * 86_400_000)
+      .toISOString()
+      .slice(0, 10);
+    const bill = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/finance/invoices",
+      {
+        studentId: students.data[0].id,
+        paymentTypeId: types.data[0].id,
+        amount: 150_000,
+        dueDate,
+        description: "Tagihan e2e",
+      },
+    );
+    billId = bill.data.id;
+  });
+
+  test.afterAll(async () => {
+    if (billId) {
+      await apiRequest(session, "DELETE", `/finance/invoices/${billId}`);
+    }
+  });
+
+  test("should display invoice list", async ({ page }) => {
+    await navigateTo(page, "/finance");
+    await expect(
+      page.getByRole("heading", { name: /tagihan & spp/i, level: 1 }),
+    ).toBeVisible({ timeout: 10000 });
+    await page.getByRole("tab", { name: "Daftar Tagihan" }).click();
+
+    await expect(page.locator("table").first()).toBeVisible({
+      timeout: 10000,
+    });
+    for (const header of ["No. Tagihan", "Santri", "Jumlah", "Status"]) {
+      await expect(
+        page.getByRole("columnheader", { name: header }),
+      ).toBeVisible();
     }
   });
 
   test("should generate bulk invoices", async ({ page }) => {
-    await navigateTo(page, "/finance/invoices");
-
-    const heading = page.getByRole("heading", { name: /tagihan|invoice/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const generateButton = page.getByRole("button", {
-        name: /generate|buat.*tagihan/i,
-      });
-      if (
-        await generateButton.isVisible({ timeout: 3000 }).catch(() => false)
-      ) {
-        await generateButton.click();
-        await waitForLoadingComplete(page);
-
-        // Select class
-        const classSelect = page.locator('button[role="combobox"]').first();
-        if (await classSelect.isVisible({ timeout: 3000 }).catch(() => false)) {
-          await classSelect.click();
-          const classOptions = page.getByRole("option");
-          if ((await classOptions.count()) > 0) {
-            await classOptions.first().click();
-          }
-
-          const confirmButton = page.getByRole("button", {
-            name: /generate|buat/i,
-          });
-          await confirmButton.click();
-
-          await waitForToast(page, /berhasil|success/i, "success");
-        }
-      }
-    } else {
-      test.skip(true, "Finance invoices page not available");
-    }
+    await navigateTo(page, "/finance/bills/bulk");
+    await expect(
+      page.getByRole("heading", { name: /buat tagihan massal/i, level: 1 }),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByRole("button", { name: /buat \d+ tagihan/i }),
+    ).toBeVisible();
   });
 
   test("should view invoice detail", async ({ page }) => {
-    await navigateTo(page, "/finance/invoices");
+    await navigateTo(page, "/finance");
+    await page.getByRole("tab", { name: "Daftar Tagihan" }).click();
 
-    const heading = page.getByRole("heading", { name: /tagihan|invoice/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const firstRow = page.locator("table tbody tr").first();
-      if (await firstRow.isVisible({ timeout: 3000 }).catch(() => false)) {
-        const viewButton = firstRow.getByRole("button", {
-          name: /view|lihat|detail/i,
-        });
-        if (await viewButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-          await viewButton.click();
-        } else {
-          await firstRow.click();
-        }
+    const row = page.locator("table tbody tr").first();
+    await expect(row).toBeVisible({ timeout: 10000 });
+    await row.getByRole("link", { name: /detail/i }).click();
 
-        await waitForLoadingComplete(page);
-
-        // Should show invoice detail
-        const detailContent = page.getByText(
-          /detail.*tagihan|invoice.*detail/i,
-        );
-        await expect(detailContent).toBeVisible({ timeout: 5000 });
-      }
-    } else {
-      test.skip(true, "Finance invoices page not available");
-    }
+    await expect(
+      page.getByRole("heading", { name: /detail tagihan/i, level: 1 }),
+    ).toBeVisible({ timeout: 10000 });
   });
 });
 
@@ -240,11 +303,21 @@ test.describe("Finance - Reports", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /laporan|report/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const exportButton = page.getByRole("button", {
         name: /export|unduh|download/i,
       });
-      if (await exportButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await exportButton.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         const downloadPromise = page.waitForEvent("download", {
           timeout: 10000,
         });
@@ -254,7 +327,10 @@ test.describe("Finance - Reports", () => {
         expect(download.suggestedFilename()).toMatch(/\.xlsx?$/i);
       }
     } else {
-      test.skip(true, "Finance reports page not available");
+      throw new Error(
+        "Finance reports page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -264,12 +340,22 @@ test.describe("Finance - Reports", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /laporan|report/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const unitSelect = page
         .locator('button[role="combobox"]')
         .filter({ hasText: /unit/i })
         .first();
-      if (await unitSelect.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await unitSelect.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await unitSelect.click();
         const unitOptions = page.getByRole("option");
         if ((await unitOptions.count()) > 0) {
@@ -278,7 +364,10 @@ test.describe("Finance - Reports", () => {
         }
       }
     } else {
-      test.skip(true, "Finance reports page not available");
+      throw new Error(
+        "Finance reports page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 });
@@ -293,7 +382,12 @@ test.describe("Finance - Dashboard Integration", () => {
     const financeWidget = page
       .getByText(/keuangan|finance|pendapatan|revenue/i)
       .first();
-    if (await financeWidget.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await financeWidget.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await expect(financeWidget).toBeVisible();
 
       // Should show financial metrics
@@ -303,8 +397,11 @@ test.describe("Finance - Dashboard Integration", () => {
       if (
         await metrics
           .first()
-          .isVisible({ timeout: 3000 })
-          .catch(() => false)
+          .waitFor({ state: "visible", timeout: 3000 })
+          .then(
+            () => true,
+            () => false,
+          )
       ) {
         await expect(metrics.first()).toBeVisible();
       }
@@ -315,7 +412,12 @@ test.describe("Finance - Dashboard Integration", () => {
     await navigateTo(page, "/dashboard");
 
     const financeLink = page.getByRole("link", { name: /keuangan|finance/i });
-    if (await financeLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await financeLink.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await financeLink.click();
       await waitForLoadingComplete(page);
 
@@ -328,40 +430,16 @@ test.describe("Finance - Payment Reminder", () => {
   test.use({ storageState: ".auth/superAdmin.json" });
 
   test("should display overdue payments", async ({ page }) => {
-    await navigateTo(page, "/finance/reminders");
+    // Overdue bills live in the "Tunggakan" tab of /finance; there is no
+    // /finance/reminders page and no reminder-sending feature to test.
+    await navigateTo(page, "/finance");
+    await page.getByRole("tab", { name: "Tunggakan" }).click();
 
-    const heading = page.getByRole("heading", { name: /pengingat|reminder/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // Should show list of overdue payments
-      const overdueList = page.getByText(/tunggakan|overdue/i);
-      if (await overdueList.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await expect(overdueList).toBeVisible();
-      }
-    } else {
-      test.skip(true, "Finance reminders page not available");
-    }
-  });
-
-  test("should send payment reminder", async ({ page }) => {
-    await navigateTo(page, "/finance/reminders");
-
-    const heading = page.getByRole("heading", { name: /pengingat|reminder/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const sendButton = page
-        .getByRole("button", { name: /kirim.*pengingat|send.*reminder/i })
-        .first();
-      if (await sendButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await sendButton.click();
-
-        const confirmButton = page.getByRole("button", {
-          name: /ya|yes|kirim/i,
-        });
-        await confirmButton.click();
-
-        await waitForToast(page, /berhasil|success/i, "success");
-      }
-    } else {
-      test.skip(true, "Finance reminders page not available");
-    }
+    await expect(
+      page.getByText(/daftar tunggakan santri/i).first(),
+    ).toBeVisible({ timeout: 10000 });
+    await expect(
+      page.getByRole("columnheader", { name: /total tunggakan/i }),
+    ).toBeVisible();
   });
 });

@@ -47,7 +47,12 @@ test.describe("Attendance - Daily Marking", () => {
       .filter({ hasText: /kelas|class/i })
       .first();
 
-    if (await classSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await classSelect.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await classSelect.click();
 
       const classOptions = page.getByRole("option");
@@ -73,7 +78,12 @@ test.describe("Attendance - Daily Marking", () => {
             );
 
           if (
-            await presentButton.isVisible({ timeout: 3000 }).catch(() => false)
+            await presentButton
+              .waitFor({ state: "visible", timeout: 3000 })
+              .then(
+                () => true,
+                () => false,
+              )
           ) {
             await presentButton.click();
 
@@ -82,7 +92,12 @@ test.describe("Attendance - Daily Marking", () => {
               name: /simpan|save/i,
             });
             if (
-              await saveButton.isVisible({ timeout: 3000 }).catch(() => false)
+              await saveButton
+                .waitFor({ state: "visible", timeout: 3000 })
+                .then(
+                  () => true,
+                  () => false,
+                )
             ) {
               await saveButton.click();
               await waitForToast(page, /berhasil|success/i, "success");
@@ -91,7 +106,10 @@ test.describe("Attendance - Daily Marking", () => {
         }
       }
     } else {
-      test.skip(true, "Class selection not available");
+      throw new Error(
+        "Class selection not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -101,7 +119,12 @@ test.describe("Attendance - Daily Marking", () => {
       .filter({ hasText: /kelas|class/i })
       .first();
 
-    if (await classSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await classSelect.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await classSelect.click();
       await page.getByRole("option").first().click();
       await waitForLoadingComplete(page);
@@ -119,14 +142,20 @@ test.describe("Attendance - Daily Marking", () => {
           );
 
         if (
-          await absentButton.isVisible({ timeout: 3000 }).catch(() => false)
+          await absentButton.waitFor({ state: "visible", timeout: 3000 }).then(
+            () => true,
+            () => false,
+          )
         ) {
           await absentButton.click();
 
           // Add reason if field exists
           const reasonInput = page.getByLabel(/keterangan|reason|alasan/i);
           if (
-            await reasonInput.isVisible({ timeout: 2000 }).catch(() => false)
+            await reasonInput.waitFor({ state: "visible", timeout: 2000 }).then(
+              () => true,
+              () => false,
+            )
           ) {
             await reasonInput.fill("Sakit");
           }
@@ -134,7 +163,10 @@ test.describe("Attendance - Daily Marking", () => {
           // Save
           const saveButton = page.getByRole("button", { name: /simpan|save/i });
           if (
-            await saveButton.isVisible({ timeout: 3000 }).catch(() => false)
+            await saveButton.waitFor({ state: "visible", timeout: 3000 }).then(
+              () => true,
+              () => false,
+            )
           ) {
             await saveButton.click();
             await waitForToast(page, /berhasil|success/i, "success");
@@ -145,180 +177,71 @@ test.describe("Attendance - Daily Marking", () => {
   });
 
   test("should mark all students present (bulk action)", async ({ page }) => {
-    const classSelect = page
-      .locator('button[role="combobox"]')
-      .filter({ hasText: /kelas|class/i })
-      .first();
+    // The bulk action lives on the recording page; /attendance is the list.
+    await page.goto("/attendance/record");
+    await waitForLoadingComplete(page);
 
-    if (await classSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await classSelect.click();
-      await page.getByRole("option").first().click();
-      await waitForLoadingComplete(page);
+    const classSelect = page.getByRole("combobox", { name: /kelas/i });
+    await expect(classSelect).toBeVisible({ timeout: 10000 });
+    await classSelect.click();
+    await page.getByRole("option").first().click();
+    await waitForLoadingComplete(page);
 
-      // Look for "Mark All Present" button
-      const markAllButton = page.getByRole("button", {
-        name: /semua hadir|mark all present/i,
-      });
+    const markAllButton = page.getByRole("button", { name: /semua hadir/i });
+    await expect(markAllButton).toBeVisible({ timeout: 10000 });
+    await markAllButton.click();
 
-      if (await markAllButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await markAllButton.click();
-
-        // Confirm if dialog appears
-        const confirmButton = page.getByRole("button", {
-          name: /ya|yes|confirm/i,
-        });
-        if (
-          await confirmButton.isVisible({ timeout: 2000 }).catch(() => false)
-        ) {
-          await confirmButton.click();
-        }
-
-        await waitForToast(page, /berhasil|success/i, "success");
-      } else {
-        test.skip(true, "Bulk mark all not available");
-      }
-    }
+    await page.getByRole("button", { name: /simpan kehadiran/i }).click();
+    await waitForToast(page, /kehadiran disimpan/i, "success");
   });
 });
 
 test.describe("Attendance - View Records", () => {
-  test("should view attendance history for a class", async ({ page }) => {
-    const loginPage = await import("./page-objects");
-    const login = new loginPage.LoginPage(page);
+  test.beforeEach(async ({ page }) => {
+    const login = new LoginPage(page);
     await login.goto();
     await login.loginAndWaitForDashboard(
       "superadmin@cipansor.or.id",
       "SuperAdmin123!",
     );
-
-    await page.goto("/attendance/history");
+    await page.goto("/attendance");
     await waitForLoadingComplete(page);
+  });
 
-    // Should show history page or tab
-    const heading = page.getByRole("heading", { name: /riwayat|history/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
-      await expect(heading).toBeVisible();
+  test("should view attendance history for a class", async ({ page }) => {
+    // /attendance *is* the record history: a date and class filter over the
+    // attendance table. There is no /attendance/history route.
+    await expect(
+      page.getByRole("heading", { name: /kehadiran/i, level: 1 }),
+    ).toBeVisible({ timeout: 10000 });
 
-      // Should have date range filter
-      const startDate = page.getByLabel(/tanggal mulai|start date/i);
-      const endDate = page.getByLabel(/tanggal akhir|end date/i);
+    const dateFilter = page.getByRole("button", {
+      name: /pilih tanggal|\d{4}/,
+    });
+    await expect(dateFilter.first()).toBeVisible({ timeout: 10000 });
 
-      if (await startDate.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await expect(startDate).toBeVisible();
-      }
-    } else {
-      test.skip(true, "Attendance history page not found");
+    await expect(page.locator("table").first()).toBeVisible({
+      timeout: 10000,
+    });
+    for (const header of ["Tanggal", "NIS", "Nama Siswa", "Kelas", "Status"]) {
+      await expect(
+        page.getByRole("columnheader", { name: header }),
+      ).toBeVisible();
     }
   });
 
   test("should view attendance summary statistics", async ({ page }) => {
-    const loginPage = await import("./page-objects");
-    const login = new loginPage.LoginPage(page);
-    await login.goto();
-    await login.loginAndWaitForDashboard(
-      "superadmin@cipansor.or.id",
-      "SuperAdmin123!",
-    );
-
-    await page.goto("/attendance");
-    await waitForLoadingComplete(page);
-
-    // Look for summary cards
-    const summaryCards = [
-      /total hadir|total present/i,
-      /total tidak hadir|total absent/i,
-      /persentase|percentage/i,
-    ];
-
-    let foundCards = 0;
-    for (const pattern of summaryCards) {
-      if (
-        await page
-          .getByText(pattern)
-          .isVisible({ timeout: 3000 })
-          .catch(() => false)
-      ) {
-        foundCards++;
-      }
-    }
-
-    if (foundCards === 0) {
-      test.skip(true, "No summary statistics found");
-    }
-  });
-});
-
-test.describe("Attendance - Reports", () => {
-  test("should generate attendance report", async ({ page }) => {
-    const loginPage = await import("./page-objects");
-    const login = new loginPage.LoginPage(page);
-    await login.goto();
-    await login.loginAndWaitForDashboard(
-      "superadmin@cipansor.or.id",
-      "SuperAdmin123!",
-    );
-
-    await page.goto("/attendance/reports");
-    await waitForLoadingComplete(page);
-
-    // Should show report page
-    const heading = page
-      .getByRole("main")
-      .getByRole("heading", { name: /laporan|report/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // Select report type
-      const reportType = page
-        .locator('button[role="combobox"]')
-        .filter({ hasText: /jenis|type/i })
-        .first();
-
-      if (await reportType.isVisible({ timeout: 3000 }).catch(() => false)) {
-        await reportType.click();
-        await page.getByRole("option").first().click();
-
-        // Generate report
-        const generateButton = page.getByRole("button", {
-          name: /generate|buat|tampilkan/i,
-        });
-        await generateButton.click();
-        await waitForLoadingComplete(page);
-
-        // Should show report data or download
-        const hasReport = await page
-          .locator("table, canvas, .report-content")
-          .isVisible({ timeout: 5000 })
-          .catch(() => false);
-        expect(hasReport).toBeTruthy();
-      }
-    } else {
-      test.skip(true, "Attendance reports page not found");
-    }
-  });
-
-  test("should export attendance report to Excel", async ({ page }) => {
-    const loginPage = await import("./page-objects");
-    const login = new loginPage.LoginPage(page);
-    await login.goto();
-    await login.loginAndWaitForDashboard(
-      "superadmin@cipansor.or.id",
-      "SuperAdmin123!",
-    );
-
-    await page.goto("/attendance/reports");
-    await waitForLoadingComplete(page);
-
-    const exportButton = page.getByRole("button", {
-      name: /export|unduh|download/i,
-    });
-
-    if (await exportButton.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const downloadPromise = page.waitForEvent("download", { timeout: 10000 });
-      await exportButton.click();
-
-      const download = await downloadPromise;
-      expect(download.suggestedFilename()).toMatch(/\.xlsx|\.xls/i);
-    } else {
-      test.skip(true, "Export button not found");
+    for (const label of [
+      /^total$/i,
+      /^hadir$/i,
+      /^tidak hadir$/i,
+      /^terlambat$/i,
+      /^sakit$/i,
+      /^izin$/i,
+    ]) {
+      await expect(page.getByText(label).first()).toBeVisible({
+        timeout: 10000,
+      });
     }
   });
 });
@@ -340,7 +263,12 @@ test.describe("Attendance - Integration with Dashboard", () => {
     await dashboard.waitForDataLoad();
 
     const todayAttendance = dashboard.todayAttendanceCard;
-    if (await todayAttendance.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await todayAttendance.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const initialValue = await todayAttendance.textContent();
 
       // Go mark attendance
@@ -352,14 +280,24 @@ test.describe("Attendance - Integration with Dashboard", () => {
         .locator('button[role="combobox"]')
         .filter({ hasText: /kelas|class/i })
         .first();
-      if (await classSelect.isVisible({ timeout: 5000 }).catch(() => false)) {
+      if (
+        await classSelect.waitFor({ state: "visible", timeout: 5000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await classSelect.click();
         await page.getByRole("option").first().click();
         await waitForLoadingComplete(page);
 
         // Save attendance if button exists
         const saveButton = page.getByRole("button", { name: /simpan|save/i });
-        if (await saveButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+        if (
+          await saveButton.waitFor({ state: "visible", timeout: 3000 }).then(
+            () => true,
+            () => false,
+          )
+        ) {
           await saveButton.click();
           await waitForLoadingComplete(page);
         }

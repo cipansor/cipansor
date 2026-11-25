@@ -30,8 +30,11 @@ test.describe("Syariah - Features", () => {
 
     const hasSummary = await page
       .locator('text="Total Item"')
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasSummary || page.url().includes("syariah")).toBeTruthy();
   });
@@ -43,8 +46,11 @@ test.describe("Syariah - Features", () => {
 
     const hasCategories = await page
       .locator('text="Daftar Kepatuhan"')
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasCategories || page.url().includes("syariah")).toBeTruthy();
   });

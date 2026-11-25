@@ -66,8 +66,11 @@ test.describe("Assessment - Report Cards", () => {
     const hasContent = await page
       .locator('table, [role="table"], [class*="card"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     // Page should load without errors
     expect(page.url()).toMatch(/report-cards/);
@@ -176,7 +179,12 @@ test.describe("Assessment - Transcript", () => {
       .getByRole("link", { name: /transcript|transkrip/i })
       .first();
 
-    if (await transcriptLink.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await transcriptLink.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await transcriptLink.click();
       // Client-side navigation: waitForLoadState("domcontentloaded") resolves
       // immediately (the event already fired for /assessment), so a synchronous

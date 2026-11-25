@@ -91,8 +91,11 @@ test.describe("Dashboard - Metrics", () => {
     const hasChart = await page
       .locator('canvas, svg[class*="chart"], [class*="graph"]')
       .first()
-      .isVisible({ timeout: 10000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 10000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasChart || page.url().includes("dashboard")).toBeTruthy();
   });

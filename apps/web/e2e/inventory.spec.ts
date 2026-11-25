@@ -43,8 +43,11 @@ test.describe("Inventory - Features", () => {
     const hasItems = await page
       .locator('table, [class*="inventory"], [class*="item"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasItems || page.url().includes("inventory")).toBeTruthy();
   });
@@ -60,8 +63,11 @@ test.describe("Inventory - Features", () => {
     const hasButtons = await page
       .getByRole("button")
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasButtons || page.url().includes("inventory")).toBeTruthy();
   });

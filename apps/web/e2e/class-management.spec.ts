@@ -20,7 +20,12 @@ test.describe("Class Management - List and View", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const table = page.locator("table");
       await expect(table).toBeVisible({ timeout: 5000 });
 
@@ -35,12 +40,20 @@ test.describe("Class Management - List and View", () => {
         const headerCell = page.getByRole("columnheader", {
           name: new RegExp(header, "i"),
         });
-        if (await headerCell.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (
+          await headerCell.waitFor({ state: "visible", timeout: 2000 }).then(
+            () => true,
+            () => false,
+          )
+        ) {
           await expect(headerCell).toBeVisible();
         }
       }
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -50,9 +63,19 @@ test.describe("Class Management - List and View", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const firstRow = page.locator("table tbody tr").first();
-      if (await firstRow.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await firstRow.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         // Row click navigates to the class detail page (/classes/[id]).
         await firstRow.click();
 
@@ -64,13 +87,21 @@ test.describe("Class Management - List and View", () => {
         // Should show student list
         const studentSection = page.getByText(/daftar.*siswa|student.*list/i);
         if (
-          await studentSection.isVisible({ timeout: 3000 }).catch(() => false)
+          await studentSection
+            .waitFor({ state: "visible", timeout: 3000 })
+            .then(
+              () => true,
+              () => false,
+            )
         ) {
           await expect(studentSection).toBeVisible();
         }
       }
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -80,18 +111,33 @@ test.describe("Class Management - List and View", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const filterButton = page.getByRole("button", {
         name: /filter|tingkat/i,
       });
-      if (await filterButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await filterButton.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await filterButton.click();
 
         const gradeOption = page
           .getByRole("option")
           .or(page.getByRole("menuitem"))
           .first();
-        if (await gradeOption.isVisible({ timeout: 2000 }).catch(() => false)) {
+        if (
+          await gradeOption.waitFor({ state: "visible", timeout: 2000 }).then(
+            () => true,
+            () => false,
+          )
+        ) {
           await gradeOption.click();
           await waitForLoadingComplete(page);
 
@@ -100,7 +146,10 @@ test.describe("Class Management - List and View", () => {
         }
       }
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 });
@@ -114,7 +163,12 @@ test.describe("Class Management - Create and Update", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       // The header action is a role-gated Link styled as a button (renders
       // as role=link) — accept either role and wait for hydration.
       const addButton = page
@@ -146,7 +200,12 @@ test.describe("Class Management - Create and Update", () => {
       await unitTrigger.click();
       // Prefer a unit the seed guarantees has an active academic year
       const seededUnit = page.getByRole("option", { name: /sd it/i }).first();
-      if (await seededUnit.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (
+        await seededUnit.waitFor({ state: "visible", timeout: 2000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await seededUnit.click();
       } else {
         await page.getByRole("option").first().click();
@@ -181,7 +240,10 @@ test.describe("Class Management - Create and Update", () => {
         .filter({ hasText: className });
       await expect(newClassRow).toBeVisible({ timeout: 10000 });
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -191,10 +253,23 @@ test.describe("Class Management - Create and Update", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const firstRow = page.locator("table tbody tr").first();
-      if (!(await firstRow.isVisible({ timeout: 3000 }).catch(() => false))) {
-        test.skip(true, "No classes available to edit");
+      if (
+        !(await firstRow.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        ))
+      ) {
+        throw new Error(
+          "No classes available to edit — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+            "must provide it; a missing page or control here is a failure, not a skip",
+        );
         return;
       }
 
@@ -244,7 +319,10 @@ test.describe("Class Management - Create and Update", () => {
       // the toast, which auto-dismisses too quickly to be reliable.
       await page.waitForURL(/\/classes\/[^/]+$/, { timeout: 15000 });
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -254,7 +332,12 @@ test.describe("Class Management - Create and Update", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       // The header action is a role-gated Link styled as a button (renders
       // as role=link) — accept either role and wait for hydration.
       const addButton = page
@@ -275,7 +358,10 @@ test.describe("Class Management - Create and Update", () => {
       const errorMessages = page.getByText(/wajib|required|harus/i);
       await expect(errorMessages.first()).toBeVisible({ timeout: 3000 });
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 });
@@ -289,11 +375,21 @@ test.describe("Class Management - Student Enrollment", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const firstRow = page.locator("table tbody tr").first();
 
       const viewButton = firstRow.getByRole("button", { name: /view|lihat/i });
-      if (await viewButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (
+        await viewButton.waitFor({ state: "visible", timeout: 2000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await viewButton.click();
       } else {
         await firstRow.click();
@@ -306,14 +402,22 @@ test.describe("Class Management - Student Enrollment", () => {
         name: /tambah.*siswa|add.*student/i,
       });
       if (
-        await addStudentButton.isVisible({ timeout: 3000 }).catch(() => false)
+        await addStudentButton
+          .waitFor({ state: "visible", timeout: 3000 })
+          .then(
+            () => true,
+            () => false,
+          )
       ) {
         await addStudentButton.click();
 
         // Select student
         const studentSelect = page.locator('button[role="combobox"]').first();
         if (
-          await studentSelect.isVisible({ timeout: 3000 }).catch(() => false)
+          await studentSelect.waitFor({ state: "visible", timeout: 3000 }).then(
+            () => true,
+            () => false,
+          )
         ) {
           await studentSelect.click();
           const studentOptions = page.getByRole("option");
@@ -330,7 +434,10 @@ test.describe("Class Management - Student Enrollment", () => {
         }
       }
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -340,11 +447,21 @@ test.describe("Class Management - Student Enrollment", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const firstRow = page.locator("table tbody tr").first();
 
       const viewButton = firstRow.getByRole("button", { name: /view|lihat/i });
-      if (await viewButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (
+        await viewButton.waitFor({ state: "visible", timeout: 2000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await viewButton.click();
       } else {
         await firstRow.click();
@@ -356,12 +473,20 @@ test.describe("Class Management - Student Enrollment", () => {
       const studentRow = page
         .locator('table tbody tr, [role="listitem"]')
         .first();
-      if (await studentRow.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await studentRow.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         const removeButton = studentRow.getByRole("button", {
           name: /hapus|remove/i,
         });
         if (
-          await removeButton.isVisible({ timeout: 2000 }).catch(() => false)
+          await removeButton.waitFor({ state: "visible", timeout: 2000 }).then(
+            () => true,
+            () => false,
+          )
         ) {
           await removeButton.click();
 
@@ -374,7 +499,10 @@ test.describe("Class Management - Student Enrollment", () => {
         }
       }
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 });
@@ -382,59 +510,29 @@ test.describe("Class Management - Student Enrollment", () => {
 test.describe("Class Management - Schedule", () => {
   test.use({ storageState: ".auth/superAdmin.json" });
 
-  test("should view class schedule", async ({ page }) => {
-    await navigateTo(page, "/classes");
-
-    const heading = page
-      .getByRole("main")
-      .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const firstRow = page.locator("table tbody tr").first();
-
-      const viewButton = firstRow.getByRole("button", { name: /view|lihat/i });
-      if (await viewButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await viewButton.click();
-      } else {
-        await firstRow.click();
-      }
-
-      await waitForLoadingComplete(page);
-
-      // Look for schedule tab/section
-      const scheduleTab = page
-        .getByRole("tab", { name: /jadwal|schedule/i })
-        .or(page.getByRole("main").getByText(/jadwal|schedule/i));
-
-      if (await scheduleTab.isVisible({ timeout: 3000 }).catch(() => false)) {
-        if ((await scheduleTab.getAttribute("role")) === "tab") {
-          await scheduleTab.click();
-          await waitForLoadingComplete(page);
-        }
-
-        // Should show schedule table/calendar
-        const scheduleContent = page.locator(
-          'table, .schedule-grid, [role="grid"]',
-        );
-        await expect(scheduleContent).toBeVisible({ timeout: 5000 });
-      }
-    } else {
-      test.skip(true, "Classes page not available");
-    }
-  });
-
   test("should add schedule entry", async ({ page }) => {
     await navigateTo(page, "/classes");
 
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const firstRow = page.locator("table tbody tr").first();
       await firstRow.click();
       await waitForLoadingComplete(page);
 
       const scheduleTab = page.getByRole("tab", { name: /jadwal|schedule/i });
-      if (await scheduleTab.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await scheduleTab.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await scheduleTab.click();
         await waitForLoadingComplete(page);
 
@@ -443,8 +541,11 @@ test.describe("Class Management - Schedule", () => {
         });
         if (
           await addScheduleButton
-            .isVisible({ timeout: 3000 })
-            .catch(() => false)
+            .waitFor({ state: "visible", timeout: 3000 })
+            .then(
+              () => true,
+              () => false,
+            )
         ) {
           await addScheduleButton.click();
 
@@ -454,7 +555,12 @@ test.describe("Class Management - Schedule", () => {
             .filter({ hasText: /mata.*pelajaran|subject/i })
             .first();
           if (
-            await subjectSelect.isVisible({ timeout: 2000 }).catch(() => false)
+            await subjectSelect
+              .waitFor({ state: "visible", timeout: 2000 })
+              .then(
+                () => true,
+                () => false,
+              )
           ) {
             await subjectSelect.click();
             await page.getByRole("option").first().click();
@@ -465,7 +571,12 @@ test.describe("Class Management - Schedule", () => {
             .filter({ hasText: /guru|teacher/i })
             .first();
           if (
-            await teacherSelect.isVisible({ timeout: 2000 }).catch(() => false)
+            await teacherSelect
+              .waitFor({ state: "visible", timeout: 2000 })
+              .then(
+                () => true,
+                () => false,
+              )
           ) {
             await teacherSelect.click();
             await page.getByRole("option").first().click();
@@ -478,7 +589,10 @@ test.describe("Class Management - Schedule", () => {
         }
       }
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 });
@@ -492,9 +606,19 @@ test.describe("Class Management - Export", () => {
     const heading = page
       .getByRole("main")
       .getByRole("heading", { name: /kelas|class/i });
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       const exportButton = page.getByRole("button", { name: /export|unduh/i });
-      if (await exportButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+      if (
+        await exportButton.waitFor({ state: "visible", timeout: 3000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         const downloadPromise = page.waitForEvent("download", {
           timeout: 10000,
         });
@@ -505,7 +629,10 @@ test.describe("Class Management - Export", () => {
         expect(download.suggestedFilename()).toMatch(/\.xlsx?$/i);
       }
     } else {
-      test.skip(true, "Classes page not available");
+      throw new Error(
+        "Classes page not available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 });

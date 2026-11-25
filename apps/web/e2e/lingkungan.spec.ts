@@ -6,7 +6,7 @@ import { gotoAuthedPage } from "./helpers/page-helpers";
  * /lingkungan wraps itself in MainLayout, so nothing renders until
  * ProtectedRoute has rehydrated the session. Every test here used to sample the
  * page at domcontentloaded — via page.content(), or via
- * isVisible({ timeout }), which does not actually wait — and so raced that
+ * isVisible with a timeout, which does not actually wait — and so raced that
  * gate. It landed right on Chromium and Firefox and wrong on WebKit. Wait for
  * the page's own <h1> first, then assert against what the page really renders.
  */

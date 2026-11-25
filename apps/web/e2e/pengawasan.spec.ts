@@ -30,8 +30,11 @@ test.describe("Pengawasan - Features", () => {
 
     const hasStats = await page
       .locator('text="Total Audit"')
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasStats || page.url().includes("pengawasan")).toBeTruthy();
   });
@@ -43,8 +46,11 @@ test.describe("Pengawasan - Features", () => {
 
     const hasList = await page
       .locator('text="Daftar Audit"')
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasList || page.url().includes("pengawasan")).toBeTruthy();
   });

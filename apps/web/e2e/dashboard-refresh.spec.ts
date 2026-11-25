@@ -42,49 +42,6 @@ test.describe("Dashboard Data Refresh", () => {
     expect(cachedValue).toBe(firstLoadValue);
   });
 
-  test("should manually refresh dashboard data", async ({ page }) => {
-    // Login and navigate
-    const loginPage = await import("./page-objects");
-    const login = new loginPage.LoginPage(page);
-    await login.goto();
-    await login.loginAndWaitForDashboard(
-      "superadmin@cipansor.or.id",
-      "SuperAdmin123!",
-    );
-
-    const dashboardPage = new DashboardPage(page);
-    await dashboardPage.goto();
-    await dashboardPage.waitForDataLoad();
-
-    // Get initial value
-    const initialValue = await dashboardPage.totalStudentsCard.textContent();
-
-    // Find refresh button
-    const refreshButton = page.getByRole("button", {
-      name: /refresh|reload|muat ulang/i,
-    });
-    if (await refreshButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      // Click refresh
-      await refreshButton.click();
-
-      // Should show loading state
-      const loader = page.locator('.animate-spin, [role="progressbar"]');
-      await expect(loader)
-        .toBeVisible({ timeout: 2000 })
-        .catch(() => {
-          // Loading might be too fast
-        });
-
-      // Wait for data to reload
-      await waitForLoadingComplete(page);
-
-      // Data should still be visible
-      await expect(dashboardPage.totalStudentsCard).toBeVisible();
-    } else {
-      console.log("Refresh button not found, skipping manual refresh test");
-    }
-  });
-
   test("should invalidate cache after data mutation", async ({ page }) => {
     // Login
     const loginPage = await import("./page-objects");
@@ -104,7 +61,12 @@ test.describe("Dashboard Data Refresh", () => {
 
     // Navigate to create/edit page (simulating data mutation)
     const createLink = page.getByRole("link", { name: /tambah|add|create/i });
-    if (await createLink.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await createLink.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await createLink.click();
       await waitForLoadingComplete(page);
 

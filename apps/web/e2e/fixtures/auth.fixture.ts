@@ -87,7 +87,12 @@ export async function logout(page: Page) {
     .getByRole("button", { name: /logout|keluar/i })
     .first();
 
-  if (await logoutButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+  if (
+    await logoutButton.waitFor({ state: "visible", timeout: 3000 }).then(
+      () => true,
+      () => false,
+    )
+  ) {
     await logoutButton.click();
   }
 

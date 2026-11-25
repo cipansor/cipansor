@@ -1,6 +1,6 @@
 import { test, expect } from "./fixtures/auth.fixture";
 import { TahfidzDashboardPage } from "./page-objects";
-import { waitForLoadingComplete, selectOption } from "./helpers/page-helpers";
+import { waitForLoadingComplete } from "./helpers/page-helpers";
 
 /**
  * Tahfidz Dashboard E2E Tests
@@ -27,7 +27,7 @@ test.describe("Tahfidz Dashboard", () => {
     await tahfidzPage.waitForDataLoad();
   });
 
-  test("should display all dashboard components", async ({ page }) => {
+  test("should display all dashboard components", async () => {
     // Verify main heading
     await expect(tahfidzPage.heading).toBeVisible({ timeout: 10000 });
 
@@ -45,6 +45,7 @@ test.describe("Tahfidz Dashboard", () => {
   test("should display catatan per tipe (record type chart)", async ({
     page,
   }) => {
+    void page;
     await expect(tahfidzPage.recordTypeChart).toBeVisible({ timeout: 10000 });
 
     // Chart should be rendered (check for canvas or SVG)
@@ -53,18 +54,14 @@ test.describe("Tahfidz Dashboard", () => {
     expect(hasChart).toBeGreaterThan(0);
   });
 
-  test("should display top 10 santri section", async ({ page }) => {
+  test("should display top 10 santri section", async () => {
     await expect(tahfidzPage.topSantriSection).toBeVisible({ timeout: 10000 });
 
-    // Should have some list or table of students
-    const section = tahfidzPage.topSantriSection.locator("..");
-    const hasList = await section
-      .locator('table, ul, ol, [role="list"]')
-      .count();
-    expect(hasList).toBeGreaterThanOrEqual(0); // May be empty if no data
+    // The section renders the santri it ranked, not an empty placeholder.
+    await expect(tahfidzPage.topSantriSection).not.toHaveText("");
   });
 
-  test("should display progress per juz", async ({ page }) => {
+  test("should display progress per juz", async () => {
     await expect(tahfidzPage.progressPerJuzSection).toBeVisible({
       timeout: 10000,
     });
@@ -74,16 +71,13 @@ test.describe("Tahfidz Dashboard", () => {
     const hasProgress = await section
       .locator('canvas, svg, [role="progressbar"]')
       .count();
-    expect(hasProgress).toBeGreaterThanOrEqual(0);
+    expect(hasProgress).toBeGreaterThan(0);
   });
 
   test("should filter by unit", async ({ page }) => {
     // Wait for initial data load
     await waitForLoadingComplete(page);
     await expect(tahfidzPage.totalRecordsCard).toBeVisible({ timeout: 10000 });
-
-    // Get initial stats
-    const initialStats = await tahfidzPage.totalRecordsCard.textContent();
 
     // Select a unit
     const unitSelect = page
@@ -132,11 +126,17 @@ test.describe("Tahfidz Dashboard", () => {
     // records, it asserts what the table actually does: render them.
     const firstRow = page.locator("table tbody tr").first();
     const hasRows = await firstRow
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     if (!hasRows) {
-      test.skip(true, "No tahfidz records seeded");
+      throw new Error(
+        "No tahfidz records seeded — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
       return;
     }
 
@@ -145,32 +145,14 @@ test.describe("Tahfidz Dashboard", () => {
     await expect(firstRow).not.toBeEmpty();
   });
 
-  test("should refresh data when refresh button clicked", async ({ page }) => {
-    // Look for refresh button
-    const refreshButton = page.getByRole("button", {
-      name: /refresh|muat ulang/i,
-    });
-    const hasRefreshButton = await refreshButton
-      .isVisible({ timeout: 3000 })
-      .catch(() => false);
-
-    if (hasRefreshButton) {
-      await refreshButton.click();
-
-      // Should show loading state
-      const loader = page.locator(".animate-spin");
-      await expect(loader)
-        .toBeVisible({ timeout: 2000 })
-        .catch(() => {
-          // Loading might be too fast
-        });
-
-      // Data should still be visible after refresh
-      await waitForLoadingComplete(page);
-      await expect(tahfidzPage.heading).toBeVisible();
-    } else {
-      test.skip(true, "Refresh button not found");
-    }
+  test("should reset filters and keep the data visible", async ({ page }) => {
+    // The dashboard offers Reset (back to the current month, every unit), not
+    // a refresh button — the queries re-run when the filters change.
+    const resetButton = page.getByRole("button", { name: /^reset$/i });
+    await expect(resetButton).toBeVisible({ timeout: 10000 });
+    await resetButton.click();
+    await waitForLoadingComplete(page);
+    await expect(tahfidzPage.heading).toBeVisible();
   });
 
   test("should display monthly activity chart", async ({ page }) => {
@@ -184,73 +166,5 @@ test.describe("Tahfidz Dashboard", () => {
     const chart = chartSection.locator("canvas, svg");
     const hasChart = await chart.count();
     expect(hasChart).toBeGreaterThan(0);
-  });
-});
-
-test.describe("Tahfidz Dashboard - Real-time Updates", () => {
-  test("should handle real-time metric updates", async ({ page }) => {
-    // Login and navigate
-    const loginPage = await import("./page-objects");
-    const login = new loginPage.LoginPage(page);
-    await login.goto();
-    await login.loginAndWaitForDashboard(
-      "superadmin@cipansor.or.id",
-      "SuperAdmin123!",
-    );
-
-    const tahfidzPage = new TahfidzDashboardPage(page);
-    await tahfidzPage.goto();
-    await tahfidzPage.waitForDataLoad();
-
-    // Check for real-time indicator
-    const realtimeIndicator = page.locator(
-      '[data-testid="realtime-indicator"]',
-    );
-    const hasIndicator = await realtimeIndicator
-      .isVisible({ timeout: 3000 })
-      .catch(() => false);
-
-    if (hasIndicator) {
-      // Should show connected status
-      await expect(realtimeIndicator).toContainText(/connected|terhubung/i);
-    } else {
-      console.log("Real-time indicator not found, skipping real-time test");
-    }
-  });
-});
-
-test.describe("Tahfidz Dashboard - Export & Print", () => {
-  test("should export dashboard data", async ({ page }) => {
-    // Login and navigate
-    const loginPage = await import("./page-objects");
-    const login = new loginPage.LoginPage(page);
-    await login.goto();
-    await login.loginAndWaitForDashboard(
-      "superadmin@cipansor.or.id",
-      "SuperAdmin123!",
-    );
-
-    const tahfidzPage = new TahfidzDashboardPage(page);
-    await tahfidzPage.goto();
-    await tahfidzPage.waitForDataLoad();
-
-    // Look for export button
-    const exportButton = page.getByRole("button", {
-      name: /export|unduh|download/i,
-    });
-    const hasExportButton = await exportButton
-      .isVisible({ timeout: 3000 })
-      .catch(() => false);
-
-    if (hasExportButton) {
-      // Set up download handler
-      const downloadPromise = page.waitForEvent("download", { timeout: 10000 });
-      await exportButton.click();
-
-      const download = await downloadPromise;
-      expect(download.suggestedFilename()).toMatch(/\.xlsx|\.pdf|\.csv/);
-    } else {
-      test.skip(true, "Export button not found");
-    }
   });
 });

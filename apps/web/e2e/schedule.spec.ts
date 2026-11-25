@@ -44,8 +44,11 @@ test.describe("Schedule - Features", () => {
     const hasScheduleView = await page
       .locator('table, [class*="calendar"], [class*="schedule"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasScheduleView || page.url().includes("schedule")).toBeTruthy();
   });
@@ -61,8 +64,11 @@ test.describe("Schedule - Features", () => {
     const hasControls = await page
       .locator('select, button, input[type="search"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasControls || page.url().includes("schedule")).toBeTruthy();
   });

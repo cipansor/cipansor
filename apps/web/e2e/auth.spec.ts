@@ -27,10 +27,18 @@ test.describe("Authentication", () => {
       .locator("h1, h2")
       .filter({ hasText: /masuk|login|sign in/i });
 
-    if (await loginHeading.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await loginHeading.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await expect(loginHeading).toBeVisible();
     } else if (
-      await pageTitle.isVisible({ timeout: 3000 }).catch(() => false)
+      await pageTitle.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
     ) {
       await expect(pageTitle).toBeVisible();
     }
@@ -76,7 +84,12 @@ test.describe("Authentication", () => {
     const anyError = emailError.or(passwordError).or(generalError);
 
     // Give more time for validation to appear
-    if (await anyError.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await anyError.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await expect(anyError).toBeVisible();
     } else {
       // HTML5 validation might prevent submission, check if still on login page
@@ -175,7 +188,12 @@ test.describe("Authentication", () => {
     // Should show error message or stay on login page
     const errorMessage = page.getByText(/network|koneksi|gagal|error|failed/i);
 
-    if (await errorMessage.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await errorMessage.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await expect(errorMessage).toBeVisible();
     } else {
       // Should at least stay on login page

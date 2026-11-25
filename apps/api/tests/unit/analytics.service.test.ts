@@ -270,7 +270,7 @@ describe('Analytics Service', () => {
     });
   });
 
-  describe.skip('getLibraryStats', () => {
+  describe('getLibraryStats', () => {
     it('should return library statistics', async () => {
       prismaMock.book.aggregate.mockResolvedValue({
         _sum: { quantity: 500, available: 420 },
@@ -304,7 +304,7 @@ describe('Analytics Service', () => {
     });
   });
 
-  describe.skip('getPSBStats', () => {
+  describe('getPSBStats', () => {
     it('should return PSB statistics', async () => {
       prismaMock.registrant.count.mockResolvedValue(150);
 

@@ -47,8 +47,11 @@ test.describe("Calendar - Features", () => {
       (await page
         .locator('[class*="calendar"]')
         .first()
-        .isVisible({ timeout: 5000 })
-        .catch(() => false));
+        .waitFor({ state: "visible", timeout: 5000 })
+        .then(
+          () => true,
+          () => false,
+        ));
 
     expect(hasCalendar || page.url().includes("calendar")).toBeTruthy();
   });
@@ -65,8 +68,11 @@ test.describe("Calendar - Features", () => {
         'button:has-text("Event"), button:has-text("Acara"), button:has-text("Tambah")',
       )
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasEventButton || page.url().includes("calendar")).toBeTruthy();
   });

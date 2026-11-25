@@ -30,8 +30,11 @@ test.describe("Tata Laksana - Features", () => {
 
     const hasList = await page
       .locator('text="Tata Laksana"')
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasList || page.url().includes("tata-laksana")).toBeTruthy();
   });
