@@ -51,6 +51,47 @@ export interface Question {
   order: number;
 }
 
+/**
+ * One row of multiple-choice distractor analysis.
+ *
+ * `count` and `percentage` belong to the canonical option id. When several
+ * option texts share that id, `option` is null and `options` lists every text
+ * that shares it; the student form submits only the id, so the count cannot be
+ * attributed to one of those texts.
+ */
+export interface ExamDistractorAnalysisRow {
+  /** Canonical option id the count belongs to; null for an unusable option. */
+  optionId: string | null;
+  /** The sole option when unambiguous; null when several texts share the id. */
+  option: unknown;
+  /** Every option sharing `optionId`; one entry when unambiguous. */
+  options: unknown[];
+  ambiguous: boolean;
+  count: number;
+  percentage: number;
+}
+
+export interface ExamQuestionInsight {
+  questionId: string;
+  content: string;
+  successRate: number;
+  difficultyIndex: number | null;
+  discriminationIndex: number | null;
+  distractorAnalysis?: ExamDistractorAnalysisRow[];
+  totalGraded: number;
+  isKiller: boolean;
+  needsReview: boolean;
+}
+
+export interface ExamDifficultyInsights {
+  examId: string;
+  title: string;
+  questionInsights: ExamQuestionInsight[];
+  averageSuccessRate: number;
+  totalParticipants: number;
+  discriminationGroupSize: number | null;
+}
+
 export interface QuestionBank {
   id: string;
   unitId?: string;

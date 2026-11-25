@@ -1230,22 +1230,27 @@ describe('CBT Service', () => {
       const analysis = insights!.questionInsights[0].distractorAnalysis!;
 
       expect(analysis).toHaveLength(3);
-      const dRows = analysis.filter((row) => (row.option as any).id === 'opt-D');
+      const dRows = analysis.filter((row) =>
+        (row.options as Array<{ id?: string }>).some((opt) => opt.id === 'opt-D')
+      );
       expect(dRows).toHaveLength(1);
       expect(dRows[0]).toEqual(
         expect.objectContaining({
-          count: 1,
-          percentage: 100,
-          // Form santri hanya mengirim id; kedua teks yang berbagi id harus
-          // terlihat supaya angka itu tidak dikira milik teks pertama saja.
+          // Form santri hanya mengirim id. Karena dua teks berbagi id, tidak
+          // ada satu teks yang boleh diklaim memiliki jumlah itu.
+          optionId: 'opt-D',
+          option: null,
           ambiguous: true,
           options: [
             expect.objectContaining({ text: '4' }),
             expect.objectContaining({ text: '4 (lama)' }),
           ],
+          count: 1,
+          percentage: 100,
         })
       );
       expect(analysis.reduce((sum, row) => sum + row.percentage, 0)).toBe(100);
+      expect(analysis.filter((row) => !row.ambiguous)).toHaveLength(2);
     });
   });
 });

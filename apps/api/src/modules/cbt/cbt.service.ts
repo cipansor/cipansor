@@ -9,7 +9,11 @@ import {
   normalizeAnswerKeyForStorage,
   optionIdentifiers,
 } from './answer-key';
-import type { SecurityEventType } from '@cipansor/shared';
+import type {
+  ExamDifficultyInsights,
+  ExamDistractorAnalysisRow,
+  SecurityEventType,
+} from '@cipansor/shared';
 import { calculateLetterGrade } from '@cipansor/shared';
 import type { JwtPayload } from '@/lib/jwt';
 
@@ -1427,7 +1431,7 @@ export class CBTService {
    *   Only computed with ≥ 10 finished attempts; null otherwise.
    * Also flags "killer questions" (high failure rate with enough data).
    */
-  static async getExamDifficultyInsights(examId: string) {
+  static async getExamDifficultyInsights(examId: string): Promise<ExamDifficultyInsights | null> {
     const exam = await prisma.exam.findUnique({
       where: { id: examId },
       include: {
@@ -1477,15 +1481,7 @@ export class CBTService {
         : null;
 
       // Best Practice: Distractor analysis for multiple choice questions
-      let distractorAnalysis:
-        | Array<{
-            option: Prisma.JsonValue;
-            count: number;
-            percentage: number;
-            ambiguous?: boolean;
-            options?: Prisma.JsonValue[];
-          }>
-        | undefined;
+      let distractorAnalysis: ExamDistractorAnalysisRow[] | undefined;
       if (q.type === 'MULTIPLE_CHOICE' && Array.isArray(q.options)) {
         // Counted through the same canonical form the grader uses. These two
         // used to normalise differently — the analysis unwrapped `{ id: … }`
@@ -1532,18 +1528,28 @@ export class CBTService {
         for (const opt of q.options as Prisma.JsonValue[]) {
           const keyStr = canonicalAnswer(q.type, opt);
           if (keyStr === null) {
-            distractorAnalysis.push({ option: opt, count: 0, percentage: 0 });
+            distractorAnalysis.push({
+              optionId: null,
+              option: opt,
+              options: [opt],
+              ambiguous: false,
+              count: 0,
+              percentage: 0,
+            });
             continue;
           }
           if (seenOptions.has(keyStr)) continue;
           seenOptions.add(keyStr);
           const count = optionCounts[keyStr] || 0;
           const group = optionsById.get(keyStr) ?? [opt];
+          const ambiguous = group.length > 1;
           distractorAnalysis.push({
-            option: opt,
+            optionId: keyStr,
+            option: ambiguous ? null : opt,
+            options: group,
+            ambiguous,
             count,
             percentage: mappableAnswers > 0 ? (count / mappableAnswers) * 100 : 0,
-            ...(group.length > 1 ? { ambiguous: true, options: group } : {}),
           });
         }
       }
