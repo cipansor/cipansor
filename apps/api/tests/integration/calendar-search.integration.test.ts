@@ -17,6 +17,8 @@ const describeDb = process.env.RUN_DB_TESTS ? describe : describe.skip;
 const STAMP = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
 const literalTitle = `Rapat 100% ${STAMP}`;
 const decoyTitle = `Rapat 1000 ${STAMP}`;
+const underscoreTitle = `Rapat_A ${STAMP}`;
+const underscoreDecoyTitle = `RapatXA ${STAMP}`;
 
 const superAdmin = {
   sub: 'calendar-search-test',
@@ -50,6 +52,18 @@ beforeAll(async () => {
         startDate: new Date('2026-12-02'),
         createdById: creatorId,
       },
+      {
+        title: underscoreTitle,
+        eventType: EventType.MEETING,
+        startDate: new Date('2026-12-03'),
+        createdById: creatorId,
+      },
+      {
+        title: underscoreDecoyTitle,
+        eventType: EventType.MEETING,
+        startDate: new Date('2026-12-04'),
+        createdById: creatorId,
+      },
     ],
   });
 });
@@ -81,5 +95,15 @@ describeDb('CalendarService.findAll search against Postgres', () => {
 
     const titles = result.data.map((event) => event.title).filter((title) => title.includes(STAMP));
     expect(titles).toEqual([decoyTitle]);
+  });
+
+  it('treats "_" as a literal character, not a one-character wildcard', async () => {
+    const result = await calendarService.findAll(
+      { page: 1, limit: 50, search: 'Rapat_A' } as Parameters<typeof calendarService.findAll>[0],
+      superAdmin
+    );
+
+    const titles = result.data.map((event) => event.title).filter((title) => title.includes(STAMP));
+    expect(titles).toEqual([underscoreTitle]);
   });
 });

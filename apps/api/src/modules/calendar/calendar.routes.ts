@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { UserRole } from '@prisma/client';
 import {
+  ADMIN_ROLE_CODES,
   bulkCreateCalendarEventsSchema,
   calendarEventDeleteQuerySchema,
   createCalendarEventSchema,
@@ -22,11 +23,11 @@ const manageCalendar = hasPermission(PERMISSIONS.ACADEMIC_MANAGE);
 
 // Reviewing an imported holiday is admin work, not teaching work. A kepala
 // sekolah holds ACADEMIC_MANAGE and may create ordinary agenda, but approving a
-// draft changes a unit's work days for attendance and payroll. `authorize`
-// alone cannot express this: the legacy UNIT_ADMIN bucket also contains the
-// read-only yayasan roles, and TEACHER contains the kepala sekolah. The pair of
-// gates leaves exactly SUPER_ADMIN and the per-unit admins.
-const reviewHolidayDraft = [authorize(UserRole.SUPER_ADMIN, UserRole.UNIT_ADMIN), manageCalendar];
+// draft changes a unit's work days for attendance and payroll. Gate on the
+// RoleCode list, not the legacy UNIT_ADMIN bucket: that bucket also contains
+// the read-only yayasan roles, and TEACHER contains the kepala sekolah. The
+// pair of gates leaves exactly SUPER_ADMIN and the four per-unit admins.
+const reviewHolidayDraft = [authorize(...ADMIN_ROLE_CODES), manageCalendar];
 
 // All routes require authentication
 router.use(authenticate);

@@ -54,6 +54,8 @@ import {
 } from "@/hooks/use-calendar";
 import { Pagination } from "@/components/shared/pagination";
 import { usePermission } from "@/hooks/use-permission";
+import { useAuth } from "@/hooks/use-auth";
+import { canModifyCalendarEvent } from "@/lib/calendar-access";
 import { PERMISSIONS } from "@/constants/permissions";
 import {
   CALENDAR_EVENT_SEARCH_MAX_LENGTH,
@@ -106,6 +108,7 @@ export default function EventsListPage() {
   const events = eventsData?.data || [];
   const total = eventsData?.meta.total ?? 0;
   const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
+  const { user } = useAuth();
 
   // Deleting the last row of the last page leaves the requested page beyond
   // the new total. The API answers an empty page, so without this the list said
@@ -357,28 +360,29 @@ export default function EventsListPage() {
                                   Lihat Detail
                                 </DropdownMenuItem>
                               </Link>
-                              {canManage && (
-                                <>
-                                  <Link
-                                    href={`/calendar/events/${event.id}/edit`}
-                                  >
-                                    <DropdownMenuItem>
-                                      <Edit className="h-4 w-4 mr-2" />
-                                      Edit
+                              {canManage &&
+                                canModifyCalendarEvent(user, event) && (
+                                  <>
+                                    <Link
+                                      href={`/calendar/events/${event.id}/edit`}
+                                    >
+                                      <DropdownMenuItem>
+                                        <Edit className="h-4 w-4 mr-2" />
+                                        Edit
+                                      </DropdownMenuItem>
+                                    </Link>
+                                    <DropdownMenuItem
+                                      className="text-red-600"
+                                      onClick={() => {
+                                        setDeleteScope("SINGLE");
+                                        setDeleteTarget(event);
+                                      }}
+                                    >
+                                      <Trash2 className="h-4 w-4 mr-2" />
+                                      Hapus
                                     </DropdownMenuItem>
-                                  </Link>
-                                  <DropdownMenuItem
-                                    className="text-red-600"
-                                    onClick={() => {
-                                      setDeleteScope("SINGLE");
-                                      setDeleteTarget(event);
-                                    }}
-                                  >
-                                    <Trash2 className="h-4 w-4 mr-2" />
-                                    Hapus
-                                  </DropdownMenuItem>
-                                </>
-                              )}
+                                  </>
+                                )}
                             </DropdownMenuContent>
                           </DropdownMenu>
                         </TableCell>

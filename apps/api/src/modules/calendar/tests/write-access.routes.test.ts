@@ -39,7 +39,7 @@ vi.mock('../calendar.controller', () => {
 
 import { verifyToken } from '@/lib/jwt';
 import { errorHandler } from '@/middleware/error';
-import { permissionsForRoleCode } from '@/modules/roles/permissions';
+import { PERMISSIONS, permissionsForRoleCode } from '@/modules/roles/permissions';
 import calendarRoutes from '../calendar.routes';
 
 const app = express();
@@ -110,6 +110,22 @@ describe('SDIT_KEPALA_SEKOLAH', () => {
     const res = await send('SDIT_KEPALA_SEKOLAH', method, path, body);
     expect(res.status).toBe(403);
   });
+});
+
+it('refuses a governance role that somehow holds ACADEMIC_MANAGE', async () => {
+  // The permission check alone would admit it; the RoleCode gate must not.
+  vi.mocked(verifyToken).mockImplementation(((roleCode: string) => ({
+    type: 'access',
+    sub: `u-${roleCode}`,
+    roleCode,
+    unitId: 'unit-sd',
+    permissions: [PERMISSIONS.ACADEMIC_MANAGE],
+  })) as unknown as typeof verifyToken);
+
+  for (const [, method, path, body] of HOLIDAY_REVIEW_WRITES) {
+    const res = await send('YAYASAN_PENGAWAS', method, path, body);
+    expect(res.status).toBe(403);
+  }
 });
 
 describe.each([

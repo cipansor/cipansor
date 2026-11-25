@@ -1,3 +1,4 @@
+import type { Page } from "@playwright/test";
 import { test, expect } from "./fixtures/auth.fixture";
 import { SEED_USERS, apiLogin, apiRequest, loginAs } from "./helpers/auth-api";
 import { isProductionApi } from "./helpers/api-env";
@@ -19,6 +20,25 @@ import { isProductionApi } from "./helpers/api-env";
 test.describe.configure({ mode: "serial" });
 
 const STAMP = Date.now().toString(36);
+
+/**
+ * Reach the form the way a person does: the sidebar link, then the page's
+ * Tambah Event button. A `page.goto` would still pass if either link vanished.
+ */
+async function openNewEventFromMenu(page: Page) {
+  await page.goto("/dashboard");
+
+  // The sidebar is a sheet on narrow viewports; the menu trigger is hidden on
+  // desktop, where the sidebar is already visible.
+  const menuButton = page.locator("header button").first();
+  if (await menuButton.isVisible()) await menuButton.click();
+
+  await page.getByRole("link", { name: "Kalender Akademik" }).click();
+  await expect(page).toHaveURL(/\/calendar$/, { timeout: 15000 });
+
+  await page.getByRole("link", { name: /Tambah Event/ }).click();
+  await expect(page).toHaveURL(/\/calendar\/events\/new$/, { timeout: 15000 });
+}
 
 interface Created {
   data: { id: string; eventType: string; startDate: string };
@@ -225,9 +245,9 @@ test.describe("Kalender Akademik — Tambah Agenda", () => {
 
     try {
       // The API admits a kepala sekolah through ACADEMIC_MANAGE; the portal's
-      // route guard did not, and bounced the form back to /dashboard.
-      await page.goto("/calendar/events/new");
-      await expect(page).toHaveURL(/\/calendar\/events\/new$/);
+      // route guard did not, and bounced the form back to /dashboard. Reach it
+      // through the menu, so losing either link fails here too.
+      await openNewEventFromMenu(page);
       await expect(
         page.getByText(/Agenda disimpan untuk unit ini/),
       ).toBeVisible();
@@ -253,6 +273,83 @@ test.describe("Kalender Akademik — Tambah Agenda", () => {
         await apiRequest(session, "DELETE", `/calendar/${e.id}`).catch(
           () => undefined,
         );
+      }
+    }
+  });
+
+  test("kepala sekolah hanya ditawari hapus pada agendanya sendiri", async ({
+    page,
+  }) => {
+    const today = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const ownTitle = `Agenda hapus kepala ${STAMP}`;
+    const otherTitle = `Agenda hapus admin ${STAMP}`;
+    const kepala = await apiLogin(SEED_USERS.kepalaSdit);
+    const admin = await apiLogin(SEED_USERS.adminSdit);
+
+    await apiRequest<Created>(kepala, "POST", "/calendar", {
+      title: ownTitle,
+      eventType: "MEETING",
+      startDate: today,
+      isAllDay: true,
+      isPublic: true,
+    });
+    await apiRequest<Created>(admin, "POST", "/calendar", {
+      title: otherTitle,
+      eventType: "MEETING",
+      startDate: today,
+      isAllDay: true,
+      isPublic: true,
+    });
+
+    try {
+      await loginAs(page, "kepalaSdit");
+      await page.goto("/calendar/events");
+      const search = page.getByPlaceholder("Cari event...");
+
+      // Their own agenda: Hapus is offered and the API accepts it.
+      await search.fill(ownTitle);
+      const ownRow = page.getByRole("row").filter({ hasText: ownTitle });
+      await expect(ownRow).toHaveCount(1, { timeout: 15000 });
+      await ownRow.getByRole("button").last().click();
+      await expect(page.getByRole("menuitem", { name: /Hapus/ })).toBeVisible();
+      await page.getByRole("menuitem", { name: /Hapus/ }).click();
+      await page
+        .getByRole("alertdialog")
+        .getByRole("button", { name: "Hapus" })
+        .click();
+      await expect(page.getByText(ownTitle)).toHaveCount(0, {
+        timeout: 15000,
+      });
+
+      // A unit agenda someone else created: no Edit and no Hapus, because the
+      // service would answer 403.
+      await search.fill(otherTitle);
+      const otherRow = page.getByRole("row").filter({ hasText: otherTitle });
+      await expect(otherRow).toHaveCount(1, { timeout: 15000 });
+      await otherRow.getByRole("button").last().click();
+      await expect(page.getByRole("menuitem", { name: /Hapus/ })).toHaveCount(
+        0,
+      );
+      await expect(page.getByRole("menuitem", { name: /Edit/ })).toHaveCount(0);
+    } finally {
+      for (const [session, title] of [
+        [kepala, ownTitle],
+        [admin, otherTitle],
+      ] as const) {
+        const left = await apiRequest<Listed>(
+          session,
+          "GET",
+          `/calendar?limit=100&search=${encodeURIComponent(title)}`,
+        ).catch(() => ({ data: [] }));
+        for (const event of left.data) {
+          if (event.title === title) {
+            await apiRequest(session, "DELETE", `/calendar/${event.id}`).catch(
+              () => undefined,
+            );
+          }
+        }
       }
     }
   });
