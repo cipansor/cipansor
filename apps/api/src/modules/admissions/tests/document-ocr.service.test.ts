@@ -378,6 +378,29 @@ No. KK : 3201234567890001
       expect(result.validation.status).toBe('WARNING');
     });
 
+    it('reads a narrative birth date when the city is followed by a comma', async () => {
+      const result = await parseAndVerifyDocument(
+        {
+          imageBase64: PNG_URI,
+          documentType: 'akta',
+          userInputData: { birthDate: '2012-10-24', fullName: 'Ahmad Fauzi' },
+        },
+        {
+          enabled: true,
+          readText: async () =>
+            [
+              'KUTIPAN AKTA KELAHIRAN',
+              'Nomor : 474.1/1234/2012',
+              'Nama : AHMAD FAUZI',
+              'Lahir di Bandung, pada tanggal 24-10-2012',
+            ].join('\n'),
+        }
+      );
+
+      expect(result.extractedData.birthDate).toBe('24-10-2012');
+      expect(result.validation.status).toBe('WARNING');
+    });
+
     it('reads the birth date, not the expiry date, on a KTP', async () => {
       const result = await parseAndVerifyDocument(
         {
