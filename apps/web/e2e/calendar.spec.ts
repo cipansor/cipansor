@@ -2,6 +2,7 @@ import { test, expect } from "./fixtures/auth.fixture";
 import { SEED_USERS, apiLogin, apiRequest, loginAs } from "./helpers/auth-api";
 import { settledContent } from "./helpers/page-state";
 import type { UpdateCalendarEventPayload } from "@cipansor/shared";
+import { refetchQuery } from "./helpers/query-cache";
 
 /**
  * Calendar Module E2E Tests
@@ -431,6 +432,30 @@ test.describe("Edit Event — Pengurus yayasan", () => {
         isPublic: true,
       },
     );
+    const original = await apiRequest<{ data: Record<string, unknown> }>(
+      session,
+      "GET",
+      `/calendar/${created.data.id}`,
+    );
+    let serveMoved = false;
+    const detailUrl = `**/api/calendar/${created.data.id}`;
+    await page.route(detailUrl, async (route) => {
+      if (route.request().method() !== "GET" || !serveMoved) {
+        return route.continue();
+      }
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          success: true,
+          data: {
+            ...original.data,
+            startDate: "2026-12-03T00:00:00.000Z",
+            endDate: "2026-12-04T00:00:00.000Z",
+          },
+        }),
+      });
+    });
 
     try {
       await loginAs(page, "ketuaPengurus");
@@ -449,6 +474,18 @@ test.describe("Edit Event — Pengurus yayasan", () => {
         page.getByRole("heading", { name: /Ubah Agenda/i }),
       ).toBeVisible({ timeout: 15000 });
       await expect(page.locator("#title")).toHaveValue(title);
+
+      // The detail moves while the draft is open. A title-only save must not
+      // send either the draft's old schedule or the refetched one.
+      serveMoved = true;
+      const refetched = page.waitForResponse(
+        (response) =>
+          response.url().endsWith(`/calendar/${created.data.id}`) &&
+          response.request().method() === "GET",
+      );
+      await refetchQuery(page, ["calendar-events", "detail", created.data.id]);
+      expect((await refetched).status()).toBe(200);
+      await expect(page.locator("#startDate")).toHaveValue(todayWib);
 
       await page.locator("#title").fill(updatedTitle);
       const titleOnlySaved = page.waitForResponse(
@@ -470,6 +507,7 @@ test.describe("Edit Event — Pengurus yayasan", () => {
       expect(titleOnlyBody.endTime).toBeUndefined();
       expect(titleOnlyBody.isAllDay).toBeUndefined();
       await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
+      await page.unroute(detailUrl);
 
       // Clear every optional field, then reopen to prove nothing survived.
       await page.goto(`/calendar/events/${created.data.id}/edit`);
@@ -506,6 +544,7 @@ test.describe("Edit Event — Pengurus yayasan", () => {
       await expect(page.locator("#description")).toHaveValue("");
       await expect(page.locator("#location")).toHaveValue("");
     } finally {
+      await page.unroute(detailUrl);
       await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
     }
   });
