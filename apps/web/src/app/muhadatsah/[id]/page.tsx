@@ -202,20 +202,12 @@ export default function MuhadatsahDetailPage() {
           </div>
           <div className="flex gap-2">
             {isScheduled && (
-              <>
-                <Button asChild>
-                  <Link href={`/muhadatsah/${id}/evaluate`}>
-                    <Play className="h-4 w-4 mr-2" />
-                    Mulai & Nilai
-                  </Link>
-                </Button>
-                <Button variant="outline" asChild>
-                  <Link href={`/muhadatsah/${id}/edit`}>
-                    <Edit className="h-4 w-4 mr-2" />
-                    Edit
-                  </Link>
-                </Button>
-              </>
+              <Button asChild>
+                <Link href={`/muhadatsah/${id}/evaluate`}>
+                  <Play className="h-4 w-4 mr-2" />
+                  Mulai & Nilai
+                </Link>
+              </Button>
             )}
           </div>
         </div>
@@ -540,12 +532,6 @@ export default function MuhadatsahDetailPage() {
                     <Link href={`/muhadatsah/${id}/evaluate`}>
                       <Play className="h-4 w-4 mr-2" />
                       Mulai & Nilai
-                    </Link>
-                  </Button>
-                  <Button variant="outline" className="w-full" asChild>
-                    <Link href={`/muhadatsah/${id}/edit`}>
-                      <Edit className="h-4 w-4 mr-2" />
-                      Edit Jadwal
                     </Link>
                   </Button>
                   <AlertDialog>

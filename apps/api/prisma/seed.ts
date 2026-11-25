@@ -4687,6 +4687,22 @@ async function main() {
         status: 'COMPLETED',
       },
     });
+    // One still-scheduled session so the demo data shows the actions that only
+    // exist for SCHEDULED rows (Mulai & Nilai, hapus). Dated beyond the current
+    // week so it does not remove its participants from match-partners.
+    const upcomingMuhadatsahDate = new Date();
+    upcomingMuhadatsahDate.setDate(upcomingMuhadatsahDate.getDate() + 8);
+    await prisma.muhadatsah.create({
+      data: {
+        unitId: smpIt.id,
+        studentId: students[0].id,
+        partnerId: students[1].id,
+        scheduledAt: upcomingMuhadatsahDate,
+        language: 'Arabic',
+        topic: 'Perkenalan di Asrama',
+        status: 'SCHEDULED',
+      },
+    });
   }
   console.log('   ✅ Muhadhoroh & Muhadatsah records created');
 
