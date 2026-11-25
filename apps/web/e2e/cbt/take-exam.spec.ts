@@ -1,4 +1,5 @@
 import { test, expect, Page } from "@playwright/test";
+import type { QuestionOption } from "@cipansor/shared";
 import {
   apiLogin,
   apiRequest,
@@ -35,20 +36,15 @@ const SMPIT_STUDENT: SeedUser = {
  * against real data (Playwright mocks are avoided per apps/web/AGENTS.md).
  */
 
-interface QuestionOption {
-  id: string;
-  text: string;
-}
-type StoredOption = QuestionOption | string;
 interface QuestionDto {
   id: string;
   type: string;
   content: string;
-  options: StoredOption[];
+  options: QuestionOption[];
   points: number;
 }
 
-function optionText(option: StoredOption): string {
+function optionText(option: QuestionOption): string {
   return typeof option === "string" ? option : option.text;
 }
 interface Exam {
@@ -60,10 +56,18 @@ interface Attempt {
   status: string;
   tabSwitchCount?: number;
 }
+interface AttemptAnswer {
+  questionId: string;
+  answer: string | null;
+  isCorrect: boolean | null;
+  score: string | number | null;
+}
 interface FullAttempt {
   id: string;
   status: string;
   tabSwitchCount: number;
+  score?: string | number | null;
+  answers?: AttemptAnswer[];
   exam: {
     questionBank: {
       questions: QuestionDto[];
@@ -131,7 +135,7 @@ async function createCbtExam(
 
   const seeds: Array<{
     content: string;
-    options: StoredOption[];
+    options: QuestionOption[];
     answerKey: string;
     points: number;
   }> = legacyStringOptions
@@ -319,7 +323,8 @@ test.describe("CBT Take Exam (Student)", () => {
       await page.getByRole("button", { name: "Selanjutnya" }).click();
     }
 
-    for (const opt of ordered[targetIndex].options) {
+    const target = ordered[targetIndex];
+    for (const opt of target.options) {
       await expect(
         page.getByText(optionText(opt), { exact: true }).first(),
       ).toBeVisible();
@@ -330,12 +335,15 @@ test.describe("CBT Take Exam (Student)", () => {
 
     await page.getByRole("button", { name: "Selesai" }).click();
     await page.getByRole("button", { name: "Ya, Selesai" }).click();
-    await expect(
-      page.getByRole("heading", { name: "Ujian Selesai" }),
-    ).toBeVisible({ timeout: 15000 });
+    await page.waitForURL("**/student/exams", { timeout: 15000 });
 
     const done = await getAttempt(student, attempt.id);
     expect(done.status).toBe("COMPLETED");
+    const saved = done.answers?.find((a) => a.questionId === target.id);
+    expect(saved?.answer).toBe("Jakarta");
+    expect(saved?.isCorrect).toBe(true);
+    expect(Number(saved?.score)).toBe(50);
+    expect(Number(done.score)).toBe(50);
 
     await cleanupCbtExam(admin, bankId);
   });
