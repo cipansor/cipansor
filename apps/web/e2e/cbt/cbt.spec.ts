@@ -251,6 +251,78 @@ test.describe("CBT Exams & Grading", () => {
     }
   });
 
+  test("Should keep the key when saving an edit with a blank option id", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const bankId = await createQuestionBank(session, "kunci-geser");
+    const content = `Soal kunci geser E2E ${Date.now()}`;
+
+    try {
+      await apiRequest(session, "POST", `/cbt/banks/${bankId}/questions`, {
+        type: "MULTIPLE_CHOICE",
+        content,
+        options: [
+          { id: "A", text: "Bandung" },
+          { id: " ", text: "Surabaya" },
+          { id: "B", text: "Jakarta" },
+        ],
+        answerKey: "B",
+        points: 10,
+      });
+
+      await page.goto(`/cbt/banks/${bankId}`);
+      const card = page.locator("div.group").filter({ hasText: content });
+      await card.hover();
+      await card.getByRole("button", { name: /Edit/i }).click();
+
+      const dialog = page.getByRole("dialog");
+      await expect(dialog.getByRole("combobox").nth(1)).toContainText("Opsi B");
+
+      const rowLabel = (index: number) =>
+        dialog
+          .locator(`input[name="options.${index}.text"]`)
+          .locator(
+            'xpath=ancestor::div[contains(@class,"flex items-center gap-3")]',
+          )
+          .locator("span")
+          .first();
+      await expect(rowLabel(0)).toHaveText("A");
+      await expect(rowLabel(1)).toHaveText("C");
+      await expect(rowLabel(2)).toHaveText("B");
+      await expect(dialog.locator('input[name="options.2.text"]')).toHaveValue(
+        "Jakarta",
+      );
+
+      // Change only the question text: the key must still name Jakarta.
+      await dialog
+        .locator('textarea[name="content"]')
+        .fill(`${content} (teks diperbaiki)`);
+      await dialog.getByRole("button", { name: /Simpan Pertanyaan/i }).click();
+      await expect(dialog).toBeHidden();
+
+      const saved = await apiRequest<{
+        data: { questions: BankQuestion[] };
+      }>(session, "GET", `/cbt/banks/${bankId}`);
+      const question = saved.data.questions.find((q) =>
+        q.content.includes("teks diperbaiki"),
+      );
+      expect(question, "edited question should be persisted").toBeTruthy();
+      expect(
+        Object.fromEntries(question!.options.map((o) => [o.text, o.id])),
+      ).toMatchObject({ Bandung: "A", Surabaya: "C", Jakarta: "B" });
+      expect(question!.answerKey).toBe("B");
+
+      await expect(
+        page.locator('[data-option-id="B"][data-correct="true"]'),
+      ).toContainText("Jakarta");
+    } finally {
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
+    }
+  });
+
   test("Should clear the key when the keyed option is removed", async ({
     page,
   }) => {

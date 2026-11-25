@@ -10,6 +10,8 @@ import {
   useUpdateQuestion,
   useDeleteQuestion,
   QuestionType,
+  type Question,
+  type QuestionOption,
 } from "@/hooks/use-cbt";
 import { PageHeader } from "@/components/shared/page-header";
 import {
@@ -146,18 +148,13 @@ function ExamBankDetailPageContent() {
     );
   }
 
-  const handleEditQuestion = (q: any) => {
+  const handleEditQuestion = (q: Question) => {
     setEditingQuestionId(q.id);
     form.reset({
       type: q.type,
       content: q.content,
       points: q.points,
-      options: uniqueOptionIds(
-        (q.options || []).map((option: any, index: number) => ({
-          ...option,
-          id: optionIdOf(option?.id, index),
-        })),
-      ),
+      options: uniqueOptionIds(q.options || [], q.answerKey),
       answerKey: answerKeyIdOf(q.answerKey) ?? "",
       explanation: q.explanation || "",
     });
@@ -182,15 +179,11 @@ function ExamBankDetailPageContent() {
   };
 
   const onQuestionSubmit = async (values: z.infer<typeof questionSchema>) => {
-    const normalizedOptions = values.options?.map((option, index) => ({
-      ...option,
-      id: optionIdOf(option.id, index),
-    }));
     const data = {
       ...values,
-      options: normalizedOptions
-        ? uniqueOptionIds(normalizedOptions)
-        : normalizedOptions,
+      options: values.options
+        ? uniqueOptionIds(values.options, values.answerKey)
+        : values.options,
       answerKey: answerKeyIdOf(values.answerKey) ?? "",
     };
     try {
@@ -572,7 +565,7 @@ function ExamBankDetailPageContent() {
         <CardContent>
           {bank.questions && bank.questions.length > 0 ? (
             <div className="space-y-4">
-              {bank.questions.map((q: any, index: number) => (
+              {bank.questions.map((q: Question, index: number) => (
                 <div
                   key={q.id}
                   className="border rounded-md p-4 group relative hover:border-primary/50 transition-colors"
@@ -615,38 +608,40 @@ function ExamBankDetailPageContent() {
 
                       {q.type === QuestionType.MULTIPLE_CHOICE && q.options && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                          {q.options.map((opt: any, optIdx: number) => {
-                            const optionId = optionIdOf(opt?.id, optIdx);
-                            const answerKey = answerKeyIdOf(q.answerKey);
-                            const isCorrect =
-                              answerKey !== null && optionId === answerKey;
-                            return (
-                              <div
-                                key={`${optionId}-${optIdx}`}
-                                data-option-id={optionId}
-                                data-correct={isCorrect ? "true" : "false"}
-                                className={`text-sm p-2 rounded border flex items-center gap-2 ${isCorrect ? "bg-green-50 border-green-200" : "bg-muted/20 border-transparent"}`}
-                              >
-                                <span
-                                  className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${isCorrect ? "bg-green-500 text-white" : "bg-slate-200 text-slate-700"}`}
+                          {q.options.map(
+                            (opt: QuestionOption, optIdx: number) => {
+                              const optionId = optionIdOf(opt.id, optIdx);
+                              const answerKey = answerKeyIdOf(q.answerKey);
+                              const isCorrect =
+                                answerKey !== null && optionId === answerKey;
+                              return (
+                                <div
+                                  key={`${optionId}-${optIdx}`}
+                                  data-option-id={optionId}
+                                  data-correct={isCorrect ? "true" : "false"}
+                                  className={`text-sm p-2 rounded border flex items-center gap-2 ${isCorrect ? "bg-green-50 border-green-200" : "bg-muted/20 border-transparent"}`}
                                 >
-                                  {optionId}
-                                </span>
-                                <span
-                                  className={
-                                    isCorrect
-                                      ? "font-medium text-green-900"
-                                      : "text-slate-700"
-                                  }
-                                >
-                                  {opt.text}
-                                </span>
-                                {isCorrect && (
-                                  <CheckCircle className="w-4 h-4 text-green-600 ml-auto" />
-                                )}
-                              </div>
-                            );
-                          })}
+                                  <span
+                                    className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${isCorrect ? "bg-green-500 text-white" : "bg-slate-200 text-slate-700"}`}
+                                  >
+                                    {optionId}
+                                  </span>
+                                  <span
+                                    className={
+                                      isCorrect
+                                        ? "font-medium text-green-900"
+                                        : "text-slate-700"
+                                    }
+                                  >
+                                    {opt.text}
+                                  </span>
+                                  {isCorrect && (
+                                    <CheckCircle className="w-4 h-4 text-green-600 ml-auto" />
+                                  )}
+                                </div>
+                              );
+                            },
+                          )}
                         </div>
                       )}
 
@@ -656,7 +651,11 @@ function ExamBankDetailPageContent() {
                             KUNCI JAWABAN:
                           </span>
                           <span className="text-sm font-medium">
-                            {q.answerKey}
+                            {typeof q.answerKey === "boolean"
+                              ? q.answerKey
+                                ? "Benar"
+                                : "Salah"
+                              : (answerKeyIdOf(q.answerKey) ?? "")}
                           </span>
                         </div>
                       )}

@@ -39,13 +39,18 @@ export enum QuestionType {
   TRUE_FALSE = "TRUE_FALSE",
 }
 
+export interface QuestionOption {
+  id: string;
+  text: string;
+}
+
 export interface Question {
   id: string;
   bankId?: string;
   type: QuestionType;
   content: string;
-  options?: any;
-  answerKey?: any;
+  options?: QuestionOption[];
+  answerKey?: string | boolean | { id?: string } | null;
   explanation?: string;
   points: number;
   order: number;

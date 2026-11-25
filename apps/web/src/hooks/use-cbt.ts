@@ -6,6 +6,7 @@ import { SecurityEventType } from "@cipansor/shared";
 export { QuestionType } from "@cipansor/shared";
 export type {
   Question,
+  QuestionOption,
   QuestionBank,
   ExamAttempt,
   ExamAnswer,

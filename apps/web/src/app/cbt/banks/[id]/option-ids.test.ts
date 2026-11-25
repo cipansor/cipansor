@@ -46,6 +46,19 @@ describe("option ids", () => {
     expect(uniqueOptionIds(options)[2].text).toBe("5");
   });
 
+  it("reserves stored ids so a blank option cannot take the key's id", () => {
+    const options = [
+      { id: "A", text: "Bandung" },
+      { id: " ", text: "Surabaya" },
+      { id: "B", text: "Jakarta" },
+    ];
+
+    const normalized = uniqueOptionIds(options, "B");
+    expect(normalized.map((o) => o.id)).toEqual(["A", "C", "B"]);
+    expect(normalized[1].text).toBe("Surabaya");
+    expect(normalized[2].text).toBe("Jakarta");
+  });
+
   it("does not hand a replacement an id another option still owns", () => {
     const options = [
       { id: "A", text: "satu" },

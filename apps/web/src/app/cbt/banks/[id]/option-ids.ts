@@ -1,9 +1,12 @@
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
+function trimmedId(id: unknown): string {
+  return typeof id === "string" ? id.trim() : "";
+}
+
 /** The id to show for an option: its trimmed stored id, or its letter by position. */
 export function optionIdOf(id: unknown, index: number): string {
-  const trimmed = typeof id === "string" ? id.trim() : "";
-  return trimmed || String.fromCharCode(65 + index);
+  return trimmedId(id) || String.fromCharCode(65 + index);
 }
 
 /** The answer key's id, trimmed; accepts a bare id or the `{ id }` shape. */
@@ -34,25 +37,31 @@ export function nextOptionId(
 }
 
 /**
- * Keep the first occurrence of each id and re-letter later duplicates, so the
- * answer key that names the first one still points at the same option.
+ * Trim every stored id, keep the first occurrence of each, and give later
+ * duplicates and empty ids an id no stored option or answer key owns.
  *
- * A replacement must not take an id that another option already owns: for
- * `A/A/B`, re-lettering the second A to B would move a key that names the
- * third option. Reserve every original id and fill from what is left.
+ * Reserving every non-empty stored id first is what keeps the key in place: a
+ * blank option that appears before the keyed one must not take the key's id.
  */
 export function uniqueOptionIds<T extends { id: string }>(
   options: readonly T[],
+  answerKey?: unknown,
 ): T[] {
-  const reserved = options.map((option) => option.id);
+  const stored = options.map((option) => trimmedId(option.id));
+  const key = answerKeyIdOf(answerKey);
+  const reserved = [
+    ...stored.filter((id): id is string => id !== ""),
+    ...(key ? [key] : []),
+  ];
   const used = new Set<string>();
-  return options.map((option) => {
-    if (!used.has(option.id)) {
-      used.add(option.id);
-      return option;
+  return options.map((option, index) => {
+    const id = stored[index];
+    if (id && !used.has(id)) {
+      used.add(id);
+      return { ...option, id };
     }
-    const id = nextOptionId([...used], reserved);
-    used.add(id);
-    return { ...option, id };
+    const replacement = nextOptionId([...used], reserved);
+    used.add(replacement);
+    return { ...option, id: replacement };
   });
 }
