@@ -35,6 +35,7 @@ interface CreatedTransaction {
 
 async function createReceivedTransaction(
   session: AuthSession,
+  paymentMethod: "CASH" | "PENDING" = "CASH",
 ): Promise<CreatedTransaction> {
   const pricing = await apiRequest<{ data: Array<{ id: string }> }>(
     session,
@@ -57,7 +58,7 @@ async function createReceivedTransaction(
       studentId: students.data[0].id,
       pricingId: pricing.data[0].id,
       weight: 2,
-      paymentMethod: "CASH",
+      paymentMethod,
       items: [{ itemType: "Seragam", quantity: 2 }],
     },
   );
@@ -265,6 +266,101 @@ test.describe("Menu status laundry mengikuti LAUNDRY_STATUS_FLOW", () => {
         "Transaksi ini sudah selesai; tidak ada status lanjutan.",
       ),
     ).toBeVisible();
+  });
+});
+
+test.describe("Pelunasan dan pembatalan di portal (R22.7)", () => {
+  test.describe.configure({ mode: "serial" });
+
+  let session: AuthSession;
+
+  test.beforeEach(async ({ page }) => {
+    session = await apiLoginNew(LAUNDRY_ADMIN);
+    await injectSession(page, session);
+  });
+
+  test("melunasi tagihan Bayar Nanti lalu menyimpannya", async ({ page }) => {
+    test.setTimeout(180_000);
+    const unpaid = await createReceivedTransaction(session, "PENDING");
+    await gotoAuthedPage(page, "/laundry", /^Laundry$/);
+    const dialog = await openTransactionDetail(page, unpaid.transactionNo);
+
+    await dialog.getByRole("button", { name: /Lunasi Tunai/ }).click();
+    await expect(
+      page.getByText("Pembayaran laundry berhasil dicatat"),
+    ).toBeVisible({ timeout: 15000 });
+
+    await expect
+      .poll(
+        async () =>
+          (
+            await apiRequest<{
+              data: {
+                paymentStatus: string;
+                paymentMethod: string;
+                paidAt: string | null;
+              };
+            }>(session, "GET", `/laundry/transactions/${unpaid.id}`)
+          ).data,
+        { timeout: 20000 },
+      )
+      .toMatchObject({ paymentStatus: "PAID", paymentMethod: "CASH" });
+
+    const stored = await apiRequest<{
+      data: { paymentStatus: string; paidAt: string | null };
+    }>(session, "GET", `/laundry/transactions/${unpaid.id}`);
+    expect(stored.data.paidAt).toBeTruthy();
+    await expect(dialog.getByText("Lunas")).toBeVisible();
+  });
+
+  test("pembatalan menolak lalu menerima konfirmasi", async ({ page }) => {
+    test.setTimeout(180_000);
+    const paid = await createReceivedTransaction(session, "CASH");
+    await gotoAuthedPage(page, "/laundry", /^Laundry$/);
+    const dialog = await openTransactionDetail(page, paid.transactionNo);
+
+    let declined = false;
+    page.once("dialog", async (confirmation) => {
+      declined = true;
+      await confirmation.dismiss();
+    });
+    await dialog
+      .getByRole("button", { name: LAUNDRY_STATUS_LABELS.CANCELLED })
+      .click();
+    await expect.poll(() => declined, { timeout: 5000 }).toBe(true);
+
+    await expect
+      .poll(
+        async () =>
+          (
+            await apiRequest<{ data: { status: string } }>(
+              session,
+              "GET",
+              `/laundry/transactions/${paid.id}`,
+            )
+          ).data.status,
+        { timeout: 5000 },
+      )
+      .toBe("RECEIVED");
+
+    page.once("dialog", (confirmation) => confirmation.accept());
+    await dialog
+      .getByRole("button", { name: LAUNDRY_STATUS_LABELS.CANCELLED })
+      .click();
+
+    await expect
+      .poll(
+        async () =>
+          (
+            await apiRequest<{ data: { status: string } }>(
+              session,
+              "GET",
+              `/laundry/transactions/${paid.id}`,
+            )
+          ).data.status,
+        { timeout: 20000 },
+      )
+      .toBe("CANCELLED");
   });
 });
 

@@ -54,24 +54,24 @@ test("Users & Roles shows the real total and pages past the first ten", async ({
   await injectSession(page, superAdmin);
   await page.goto("/users");
 
-  const footer = page.getByText(/Showing \d+ to \d+ of [\d.]+ results/);
+  const footer = page.getByText(/Menampilkan \d+[–-]\d+ dari [\d.]+ data/);
   await expect(footer).toBeVisible();
   const total = Number(
-    /of ([\d.]+) results/
+    /dari ([\d.]+) data/
       .exec((await footer.textContent()) ?? "")?.[1]
       .replace(/\./g, ""),
   );
   // The seed has dozens of accounts; the list used to say "of 0".
   expect(total).toBeGreaterThan(10);
-  await expect(page.getByText(/Page\s*1\s*of\s*\d+/)).toBeVisible();
+  await expect(page.getByText(/Halaman\s*1\s*dari\s*\d+/)).toBeVisible();
 
   const firstRow = await page.getByRole("row").nth(1).textContent();
   await page.getByRole("button", { name: "Halaman berikutnya" }).click();
-  await expect(page.getByText(/Page\s*2\s*of\s*\d+/)).toBeVisible();
+  await expect(page.getByText(/Halaman\s*2\s*dari\s*\d+/)).toBeVisible();
   await expect(page.getByRole("row").nth(1)).not.toHaveText(firstRow ?? "");
 
   // A search started on page 2 shows its results from page one. It used to
-  // stay on page 2: an empty table and "Page 2 of 1".
+  // stay on page 2: an empty table and "Halaman 2 dari 1".
   const searched = page.waitForResponse(
     (r) => r.url().includes("/users?") && r.url().includes("search="),
   );
@@ -79,7 +79,7 @@ test("Users & Roles shows the real total and pages past the first ten", async ({
     .getByPlaceholder("Search by name or email...")
     .fill(SEED_USERS.teacher.email);
   await searched;
-  await expect(page.getByText(/Page\s*1\s*of\s*1\b/)).toBeVisible();
+  await expect(page.getByText(/Halaman\s*1\s*dari\s*1\b/)).toBeVisible();
   await expect(
     page.getByRole("row").filter({ hasText: SEED_USERS.teacher.email }),
   ).toHaveCount(1);
@@ -90,10 +90,10 @@ test("the realm filter narrows the whole list, not the page shown", async ({
 }) => {
   await injectSession(page, superAdmin);
   await page.goto("/users");
-  const footer = page.getByText(/Showing \d+ to \d+ of [\d.]+ results/);
+  const footer = page.getByText(/Menampilkan \d+[–-]\d+ dari [\d.]+ data/);
   const totalOf = async () =>
     Number(
-      /of ([\d.]+) results/
+      /dari ([\d.]+) data/
         .exec((await footer.textContent()) ?? "")?.[1]
         .replace(/\./g, ""),
     );

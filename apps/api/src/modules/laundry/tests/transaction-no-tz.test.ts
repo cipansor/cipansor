@@ -25,6 +25,9 @@ const { MockDecimal } = vi.hoisted(() => {
   Decimal.prototype.lessThan = function (v2: any) {
     return this.v < (v2.v !== undefined ? v2.v : Number(v2));
   };
+  Decimal.prototype.toFixed = function (digits: number) {
+    return this.v.toFixed(digits);
+  };
   return { MockDecimal: Decimal };
 });
 

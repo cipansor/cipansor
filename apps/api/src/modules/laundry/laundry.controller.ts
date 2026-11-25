@@ -141,18 +141,12 @@ export const updateStatus = asyncHandler(async (req: Request, res: Response) => 
 
 /** POST /api/laundry/transactions/:id/pay */
 export const processPayment = asyncHandler(async (req: Request, res: Response) => {
-  const unitId = req.user?.unitId;
   const userId = req.user?.sub;
-  if (!unitId || !userId) {
-    return res
-      .status(400)
-      .json(ApiResponse.error('Unit ID atau User ID tidak ditemukan', 'REQUIRED'));
+  if (!userId) {
+    return res.status(400).json(ApiResponse.error('User ID tidak ditemukan', 'REQUIRED'));
   }
-  const transaction = await transactionService.processPayment(
-    req.params.id,
-    unitId,
-    userId,
-    req.body
-  );
+  // The service takes the reach from the token, like updateStatus: a Super_Admin
+  // without a unit pays into the transaction's own unit.
+  const transaction = await transactionService.processPayment(req.params.id, req.user!, req.body);
   return res.json(ApiResponse.success(transaction, 'Pembayaran laundry berhasil'));
 });

@@ -41,7 +41,7 @@ export function useLaundryTransactions(
     queryFn: async () => {
       const response = await api.get<ApiResponse<LaundryTransactionDTO[]>>(
         "/laundry/transactions",
-        { params },
+        { params, skipErrorToast: true },
       );
       return {
         data: response.data.data,
@@ -82,7 +82,7 @@ export function useLaundryStats(
     queryFn: async () => {
       const response = await api.get<ApiResponse<LaundryTransactionStatsDTO>>(
         "/laundry/transactions/stats",
-        { params },
+        { params, skipErrorToast: true },
       );
       return response.data.data;
     },

@@ -14,6 +14,7 @@ vi.mock('@/lib/prisma', () => ({
     journalEntry: { findMany: vi.fn(), create: vi.fn() },
     santriWallet: { findUnique: vi.fn(), update: vi.fn() },
     walletTransaction: { create: vi.fn() },
+    $queryRaw: vi.fn(),
     $transaction: vi.fn((cb) => cb(prisma)),
   },
 }));

@@ -172,6 +172,7 @@ export interface LaundryTransactionDTO {
   total: string | number;
   paymentMethod: LaundryPaymentMethodCode;
   paymentStatus: LaundryPaymentStatusCode;
+  paidAt: string | null;
   status: LaundryStatusCode;
   receivedAt: string;
   estimatedAt: string;

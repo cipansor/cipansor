@@ -87,6 +87,7 @@ vi.mock("@/hooks/use-students", () => ({ useStudents }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import LaundryPage from "./page";
+import { useAuthStore } from "@/stores/auth";
 
 /** One transaction as `GET /laundry/transactions` sends it. */
 const transaction = (over: Record<string, unknown> = {}) => ({
@@ -102,6 +103,7 @@ const transaction = (over: Record<string, unknown> = {}) => ({
   total: "21000",
   paymentMethod: "CASH",
   paymentStatus: "PAID",
+  paidAt: "2026-11-20T02:00:00.000Z",
   status: "RECEIVED",
   receivedAt: "2026-11-20T02:00:00.000Z",
   estimatedAt: "2026-11-22T02:00:00.000Z",
@@ -128,6 +130,13 @@ const listResult = (rows: unknown[]) => ({
 
 beforeEach(() => {
   vi.clearAllMocks();
+  useAuthStore.setState({
+    user: {
+      id: "u-admin",
+      role: { role: { code: "SMPIT_ADMIN" } },
+      unitId: "unit-smp",
+    } as never,
+  });
   useLaundryTransactions.mockReturnValue(listResult([transaction()]));
   useLaundryTransaction.mockReturnValue({
     data: transaction(),
@@ -438,6 +447,45 @@ describe("Laundry — a Bayar Nanti order can be settled", () => {
     await userEvent.click(screen.getByLabelText("Lihat detail"));
 
     expect(screen.queryByRole("button", { name: /Lunasi/ })).toBeNull();
+  });
+
+  it("shows no payment or status action to a read-only musyrif", async () => {
+    useAuthStore.setState({
+      user: {
+        id: "u-musyrif",
+        role: { role: { code: "MUSYRIF" } },
+        unitId: "unit-pesantren",
+      } as never,
+    });
+    useLaundryTransaction.mockReturnValue({
+      data: transaction({ paymentStatus: "UNPAID", paymentMethod: "PENDING" }),
+      isLoading: false,
+    });
+
+    render(<LaundryPage />);
+    await userEvent.click(screen.getByLabelText("Lihat detail"));
+
+    expect(screen.queryByRole("button", { name: /Lunasi/ })).toBeNull();
+    expect(screen.queryByText("Ubah Status")).toBeNull();
+  });
+
+  it("disables both action groups while one mutation is in flight", async () => {
+    useLaundryTransaction.mockReturnValue({
+      data: transaction({ paymentStatus: "UNPAID", paymentMethod: "PENDING" }),
+      isLoading: false,
+    });
+    useProcessLaundryPayment.mockReturnValue({
+      mutate: vi.fn(),
+      isPending: true,
+    });
+
+    render(<LaundryPage />);
+    await userEvent.click(screen.getByLabelText("Lihat detail"));
+
+    expect(screen.getByRole("button", { name: /Lunasi Tunai/ })).toBeDisabled();
+    expect(
+      screen.getByRole("button", { name: LAUNDRY_STATUS_LABELS.WASHING }),
+    ).toBeDisabled();
   });
 });
 

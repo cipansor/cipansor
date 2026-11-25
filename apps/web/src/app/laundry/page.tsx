@@ -65,6 +65,8 @@ import {
   LAUNDRY_PAYMENT_STATUS_LABELS,
   LAUNDRY_STATUS_LABELS,
   LAUNDRY_STATUS_VALUES,
+  ROLE_CODE_TO_LEGACY,
+  isLegacyRole,
   laundryItemCount,
   laundryStatusOptions,
   type LaundryItemInput,
@@ -87,6 +89,42 @@ import {
   useUpdateLaundryStatus,
 } from "@/hooks/use-laundry";
 import { useStudents } from "@/hooks/use-students";
+import { useAuthStore } from "@/stores/auth";
+
+const LAUNDRY_OPERATOR_LEGACY_ROLES = [
+  "SUPER_ADMIN",
+  "UNIT_ADMIN",
+  "STAFF",
+] as const;
+
+/**
+ * The pay and status routes accept these legacy buckets, and every one but
+ * Super_Admin needs a unit on the token. Hiding the buttons a reader cannot use
+ * keeps a 403 out of the dialog.
+ */
+function canOperateLaundry(
+  user: {
+    role?: string | { role?: { code?: string } };
+    userRoles?: Array<{ isPrimary?: boolean; role?: { code?: string } | null }>;
+    unitId?: string;
+  } | null,
+): boolean {
+  const code =
+    user?.userRoles?.find((assignment) => assignment.isPrimary)?.role?.code ??
+    (typeof user?.role === "string" ? user.role : user?.role?.role?.code);
+  const legacy = code
+    ? isLegacyRole(code)
+      ? code
+      : ROLE_CODE_TO_LEGACY[code]
+    : undefined;
+  if (
+    !legacy ||
+    !(LAUNDRY_OPERATOR_LEGACY_ROLES as readonly string[]).includes(legacy)
+  ) {
+    return false;
+  }
+  return legacy === "SUPER_ADMIN" || Boolean(user?.unitId);
+}
 
 /**
  * `/laundry` — Sarana & Layanan → Laundry.
@@ -759,6 +797,8 @@ function TransactionDetail({
   const { data: transaction, isLoading } = useLaundryTransaction(transactionId);
   const updateStatus = useUpdateLaundryStatus();
   const processPayment = useProcessLaundryPayment();
+  const canOperate = canOperateLaundry(useAuthStore((state) => state.user));
+  const busy = updateStatus.isPending || processPayment.isPending;
 
   /**
    * R22.3, R22.7: the hook writes nothing to the cache before the API answers,
@@ -767,7 +807,7 @@ function TransactionDetail({
    * message.
    */
   const changeStatus = (status: LaundryStatusCode) => {
-    if (!transaction) return;
+    if (!transaction || busy) return;
     updateStatus.mutate(
       { id: transaction.id, status },
       {
@@ -786,7 +826,7 @@ function TransactionDetail({
   const options = transaction ? laundryStatusOptions(transaction.status) : [];
 
   const settlePayment = (paymentMethod: "WALLET" | "CASH") => {
-    if (!transaction) return;
+    if (!transaction || busy) return;
     processPayment.mutate(
       { id: transaction.id, paymentMethod },
       {
@@ -894,7 +934,8 @@ function TransactionDetail({
               </div>
             )}
 
-            {transaction.paymentStatus === "UNPAID" &&
+            {canOperate &&
+              transaction.paymentStatus === "UNPAID" &&
               transaction.status !== "CANCELLED" && (
                 <div className="space-y-2">
                   <Label>Pelunasan</Label>
@@ -904,7 +945,7 @@ function TransactionDetail({
                   <div className="flex flex-wrap gap-2">
                     <Button
                       onClick={() => settlePayment("CASH")}
-                      disabled={processPayment.isPending}
+                      disabled={busy}
                     >
                       <Banknote className="h-4 w-4 mr-2" />
                       Lunasi Tunai
@@ -912,7 +953,7 @@ function TransactionDetail({
                     <Button
                       variant="outline"
                       onClick={() => settlePayment("WALLET")}
-                      disabled={processPayment.isPending}
+                      disabled={busy}
                     >
                       <Banknote className="h-4 w-4 mr-2" />
                       Lunasi Dompet
@@ -921,42 +962,46 @@ function TransactionDetail({
                 </div>
               )}
 
-            <div className="space-y-2">
-              <Label>Ubah Status</Label>
-              {options.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  Transaksi ini sudah selesai; tidak ada status lanjutan.
-                </p>
-              ) : (
-                <div className="flex flex-wrap gap-2">
-                  {options.map((option) => (
-                    <Button
-                      key={option.value}
-                      variant={
-                        option.value === "CANCELLED" ? "destructive" : "default"
-                      }
-                      disabled={updateStatus.isPending}
-                      onClick={() => {
-                        if (
-                          option.value === "CANCELLED" &&
-                          !confirm("Batalkan transaksi ini?")
-                        ) {
-                          return;
+            {canOperate && (
+              <div className="space-y-2">
+                <Label>Ubah Status</Label>
+                {options.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    Transaksi ini sudah selesai; tidak ada status lanjutan.
+                  </p>
+                ) : (
+                  <div className="flex flex-wrap gap-2">
+                    {options.map((option) => (
+                      <Button
+                        key={option.value}
+                        variant={
+                          option.value === "CANCELLED"
+                            ? "destructive"
+                            : "default"
                         }
-                        changeStatus(option.value);
-                      }}
-                    >
-                      {option.value === "CANCELLED" ? (
-                        <XCircle className="h-4 w-4 mr-2" />
-                      ) : (
-                        <CheckCircle className="h-4 w-4 mr-2" />
-                      )}
-                      {option.label}
-                    </Button>
-                  ))}
-                </div>
-              )}
-            </div>
+                        disabled={busy}
+                        onClick={() => {
+                          if (
+                            option.value === "CANCELLED" &&
+                            !confirm("Batalkan transaksi ini?")
+                          ) {
+                            return;
+                          }
+                          changeStatus(option.value);
+                        }}
+                      >
+                        {option.value === "CANCELLED" ? (
+                          <XCircle className="h-4 w-4 mr-2" />
+                        ) : (
+                          <CheckCircle className="h-4 w-4 mr-2" />
+                        )}
+                        {option.label}
+                      </Button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
       </DialogContent>

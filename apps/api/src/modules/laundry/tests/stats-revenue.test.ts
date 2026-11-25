@@ -52,6 +52,29 @@ describe('laundry stats — revenue excludes unpaid orders', () => {
     });
   });
 
+  it('counts orders on createdAt and money on paidAt', async () => {
+    prismaMock.laundryTransaction.aggregate
+      .mockResolvedValueOnce({
+        _sum: { weight: { toNumber: () => 2 } },
+        _count: { id: 1 },
+      })
+      .mockResolvedValueOnce({
+        _sum: { total: { toNumber: () => 20000 } },
+      });
+
+    await transactionService.getStats({ unitId: 'unit-smp' }, '2026-11-24', '2026-11-24');
+
+    const periodWhere = prismaMock.laundryTransaction.aggregate.mock.calls[0][0].where;
+    expect(periodWhere.createdAt.gte.toISOString()).toBe('2026-11-23T17:00:00.000Z');
+    expect(periodWhere.createdAt.lte.toISOString()).toBe('2026-11-24T16:59:59.999Z');
+    expect(periodWhere).not.toHaveProperty('paidAt');
+
+    const revenueWhere = prismaMock.laundryTransaction.aggregate.mock.calls[1][0].where;
+    expect(revenueWhere.paidAt.gte.toISOString()).toBe('2026-11-23T17:00:00.000Z');
+    expect(revenueWhere.paidAt.lte.toISOString()).toBe('2026-11-24T16:59:59.999Z');
+    expect(revenueWhere).not.toHaveProperty('createdAt');
+  });
+
   it('reports zero revenue when no order was paid', async () => {
     prismaMock.laundryTransaction.aggregate
       .mockResolvedValueOnce({

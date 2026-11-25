@@ -13,6 +13,8 @@ const api = vi.hoisted(() => ({
 vi.mock("@/lib/api", () => ({ default: api }));
 
 import {
+  useLaundryStats,
+  useLaundryTransactions,
   useProcessLaundryPayment,
   useUpdateLaundryStatus,
 } from "./use-laundry";
@@ -67,5 +69,36 @@ describe("laundry mutations own their error toast", () => {
         { skipErrorToast: true },
       ),
     );
+  });
+});
+
+describe("laundry reads leave the error toast to the page", () => {
+  it("does not let the Axios interceptor toast a failed list request", async () => {
+    api.get.mockResolvedValue({
+      data: {
+        data: [],
+        pagination: { page: 1, limit: 20, total: 0, totalPages: 1 },
+      },
+    });
+
+    const { result } = renderHook(() => useLaundryTransactions(), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(api.get).toHaveBeenCalledWith("/laundry/transactions", {
+      params: {},
+      skipErrorToast: true,
+    });
+  });
+
+  it("does not let the Axios interceptor toast a failed stats request", async () => {
+    api.get.mockResolvedValue({ data: { data: { summary: {} } } });
+
+    const { result } = renderHook(() => useLaundryStats(), { wrapper });
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+
+    expect(api.get).toHaveBeenCalledWith("/laundry/transactions/stats", {
+      params: {},
+      skipErrorToast: true,
+    });
   });
 });

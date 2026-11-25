@@ -127,6 +127,168 @@ describe('Laundry Accounting Integration', () => {
     expect(prisma.journalEntry.create).toHaveBeenCalledTimes(2);
   });
 
+  it('rounds the total once so the wallet debit and the bill agree', async () => {
+    const wallet = { id: 'wallet-1', balance: new MockDecimal(10000) };
+    (prisma.laundryPricing.findFirst as any).mockResolvedValue({
+      id: 'pricing-1',
+      name: 'Regular',
+      pricePerKg: new MockDecimal(6000.5),
+      minWeight: new MockDecimal(1),
+      processDays: 2,
+      isActive: true,
+    });
+    (prisma.santriWallet.findUnique as any)
+      .mockResolvedValueOnce(wallet)
+      .mockResolvedValueOnce({ ...wallet, balance: new MockDecimal(2499.37) });
+    (prisma.laundryTransaction.create as any).mockImplementation(async ({ data }: any) => ({
+      id: 'tx-1',
+      transactionNo: 'LDR-20240101-0001',
+      total: data.total,
+    }));
+
+    await transactionService.create(unitId, userId, {
+      studentId,
+      pricingId: 'pricing-1',
+      weight: 1.25,
+      paymentMethod: 'WALLET',
+    } as any);
+
+    const createData = (prisma.laundryTransaction.create as any).mock.calls[0][0].data;
+    expect(createData.total.toString()).toBe('7500.63');
+
+    const debit = (prisma.santriWallet.update as any).mock.calls[0][0].data;
+    expect(debit.balance.toString()).toBe('2499.37');
+
+    const walletEntry = (prisma.walletTransaction.create as any).mock.calls[0][0].data;
+    expect(walletEntry.amount.toString()).toBe('7500.63');
+  });
+
+  it('refunds the rounded bill, restoring the exact opening balance', async () => {
+    (prisma.laundryTransaction.findFirst as any).mockResolvedValue({
+      id: 'tx-1',
+      unitId,
+      transactionNo: 'LDR-20240101-0001',
+      status: 'RECEIVED',
+      paymentStatus: 'PAID',
+      walletId: 'wallet-1',
+      total: new MockDecimal(7500.63),
+    });
+    (prisma.santriWallet.findUnique as any).mockResolvedValue({
+      id: 'wallet-1',
+      balance: new MockDecimal(2499.37),
+    });
+    (prisma.journalEntry.findMany as any).mockResolvedValue([]);
+
+    await transactionService.updateStatus(
+      'tx-1',
+      { sub: userId, roleCode: 'SMPIT_ADMIN', unitId },
+      { status: 'CANCELLED' }
+    );
+
+    const refundUpdate = (prisma.santriWallet.update as any).mock.calls[0][0].data;
+    expect(refundUpdate.balance.toString()).toBe('10000');
+
+    const refundEntry = (prisma.walletTransaction.create as any).mock.calls[0][0].data;
+    expect(refundEntry.amount.toString()).toBe('7500.63');
+  });
+
+  it('locks the transaction before reading it, so payment and cancellation serialise', async () => {
+    for (const operation of [
+      () =>
+        transactionService.updateStatus(
+          'tx-1',
+          { sub: userId, roleCode: 'SMPIT_ADMIN', unitId },
+          { status: 'CANCELLED' }
+        ),
+      () =>
+        transactionService.processPayment(
+          'tx-1',
+          { sub: userId, roleCode: 'SMPIT_ADMIN', unitId },
+          { paymentMethod: 'CASH' }
+        ),
+    ]) {
+      const order: string[] = [];
+      (prisma.$queryRaw as any).mockImplementation(async () => {
+        order.push('lock');
+        return [];
+      });
+      (prisma.laundryTransaction.findFirst as any).mockImplementation(async () => {
+        order.push('read');
+        return null;
+      });
+
+      await expect(operation()).rejects.toMatchObject({ statusCode: 404 });
+      expect(order).toEqual(['lock', 'read']);
+    }
+  });
+
+  it('rejects a wallet payment with 400 when the balance is short', async () => {
+    (prisma.laundryTransaction.findFirst as any).mockResolvedValue({
+      id: 'tx-1',
+      unitId,
+      studentId,
+      transactionNo: 'LDR-20240101-0001',
+      status: 'RECEIVED',
+      paymentStatus: 'UNPAID',
+      total: new MockDecimal(20000),
+    });
+    (prisma.santriWallet.findUnique as any).mockResolvedValue({
+      id: 'wallet-1',
+      balance: new MockDecimal(5000),
+    });
+
+    await expect(
+      transactionService.processPayment(
+        'tx-1',
+        { sub: userId, roleCode: 'SMPIT_ADMIN', unitId },
+        { paymentMethod: 'WALLET' }
+      )
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining('Saldo wallet tidak mencukupi'),
+    });
+    expect(prisma.santriWallet.update).not.toHaveBeenCalled();
+  });
+
+  it('records paidAt and debits exactly the stored bill', async () => {
+    const total = new MockDecimal(20000);
+    (prisma.laundryTransaction.findFirst as any).mockResolvedValue({
+      id: 'tx-1',
+      unitId,
+      studentId,
+      transactionNo: 'LDR-20240101-0001',
+      status: 'RECEIVED',
+      paymentStatus: 'UNPAID',
+      total,
+    });
+    (prisma.santriWallet.findUnique as any).mockResolvedValue({
+      id: 'wallet-1',
+      balance: new MockDecimal(50000),
+    });
+    (prisma.laundryTransaction.update as any).mockResolvedValue({
+      id: 'tx-1',
+      transactionNo: 'LDR-20240101-0001',
+      total,
+      businessUnitId: null,
+    });
+
+    await transactionService.processPayment(
+      'tx-1',
+      { sub: userId, roleCode: 'SMPIT_ADMIN', unitId },
+      { paymentMethod: 'WALLET' }
+    );
+
+    const update = (prisma.laundryTransaction.update as any).mock.calls[0][0].data;
+    expect(update.paymentStatus).toBe('PAID');
+    expect(update.paidAt).toBeInstanceOf(Date);
+
+    const debit = (prisma.santriWallet.update as any).mock.calls[0][0].data;
+    expect(debit.balance.toString()).toBe('30000');
+
+    const walletEntry = (prisma.walletTransaction.create as any).mock.calls[0][0].data;
+    expect(walletEntry.amount.toString()).toBe('20000');
+  });
+
   it('should reverse journal entries when a paid laundry transaction is CANCELLED', async () => {
     const transactionId = 'tx-1';
     const mockTransaction = {
