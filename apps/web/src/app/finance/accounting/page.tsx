@@ -57,6 +57,7 @@ import { toast } from "sonner";
 import { format } from "date-fns";
 import { id as localeID } from "date-fns/locale";
 import { api } from "@/lib/api";
+import { getErrorMessage } from "@/lib/api-error";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -920,8 +921,8 @@ function AccountingSettingsTab() {
     onSuccess: () => {
       toast.success("Pengaturan berhasil disimpan");
     },
-    onError: () => {
-      toast.error("Gagal menyimpan pengaturan");
+    onError: (error) => {
+      toast.error(getErrorMessage(error));
     },
   });
 
@@ -999,11 +1000,19 @@ function AccountingSettingsTab() {
                       <SelectValue placeholder="Pilih Akun" />
                     </SelectTrigger>
                     <SelectContent>
-                      {accounts?.data.map((acc) => (
-                        <SelectItem key={acc.id} value={acc.id}>
-                          {acc.code} - {acc.name}
-                        </SelectItem>
-                      ))}
+                      {(accounts?.data ?? [])
+                        .filter(
+                          (acc) =>
+                            mapping.key !== "ACCOUNT_MAPPING_TAX_PAYABLE" ||
+                            (acc.type === "LIABILITY" &&
+                              (acc.unitId === selectedUnitId ||
+                                acc.unitId == null)),
+                        )
+                        .map((acc) => (
+                          <SelectItem key={acc.id} value={acc.id}>
+                            {acc.code} - {acc.name}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>

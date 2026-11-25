@@ -128,6 +128,31 @@ describe('payrollService.generate', () => {
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 
+  it('refuses a rule naming a missing component and never creates it (R1.21, R1.23)', async () => {
+    vi.mocked(attendanceDeductionService.computeForPeriod).mockResolvedValue([
+      deductionRow({
+        lines: [
+          {
+            code: 'LATE_DEDUCTION',
+            name: 'Potongan Terlambat',
+            kind: 'DEDUCTION',
+            basisLabel: 'Peraturan kepegawaian',
+            amount: 50_000,
+            detail: '2 hari terlambat',
+          },
+        ],
+      }),
+    ] as never);
+
+    await expect(
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
+    ).rejects.toThrow(/komponen gaji yang belum ada/i);
+    // Components belong to the yayasan; generation must not create one for a
+    // unit treasurer who may not write them.
+    expect(prisma.salaryComponent.upsert).not.toHaveBeenCalled();
+    expect(txMock.salaryComponent.upsert).not.toHaveBeenCalled();
+  });
+
   it('refuses a deduction past the guard without an override reason', async () => {
     vi.mocked(attendanceDeductionService.computeForPeriod).mockResolvedValue([
       deductionRow({ guardBreaches: ['Gaji pokok 1500000 di bawah UMK 2000000'] }),

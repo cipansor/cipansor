@@ -208,12 +208,39 @@ describe('payrollPeriodService.markAsPaid — a journal that cannot be written',
     expect(prisma.$transaction).toHaveBeenCalled();
   });
 
-  it('refuses the payment when the PPh 21 account is missing', async () => {
+  it('refuses the payment when the PPh 21 mapping is missing, never searching by name', async () => {
     vi.mocked(getAccountOrFallback).mockImplementation((async (_unit: string, key: string) => {
       if (key === 'ACCOUNT_MAPPING_TAX_PAYABLE') return null;
       return { id: key === 'ACCOUNT_MAPPING_CASH' ? 'acc-cash' : 'acc-expense' };
     }) as never);
-    accountCode.findFirst.mockResolvedValue(null as never);
+    // A PPh 23 account would be the wrong credit target; the service must not
+    // even look for a name match.
+    accountCode.findFirst.mockResolvedValue({
+      id: 'acc-pph23',
+      name: 'Utang Pajak Penghasilan Pasal 23',
+      unitId: 'unit-sd',
+      isActive: true,
+      type: 'LIABILITY',
+    } as never);
+
+    await expect(
+      payrollPeriodService.markAsPaid(TREASURER, PERIOD.id, new Date('2026-06-25'))
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(accountCode.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('refuses a mapping that points to another unit’s account', async () => {
+    vi.mocked(getAccountOrFallback).mockImplementation((async (_unit: string, key: string) => {
+      if (key === 'ACCOUNT_MAPPING_TAX_PAYABLE') {
+        return {
+          id: 'acc-foreign-tax',
+          unitId: 'unit-smp',
+          isActive: true,
+          type: 'LIABILITY',
+        };
+      }
+      return { id: key === 'ACCOUNT_MAPPING_CASH' ? 'acc-cash' : 'acc-expense' };
+    }) as never);
 
     await expect(
       payrollPeriodService.markAsPaid(TREASURER, PERIOD.id, new Date('2026-06-25'))

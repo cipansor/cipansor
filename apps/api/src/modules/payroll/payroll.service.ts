@@ -63,9 +63,12 @@ function usableLiabilityAccount<
 }
 
 /**
- * The unit's PPh 21 payable. The account mapping is the operator's explicit
- * choice; the name fallback covers a unit whose chart uses its own code (the
- * shared catalog's `2103` is Utang Bank, so a code fallback would be wrong).
+ * The unit's PPh 21 payable, from the operator's explicit mapping only.
+ *
+ * A name search is not a mapping: it once credited PPh 21 to whichever tax
+ * account happened to match the search string (PPh 23 got the money). A
+ * missing or unusable mapping must fail the payment and send the operator to
+ * the accounting settings, not guess.
  */
 async function resolveTaxPayableAccount(unitId: string, tx: Prisma.TransactionClient) {
   const mapped = await getAccountOrFallback(
@@ -75,23 +78,7 @@ async function resolveTaxPayableAccount(unitId: string, tx: Prisma.TransactionCl
     undefined,
     tx
   );
-  const usableMapped = usableLiabilityAccount(mapped, unitId);
-  if (usableMapped) return usableMapped;
-
-  return usableLiabilityAccount(
-    await tx.accountCode.findFirst({
-      where: {
-        unitId,
-        isActive: true,
-        type: 'LIABILITY',
-        OR: [
-          { name: { contains: 'PPh 21', mode: 'insensitive' } },
-          { name: { contains: 'Pajak Penghasilan', mode: 'insensitive' } },
-        ],
-      },
-    }),
-    unitId
-  );
+  return usableLiabilityAccount(mapped, unitId);
 }
 
 /**

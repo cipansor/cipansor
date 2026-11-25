@@ -95,6 +95,9 @@ export interface PayrollPeriod {
   totalNet: number;
   totalTax: number;
   totalEmployees: number;
+  /** The slip count the shared policy reads; filled from `_count.payrolls`. */
+  slipCount?: number;
+  _count?: { payrolls?: number };
   createdById?: string;
   approvedById?: string | null;
   approvedBy?: string;
@@ -399,7 +402,17 @@ export function usePayrollPeriods(params?: ListPeriodsParams) {
         "/payroll/periods",
         { params },
       );
-      return response.data;
+      return {
+        ...response.data,
+        data: response.data.data.map((period) => ({
+          ...period,
+          slipCount:
+            period.slipCount ??
+            period._count?.payrolls ??
+            period.totalEmployees ??
+            0,
+        })),
+      };
     },
   });
 }

@@ -76,7 +76,7 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
-import { payrollButtons, type PayrollAction } from "@cipansor/shared";
+import { periodActionsFor } from "@/lib/payroll-actions";
 import {
   usePayrollPeriods,
   usePayrollSlips,
@@ -107,7 +107,6 @@ import {
 } from "@/hooks/use-payroll";
 import { useAuth } from "@/hooks/use-auth";
 import { useUnits } from "@/hooks/use-units";
-import { getActiveRoleCode } from "@/lib/rbac";
 
 function PayrollPageContent() {
   const { user } = useAuth();
@@ -164,26 +163,8 @@ function PayrollPageContent() {
 
   // Buttons come from the same policy the API enforces, so a button never
   // appears for an action the server would refuse.
-  const payrollActions = (period: PayrollPeriod): PayrollAction[] => {
-    if (!user) return [];
-    const activeAssignment =
-      user.userRoles?.find((assignment) => assignment.isPrimary) ??
-      user.userRoles?.[0];
-    return payrollButtons(
-      {
-        sub: user.id,
-        roleCode: getActiveRoleCode(user) ?? "",
-        unitId: activeAssignment?.unit?.id ?? user.unitId ?? null,
-      },
-      {
-        unitId: period.unitId,
-        status: period.status === "CALCULATED" ? "DRAFT" : period.status,
-        createdById: period.createdById ?? "",
-        approvedById: period.approvedById ?? null,
-        slipCount: period.totalEmployees,
-      },
-    );
-  };
+  const payrollActions = (period: PayrollPeriod) =>
+    user ? periodActionsFor(user, period) : [];
 
   // Calculate stats
   const stats = {

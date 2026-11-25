@@ -1,5 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
+import { Errors } from '../../middleware/error';
 
 type TransactionClient = Prisma.TransactionClient;
 
@@ -37,7 +38,34 @@ export async function getAccountMapping(
   return typeof value === 'string' ? value : value.accountId || null;
 }
 
+/**
+ * A mapping the payroll journal will actually post to. The PPh 21 payable is
+ * a liability the unit owns (or a shared foundation-wide one); saving an
+ * expense account, an inactive row or another unit's account would make the
+ * settings look saved while the payment ignored it.
+ */
+async function assertUsableAccountMapping(unitId: string, key: string, accountId: string) {
+  if (key !== ACCOUNT_MAPPING_KEYS.TAX_PAYABLE) return;
+
+  const account = await prisma.accountCode.findUnique({
+    where: { id: accountId },
+    select: { unitId: true, isActive: true, type: true },
+  });
+  if (
+    !account ||
+    !account.isActive ||
+    account.type !== 'LIABILITY' ||
+    (account.unitId !== null && account.unitId !== unitId)
+  ) {
+    throw Errors.badRequest(
+      'Akun Utang PPh 21 harus akun kewajiban aktif milik unit ini atau akun bersama'
+    );
+  }
+}
+
 export async function setAccountMapping(unitId: string, key: string, accountId: string) {
+  await assertUsableAccountMapping(unitId, key, accountId);
+
   return prisma.setting.upsert({
     where: {
       unitId_key: {

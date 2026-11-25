@@ -249,3 +249,138 @@ test.describe("Payroll — dialog slip gaji", () => {
     await expect(dialog).toBeHidden();
   });
 });
+
+/**
+ * The portal derives its period buttons from the API's own `decidePayroll`:
+ * an empty draft has nothing to approve, and a draft with a slip does. Before
+ * the shared policy, Setujui rendered for both and the API answered 400 for the
+ * empty one.
+ */
+test.describe("Payroll — tombol periode mengikuti kebijakan API", () => {
+  const CREATOR = {
+    email: "sdit.bendahara@cipansor.or.id",
+    password: "Cipansor123!",
+  };
+  const APPROVER = {
+    email: "yayasan.bendahara@cipansor.or.id",
+    password: "Cipansor123!",
+  };
+  const YEAR = 2090;
+  let creator: AuthSession;
+  let approver: AuthSession;
+  let unitId: string;
+
+  /** The first Sunday of a month, so the generated period has no work days. */
+  function sundayIso(year: number, month: number): string {
+    const date = new Date(Date.UTC(year, month - 1, 1));
+    date.setUTCDate(date.getUTCDate() + ((7 - date.getUTCDay()) % 7));
+    return date.toISOString();
+  }
+
+  async function removePeriod(periodId: string) {
+    await apiRequest(creator, "DELETE", `/payroll/periods/${periodId}`).catch(
+      () => undefined,
+    );
+  }
+
+  async function createPeriod(name: string, month: number) {
+    const at = sundayIso(YEAR, month);
+    return apiRequest<{ data: { id: string } }>(
+      creator,
+      "POST",
+      "/payroll/periods",
+      {
+        unitId,
+        name,
+        month,
+        year: YEAR,
+        startDate: at,
+        endDate: at,
+      },
+    );
+  }
+
+  test.beforeAll(async () => {
+    test.skip(
+      await isProductionApi(),
+      "API_URL menunjuk API produksi; uji ini menulis data, jadi dilewati",
+    );
+    creator = await apiLogin(CREATOR);
+    approver = await apiLogin(APPROVER);
+    unitId = (creator.user as { unitId?: string }).unitId ?? "";
+    expect(unitId, "SD IT bendahara should have a unit").toBeTruthy();
+
+    // Clear a period left behind by an interrupted run in this test's year.
+    const existing = await apiRequest<{
+      data: Array<{ id: string; name: string }>;
+    }>(creator, "GET", "/payroll/periods");
+    for (const period of existing.data) {
+      if (period.name.startsWith("E2E otorisasi")) {
+        await removePeriod(period.id);
+      }
+    }
+  });
+
+  test("draf kosong tidak menawarkan Setujui", async ({ page }) => {
+    test.setTimeout(120_000);
+    const period = await createPeriod(`E2E otorisasi kosong ${Date.now()}`, 1);
+
+    try {
+      await signIn(page, approver);
+      await gotoAuthedPage(page, "/payroll", /Penggajian/i);
+
+      const named = page.getByRole("row", {
+        name: /E2E otorisasi kosong/i,
+      });
+      expect(await named.count(), "the new period should be listed").toBe(1);
+      await named.getByRole("button").last().click();
+
+      await expect(
+        page.getByRole("menuitem", { name: /Setujui/i }),
+      ).toBeHidden();
+      await page.keyboard.press("Escape");
+    } finally {
+      await removePeriod(period.data.id);
+    }
+  });
+
+  test("draf berslip menawarkan Setujui", async ({ page }) => {
+    test.setTimeout(120_000);
+    const period = await createPeriod(`E2E otorisasi berslip ${Date.now()}`, 2);
+
+    try {
+      const salaries = await apiRequest<{ data: Array<{ staffId: string }> }>(
+        creator,
+        "GET",
+        "/payroll/salaries",
+      );
+      expect(
+        salaries.data[0],
+        "seed should provide an SD IT salary",
+      ).toBeTruthy();
+      await apiRequest(creator, "POST", "/payroll/generate", {
+        periodId: period.data.id,
+        staffIds: [salaries.data[0].staffId],
+        overrideGuardReason: "Uji e2e otorisasi payroll",
+      });
+
+      await signIn(page, approver);
+      await gotoAuthedPage(page, "/payroll", /Penggajian/i);
+
+      const named = page.getByRole("row", {
+        name: /E2E otorisasi berslip/i,
+      });
+      await expect(named).toBeVisible();
+      await named.getByRole("button").last().click();
+
+      // The API's acceptance is covered by the service tests; this spec only
+      // proves the portal draws the button the API policy allows.
+      await expect(
+        page.getByRole("menuitem", { name: /Setujui/i }),
+      ).toBeVisible();
+      await page.keyboard.press("Escape");
+    } finally {
+      await removePeriod(period.data.id);
+    }
+  });
+});
