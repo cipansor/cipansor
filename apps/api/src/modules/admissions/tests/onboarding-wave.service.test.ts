@@ -17,6 +17,7 @@ vi.mock('@/lib/prisma', () => ({
     admissionPeriod: {
       findUnique: vi.fn(),
       findFirst: vi.fn(),
+      update: vi.fn().mockResolvedValue({ registrationSeq: 1 }),
     },
     admissionWave: {
       count: vi.fn(),

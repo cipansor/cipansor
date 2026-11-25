@@ -17,6 +17,7 @@
  */
 import { createPrismaClient } from '../client';
 import { purgeExpiredRegistrants } from '../../src/jobs/registrant-retention.job';
+import { wibDayOf } from '../../src/utils/wib';
 
 const dryRun = process.argv.includes('--dry-run');
 
@@ -30,7 +31,7 @@ async function main() {
     for (const row of summary.expired) {
       console.log(
         `  ${row.registrationNo} — ${row.status}, gelombang ditutup ${row.closeDay}, ` +
-          `boleh dihapus sejak ${row.retentionStart.toISOString().slice(0, 10)} WIB`
+          `boleh dihapus sejak ${wibDayOf(row.retentionStart)} WIB`
       );
     }
 

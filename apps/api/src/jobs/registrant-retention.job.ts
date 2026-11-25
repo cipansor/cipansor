@@ -1,7 +1,7 @@
 import type { AdmissionStatus, DataSubjectRequestStatus, PrismaClient } from '@prisma/client';
 import type { AppPrismaClient } from '@/lib/prisma';
-import { deleteRegistrant } from '@/modules/admissions';
-import { shiftWibDay, wibDayOf, wibDayStart } from '@/utils/wib';
+import { deleteRegistrantForRetention } from '@/modules/admissions';
+import { dayOf, shiftWibDay, wibDayEnd, wibDayOf, wibDayStart } from '@/utils/wib';
 
 /**
  * Retensi data pendaftar SPMB — 90 hari sesudah gelombangnya ditutup.
@@ -29,11 +29,14 @@ import { shiftWibDay, wibDayOf, wibDayStart } from '@/utils/wib';
  * berkas santri (#1009). Selain itu — `REJECTED`, `CANCELLED`, dan yang tidak
  * pernah menjadi santri — dihapus.
  *
- * **Lewat `deleteRegistrant`, bukan `deleteMany`.** Jalur itu menjaga
- * `registeredCount`/`acceptedCount` gelombang tetap seimbang dengan baris yang
- * benar-benar ada, dan `RegistrantDocument` ikut terhapus lewat cascade.
- * Menghapus baris langsung akan meninggalkan gelombang yang menghitung
- * pendaftar yang sudah tidak ada.
+ * **Lewat `deleteRegistrantForRetention`, bukan `deleteMany`.** Jalur itu
+ * menjaga `registeredCount`/`acceptedCount` gelombang tetap seimbang dengan
+ * baris yang benar-benar ada, dan `RegistrantDocument` ikut terhapus lewat
+ * cascade. Menghapus baris langsung akan meninggalkan gelombang yang menghitung
+ * pendaftar yang sudah tidak ada. Jalur khusus retensi juga memeriksa ulang
+ * pembayaran, onboarding, dan permintaan hak subjek di bawah kunci baris:
+ * kandidat dipilih lebih dulu, dan keadaan dapat berubah sebelum gilirannya
+ * dihapus.
  *
  * **Satu baris audit setiap kali berjalan.** Log kontainer diputar 10 MB × 3
  * berkas, jadi bukti bahwa retensi berjalan pekan lalu sudah tergilas sebelum
@@ -97,19 +100,53 @@ export function cutoffCloseDayFor(now: Date): string {
  * di JS: cabang-cabang ini hanya mempersempit baris yang dibaca, sedangkan
  * boleh-tidaknya dihapus tetap diputuskan `retentionStartFor` atas `closeDay`
  * yang sebenarnya — supaya batas WIB hanya punya satu tempat uji.
+ *
+ * Dua batas karena dua bentuk kolom: `reRegistration*`/`results*` adalah
+ * `@db.Date` (tengah malam UTC), sedangkan `endDate` gelombang dan periode
+ * adalah timestamp yang ditulis `wibDayEnd` (23.59.59,999 WIB = 16.59.59,999Z).
+ * Memakai batas tengah malam UTC untuk yang timestamp melewatkan seluruh hari
+ * cutoff dan membuat retensi terlambat sehari.
+ *
+ * Tiap tahap memakai tanggal selesai, atau tanggal mulai bila selesai kosong:
+ * sesi satu hari disimpan dengan `endDate = null` (formulir gelombang meminta
+ * petugas mengosongkan tanggal selesai), jadi mengabaikan tanggal mulai membuat
+ * patokannya jatuh ke tahap sebelumnya dan data terhapus terlalu cepat.
  */
-function expiryFilter(cutoff: Date) {
+function expiryFilter(dateCutoff: Date, timestampCutoff: Date) {
   return {
     OR: [
-      { wave: { reRegistrationEndDate: { not: null, lte: cutoff } } },
+      { wave: { reRegistrationEndDate: { not: null, lte: dateCutoff } } },
       {
         wave: {
           reRegistrationEndDate: null,
-          resultsEndDate: { not: null, lte: cutoff },
+          reRegistrationStartDate: { not: null, lte: dateCutoff },
         },
       },
-      { wave: { reRegistrationEndDate: null, resultsEndDate: null, endDate: { lte: cutoff } } },
-      { wave: null, admissionPeriod: { endDate: { lte: cutoff } } },
+      {
+        wave: {
+          reRegistrationEndDate: null,
+          reRegistrationStartDate: null,
+          resultsEndDate: { not: null, lte: dateCutoff },
+        },
+      },
+      {
+        wave: {
+          reRegistrationEndDate: null,
+          reRegistrationStartDate: null,
+          resultsEndDate: null,
+          resultsStartDate: { not: null, lte: dateCutoff },
+        },
+      },
+      {
+        wave: {
+          reRegistrationEndDate: null,
+          reRegistrationStartDate: null,
+          resultsEndDate: null,
+          resultsStartDate: null,
+          endDate: { lte: timestampCutoff },
+        },
+      },
+      { wave: null, admissionPeriod: { endDate: { lte: timestampCutoff } } },
     ],
   };
 }
@@ -134,7 +171,9 @@ interface CandidateRow {
   status: AdmissionStatus;
   waveId: string | null;
   wave: {
+    reRegistrationStartDate: Date | null;
     reRegistrationEndDate: Date | null;
+    resultsStartDate: Date | null;
     resultsEndDate: Date | null;
     endDate: Date;
   } | null;
@@ -145,12 +184,18 @@ interface CandidateRow {
  * Hari tutup gelombang menurut urutan yang diputuskan pemilik: akhir daftar
  * ulang, lalu akhir pengumuman, lalu akhir pendaftaran. Pendaftar tanpa
  * gelombang memakai akhir periode unitnya.
+ *
+ * Tiap tahap memakai tanggal selesai, atau tanggal mulai bila selesai kosong —
+ * sesi satu hari disimpan sebagai `endDate = null` dan hanya punya tanggal
+ * mulai. Tanpa ini patokannya jatuh ke tahap sebelumnya.
  */
 function closeDayOf(row: CandidateRow): string {
   const wave = row.wave;
   const closeInstant =
     wave?.reRegistrationEndDate ??
+    wave?.reRegistrationStartDate ??
     wave?.resultsEndDate ??
+    wave?.resultsStartDate ??
     wave?.endDate ??
     row.admissionPeriod.endDate;
   return wibDayOf(closeInstant);
@@ -185,7 +230,7 @@ export async function purgeExpiredRegistrants(
       studentId: null,
       status: { not: 'ENROLLED' },
       registrationFeePaidAt: null,
-      ...expiryFilter(new Date(`${cutoff}T00:00:00.000Z`)),
+      ...expiryFilter(dayOf(cutoff), wibDayEnd(cutoff)),
     },
     select: {
       id: true,
@@ -193,7 +238,13 @@ export async function purgeExpiredRegistrants(
       status: true,
       waveId: true,
       wave: {
-        select: { reRegistrationEndDate: true, resultsEndDate: true, endDate: true },
+        select: {
+          reRegistrationStartDate: true,
+          reRegistrationEndDate: true,
+          resultsStartDate: true,
+          resultsEndDate: true,
+          endDate: true,
+        },
       },
       admissionPeriod: { select: { endDate: true } },
     },
@@ -241,7 +292,10 @@ export async function purgeExpiredRegistrants(
     for (const row of expired) {
       if (held.has(row.registrantId)) continue;
       try {
-        await deleteRegistrant(row.registrantId);
+        // Jalur khusus retensi: memeriksa ulang seluruh syarat di bawah kunci
+        // baris, karena pembayaran, permintaan hak subjek, atau onboarding
+        // dapat selesai di antara pemilihan kandidat dan giliran baris ini.
+        await deleteRegistrantForRetention(row.registrantId);
         deleted.push(row);
       } catch (error) {
         // Satu baris yang gagal tidak boleh menghentikan sisanya: kegagalan

@@ -46,6 +46,12 @@ vi.mock('@/lib/prisma', () => ({
     privacyPolicyVersion: {
       findUnique: vi.fn(),
     },
+    // The retention delete re-checks open data-subject requests under a row
+    // lock (`$executeRaw` is Prisma's lock form; a lock returns `void`).
+    dataSubjectRequest: {
+      findFirst: vi.fn(),
+    },
+    $executeRaw: vi.fn(),
     $transaction: vi.fn((cb) => cb(prisma)),
   },
 }));
@@ -74,6 +80,10 @@ describe('Admissions Service', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(prisma.admissionWave.count as any).mockResolvedValue(0);
+    // The registration counter is incremented atomically; each test that
+    // creates a registrant gets its own starting sequence.
+    vi.mocked(prisma.admissionPeriod.update as any).mockResolvedValue({ registrationSeq: 1 });
+    vi.mocked(prisma.$executeRaw as any).mockResolvedValue(1);
   });
 
   it('should reject document upload when registration token is registrant id or non-timestamped token', async () => {
@@ -307,6 +317,72 @@ describe('Admissions Service', () => {
     vi.mocked(prisma.admissionPeriod.findUnique as any).mockReset();
   });
 
+  describe('deleteRegistrantForRetention', () => {
+    function deletableRegistrant(over: Record<string, unknown> = {}) {
+      return {
+        status: 'REJECTED',
+        waveId: null,
+        studentId: null,
+        registrationFeePaidAt: null,
+        ...over,
+      };
+    }
+
+    it('deletes a registrant that still satisfies every retention condition', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(deletableRegistrant() as any);
+      vi.mocked(prisma.dataSubjectRequest.findFirst).mockResolvedValue(null as any);
+      vi.mocked(prisma.registrant.delete).mockResolvedValue({ id: 'r-1' } as any);
+
+      await service.deleteRegistrantForRetention('r-1');
+
+      // The row is locked before it is read, so onboarding (which takes the
+      // same lock) cannot turn it into a santri between the check and delete.
+      expect(prisma.$executeRaw).toHaveBeenCalled();
+      expect(prisma.registrant.delete).toHaveBeenCalledWith({ where: { id: 'r-1' } });
+    });
+
+    it('refuses a registrant whose daftar-ulang payment landed after the sweep picked it', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(
+        deletableRegistrant({ registrationFeePaidAt: new Date('2026-05-01T00:00:00.000Z') }) as any
+      );
+
+      await expect(service.deleteRegistrantForRetention('r-1')).rejects.toThrow(
+        /paid the registration fee/
+      );
+      expect(prisma.registrant.delete).not.toHaveBeenCalled();
+    });
+
+    it('refuses a registrant with an open data-subject request', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(deletableRegistrant() as any);
+      vi.mocked(prisma.dataSubjectRequest.findFirst).mockResolvedValue({ id: 'dsr-1' } as any);
+
+      await expect(service.deleteRegistrantForRetention('r-1')).rejects.toThrow(
+        /open data subject request/
+      );
+      // Only unfinished requests withhold; the query must ask for exactly them.
+      expect(prisma.dataSubjectRequest.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            subjectRegistrantId: 'r-1',
+            status: { in: ['RECEIVED', 'VERIFIED', 'PROCESSING'] },
+          }),
+        })
+      );
+      expect(prisma.registrant.delete).not.toHaveBeenCalled();
+    });
+
+    it('refuses a registrant that became a santri after the sweep picked it', async () => {
+      vi.mocked(prisma.registrant.findUnique).mockResolvedValue(
+        deletableRegistrant({ status: 'ENROLLED', studentId: 'std-1' }) as any
+      );
+
+      await expect(service.deleteRegistrantForRetention('r-1')).rejects.toThrow(
+        /enrolled registrant/
+      );
+      expect(prisma.registrant.delete).not.toHaveBeenCalled();
+    });
+  });
+
   it('should reject registration when all waves for a period are full', async () => {
     const mockPeriod = {
       id: 'p1',
@@ -350,7 +426,7 @@ describe('Admissions Service', () => {
     };
 
     vi.mocked(prisma.admissionPeriod.findUnique).mockResolvedValue(mockPeriod as any);
-    vi.mocked(prisma.registrant.count).mockResolvedValue(10);
+    vi.mocked(prisma.admissionPeriod.update as any).mockResolvedValue({ registrationSeq: 11 });
     (vi.mocked(prisma.registrant.create) as any).mockImplementation(({ data }: any) =>
       Promise.resolve({ ...data, id: 'r1' })
     );
@@ -374,6 +450,15 @@ describe('Admissions Service', () => {
     // globally-unique `registrationNo`. For id='p1' the suffix is 'P1'.
     expect(result.registrationNo).toBe('REG-2024-P1-00011');
     expect(result.fullName).toBe('Test Student');
+    // The number comes from an atomic counter, not `count(*) + 1`: retention
+    // deletes early rows while a later wave is still open, so a count would
+    // reissue a number another registrant already holds.
+    expect(prisma.admissionPeriod.update).toHaveBeenCalledWith({
+      where: { id: 'p1' },
+      data: { registrationSeq: { increment: 1 } },
+      select: { registrationSeq: true },
+    });
+    expect(prisma.registrant.count).not.toHaveBeenCalled();
     // Invoice creation is intentionally deferred to enrollment time, when a
     // real Student record exists. Creating it here would require a non-null
     // studentId that doesn't yet exist.

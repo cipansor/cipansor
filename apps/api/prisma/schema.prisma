@@ -1952,6 +1952,12 @@ model AdmissionPeriod {
   startDate       DateTime @map("start_date")
   endDate         DateTime @map("end_date")
   quota           Int      @default(0)
+  /// Nomor urut pendaftar tertinggi yang pernah diterbitkan untuk periode ini.
+  /// Hanya bertambah: retensi menghapus pendaftar gelombang lama sementara
+  /// gelombang berikutnya masih terbuka, sehingga nomor yang dihitung dari
+  /// `count(*) + 1` bisa terbit ulang dan bertabrakan dengan nomor yang masih
+  /// dipakai. `generateRegistrationNo` menaikkannya secara atomik.
+  registrationSeq Int      @default(0) @map("registration_seq")
   registrationFee Decimal  @default(0) @map("registration_fee") @db.Decimal(15, 2)
   isActive        Boolean  @default(true) @map("is_active")
   /// One line per requirement, in the order the brochure prints them.

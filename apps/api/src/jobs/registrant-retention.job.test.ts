@@ -1,12 +1,17 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 
-const { deleteRegistrantMock } = vi.hoisted(() => ({ deleteRegistrantMock: vi.fn() }));
+const { deleteRegistrantForRetentionMock } = vi.hoisted(() => ({
+  deleteRegistrantForRetentionMock: vi.fn(),
+}));
 
-// `deleteRegistrant` sengaja dipalsukan, dan **hanya** itu: pekerjaan ini
-// memang harus memakai jalur hapus yang sudah ada supaya `registeredCount`
-// gelombang tetap seimbang dan dokumennya ikut terhapus lewat cascade. Aturan
-// keseimbangan itu sendiri diuji di `admissions.service.test.ts`.
-vi.mock('@/modules/admissions', () => ({ deleteRegistrant: deleteRegistrantMock }));
+// `deleteRegistrantForRetention` sengaja dipalsukan, dan **hanya** itu:
+// pekerjaan ini memang harus memakai jalur hapus yang sudah ada supaya
+// `registeredCount` gelombang tetap seimbang, dokumennya ikut terhapus lewat
+// cascade, dan syarat retensi diperiksa ulang di bawah kunci baris. Aturan
+// keseimbangan dan pemeriksaan ulang itu diuji di `admissions.service.test.ts`.
+vi.mock('@/modules/admissions', () => ({
+  deleteRegistrantForRetention: deleteRegistrantForRetentionMock,
+}));
 
 import {
   cutoffCloseDayFor,
@@ -29,12 +34,20 @@ const RETENTION_START = new Date('2026-04-30T17:00:00.000Z');
 /** D+89 23.59 WIB — satu menit sebelum masa simpannya berakhir. */
 const JUST_BEFORE = new Date('2026-04-30T16:59:00.000Z');
 
-function wave(close: { reRegistrationEndDate?: Date | null; resultsEndDate?: Date | null }) {
+function wave(close: {
+  reRegistrationStartDate?: Date | null;
+  reRegistrationEndDate?: Date | null;
+  resultsStartDate?: Date | null;
+  resultsEndDate?: Date | null;
+  endDate?: Date;
+}) {
   return {
     // Kolom `@db.Date` dibaca Prisma sebagai tengah malam UTC.
+    reRegistrationStartDate: close.reRegistrationStartDate ?? null,
     reRegistrationEndDate: close.reRegistrationEndDate ?? null,
+    resultsStartDate: close.resultsStartDate ?? null,
     resultsEndDate: close.resultsEndDate ?? null,
-    endDate: new Date(`${CLOSE_DAY}T00:00:00.000Z`),
+    endDate: close.endDate ?? new Date(`${CLOSE_DAY}T00:00:00.000Z`),
   };
 }
 
@@ -60,9 +73,39 @@ function registrant(over: Partial<Record<string, unknown>> = {}) {
  * saringan itu hilang dari kuerinya — dan saringan itulah yang menjamin
  * pendaftar yang sudah menjadi santri tidak pernah tersentuh.
  */
+type FakeRow = ReturnType<typeof registrant>;
+type FakeRequest = { id: string; status: string };
+
+/**
+ * Evaluate one `expiryFilter` branch against a row, the way PostgreSQL would.
+ *
+ * Reading the query (rather than recomputing the close day in the fake) is what
+ * lets these tests fail when a branch is missing: a wave whose single-day
+ * session has no end date is selected only if the start-date branch is there.
+ */
+function matchesBranch(row: FakeRow, branch: any): boolean {
+  if ('admissionPeriod' in branch) {
+    return row.wave === null && row.admissionPeriod.endDate <= branch.admissionPeriod.endDate.lte;
+  }
+  const condition = branch.wave;
+  if (condition === null) return row.wave === null;
+  const w = row.wave as any;
+  if (!w) return false;
+  for (const [field, test] of Object.entries<any>(condition)) {
+    const actual: Date | null = w[field] ?? null;
+    if (test === null) {
+      if (actual !== null) return false;
+      continue;
+    }
+    if ('not' in test && actual === null) return false;
+    if ('lte' in test && (actual === null || actual.getTime() > test.lte.getTime())) return false;
+  }
+  return true;
+}
+
 function fakePrisma(
-  rows: ReturnType<typeof registrant>[],
-  { auditThrows = false, openRequests = [] as string[] } = {}
+  rows: FakeRow[],
+  { auditThrows = false, openRequests = [] as FakeRequest[] } = {}
 ) {
   const auditCreate = vi.fn(async (_args: { data: Record<string, unknown> }) => {
     if (auditThrows) throw new Error('audit_logs tidak dapat ditulis');
@@ -70,34 +113,29 @@ function fakePrisma(
   });
   const prisma = {
     registrant: {
-      findMany: vi.fn(async ({ where }: any) => {
-        const banned: string[] =
-          where.status?.notIn ?? (where.status?.not ? [where.status.not] : []);
-        // Batas yang didorong ke `where` (cabang pertama `expiryFilter`).
-        const cutoff: Date | null = where.OR?.[0]?.wave?.reRegistrationEndDate?.lte ?? null;
-        return rows.filter((row) => {
+      findMany: vi.fn(async ({ where }: any) =>
+        rows.filter((row) => {
+          const banned: string[] =
+            where.status?.notIn ?? (where.status?.not ? [where.status.not] : []);
           if (where.studentId === null && row.studentId !== null) return false;
           if (banned.includes(row.status)) return false;
           // Pendaftar yang sudah membayar daftar ulang adalah satu-satunya
           // catatan uang itu; sapuan tidak boleh menyentuhnya.
           if (where.registrationFeePaidAt === null && row.registrationFeePaidAt != null)
             return false;
-          if (cutoff) {
-            const w = row.wave as any;
-            const close = w
-              ? (w.reRegistrationEndDate ?? w.resultsEndDate ?? w.endDate)
-              : row.admissionPeriod.endDate;
-            if (close > cutoff) return false;
-          }
-          return true;
-        });
-      }),
+          return where.OR.some((branch: any) => matchesBranch(row, branch));
+        })
+      ),
     },
     dataSubjectRequest: {
       findMany: vi.fn(async ({ where }: any) =>
         openRequests
-          .filter((id) => where.subjectRegistrantId.in.includes(id))
-          .map((id) => ({ subjectRegistrantId: id }))
+          .filter(
+            (request) =>
+              where.subjectRegistrantId.in.includes(request.id) &&
+              where.status.in.includes(request.status)
+          )
+          .map((request) => ({ subjectRegistrantId: request.id }))
       ),
     },
     auditLog: { create: auditCreate },
@@ -106,8 +144,8 @@ function fakePrisma(
 }
 
 beforeEach(() => {
-  deleteRegistrantMock.mockReset();
-  deleteRegistrantMock.mockResolvedValue({ id: 'reg-1' });
+  deleteRegistrantForRetentionMock.mockReset();
+  deleteRegistrantForRetentionMock.mockResolvedValue(undefined);
 });
 
 describe('retentionStartFor', () => {
@@ -130,7 +168,7 @@ describe('purgeExpiredRegistrants', () => {
     const summary = await purgeExpiredRegistrants(prisma, { now: JUST_BEFORE });
 
     expect(summary.expired).toHaveLength(0);
-    expect(deleteRegistrantMock).not.toHaveBeenCalled();
+    expect(deleteRegistrantForRetentionMock).not.toHaveBeenCalled();
   });
 
   it('sudah menghapus tepat pada 00.00 WIB hari D+90', async () => {
@@ -139,7 +177,7 @@ describe('purgeExpiredRegistrants', () => {
     const summary = await purgeExpiredRegistrants(prisma, { now: RETENTION_START });
 
     expect(summary.expired.map((r) => r.registrationNo)).toEqual(['SPMB-2026-0001']);
-    expect(deleteRegistrantMock).toHaveBeenCalledWith('reg-1');
+    expect(deleteRegistrantForRetentionMock).toHaveBeenCalledWith('reg-1');
     expect(summary.deleted).toHaveLength(1);
   });
 
@@ -182,7 +220,74 @@ describe('purgeExpiredRegistrants', () => {
       'PENDAFTARAN',
       'PENGUMUMAN',
     ]);
-    expect(deleteRegistrantMock).not.toHaveBeenCalledWith('pakai-daftar-ulang');
+    expect(deleteRegistrantForRetentionMock).not.toHaveBeenCalledWith('pakai-daftar-ulang');
+  });
+
+  /**
+   * Sesi satu hari disimpan dengan tanggal selesai kosong dan hanya tanggal
+   * mulai (formulir gelombang meminta petugas mengosongkannya). Patokannya
+   * harus tanggal mulai itu, bukan tahap sebelumnya — kalau tidak, retensi
+   * berjalan dari akhir pengumuman dan menghapus data sepuluh hari terlalu
+   * cepat.
+   */
+  it('memakai tanggal mulai sesi satu hari sebagai patokan', async () => {
+    const reRegistrationDay = new Date('2026-02-20T00:00:00.000Z');
+    const resultsEnd = new Date('2026-02-10T00:00:00.000Z');
+    const { prisma } = fakePrisma([
+      registrant({
+        id: 'daftar-ulang-satu-hari',
+        registrationNo: 'SATU-HARI',
+        wave: wave({
+          reRegistrationStartDate: reRegistrationDay,
+          resultsEndDate: resultsEnd,
+        }),
+      }),
+    ]);
+
+    // 11 Mei = D+90 dari pengumuman 10 Feb, tetapi daftar ulang satu hari pada
+    // 20 Feb belum lewat masa simpannya.
+    const tooEarly = await purgeExpiredRegistrants(prisma, {
+      now: new Date('2026-05-11T00:00:00.000Z'),
+    });
+    expect(tooEarly.expired).toHaveLength(0);
+
+    const onTime = await purgeExpiredRegistrants(prisma, {
+      now: new Date('2026-05-21T00:00:00.000Z'),
+    });
+    expect(onTime.expired).toEqual([
+      expect.objectContaining({ registrationNo: 'SATU-HARI', closeDay: '2026-02-20' }),
+    ]);
+  });
+
+  /**
+   * `endDate` gelombang dan periode adalah timestamp yang ditulis
+   * `wibDayEnd` (16.59.59,999Z). Batas tengah malam UTC melewatkan seluruh
+   * hari cutoff dan membuat retensi jalur cadangan terlambat sehari.
+   */
+  it('menghapus gelombang dan periode tanpa sesi pada D+90, bukan D+91', async () => {
+    const closeInstant = new Date('2026-01-31T16:59:59.999Z');
+    const { prisma } = fakePrisma([
+      registrant({
+        id: 'gelombang-tanpa-sesi',
+        registrationNo: 'TANPA-SESI',
+        wave: wave({ endDate: closeInstant }),
+      }),
+      registrant({
+        id: 'periode-tanpa-gelombang',
+        registrationNo: 'TANPA-GELOMBANG',
+        waveId: null,
+        wave: null,
+        admissionPeriod: { endDate: closeInstant },
+      }),
+    ]);
+
+    const summary = await purgeExpiredRegistrants(prisma, { now: RETENTION_START });
+
+    expect(summary.expired.map((r) => r.registrationNo).sort()).toEqual([
+      'TANPA-GELOMBANG',
+      'TANPA-SESI',
+    ]);
+    expect(summary.deleted).toHaveLength(2);
   });
 
   it('pendaftar tanpa gelombang memakai akhir periode unitnya', async () => {
@@ -217,10 +322,10 @@ describe('purgeExpiredRegistrants', () => {
     });
 
     expect(summary.expired).toHaveLength(0);
-    expect(deleteRegistrantMock).not.toHaveBeenCalled();
+    expect(deleteRegistrantForRetentionMock).not.toHaveBeenCalled();
   });
 
-  it('menghapus lewat deleteRegistrant supaya penghitung gelombang tetap seimbang', async () => {
+  it('menghapus lewat jalur retensi supaya penghitung gelombang tetap seimbang', async () => {
     const { prisma } = fakePrisma([registrant()]);
 
     await purgeExpiredRegistrants(prisma, { now: RETENTION_START });
@@ -228,12 +333,12 @@ describe('purgeExpiredRegistrants', () => {
     // `deleteMany` akan meninggalkan `registeredCount` menghitung pendaftar
     // yang sudah tidak ada; jalur hapus yang sudah ada juga yang menurunkan
     // `acceptedCount` dan membuka kembali gelombang yang penuh karena kuota.
-    expect(deleteRegistrantMock).toHaveBeenCalledTimes(1);
+    expect(deleteRegistrantForRetentionMock).toHaveBeenCalledTimes(1);
     expect(prisma.registrant.deleteMany).toBeUndefined();
   });
 
   it('kegagalan satu pendaftar tidak menghentikan sisanya', async () => {
-    deleteRegistrantMock.mockImplementation(async (id: string) => {
+    deleteRegistrantForRetentionMock.mockImplementation(async (id: string) => {
       if (id === 'reg-1') throw new Error('Cannot delete enrolled registrant');
       return { id };
     });
@@ -276,7 +381,7 @@ describe('purgeExpiredRegistrants', () => {
       dryRun: true,
     });
 
-    expect(deleteRegistrantMock).not.toHaveBeenCalled();
+    expect(deleteRegistrantForRetentionMock).not.toHaveBeenCalled();
     expect(auditCreate).not.toHaveBeenCalled();
     // Tetap melaporkan apa yang *akan* dihapus — itulah gunanya dry run.
     expect(summary.expired).toHaveLength(1);
@@ -305,7 +410,7 @@ describe('purgeExpiredRegistrants', () => {
     });
 
     expect(summary.expired.map((r) => r.registrationNo)).toEqual(['BELUM-BAYAR']);
-    expect(deleteRegistrantMock).not.toHaveBeenCalledWith('bayar');
+    expect(deleteRegistrantForRetentionMock).not.toHaveBeenCalledWith('bayar');
   });
 
   /**
@@ -319,14 +424,14 @@ describe('purgeExpiredRegistrants', () => {
         registrant({ id: 'minta-akses', registrationNo: 'MINTA-AKSES' }),
         registrant({ id: 'biasa', registrationNo: 'BIASA' }),
       ],
-      { openRequests: ['minta-akses'] }
+      { openRequests: [{ id: 'minta-akses', status: 'RECEIVED' }] }
     );
 
     const summary = await purgeExpiredRegistrants(prisma, { now: RETENTION_START });
 
     expect(summary.withheld).toBe(1);
-    expect(deleteRegistrantMock).toHaveBeenCalledWith('biasa');
-    expect(deleteRegistrantMock).not.toHaveBeenCalledWith('minta-akses');
+    expect(deleteRegistrantForRetentionMock).toHaveBeenCalledWith('biasa');
+    expect(deleteRegistrantForRetentionMock).not.toHaveBeenCalledWith('minta-akses');
     // Jumlah yang ditahan ikut tercatat: itu satu-satunya cara melihat ada
     // subjek yang menunggu jawaban, bukan sekadar lolos dari sapuan.
     expect((auditCreate.mock.calls[0]![0].data as any).newValues).toMatchObject({ withheld: 1 });
@@ -334,11 +439,16 @@ describe('purgeExpiredRegistrants', () => {
 
   it('permintaan hak subjek yang sudah selesai tidak menahan apa pun', async () => {
     // Hanya RECEIVED/VERIFIED/PROCESSING yang menahan; yang COMPLETED/REJECTED
-    // sudah tidak butuh subjeknya lagi.
-    const { prisma } = fakePrisma([registrant({ id: 'reg-1' })], { openRequests: [] });
+    // sudah tidak butuh subjeknya lagi. Permintaannya ada, supaya uji ini gagal
+    // bila kuerinya berhenti membedakan status terbuka dan selesai.
+    const { prisma } = fakePrisma([registrant({ id: 'reg-1' })], {
+      openRequests: [{ id: 'reg-1', status: 'COMPLETED' }],
+    });
 
     const summary = await purgeExpiredRegistrants(prisma, { now: RETENTION_START });
 
+    const where = (prisma.dataSubjectRequest.findMany as any).mock.calls[0][0].where;
+    expect(where.status.in).toEqual(['RECEIVED', 'VERIFIED', 'PROCESSING']);
     expect(summary.withheld).toBe(0);
     expect(summary.deleted).toHaveLength(1);
   });
@@ -355,8 +465,14 @@ describe('purgeExpiredRegistrants', () => {
     expect(where.registrationFeePaidAt).toBeNull();
     expect(where.OR).toBeDefined();
     // Cutoff = hari tutup terlama yang masih boleh dihapus = 2026-01-31.
+    // Kolom `@db.Date` memakai tengah malam UTC…
     expect(where.OR[0].wave.reRegistrationEndDate.lte).toEqual(
       new Date('2026-01-31T00:00:00.000Z')
+    );
+    // …sedangkan `endDate` bertipe timestamp memakai akhir hari WIB, bukan
+    // tengah malam UTC yang di WIB baru pukul 07.00 dan melewatkan hari itu.
+    expect(where.OR.at(-1).admissionPeriod.endDate.lte).toEqual(
+      new Date('2026-01-31T16:59:59.999Z')
     );
   });
 
@@ -370,7 +486,7 @@ describe('purgeExpiredRegistrants', () => {
 
     const summary = await purgeExpiredRegistrants(prisma, { now: RETENTION_START });
 
-    expect(deleteRegistrantMock).toHaveBeenCalledWith('reg-1');
+    expect(deleteRegistrantForRetentionMock).toHaveBeenCalledWith('reg-1');
     expect(summary.deleted).toHaveLength(1);
   });
 });
