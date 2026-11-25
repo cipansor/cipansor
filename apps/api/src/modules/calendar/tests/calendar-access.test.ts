@@ -310,6 +310,40 @@ describe('calendarService.update — no scope escalation', () => {
         .scope
     ).toBe(EventScope.SPECIFIC_CLASS);
   });
+
+  it('refuses a Pengurus turning its class event into a unit event', async () => {
+    prismaMock.calendarEvent.findUnique.mockResolvedValue({
+      id: 'event-1',
+      unitId: UNIT,
+      classId: 'class-1',
+      scope: EventScope.SPECIFIC_CLASS,
+      isPublic: false,
+      createdById: FOUNDATION.sub,
+    });
+
+    await expect(
+      calendarService.update('event-1', { scope: EventScope.SPECIFIC_UNIT }, FOUNDATION)
+    ).rejects.toThrow(/bercakupan/);
+    expect(prismaMock.calendarEvent.update).not.toHaveBeenCalled();
+  });
+
+  it('lets a Pengurus keep a foundation-wide event foundation-wide', async () => {
+    prismaMock.calendarEvent.findUnique.mockResolvedValue({
+      id: 'event-1',
+      unitId: null,
+      classId: null,
+      scope: EventScope.ALL_UNITS,
+      isPublic: true,
+      createdById: FOUNDATION.sub,
+    });
+
+    await calendarService.update('event-1', { scope: EventScope.ALL_UNITS }, FOUNDATION);
+
+    expect(
+      (prismaMock.calendarEvent.update.mock.calls.at(-1)![0] as { data: { scope: string } }).data
+        .scope
+    ).toBe(EventScope.ALL_UNITS);
+  });
 });
 
 describe("calendarService — a unit admin manages its unit, not another's", () => {

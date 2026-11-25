@@ -519,21 +519,22 @@ export class CalendarService {
       throw Errors.forbidden('Cannot edit this event');
     }
 
-    let scope = input.scope;
-    if (!this.canPublishFoundationWide(currentUser)) {
-      if (scope === EventScope.ALL_UNITS) {
+    // `scope` follows the event's own unit/class columns, for every role. The
+    // form no longer sends it, and accepting it here let a Pengurus turn its
+    // class agenda into a unit-wide one while `classId` stayed set, which the
+    // list then read as a non-class event (#1157).
+    const expectedScope = event.classId
+      ? EventScope.SPECIFIC_CLASS
+      : event.unitId
+        ? EventScope.SPECIFIC_UNIT
+        : EventScope.ALL_UNITS;
+    if (input.scope && input.scope !== expectedScope) {
+      if (!this.canPublishFoundationWide(currentUser) && input.scope === EventScope.ALL_UNITS) {
         throw Errors.forbidden('Hanya pengurus yayasan yang dapat membuat agenda seluruh yayasan');
       }
-      const expected = event.classId
-        ? EventScope.SPECIFIC_CLASS
-        : event.unitId
-          ? EventScope.SPECIFIC_UNIT
-          : EventScope.ALL_UNITS;
-      if (scope && scope !== expected) {
-        throw Errors.badRequest(`Event ini harus bercakupan ${expected}`);
-      }
-      scope = expected;
+      throw Errors.badRequest(`Event ini harus bercakupan ${expectedScope}`);
     }
+    const scope = expectedScope;
 
     const updated = await prisma.calendarEvent.update({
       where: { id },

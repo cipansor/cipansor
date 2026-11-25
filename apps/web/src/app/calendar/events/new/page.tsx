@@ -36,8 +36,7 @@ import {
   useOverseesAllUnits,
   useSessionUnitId,
 } from "@/components/shared/unit-scope";
-import { usePermission } from "@/hooks/use-permission";
-import { PERMISSIONS } from "@/constants/permissions";
+import { useCanWriteCalendar } from "@/hooks/use-calendar-permissions";
 import {
   Calendar as CalendarIcon,
   ArrowLeft,
@@ -55,7 +54,7 @@ export default function NewEventPage() {
   const { user, isLoading: authLoading } = useAuth();
   const overseesAllUnits = useOverseesAllUnits();
   const sessionUnitId = useSessionUnitId();
-  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
+  const canManage = useCanWriteCalendar();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [formData, setFormData] = useState({
     title: "",
@@ -543,7 +542,10 @@ export default function NewEventPage() {
                         </SelectContent>
                       </Select>
                     ) : (
-                      <div className="rounded-md border bg-muted/40 px-3 py-2">
+                      <div
+                        data-testid="event-unit"
+                        className="rounded-md border bg-muted/40 px-3 py-2"
+                      >
                         <p className="text-sm font-medium">{ownUnitName}</p>
                         <p className="text-xs text-muted-foreground">
                           Agenda disimpan untuk unit ini. Hanya pengurus yayasan

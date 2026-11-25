@@ -1,4 +1,8 @@
-import { UNIT_ADMIN_ROLE_CODES } from "@cipansor/shared";
+import {
+  CALENDAR_FOUNDATION_WRITE_ROLE_CODES,
+  CALENDAR_WRITE_ROLE_CODES,
+  UNIT_ADMIN_ROLE_CODES,
+} from "@cipansor/shared";
 import {
   sessionRoleCode,
   sessionUnitId,
@@ -28,12 +32,22 @@ export function canModifyCalendarEvent(
 ): boolean {
   if (!user || !event) return false;
 
-  if (sessionRoleCode(user) === "SUPER_ADMIN") return true;
+  const roleCode = sessionRoleCode(user);
+  if (!roleCode || !CALENDAR_WRITE_ROLE_CODES.includes(roleCode)) return false;
+  if (roleCode === "SUPER_ADMIN") return true;
   if (event.createdById && event.createdById === user.id) return true;
 
-  return (
-    UNIT_ADMIN_ROLE_CODES.includes(sessionRoleCode(user) ?? "") &&
+  if (
+    UNIT_ADMIN_ROLE_CODES.includes(roleCode) &&
     !!event.unitId &&
     event.unitId === sessionUnitId(user)
+  ) {
+    return true;
+  }
+
+  // Pengurus manage the foundation-wide agenda (no unit); a unit's class or
+  // school agenda belongs to that unit's admin.
+  return (
+    CALENDAR_FOUNDATION_WRITE_ROLE_CODES.includes(roleCode) && !event.unitId
   );
 }

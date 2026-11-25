@@ -39,8 +39,8 @@ import {
 } from "@/hooks/use-calendar";
 import { useUnits } from "@/hooks/use-units";
 import { useAuthStore } from "@/stores/auth";
-import { usePermission } from "@/hooks/use-permission";
-import { PERMISSIONS } from "@/constants/permissions";
+import { canModifyCalendarEvent } from "@/lib/calendar-access";
+import { useCanWriteCalendar } from "@/hooks/use-calendar-permissions";
 import {
   Calendar as CalendarIcon,
   ChevronLeft,
@@ -85,7 +85,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
 };
 
 export default function AcademicCalendarPage() {
-  const canManage = usePermission(PERMISSIONS.ACADEMIC_MANAGE);
+  const canManage = useCanWriteCalendar();
   const [currentDate, setCurrentDate] = useState(new Date());
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
   const [selectedCategory, setSelectedCategory] = useState<EventCategory | "">(
@@ -788,11 +788,14 @@ export default function AcademicCalendarPage() {
                     >
                       Tutup
                     </Button>
-                    {canManage && (
-                      <Link href={`/calendar/events/${selectedEvent.id}/edit`}>
-                        <Button variant="default">Edit Event</Button>
-                      </Link>
-                    )}
+                    {canManage &&
+                      canModifyCalendarEvent(user, selectedEvent) && (
+                        <Link
+                          href={`/calendar/events/${selectedEvent.id}/edit`}
+                        >
+                          <Button variant="default">Edit Event</Button>
+                        </Link>
+                      )}
                   </div>
                 </div>
               </>

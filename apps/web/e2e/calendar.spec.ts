@@ -353,6 +353,53 @@ test.describe("Tambah Event — unit admin", () => {
   });
 });
 
+test.describe("Tambah Event — Pengurus yayasan", () => {
+  test("membuka formulir dan menyimpan agenda seluruh yayasan", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.ketuaPengurus);
+    const title = `Agenda yayasan e2e ${Date.now()}`;
+    let createdId: string | undefined;
+
+    try {
+      await loginAs(page, "ketuaPengurus");
+      await page.goto("/calendar");
+
+      const add = page.getByRole("link", { name: /Tambah Event/i }).first();
+      await expect(add).toBeVisible({ timeout: 15000 });
+      await add.click();
+
+      await expect(
+        page.getByRole("heading", { name: /Tambah Event Baru/i }),
+      ).toBeVisible({ timeout: 15000 });
+      await expect(page.getByText("Akses ditolak")).toHaveCount(0);
+      await expect(page.getByText("Semua Unit", { exact: true })).toBeVisible();
+
+      await page.locator("#title").fill(title);
+      const saved = page.waitForResponse(
+        (response) =>
+          response.url().includes("/calendar") &&
+          response.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Simpan" }).click();
+
+      const response = await saved;
+      expect(response.status()).toBe(201);
+      const body = (await response.json()) as {
+        data: { id: string; scope: string; unit?: { name: string } | null };
+      };
+      createdId = body.data.id;
+      expect(body.data.scope).toBe("ALL_UNITS");
+      expect(body.data.unit).toBeNull();
+      await expect(page).toHaveURL(/\/calendar\/events/, { timeout: 15000 });
+    } finally {
+      if (createdId) {
+        await apiRequest(session, "DELETE", `/calendar/${createdId}`);
+      }
+    }
+  });
+});
+
 test.describe("Kalender Akademik — pengawasan hanya membaca", () => {
   test("menyembunyikan aksi tulis dan menolak formulir langsung", async ({
     page,

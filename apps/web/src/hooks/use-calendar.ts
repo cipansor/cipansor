@@ -6,6 +6,7 @@ import {
   type CalendarEvent as SharedCalendarEvent,
   type CalendarEventDeleteScope,
   type CalendarEventList,
+  type CalendarEventListParams,
   type CreateCalendarEventPayload,
   type EventRecurrenceCode,
 } from "@cipansor/shared";
@@ -105,21 +106,7 @@ export const EVENT_RECURRENCES: { value: EventRecurrence; label: string }[] = [
   { value: "YEARLY", label: "Setiap Tahun" },
 ];
 
-export interface CalendarEventParams {
-  page?: number;
-  limit?: number;
-  startDate?: string;
-  endDate?: string;
-  eventType?: EventCategory;
-  unitId?: string;
-  classId?: string;
-  isPublic?: boolean;
-  month?: number;
-  year?: number;
-  search?: string;
-  /** The management list: a unit admin also sees its unit's class events. */
-  manage?: boolean;
-}
+export type CalendarEventParams = CalendarEventListParams;
 
 export function useCalendarEvents(params: CalendarEventParams = {}) {
   return useQuery({
