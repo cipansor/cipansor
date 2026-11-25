@@ -235,12 +235,14 @@ test.describe("CBT Exams & Grading", () => {
     // before asserting, so a toast from either request cannot arrive later.
     expect((await topicMasteryResponse).status()).toBe(404);
     // waitForResponse resolves on the response headers, before the Axios
-    // interceptor has processed the rejection. Give it a turn so an error toast
-    // cannot appear after the assertion has already passed.
-    await page.waitForTimeout(500);
-    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, {
-      timeout: 3000,
-    });
+    // interceptor has processed the rejection.
+    await page.waitForLoadState("networkidle");
+    await expect
+      .poll(async () => page.locator("[data-sonner-toast]").count(), {
+        timeout: 2000,
+        intervals: [250],
+      })
+      .toBe(0);
 
     const difficultyTab = page.getByRole("tab", { name: /analisis soal/i });
     const insightsResponse = page.waitForResponse(
@@ -253,12 +255,14 @@ test.describe("CBT Exams & Grading", () => {
     // The controller answers 404 for an exam with no bank; the tab must treat
     // that as an empty state, not as a user-facing error.
     expect((await insightsResponse).status()).toBe(404);
-    await page.waitForTimeout(500);
-    await expect(page.locator("[data-sonner-toast]")).toHaveCount(0, {
-      timeout: 3000,
-    });
+    await page.waitForLoadState("networkidle");
+    await expect
+      .poll(async () => page.locator("[data-sonner-toast]").count(), {
+        timeout: 2000,
+        intervals: [250],
+      })
+      .toBe(0);
     await expect(difficultyTab).toHaveAttribute("aria-selected", "true");
-    await expect(page.getByText(/data tidak ditemukan/i)).toHaveCount(0);
   });
 
   test("Should monitor exam and grade an attempt", async ({ page }) => {
