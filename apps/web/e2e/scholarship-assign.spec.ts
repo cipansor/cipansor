@@ -49,7 +49,11 @@ test.beforeAll(async () => {
   );
   if (!otherUnitStudent)
     throw new Error("Data seed tidak punya santri dari unit lain");
-  const unitStudent = students.data.find((s) => s.unitId === program.unitId);
+  const unitStudent = (
+    await apiRequest<{
+      data: Array<{ nis: string; unitId: string }>;
+    }>(session, "GET", `/students?unitId=${program.unitId}&limit=20`)
+  ).data[0];
   if (!unitStudent)
     throw new Error("Data seed tidak punya santri di unit program");
 
@@ -103,12 +107,19 @@ test("Batal mengosongkan pilihan program, santri, dan pencarian", async ({
   await page.getByRole("button", { name: /assign santri/i }).click();
 
   let dialog = page.getByRole("dialog");
-  await dialog.getByPlaceholder(/ketik nama santri/i).fill("Ahmad");
   await dialog.getByRole("combobox").nth(1).click();
   await page
     .getByRole("option", { name: programName, exact: true })
     .first()
     .click();
+
+  // Pick a santri first: without it, the placeholder assertion after cancel
+  // would pass even if the santri state were never cleared.
+  await dialog.getByRole("combobox").nth(0).click();
+  await page
+    .getByRole("option", { name: new RegExp(programUnitStudentNis) })
+    .click();
+  await dialog.getByPlaceholder(/ketik nama santri/i).fill("Ahmad");
 
   await dialog.getByRole("button", { name: /^batal$/i }).click();
   await expect(dialog).toBeHidden();
