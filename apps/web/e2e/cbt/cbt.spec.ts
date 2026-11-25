@@ -122,34 +122,58 @@ test.describe("CBT Exams & Grading", () => {
     const reference = exams.data?.[0];
     expect(reference, "seed should provide an exam").toBeTruthy();
 
-    const banks = await apiRequest<{ data: Array<{ id: string }> }>(
-      session,
-      "GET",
-      "/cbt/banks?limit=1",
-    );
-    const bank = banks.data?.[0];
-    expect(bank, "seed should provide a question bank").toBeTruthy();
-
-    const created = await apiRequest<{ data: { id: string } }>(
+    // Create a dedicated bank. The shared list is ordered by updatedAt, so
+    // another spec's temporary bank can be deactivated between our GET and the
+    // exam POST; a bank we own cannot disappear mid-test.
+    const bank = await apiRequest<{ data: { id: string } }>(
       session,
       "POST",
-      "/cbt/exams",
+      "/cbt/banks",
       {
-        title: `Analisis Soal E2E ${Date.now()}`,
+        title: `Bank Analisis E2E ${Date.now()}`,
+        description: "E2E item-analysis bank",
         unitId: reference!.unitId,
-        academicYearId: reference!.academicYearId,
         subjectId: reference!.subjectId,
-        classId: reference!.classId,
         teacherId: reference!.teacherId,
-        questionBankId: bank!.id,
-        type: "DAILY_TEST",
-        scheduledAt: "2026-12-11T08:00:00.000Z",
-        status: "DRAFT",
       },
     );
-    const examId = created.data.id;
+    const bankId = bank.data.id;
+    const questionContent = `Soal analisis E2E ${Date.now()}`;
+    let examId: string | null = null;
 
     try {
+      await apiRequest(session, "POST", `/cbt/banks/${bankId}/questions`, {
+        type: "MULTIPLE_CHOICE",
+        content: questionContent,
+        options: [
+          { id: "a", text: "Pilihan A" },
+          { id: "b", text: "Pilihan B" },
+          { id: "c", text: "Pilihan C" },
+          { id: "d", text: "Pilihan D" },
+        ],
+        answerKey: "a",
+        points: 10,
+      });
+
+      const created = await apiRequest<{ data: { id: string } }>(
+        session,
+        "POST",
+        "/cbt/exams",
+        {
+          title: `Analisis Soal E2E ${Date.now()}`,
+          unitId: reference!.unitId,
+          academicYearId: reference!.academicYearId,
+          subjectId: reference!.subjectId,
+          classId: reference!.classId,
+          teacherId: reference!.teacherId,
+          questionBankId: bankId,
+          type: "DAILY_TEST",
+          scheduledAt: "2026-12-11T08:00:00.000Z",
+          status: "DRAFT",
+        },
+      );
+      examId = created.data.id;
+
       await page.goto(`/cbt/exams/${examId}/monitoring`);
       await expect(
         page.getByRole("heading", { name: /monitoring ujian/i }),
@@ -164,8 +188,16 @@ test.describe("CBT Exams & Grading", () => {
       await expect(
         page.getByText(/analisis butir soal/i).first(),
       ).toBeVisible();
+      await expect(page.getByText(questionContent).first()).toBeVisible();
     } finally {
-      await apiRequest(session, "DELETE", `/cbt/exams/${examId}`);
+      if (examId) {
+        await apiRequest(session, "DELETE", `/cbt/exams/${examId}`).catch(
+          () => undefined,
+        );
+      }
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`).catch(
+        () => undefined,
+      );
     }
   });
 
