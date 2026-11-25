@@ -85,9 +85,12 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   expect(response.status()).toBe(200);
   expect((await response.json()).success).toBe(true);
 
-  await expect(page.getByText(documents.uncheckedNote)).toBeVisible({
-    timeout: 30_000,
-  });
+  // Either note proves the verdict reached the reader: the manual note when the
+  // engine is off, the engine note when it is on.
+  const note = page
+    .getByText(documents.uncheckedNote)
+    .or(page.getByText(documents.ocrEngineNote));
+  await expect(note.first()).toBeVisible({ timeout: 30_000 });
   await page.screenshot({
     path: "test-results/spmb-document-scan-after.png",
     fullPage: true,
