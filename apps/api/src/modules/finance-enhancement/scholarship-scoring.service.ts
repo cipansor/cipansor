@@ -221,6 +221,8 @@ export class ScholarshipScoringService {
 
     const result = scoreCriteria(recipient.scholarship.criteria, factsOf(recipient.student));
 
+    // The column is non-null: excluded criteria store 0 here and are recognised
+    // by `value` (MANUAL_REQUIRED/UNKNOWN/NO_DATA) when read back.
     await prisma.$transaction([
       ...result.criteria.map((c) =>
         prisma.scholarshipAssessment.upsert({
@@ -260,7 +262,7 @@ export class ScholarshipScoringService {
     }
     return prisma.scholarshipCriterion.create({
       data: { ...input, scholarshipId },
-    }) as unknown as Promise<ScholarshipCriterion>;
+    });
   }
 }
 
