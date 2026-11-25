@@ -5,6 +5,7 @@ import {
   PAYROLL_APPROVER_ROLE_CODES,
   PAYROLL_COMPONENT_MANAGER_ROLE_CODES,
   PAYROLL_READER_ROLE_CODES,
+  cancelPayrollPeriodSchema,
 } from '@cipansor/shared';
 import { validate } from '../../middleware/validate';
 import * as controller from './payroll.controller';
@@ -18,7 +19,6 @@ import {
   generatePayrollSchema,
   approvePayrollPeriodSchema,
   payPayrollPeriodSchema,
-  cancelPayrollPeriodSchema,
   payrollItemAdjustmentSchema,
 } from './payroll.schema';
 

@@ -24,7 +24,7 @@ import {
   listUnitFor,
   periodFacts,
   writeUnitFor,
-} from './payroll-access';
+} from './payroll.access';
 import {
   CreateSalaryComponentInput,
   UpdateSalaryComponentInput,
@@ -43,6 +43,56 @@ const NOT_FOUND = {
   period: 'Periode penggajian',
   slip: 'Slip gaji',
 } as const;
+
+/** The key a non-cancelled period holds; null once cancelled, so a replacement fits. */
+function activePeriodKey(unitId: string, month: number, year: number): string {
+  return `${unitId}:${month}:${year}`;
+}
+
+/**
+ * A mapped account a unit may post a liability to: active, a liability, and
+ * either the unit's own row or a shared foundation-wide one. A mapping that
+ * points elsewhere is ignored rather than posted to.
+ */
+function usableLiabilityAccount<
+  T extends { unitId: string | null; isActive: boolean; type: string },
+>(account: T | null, unitId: string): T | null {
+  if (!account || !account.isActive || account.type !== 'LIABILITY') return null;
+  if (account.unitId !== null && account.unitId !== unitId) return null;
+  return account;
+}
+
+/**
+ * The unit's PPh 21 payable. The account mapping is the operator's explicit
+ * choice; the name fallback covers a unit whose chart uses its own code (the
+ * shared catalog's `2103` is Utang Bank, so a code fallback would be wrong).
+ */
+async function resolveTaxPayableAccount(unitId: string, tx: Prisma.TransactionClient) {
+  const mapped = await getAccountOrFallback(
+    unitId,
+    ACCOUNT_MAPPING_KEYS.TAX_PAYABLE,
+    undefined,
+    undefined,
+    tx
+  );
+  const usableMapped = usableLiabilityAccount(mapped, unitId);
+  if (usableMapped) return usableMapped;
+
+  return usableLiabilityAccount(
+    await tx.accountCode.findFirst({
+      where: {
+        unitId,
+        isActive: true,
+        type: 'LIABILITY',
+        OR: [
+          { name: { contains: 'PPh 21', mode: 'insensitive' } },
+          { name: { contains: 'Pajak Penghasilan', mode: 'insensitive' } },
+        ],
+      },
+    }),
+    unitId
+  );
+}
 
 /**
  * A period, or 404. Always loaded with the slip count, because every rule that
@@ -603,6 +653,7 @@ export const payrollPeriodService = {
       data: {
         ...data,
         unitId,
+        activeKey: activePeriodKey(unitId, data.month, data.year),
         startDate: new Date(data.startDate),
         endDate: new Date(data.endDate),
         payDate: data.payDate ? new Date(data.payDate) : null,
@@ -623,6 +674,11 @@ export const payrollPeriodService = {
         // A period never changes unit: that would move the whole payroll, and
         // its slips, into a unit whose treasurer never approved it.
         unitId: undefined,
+        activeKey: activePeriodKey(
+          period.unitId,
+          data.month ?? period.month,
+          data.year ?? period.year
+        ),
         startDate: data.startDate ? new Date(data.startDate) : undefined,
         endDate: data.endDate ? new Date(data.endDate) : undefined,
         payDate: data.payDate ? new Date(data.payDate) : undefined,
@@ -633,24 +689,31 @@ export const payrollPeriodService = {
   async approve(actor: PayrollActor, id: string, notes?: string) {
     const period = await loadPeriod(id);
     assertPayroll(actor, 'APPROVE', periodFacts(period));
+    const approvedAt = new Date();
 
     return prisma.$transaction(async (tx) => {
-      // Update all payrolls to APPROVED
+      // Claim the transition first: if another request approved or cancelled
+      // the period after we read it, this updates no row and the whole
+      // approval is refused instead of overwriting a newer state.
+      const claimed = await tx.payrollPeriod.updateMany({
+        where: { id, status: 'DRAFT' },
+        data: {
+          status: 'APPROVED',
+          approvedById: actor.sub,
+          approvedAt,
+          notes: notes || period.notes,
+        },
+      });
+      if (claimed.count === 0) {
+        throw Errors.conflict('Periode penggajian sudah berubah dan tidak dapat disetujui');
+      }
+
       await tx.payroll.updateMany({
         where: { periodId: id, status: 'DRAFT' },
         data: { status: 'APPROVED' },
       });
 
-      // Update period
-      return tx.payrollPeriod.update({
-        where: { id },
-        data: {
-          status: 'APPROVED',
-          approvedById: actor.sub,
-          approvedAt: new Date(),
-          notes: notes || period.notes,
-        },
-      });
+      return tx.payrollPeriod.findUnique({ where: { id } });
     });
   },
 
@@ -670,23 +733,31 @@ export const payrollPeriodService = {
     const period = await loadPeriod(id);
     assertPayroll(actor, 'PAY', periodFacts(period));
 
+    const paidAt = new Date();
+
     return prisma.$transaction(async (tx) => {
-      // 1. Every APPROVED slip of the period, and only those: a DRAFT slip was
+      // 1. Claim the period first. Two requests that both read APPROVED can
+      //    reach here; only the one whose conditional update changes a row may
+      //    write the journal, so the second answers 409 instead of booking the
+      //    payroll twice.
+      const claimed = await tx.payrollPeriod.updateMany({
+        where: { id, status: 'APPROVED' },
+        data: {
+          status: 'PAID',
+          payDate,
+          paidAt,
+          notes: notes || period.notes,
+        },
+      });
+      if (claimed.count === 0) {
+        throw Errors.conflict('Periode penggajian sudah berubah dan tidak dapat ditandai dibayar');
+      }
+
+      // 2. Every APPROVED slip of the period, and only those: a DRAFT slip was
       //    never approved and must not be paid by this call (R1.11).
       await tx.payroll.updateMany({
         where: { periodId: id, status: 'APPROVED' },
         data: { status: 'PAID' },
-      });
-
-      // 2. The period itself.
-      const updatedPeriod = await tx.payrollPeriod.update({
-        where: { id },
-        data: {
-          status: 'PAID',
-          payDate,
-          paidAt: new Date(),
-          notes: notes || period.notes,
-        },
       });
 
       // 3. The journal, for what was actually paid.
@@ -764,9 +835,7 @@ export const payrollPeriodService = {
 
         // Credit Tax Payable
         if (tax.gt(0)) {
-          const taxPayableAcc = await tx.accountCode.findFirst({
-            where: { unitId: period.unitId, code: '2103', isActive: true },
-          });
+          const taxPayableAcc = await resolveTaxPayableAccount(period.unitId, tx);
           if (!taxPayableAcc) {
             throw Errors.conflict(
               'Akun Utang PPh 21 unit ini tidak ditemukan di Chart of Accounts, ' +
@@ -793,6 +862,7 @@ export const payrollPeriodService = {
           const otherPayableAcc = await tx.accountCode.findFirst({
             where: {
               unitId: period.unitId,
+              type: 'LIABILITY',
               OR: [{ code: '2199' }, { name: { contains: 'Utang Lain', mode: 'insensitive' } }],
               isActive: true,
             },
@@ -819,7 +889,7 @@ export const payrollPeriodService = {
         }
       }
 
-      return updatedPeriod;
+      return tx.payrollPeriod.findUnique({ where: { id } });
     });
   },
 
@@ -840,20 +910,29 @@ export const payrollPeriodService = {
     assertPayroll(actor, 'CANCEL', periodFacts(period));
 
     return prisma.$transaction(async (tx) => {
-      // Update all payrolls to CANCELLED
+      // Claim the status we read. If an approval landed in between, this
+      // updates no row: a unit treasurer cannot cancel a period the yayasan
+      // just approved (R1.31).
+      const claimed = await tx.payrollPeriod.updateMany({
+        where: { id, status: period.status },
+        data: {
+          status: 'CANCELLED',
+          notes: notes || period.notes,
+          // The month is free again: a cancelled period keeps its history but
+          // no longer holds the unit's one-period-per-month slot.
+          activeKey: null,
+        },
+      });
+      if (claimed.count === 0) {
+        throw Errors.conflict('Periode penggajian sudah berubah dan tidak dapat dibatalkan');
+      }
+
       await tx.payroll.updateMany({
         where: { periodId: id },
         data: { status: 'CANCELLED' },
       });
 
-      // Update period
-      return tx.payrollPeriod.update({
-        where: { id },
-        data: {
-          status: 'CANCELLED',
-          notes: notes || period.notes,
-        },
-      });
+      return tx.payrollPeriod.findUnique({ where: { id } });
     });
   },
 
@@ -1043,6 +1122,35 @@ export const payrollService = {
     // for the staff this request generates, so one employee's missing day does
     // not block everyone else's slip.
     const requestedStaffIds = new Set(staffList.map((s) => s.id));
+
+    // Attendance rules name salary components. A missing component is not
+    // created here: components belong to the yayasan and only Bendahara
+    // Yayasan writes them (R1.21, R1.23). Refuse and name what is missing.
+    const componentByCode = new Map(components.map((component) => [component.code, component]));
+    const requestedLines = deductionRows
+      .filter((row) => requestedStaffIds.has(row.staffId))
+      .flatMap((row) => row.lines);
+    const missingComponents = [...new Set(requestedLines.map((line) => line.code))].filter(
+      (code) => !componentByCode.has(code)
+    );
+    if (missingComponents.length > 0) {
+      throw Errors.badRequest(
+        `Aturan absensi memakai komponen gaji yang belum ada atau tidak aktif: ` +
+          `${missingComponents.join(', ')}. Minta Bendahara Yayasan membuat komponen ` +
+          'tersebut lebih dulu.'
+      );
+    }
+    const mismatchedComponent = requestedLines.find(
+      (line) => componentByCode.get(line.code)?.type !== line.kind
+    );
+    if (mismatchedComponent) {
+      throw Errors.badRequest(
+        `Komponen gaji ${mismatchedComponent.code} bertipe ` +
+          `${componentByCode.get(mismatchedComponent.code)?.type}, bukan ` +
+          `${mismatchedComponent.kind} seperti yang diminta aturan absensi.`
+      );
+    }
+
     const unresolved = deductionRows.filter(
       (row) => row.unresolvedDates.length > 0 && requestedStaffIds.has(row.staffId)
     );
@@ -1199,21 +1307,9 @@ export const payrollService = {
           const attendanceAdjust = deductionByStaff.get(staff.id);
           if (attendanceAdjust) {
             for (const line of attendanceAdjust.lines) {
-              let component = components.find((c) => c.code === line.code);
+              const component = componentByCode.get(line.code);
               if (!component) {
-                // A rule may name a component that has no payslip line yet;
-                // create it so the FK holds and the line is visible.
-                component = await tx.salaryComponent.upsert({
-                  where: { code: line.code },
-                  update: {},
-                  create: {
-                    code: line.code,
-                    name: line.name,
-                    type: line.kind,
-                    isFixed: false,
-                    classification: 'TIDAK_TETAP',
-                  },
-                });
+                throw new Error(`Komponen gaji ${line.code} tidak ditemukan`);
               }
               if (line.kind === 'DEDUCTION') {
                 totalDeductions += line.amount;
@@ -1347,6 +1443,9 @@ export const payrollService = {
     });
 
     if (!payroll) throw Errors.notFound(NOT_FOUND.slip);
+    // A slip outside the caller's unit answers exactly like an unknown slip
+    // id — the period's name must not leak through the refusal message.
+    assertRowInScope(actor, payroll.period.unitId, NOT_FOUND.slip);
     assertPayroll(actor, 'ADJUST', periodFacts(payroll.period));
 
     const component = await prisma.salaryComponent.findUnique({

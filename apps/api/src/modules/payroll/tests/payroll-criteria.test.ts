@@ -11,7 +11,13 @@ import { join } from 'node:path';
 
 const txMock = {
   payroll: { updateMany: vi.fn(), deleteMany: vi.fn() },
-  payrollPeriod: { update: vi.fn(), create: vi.fn(), delete: vi.fn() },
+  payrollPeriod: {
+    update: vi.fn(),
+    updateMany: vi.fn(),
+    findUnique: vi.fn(),
+    create: vi.fn(),
+    delete: vi.fn(),
+  },
   payrollItem: { deleteMany: vi.fn() },
   employeeSalary: { create: vi.fn(), update: vi.fn(), delete: vi.fn() },
   employeeSalaryItem: { deleteMany: vi.fn(), createMany: vi.fn() },
@@ -109,6 +115,8 @@ beforeEach(() => {
   vi.mocked(prisma.payroll.count).mockResolvedValue(0 as never);
 
   txMock.payroll.updateMany.mockResolvedValue({ count: 2 });
+  txMock.payrollPeriod.updateMany.mockResolvedValue({ count: 1 });
+  txMock.payrollPeriod.findUnique.mockResolvedValue(period() as never);
   txMock.payrollPeriod.update.mockImplementation((async (args: { data: object }) => ({
     ...period(),
     ...args.data,
@@ -239,11 +247,13 @@ describe('R1.19 — a treasurer drafts in its own unit, as the creator', () => {
       unitId: string;
       createdById: string;
       status: string;
+      activeKey: string;
     };
     expect(data).toMatchObject({
       unitId: 'unit-sd',
       createdById: 'user-bendahara',
       status: 'DRAFT',
+      activeKey: 'unit-sd:7:2026',
     });
   });
 
@@ -299,6 +309,27 @@ describe('R1.20 — a write to a record outside scope answers 404 and changes no
     await expect(
       employeeSalaryService.create(TREASURER, { staffId: 'staff-1', baseSalary: 1 } as never)
     ).rejects.toMatchObject({ statusCode: 404 });
+  });
+
+  it('answers an out-of-scope slip with the same 404 message as an unknown slip id', async () => {
+    const refusal = async (promise: Promise<unknown>) =>
+      (await promise.catch((error) => error)) as { statusCode: number; message: string };
+
+    vi.mocked(prisma.payroll.findUnique).mockResolvedValueOnce(null as never);
+    const unknown = await refusal(
+      payrollService.adjustItem(TREASURER, 'missing', { componentId: 'c1', amount: 1 } as never)
+    );
+
+    vi.mocked(prisma.payroll.findUnique).mockResolvedValueOnce({
+      id: 'slip-1',
+      period: period({ unitId: 'unit-smp' }),
+    } as never);
+    const outside = await refusal(
+      payrollService.adjustItem(TREASURER, 'slip-1', { componentId: 'c1', amount: 1 } as never)
+    );
+
+    expect(outside.statusCode).toBe(404);
+    expect(outside.message).toBe(unknown.message);
   });
 
   it('refuses an adjust naming a component that does not exist with 404', async () => {
@@ -423,7 +454,7 @@ describe('R1.24 — the approver moves a DRAFT period and its DRAFT slips to APP
       where: { periodId: 'period-1', status: 'DRAFT' },
       data: { status: 'APPROVED' },
     });
-    const data = txMock.payrollPeriod.update.mock.calls[0][0].data as {
+    const data = txMock.payrollPeriod.updateMany.mock.calls[0][0].data as {
       status: string;
       approvedById: string;
       approvedAt: Date;
@@ -431,6 +462,31 @@ describe('R1.24 — the approver moves a DRAFT period and its DRAFT slips to APP
     expect(data.status).toBe('APPROVED');
     expect(data.approvedById).toBe('user-yayasan');
     expect(data.approvedAt).toBeInstanceOf(Date);
+  });
+});
+
+describe('R1.24 — approval claims the DRAFT status it read', () => {
+  it('refuses with 409 when another request already moved the period', async () => {
+    vi.mocked(prisma.payrollPeriod.findUnique).mockResolvedValue(period() as never);
+    txMock.payrollPeriod.updateMany.mockResolvedValue({ count: 0 } as never);
+
+    await expect(payrollPeriodService.approve(YAYASAN_BENDAHARA, 'period-1')).rejects.toMatchObject(
+      { statusCode: 409 }
+    );
+    expect(txMock.payroll.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('R1.27 — the payer is not the approver', () => {
+  it('refuses a dual-role account paying the period it approved', async () => {
+    vi.mocked(prisma.payrollPeriod.findUnique).mockResolvedValue(
+      period({ status: 'APPROVED', approvedById: TREASURER.sub }) as never
+    );
+
+    await expect(
+      payrollPeriodService.markAsPaid(TREASURER, 'period-1', new Date('2026-06-25'))
+    ).rejects.toMatchObject({ statusCode: 403 });
+    expect(prisma.$transaction).not.toHaveBeenCalled();
   });
 });
 
@@ -448,8 +504,9 @@ describe('R1.29 — a treasurer cancels or deletes its own DRAFT period', () => 
       where: { periodId: 'period-1' },
       data: { status: 'CANCELLED' },
     });
-    expect(txMock.payrollPeriod.update.mock.calls[0][0].data).toMatchObject({
+    expect(txMock.payrollPeriod.updateMany.mock.calls[0][0].data).toMatchObject({
       status: 'CANCELLED',
+      activeKey: null,
     });
   });
 
@@ -466,6 +523,18 @@ describe('R1.29 — a treasurer cancels or deletes its own DRAFT period', () => 
   });
 });
 
+describe('R1.31 — cancellation claims the status it read', () => {
+  it('refuses with 409 when an approval landed after the period was read', async () => {
+    vi.mocked(prisma.payrollPeriod.findUnique).mockResolvedValue(period() as never);
+    txMock.payrollPeriod.updateMany.mockResolvedValue({ count: 0 } as never);
+
+    await expect(payrollPeriodService.cancel(TREASURER, 'period-1')).rejects.toMatchObject({
+      statusCode: 409,
+    });
+    expect(txMock.payroll.updateMany).not.toHaveBeenCalled();
+  });
+});
+
 describe('R1.30 — the approver cancels an APPROVED period of any unit', () => {
   it('cancels it and every slip', async () => {
     vi.mocked(prisma.payrollPeriod.findUnique).mockResolvedValue(
@@ -478,7 +547,7 @@ describe('R1.30 — the approver cancels an APPROVED period of any unit', () => 
       where: { periodId: 'period-1' },
       data: { status: 'CANCELLED' },
     });
-    expect(txMock.payrollPeriod.update.mock.calls[0][0].data).toMatchObject({
+    expect(txMock.payrollPeriod.updateMany.mock.calls[0][0].data).toMatchObject({
       status: 'CANCELLED',
     });
   });
@@ -607,10 +676,14 @@ describe('R1.35 — a status the action cannot act on is refused with 409', () =
 describe('R1.36 — the HR attendance-settings payroll routes keep their guards', () => {
   const source = readFileSync(join(__dirname, '../../hr/hr.routes.ts'), 'utf8');
 
-  /** The `authorize(...)` call that follows the route's path literal. */
+  /** The `authorize(...)` call that follows the method+path declaration. */
   function guardFor(path: string, method: string): string {
-    const start = source.indexOf(`'${path}'`);
-    expect(start, `${method} ${path} is not declared`).toBeGreaterThan(-1);
+    const escaped = path.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const declaration = new RegExp(
+      `router\\.${method.toLowerCase()}\\(\\s*['"]${escaped}['"]`
+    ).exec(source);
+    expect(declaration, `${method} ${path} is not declared`).not.toBeNull();
+    const start = declaration!.index;
     const next = source.slice(start, start + 400);
     const guard = /authorize\(([^)]*)\)/.exec(next);
     expect(guard, `${method} ${path} has no authorize()`).not.toBeNull();

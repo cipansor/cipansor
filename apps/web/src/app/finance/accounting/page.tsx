@@ -947,6 +947,11 @@ function AccountingSettingsTab() {
       description: "Akun beban untuk pencatatan gaji karyawan",
     },
     {
+      key: "ACCOUNT_MAPPING_TAX_PAYABLE",
+      label: "Utang PPh 21",
+      description: "Akun kewajiban untuk mencatat PPh 21 gaji karyawan",
+    },
+    {
       key: "ACCOUNT_MAPPING_INVENTORY_ASSET",
       label: "Aset Inventaris",
       description: "Akun aset untuk pembelian inventaris baru",

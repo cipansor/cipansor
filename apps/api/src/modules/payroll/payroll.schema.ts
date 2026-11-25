@@ -87,13 +87,6 @@ export const approvePayrollPeriodSchema = z.object({
   notes: z.string().optional(),
 });
 
-// Cancel Payroll Period Schema
-export const cancelPayrollPeriodSchema = z
-  .object({
-    notes: z.string().optional(),
-  })
-  .default({});
-
 // Pay Payroll Period Schema
 export const payPayrollPeriodSchema = z.object({
   payDate: z.string().datetime(),

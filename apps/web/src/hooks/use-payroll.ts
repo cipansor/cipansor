@@ -4,6 +4,7 @@
  */
 
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import type { CancelPayrollPeriodInput } from "@cipansor/shared";
 import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
 
 // ============================================
@@ -94,6 +95,8 @@ export interface PayrollPeriod {
   totalNet: number;
   totalTax: number;
   totalEmployees: number;
+  createdById?: string;
+  approvedById?: string | null;
   approvedBy?: string;
   approvedAt?: string;
   paidAt?: string;
@@ -510,10 +513,13 @@ export function useCancelPayrollPeriod() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: async ({ id, notes }: { id: string; notes?: string }) => {
+    mutationFn: async ({
+      id,
+      ...data
+    }: { id: string } & CancelPayrollPeriodInput) => {
       const response = await api.post<ApiResponse<PayrollPeriod>>(
         `/payroll/periods/${id}/cancel`,
-        { notes },
+        data,
       );
       return response.data.data;
     },

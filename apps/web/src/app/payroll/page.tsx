@@ -76,6 +76,7 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { payrollButtons, type PayrollAction } from "@cipansor/shared";
 import {
   usePayrollPeriods,
   usePayrollSlips,
@@ -106,6 +107,7 @@ import {
 } from "@/hooks/use-payroll";
 import { useAuth } from "@/hooks/use-auth";
 import { useUnits } from "@/hooks/use-units";
+import { getActiveRoleCode } from "@/lib/rbac";
 
 function PayrollPageContent() {
   const { user } = useAuth();
@@ -159,6 +161,29 @@ function PayrollPageContent() {
   const periods = periodsData?.data || [];
   const salaries = salariesData?.data || [];
   const slips = slipsData?.data || [];
+
+  // Buttons come from the same policy the API enforces, so a button never
+  // appears for an action the server would refuse.
+  const payrollActions = (period: PayrollPeriod): PayrollAction[] => {
+    if (!user) return [];
+    const activeAssignment =
+      user.userRoles?.find((assignment) => assignment.isPrimary) ??
+      user.userRoles?.[0];
+    return payrollButtons(
+      {
+        sub: user.id,
+        roleCode: getActiveRoleCode(user) ?? "",
+        unitId: activeAssignment?.unit?.id ?? user.unitId ?? null,
+      },
+      {
+        unitId: period.unitId,
+        status: period.status === "CALCULATED" ? "DRAFT" : period.status,
+        createdById: period.createdById ?? "",
+        approvedById: period.approvedById ?? null,
+        slipCount: period.totalEmployees,
+      },
+    );
+  };
 
   // Calculate stats
   const stats = {
@@ -517,7 +542,7 @@ function PayrollPageContent() {
                                 <Eye className="mr-2 h-4 w-4" />
                                 Lihat Slip
                               </DropdownMenuItem>
-                              {period.status === "DRAFT" && (
+                              {payrollActions(period).includes("GENERATE") && (
                                 <DropdownMenuItem
                                   onClick={() =>
                                     handleGeneratePayroll(period.id)
@@ -527,7 +552,7 @@ function PayrollPageContent() {
                                   Generate Slip
                                 </DropdownMenuItem>
                               )}
-                              {period.status === "CALCULATED" && (
+                              {payrollActions(period).includes("APPROVE") && (
                                 <DropdownMenuItem
                                   onClick={() => handleApprovePeriod(period.id)}
                                 >
@@ -535,7 +560,7 @@ function PayrollPageContent() {
                                   Setujui
                                 </DropdownMenuItem>
                               )}
-                              {period.status === "APPROVED" && (
+                              {payrollActions(period).includes("PAY") && (
                                 <DropdownMenuItem
                                   onClick={() => handlePayPeriod(period.id)}
                                 >
@@ -544,8 +569,7 @@ function PayrollPageContent() {
                                 </DropdownMenuItem>
                               )}
                               <DropdownMenuSeparator />
-                              {(period.status === "DRAFT" ||
-                                period.status === "CALCULATED") && (
+                              {payrollActions(period).includes("CANCEL") && (
                                 <DropdownMenuItem
                                   onClick={() => handleCancelPeriod(period.id)}
                                   className="text-red-600"

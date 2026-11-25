@@ -15,7 +15,7 @@ const accountCode = {
 
 const txMock = {
   payroll: { updateMany: vi.fn(), aggregate: vi.fn() },
-  payrollPeriod: { update: vi.fn() },
+  payrollPeriod: { updateMany: vi.fn(), findUnique: vi.fn() },
   journalEntry: { create: vi.fn() },
   accountCode,
 };
@@ -34,6 +34,7 @@ vi.mock('../../finance/accounting-config.service', () => ({
   ACCOUNT_MAPPING_KEYS: {
     PAYROLL_EXPENSE: 'ACCOUNT_MAPPING_PAYROLL_EXPENSE',
     CASH: 'ACCOUNT_MAPPING_CASH',
+    TAX_PAYABLE: 'ACCOUNT_MAPPING_TAX_PAYABLE',
   },
   getAccountOrFallback: vi.fn(),
 }));
@@ -85,19 +86,30 @@ beforeEach(() => {
 
   txMock.payroll.updateMany.mockResolvedValue({ count: 3 });
   txMock.payroll.aggregate.mockResolvedValue(totals() as never);
-  txMock.payrollPeriod.update.mockImplementation((async (args: { data: unknown }) => ({
+  txMock.payrollPeriod.updateMany.mockResolvedValue({ count: 1 });
+  txMock.payrollPeriod.findUnique.mockResolvedValue({
     ...PERIOD,
-    ...(args.data as object),
-  })) as never);
+    status: 'PAID',
+  } as never);
   txMock.journalEntry.create.mockResolvedValue({});
 
-  vi.mocked(getAccountOrFallback).mockImplementation((async (_unit: string, key: string) => ({
-    id: key === 'ACCOUNT_MAPPING_CASH' ? 'acc-cash' : 'acc-expense',
-  })) as never);
-  accountCode.findFirst.mockImplementation((async (args: { where: { code?: string } }) => {
-    if (args.where.code === '2103') return { id: 'acc-tax' };
-    return { id: 'acc-other-payable' };
+  vi.mocked(getAccountOrFallback).mockImplementation((async (_unit: string, key: string) => {
+    if (key === 'ACCOUNT_MAPPING_TAX_PAYABLE') {
+      return {
+        id: 'acc-tax',
+        unitId: 'unit-sd',
+        isActive: true,
+        type: 'LIABILITY',
+      };
+    }
+    return { id: key === 'ACCOUNT_MAPPING_CASH' ? 'acc-cash' : 'acc-expense' };
   }) as never);
+  accountCode.findFirst.mockImplementation((async () => ({
+    id: 'acc-other-payable',
+    unitId: 'unit-sd',
+    isActive: true,
+    type: 'LIABILITY',
+  })) as never);
 });
 
 describe('payrollPeriodService.markAsPaid — the happy path', () => {
@@ -114,14 +126,14 @@ describe('payrollPeriodService.markAsPaid — the happy path', () => {
       data: { status: 'PAID' },
     });
 
-    const update = txMock.payrollPeriod.update.mock.calls[0][0] as {
+    const update = txMock.payrollPeriod.updateMany.mock.calls[0][0] as {
       data: { status: string; payDate: Date; paidAt: Date };
     };
     expect(update.data.status).toBe('PAID');
     // `payDate` is the business date from the request; `paidAt` is the clock.
     expect(update.data.payDate).toEqual(payDate);
     expect(update.data.paidAt).toEqual(new Date('2026-06-26T09:15:00.000Z'));
-    expect(result.status).toBe('PAID');
+    expect(result!.status).toBe('PAID');
 
     vi.useRealTimers();
   });
@@ -197,10 +209,11 @@ describe('payrollPeriodService.markAsPaid — a journal that cannot be written',
   });
 
   it('refuses the payment when the PPh 21 account is missing', async () => {
-    accountCode.findFirst.mockImplementation((async (args: { where: { code?: string } }) => {
-      if (args.where.code === '2103') return null;
-      return { id: 'acc-other-payable' };
+    vi.mocked(getAccountOrFallback).mockImplementation((async (_unit: string, key: string) => {
+      if (key === 'ACCOUNT_MAPPING_TAX_PAYABLE') return null;
+      return { id: key === 'ACCOUNT_MAPPING_CASH' ? 'acc-cash' : 'acc-expense' };
     }) as never);
+    accountCode.findFirst.mockResolvedValue(null as never);
 
     await expect(
       payrollPeriodService.markAsPaid(TREASURER, PERIOD.id, new Date('2026-06-25'))
@@ -208,14 +221,113 @@ describe('payrollPeriodService.markAsPaid — a journal that cannot be written',
   });
 
   it('refuses the payment when the other-payables account is missing', async () => {
-    accountCode.findFirst.mockImplementation((async (args: { where: { code?: string } }) => {
-      if (args.where.code === '2103') return { id: 'acc-tax' };
-      return null;
+    accountCode.findFirst.mockResolvedValue(null as never);
+
+    await expect(
+      payrollPeriodService.markAsPaid(TREASURER, PERIOD.id, new Date('2026-06-25'))
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('uses the unit’s mapped PPh 21 account, whatever its code', async () => {
+    vi.mocked(getAccountOrFallback).mockImplementation((async (_unit: string, key: string) => {
+      if (key === 'ACCOUNT_MAPPING_TAX_PAYABLE') {
+        return {
+          id: 'acc-pph-sd',
+          code: '2-1099',
+          unitId: 'unit-sd',
+          isActive: true,
+          type: 'LIABILITY',
+        };
+      }
+      return { id: key === 'ACCOUNT_MAPPING_CASH' ? 'acc-cash' : 'acc-expense' };
+    }) as never);
+
+    await payrollPeriodService.markAsPaid(TREASURER, PERIOD.id, new Date('2026-06-25'));
+
+    const accounts = txMock.journalEntry.create.mock.calls.map(
+      (call) => (call[0] as { data: { accountId: string } }).data.accountId
+    );
+    expect(accounts).toContain('acc-pph-sd');
+    expect(accounts).not.toContain('acc-tax');
+  });
+
+  it.each([
+    ['inactive', { isActive: false }],
+    ['not a liability', { type: 'ASSET' }],
+    ['another unit', { unitId: 'unit-smp' }],
+  ])('refuses a mapped PPh 21 account that is %s', async (_label, override) => {
+    vi.mocked(getAccountOrFallback).mockImplementation((async (_unit: string, key: string) => {
+      if (key === 'ACCOUNT_MAPPING_TAX_PAYABLE') {
+        return {
+          id: 'acc-pph-bad',
+          unitId: 'unit-sd',
+          isActive: true,
+          type: 'LIABILITY',
+          ...override,
+        };
+      }
+      return { id: key === 'ACCOUNT_MAPPING_CASH' ? 'acc-cash' : 'acc-expense' };
+    }) as never);
+    accountCode.findFirst.mockResolvedValue(null as never);
+
+    await expect(
+      payrollPeriodService.markAsPaid(TREASURER, PERIOD.id, new Date('2026-06-25'))
+    ).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('refuses the second payment when another request already claimed the period', async () => {
+    txMock.payrollPeriod.updateMany.mockResolvedValue({ count: 0 } as never);
+
+    await expect(
+      payrollPeriodService.markAsPaid(TREASURER, PERIOD.id, new Date('2026-06-25'))
+    ).rejects.toMatchObject({ statusCode: 409 });
+    expect(txMock.payroll.updateMany).not.toHaveBeenCalled();
+    expect(txMock.journalEntry.create).not.toHaveBeenCalled();
+  });
+
+  it('rolls the period and slips back when the journal cannot be written', async () => {
+    const state = { period: 'APPROVED', slips: 'APPROVED' };
+    const statefulTx = {
+      payrollPeriod: {
+        updateMany: vi.fn(
+          async (args: { where: { status?: string }; data: { status: string } }) => {
+            if (args.where.status && state.period !== args.where.status) return { count: 0 };
+            state.period = args.data.status;
+            return { count: 1 };
+          }
+        ),
+        findUnique: vi.fn(async () => ({ ...PERIOD, status: state.period })),
+      },
+      payroll: {
+        updateMany: vi.fn(async (args: { data: { status: string } }) => {
+          state.slips = args.data.status;
+          return { count: 3 };
+        }),
+        aggregate: vi.fn(async () => totals()),
+      },
+      journalEntry: { create: vi.fn() },
+      accountCode: { findFirst: vi.fn(async () => null) },
+    };
+
+    vi.mocked(prisma.$transaction).mockImplementation((async (arg: unknown) => {
+      const snapshot = { ...state };
+      try {
+        return await (arg as (tx: unknown) => unknown)(statefulTx);
+      } catch (error) {
+        Object.assign(state, snapshot);
+        throw error;
+      }
+    }) as never);
+    vi.mocked(getAccountOrFallback).mockImplementation((async (_unit: string, key: string) => {
+      if (key === 'ACCOUNT_MAPPING_TAX_PAYABLE') return null;
+      return { id: key === 'ACCOUNT_MAPPING_CASH' ? 'acc-cash' : 'acc-expense' };
     }) as never);
 
     await expect(
       payrollPeriodService.markAsPaid(TREASURER, PERIOD.id, new Date('2026-06-25'))
     ).rejects.toMatchObject({ statusCode: 409 });
+
+    expect(state).toEqual({ period: 'APPROVED', slips: 'APPROVED' });
   });
 
   it('writes no journal when the slips carry no earnings', async () => {
@@ -233,7 +345,7 @@ describe('payrollPeriodService.markAsPaid — a journal that cannot be written',
       new Date('2026-06-25')
     );
     expect(txMock.journalEntry.create).not.toHaveBeenCalled();
-    expect(period.status).toBe('PAID');
+    expect(period!.status).toBe('PAID');
   });
 });
 
@@ -304,7 +416,7 @@ describe('payrollPeriodService.approve — the creator rule', () => {
 
     await payrollPeriodService.approve(YAYASAN_BENDAHARA, PERIOD.id, 'Disetujui');
 
-    const update = txMock.payrollPeriod.update.mock.calls[0][0] as {
+    const update = txMock.payrollPeriod.updateMany.mock.calls[0][0] as {
       data: { approvedById: string; notes: string };
     };
     expect(update.data.approvedById).toBe('user-yayasan');

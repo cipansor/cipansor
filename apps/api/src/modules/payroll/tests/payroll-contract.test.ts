@@ -73,10 +73,15 @@ describe('payrollButtons — the portal draws only what the API would accept', (
     unitId: 'unit-sd',
     status: 'DRAFT' as const,
     createdById: 'u-treasurer',
+    approvedById: null,
     slipCount: 2,
   };
-  const approved = { ...draft, status: 'APPROVED' as const };
-  const paid = { ...draft, status: 'PAID' as const };
+  const approved = {
+    ...draft,
+    status: 'APPROVED' as const,
+    approvedById: 'u-yayasan',
+  };
+  const paid = { ...approved, status: 'PAID' as const };
 
   /** The buttons that act on one period — the ones that change with its state. */
   const periodButtons = (actor: PayrollActor, period: Parameters<typeof payrollButtons>[1]) =>
@@ -126,6 +131,15 @@ describe('payrollButtons — the portal draws only what the API would accept', (
   it('the creator of a period is offered no APPROVE button for it', () => {
     const ownPeriod = { ...draft, createdById: yayasanBendahara.sub };
     expect(periodButtons(yayasanBendahara, ownPeriod)).not.toContain('APPROVE');
+  });
+
+  it('the approver is offered no PAY button, even when it also holds a unit treasurer role', () => {
+    const dualRole: PayrollActor = {
+      sub: 'u-yayasan',
+      roleCode: 'SDIT_BENDAHARA',
+      unitId: 'unit-sd',
+    };
+    expect(periodButtons(dualRole, approved)).not.toContain('PAY');
   });
 
   it('another unit’s period offers a treasurer no period action', () => {

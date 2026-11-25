@@ -71,6 +71,8 @@ export interface PayrollPeriodFacts {
   unitId: string;
   status: PayrollStatus;
   createdById: string;
+  /** Who approved it; null until it leaves DRAFT. */
+  approvedById: string | null;
   slipCount: number;
 }
 
@@ -167,7 +169,20 @@ export function decidePayroll(
     return refuse(403, "Pembuat periode tidak boleh menyetujui periode itu");
   }
 
-  // 4. Status.
+  // 4. Separation of duties: the account that approved a period never pays it,
+  //    even when it also holds a unit treasurer role (#990).
+  if (
+    action === "PAY" &&
+    period.approvedById &&
+    actor.sub === period.approvedById
+  ) {
+    return refuse(
+      403,
+      "Penyetuju periode tidak boleh mencatat pembayaran periode itu",
+    );
+  }
+
+  // 5. Status.
   switch (action) {
     case "APPROVE":
       if (period.status !== "DRAFT") {

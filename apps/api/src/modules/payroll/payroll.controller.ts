@@ -7,7 +7,7 @@ import {
   payrollService,
 } from './payroll.service';
 import { attendanceDeductionService } from './attendance-deduction.service';
-import { payrollActor } from './payroll-access';
+import { payrollActor } from './payroll.access';
 import {
   listSalaryComponentsQuerySchema,
   listEmployeeSalariesQuerySchema,

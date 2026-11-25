@@ -154,6 +154,67 @@ describe('payrollService.generate', () => {
     expect(prisma.$transaction).toHaveBeenCalled();
   });
 
+  it('refuses a rule component that does not exist instead of creating it', async () => {
+    vi.mocked(attendanceDeductionService.computeForPeriod).mockResolvedValue([
+      deductionRow({
+        lines: [
+          {
+            code: 'POT_ABSEN',
+            name: 'Potongan Absen',
+            kind: 'DEDUCTION',
+            basisLabel: 'absen',
+            amount: 50_000,
+            detail: '2 hari absen',
+          },
+        ],
+      }),
+    ] as never);
+
+    await expect(
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
+    ).rejects.toThrow(/komponen gaji yang belum ada/i);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(txMock.salaryComponent.upsert).not.toHaveBeenCalled();
+  });
+
+  it('uses an existing component for a rule line and never creates one', async () => {
+    vi.mocked(prisma.salaryComponent.findMany).mockResolvedValue([
+      {
+        id: 'comp-absen',
+        code: 'POT_ABSEN',
+        name: 'Potongan Absen',
+        type: 'DEDUCTION',
+        classification: 'TIDAK_TETAP',
+        isTaxable: false,
+        isActive: true,
+        sortOrder: 10,
+      },
+    ] as never);
+    vi.mocked(attendanceDeductionService.computeForPeriod).mockResolvedValue([
+      deductionRow({
+        lines: [
+          {
+            code: 'POT_ABSEN',
+            name: 'Potongan Absen',
+            kind: 'DEDUCTION',
+            basisLabel: 'absen',
+            amount: 50_000,
+            detail: '2 hari absen',
+          },
+        ],
+      }),
+    ] as never);
+
+    await payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never);
+
+    expect(txMock.salaryComponent.upsert).not.toHaveBeenCalled();
+    const items = txMock.payrollItem.createMany.mock.calls[0][0].data as {
+      componentCode: string;
+      amount: unknown;
+    }[];
+    expect(items.find((item) => item.componentCode === 'POT_ABSEN')?.amount).toBeDefined();
+  });
+
   it('does not block on an informational cap note', async () => {
     vi.mocked(attendanceDeductionService.computeForPeriod).mockResolvedValue([
       deductionRow({

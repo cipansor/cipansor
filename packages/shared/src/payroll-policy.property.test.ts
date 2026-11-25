@@ -60,6 +60,7 @@ const periodArb: fc.Arbitrary<PayrollPeriodFacts> = fc.record({
   unitId: fc.constantFrom(...UNITS),
   status: statusArb,
   createdById: fc.constantFrom("user-1", "user-2"),
+  approvedById: fc.constantFrom("user-1", "user-2", null),
   slipCount: fc.constantFrom(0, 1, 3),
 });
 
@@ -236,11 +237,16 @@ describe("Property 11: the payroll decision table", () => {
             !isUnitTreasurer(actor.roleCode) || actor.unitId === period.unitId;
           const notCreator =
             action !== "APPROVE" || actor.sub !== period.createdById;
+          const notPayer =
+            action !== "PAY" ||
+            !period.approvedById ||
+            actor.sub !== period.approvedById;
           const enoughSlips = action !== "APPROVE" || period.slipCount > 0;
           const expected =
             (allowedByRole || allowedByApprover) &&
             inScope &&
             notCreator &&
+            notPayer &&
             enoughSlips;
           expect(decision.ok, `${action} by ${actor.roleCode}`).toBe(expected);
         }
@@ -280,6 +286,7 @@ describe("Property 12: the approver is never the creator", () => {
             unitId: "unit-a",
             status,
             createdById: creator,
+            approvedById: null,
             slipCount,
           };
           expect(decidePayroll(actor, "APPROVE", period)).toMatchObject({
@@ -308,9 +315,42 @@ describe("Property 12: the approver is never the creator", () => {
             unitId: "unit-a",
             status: "DRAFT",
             createdById: "user-creator",
+            approvedById: null,
             slipCount,
           };
           expect(decidePayroll(actor, "APPROVE", period)).toEqual({ ok: true });
+        },
+      ),
+      { numRuns: 100 },
+    );
+  });
+});
+
+// Feature: payroll-otorisasi, Property 13: Pembayar bukan penyetuju
+describe("Property 13: the payer is never the approver", () => {
+  it("refuses every payment by the account that approved the period", () => {
+    fc.assert(
+      fc.property(
+        fc.constantFrom(...BENDAHARA_ROLE_CODES),
+        fc.integer({ min: 1, max: 5 }),
+        (roleCode, slipCount) => {
+          const actor: PayrollActor = {
+            sub: "user-approver-treasurer",
+            roleCode,
+            unitId: "unit-a",
+          };
+          const period: PayrollPeriodFacts = {
+            unitId: "unit-a",
+            status: "APPROVED",
+            createdById: "user-creator",
+            approvedById: actor.sub,
+            slipCount,
+          };
+          expect(decidePayroll(actor, "PAY", period)).toMatchObject({
+            ok: false,
+            status: 403,
+          });
+          expect(payrollButtons(actor, period)).not.toContain("PAY");
         },
       ),
       { numRuns: 100 },

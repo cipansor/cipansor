@@ -83,6 +83,7 @@ export function periodFacts(period: {
   unitId: string;
   status: PayrollStatus;
   createdById: string;
+  approvedById?: string | null;
   _count?: { payrolls: number };
   payrolls?: unknown[];
 }): PayrollPeriodFacts {
@@ -90,6 +91,7 @@ export function periodFacts(period: {
     unitId: period.unitId,
     status: period.status,
     createdById: period.createdById,
+    approvedById: period.approvedById ?? null,
     slipCount: period._count?.payrolls ?? period.payrolls?.length ?? 0,
   };
 }

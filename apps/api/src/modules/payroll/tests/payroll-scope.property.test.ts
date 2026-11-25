@@ -3,7 +3,7 @@ import fc from 'fast-check';
 import { BENDAHARA_ROLE_CODES } from '@cipansor/shared';
 
 import { invoiceScope } from '@/modules/finance/finance.service';
-import { listUnitFor } from '@/modules/payroll/payroll-access';
+import { listUnitFor } from '@/modules/payroll/payroll.access';
 
 import { seesAllUnits } from '@/utils/resolve-unit-id';
 

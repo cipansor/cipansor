@@ -7041,6 +7041,7 @@ async function main() {
       name: 'Gaji Bulanan Juni 2026',
       month: 6,
       year: 2026,
+      activeKey: `${smpIt.id}:6:2026`,
       startDate: new Date('2026-06-01'),
       endDate: new Date('2026-06-30'),
       payDate: new Date('2026-06-25'),
