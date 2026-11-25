@@ -144,7 +144,6 @@ export function parseApiError(error: unknown): ParsedApiError {
     // Extract message from response
     let message = "";
     let details: string[] = [];
-    const detailMessages: string[] = [];
 
     const responseData = (err.response as Record<string, unknown>)
       ?.data as Record<string, unknown>;
@@ -173,7 +172,6 @@ export function parseApiError(error: unknown): ParsedApiError {
             message?: unknown;
           };
           if (typeof reason !== "string" || !reason) return [];
-          detailMessages.push(reason);
           return [
             typeof field === "string" && field ? `${field}: ${reason}` : reason,
           ];
@@ -186,16 +184,15 @@ export function parseApiError(error: unknown): ParsedApiError {
             messages.map((msg) => `${field}: ${msg}`),
           ),
         );
-        detailMessages.push(...Object.values(errors).flat());
       }
 
-      // "Validation failed" alone is not actionable when the envelope carries
-      // the field reason; show that reason instead.
+      // "Validation failed" alone is not actionable; the field name says which
+      // input was refused, and the reason says how to fix it.
       if (
         /^(validation failed|validasi gagal)$/i.test(message.trim()) &&
-        detailMessages[0]
+        details[0]
       ) {
-        message = detailMessages[0];
+        message = details[0];
       }
     } else if (err.message) {
       message = err.message as string;

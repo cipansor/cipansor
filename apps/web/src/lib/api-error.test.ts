@@ -36,7 +36,7 @@ describe("parseApiError", () => {
     });
 
     expect(getErrorMessage(error)).toBe(
-      "Target hafalan harus berupa jumlah juz, misalnya 10 juz",
+      "targetValue: Target hafalan harus berupa jumlah juz, misalnya 10 juz",
     );
     expect(parseApiError(error).details).toEqual([
       "targetValue: Target hafalan harus berupa jumlah juz, misalnya 10 juz",
