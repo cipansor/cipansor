@@ -293,7 +293,26 @@ describe('Laundry Accounting Integration', () => {
         statusCode: 400,
         message: expect.stringContaining('Unit usaha laundry tidak ditemukan'),
       });
+      expect(prisma.$queryRaw).toHaveBeenCalled();
       expect(prisma.laundryPricing.update).not.toHaveBeenCalled();
+    });
+
+    it('still edits an inactive tier whose link went stale', async () => {
+      (prisma.laundryPricing.findFirst as any).mockResolvedValue({
+        id: 'pricing-1',
+        businessUnitId: 'bu-1',
+        isActive: false,
+      });
+
+      await pricingService.update('pricing-1', unitId, {
+        name: 'Setrika Baru',
+      } as any);
+
+      expect(prisma.businessUnit.findFirst).not.toHaveBeenCalled();
+      expect(prisma.laundryPricing.update).toHaveBeenCalledWith({
+        where: { id: 'pricing-1' },
+        data: { name: 'Setrika Baru' },
+      });
     });
 
     it('does not update a tier outside the caller unit', async () => {

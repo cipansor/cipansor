@@ -531,6 +531,28 @@ describe("Laundry — a tariff names the laundry unit that owns it (R22.8)", () 
   });
 });
 
+describe("Laundry — the transaction dialog loads units only when opened", () => {
+  it("does not fetch the business-unit list while the dialog is closed", async () => {
+    render(<LaundryPage />);
+
+    expect(
+      useBusinessUnits.mock.calls.some(
+        (call) => call[0]?.type === "LAUNDRY" && call[1]?.enabled === false,
+      ),
+    ).toBe(true);
+
+    await userEvent.click(
+      screen.getByRole("button", { name: /Transaksi Baru/ }),
+    );
+
+    expect(
+      useBusinessUnits.mock.calls.some(
+        (call) => call[0]?.type === "LAUNDRY" && call[1]?.enabled === true,
+      ),
+    ).toBe(true);
+  });
+});
+
 const tier = {
   id: "p1",
   unitId: "unit-smp",

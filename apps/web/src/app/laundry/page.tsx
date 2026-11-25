@@ -604,7 +604,8 @@ function NewTransactionDialog() {
   const [items, setItems] = useState<LaundryItemInput[]>([]);
 
   const { data: pricing = [] } = useLaundryPricing();
-  const { data: businessUnits = [] } = useBusinessUnits({ type: "LAUNDRY" });
+  const { data: businessUnits = [], isLoading: businessUnitsLoading } =
+    useBusinessUnits({ type: "LAUNDRY" }, { enabled: open });
   const { data: studentPage } = useStudents({
     search: studentSearch || undefined,
     limit: 10,
@@ -735,7 +736,11 @@ function NewTransactionDialog() {
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <Label>Tarif</Label>
-              <Select value={pricingId} onValueChange={setPricingId}>
+              <Select
+                value={pricingId}
+                onValueChange={setPricingId}
+                disabled={businessUnitsLoading}
+              >
                 <SelectTrigger aria-label="Pilih tarif">
                   <SelectValue placeholder="Pilih tarif" />
                 </SelectTrigger>

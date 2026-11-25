@@ -116,37 +116,43 @@ export const businessUnitService = {
       isActive: boolean;
     }>
   ) {
-    // Verify the business unit exists (and belongs to this unit when unitId is provided)
-    const where: Prisma.BusinessUnitWhereInput = { id };
-    if (unitId) where.unitId = unitId;
+    // The row lock serialises this type change with a tariff activation on the
+    // same business unit; without it both read the old type and commit.
+    return prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM business_units WHERE id = ${id} FOR UPDATE`;
 
-    const bu = await prisma.businessUnit.findFirst({ where });
-    if (!bu) throw Errors.notFound('Business Unit');
+      // Verify the business unit exists (and belongs to this unit when unitId is provided)
+      const where: Prisma.BusinessUnitWhereInput = { id };
+      if (unitId) where.unitId = unitId;
 
-    if (bu.type === 'LAUNDRY' && data.type && data.type !== 'LAUNDRY') {
-      const linked = await prisma.laundryPricing.count({
-        where: { businessUnitId: id, isActive: true },
-      });
-      if (linked > 0) {
-        throw Errors.conflict(
-          `Unit usaha masih dipakai ${linked} tarif laundry aktif; nonaktifkan atau pindahkan tarif itu sebelum mengubah jenis`
-        );
+      const bu = await tx.businessUnit.findFirst({ where });
+      if (!bu) throw Errors.notFound('Business Unit');
+
+      if (bu.type === 'LAUNDRY' && data.type && data.type !== 'LAUNDRY') {
+        const linked = await tx.laundryPricing.count({
+          where: { businessUnitId: id, isActive: true },
+        });
+        if (linked > 0) {
+          throw Errors.conflict(
+            `Unit usaha masih dipakai ${linked} tarif laundry aktif; nonaktifkan atau pindahkan tarif itu sebelum mengubah jenis`
+          );
+        }
       }
-    }
 
-    if (data.code) {
-      const existing = await prisma.businessUnit.findUnique({
-        where: { unitId_code: { unitId: bu.unitId, code: data.code } },
-      });
+      if (data.code) {
+        const existing = await tx.businessUnit.findUnique({
+          where: { unitId_code: { unitId: bu.unitId, code: data.code } },
+        });
 
-      if (existing && existing.id !== id) {
-        throw Errors.badRequest('Business unit code already exists');
+        if (existing && existing.id !== id) {
+          throw Errors.badRequest('Business unit code already exists');
+        }
       }
-    }
 
-    return prisma.businessUnit.update({
-      where: { id },
-      data,
+      return tx.businessUnit.update({
+        where: { id },
+        data,
+      });
     });
   },
 

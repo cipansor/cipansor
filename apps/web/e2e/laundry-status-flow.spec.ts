@@ -733,9 +733,11 @@ test.describe("Tarif laundry memakai akun unit usaha (R22.8)", () => {
       await transactionDialog
         .getByRole("button", { name: new RegExp(student.user.name) })
         .click();
-      await transactionDialog
-        .getByRole("combobox", { name: "Pilih tarif" })
-        .click();
+      const tariffSelect = transactionDialog.getByRole("combobox", {
+        name: "Pilih tarif",
+      });
+      await expect(tariffSelect).toBeEnabled({ timeout: 15000 });
+      await tariffSelect.click();
 
       const firstOption = page.getByRole("option", {
         name: new RegExp(`${tierName}.*${firstCode}`),

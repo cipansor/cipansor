@@ -29,12 +29,21 @@ import type {
 // PRICING SERVICE
 // =============================================================================
 
+/**
+ * Locks the business-unit row so a type change and a tariff activation cannot
+ * both read the old type and commit an unusable active tariff.
+ */
+async function lockBusinessUnit(tx: Prisma.TransactionClient, businessUnitId: string) {
+  await tx.$queryRaw`SELECT id FROM business_units WHERE id = ${businessUnitId} FOR UPDATE`;
+}
+
 /** A tariff may only point at a laundry business unit of its own unit. */
 async function isLaundryBusinessUnitOfUnit(
+  tx: Prisma.TransactionClient,
   unitId: string,
   businessUnitId: string
 ): Promise<boolean> {
-  const businessUnit = await prisma.businessUnit.findFirst({
+  const businessUnit = await tx.businessUnit.findFirst({
     where: { id: businessUnitId, unitId, type: 'LAUNDRY' },
     select: { id: true },
   });
@@ -56,56 +65,69 @@ export const pricingService = {
   },
 
   async create(unitId: string, data: CreatePricingInput) {
-    if (data.businessUnitId && !(await isLaundryBusinessUnitOfUnit(unitId, data.businessUnitId))) {
-      throw Errors.badRequest('Unit usaha laundry tidak ditemukan untuk unit ini');
-    }
+    return prisma.$transaction(async (tx) => {
+      if (data.businessUnitId) {
+        await lockBusinessUnit(tx, data.businessUnitId);
+        if (!(await isLaundryBusinessUnitOfUnit(tx, unitId, data.businessUnitId))) {
+          throw Errors.badRequest('Unit usaha laundry tidak ditemukan untuk unit ini');
+        }
+      }
 
-    return prisma.laundryPricing.create({
-      data: {
-        unit: { connect: { id: unitId } },
-        name: data.name,
-        description: data.description,
-        pricePerKg: new Prisma.Decimal(data.pricePerKg),
-        minWeight: new Prisma.Decimal(data.minWeight),
-        processDays: data.processDays,
-        isExpress: data.isExpress,
-        isActive: data.isActive,
-        businessUnit: data.businessUnitId ? { connect: { id: data.businessUnitId } } : undefined,
-      },
+      return tx.laundryPricing.create({
+        data: {
+          unit: { connect: { id: unitId } },
+          name: data.name,
+          description: data.description,
+          pricePerKg: new Prisma.Decimal(data.pricePerKg),
+          minWeight: new Prisma.Decimal(data.minWeight),
+          processDays: data.processDays,
+          isExpress: data.isExpress,
+          isActive: data.isActive,
+          businessUnit: data.businessUnitId ? { connect: { id: data.businessUnitId } } : undefined,
+        },
+      });
     });
   },
 
   async update(id: string, unitId: string, data: UpdatePricingInput) {
-    const existing = await prisma.laundryPricing.findFirst({
-      where: { id, unitId },
-      select: { id: true, businessUnitId: true },
-    });
-    if (!existing) throw Errors.notFound('Tarif laundry');
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.laundryPricing.findFirst({
+        where: { id, unitId },
+        select: { id: true, businessUnitId: true, isActive: true },
+      });
+      if (!existing) throw Errors.notFound('Tarif laundry');
 
-    const businessUnitId =
-      data.businessUnitId !== undefined ? data.businessUnitId : existing.businessUnitId;
-    if (businessUnitId && !(await isLaundryBusinessUnitOfUnit(unitId, businessUnitId))) {
-      throw Errors.badRequest('Unit usaha laundry tidak ditemukan untuk unit ini');
-    }
+      const businessUnitId =
+        data.businessUnitId !== undefined ? data.businessUnitId : existing.businessUnitId;
+      const finalIsActive = data.isActive ?? existing.isActive;
+      const linkChanged = data.businessUnitId !== undefined;
+      if (businessUnitId && (linkChanged || finalIsActive)) {
+        await lockBusinessUnit(tx, businessUnitId);
+        if (!(await isLaundryBusinessUnitOfUnit(tx, unitId, businessUnitId))) {
+          throw Errors.badRequest('Unit usaha laundry tidak ditemukan untuk unit ini');
+        }
+      }
 
-    const updateData: Prisma.LaundryPricingUpdateInput = {};
+      const updateData: Prisma.LaundryPricingUpdateInput = {};
 
-    if (data.name !== undefined) updateData.name = data.name;
-    if (data.description !== undefined) updateData.description = data.description;
-    if (data.pricePerKg !== undefined) updateData.pricePerKg = new Prisma.Decimal(data.pricePerKg);
-    if (data.minWeight !== undefined) updateData.minWeight = new Prisma.Decimal(data.minWeight);
-    if (data.processDays !== undefined) updateData.processDays = data.processDays;
-    if (data.isExpress !== undefined) updateData.isExpress = data.isExpress;
-    if (data.isActive !== undefined) updateData.isActive = data.isActive;
-    if (data.businessUnitId !== undefined) {
-      updateData.businessUnit = data.businessUnitId
-        ? { connect: { id: data.businessUnitId } }
-        : { disconnect: true };
-    }
+      if (data.name !== undefined) updateData.name = data.name;
+      if (data.description !== undefined) updateData.description = data.description;
+      if (data.pricePerKg !== undefined)
+        updateData.pricePerKg = new Prisma.Decimal(data.pricePerKg);
+      if (data.minWeight !== undefined) updateData.minWeight = new Prisma.Decimal(data.minWeight);
+      if (data.processDays !== undefined) updateData.processDays = data.processDays;
+      if (data.isExpress !== undefined) updateData.isExpress = data.isExpress;
+      if (data.isActive !== undefined) updateData.isActive = data.isActive;
+      if (data.businessUnitId !== undefined) {
+        updateData.businessUnit = data.businessUnitId
+          ? { connect: { id: data.businessUnitId } }
+          : { disconnect: true };
+      }
 
-    return prisma.laundryPricing.update({
-      where: { id },
-      data: updateData,
+      return tx.laundryPricing.update({
+        where: { id },
+        data: updateData,
+      });
     });
   },
 

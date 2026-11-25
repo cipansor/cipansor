@@ -2,8 +2,8 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { businessUnitService } from '../business-unit.service';
 import { prisma } from '@/lib/prisma';
 
-vi.mock('@/lib/prisma', () => ({
-  prisma: {
+vi.mock('@/lib/prisma', () => {
+  const prisma = {
     businessUnit: {
       findMany: vi.fn(),
       findFirst: vi.fn(),
@@ -15,8 +15,14 @@ vi.mock('@/lib/prisma', () => ({
     canteenTransaction: { groupBy: vi.fn() },
     laundryTransaction: { groupBy: vi.fn() },
     laundryPricing: { count: vi.fn() },
-  },
-}));
+    $queryRaw: vi.fn(),
+    $transaction: vi.fn(),
+  };
+  prisma.$transaction.mockImplementation((callback: (tx: typeof prisma) => unknown) =>
+    callback(prisma)
+  );
+  return { prisma };
+});
 
 describe('BusinessUnitService', () => {
   beforeEach(() => {
@@ -94,6 +100,7 @@ describe('BusinessUnitService', () => {
       statusCode: 409,
       message: expect.stringContaining('tarif laundry aktif'),
     });
+    expect(prisma.$queryRaw).toHaveBeenCalled();
     expect(prisma.businessUnit.update).not.toHaveBeenCalled();
   });
 
