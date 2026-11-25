@@ -290,14 +290,18 @@ export async function purgeExpiredRegistrants(
   const deleted: ExpiredRegistrant[] = [];
   const failed: FailedRegistrant[] = [];
   let withheld = 0;
+  let held = new Set<string>();
 
-  if (!dryRun && expired.length) {
+  if (expired.length) {
     // Permintaan hak subjek yang masih terbuka harus tetap punya subjeknya:
     // `DataSubjectRequest.subjectRegistrantId` memakai `onDelete: SetNull`, jadi
     // barisnya selamat tetapi objek yang diminta hilang lebih dulu, dan ACCESS
     // atau RECTIFICATION tidak lagi dapat dijawab dalam tenggat 3×24 jam
     // (Pasal 30, 32, 40, 43). Pengecualian sempit: hanya status yang belum
     // selesai, dan hanya selama permintaannya terbuka.
+    //
+    // Kueri ini juga berjalan saat dry run: keluaran dry run harus sama dengan
+    // yang akan terjadi sungguhan, termasuk jumlah yang ditahan.
     const openRequests = await prisma.dataSubjectRequest.findMany({
       where: {
         subjectRegistrantId: { in: expired.map((r) => r.registrantId) },
@@ -305,9 +309,13 @@ export async function purgeExpiredRegistrants(
       },
       select: { subjectRegistrantId: true },
     });
-    const held = new Set(openRequests.map((r) => r.subjectRegistrantId));
+    held = new Set(
+      openRequests.map((r) => r.subjectRegistrantId).filter((id): id is string => id !== null)
+    );
     withheld = held.size;
+  }
 
+  if (!dryRun) {
     for (const row of expired) {
       if (held.has(row.registrantId)) continue;
       try {

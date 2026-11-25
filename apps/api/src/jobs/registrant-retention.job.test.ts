@@ -420,6 +420,29 @@ describe('purgeExpiredRegistrants', () => {
     expect(summary.deleted).toHaveLength(0);
   });
 
+  it('dry run menghitung pendaftar yang ditahan permintaan hak subjek', async () => {
+    const { prisma, auditCreate } = fakePrisma(
+      [
+        registrant({ id: 'minta-akses', registrationNo: 'MINTA-AKSES' }),
+        registrant({ id: 'biasa', registrationNo: 'BIASA' }),
+      ],
+      { openRequests: [{ id: 'minta-akses', status: 'RECEIVED' }] }
+    );
+
+    const summary = await purgeExpiredRegistrants(prisma, {
+      now: RETENTION_START,
+      dryRun: true,
+    });
+
+    // Daftar dry run harus sama dengan hasil sungguhan: yang ditahan tetap
+    // dihitung, tetapi tidak ada yang dihapus dan tidak ada audit.
+    expect(summary.expired).toHaveLength(2);
+    expect(summary.withheld).toBe(1);
+    expect(summary.deleted).toHaveLength(0);
+    expect(deleteRegistrantForRetentionMock).not.toHaveBeenCalled();
+    expect(auditCreate).not.toHaveBeenCalled();
+  });
+
   /**
    * Baris pendaftar adalah **satu-satunya** catatan uang daftar ulang:
    * `recordRegistrationFee` menulis nominal, tanggal, dan verifikatornya ke
