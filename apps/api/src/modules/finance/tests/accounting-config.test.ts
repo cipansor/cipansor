@@ -19,6 +19,7 @@ vi.mock('../../../lib/prisma', () => ({ prisma: prismaMock }));
 
 import {
   ACCOUNT_MAPPING_KEYS,
+  getAccountMappingState,
   getAccountMappings,
   setAccountMappings,
 } from '../accounting-config.service';
@@ -75,6 +76,36 @@ describe('PPh 21 account mapping', () => {
 
     expect(txMock.accountCode.findUnique).not.toHaveBeenCalled();
     expect(txMock.setting.upsert).toHaveBeenCalled();
+    expect(txMock.setting.deleteMany).not.toHaveBeenCalled();
+  });
+
+  it('saving only the cash account leaves a stored invalid PPh 21 row untouched', async () => {
+    await setAccountMappings(UNIT, { [ACCOUNT_MAPPING_KEYS.CASH]: 'acc-cash' });
+
+    expect(txMock.setting.deleteMany).not.toHaveBeenCalled();
+    expect(txMock.setting.upsert).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: {
+          unitId_key: { unitId: UNIT, key: ACCOUNT_MAPPING_KEYS.CASH },
+        },
+      })
+    );
+  });
+
+  it('ignores an undefined entry instead of deleting it', async () => {
+    await setAccountMappings(UNIT, { [ACCOUNT_MAPPING_KEYS.CASH]: undefined });
+
+    expect(txMock.setting.deleteMany).not.toHaveBeenCalled();
+    expect(txMock.setting.upsert).not.toHaveBeenCalled();
+  });
+
+  it('refuses a key that is not an account mapping', async () => {
+    await expect(setAccountMappings(UNIT, { CALENDAR_HOLIDAY_SYNC: null })).rejects.toMatchObject({
+      statusCode: 400,
+    });
+
+    expect(prismaMock.$transaction).not.toHaveBeenCalled();
+    expect(txMock.setting.deleteMany).not.toHaveBeenCalled();
   });
 
   it('writes every mapping through the same transaction', async () => {
@@ -94,7 +125,7 @@ describe('PPh 21 account mapping', () => {
     expect(prismaMock.setting.upsert).not.toHaveBeenCalled();
   });
 
-  it('reports a stored PPh 21 mapping that is no longer usable as unset', async () => {
+  it('returns the stored PPh 21 id and flags it when no longer usable', async () => {
     prismaMock.setting.findUnique.mockImplementation((async ({
       where,
     }: {
@@ -109,11 +140,12 @@ describe('PPh 21 account mapping', () => {
       type: 'EXPENSE',
     } as never);
 
-    const settings = await getAccountMappings(UNIT);
+    const { settings, invalidKeys } = await getAccountMappingState(UNIT);
 
-    // The form must not resend a stale id and block the cash field it is
-    // actually editing.
-    expect(settings[ACCOUNT_MAPPING_KEYS.TAX_PAYABLE]).toBeNull();
+    // The form keeps the stored id (so it is not deleted by an unrelated
+    // save) and warns that the account must be replaced.
+    expect(settings[ACCOUNT_MAPPING_KEYS.TAX_PAYABLE]).toBe('acc-expense');
+    expect(invalidKeys).toContain(ACCOUNT_MAPPING_KEYS.TAX_PAYABLE);
   });
 
   it('returns a usable stored PPh 21 mapping', async () => {

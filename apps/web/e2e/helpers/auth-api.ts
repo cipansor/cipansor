@@ -459,6 +459,7 @@ export async function apiRequest<T = unknown>(
       `${method} ${apiPath} → ${res.status}: ${text.slice(0, 200)}`,
     );
   }
+  if (text === "") return undefined as T;
   try {
     return JSON.parse(text) as T;
   } catch {

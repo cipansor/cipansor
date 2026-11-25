@@ -59,6 +59,10 @@ import { format } from "date-fns";
 import { id as localeID } from "date-fns/locale";
 import { api } from "@/lib/api";
 import { getErrorMessage } from "@/lib/api-error";
+import {
+  changedAccountMappings,
+  type AccountMappings,
+} from "@/lib/accounting-settings";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 
 import {
@@ -882,29 +886,43 @@ function ReportsTab() {
 }
 
 // Accounting Settings Tab
+const CLEAR_ACCOUNT = "__clear_account__";
+
 function AccountingSettingsTab() {
+  const queryClient = useQueryClient();
   const { data: units } = useUnits();
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
-  const [settings, setSettings] = useState<Record<string, string | null>>({});
+  const [settings, setSettings] = useState<AccountMappings>({});
+  const [initialSettings, setInitialSettings] = useState<AccountMappings>({});
+  const [invalidKeys, setInvalidKeys] = useState<string[]>([]);
+  const [touchedKeys, setTouchedKeys] = useState<Set<string>>(new Set());
 
   // Fetch settings when unit selected
   const { data: fetchedSettings } = useQuery({
     queryKey: ["accounting-settings", selectedUnitId],
     queryFn: async () => {
-      if (!selectedUnitId) return {};
-      const res = await api.get("/finance/accounting/settings", {
+      if (!selectedUnitId) return { data: {}, invalidKeys: [] as string[] };
+      const res = await api.get<{
+        data: AccountMappings;
+        invalidKeys?: string[];
+      }>("/finance/accounting/settings", {
         params: { unitId: selectedUnitId },
       });
-      return res.data.data;
+      return {
+        data: res.data.data,
+        invalidKeys: res.data.invalidKeys ?? [],
+      };
     },
     enabled: !!selectedUnitId,
   });
 
   // Sync settings when fetched data changes
   useEffect(() => {
-    if (fetchedSettings) {
-      setSettings(fetchedSettings);
-    }
+    if (!fetchedSettings) return;
+    setSettings(fetchedSettings.data);
+    setInitialSettings(fetchedSettings.data);
+    setInvalidKeys(fetchedSettings.invalidKeys);
+    setTouchedKeys(new Set());
   }, [fetchedSettings]);
 
   const { data: accounts } = useAccountCodes({
@@ -913,7 +931,7 @@ function AccountingSettingsTab() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: async (newSettings: Record<string, string | null>) => {
+    mutationFn: async (newSettings: AccountMappings) => {
       await api.post("/finance/accounting/settings", {
         unitId: selectedUnitId,
         settings: newSettings,
@@ -921,6 +939,11 @@ function AccountingSettingsTab() {
     },
     onSuccess: () => {
       toast.success("Pengaturan berhasil disimpan");
+      setInitialSettings(settings);
+      setTouchedKeys(new Set());
+      void queryClient.invalidateQueries({
+        queryKey: ["accounting-settings", selectedUnitId],
+      });
     },
     onError: (error) => {
       toast.error(getErrorMessage(error));
@@ -929,7 +952,16 @@ function AccountingSettingsTab() {
 
   const handleSave = () => {
     if (!selectedUnitId) return;
-    updateMutation.mutate(settings);
+    const changes = changedAccountMappings(
+      initialSettings,
+      settings,
+      touchedKeys,
+    );
+    if (Object.keys(changes).length === 0) {
+      toast.info("Tidak ada perubahan untuk disimpan");
+      return;
+    }
+    updateMutation.mutate(changes);
   };
 
   const MAPPINGS = [
@@ -960,6 +992,9 @@ function AccountingSettingsTab() {
     },
   ];
 
+  const taxMapping = settings["ACCOUNT_MAPPING_TAX_PAYABLE"];
+  const taxMappingInvalid = invalidKeys.includes("ACCOUNT_MAPPING_TAX_PAYABLE");
+
   return (
     <div className="space-y-6">
       <Card>
@@ -986,15 +1021,16 @@ function AccountingSettingsTab() {
           {selectedUnitId ? (
             <div className="space-y-4">
               {fetchedSettings !== undefined &&
-                !settings["ACCOUNT_MAPPING_TAX_PAYABLE"] && (
+                (taxMappingInvalid || !taxMapping) && (
                   <div
                     role="alert"
                     className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
                   >
                     <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
                     <p>
-                      Pemetaan Utang PPh 21 belum diisi. Pembayaran gaji dengan
-                      potongan PPh 21 akan ditolak sampai akun ini dipilih.
+                      {taxMappingInvalid
+                        ? "Akun Utang PPh 21 yang tersimpan tidak lagi aktif, bukan akun kewajiban, atau bukan milik unit ini. Pilih akun pengganti; pemetaan lama tetap tersimpan sampai Anda mengubahnya."
+                        : "Pemetaan Utang PPh 21 belum diisi. Pembayaran gaji dengan potongan PPh 21 akan ditolak sampai akun ini dipilih."}
                     </p>
                   </div>
                 )}
@@ -1005,15 +1041,26 @@ function AccountingSettingsTab() {
                     {mapping.description}
                   </p>
                   <Select
-                    value={settings[mapping.key] || ""}
-                    onValueChange={(val) =>
-                      setSettings((prev) => ({ ...prev, [mapping.key]: val }))
-                    }
+                    value={settings[mapping.key] ?? ""}
+                    onValueChange={(val) => {
+                      setSettings((prev) => ({
+                        ...prev,
+                        [mapping.key]: val === CLEAR_ACCOUNT ? null : val,
+                      }));
+                      setTouchedKeys((prev) => {
+                        const next = new Set(prev);
+                        next.add(mapping.key);
+                        return next;
+                      });
+                    }}
                   >
                     <SelectTrigger aria-label={mapping.label}>
                       <SelectValue placeholder="Pilih Akun" />
                     </SelectTrigger>
                     <SelectContent>
+                      <SelectItem value={CLEAR_ACCOUNT}>
+                        — Kosongkan pemetaan —
+                      </SelectItem>
                       {(accounts?.data ?? [])
                         .filter(
                           (acc) =>

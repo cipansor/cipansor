@@ -17,6 +17,12 @@ export const ACCOUNT_MAPPING_KEYS = {
   COGS: 'ACCOUNT_MAPPING_COGS',
 };
 
+export const ACCOUNT_MAPPING_KEY_LIST: readonly string[] = Object.values(ACCOUNT_MAPPING_KEYS);
+
+export function isAccountMappingKey(key: string): boolean {
+  return ACCOUNT_MAPPING_KEY_LIST.includes(key);
+}
+
 export async function getAccountMapping(
   unitId: string,
   key: string,
@@ -78,22 +84,37 @@ async function assertUsableAccountMapping(
 }
 
 /**
- * Every mapping of one unit, with a stored PPh 21 id that no longer points to a
- * usable account reported as null. The form then cannot resend a stale id and
- * block an unrelated cash-account change.
+ * Every mapping of one unit exactly as stored. A stored PPh 21 id that no
+ * longer points to a usable account is still returned: the settings form must
+ * not turn an untouched row into a delete instruction when the operator saves
+ * an unrelated field.
  */
 export async function getAccountMappings(unitId: string) {
   const settings: Record<string, string | null> = {};
 
-  for (const key of Object.values(ACCOUNT_MAPPING_KEYS)) {
-    const accountId = await getAccountMapping(unitId, key);
-    settings[key] =
-      accountId && (await isUsableAccountMapping(unitId, key, accountId, prisma))
-        ? accountId
-        : null;
+  for (const key of ACCOUNT_MAPPING_KEY_LIST) {
+    settings[key] = await getAccountMapping(unitId, key);
   }
 
   return settings;
+}
+
+/**
+ * The stored mappings plus the keys whose stored account is no longer usable.
+ * The form uses `invalidKeys` to warn without replacing the stored id with
+ * `null` (which would delete it on the next save).
+ */
+export async function getAccountMappingState(unitId: string) {
+  const settings = await getAccountMappings(unitId);
+  const invalidKeys: string[] = [];
+
+  for (const [key, accountId] of Object.entries(settings)) {
+    if (accountId && !(await isUsableAccountMapping(unitId, key, accountId, prisma))) {
+      invalidKeys.push(key);
+    }
+  }
+
+  return { settings, invalidKeys };
 }
 
 /**
@@ -107,14 +128,27 @@ export async function setAccountMappings(
   mappings: Record<string, string | null | undefined>
 ) {
   const entries = Object.entries(mappings);
+  const unknown = entries.map(([key]) => key).filter((key) => !isAccountMappingKey(key));
+  if (unknown.length > 0) {
+    throw Errors.badRequest(`Kunci pengaturan tidak dikenal: ${unknown.join(', ')}`);
+  }
 
   return prisma.$transaction(async (tx) => {
     for (const [key, accountId] of entries) {
-      if (accountId) await assertUsableAccountMapping(unitId, key, accountId, tx);
+      if (accountId !== null && accountId !== undefined) {
+        if (typeof accountId !== 'string') {
+          throw Errors.badRequest(`Nilai pemetaan ${key} harus berupa id akun`);
+        }
+        await assertUsableAccountMapping(unitId, key, accountId, tx);
+      }
     }
 
     for (const [key, accountId] of entries) {
-      if (!accountId) {
+      // `undefined` means "not part of this save"; only an explicit `null`
+      // clears a mapping.
+      if (accountId === undefined) continue;
+
+      if (accountId === null) {
         await tx.setting.deleteMany({ where: { unitId, key } });
         continue;
       }
