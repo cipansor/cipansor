@@ -21,6 +21,44 @@ interface QuestionOption {
 interface BankQuestion {
   id: string;
   options: QuestionOption[];
+  answerKey: string;
+}
+
+type AuthSession = Awaited<ReturnType<typeof apiLogin>>;
+
+async function createQuestionBank(
+  session: AuthSession,
+  label: string,
+): Promise<string> {
+  const [units, subjects, teachers] = await Promise.all([
+    apiRequest<{ data: Array<{ id: string; name: string }> }>(
+      session,
+      "GET",
+      "/units",
+    ),
+    apiRequest<{ data: Array<{ id: string }> }>(
+      session,
+      "GET",
+      "/curriculum/subjects",
+    ),
+    apiRequest<{ data: Array<{ id: string }> }>(session, "GET", "/hr/teachers"),
+  ]);
+  expect(subjects.data?.[0], "seeded subject required").toBeTruthy();
+  expect(teachers.data?.[0], "seeded teacher required").toBeTruthy();
+
+  const bank = await apiRequest<{ data: { id: string } }>(
+    session,
+    "POST",
+    "/cbt/banks",
+    {
+      title: `Bank ${label} E2E ${Date.now()}`,
+      description: `E2E ${label}`,
+      unitId: units.data?.[0]?.id,
+      subjectId: subjects.data[0].id,
+      teacherId: teachers.data[0].id,
+    },
+  );
+  return bank.data.id;
 }
 
 test.describe("CBT Exams & Grading", () => {
@@ -115,41 +153,10 @@ test.describe("CBT Exams & Grading", () => {
     const session = await apiLogin(SEED_USERS.superAdmin);
     await injectSession(page, session);
 
-    const [units, subjects, teachers] = await Promise.all([
-      apiRequest<{ data: Array<{ id: string; name: string }> }>(
-        session,
-        "GET",
-        "/units",
-      ),
-      apiRequest<{ data: Array<{ id: string }> }>(
-        session,
-        "GET",
-        "/curriculum/subjects",
-      ),
-      apiRequest<{ data: Array<{ id: string }> }>(
-        session,
-        "GET",
-        "/hr/teachers",
-      ),
-    ]);
-    expect(subjects.data?.[0], "seeded subject required").toBeTruthy();
-    expect(teachers.data?.[0], "seeded teacher required").toBeTruthy();
-
-    const bank = await apiRequest<{ data: { id: string } }>(
-      session,
-      "POST",
-      "/cbt/banks",
-      {
-        title: `Bank opsi E2E ${Date.now()}`,
-        description: "E2E option ids",
-        unitId: units.data?.[0]?.id,
-        subjectId: subjects.data[0].id,
-        teacherId: teachers.data[0].id,
-      },
-    );
+    const bankId = await createQuestionBank(session, "opsi");
 
     try {
-      await page.goto(`/cbt/banks/${bank.data.id}`);
+      await page.goto(`/cbt/banks/${bankId}`);
       await page.getByRole("button", { name: /Tambah Soal/i }).click();
 
       await page
@@ -172,28 +179,94 @@ test.describe("CBT Exams & Grading", () => {
       ).toHaveAttribute("placeholder", /Teks pilihan B/);
       for (const [index, text] of [
         [0, "satu"],
-        [1, "dua"],
-        [2, "tiga"],
-        [3, "empat"],
+        [1, "tiga"],
+        [2, "empat"],
+        [3, "dua"],
       ] as const) {
         await page.locator(`input[name="options.${index}.text"]`).fill(text);
       }
+
+      // Choose the newly added B as the key. The saved order is A/C/D/B, so a
+      // list that marks by position would point at C instead.
+      await page.getByRole("dialog").getByRole("combobox").nth(1).click();
+      await page
+        .getByRole("listbox")
+        .getByRole("option", { name: "Opsi B" })
+        .click();
 
       await page.getByRole("button", { name: /Simpan Pertanyaan/i }).click();
       await expect(page.getByRole("dialog")).toBeHidden();
 
       const saved = await apiRequest<{
         data: { questions: BankQuestion[] };
-      }>(session, "GET", `/cbt/banks/${bank.data.id}`);
+      }>(session, "GET", `/cbt/banks/${bankId}`);
       const question = saved.data.questions.find((q) =>
         q.options.some((o) => o.text === "satu"),
       );
       expect(question, "question should be persisted").toBeTruthy();
       const ids = question!.options.map((o) => o.id);
+      expect(ids).toEqual(["A", "C", "D", "B"]);
       expect(new Set(ids).size).toBe(ids.length);
-      expect(ids).toContain("B");
+      expect(question!.answerKey).toBe("B");
+
+      await expect(
+        page.locator('[data-option-id="B"][data-correct="true"]'),
+      ).toContainText("dua");
+      await expect(
+        page.locator('[data-option-id="C"][data-correct="false"]'),
+      ).toContainText("tiga");
     } finally {
-      await apiRequest(session, "DELETE", `/cbt/banks/${bank.data.id}`);
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
+    }
+  });
+
+  test("Should clear the key when the keyed option is removed", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    await injectSession(page, session);
+
+    const bankId = await createQuestionBank(session, "kunci");
+
+    try {
+      await page.goto(`/cbt/banks/${bankId}`);
+      await page.getByRole("button", { name: /Tambah Soal/i }).click();
+
+      await page
+        .locator('textarea[name="content"]')
+        .fill(`Soal kunci E2E ${Date.now()}`);
+
+      const optionRow = (index: number) =>
+        page
+          .locator(`input[name="options.${index}.text"]`)
+          .locator(
+            'xpath=ancestor::div[contains(@class,"flex items-center gap-3")]',
+          );
+
+      // A is the default key. Removing it must leave the key empty rather than
+      // silently promoting B.
+      await optionRow(0).getByRole("button").click();
+      for (const [index, text] of [
+        [0, "dua"],
+        [1, "tiga"],
+        [2, "empat"],
+      ] as const) {
+        await page.locator(`input[name="options.${index}.text"]`).fill(text);
+      }
+
+      await page.getByRole("button", { name: /Simpan Pertanyaan/i }).click();
+      await expect(page.getByRole("dialog")).toBeVisible();
+      await expect(page.getByText("Kunci jawaban wajib diisi")).toBeVisible();
+
+      await page.getByRole("dialog").getByRole("combobox").nth(1).click();
+      await page
+        .getByRole("listbox")
+        .getByRole("option", { name: "Opsi C" })
+        .click();
+      await page.getByRole("button", { name: /Simpan Pertanyaan/i }).click();
+      await expect(page.getByRole("dialog")).toBeHidden();
+    } finally {
+      await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
     }
   });
 

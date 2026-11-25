@@ -32,4 +32,16 @@ describe("option ids", () => {
     ]);
     expect(uniqueOptionIds(options)[2].text).toBe("5");
   });
+
+  it("does not hand a replacement an id another option still owns", () => {
+    const options = [
+      { id: "A", text: "satu" },
+      { id: "A", text: "dua" },
+      { id: "B", text: "tiga" },
+    ];
+
+    expect(uniqueOptionIds(options).map((o) => o.id)).toEqual(["A", "C", "B"]);
+    // The key still names the third option, not the re-lettered duplicate.
+    expect(uniqueOptionIds(options)[2].text).toBe("tiga");
+  });
 });

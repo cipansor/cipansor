@@ -201,8 +201,9 @@ function ExamBankDetailPageContent() {
     const removedId = options[index]?.id;
     removeOption(index);
     if (removedId && form.getValues("answerKey") === removedId) {
-      const remaining = options.filter((_, i) => i !== index);
-      form.setValue("answerKey", remaining[0]?.id ?? "");
+      // The key belonged to the deleted option. Do not choose another one for
+      // the teacher: clear it and let validation force a deliberate choice.
+      form.setValue("answerKey", "", { shouldValidate: true });
     }
   };
 
@@ -600,17 +601,26 @@ function ExamBankDetailPageContent() {
                       {q.type === QuestionType.MULTIPLE_CHOICE && q.options && (
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                           {q.options.map((opt: any, optIdx: number) => {
-                            const letter = String.fromCharCode(65 + optIdx);
-                            const isCorrect = letter === q.answerKey;
+                            const optionId =
+                              typeof opt?.id === "string" && opt.id.trim()
+                                ? opt.id
+                                : String.fromCharCode(65 + optIdx);
+                            const answerKey =
+                              typeof q.answerKey === "string"
+                                ? q.answerKey
+                                : q.answerKey?.id;
+                            const isCorrect = optionId === answerKey;
                             return (
                               <div
-                                key={optIdx}
+                                key={`${optionId}-${optIdx}`}
+                                data-option-id={optionId}
+                                data-correct={isCorrect ? "true" : "false"}
                                 className={`text-sm p-2 rounded border flex items-center gap-2 ${isCorrect ? "bg-green-50 border-green-200" : "bg-muted/20 border-transparent"}`}
                               >
                                 <span
                                   className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${isCorrect ? "bg-green-500 text-white" : "bg-slate-200 text-slate-700"}`}
                                 >
-                                  {letter}
+                                  {optionId}
                                 </span>
                                 <span
                                   className={
