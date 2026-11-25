@@ -1,5 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { onlyScopedStudents, STUDENT_SAFE_SELECT } from '@/utils/student-scope';
+import { dayOf, todayWib, wibMonthRange, wibMonthYear } from '@/utils/wib';
 import { prisma } from '../../lib/prisma';
 import { attendanceService } from '../attendance/attendance.service';
 import { eventBus } from '../../lib/event-bus';
@@ -342,7 +343,7 @@ export async function getMedications(query: QueryMedicationInput) {
       ],
     }),
     ...(expired && {
-      expiryDate: { lt: new Date() },
+      expiryDate: { lt: dayOf(todayWib()) },
     }),
   };
 
@@ -755,15 +756,17 @@ export async function fulfillPrescription(prescriptionId: string, fulfilledById:
  * `undefined` filter as "no filter", so the same query serves both.
  */
 export async function getHealthStats(unitId?: string): Promise<HealthStats> {
-  const today = new Date();
-  const startOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+  const now = new Date();
+  const { year, month } = wibMonthYear(now);
+  const startOfMonth = wibMonthRange(year, month).start;
+  const expiredBefore = dayOf(todayWib(now));
 
   const [medications, expiredMedications, thisMonthRecords, recordsByType] = await Promise.all([
     prisma.medication.findMany({ where: { unitId } }),
     prisma.medication.count({
       where: {
         unitId,
-        expiryDate: { lt: today },
+        expiryDate: { lt: expiredBefore },
       },
     }),
     prisma.medicalRecord.count({

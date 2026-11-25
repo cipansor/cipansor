@@ -2,6 +2,7 @@ import { Request, Response, NextFunction } from 'express';
 import { campaignService, donationService } from './donation.service';
 import { ApiResponse } from '@/utils/response';
 import { requireUser } from '@/middleware/auth';
+import { wibMonthYear } from '@/utils/wib';
 
 // =====================================
 // CAMPAIGN CONTROLLER
@@ -182,7 +183,7 @@ export const donationController = {
    */
   async getMonthlyReport(req: Request, res: Response, next: NextFunction) {
     try {
-      const { year = new Date().getFullYear() } = req.query;
+      const { year = wibMonthYear(new Date()).year } = req.query;
       const report = await donationService.getMonthlyReport(Number(year));
       res.json(ApiResponse.success(report));
     } catch (error) {
