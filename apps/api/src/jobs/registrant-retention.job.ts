@@ -81,6 +81,8 @@ export interface RegistrantRetentionSummary {
   failed: FailedRegistrant[];
   /** Melewati masa simpan tetapi ditahan karena masih punya permintaan hak subjek terbuka. */
   withheld: number;
+  /** Baris yang membentuk `withheld`, supaya CLI dapat menandainya satu per satu. */
+  held: ExpiredRegistrant[];
 }
 
 /**
@@ -312,7 +314,6 @@ export async function purgeExpiredRegistrants(
     held = new Set(
       openRequests.map((r) => r.subjectRegistrantId).filter((id): id is string => id !== null)
     );
-    withheld = held.size;
   }
 
   if (!dryRun) {
@@ -338,7 +339,17 @@ export async function purgeExpiredRegistrants(
     }
   }
 
-  const summary: RegistrantRetentionSummary = { dryRun, expired, deleted, failed, withheld };
+  const heldRows = expired.filter((row) => held.has(row.registrantId));
+  withheld = heldRows.length;
+
+  const summary: RegistrantRetentionSummary = {
+    dryRun,
+    expired,
+    deleted,
+    failed,
+    withheld,
+    held: heldRows,
+  };
   if (!dryRun) await recordRun(prisma, summary);
   return summary;
 }

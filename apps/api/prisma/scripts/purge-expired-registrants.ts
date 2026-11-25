@@ -17,7 +17,7 @@
  */
 import { createPrismaClient } from '../client';
 import { purgeExpiredRegistrants } from '../../src/jobs/registrant-retention.job';
-import { wibDayOf } from '../../src/utils/wib';
+import { retentionReportLines } from '../../src/jobs/registrant-retention.report';
 
 const dryRun = process.argv.includes('--dry-run');
 
@@ -25,22 +25,8 @@ async function main() {
   const prisma = createPrismaClient();
   try {
     const summary = await purgeExpiredRegistrants(prisma, { dryRun });
-    const suffix = dryRun ? ' (dry run — tidak menghapus apa pun)' : '';
-
-    console.log(`${summary.expired.length} pendaftar melewati masa simpannya${suffix}.`);
-    for (const row of summary.expired) {
-      console.log(
-        `  ${row.registrationNo} — ${row.status}, gelombang ditutup ${row.closeDay}, ` +
-          `boleh dihapus sejak ${wibDayOf(row.retentionStart)} WIB`
-      );
-    }
-
-    if (!dryRun) {
-      console.log(`${summary.deleted.length} pendaftar dihapus beserta dokumennya.`);
-    }
-
-    for (const row of summary.failed) {
-      console.log(`  GAGAL ${row.registrationNo}: ${row.reason}`);
+    for (const line of retentionReportLines(summary, { dryRun })) {
+      console.log(line);
     }
   } finally {
     await prisma.$disconnect();

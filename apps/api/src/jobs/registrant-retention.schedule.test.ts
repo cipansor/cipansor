@@ -15,6 +15,7 @@ const { schedule, purgeExpiredRegistrants } = vi.hoisted(() => ({
     deleted: [],
     failed: [],
     withheld: 0,
+    held: [],
   })),
 }));
 

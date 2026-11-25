@@ -438,6 +438,7 @@ describe('purgeExpiredRegistrants', () => {
     // dihitung, tetapi tidak ada yang dihapus dan tidak ada audit.
     expect(summary.expired).toHaveLength(2);
     expect(summary.withheld).toBe(1);
+    expect(summary.held.map((r) => r.registrationNo)).toEqual(['MINTA-AKSES']);
     expect(summary.deleted).toHaveLength(0);
     expect(deleteRegistrantForRetentionMock).not.toHaveBeenCalled();
     expect(auditCreate).not.toHaveBeenCalled();
@@ -485,6 +486,7 @@ describe('purgeExpiredRegistrants', () => {
     const summary = await purgeExpiredRegistrants(prisma, { now: RETENTION_START });
 
     expect(summary.withheld).toBe(1);
+    expect(summary.held.map((r) => r.registrationNo)).toEqual(['MINTA-AKSES']);
     expect(deleteRegistrantForRetentionMock).toHaveBeenCalledWith('biasa');
     expect(deleteRegistrantForRetentionMock).not.toHaveBeenCalledWith('minta-akses');
     // Jumlah yang ditahan ikut tercatat: itu satu-satunya cara melihat ada
