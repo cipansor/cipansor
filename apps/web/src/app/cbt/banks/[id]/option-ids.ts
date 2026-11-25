@@ -22,6 +22,33 @@ export function answerKeyIdOf(answerKey: unknown): string | null {
   return trimmed || null;
 }
 
+export interface EditableOption {
+  id: string;
+  text: string;
+}
+
+/** Turn stored options — objects or legacy bare strings — into form options. */
+export function normalizeOptions(
+  options: readonly unknown[],
+): EditableOption[] {
+  return options.map((option) => {
+    if (typeof option === "string") {
+      return { id: trimmedId(option), text: option };
+    }
+    if (option && typeof option === "object") {
+      const value = option as { id?: unknown; text?: unknown };
+      return {
+        id: trimmedId(value.id),
+        text: typeof value.text === "string" ? value.text : "",
+      };
+    }
+    return {
+      id: "",
+      text: option == null ? "" : String(option),
+    };
+  });
+}
+
 /** The first unused option id: A…Z, then OPT27, OPT28, … */
 export function nextOptionId(
   ids: readonly string[],

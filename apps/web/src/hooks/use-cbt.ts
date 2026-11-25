@@ -7,6 +7,7 @@ export { QuestionType } from "@cipansor/shared";
 export type {
   Question,
   QuestionOption,
+  QuestionOptionObject,
   QuestionBank,
   ExamAttempt,
   ExamAnswer,

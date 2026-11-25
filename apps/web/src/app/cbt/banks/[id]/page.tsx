@@ -11,7 +11,6 @@ import {
   useDeleteQuestion,
   QuestionType,
   type Question,
-  type QuestionOption,
 } from "@/hooks/use-cbt";
 import { PageHeader } from "@/components/shared/page-header";
 import {
@@ -56,6 +55,7 @@ import { MainLayout } from "@/components/layout";
 import {
   answerKeyIdOf,
   nextOptionId,
+  normalizeOptions,
   optionIdOf,
   uniqueOptionIds,
 } from "./option-ids";
@@ -154,7 +154,7 @@ function ExamBankDetailPageContent() {
       type: q.type,
       content: q.content,
       points: q.points,
-      options: uniqueOptionIds(q.options || [], q.answerKey),
+      options: uniqueOptionIds(normalizeOptions(q.options || []), q.answerKey),
       answerKey: answerKeyIdOf(q.answerKey) ?? "",
       explanation: q.explanation || "",
     });
@@ -565,104 +565,109 @@ function ExamBankDetailPageContent() {
         <CardContent>
           {bank.questions && bank.questions.length > 0 ? (
             <div className="space-y-4">
-              {bank.questions.map((q: Question, index: number) => (
-                <div
-                  key={q.id}
-                  className="border rounded-md p-4 group relative hover:border-primary/50 transition-colors"
-                >
-                  <div className="absolute right-4 top-4 hidden group-hover:flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => handleEditQuestion(q)}
-                    >
-                      <Edit className="w-4 h-4 mr-1" /> Edit
-                    </Button>
-                    <Button
-                      variant="destructive"
-                      size="sm"
-                      onClick={() => handleDelete(q.id)}
-                    >
-                      <Trash2 className="w-4 h-4 mr-1" /> Hapus
-                    </Button>
-                  </div>
-
-                  <div className="flex gap-3 items-start pr-32">
-                    <div className="bg-primary/10 text-primary w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0">
-                      {index + 1}
+              {bank.questions.map((q: Question, index: number) => {
+                const options = uniqueOptionIds(
+                  normalizeOptions(q.options || []),
+                  q.answerKey,
+                );
+                return (
+                  <div
+                    key={q.id}
+                    className="border rounded-md p-4 group relative hover:border-primary/50 transition-colors"
+                  >
+                    <div className="absolute right-4 top-4 hidden group-hover:flex gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleEditQuestion(q)}
+                      >
+                        <Edit className="w-4 h-4 mr-1" /> Edit
+                      </Button>
+                      <Button
+                        variant="destructive"
+                        size="sm"
+                        onClick={() => handleDelete(q.id)}
+                      >
+                        <Trash2 className="w-4 h-4 mr-1" /> Hapus
+                      </Button>
                     </div>
-                    <div className="flex-1 space-y-3">
-                      <div>
-                        <div className="flex items-center gap-2 mb-1">
-                          <Badge variant="secondary">
-                            {q.type.replace("_", " ")}
-                          </Badge>
-                          <span className="text-xs font-semibold text-muted-foreground mr-1">
-                            Bobot: {q.points} Poin
-                          </span>
-                        </div>
-                        <p className="text-sm font-medium whitespace-pre-wrap">
-                          {q.content}
-                        </p>
+
+                    <div className="flex gap-3 items-start pr-32">
+                      <div className="bg-primary/10 text-primary w-8 h-8 rounded-full flex items-center justify-center font-bold shrink-0">
+                        {index + 1}
                       </div>
+                      <div className="flex-1 space-y-3">
+                        <div>
+                          <div className="flex items-center gap-2 mb-1">
+                            <Badge variant="secondary">
+                              {q.type.replace("_", " ")}
+                            </Badge>
+                            <span className="text-xs font-semibold text-muted-foreground mr-1">
+                              Bobot: {q.points} Poin
+                            </span>
+                          </div>
+                          <p className="text-sm font-medium whitespace-pre-wrap">
+                            {q.content}
+                          </p>
+                        </div>
 
-                      {q.type === QuestionType.MULTIPLE_CHOICE && q.options && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                          {q.options.map(
-                            (opt: QuestionOption, optIdx: number) => {
-                              const optionId = optionIdOf(opt.id, optIdx);
-                              const answerKey = answerKeyIdOf(q.answerKey);
-                              const isCorrect =
-                                answerKey !== null && optionId === answerKey;
-                              return (
-                                <div
-                                  key={`${optionId}-${optIdx}`}
-                                  data-option-id={optionId}
-                                  data-correct={isCorrect ? "true" : "false"}
-                                  className={`text-sm p-2 rounded border flex items-center gap-2 ${isCorrect ? "bg-green-50 border-green-200" : "bg-muted/20 border-transparent"}`}
-                                >
-                                  <span
-                                    className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${isCorrect ? "bg-green-500 text-white" : "bg-slate-200 text-slate-700"}`}
+                        {q.type === QuestionType.MULTIPLE_CHOICE &&
+                          options.length > 0 && (
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                              {options.map((opt, optIdx: number) => {
+                                const optionId = opt.id;
+                                const answerKey = answerKeyIdOf(q.answerKey);
+                                const isCorrect =
+                                  answerKey !== null && optionId === answerKey;
+                                return (
+                                  <div
+                                    key={`${optionId}-${optIdx}`}
+                                    data-option-id={optionId}
+                                    data-correct={isCorrect ? "true" : "false"}
+                                    className={`text-sm p-2 rounded border flex items-center gap-2 ${isCorrect ? "bg-green-50 border-green-200" : "bg-muted/20 border-transparent"}`}
                                   >
-                                    {optionId}
-                                  </span>
-                                  <span
-                                    className={
-                                      isCorrect
-                                        ? "font-medium text-green-900"
-                                        : "text-slate-700"
-                                    }
-                                  >
-                                    {opt.text}
-                                  </span>
-                                  {isCorrect && (
-                                    <CheckCircle className="w-4 h-4 text-green-600 ml-auto" />
-                                  )}
-                                </div>
-                              );
-                            },
+                                    <span
+                                      className={`w-5 h-5 rounded-full flex items-center justify-center text-xs font-bold ${isCorrect ? "bg-green-500 text-white" : "bg-slate-200 text-slate-700"}`}
+                                    >
+                                      {optionId}
+                                    </span>
+                                    <span
+                                      className={
+                                        isCorrect
+                                          ? "font-medium text-green-900"
+                                          : "text-slate-700"
+                                      }
+                                    >
+                                      {opt.text}
+                                    </span>
+                                    {isCorrect && (
+                                      <CheckCircle className="w-4 h-4 text-green-600 ml-auto" />
+                                    )}
+                                  </div>
+                                );
+                              })}
+                            </div>
                           )}
-                        </div>
-                      )}
 
-                      {q.type !== QuestionType.MULTIPLE_CHOICE && (
-                        <div className="bg-muted/30 border p-3 rounded mt-2">
-                          <span className="text-xs font-bold text-muted-foreground block mb-1">
-                            KUNCI JAWABAN:
-                          </span>
-                          <span className="text-sm font-medium">
-                            {typeof q.answerKey === "boolean"
-                              ? q.answerKey
-                                ? "Benar"
-                                : "Salah"
-                              : (answerKeyIdOf(q.answerKey) ?? "")}
-                          </span>
-                        </div>
-                      )}
+                        {q.type !== QuestionType.MULTIPLE_CHOICE && (
+                          <div className="bg-muted/30 border p-3 rounded mt-2">
+                            <span className="text-xs font-bold text-muted-foreground block mb-1">
+                              KUNCI JAWABAN:
+                            </span>
+                            <span className="text-sm font-medium">
+                              {typeof q.answerKey === "boolean"
+                                ? q.answerKey
+                                  ? "Benar"
+                                  : "Salah"
+                                : (answerKeyIdOf(q.answerKey) ?? "")}
+                            </span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div className="text-center py-12 text-muted-foreground border-2 border-dashed rounded-lg">

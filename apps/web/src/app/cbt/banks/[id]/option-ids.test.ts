@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   answerKeyIdOf,
   nextOptionId,
+  normalizeOptions,
   optionIdOf,
   uniqueOptionIds,
 } from "./option-ids";
@@ -69,5 +70,15 @@ describe("option ids", () => {
     expect(uniqueOptionIds(options).map((o) => o.id)).toEqual(["A", "C", "B"]);
     // The key still names the third option, not the re-lettered duplicate.
     expect(uniqueOptionIds(options)[2].text).toBe("tiga");
+  });
+
+  it("turns legacy string options into form options the key still matches", () => {
+    const normalized = uniqueOptionIds(
+      normalizeOptions(["-31", "-14", "46", "1"]),
+      "-31",
+    );
+
+    expect(normalized.map((o) => o.id)).toEqual(["-31", "-14", "46", "1"]);
+    expect(normalized[0].text).toBe("-31");
   });
 });

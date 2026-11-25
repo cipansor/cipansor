@@ -274,6 +274,16 @@ test.describe("CBT Exams & Grading", () => {
       });
 
       await page.goto(`/cbt/banks/${bankId}`);
+      // The list itself must already show one correct option: the blank id
+      // must not make Surabaya look like the key as well.
+      await expect(page.locator('[data-correct="true"]')).toHaveCount(1);
+      await expect(
+        page.locator('[data-option-id="B"][data-correct="true"]'),
+      ).toContainText("Jakarta");
+      await expect(page.locator('[data-option-id="C"]')).toContainText(
+        "Surabaya",
+      );
+
       const card = page.locator("div.group").filter({ hasText: content });
       await card.hover();
       await card.getByRole("button", { name: /Edit/i }).click();
@@ -318,6 +328,7 @@ test.describe("CBT Exams & Grading", () => {
       await expect(
         page.locator('[data-option-id="B"][data-correct="true"]'),
       ).toContainText("Jakarta");
+      await expect(page.locator('[data-correct="true"]')).toHaveCount(1);
     } finally {
       await apiRequest(session, "DELETE", `/cbt/banks/${bankId}`);
     }
