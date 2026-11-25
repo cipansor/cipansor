@@ -149,6 +149,11 @@ describe('laundry transaction number follows the WIB calendar', () => {
     // The number is LDR-YYYYMMDD-XXXX for every unit, so the lock key is the
     // date alone — a unit in the key would let two units race the same number.
     expect(lockKey).toBe('20261101');
+    // The lock must precede the read of the last number, not just the insert:
+    // otherwise two transactions still read the same number before one waits.
+    expect(txQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      (prisma.laundryTransaction.findFirst as any).mock.invocationCallOrder[0]
+    );
     expect(txQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(
       (prisma.laundryTransaction.create as any).mock.invocationCallOrder[0]
     );
