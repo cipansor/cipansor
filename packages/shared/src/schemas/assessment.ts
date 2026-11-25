@@ -28,15 +28,15 @@ export type RecordSecurityLogInput = z.infer<typeof recordSecurityLogSchema>;
  * identifier; the portal writes `{ id, text }`. The other key names are the
  * wrappers `canonicalAnswer` already accepts from imported banks.
  */
-const examOptionIdSchema = z.union([z.string(), z.number()]);
+const examOptionIdSchema = z.union([z.string(), z.number()]).nullable();
 const examOptionObjectSchema = z
   .object({
     id: examOptionIdSchema.optional(),
     optionId: examOptionIdSchema.optional(),
     value: examOptionIdSchema.optional(),
     key: examOptionIdSchema.optional(),
-    text: z.string().optional(),
-    label: z.string().optional(),
+    text: z.string().nullable().optional(),
+    label: z.string().nullable().optional(),
   })
   .passthrough();
 

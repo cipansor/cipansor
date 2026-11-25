@@ -452,6 +452,7 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     // berikutnya. Bawaannya "belum pernah menerima kunci"; uji yang menguji
     // jeda penerbitan ulang menimpanya sendiri.
     vi.mocked(prisma.signingKeyStatusRecord.findFirst).mockResolvedValue(null as any);
+    vi.mocked(prisma.merdekaAssessmentResult.findMany).mockResolvedValue([] as any);
   });
 
   const actor = { userId: 'officer-1', name: 'Petugas PDP' };
@@ -1632,6 +1633,56 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       select: { attachments: true },
     });
     expect(fs.unlink).not.toHaveBeenCalled();
+  });
+
+  it('meneruskan lampiran bersarang milik subjek sendiri ke penghapusan berkas', async () => {
+    // `attachments` asesmen Merdeka berbentuk objek, bukan larik URL. Tanpa
+    // pembacaan rekursif, URL di dalamnya tidak pernah sampai ke
+    // `deleteStoredFiles` dan berkas subjek tertinggal di penyimpanan.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: null,
+    } as any);
+    vi.mocked(prisma.merdekaAssessmentResult.findMany).mockImplementation((async (args: any) => {
+      if (args?.where?.studentId) {
+        return [
+          {
+            attachments: {
+              files: ['https://portal.cipansor.or.id/uploads/merdeka-lampiran.pdf'],
+            },
+          },
+        ];
+      }
+      // Setelah sapuan, tidak ada baris lain yang menunjuk berkas ini.
+      return [];
+    }) as any);
+    vi.mocked(prisma.merdekaAssessmentResult.updateMany).mockResolvedValue({ count: 1 } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+    vi.mocked(fs.unlink).mockResolvedValue(undefined as never);
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    expect(prisma.merdekaAssessmentResult.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        data: expect.objectContaining({ attachments: Prisma.DbNull }),
+      })
+    );
+    expect(fs.unlink).toHaveBeenCalledWith(
+      expect.stringMatching(/\/uploads\/merdeka-lampiran\.pdf$/)
+    );
   });
 
   it('tidak menghitung nama berkas yang hanya berbagi akhiran sebagai penunjuk', async () => {
