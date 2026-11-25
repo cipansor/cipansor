@@ -254,6 +254,75 @@ test.describe("Kalender Akademik — agenda hari ini", () => {
   });
 });
 
+test.describe("Manajemen Event — filter kategori", () => {
+  test("mengirim eventType dan menyempitkan daftar", async ({ page }) => {
+    const session = await apiLogin(SEED_USERS.superAdmin);
+    const suffix = Date.now();
+    const wibToday = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const startDate = `${wibToday}T01:00:00.000Z`;
+    const meetingTitle = `Rapat daftar e2e ${suffix}`;
+    const religiousTitle = `Keagamaan daftar e2e ${suffix}`;
+
+    const create = (title: string, eventType: "MEETING" | "RELIGIOUS") =>
+      apiRequest<{ data: { id: string } }>(session, "POST", "/calendar", {
+        title,
+        eventType,
+        startDate,
+        endDate: startDate,
+        isAllDay: false,
+        startTime: "08:00",
+        endTime: "09:00",
+        isPublic: true,
+      });
+
+    const meeting = await create(meetingTitle, "MEETING");
+    const religious = await create(religiousTitle, "RELIGIOUS");
+
+    try {
+      await loginAs(page, "superAdmin");
+      await page.goto("/calendar/events");
+
+      await expect(page.getByText(meetingTitle)).toBeVisible({
+        timeout: 15000,
+      });
+      await expect(page.getByText(religiousTitle)).toBeVisible();
+
+      const filtered = page.waitForRequest(
+        (request) =>
+          request.url().includes("/calendar?") &&
+          request.url().includes("eventType=MEETING"),
+      );
+      await page.locator('[data-slot="select-trigger"]').first().click();
+      await page.getByRole("option", { name: "Rapat", exact: true }).click();
+
+      const url = new URL((await filtered).url());
+      expect(url.searchParams.get("eventType")).toBe("MEETING");
+
+      await expect(page.getByText(meetingTitle)).toBeVisible();
+      await expect(page.getByText(religiousTitle)).toHaveCount(0);
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${meeting.data.id}`);
+      await apiRequest(session, "DELETE", `/calendar/${religious.data.id}`);
+    }
+  });
+});
+
+test.describe("Tambah Event — unit admin", () => {
+  test("mengunci event ke unit aktif dan tidak menawarkan Semua Unit", async ({
+    page,
+  }) => {
+    await loginAs(page, "adminSdit");
+    await page.goto("/calendar/events/new");
+
+    await expect(page.getByTestId("event-unit")).toHaveText(/SD IT/, {
+      timeout: 15000,
+    });
+    await expect(page.getByText("Semua Unit", { exact: true })).toHaveCount(0);
+  });
+});
+
 test.describe("Calendar - Performance", () => {
   test("should load calendar quickly", async ({ page }) => {
     await loginAs(page, "superAdmin");

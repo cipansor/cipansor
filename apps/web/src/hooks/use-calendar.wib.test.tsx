@@ -24,6 +24,7 @@ vi.mock("@/lib/api", () => {
 
 import {
   agendaUnitIdFor,
+  eventStartInstant,
   useCreateCalendarEvent,
   useMonthEvents,
   useTodayEvents,
@@ -126,6 +127,48 @@ describe("agendaUnitIdFor", () => {
 
   it("returns empty when the session has no unit", () => {
     expect(agendaUnitIdFor("", null)).toBe("");
+  });
+});
+
+describe("eventStartInstant", () => {
+  it("uses the WIB start time for a date-only startDate", () => {
+    expect(
+      eventStartInstant({
+        startDate: "2026-11-25",
+        startTime: "15:00",
+        isAllDay: false,
+      }).toISOString(),
+    ).toBe("2026-11-25T08:00:00.000Z");
+  });
+
+  it("keeps an all-day event on its date", () => {
+    expect(
+      eventStartInstant({
+        startDate: "2026-11-25T00:00:00.000Z",
+        startTime: "15:00",
+        isAllDay: true,
+      }).toISOString(),
+    ).toBe("2026-11-25T00:00:00.000Z");
+  });
+
+  it("trusts a real instant that already carries a time", () => {
+    expect(
+      eventStartInstant({
+        startDate: "2026-11-25T01:00:00.000Z",
+        startTime: "08:00",
+        isAllDay: false,
+      }).toISOString(),
+    ).toBe("2026-11-25T01:00:00.000Z");
+  });
+
+  it("keeps an early-morning WIB start on the same WIB day", () => {
+    expect(
+      eventStartInstant({
+        startDate: "2026-11-25",
+        startTime: "00:30",
+        isAllDay: false,
+      }).toISOString(),
+    ).toBe("2026-11-24T17:30:00.000Z");
   });
 });
 

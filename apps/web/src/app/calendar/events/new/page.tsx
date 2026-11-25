@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { safeFormat } from "@/lib/date";
 import { useRouter } from "next/navigation";
 import { MainLayout } from "@/components/layout/main-layout";
@@ -31,6 +31,9 @@ import {
 } from "@/hooks/use-calendar";
 import { useUnits } from "@/hooks/use-units";
 import { useClasses } from "@/hooks/use-classes";
+import { useAuthStore } from "@/stores/auth";
+import { getActiveRoleCode } from "@/lib/rbac";
+import { FOUNDATION_SCOPE_ROLE_CODES } from "@cipansor/shared";
 import {
   Calendar as CalendarIcon,
   ArrowLeft,
@@ -68,6 +71,30 @@ export default function NewEventPage() {
     unitId: formData.unitId || undefined,
   });
   const classes = classesData?.data || [];
+
+  const { user } = useAuthStore();
+  const roleCode = getActiveRoleCode(user);
+  const canPublishFoundationWide =
+    !!roleCode && FOUNDATION_SCOPE_ROLE_CODES.includes(roleCode);
+  const activeAssignment =
+    user?.userRoles?.find((assignment) => assignment.isPrimary) ??
+    user?.userRoles?.[0];
+  const activeUnitId = formData.unitId || user?.unitId;
+  const activeUnitName =
+    units.find((unit) => unit.id === activeUnitId)?.name ??
+    (activeAssignment?.unit?.id === activeUnitId
+      ? activeAssignment?.unit?.name
+      : undefined) ??
+    (user?.unit?.id === activeUnitId ? user?.unit?.name : undefined);
+
+  useEffect(() => {
+    if (canPublishFoundationWide || !user?.unitId) return;
+    setFormData((prev) =>
+      prev.unitId === user.unitId
+        ? prev
+        : { ...prev, unitId: user.unitId!, classId: "" },
+    );
+  }, [canPublishFoundationWide, user?.unitId]);
 
   const createEvent = useCreateCalendarEvent();
 
@@ -429,27 +456,43 @@ export default function NewEventPage() {
                     />
                   </div>
 
-                  <div className="space-y-2">
-                    <Label>Unit (Opsional)</Label>
-                    <Select
-                      value={formData.unitId}
-                      onValueChange={(v) =>
-                        setFormData({ ...formData, unitId: v, classId: "" })
-                      }
-                    >
-                      <SelectTrigger>
-                        <SelectValue placeholder="Semua Unit" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="">Semua Unit</SelectItem>
-                        {units.map((unit) => (
-                          <SelectItem key={unit.id} value={unit.id}>
-                            {unit.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </div>
+                  {canPublishFoundationWide ? (
+                    <div className="space-y-2">
+                      <Label>Unit (Opsional)</Label>
+                      <Select
+                        value={formData.unitId}
+                        onValueChange={(v) =>
+                          setFormData({ ...formData, unitId: v, classId: "" })
+                        }
+                      >
+                        <SelectTrigger>
+                          <SelectValue placeholder="Semua Unit" />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="">Semua Unit</SelectItem>
+                          {units.map((unit) => (
+                            <SelectItem key={unit.id} value={unit.id}>
+                              {unit.name}
+                            </SelectItem>
+                          ))}
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      <Label>Unit</Label>
+                      <p
+                        data-testid="event-unit"
+                        className="text-sm font-medium"
+                      >
+                        {activeUnitName ?? "Unit aktif"}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        Event masuk ke unit Anda. Agenda seluruh yayasan hanya
+                        dapat dibuat pengurus yayasan.
+                      </p>
+                    </div>
+                  )}
 
                   {formData.unitId && (
                     <div className="space-y-2">

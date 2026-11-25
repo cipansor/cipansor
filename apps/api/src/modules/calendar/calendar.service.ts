@@ -1,7 +1,7 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
 import { UserRole, Prisma, EventType, EventScope } from '@prisma/client';
-import { seesAllUnits } from '@/utils/resolve-unit-id';
+import { isFoundationScopedRole, seesAllUnits } from '@/utils/resolve-unit-id';
 import { shiftWibDay, todayWib, wibDayStart } from '@/utils/wib';
 
 interface ListEventsQuery {
@@ -95,6 +95,7 @@ export class CalendarService {
     const where: Prisma.CalendarEventWhereInput = {
       deletedAt: null,
     };
+    const and: Prisma.CalendarEventWhereInput[] = [];
 
     // Filter by unit.
     //
@@ -122,8 +123,7 @@ export class CalendarService {
 
     // Date filters. An event belongs to the window when it *overlaps* it, not
     // merely when it starts inside it: an event running 31 Dec–4 Jan must also
-    // appear in January. Filtering on `startDate` alone dropped it (#911). The
-    // overlap goes in `AND` because `OR` already carries the unit scope.
+    // appear in January. Filtering on `startDate` alone dropped it (#911).
     let rangeStart: Date | undefined;
     let rangeEnd: Date | undefined;
     if (startDate || endDate) {
@@ -141,15 +141,24 @@ export class CalendarService {
           OR: [{ endDate: { gte: rangeStart } }, { endDate: null, startDate: { gte: rangeStart } }],
         });
       }
-      where.AND = overlapping;
+      and.push(...overlapping);
     }
 
+    // Search must not replace the unit `OR`: a unit user who searched saw
+    // every unit's events because this clause overwrote the scope.
     if (search) {
-      where.OR = [
-        { title: { contains: search, mode: 'insensitive' } },
-        { description: { contains: search, mode: 'insensitive' } },
-      ];
+      and.push({
+        OR: [
+          { title: { contains: search, mode: 'insensitive' } },
+          { description: { contains: search, mode: 'insensitive' } },
+        ],
+      });
     }
+
+    const classScope = await this.classScopeWhere(currentUser);
+    if (classScope) and.push(classScope);
+
+    if (and.length) where.AND = and;
 
     const [events, total] = await Promise.all([
       prisma.calendarEvent.findMany({
@@ -198,8 +207,18 @@ export class CalendarService {
     // user who can see an event in the list must be able to open it. (Unlike a
     // mutation gate, where cross-unit breadth would be an escalation.)
     if (!seesAllUnits(currentUser)) {
-      if (event.unitId && event.unitId !== currentUser.unitId && !event.isPublic) {
+      const ownUnit = !!currentUser.unitId && event.unitId === currentUser.unitId;
+      const foundationPublic = event.unitId === null && event.isPublic;
+      if (!ownUnit && !foundationPublic) {
         throw Errors.forbidden('Access denied');
+      }
+      if (event.scope === EventScope.SPECIFIC_CLASS && !this.bypassesClassScope(currentUser)) {
+        if (event.createdById !== currentUser.sub) {
+          const classIds = await this.classIdsVisibleTo(currentUser.sub);
+          if (!event.classId || !classIds.includes(event.classId)) {
+            throw Errors.forbidden('Access denied');
+          }
+        }
       }
     }
 
@@ -210,23 +229,66 @@ export class CalendarService {
    * Create calendar event
    */
   async create(input: CreateEventInput, currentUser: AuthenticatedUser) {
-    // Validate unit access
-    if (
-      input.unitId &&
-      currentUser.role !== UserRole.SUPER_ADMIN &&
-      input.unitId !== currentUser.unitId
-    ) {
-      throw Errors.forbidden('Cannot create event for another unit');
+    const foundationWide = this.canPublishFoundationWide(currentUser);
+    let unitId = input.unitId || null;
+
+    if (!foundationWide) {
+      if (!currentUser.unitId) {
+        throw Errors.forbidden('Akun ini tidak terikat pada unit mana pun');
+      }
+      if (unitId && unitId !== currentUser.unitId) {
+        throw Errors.forbidden('Cannot create event for another unit');
+      }
+      unitId = currentUser.unitId;
+    }
+
+    let classId = input.classId || null;
+    if (classId) {
+      const kelas = await prisma.class.findFirst({
+        where: { id: classId, deletedAt: null },
+        select: { unitId: true },
+      });
+      if (!kelas) throw Errors.badRequest('Kelas tidak ditemukan');
+      if (unitId && kelas.unitId !== unitId) {
+        throw Errors.forbidden('Kelas bukan milik unit ini');
+      }
+      unitId = unitId || kelas.unitId;
+    }
+
+    let scope = input.scope;
+    if (classId) {
+      if (scope && scope !== EventScope.SPECIFIC_CLASS) {
+        throw Errors.badRequest('Event kelas harus bercakupan SPECIFIC_CLASS');
+      }
+      scope = EventScope.SPECIFIC_CLASS;
+    } else if (!unitId) {
+      if (scope && scope !== EventScope.ALL_UNITS) {
+        throw Errors.badRequest('Event tanpa unit harus bercakupan ALL_UNITS');
+      }
+      scope = EventScope.ALL_UNITS;
+    } else {
+      if (scope === EventScope.ALL_UNITS) {
+        if (!foundationWide) {
+          throw Errors.forbidden(
+            'Hanya pengurus yayasan yang dapat membuat agenda seluruh yayasan'
+          );
+        }
+        throw Errors.badRequest('Event dengan unit tidak dapat bercakupan ALL_UNITS');
+      }
+      if (scope === EventScope.SPECIFIC_CLASS) {
+        throw Errors.badRequest('Event tanpa kelas tidak dapat bercakupan SPECIFIC_CLASS');
+      }
+      scope = scope || EventScope.SPECIFIC_UNIT;
     }
 
     const event = await prisma.calendarEvent.create({
       data: {
-        unitId: input.unitId || null,
-        classId: input.classId || null,
+        unitId,
+        classId,
         title: input.title,
         description: input.description,
         eventType: input.eventType,
-        scope: input.scope || EventScope.ALL_UNITS,
+        scope,
         startDate: new Date(input.startDate),
         endDate: input.endDate ? new Date(input.endDate) : null,
         isAllDay: input.isAllDay ?? false,
@@ -264,13 +326,39 @@ export class CalendarService {
       }
     }
 
+    const foundationWide = this.canPublishFoundationWide(currentUser);
+    let scope = input.scope;
+    if (!foundationWide) {
+      const expected = event.classId ? EventScope.SPECIFIC_CLASS : EventScope.SPECIFIC_UNIT;
+      if (scope === EventScope.ALL_UNITS) {
+        throw Errors.forbidden('Hanya pengurus yayasan yang dapat membuat agenda seluruh yayasan');
+      }
+      if (scope && scope !== expected) {
+        throw Errors.badRequest(`Event ini harus bercakupan ${expected}`);
+      }
+      scope = expected;
+    } else if (scope) {
+      if (event.classId && scope !== EventScope.SPECIFIC_CLASS) {
+        throw Errors.badRequest('Event kelas harus bercakupan SPECIFIC_CLASS');
+      }
+      if (!event.classId && scope === EventScope.SPECIFIC_CLASS) {
+        throw Errors.badRequest('Event tanpa kelas tidak dapat bercakupan SPECIFIC_CLASS');
+      }
+      if (!event.unitId && scope !== EventScope.ALL_UNITS) {
+        throw Errors.badRequest('Event tanpa unit harus bercakupan ALL_UNITS');
+      }
+      if (event.unitId && scope === EventScope.ALL_UNITS) {
+        throw Errors.badRequest('Event dengan unit tidak dapat bercakupan ALL_UNITS');
+      }
+    }
+
     const updated = await prisma.calendarEvent.update({
       where: { id },
       data: {
         title: input.title,
         description: input.description,
         eventType: input.eventType,
-        scope: input.scope,
+        scope,
         startDate: input.startDate ? new Date(input.startDate) : undefined,
         endDate: input.endDate ? new Date(input.endDate) : undefined,
         isAllDay: input.isAllDay,
@@ -316,6 +404,68 @@ export class CalendarService {
   }
 
   /**
+   * Publishing a foundation-wide agenda is a foundation act, not a read
+   * breadth: a musyrif may read across units but still writes for their own.
+   */
+  private canPublishFoundationWide(currentUser: AuthenticatedUser): boolean {
+    return (
+      currentUser.role === UserRole.SUPER_ADMIN || isFoundationScopedRole(currentUser.roleCode)
+    );
+  }
+
+  private bypassesClassScope(currentUser: AuthenticatedUser): boolean {
+    return this.canPublishFoundationWide(currentUser);
+  }
+
+  /**
+   * Classes whose private events the user may read: their own enrollment, a
+   * class they homeroom or teach, or a class their child is enrolled in.
+   */
+  private async classIdsVisibleTo(userId: string): Promise<string[]> {
+    const classes = await prisma.class.findMany({
+      where: {
+        deletedAt: null,
+        OR: [
+          { enrollments: { some: { status: 'active', student: { userId } } } },
+          { homeroomTeacher: { is: { userId } } },
+          { teacherSubjects: { some: { isActive: true, teacher: { userId } } } },
+          {
+            enrollments: {
+              some: {
+                status: 'active',
+                student: { parents: { some: { parentId: userId } } },
+              },
+            },
+          },
+        ],
+      },
+      select: { id: true },
+    });
+    return classes.map((kelas) => kelas.id);
+  }
+
+  /**
+   * A class-scoped event is readable by its creator, the class members above,
+   * and foundation roles. Without this a private class event reached every
+   * user of the unit, because the unit `OR` was the only read gate.
+   */
+  private async classScopeWhere(
+    currentUser: AuthenticatedUser
+  ): Promise<Prisma.CalendarEventWhereInput | null> {
+    if (this.bypassesClassScope(currentUser)) return null;
+
+    const classIds = await this.classIdsVisibleTo(currentUser.sub);
+    const or: Prisma.CalendarEventWhereInput[] = [
+      { scope: { not: EventScope.SPECIFIC_CLASS } },
+      { scope: EventScope.SPECIFIC_CLASS, createdById: currentUser.sub },
+    ];
+    if (classIds.length) {
+      or.push({ scope: EventScope.SPECIFIC_CLASS, classId: { in: classIds } });
+    }
+    return { OR: or };
+  }
+
+  /**
    * A unit's private events are readable only by a session whose active role
    * covers that unit. A unit user naming another unit is refused, not silently
    * served their own agenda under the other unit's name.
@@ -338,6 +488,8 @@ export class CalendarService {
       startDate: { gte: now },
       OR: [{ unitId: unitId }, { unitId: null, isPublic: true }],
     };
+    const classScope = await this.classScopeWhere(currentUser);
+    if (classScope) where.AND = [classScope];
 
     const events = await prisma.calendarEvent.findMany({
       where,
@@ -372,6 +524,8 @@ export class CalendarService {
       startDate: { gte: startDate, lt: endDate },
       OR: [{ unitId: unitId }, { unitId: null, isPublic: true }],
     };
+    const classScope = await this.classScopeWhere(currentUser);
+    if (classScope) where.AND = [classScope];
 
     const events = await prisma.calendarEvent.findMany({
       where,

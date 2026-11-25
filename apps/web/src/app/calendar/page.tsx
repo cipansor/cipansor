@@ -31,6 +31,7 @@ import {
   useMonthEvents,
   useTodayEvents,
   agendaUnitIdFor,
+  eventStartInstant,
   CalendarEvent,
   EVENT_CATEGORIES,
   getEventCategoryConfig,
@@ -117,6 +118,17 @@ export default function AcademicCalendarPage() {
     if (!selectedCategory) return todayEvents;
     return todayEvents.filter((e) => e.eventType === selectedCategory);
   }, [todayEvents, selectedCategory]);
+
+  const upcomingEvents = useMemo(() => {
+    const now = new Date();
+    return filteredEvents
+      .filter((event) => eventStartInstant(event) >= now)
+      .sort(
+        (a, b) =>
+          eventStartInstant(a).getTime() - eventStartInstant(b).getTime(),
+      )
+      .slice(0, 5);
+  }, [filteredEvents]);
 
   // Generate calendar days
   const calendarDays = useMemo(() => {
@@ -628,36 +640,32 @@ export default function AcademicCalendarPage() {
               <CardTitle>Event Mendatang</CardTitle>
             </CardHeader>
             <CardContent>
-              {filteredEvents
-                .filter((e) => new Date(e.startDate) >= new Date())
-                .slice(0, 5)
-                .map((event) => {
-                  const catConfig = getEventCategoryConfig(event.eventType);
-                  return (
+              {upcomingEvents.map((event) => {
+                const catConfig = getEventCategoryConfig(event.eventType);
+                return (
+                  <div
+                    key={event.id}
+                    onClick={() => setSelectedEvent(event)}
+                    className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer mb-2 last:mb-0"
+                  >
                     <div
-                      key={event.id}
-                      onClick={() => setSelectedEvent(event)}
-                      className="flex items-center gap-3 p-2 rounded-lg hover:bg-muted cursor-pointer mb-2 last:mb-0"
-                    >
-                      <div
-                        className="w-2 h-10 rounded-full"
-                        style={{ backgroundColor: catConfig?.color }}
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="font-medium truncate text-sm">
-                          {event.title}
-                        </p>
-                        <p className="text-xs text-muted-foreground">
-                          {safeFormat(new Date(event.startDate), "d MMM yyyy", {
-                            locale: idLocale,
-                          })}
-                        </p>
-                      </div>
+                      className="w-2 h-10 rounded-full"
+                      style={{ backgroundColor: catConfig?.color }}
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium truncate text-sm">
+                        {event.title}
+                      </p>
+                      <p className="text-xs text-muted-foreground">
+                        {safeFormat(eventStartInstant(event), "d MMM yyyy", {
+                          locale: idLocale,
+                        })}
+                      </p>
                     </div>
-                  );
-                })}
-              {filteredEvents.filter((e) => new Date(e.startDate) >= new Date())
-                .length === 0 && (
+                  </div>
+                );
+              })}
+              {upcomingEvents.length === 0 && (
                 <p className="text-sm text-muted-foreground text-center py-4">
                   Tidak ada event mendatang
                 </p>

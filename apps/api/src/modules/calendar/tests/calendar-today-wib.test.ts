@@ -13,7 +13,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const { prismaMock } = vi.hoisted(() => ({
-  prismaMock: { calendarEvent: { findMany: vi.fn() } },
+  prismaMock: {
+    calendarEvent: { findMany: vi.fn() },
+    class: { findMany: vi.fn().mockResolvedValue([]) },
+  },
 }));
 
 vi.mock('@/lib/prisma', () => ({ prisma: prismaMock }));

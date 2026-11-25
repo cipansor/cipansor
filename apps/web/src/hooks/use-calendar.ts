@@ -112,6 +112,30 @@ export interface CalendarEventParams {
   year?: number;
 }
 
+/**
+ * The instant a non-all-day event really starts. The create form sends a
+ * date-only `startDate` plus a WIB `startTime`; the API stores that date at
+ * midnight UTC (07:00 WIB) and keeps the time separately. Reading `startDate`
+ * alone hides an afternoon event from "Event Mendatang" all morning.
+ */
+export function eventStartInstant(
+  event: Pick<CalendarEvent, "startDate" | "startTime" | "isAllDay">,
+): Date {
+  const start = new Date(event.startDate);
+  if (event.isAllDay || !event.startTime) return start;
+  if (start.getUTCHours() || start.getUTCMinutes() || start.getUTCSeconds()) {
+    return start;
+  }
+
+  const [hours, minutes] = event.startTime.split(":").map(Number);
+  if (!Number.isFinite(hours) || !Number.isFinite(minutes)) return start;
+
+  const day = event.startDate.slice(0, 10);
+  return new Date(
+    `${day}T${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:00+07:00`,
+  );
+}
+
 export function useCalendarEvents(params: CalendarEventParams = {}) {
   return useQuery({
     queryKey: ["calendar-events", params],
