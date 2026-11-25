@@ -108,10 +108,11 @@ export const useTopicMastery = (examId: string) => {
 export const useExamDifficultyInsights = (examId: string) => {
   return useQuery({
     queryKey: ["exam-difficulty-insights", examId],
-    queryFn: async (): Promise<ExamDifficultyInsights> => {
+    queryFn: async (): Promise<ExamDifficultyInsights | null> => {
       const { data } = await api.get<ApiResponse<unknown>>(
         `/cbt/exams/${examId}/difficulty-insights`,
       );
+      if (data.data == null) return null;
       return examDifficultyInsightsSchema.parse(data.data);
     },
     enabled: !!examId,

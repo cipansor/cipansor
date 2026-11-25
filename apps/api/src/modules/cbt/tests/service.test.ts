@@ -9,6 +9,7 @@ vi.mock('@prisma/client', () => ({
     },
     Decimal: vi.fn((val) => val),
     JsonNull: 'JsonNull',
+    DbNull: 'DbNull',
   },
   QuestionType: {
     MULTIPLE_CHOICE: 'MULTIPLE_CHOICE',
@@ -487,6 +488,31 @@ describe('CBT Service', () => {
         expect.objectContaining({
           create: expect.objectContaining({ answer: 'opt-B' }),
           update: { answer: 'opt-B' },
+        })
+      );
+    });
+
+    it('menyimpan jawaban kosong non-esai sebagai NULL, bukan string kosong', async () => {
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [{ id: 'opt-B', text: 'B' }],
+      } as any);
+      vi.mocked(prisma.examAnswer.upsert).mockResolvedValue({ id: 'ans-1' } as any);
+
+      await CBTService.submitAnswer('attempt-1', 'q-1', '', 'std-1');
+
+      expect(prisma.examAnswer.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ answer: 'DbNull' }),
+          update: { answer: 'DbNull' },
         })
       );
     });

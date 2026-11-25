@@ -1805,6 +1805,19 @@ function uploadFileKey(url: unknown): string | null {
   return pathname.slice(at + marker.length);
 }
 
+/** Kolom larik/JSON yang menyimpan URL unggahan. */
+const URL_LIST_FIELDS = new Set(['attachments']);
+
+/** Nilai teks di dalam kolom skalar, larik, atau objek JSON. */
+function stringValues(value: unknown): string[] {
+  if (typeof value === 'string') return value ? [value] : [];
+  if (Array.isArray(value)) return value.flatMap(stringValues);
+  if (value && typeof value === 'object') {
+    return Object.values(value as Record<string, unknown>).flatMap(stringValues);
+  }
+  return [];
+}
+
 async function uploadStillReferenced(
   url: string
 ): Promise<{ referenced: boolean; model?: string; field?: string }> {
@@ -1812,7 +1825,7 @@ async function uploadStillReferenced(
   // Tanpa nama berkas yang sah, kepemilikannya tidak dapat dibuktikan — dan
   // berkas yang tidak dapat dibuktikan bukan milik subjek ini.
   if (!filename) return { referenced: true };
-  for (const { model, field } of urlColumns()) {
+  for (const { model, field, list, json } of urlColumns()) {
     // Nama delegasi Prisma = nama model dengan huruf pertama kecil.
     const delegate = model.charAt(0).toLowerCase() + model.slice(1);
     const client = (
@@ -1825,35 +1838,63 @@ async function uploadStillReferenced(
     // dilewati, bukan dianggap "tidak menunjuk": satu galat tak terduga di sini
     // berarti berkas yang tidak boleh hilang ikut terhapus.
     if (typeof client?.findMany !== 'function') continue;
-    // `contains` menjangkau URL dengan query string atau host lain; hasilnya
-    // diverifikasi lewat identitas berkasnya, jadi nama yang hanya berbagi
-    // akhiran tidak dihitung sebagai penunjuk.
-    const rows = await client.findMany({
-      where: { [field]: { contains: filename } },
-      select: { [field]: true },
-    });
-    if (rows.some((row) => uploadFileKey(row[field]) === filename)) {
-      return { referenced: true, model, field };
-    }
+    // Kolom skalar memakai `contains` (menjangkau query string/host lain);
+    // kolom larik/JSON dibaca barisnya karena Prisma tidak punya `contains`
+    // untuk elemen larik. Hasilnya tetap diverifikasi lewat identitas berkas,
+    // jadi nama yang hanya berbagi akhiran tidak dihitung sebagai penunjuk.
+    const where = list
+      ? json
+        ? { [field]: { not: Prisma.DbNull } }
+        : { [field]: { isEmpty: false } }
+      : { [field]: { contains: filename } };
+    const rows = await client.findMany({ where, select: { [field]: true } });
+    const found = rows.some((row) =>
+      list
+        ? stringValues(row[field]).some((value) => uploadFileKey(value) === filename)
+        : uploadFileKey(row[field]) === filename
+    );
+    if (found) return { referenced: true, model, field };
   }
   return { referenced: false };
 }
 
 /**
- * Setiap kolom String bernama `…Url` pada skema, dari katalog Prisma (DMMF).
+ * Setiap kolom yang dapat menyimpan URL unggahan, dari katalog Prisma (DMMF).
  *
  * Ditemukan dari skema, bukan dari daftar yang ditulis tangan: daftar tangan
  * akan ketinggalan setiap kali sebuah model baru menambah kolom URL — dan
- * justru pada kolom yang terlupa itulah berkas orang lain menempel.
+ * justru pada kolom yang terlupa itulah berkas orang lain menempel. Dua bentuk
+ * tidak berakhiran `Url`: `Alumni.photo`, dan kolom `attachments` yang berupa
+ * `String[]` atau `Json` (larik URL).
  */
-function urlColumns(): Array<{ model: string; field: string }> {
-  return Prisma.dmmf.datamodel.models.flatMap((model) =>
-    model.fields
-      .filter(
-        (field) => field.kind === 'scalar' && field.type === 'String' && /Url$/.test(field.name)
-      )
-      .map((field) => ({ model: model.name, field: field.name }))
-  );
+function urlColumns(): Array<{
+  model: string;
+  field: string;
+  list: boolean;
+  json: boolean;
+}> {
+  const columns: Array<{ model: string; field: string; list: boolean; json: boolean }> = [];
+  for (const model of Prisma.dmmf.datamodel.models) {
+    for (const field of model.fields) {
+      if (field.kind !== 'scalar') continue;
+      const scalarUrl =
+        field.type === 'String' &&
+        !field.isList &&
+        (/Url$/.test(field.name) || (model.name === 'Alumni' && field.name === 'photo'));
+      const listUrl =
+        URL_LIST_FIELDS.has(field.name) &&
+        (field.type === 'Json' || (field.type === 'String' && field.isList));
+      if (scalarUrl || listUrl) {
+        columns.push({
+          model: model.name,
+          field: field.name,
+          list: listUrl,
+          json: field.type === 'Json',
+        });
+      }
+    }
+  }
+  return columns;
 }
 
 async function deleteStoredFiles(fileUrls: string[], requestNo: string): Promise<void> {

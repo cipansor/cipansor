@@ -67,10 +67,22 @@ function redactJsonKeys(value: unknown, keys: JsonKeys, marker: string): unknown
   return value;
 }
 
-/** URL di dalam kolom `Json` berbentuk larik (mis. `attachments`). */
+/**
+ * Teks di dalam kolom `Json`, termasuk larik dan objek bersarang.
+ *
+ * `attachments` tidak selalu berupa larik URL: sebagian modul menyimpannya
+ * sebagai objek (`{ files: [...] }`). Semua teks dikumpulkan; pemanggil yang
+ * menyaring jalur `/uploads` sebelum menghapus.
+ */
 function urlsInJson(value: Prisma.JsonValue | null): string[] {
-  if (!Array.isArray(value)) return [];
-  return value.filter((item): item is string => typeof item === 'string' && item.length > 0);
+  if (typeof value === 'string') return value ? [value] : [];
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => urlsInJson(item as Prisma.JsonValue));
+  }
+  if (value && typeof value === 'object') {
+    return Object.values(value).flatMap((item) => urlsInJson(item as Prisma.JsonValue));
+  }
+  return [];
 }
 
 /**
@@ -325,6 +337,11 @@ export async function sweepStudentText(
       muhadatsahData: true,
     },
   });
+  // Prisma menuntut `DbNull` untuk kolom `Json?` yang tetap NULL; `null` JS
+  // bukan anggota tipe inputnya. Tanpa pemetaan ini satu kolom NULL saja
+  // membatalkan seluruh transaksi ERASURE.
+  const json = (value: unknown): Prisma.InputJsonValue | typeof Prisma.DbNull =>
+    value === null ? Prisma.DbNull : (value as Prisma.InputJsonValue);
   for (const row of raporRows) {
     const akhlak = redactJsonKeys(row.akhlakData, new Set(['description']), marker);
     const muhadhoroh = redactJsonKeys(row.muhadhorohData, new Set(['feedback', 'theme']), marker);
@@ -336,9 +353,9 @@ export async function sweepStudentText(
     await tx.raporPesantren.update({
       where: { id: row.id },
       data: {
-        akhlakData: akhlak as Prisma.InputJsonValue,
-        muhadhorohData: muhadhoroh as Prisma.InputJsonValue,
-        muhadatsahData: muhadatsah as Prisma.InputJsonValue,
+        akhlakData: json(akhlak),
+        muhadhorohData: json(muhadhoroh),
+        muhadatsahData: json(muhadatsah),
       },
     });
   }

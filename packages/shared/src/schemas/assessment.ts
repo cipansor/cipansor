@@ -24,6 +24,32 @@ export const recordSecurityLogSchema = z.object({
 export type RecordSecurityLogInput = z.infer<typeof recordSecurityLogSchema>;
 
 /**
+ * An option as stored in a question bank. Older imports may keep a bare
+ * identifier; the portal writes `{ id, text }`. The other key names are the
+ * wrappers `canonicalAnswer` already accepts from imported banks.
+ */
+const examOptionIdSchema = z.union([z.string(), z.number()]);
+const examOptionObjectSchema = z
+  .object({
+    id: examOptionIdSchema.optional(),
+    optionId: examOptionIdSchema.optional(),
+    value: examOptionIdSchema.optional(),
+    key: examOptionIdSchema.optional(),
+    text: z.string().optional(),
+    label: z.string().optional(),
+  })
+  .passthrough();
+
+export const examOptionSchema = z.union([
+  z.string(),
+  z.number(),
+  z.boolean(),
+  examOptionObjectSchema,
+  z.array(z.unknown()),
+  z.null(),
+]);
+
+/**
  * Response contract for `GET /cbt/exams/:id/difficulty-insights`.
  *
  * The distractor count belongs to the canonical option id. When several option
@@ -33,8 +59,8 @@ export type RecordSecurityLogInput = z.infer<typeof recordSecurityLogSchema>;
  */
 export const examDistractorAnalysisRowSchema = z.object({
   optionId: z.string().nullable(),
-  option: z.unknown(),
-  options: z.array(z.unknown()),
+  option: examOptionSchema,
+  options: z.array(examOptionSchema),
   ambiguous: z.boolean(),
   count: z.number(),
   percentage: z.number(),

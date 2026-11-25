@@ -65,7 +65,7 @@ function studentAnswerForStorage(
     }
     return raw;
   }
-  if (raw === '') return '';
+  if (raw === '') return Prisma.DbNull;
   const canonical = canonicalAnswer(type, raw);
   if (canonical === null) {
     throw Errors.badRequest(
