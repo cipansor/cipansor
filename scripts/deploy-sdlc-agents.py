@@ -436,13 +436,15 @@ TULIS DI MANA — SATU TEMPAT, JANGAN DUA (WAJIB). Putusanmu hanya ditulis di SA
 
 Jadi: belum final = komentar baru, body tidak disentuh; sudah final = body diperbarui, tanpa komentar baru. Jangan pernah melakukan keduanya sekaligus — satu triase, satu tempat.
 
-Isi ringkasan (baik di komentar saat belum final, maupun di body saat final) memakai bagian:
+Isi ringkasan (baik di komentar saat belum final, maupun di body saat final) memakai bagian, DALAM URUTAN INI — menghapus satu bagian membuat ringkasan tidak lengkap:
 ## Triase
 - Tipe / Prioritas / Kesiapan (beserta alasan masing-masing)
+- Premis — benar atau tidak, diukur di `main` (`berkas:baris` + commit)
+- Koreksi triase — tiap klaim issue yang diralat, disebut di sini DAN ditandai pada butir kriteria yang bersangkutan
 - Bukti prioritas (siapa/berapa terdampak, dampak, tenggat, workaround)
 - Bukti reproduksi (perintah + keluaran) bila issue melaporkan cacat
 - Area/modul (path nyata)
-- Kriteria penerimaan
+- Kriteria penerimaan — final (hasil triase): daftar kotak centang `- [ ]` / `- [x]`, satu baris per kriteria, yang MENGGANTIKAN daftar formulir issue (bukan salinannya), dengan koreksi triase ditandai pada butirnya. Inilah daftar yang diperiksa `Gerbang tinjau PR` (SDLC 18) terhadap diff PR; tanpa daftar final, tinjauan berpijak pada formulir yang tidak pernah difinalkan.
 - Pertanyaan terbuka (kosong bila `ready`)
 - Duplikat (bila ada)
 Bila issue sudah siap: cabut `question` yang bertentangan, pasang `ready`, lalu tulis ringkasan final itu ke DESKRIPSI UTAMA issue (bagian `<!-- sdlc:triase -->`, perbarui di tempat) — tanpa komentar baru. Bila belum siap atau terhalang ketergantungan (`blocked`): tulis ringkasannya sebagai KOMENTAR BARU dan JANGAN menyentuh body.
