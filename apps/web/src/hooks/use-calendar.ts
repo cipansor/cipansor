@@ -8,6 +8,7 @@ import {
   type CalendarEventList,
   type CalendarEventListParams,
   type CreateCalendarEventPayload,
+  type UpdateCalendarEventInput,
   type EventRecurrenceCode,
 } from "@cipansor/shared";
 
@@ -123,6 +124,20 @@ export function useCalendarEvents(params: CalendarEventParams = {}) {
   });
 }
 
+/** One agenda, for the edit form. The API scopes the read like the list. */
+export function useCalendarEvent(id?: string) {
+  return useQuery({
+    queryKey: ["calendar-events", "detail", id],
+    queryFn: async () => {
+      const response = await api.get<ApiResponse<CalendarEvent>>(
+        `/calendar/${id}`,
+      );
+      return response.data.data;
+    },
+    enabled: !!id,
+  });
+}
+
 export function useMonthEvents(year: number, month: number, unitId?: string) {
   return useQuery({
     queryKey: ["calendar-events", "month", year, month, unitId],
@@ -212,6 +227,29 @@ export function useTodayEvents(unitId?: string) {
 }
 
 export type CreateCalendarEventData = CreateCalendarEventPayload;
+
+export function useUpdateCalendarEvent() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: async ({
+      id,
+      data,
+    }: {
+      id: string;
+      data: UpdateCalendarEventInput;
+    }) => {
+      const response = await api.put<ApiResponse<CalendarEvent>>(
+        `/calendar/${id}`,
+        data,
+      );
+      return response.data.data;
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["calendar-events"] });
+    },
+  });
+}
 
 export function useCreateCalendarEvent() {
   const queryClient = useQueryClient();

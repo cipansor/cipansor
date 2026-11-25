@@ -402,6 +402,65 @@ test.describe("Tambah Event — Pengurus yayasan", () => {
   });
 });
 
+test.describe("Edit Event — Pengurus yayasan", () => {
+  test("membuka formulir dari Manajemen Event dan menyimpan judul baru", async ({
+    page,
+  }) => {
+    const session = await apiLogin(SEED_USERS.ketuaPengurus);
+    const title = `Agenda edit e2e ${Date.now()}`;
+    const updatedTitle = `${title} (revisi)`;
+    const todayWib = new Date(Date.now() + 7 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/calendar",
+      {
+        title,
+        eventType: "MEETING",
+        startDate: `${todayWib}T00:00:00.000Z`,
+        isAllDay: true,
+        isPublic: true,
+      },
+    );
+
+    try {
+      await loginAs(page, "ketuaPengurus");
+      await page.goto("/calendar/events");
+
+      const row = page.locator("tbody tr").filter({ hasText: title });
+      await expect(row).toBeVisible({ timeout: 15000 });
+      await row.getByRole("button").click();
+      await page.getByRole("menuitem", { name: /Edit/i }).click();
+
+      await expect(page).toHaveURL(
+        new RegExp(`/calendar/events/${created.data.id}/edit`),
+      );
+      await expect(
+        page.getByRole("heading", { name: /Edit Event/i }),
+      ).toBeVisible({ timeout: 15000 });
+      await expect(page.locator("#title")).toHaveValue(title);
+
+      await page.locator("#title").fill(updatedTitle);
+      const saved = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/calendar/${created.data.id}`) &&
+          response.request().method() === "PUT",
+      );
+      await page.getByRole("button", { name: "Simpan" }).click();
+
+      const response = await saved;
+      expect(response.status()).toBe(200);
+      const body = (await response.json()) as { data: { title: string } };
+      expect(body.data.title).toBe(updatedTitle);
+      await expect(page).toHaveURL(/\/calendar\/events/, { timeout: 15000 });
+    } finally {
+      await apiRequest(session, "DELETE", `/calendar/${created.data.id}`);
+    }
+  });
+});
+
 test.describe("Kalender Akademik — pengawasan hanya membaca", () => {
   test("menyembunyikan aksi tulis dan menolak formulir langsung", async ({
     page,

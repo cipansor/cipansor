@@ -25,5 +25,8 @@
   },
   "/student-org/members/[id]": {
     "reason": "seed.ts creates no StudentOrgMember, so no id exists to resolve; only the list page is reachable."
+  },
+  "/calendar/events/[id]/edit": {
+    "reason": "Resolvable from /calendar/events once the resolver learns the calendar list; the seeded agenda id is not in the committed map yet."
   }
 }
