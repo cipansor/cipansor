@@ -46,7 +46,6 @@ const {
   useDeleteLaundryPricing,
   useProcessLaundryPayment,
   useStudents,
-  useBusinessUnits,
 } = vi.hoisted(() => ({
   useLaundryTransactions: vi.fn(),
   useLaundryTransaction: vi.fn(),
@@ -59,7 +58,6 @@ const {
   useDeleteLaundryPricing: vi.fn(),
   useProcessLaundryPayment: vi.fn(),
   useStudents: vi.fn(),
-  useBusinessUnits: vi.fn(),
 }));
 
 vi.mock("@/components/layout/main-layout", () => ({
@@ -86,7 +84,6 @@ vi.mock("@/hooks/use-laundry", async (importOriginal) => {
 });
 
 vi.mock("@/hooks/use-students", () => ({ useStudents }));
-vi.mock("@/hooks/use-business-unit", () => ({ useBusinessUnits }));
 vi.mock("sonner", () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import LaundryPage from "./page";
@@ -170,20 +167,6 @@ beforeEach(() => {
   });
   useLaundryPricing.mockReturnValue({ data: [], isLoading: false });
   useStudents.mockReturnValue({ data: { data: [] } });
-  useBusinessUnits.mockReturnValue({
-    data: [
-      {
-        id: "bu-1",
-        name: "Laundry Unit SMP",
-        code: "LAUNDRY-SMP",
-        type: "LAUNDRY",
-        isActive: true,
-        unitId: "unit-smp",
-        monthlyRevenue: 0,
-        monthlyTransactions: 0,
-      },
-    ],
-  });
   useUpdateLaundryStatus.mockReturnValue({
     mutate: vi.fn(),
     isPending: false,
@@ -619,10 +602,12 @@ describe("Laundry — the new-transaction form keeps two decimals", () => {
         studentId: "std-1",
         pricingId: "p1",
         weight: 1.25,
-        businessUnitId: "bu-1",
       }),
       expect.anything(),
     );
+    // The API derives the business unit from the tier; the form must not
+    // guess one from a separately loaded list.
+    expect(mutate.mock.calls[0][0]).not.toHaveProperty("businessUnitId");
   });
 });
 

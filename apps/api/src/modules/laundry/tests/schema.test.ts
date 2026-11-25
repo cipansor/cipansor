@@ -4,6 +4,7 @@ import {
   UpdatePricingSchema,
   UpdateStatusSchema,
   ListTransactionsQuerySchema,
+  CreateTransactionSchema,
 } from '../laundry.schema';
 
 describe('laundry update schemas (Zod 4 partial-overwrite regression)', () => {
@@ -30,6 +31,19 @@ describe('laundry update schemas (Zod 4 partial-overwrite regression)', () => {
   // #989 (PR-03) review: the API's status validation must accept exactly the
   // shared list the Portal reads, so a status the Portal offers can never be a
   // 400 at the API. A status the shared list does not name is rejected.
+  describe('CreateTransactionSchema', () => {
+    it('drops a client-supplied businessUnitId; the tier chooses the unit', () => {
+      const parsed = CreateTransactionSchema.parse({
+        studentId: '00000000-0000-4000-8000-000000000001',
+        pricingId: '00000000-0000-4000-8000-000000000002',
+        weight: 2,
+        paymentMethod: 'CASH',
+        businessUnitId: '00000000-0000-4000-8000-000000000003',
+      });
+      expect(parsed).not.toHaveProperty('businessUnitId');
+    });
+  });
+
   describe('status validation shares one definition with the Portal', () => {
     it('accepts every status in LAUNDRY_STATUS_VALUES', () => {
       for (const status of LAUNDRY_STATUS_VALUES) {

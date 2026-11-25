@@ -290,7 +290,6 @@ export const createLaundryTransactionSchema = z.object({
   paymentMethod: LaundryPaymentMethodEnum,
   discount: z.number().min(0).default(0),
   notes: z.string().optional(),
-  businessUnitId: z.uuid().optional(),
   items: z.array(laundryItemInputSchema).optional(),
 });
 export type CreateLaundryTransactionInput = z.input<

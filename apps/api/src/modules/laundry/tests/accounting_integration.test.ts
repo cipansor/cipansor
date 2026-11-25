@@ -133,7 +133,7 @@ describe('Laundry Accounting Integration', () => {
     expect(prisma.journalEntry.create).toHaveBeenCalledTimes(2);
   });
 
-  it('tries the business-unit mapping before the unit-level mapping', async () => {
+  it('derives the business unit from the pricing tier, never from the caller', async () => {
     (prisma.laundryPricing.findFirst as any).mockResolvedValue({
       id: 'pricing-1',
       name: 'Regular',
@@ -141,6 +141,7 @@ describe('Laundry Accounting Integration', () => {
       minWeight: new MockDecimal(1),
       processDays: 2,
       isActive: true,
+      businessUnitId: 'bu-1',
     });
     (prisma.santriWallet.findUnique as any).mockResolvedValue({
       id: 'wallet-1',
@@ -159,7 +160,8 @@ describe('Laundry Accounting Integration', () => {
       weight: 2,
       paymentMethod: 'WALLET',
       items: [{ itemType: 'Shirt', quantity: 5 }],
-      businessUnitId: 'bu-1',
+      // A caller-supplied id is ignored: only the tier chooses the unit.
+      businessUnitId: 'bu-other',
     } as any);
 
     expect(prisma.laundryTransaction.create).toHaveBeenCalledWith(
@@ -182,7 +184,7 @@ describe('Laundry Accounting Integration', () => {
     );
   });
 
-  it('refuses a business unit owned by another unit', async () => {
+  it('refuses a pricing tier whose business unit belongs to another unit', async () => {
     (prisma.laundryPricing.findFirst as any).mockResolvedValue({
       id: 'pricing-1',
       name: 'Regular',
@@ -190,6 +192,7 @@ describe('Laundry Accounting Integration', () => {
       minWeight: new MockDecimal(1),
       processDays: 2,
       isActive: true,
+      businessUnitId: 'bu-other',
     });
     (prisma.businessUnit.findFirst as any).mockResolvedValue(null);
 
@@ -200,9 +203,11 @@ describe('Laundry Accounting Integration', () => {
         weight: 2,
         paymentMethod: 'CASH',
         items: [{ itemType: 'Shirt', quantity: 5 }],
-        businessUnitId: 'bu-other',
       } as any)
-    ).rejects.toMatchObject({ statusCode: 400 });
+    ).rejects.toMatchObject({
+      statusCode: 400,
+      message: expect.stringContaining('Unit usaha tarif tidak ditemukan'),
+    });
     expect(prisma.laundryTransaction.create).not.toHaveBeenCalled();
   });
 

@@ -89,6 +89,19 @@ test.describe("Petugas membuat transaksi lalu memindahkan statusnya (R22.1, R22.
   }) => {
     test.setTimeout(180_000);
     const session = await apiLoginNew(LAUNDRY_ADMIN);
+    const pricing = await apiRequest<{
+      data: Array<{
+        id: string;
+        businessUnitId: string | null;
+        isActive: boolean;
+      }>;
+    }>(session, "GET", "/laundry/pricing");
+    const firstActiveTier = pricing.data.find((tier) => tier.isActive);
+    expect(firstActiveTier, "seed tanpa tarif laundry aktif").toBeTruthy();
+    expect(
+      firstActiveTier?.businessUnitId,
+      "tarif pertama tidak terhubung ke unit usaha",
+    ).toBeTruthy();
     const students = await apiRequest<{
       data: Array<{ nis: string; user?: { name?: string } }>;
     }>(session, "GET", "/students?limit=1");
@@ -122,6 +135,25 @@ test.describe("Petugas membuat transaksi lalu memindahkan statusnya (R22.1, R22.
       await row.getByRole("cell").first().innerText()
     ).trim();
     expect(transactionNo).toMatch(/^LDR-/);
+
+    // R22.9: the API takes the business unit from the tier, so the row the
+    // portal created must carry the tier's unit — even though the form never
+    // sends one. This is the journal's account-mapping key.
+    await expect
+      .poll(
+        async () =>
+          (
+            await apiRequest<{
+              data: Array<{ businessUnitId: string | null }>;
+            }>(
+              session,
+              "GET",
+              `/laundry/transactions?search=${encodeURIComponent(transactionNo)}`,
+            )
+          ).data[0]?.businessUnitId,
+        { timeout: 20000 },
+      )
+      .toBe(firstActiveTier?.businessUnitId);
     await row.getByRole("button", { name: "Lihat detail" }).click();
     const detail = page.getByRole("dialog");
     await expect(detail).toContainText(transactionNo);

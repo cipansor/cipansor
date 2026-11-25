@@ -89,7 +89,6 @@ import {
   useUpdateLaundryPricing,
   useUpdateLaundryStatus,
 } from "@/hooks/use-laundry";
-import { useBusinessUnits } from "@/hooks/use-business-unit";
 import { useStudents } from "@/hooks/use-students";
 import { useAuthStore } from "@/stores/auth";
 import { getActiveRoleAssignment, getActiveRoleCode } from "@/lib/rbac";
@@ -534,16 +533,6 @@ function NewTransactionDialog() {
     limit: 10,
   });
   const createTransaction = useCreateLaundryTransaction();
-  const user = useAuthStore((state) => state.user);
-  const activeUnitId = getActiveRoleAssignment(user)?.unit?.id ?? user?.unitId;
-  const { data: laundryBusinessUnits = [] } = useBusinessUnits({
-    type: "LAUNDRY",
-    isActive: true,
-  });
-  const businessUnitId = laundryBusinessUnits.find(
-    (businessUnit) => businessUnit.unitId === activeUnitId,
-  )?.id;
-
   const students = studentSearch.length > 2 ? (studentPage?.data ?? []) : [];
 
   const reset = () => {
@@ -571,7 +560,6 @@ function NewTransactionDialog() {
         paymentMethod,
         ...(notes ? { notes } : {}),
         ...(items.length > 0 ? { items } : {}),
-        ...(businessUnitId ? { businessUnitId } : {}),
       },
       {
         onSuccess: () => {

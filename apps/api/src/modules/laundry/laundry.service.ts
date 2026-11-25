@@ -298,13 +298,16 @@ export const transactionService = {
         throw new Error('Jenis layanan tidak ditemukan');
       }
 
-      if (data.businessUnitId) {
+      // The tier owns the business unit; a client cannot choose one, or a
+      // transaction could post to an account the tier never selected.
+      const businessUnitId = pricing.businessUnitId ?? null;
+      if (businessUnitId) {
         const businessUnit = await tx.businessUnit.findFirst({
-          where: { id: data.businessUnitId, unitId },
+          where: { id: businessUnitId, unitId },
           select: { id: true },
         });
         if (!businessUnit) {
-          throw Errors.badRequest('Unit usaha tidak ditemukan untuk unit ini');
+          throw Errors.badRequest('Unit usaha tarif tidak ditemukan untuk unit ini');
         }
       }
 
@@ -373,7 +376,7 @@ export const transactionService = {
           status: 'RECEIVED',
           estimatedAt,
           notes: data.notes,
-          businessUnit: data.businessUnitId ? { connect: { id: data.businessUnitId } } : undefined,
+          businessUnit: businessUnitId ? { connect: { id: businessUnitId } } : undefined,
           receivedBy: { connect: { id: userId } },
           items: data.items
             ? {
@@ -429,8 +432,8 @@ export const transactionService = {
         const periodOpen = await isPeriodOpen(unitId, journalDate, tx);
 
         if (periodOpen) {
-          const accountPrefix = data.businessUnitId ? `BU_${data.businessUnitId}_` : '';
-          const salesMappingKeys = data.businessUnitId
+          const accountPrefix = businessUnitId ? `BU_${businessUnitId}_` : '';
+          const salesMappingKeys = businessUnitId
             ? [
                 `${accountPrefix}${ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE}`,
                 ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE,
