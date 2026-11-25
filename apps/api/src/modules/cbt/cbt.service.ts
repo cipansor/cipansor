@@ -76,6 +76,9 @@ function studentAnswerForStorage(
   }
   if (type === QuestionType.MULTIPLE_CHOICE) {
     const ids = optionIdentifiers(options);
+    if (ids.length === 0) {
+      throw Errors.badRequest('Soal ini belum memiliki opsi jawaban.');
+    }
     if (!ids.includes(canonical)) {
       // Jangan mengutip nilai kiriman: teks itu bisa berisi data pribadi, dan
       // `errorHandler` mencatat pesan galat ke log yang tidak disapu ERASURE.

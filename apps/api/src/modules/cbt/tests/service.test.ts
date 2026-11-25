@@ -547,6 +547,29 @@ describe('CBT Service', () => {
       expect(prisma.examAnswer.upsert).not.toHaveBeenCalled();
     });
 
+    it('menjelaskan soal pilihan ganda yang belum memiliki opsi', async () => {
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [],
+      } as any);
+
+      const error = await CBTService.submitAnswer('attempt-1', 'q-1', 'opt-B', 'std-1').then(
+        () => null,
+        (err: Error) => err
+      );
+
+      expect(error?.message).toBe('Soal ini belum memiliki opsi jawaban.');
+      expect(prisma.examAnswer.upsert).not.toHaveBeenCalled();
+    });
+
     it('menyimpan jawaban benar-salah sebagai true/false kanonis', async () => {
       vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
         id: 'attempt-1',
