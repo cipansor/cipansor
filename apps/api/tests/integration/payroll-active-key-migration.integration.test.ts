@@ -31,11 +31,16 @@ describeDb('PayrollPeriod.active_key — the migration backfills existing rows',
       await client.query(
         'CREATE TABLE "payroll_periods" ("unit_id" TEXT, "month" INTEGER, "year" INTEGER, "status" TEXT)'
       );
+      // The old unique index is what would block a replacement period if the
+      // migration forgot to drop it.
+      await client.query(
+        'CREATE UNIQUE INDEX "payroll_periods_unit_id_month_year_key" ON "payroll_periods" ("unit_id", "month", "year")'
+      );
       await client.query(
         `INSERT INTO "payroll_periods" ("unit_id", "month", "year", "status") VALUES
            ('unit-a', 7, 2026, 'DRAFT'),
-           ('unit-a', 7, 2026, 'CANCELLED'),
-           ('unit-b', 8, 2026, 'APPROVED')`
+           ('unit-b', 8, 2026, 'APPROVED'),
+           ('unit-c', 9, 2026, 'CANCELLED')`
       );
 
       await client.query(readFileSync(MIGRATION, 'utf8'));
@@ -46,7 +51,6 @@ describeDb('PayrollPeriod.active_key — the migration backfills existing rows',
           ORDER BY "unit_id", "status"`
       );
       expect(rows).toEqual([
-        { unit_id: 'unit-a', month: 7, year: 2026, status: 'CANCELLED', active_key: null },
         { unit_id: 'unit-a', month: 7, year: 2026, status: 'DRAFT', active_key: 'unit-a:7:2026' },
         {
           unit_id: 'unit-b',
@@ -55,12 +59,33 @@ describeDb('PayrollPeriod.active_key — the migration backfills existing rows',
           status: 'APPROVED',
           active_key: 'unit-b:8:2026',
         },
+        { unit_id: 'unit-c', month: 9, year: 2026, status: 'CANCELLED', active_key: null },
       ]);
+
+      const indexes = await client.query<{ indexname: string }>(
+        `SELECT indexname FROM pg_indexes WHERE schemaname = $1 AND tablename = 'payroll_periods'`,
+        [schema]
+      );
+      expect(indexes.rows.map((row) => row.indexname)).not.toContain(
+        'payroll_periods_unit_id_month_year_key'
+      );
+
+      // A replacement period for the same unit/month/year must be accepted
+      // once the old draft releases the slot.
+      await client.query(
+        `UPDATE "payroll_periods"
+            SET "status" = 'CANCELLED', "active_key" = NULL
+          WHERE "unit_id" = 'unit-a' AND "month" = 7 AND "status" = 'DRAFT'`
+      );
+      await client.query(
+        `INSERT INTO "payroll_periods" ("unit_id", "month", "year", "status", "active_key")
+         VALUES ('unit-a', 7, 2026, 'DRAFT', 'unit-a:7:2026')`
+      );
 
       await expect(
         client.query(
           `INSERT INTO "payroll_periods" ("unit_id", "month", "year", "status", "active_key")
-           VALUES ('unit-a', 7, 2026, 'DRAFT', 'unit-a:7:2026')`
+           VALUES ('unit-b', 8, 2026, 'DRAFT', 'unit-b:8:2026')`
         )
       ).rejects.toMatchObject({ code: '23505' });
     } finally {

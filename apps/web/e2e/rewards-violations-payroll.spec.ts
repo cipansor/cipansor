@@ -172,6 +172,38 @@ test.describe("Pelanggaran — payload yang tersimpan", () => {
   });
 });
 
+test.describe("Payroll — filter status", () => {
+  let session: AuthSession;
+
+  test.beforeAll(async () => {
+    test.skip(
+      await isProductionApi(),
+      "API_URL menunjuk API produksi; uji ini membaca data, jadi dilewati",
+    );
+    session = await apiLogin(SEED_USERS.superAdmin);
+  });
+
+  test("hanya menawarkan status yang diterima API", async ({ page }) => {
+    await signIn(page, session);
+    await gotoAuthedPage(page, "/payroll", /Penggajian/i);
+
+    const status = page.getByRole("combobox", { name: "Status" });
+    await status.click();
+    // CALCULATED is not in the Prisma enum or the list query schema; offering
+    // it sent `status=CALCULATED` and the API answered 400.
+    await expect(page.getByRole("option", { name: "Dihitung" })).toHaveCount(0);
+
+    const response = page.waitForResponse(
+      (r) =>
+        r.url().includes("/api/payroll/periods") &&
+        r.url().includes("status=APPROVED") &&
+        r.request().method() === "GET",
+    );
+    await page.getByRole("option", { name: "Disetujui" }).click();
+    expect((await response).status()).toBe(200);
+  });
+});
+
 test.describe("Payroll — dialog slip gaji", () => {
   let session: AuthSession;
 
