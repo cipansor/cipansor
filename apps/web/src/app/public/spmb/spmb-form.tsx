@@ -251,10 +251,7 @@ export function SpmbForm({
   });
 
   const [ocrResults, setOcrResults] = useState<
-    Record<
-      string,
-      { status: "WARNING" | "MISMATCH"; notes: string[]; sha256?: string }
-    >
+    Record<string, { status: "WARNING" | "MISMATCH"; notes: string[] }>
   >({});
   // A null result means the field no longer holds a scanned image (the
   // applicant replaced it with a PDF), so its verdict must be dropped.
@@ -264,7 +261,6 @@ export function SpmbForm({
       res: {
         status: "WARNING" | "MISMATCH";
         notes: string[];
-        sha256?: string;
       } | null,
     ) =>
       setOcrResults((prev) => {
@@ -439,7 +435,6 @@ export function SpmbForm({
             registrationToken,
             ocrNotes: ocr?.notes,
             ocrStatus: ocr?.status,
-            ocrSha256: ocr?.sha256,
           },
         );
       } catch (err: any) {

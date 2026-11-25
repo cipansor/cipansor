@@ -201,6 +201,40 @@ describe('Document Verification Service', () => {
 
       expect(result.validation.status).toBe('WARNING');
       expect(result.validation.notes.some((n) => n.includes('gagal'))).toBe(true);
+      expect(result.validation.ocrAttempted).toBe(true);
+    });
+
+    it('does not claim an attempt when the queue rejects the request', async () => {
+      const result = await parseAndVerifyDocument(
+        { imageBase64: PNG_URI, documentType: 'ktp' },
+        {
+          enabled: true,
+          readText: async () => {
+            throw new Error('OCR_QUEUE_FULL');
+          },
+        }
+      );
+
+      expect(result.validation.notes.some((n) => n.includes('gagal'))).toBe(true);
+      expect(result.validation.ocrAttempted).toBe(false);
+    });
+
+    it('marks a completed scan as attempted', async () => {
+      const result = await parseAndVerifyDocument(
+        { imageBase64: PNG_URI, documentType: 'ktp' },
+        { enabled: true, readText: readerFor(KTP_TEXT) }
+      );
+
+      expect(result.validation.ocrAttempted).toBe(true);
+    });
+
+    it('does not claim an attempt when OCR is disabled', async () => {
+      const result = await parseAndVerifyDocument(
+        { imageBase64: PNG_URI, documentType: 'ktp' },
+        { enabled: false, readText: readerFor(KTP_TEXT) }
+      );
+
+      expect(result.validation.ocrAttempted).toBe(false);
     });
 
     it('compares a KTP against the parent whose name it carries', async () => {
@@ -386,6 +420,46 @@ No. KK : 3201234567890001
       await assertion;
       vi.useRealTimers();
 
+      await expect(tesseractReadText(PNG, factory)).resolves.toBe('ok');
+    });
+
+    it('caps the queue and rejects the overflow with OCR_QUEUE_FULL', async () => {
+      let openGate: () => void = () => {};
+      const gate = new Promise<void>((resolve) => {
+        openGate = resolve;
+      });
+      let holderStarted: () => void = () => {};
+      const holderInRecognize = new Promise<void>((resolve) => {
+        holderStarted = resolve;
+      });
+      let calls = 0;
+      const factory = () => {
+        calls += 1;
+        const workerCall = calls;
+        return Promise.resolve({
+          recognize: async () => {
+            if (workerCall === 1) {
+              holderStarted();
+              await gate;
+            }
+            return { data: { text: 'ok' } };
+          },
+          terminate: async () => {},
+        });
+      };
+
+      const holder = tesseractReadText(PNG, factory);
+      await holderInRecognize;
+
+      // One slot is held; the next 10 wait, and the 11th is refused.
+      const queued = Array.from({ length: 10 }, () => tesseractReadText(PNG, factory));
+      await expect(tesseractReadText(PNG, factory)).rejects.toThrow('OCR_QUEUE_FULL');
+
+      openGate();
+      await expect(holder).resolves.toBe('ok');
+      await expect(Promise.all(queued)).resolves.toEqual(Array(10).fill('ok'));
+
+      // The slot must be back: a fresh call does not queue.
       await expect(tesseractReadText(PNG, factory)).resolves.toBe('ok');
     });
   });

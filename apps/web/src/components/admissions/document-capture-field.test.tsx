@@ -109,4 +109,121 @@ describe("DocumentCaptureField", () => {
     });
     expect(onOcrResult).toHaveBeenCalledWith(null);
   });
+
+  it("shows the matched note when every compared field matches", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          extractedData: { nationalId: "3201230110230001" },
+          validation: { status: "WARNING", nationalIdMatch: true, notes: [] },
+        },
+      },
+    });
+
+    const documents = spmbFormContentFor("en").documents;
+    renderWithQuery(
+      <DocumentCaptureField
+        label="KTP"
+        content={documents}
+        documentType="ktp"
+        file={null}
+        onFileSelect={() => {}}
+      />,
+    );
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [imageFile()] } });
+
+    expect(await screen.findByText(documents.ocrMatchedNote)).toBeTruthy();
+  });
+
+  it("shows the partial note when nothing could be compared", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          extractedData: { fullName: "AHMAD FAUZI" },
+          validation: { status: "WARNING", notes: [] },
+        },
+      },
+    });
+
+    const documents = spmbFormContentFor("en").documents;
+    renderWithQuery(
+      <DocumentCaptureField
+        label="KTP"
+        content={documents}
+        documentType="ktp"
+        file={null}
+        onFileSelect={() => {}}
+      />,
+    );
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [imageFile()] } });
+
+    expect(await screen.findByText(documents.ocrPartialNote)).toBeTruthy();
+    expect(screen.queryByText(documents.ocrMatchedNote)).toBeNull();
+  });
+
+  it("shows the unchecked note when the engine ran but read nothing", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          extractedData: {},
+          validation: { status: "WARNING", ocrAttempted: true, notes: [] },
+        },
+      },
+    });
+
+    const documents = spmbFormContentFor("en").documents;
+    renderWithQuery(
+      <DocumentCaptureField
+        label="KTP"
+        content={documents}
+        documentType="ktp"
+        file={null}
+        onFileSelect={() => {}}
+      />,
+    );
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [imageFile()] } });
+
+    expect(await screen.findByText(documents.uncheckedNote)).toBeTruthy();
+  });
+
+  it("shows the manual note when the document was never scanned", async () => {
+    post.mockResolvedValue({
+      data: {
+        data: {
+          extractedData: {},
+          validation: { status: "WARNING", ocrAttempted: false, notes: [] },
+        },
+      },
+    });
+
+    const documents = spmbFormContentFor("en").documents;
+    renderWithQuery(
+      <DocumentCaptureField
+        label="KTP"
+        content={documents}
+        documentType="ktp"
+        file={null}
+        onFileSelect={() => {}}
+      />,
+    );
+
+    const input = document.querySelector(
+      'input[type="file"]',
+    ) as HTMLInputElement;
+    fireEvent.change(input, { target: { files: [imageFile()] } });
+
+    expect(await screen.findByText(documents.manualNote)).toBeTruthy();
+  });
 });

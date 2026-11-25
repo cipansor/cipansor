@@ -1192,17 +1192,8 @@ export async function createRegistrantDocument(
 export async function createPublicRegistrantDocumentService(
   data: CreatePublicRegistrantDocumentRequest & { registrantId: string }
 ) {
-  const {
-    registrantId,
-    type,
-    url,
-    base64,
-    fileName,
-    registrationToken,
-    ocrNotes,
-    ocrStatus,
-    ocrSha256,
-  } = data;
+  const { registrantId, type, url, base64, fileName, registrationToken, ocrNotes, ocrStatus } =
+    data;
 
   const registrant = await prisma.registrant.findUnique({
     where: { id: registrantId },
@@ -1336,10 +1327,9 @@ export async function createPublicRegistrantDocumentService(
     schemaType = 'ijazah';
   }
 
-  // Fingerprint the bytes actually stored, not a hash the browser computed for
-  // an earlier file: an applicant can replace a scanned image with a PDF, and
-  // the client hash would then name a file the row does not hold.
-  let documentSha256 = ocrSha256;
+  // Fingerprint the bytes actually stored: a URL row holds no bytes, and the
+  // bytes behind a data URI are the only thing the row can be checked against.
+  let documentSha256: string | undefined;
   if (docUrl.startsWith('data:')) {
     const comma = docUrl.indexOf(',');
     if (comma >= 0) {

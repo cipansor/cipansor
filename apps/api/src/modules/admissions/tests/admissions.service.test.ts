@@ -527,7 +527,6 @@ describe('Admissions Service', () => {
 
     const dataUri =
       'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==';
-    const staleHash = 'f'.repeat(64);
     const expectedSha = crypto
       .createHash('sha256')
       .update(Buffer.from(dataUri.slice(dataUri.indexOf(',') + 1), 'base64'))
@@ -540,12 +539,10 @@ describe('Admissions Service', () => {
       registrationToken: validToken,
       ocrNotes: ['NIK tidak cocok', 'Kertas tampak rusak'],
       ocrStatus: 'MISMATCH',
-      // A stale browser hash must not be stored: the stored bytes are the truth.
-      ocrSha256: staleHash,
     });
 
     // The note must carry the verification status so reviewers see the mismatch,
-    // and the fingerprint of the bytes actually stored (not the stale client one).
+    // and the fingerprint of the bytes actually stored.
     expect(prisma.registrantDocument.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
@@ -553,10 +550,43 @@ describe('Admissions Service', () => {
         }),
       })
     );
-    expect(prisma.registrantDocument.create).not.toHaveBeenCalledWith(
+  });
+
+  it('stores no hash for a URL-based upload', async () => {
+    const crypto = await import('crypto');
+    const { config } = await import('../../../config');
+    const registrantId = '11111111-1111-4111-8111-111111111111';
+    const tsHex = Date.now().toString(16);
+    const hmacHex = crypto
+      .createHmac('sha256', config.jwt.secret)
+      .update(`${registrantId}:${tsHex}`)
+      .digest('hex')
+      .slice(0, 16);
+    const validToken = `${tsHex}.${hmacHex}`;
+
+    vi.mocked(prisma.registrant.findUnique).mockResolvedValue({
+      id: registrantId,
+      registrationNo: 'REG-001',
+    } as any);
+    vi.mocked(prisma.registrantDocument.count as any).mockResolvedValue(0);
+    vi.mocked(prisma.registrantDocument.create as any).mockImplementation(({ data }: any) =>
+      Promise.resolve({ id: 'doc-1', ...data })
+    );
+
+    await service.createPublicRegistrantDocumentService({
+      registrantId,
+      type: 'KK',
+      url: 'https://example.com/kk.png',
+      registrationToken: validToken,
+      ocrNotes: ['Dokumen akan diperiksa manual'],
+      ocrStatus: 'WARNING',
+    });
+
+    // The row stores a URL, not bytes, so there is nothing to fingerprint.
+    expect(prisma.registrantDocument.create).toHaveBeenCalledWith(
       expect.objectContaining({
         data: expect.objectContaining({
-          notes: expect.stringContaining(staleHash),
+          notes: '[Hasil Verifikasi: WARNING] Dokumen akan diperiksa manual',
         }),
       })
     );

@@ -65,11 +65,6 @@ export const createPublicRegistrantDocumentSchema = z.object({
   registrationToken: z.string().min(1, "Registration token wajib diisi"),
   ocrNotes: z.array(z.string()).optional(),
   ocrStatus: z.enum(["WARNING", "MISMATCH"]).optional(),
-  /** SHA-256 of the uploaded file, so an officer can spot a re-used file. */
-  ocrSha256: z
-    .string()
-    .regex(/^[a-f0-9]{64}$/, "ocrSha256 harus 64 heksadesimal")
-    .optional(),
 });
 
 export type CreatePublicRegistrantDocumentRequest = z.infer<

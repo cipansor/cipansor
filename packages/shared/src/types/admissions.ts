@@ -16,6 +16,8 @@ export interface DocumentOcrResult {
   validation: {
     matchScore: number;
     status: "WARNING" | "MISMATCH";
+    /** True when the OCR engine was invoked for this upload. */
+    ocrAttempted?: boolean;
     nationalIdMatch?: boolean;
     familyCardMatch?: boolean;
     fullNameMatch?: boolean;

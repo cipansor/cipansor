@@ -129,6 +129,8 @@ export interface SpmbFormContent {
     toastMismatch: string;
     toastUnchecked: string;
     uncheckedNote: string;
+    /** Shown when the document was not scanned at all (OCR flag off). */
+    manualNote: string;
     /** Shown when the local OCR engine read the document. */
     ocrEngineNote: string;
     /** Shown when every compared field matched. */
@@ -374,6 +376,7 @@ const ID: SpmbFormContent = {
       "Pemeriksaan otomatis gagal; petugas akan memeriksa dokumen ini.",
     uncheckedNote:
       "Pemeriksaan otomatis gagal. Petugas akan memeriksa dokumen ini secara langsung.",
+    manualNote: "Dokumen akan diverifikasi manual oleh petugas.",
     ocrEngineNote:
       "Isi dokumen dibaca mesin di sistem yayasan sendiri, tanpa pihak ketiga. Hasil ini menandai kecocokan isian, bukan bukti keaslian.",
     ocrMatchedNote:
@@ -633,6 +636,7 @@ const EN: SpmbFormContent = {
       "The automatic check failed; staff will check this document.",
     uncheckedNote:
       "The automatic check failed. Staff will look at this document themselves.",
+    manualNote: "The document will be verified manually by staff.",
     ocrEngineNote:
       "The document was read by a machine inside the yayasan's own system, with no third party. This only flags whether the fields match; it is not proof of authenticity.",
     ocrMatchedNote:
@@ -881,6 +885,7 @@ const AR: SpmbFormContent = {
     toastMismatch: "قُرئت الوثيقة، لكن بياناتها لا تطابق الاستمارة.",
     toastUnchecked: "تعذّر الفحص الآلي، وسيفحص الموظف هذه الوثيقة.",
     uncheckedNote: "تعذّر الفحص الآلي. سيطّلع الموظف على هذه الوثيقة بنفسه.",
+    manualNote: "ستُتحقَّق الوثيقة يدويًا من قبل الموظف.",
     ocrEngineNote:
       "قُرئت الوثيقة آليًا داخل نظام المعهد نفسه، دون أي طرف ثالث. هذا يبيّن مطابقة الحقول فقط، وليس دليلًا على صحتها.",
     ocrMatchedNote: "جميع الحقول المقارنة مطابقة. سيظّل الموظف يراجع الوثيقة.",

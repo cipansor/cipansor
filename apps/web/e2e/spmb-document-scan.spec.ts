@@ -105,12 +105,21 @@ test("choosing a KTP reaches the parse endpoint and shows the verdict", async ({
   // verdict the endpoint promises for an unreadable image: WARNING, never a
   // MISMATCH, and at least one note.
   expect(validation?.status).toBe("WARNING");
+  expect(Array.isArray(validation?.notes)).toBe(true);
   expect(validation?.notes?.length ?? 0).toBeGreaterThan(0);
+  expect(
+    validation?.notes?.every((note: unknown) => typeof note === "string"),
+  ).toBe(true);
 
   // The 1x1 PNG yields nothing to compare, so the server returns no extracted
-  // fields and the form must show the localized manual note — not a stale one.
+  // fields. The API runs with OCR off by default, but a local stack may enable
+  // it; assert the flag's type and pick the note it promises. The off-case
+  // itself is pinned by the service unit test.
   expect(Object.keys(payload.data?.extractedData ?? {})).toHaveLength(0);
-  const verdictNote = documents.uncheckedNote;
+  expect(typeof validation?.ocrAttempted).toBe("boolean");
+  const verdictNote = validation?.ocrAttempted
+    ? documents.uncheckedNote
+    : documents.manualNote;
   await expect(page.getByText(verdictNote).first()).toBeVisible({
     timeout: 30_000,
   });

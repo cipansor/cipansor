@@ -435,13 +435,18 @@ export async function parseAndVerifyDocument(
 
   const canRunOcr =
     Boolean(buffer) && isBinary && !isPdf && documentType !== 'foto' && ocrEnabled(deps);
+  let ocrAttempted = false;
   if (canRunOcr && buffer) {
     try {
       const readText = deps?.readText ?? tesseractReadText;
       const text = await readText(buffer);
+      ocrAttempted = true;
       Object.assign(extractedData, extractFields(text, documentType, userInputData));
       notes.push(ENGINE_NOTE);
-    } catch {
+    } catch (err) {
+      // A full queue rejects before the engine is invoked; every other failure
+      // means the engine ran and failed.
+      ocrAttempted = !(err instanceof Error && err.message === 'OCR_QUEUE_FULL');
       notes.push(OCR_FAILED_NOTE);
     }
   } else if (isBinary) {
@@ -496,6 +501,7 @@ export async function parseAndVerifyDocument(
       // Never a pass: OCR is not fraud detection, so the best outcome is still
       // a manual-verification warning for the officer.
       status: mismatched.length > 0 ? 'MISMATCH' : 'WARNING',
+      ocrAttempted,
       notes,
     },
   };
