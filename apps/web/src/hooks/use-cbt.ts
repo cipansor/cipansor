@@ -112,6 +112,7 @@ export const useExamDifficultyInsights = (examId: string) => {
       try {
         const { data } = await api.get<ApiResponse<unknown>>(
           `/cbt/exams/${examId}/difficulty-insights`,
+          { skipErrorToastForStatus: [404] },
         );
         if (data.data == null) return null;
         return examDifficultyInsightsSchema.parse(data.data);

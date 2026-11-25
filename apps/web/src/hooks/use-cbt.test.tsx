@@ -41,6 +41,9 @@ describe("useExamDifficultyInsights", () => {
 
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
     expect(result.current.data).toBeNull();
+    expect(get).toHaveBeenCalledWith("/cbt/exams/exam-1/difficulty-insights", {
+      skipErrorToastForStatus: [404],
+    });
   });
 
   it("parses a valid insights response with the shared schema", async () => {
