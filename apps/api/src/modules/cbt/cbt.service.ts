@@ -3,7 +3,12 @@ import { Prisma, QuestionType } from '@prisma/client';
 import type { Question as QuestionModel } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
 import { Errors } from '@/middleware/error';
-import { canonicalAnswer, isAnswerCorrect, normalizeAnswerKeyForStorage } from './answer-key';
+import {
+  canonicalAnswer,
+  isAnswerCorrect,
+  normalizeAnswerKeyForStorage,
+  optionIdentifiers,
+} from './answer-key';
 import type { SecurityEventType } from '@cipansor/shared';
 import { calculateLetterGrade } from '@cipansor/shared';
 import type { JwtPayload } from '@/lib/jwt';
@@ -32,6 +37,48 @@ function answerKeyForPrisma(
 ): string | typeof Prisma.DbNull {
   const normalized = normalizeAnswerKeyForStorage(type, answerKey, options);
   return normalized === null ? Prisma.DbNull : normalized;
+}
+
+/**
+ * Validate and canonicalise a student's answer on the way in.
+ *
+ * A non-essay answer is an option identifier, not a free-form payload: storing
+ * the raw request body let an examiner read prose (including personal data)
+ * hidden beside the chosen option. Essays stay text; every other type is
+ * reduced to its canonical choice, and a value that names no option is
+ * refused. The ERASURE sweep relies on this shape — valid choices survive as
+ * option ids, while anything that cannot be proved to be one is cleared.
+ */
+function studentAnswerForStorage(
+  type: QuestionType,
+  options: Prisma.JsonValue | null,
+  raw: unknown
+): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  if (raw === null || raw === undefined) return Prisma.DbNull;
+  if (type === QuestionType.ESSAY) {
+    if (typeof raw !== 'string') {
+      throw Errors.badRequest('Jawaban esai harus berupa teks.');
+    }
+    return raw;
+  }
+  if (raw === '') return '';
+  const canonical = canonicalAnswer(type, raw);
+  if (canonical === null) {
+    throw Errors.badRequest(
+      type === QuestionType.TRUE_FALSE
+        ? 'Jawaban benar-salah harus bernilai benar atau salah.'
+        : 'Jawaban pilihan ganda harus berupa id salah satu opsi.'
+    );
+  }
+  if (type === QuestionType.MULTIPLE_CHOICE) {
+    const ids = optionIdentifiers(options);
+    if (!ids.includes(canonical)) {
+      throw Errors.badRequest(
+        `Jawaban "${canonical}" tidak ada di antara opsi soal ini (${ids.join(', ')}).`
+      );
+    }
+  }
+  return canonical;
 }
 
 /** Deterministic pseudo-random number generator for attempt-level shuffling */
@@ -897,6 +944,8 @@ export class CBTService {
       throw Errors.badRequest('Question does not belong to this exam');
     }
 
+    const storedAnswer = studentAnswerForStorage(question.type, question.options, answer);
+
     // Upsert answer
     return prisma.examAnswer.upsert({
       where: {
@@ -905,10 +954,10 @@ export class CBTService {
       create: {
         attemptId,
         questionId,
-        answer,
+        answer: storedAnswer,
       },
       update: {
-        answer,
+        answer: storedAnswer,
       },
     });
   }

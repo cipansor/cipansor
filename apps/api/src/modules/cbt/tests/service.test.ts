@@ -443,6 +443,8 @@ describe('CBT Service', () => {
       vi.mocked(prisma.question.findUnique).mockResolvedValue({
         id: 'q-1',
         bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [{ id: 'opt-B', text: 'B' }],
       } as any);
       vi.mocked(prisma.examAnswer.upsert).mockResolvedValue({ id: 'ans-1' } as any);
 
@@ -452,9 +454,83 @@ describe('CBT Service', () => {
         where: {
           attemptId_questionId: { attemptId: 'attempt-1', questionId: 'q-1' },
         },
-        create: expect.any(Object),
+        create: expect.objectContaining({ answer: 'opt-B' }),
         update: { answer: 'opt-B' },
       });
+    });
+
+    it('menyimpan pilihan ganda sebagai id opsi, bukan muatan mentah', async () => {
+      // Klien lama dapat mengirim objek opsi sekaligus catatan bebas. Yang
+      // disimpan hanya id opsi; sisa muatan tidak boleh sampai ke pemeriksa.
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [{ id: 'opt-B', text: 'B' }],
+      } as any);
+      vi.mocked(prisma.examAnswer.upsert).mockResolvedValue({ id: 'ans-1' } as any);
+
+      await CBTService.submitAnswer(
+        'attempt-1',
+        'q-1',
+        { id: 'opt-B', catatan: 'nama saya Budi' },
+        'std-1'
+      );
+
+      expect(prisma.examAnswer.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ answer: 'opt-B' }),
+          update: { answer: 'opt-B' },
+        })
+      );
+    });
+
+    it('menolak jawaban pilihan ganda yang bukan opsi soal', async () => {
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [{ id: 'opt-B', text: 'B' }],
+      } as any);
+
+      await expect(
+        CBTService.submitAnswer('attempt-1', 'q-1', 'nama saya Budi', 'std-1')
+      ).rejects.toThrow('tidak ada di antara opsi');
+      expect(prisma.examAnswer.upsert).not.toHaveBeenCalled();
+    });
+
+    it('menyimpan jawaban benar-salah sebagai true/false kanonis', async () => {
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'TRUE_FALSE',
+        options: null,
+      } as any);
+      vi.mocked(prisma.examAnswer.upsert).mockResolvedValue({ id: 'ans-1' } as any);
+
+      await CBTService.submitAnswer('attempt-1', 'q-1', true, 'std-1');
+
+      expect(prisma.examAnswer.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ update: { answer: 'true' } })
+      );
     });
 
     it('menilai soal benar-salah yang kuncinya boolean JSON', async () => {

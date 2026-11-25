@@ -1,4 +1,5 @@
 import { Prisma, QuestionType } from '@prisma/client';
+import { canonicalAnswer, optionIdentifiers } from '@/modules/cbt/answer-key';
 import { dayOf, wibDayOf } from '@/utils/wib';
 
 /**
@@ -614,25 +615,52 @@ export async function sweepStudentText(
   );
   // Jawaban ujian adalah tulisan subjek sendiri; skornya dipertahankan.
   //
-  // Hanya jawaban esai yang memuat teks bebas. Pilihan ganda dan benar/salah
-  // adalah nilai terstruktur yang menjadi bahan analisis butir soal: analisis
-  // menghitung jawaban yang sudah dinilai sebagai penyebut, lalu menghitung
-  // pilihan tiap opsi dari nilai `answer`. Mengosongkan pilihan membuat
-  // distribusinya tidak lagi berjumlah sama dengan penyebutnya, sedangkan
-  // nilainya sendiri tidak menyebut orang.
+  // Esai selalu berupa prosa, jadi isinya dikosongkan. Pilihan ganda dan
+  // benar/salah seharusnya hanya berisi id opsi, tetapi `submitAnswer` dulu
+  // menerima JSON mentah dari klien: jawaban bisa berbentuk
+  // `{ id: 'opt-B', catatan: 'nama saya …' }` atau prosa yang ditempelkan pada
+  // id. Nilai kanonisnya dipertahankan agar analisis butir soal tetap utuh;
+  // muatan lain dibuang. Jawaban yang tidak dapat dipetakan ke opsi sah
+  // dikosongkan dan dikeluarkan dari analisis (skor dan `isCorrect` null),
+  // karena teks seperti itu tidak dapat dibuktikan bukan data pribadi.
   const attempts = await tx.examAttempt.findMany({
     where: { studentId },
     select: { id: true },
   });
   if (attempts.length) {
     const attemptIds = attempts.map((row) => row.id);
-    await sweep(
-      'catatan tugas, penelitian, dan praktikum',
-      tx.examAnswer.updateMany({
-        where: { attemptId: { in: attemptIds }, question: { type: QuestionType.ESSAY } },
-        data: { answer: Prisma.DbNull },
-      })
-    );
+    const answers = await tx.examAnswer.findMany({
+      where: { attemptId: { in: attemptIds } },
+      select: {
+        id: true,
+        answer: true,
+        question: { select: { type: true, options: true } },
+      },
+    });
+    if (answers.length) touched.add('catatan tugas, penelitian, dan praktikum');
+    for (const row of answers) {
+      const type = row.question.type;
+      if (type === QuestionType.ESSAY) {
+        await tx.examAnswer.update({
+          where: { id: row.id },
+          data: { answer: Prisma.DbNull },
+        });
+        continue;
+      }
+      const canonical = canonicalAnswer(type, row.answer);
+      const valid =
+        canonical !== null &&
+        (type === QuestionType.TRUE_FALSE ||
+          (type === QuestionType.MULTIPLE_CHOICE &&
+            optionIdentifiers(row.question.options).includes(canonical)));
+      await tx.examAnswer.update({
+        where: { id: row.id },
+        data:
+          valid && canonical !== null
+            ? { answer: canonical }
+            : { answer: Prisma.DbNull, score: null, isCorrect: null },
+      });
+    }
     // Log pengawasan ujian mencatat perilaku anak (berpindah tab, lama
     // meninggalkan layar); jenis kejadiannya dipertahankan sebagai arsip
     // integritas ujian, muatan terstrukturnya dikosongkan.

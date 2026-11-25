@@ -1209,37 +1209,120 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     expect(attachment.data.erasedAt).toBeInstanceOf(Date);
   });
 
-  it('mempertahankan surat dokter yang belum jatuh tempo saat penghapusan', async () => {
+  it('mempertahankan surat dokter pada hari terakhir retensi', async () => {
     // Kebijakan surat dokter menyimpannya sampai akhir tahun ajaran izin.
     // Penyapuan tidak boleh mengosongkan isinya lebih awal: pemutus izin masih
     // berhak membukanya, dan pekerjaan retensi yang menghapus setelah batas.
-    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
-      requestRow({
-        type: 'ERASURE',
-        status: 'PROCESSING',
-        requesterUserId: 'usr-1',
-        subjectCategory: 'STUDENT',
-        subjectStudentId: 'stu-1',
-        subjectRegistrantId: null,
-      }) as any
-    );
-    vi.mocked(prisma.student.findUnique).mockResolvedValue({
-      id: 'stu-1',
-      userId: 'usr-1',
-      photoUrl: null,
-    } as any);
-    vi.mocked(prisma.permit.findMany).mockResolvedValueOnce([{ id: 'permit-1' }] as any);
-    vi.mocked(prisma.permitAttachment.findMany).mockResolvedValueOnce([] as any);
-    vi.mocked(prisma.permitAttachment.count).mockResolvedValueOnce(1);
-    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
-      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
-    );
+    //
+    // Waktu dibekukan tepat pada hari terakhir retensi, dan tiruan membaca
+    // `where.retainUntil.lt` yang sebenarnya. Kalau kueri memakai `lte` atau
+    // mundur sehari, batasnya tidak lagi sama dan uji ini gagal.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-06-30T10:00:00+07:00'));
+    try {
+      vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+        requestRow({
+          type: 'ERASURE',
+          status: 'PROCESSING',
+          requesterUserId: 'usr-1',
+          subjectCategory: 'STUDENT',
+          subjectStudentId: 'stu-1',
+          subjectRegistrantId: null,
+        }) as any
+      );
+      vi.mocked(prisma.student.findUnique).mockResolvedValue({
+        id: 'stu-1',
+        userId: 'usr-1',
+        photoUrl: null,
+      } as any);
+      vi.mocked(prisma.permit.findMany).mockResolvedValueOnce([{ id: 'permit-1' }] as any);
+      const retainUntil = new Date('2026-06-30T00:00:00.000Z');
+      vi.mocked(prisma.permitAttachment.findMany).mockImplementation((async (args: any) => {
+        const lt = args?.where?.retainUntil?.lt;
+        return lt instanceof Date && lt.getTime() > retainUntil.getTime()
+          ? [{ id: 'att-due' }]
+          : [];
+      }) as any);
+      vi.mocked(prisma.permitAttachment.count).mockResolvedValueOnce(1);
+      vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+        requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+      );
 
-    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+      await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
 
-    expect(prisma.permitAttachment.updateMany).not.toHaveBeenCalled();
-    const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
-    expect(audit.data.newValues.retained).toContain('surat dokter sampai akhir tahun ajaran izin');
+      expect(prisma.permitAttachment.findMany).toHaveBeenCalledWith({
+        where: {
+          permitId: { in: ['permit-1'] },
+          erasedAt: null,
+          retainUntil: { lt: new Date('2026-06-30T00:00:00.000Z') },
+        },
+        select: { id: true },
+      });
+      expect(prisma.permitAttachment.updateMany).not.toHaveBeenCalled();
+      const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+      expect(audit.data.newValues.retained).toContain(
+        'surat dokter sampai akhir tahun ajaran izin'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('mengosongkan surat dokter sehari setelah masa retensi', async () => {
+    // Sisi lain batas: pada hari berikutnya `retainUntil` sudah lewat, jadi
+    // isinya boleh dikosongkan oleh penyapuan.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(new Date('2026-07-01T10:00:00+07:00'));
+    try {
+      vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+        requestRow({
+          type: 'ERASURE',
+          status: 'PROCESSING',
+          requesterUserId: 'usr-1',
+          subjectCategory: 'STUDENT',
+          subjectStudentId: 'stu-1',
+          subjectRegistrantId: null,
+        }) as any
+      );
+      vi.mocked(prisma.student.findUnique).mockResolvedValue({
+        id: 'stu-1',
+        userId: 'usr-1',
+        photoUrl: null,
+      } as any);
+      vi.mocked(prisma.permit.findMany).mockResolvedValueOnce([{ id: 'permit-1' }] as any);
+      const retainUntil = new Date('2026-06-30T00:00:00.000Z');
+      vi.mocked(prisma.permitAttachment.findMany).mockImplementation((async (args: any) => {
+        const lt = args?.where?.retainUntil?.lt;
+        return lt instanceof Date && lt.getTime() > retainUntil.getTime()
+          ? [{ id: 'att-due' }]
+          : [];
+      }) as any);
+      vi.mocked(prisma.permitAttachment.count).mockResolvedValueOnce(0);
+      vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+        requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+      );
+
+      await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+      expect(prisma.permitAttachment.findMany).toHaveBeenCalledWith({
+        where: {
+          permitId: { in: ['permit-1'] },
+          erasedAt: null,
+          retainUntil: { lt: new Date('2026-07-01T00:00:00.000Z') },
+        },
+        select: { id: true },
+      });
+      expect(prisma.permitAttachment.updateMany).toHaveBeenCalledWith({
+        where: { id: { in: ['att-due'] }, erasedAt: null },
+        data: { content: null, erasedAt: expect.any(Date) },
+      });
+      const audit = vi.mocked(prisma.auditLog.create).mock.calls[0][0] as any;
+      expect(audit.data.newValues.retained).not.toContain(
+        'surat dokter sampai akhir tahun ajaran izin'
+      );
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('menutup sertifikat dari verifikasi publik dan menghapus PDF-nya', async () => {
@@ -1291,6 +1374,10 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
   it('menyapu jawaban ujian dan muatan log pengawasan', async () => {
     // Jawaban ujian adalah tulisan anak sendiri; log pengawasan mencatat
     // perilakunya selama ujian. Jenis kejadiannya tetap sebagai arsip integritas.
+    // Pilihan ganda/benar-salah dulu dianggap aman, padahal `submitAnswer`
+    // menyimpan JSON mentah: objek opsi dapat membawa catatan bebas. Nilai
+    // kanonisnya dipertahankan agar analisis butir soal tidak rusak, muatan
+    // lain dibuang.
     vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
       requestRow({
         type: 'ERASURE',
@@ -1307,18 +1394,52 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
       photoUrl: null,
     } as any);
     vi.mocked(prisma.examAttempt.findMany).mockResolvedValueOnce([{ id: 'att-1' }] as any);
+    vi.mocked(prisma.examAnswer.findMany).mockResolvedValueOnce([
+      {
+        id: 'ans-essay',
+        answer: 'nama saya Budi',
+        question: { type: 'ESSAY', options: null },
+      },
+      {
+        id: 'ans-mc',
+        answer: { id: 'opt-B', catatan: 'nama saya Budi' },
+        question: { type: 'MULTIPLE_CHOICE', options: [{ id: 'opt-B' }, { id: 'opt-C' }] },
+      },
+      {
+        id: 'ans-tf',
+        answer: 'benar',
+        question: { type: 'TRUE_FALSE', options: null },
+      },
+      {
+        id: 'ans-raw',
+        answer: 'nama saya Budi',
+        question: { type: 'MULTIPLE_CHOICE', options: [{ id: 'opt-B' }] },
+      },
+    ] as any);
     vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
       requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
     );
 
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
 
-    const answer = vi.mocked(prisma.examAnswer.updateMany).mock.calls[0][0] as any;
-    expect(answer.where).toEqual({
-      attemptId: { in: ['att-1'] },
-      question: { type: 'ESSAY' },
+    expect(prisma.examAnswer.findMany).toHaveBeenCalledWith({
+      where: { attemptId: { in: ['att-1'] } },
+      select: {
+        id: true,
+        answer: true,
+        question: { select: { type: true, options: true } },
+      },
     });
-    expect(answer.data.answer).toEqual(Prisma.DbNull);
+    const updates = vi.mocked(prisma.examAnswer.update).mock.calls.map((call) => call[0]);
+    expect(updates).toEqual([
+      { where: { id: 'ans-essay' }, data: { answer: Prisma.DbNull } },
+      { where: { id: 'ans-mc' }, data: { answer: 'opt-B' } },
+      { where: { id: 'ans-tf' }, data: { answer: 'true' } },
+      {
+        where: { id: 'ans-raw' },
+        data: { answer: Prisma.DbNull, score: null, isCorrect: null },
+      },
+    ]);
 
     const log = vi.mocked(prisma.examSecurityLog.updateMany).mock.calls[0][0] as any;
     expect(log.data.details).toEqual(Prisma.DbNull);
@@ -1350,13 +1471,60 @@ describe('data-subject-requests — pelaksanaan hak saat ditutup', () => {
     // sama lewat URL host lain. Perbandingan URL utuh akan menganggapnya
     // "tidak ditunjuk"; identitas berkasnya (nama di `/uploads`) sama, jadi
     // penghapusan harus dilewati.
-    vi.mocked(prisma.studentDocument.findMany).mockResolvedValue([
-      { fileUrl: 'https://cdn-lama.example/uploads/berkas-korban.pdf' },
-    ] as any);
+    //
+    // Tiruan ini membaca `where` yang sebenarnya: kalau kueri kembali
+    // membandingkan URL utuh, `contains` tidak ada dan hasilnya kosong —
+    // uji gagal, bukan hijau karena tiruan mengembalikan baris apa pun.
+    vi.mocked(prisma.studentDocument.findMany).mockImplementation((async (args: any) => {
+      const fileUrl = args?.where?.fileUrl;
+      const contains = fileUrl && typeof fileUrl === 'object' ? fileUrl.contains : undefined;
+      return contains === 'berkas-korban.pdf'
+        ? [{ fileUrl: 'https://cdn-lama.example/uploads/berkas-korban.pdf' }]
+        : [];
+    }) as any);
 
     await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
 
+    expect(prisma.studentDocument.findMany).toHaveBeenCalledWith({
+      where: { fileUrl: { contains: 'berkas-korban.pdf' } },
+      select: { fileUrl: true },
+    });
     expect(fs.unlink).not.toHaveBeenCalled();
+  });
+
+  it('tidak menghitung nama berkas yang hanya berbagi akhiran sebagai penunjuk', async () => {
+    // `contains` juga menjangkau `salinan-berkas-korban.pdf`; verifikasi
+    // identitas berkasnya yang mencegah baris itu dianggap sebagai penunjuk.
+    vi.mocked(prisma.dataSubjectRequest.findUnique).mockResolvedValue(
+      requestRow({
+        type: 'ERASURE',
+        status: 'PROCESSING',
+        requesterUserId: 'usr-1',
+        subjectCategory: 'STUDENT',
+        subjectStudentId: 'stu-1',
+        subjectRegistrantId: null,
+      }) as any
+    );
+    vi.mocked(prisma.student.findUnique).mockResolvedValue({
+      id: 'stu-1',
+      userId: 'usr-1',
+      photoUrl: 'https://portal.cipansor.or.id/uploads/berkas-korban.pdf',
+    } as any);
+    vi.mocked(prisma.dataSubjectRequest.update).mockResolvedValue(
+      requestRow({ type: 'ERASURE', status: 'COMPLETED' }) as any
+    );
+    vi.mocked(prisma.studentDocument.findMany).mockImplementation((async (args: any) => {
+      const fileUrl = args?.where?.fileUrl;
+      const contains = fileUrl && typeof fileUrl === 'object' ? fileUrl.contains : undefined;
+      return contains === 'berkas-korban.pdf'
+        ? [{ fileUrl: 'https://cdn-lama.example/uploads/salinan-berkas-korban.pdf' }]
+        : [];
+    }) as any);
+    vi.mocked(fs.unlink).mockResolvedValue(undefined as never);
+
+    await service.updateStatus('dsr-1', { status: 'COMPLETED' }, actor);
+
+    expect(fs.unlink).toHaveBeenCalledWith(expect.stringContaining('berkas-korban.pdf'));
   });
 
   it('menghapus berkas yang sudah tidak ditunjuk siapa pun', async () => {
