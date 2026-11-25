@@ -1,7 +1,6 @@
 import { prisma } from '../../lib/prisma';
 import { Prisma } from '@prisma/client';
 import {
-  ACCOUNT_MAPPING_KEYS,
   ACCOUNT_MAPPING_KEY_LIST,
   expectedAccountTypeForMapping,
   isAccountMappingKey,
