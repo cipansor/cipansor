@@ -71,6 +71,40 @@ describe('getScholarshipRecipients', () => {
     ]);
   });
 
+  it('membatasi penerima pada santri dalam cakupan unit pemanggil', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
+
+    await financeEnhancementService.getScholarshipRecipients(
+      'sch-1',
+      { page: 1, limit: 20 },
+      adminSd
+    );
+
+    const args = prismaMock.scholarshipRecipient.findMany.mock.calls[0][0];
+    // A recipient whose santri moved to another unit is out of scope, so the
+    // stored income band must not travel to the old unit's treasurer.
+    expect(args.where).toMatchObject({
+      scholarshipId: 'sch-1',
+      student: { unitId: SD },
+    });
+    expect(prismaMock.scholarshipRecipient.count.mock.calls[0][0].where).toMatchObject({
+      student: { unitId: SD },
+    });
+  });
+
+  it('pengurus yayasan tidak dibatasi unit santri', async () => {
+    prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SMP });
+
+    await financeEnhancementService.getScholarshipRecipients(
+      'sch-1',
+      { page: 1, limit: 20 },
+      yayasan
+    );
+
+    const args = prismaMock.scholarshipRecipient.findMany.mock.calls[0][0];
+    expect(args.where.student).toBeUndefined();
+  });
+
   it('jawabannya tidak memuat kolom santri yang sensitif (R24.7)', async () => {
     prismaMock.scholarship.findUnique.mockResolvedValue({ unitId: SD });
     prismaMock.scholarshipRecipient.count.mockResolvedValue(1);
@@ -86,6 +120,8 @@ describe('getScholarshipRecipients', () => {
         endDate: null,
         notes: null,
         status: 'ACTIVE',
+        totalScore: null,
+        assessments: [],
         createdAt: new Date('2026-07-01'),
         updatedAt: new Date('2026-07-01'),
         student: {

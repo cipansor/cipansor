@@ -207,11 +207,31 @@ test.describe("Skor penerima beasiswa", () => {
       .getByRole("button", { name: /hitung skor/i })
       .first();
     await expect(scoreButton).toBeVisible();
+
+    // The click must actually ask the server: the table can already show a
+    // stored score, so asserting only on the text would pass without a call.
+    const assessResponse = page.waitForResponse((res) => {
+      const path = new URL(res.url()).pathname;
+      return (
+        res.request().method() === "POST" &&
+        path.includes("/scholarship-recipients/") &&
+        path.endsWith("/assess")
+      );
+    });
     await scoreButton.click();
 
-    await expect(page.getByText(/Skor total:/i).first()).toBeVisible({
-      timeout: 15_000,
-    });
+    const response = await assessResponse;
+    expect(response.ok()).toBe(true);
+    const body = (await response.json()) as {
+      data: AssessmentResponse["data"];
+    };
+    const total = body.data.totalScore;
+    expect(total).not.toBeNull();
+
+    // What the screen shows is the total the API just answered.
+    await expect(
+      page.getByText(`Skor total: ${(total as number).toFixed(1)}`).first(),
+    ).toBeVisible({ timeout: 15_000 });
     // The criterion the machine cannot read is named, not scored 0 (R11.5).
     await expect(page.getByText(/Perlu dinilai manual/i).first()).toBeVisible();
     // The caveat that the score is decision support, not the decision (R11.16).

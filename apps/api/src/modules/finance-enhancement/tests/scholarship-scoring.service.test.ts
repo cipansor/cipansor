@@ -160,6 +160,26 @@ describe('scoreCriteria', () => {
     expect(akademik.criteria[0].score).toBe(100);
   });
 
+  it('reads a decimal target written with a comma or a dot', () => {
+    const akademik = scoreCriteria(
+      [{ id: 'c1', name: 'Nilai Akademik', weight: 1, targetValue: '85,5%' }],
+      facts({ grades: [{ score: 85, maxScore: 100 }] })
+    );
+    expect(akademik.criteria[0].score).toBeCloseTo((85 / 85.5) * 100, 6);
+
+    const hafalan = scoreCriteria(
+      [{ id: 'c1', name: 'Hafalan', weight: 1, targetValue: '7.5' }],
+      facts({ tahfidzRecords: [{ juz: 7 }] })
+    );
+    expect(hafalan.criteria[0].score).toBeCloseTo((7 / 7.5) * 100, 6);
+
+    const hafalanComma = scoreCriteria(
+      [{ id: 'c1', name: 'Hafalan', weight: 1, targetValue: '7,5 juz' }],
+      facts({ tahfidzRecords: [{ juz: 7 }] })
+    );
+    expect(hafalanComma.criteria[0].score).toBeCloseTo((7 / 7.5) * 100, 6);
+  });
+
   it('reads income across the household, not the father alone', () => {
     const fromMother = scoreCriteria(
       [{ id: 'c1', name: 'Penghasilan Orang Tua', weight: 1, targetValue: null }],
@@ -429,31 +449,27 @@ describe('scholarshipScoringService.createCriterion', () => {
 
 describe('createScholarshipCriterionSchema', () => {
   it('accepts a target whose unit follows the number', () => {
-    expect(
-      createScholarshipCriterionSchema.safeParse({
-        name: 'Hafalan',
-        weight: 1,
-        type: 'NUMERIC',
-        targetValue: '10 juz',
-      }).success
-    ).toBe(true);
-    expect(
-      createScholarshipCriterionSchema.safeParse({
-        name: 'Nilai Akademik',
-        weight: 1,
-        type: 'NUMERIC',
-        targetValue: '85%',
-      }).success
-    ).toBe(true);
+    for (const targetValue of ['10 juz', '85%', '85,5%', '85.5%', '7,5', '7.5']) {
+      expect(
+        createScholarshipCriterionSchema.safeParse({
+          name: 'Hafalan',
+          weight: 1,
+          type: 'NUMERIC',
+          targetValue,
+        }).success
+      ).toBe(true);
+    }
   });
 
   it('rejects a numeric target the scorer cannot read', () => {
-    const parsed = createScholarshipCriterionSchema.safeParse({
-      name: 'Hafalan',
-      weight: 1,
-      type: 'NUMERIC',
-      targetValue: 'sepuluh',
-    });
-    expect(parsed.success).toBe(false);
+    for (const targetValue of ['sepuluh', '0', '0,0', '-5']) {
+      const parsed = createScholarshipCriterionSchema.safeParse({
+        name: 'Hafalan',
+        weight: 1,
+        type: 'NUMERIC',
+        targetValue,
+      });
+      expect(parsed.success).toBe(false);
+    }
   });
 });

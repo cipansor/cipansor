@@ -4,11 +4,12 @@ import { Errors } from '@/middleware/error';
 import { actorSeesUnit } from '@/utils/resolve-unit-id';
 import { studentScope, type ScopeActor } from '@/utils/student-scope';
 import { householdIncome, needScore, type HouseholdIncome } from '@/utils/household-income';
-import type {
-  CreateScholarshipCriterionInput,
-  ScholarshipAssessmentResult,
-  ScholarshipCriterion,
-  ScholarshipCriterionScore,
+import {
+  parseScholarshipTarget,
+  type CreateScholarshipCriterionInput,
+  type ScholarshipAssessmentResult,
+  type ScholarshipCriterion,
+  type ScholarshipCriterionScore,
 } from '@cipansor/shared';
 
 /** A criterion the scorer can read a value for, in the order the screen shows them. */
@@ -63,14 +64,12 @@ export function criterionKind(name: string): CriterionKind {
 const clamp = (value: number) => Math.min(100, Math.max(0, value));
 
 /**
- * The leading number of a target such as `10 juz` or `85%`. The unit is a note
- * for the reader, not part of the value; a target that carries no number falls
- * back to the criterion's default.
+ * The number of a target such as `10 juz`, `85%` or `85,5%`. The unit is a note
+ * for the reader, not part of the value; a target that carries no readable
+ * number falls back to the criterion's default.
  */
-function targetNumber(value: string | null, fallback: number, parse: (text: string) => number) {
-  if (!value) return fallback;
-  const parsed = parse(value);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
+function targetNumber(value: string | null, fallback: number): number {
+  return parseScholarshipTarget(value)?.value ?? fallback;
 }
 
 /**
@@ -91,7 +90,7 @@ function scoreOne(criterion: ScorableCriterion, facts: ScoringFacts): Scholarshi
       if (facts.tahfidzJuz === null) {
         return { ...base, value: NO_DATA, score: null, excluded: true };
       }
-      const target = targetNumber(criterion.targetValue, 30, parseInt);
+      const target = targetNumber(criterion.targetValue, 30);
       return {
         ...base,
         value: String(facts.tahfidzJuz),
@@ -103,7 +102,7 @@ function scoreOne(criterion: ScorableCriterion, facts: ScoringFacts): Scholarshi
       if (facts.averageGrade === null) {
         return { ...base, value: NO_DATA, score: null, excluded: true };
       }
-      const target = targetNumber(criterion.targetValue, 100, parseFloat);
+      const target = targetNumber(criterion.targetValue, 100);
       return {
         ...base,
         value: String(facts.averageGrade),

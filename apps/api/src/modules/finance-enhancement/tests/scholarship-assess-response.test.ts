@@ -86,6 +86,8 @@ describe('POST /finance-enhancement/scholarship-recipients/:id/assess', () => {
     // falls back into the same Rp1–2 jt bucket.
     expect(result.criteria[1].value).toBe('RANGE_1JT_2JT');
     expect(result.criteria[2]).toMatchObject({ value: 'MANUAL_REQUIRED', excluded: true });
+    // The route once answered with `assessments`; older clients still read it.
+    expect(result.assessments).toEqual(result.criteria);
     expect(result.complete).toBe(false);
   });
 
