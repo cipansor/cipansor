@@ -6,6 +6,7 @@
  * program itu, bukan membiarkan pasangan beda unit dikirim lalu ditolak API.
  */
 import { test, expect, type Page } from "@playwright/test";
+import type { Scholarship, Student } from "@cipansor/shared";
 import { apiLogin, apiRequest, injectSession } from "./helpers/auth-api";
 import { isProductionApi } from "./helpers/api-env";
 
@@ -31,9 +32,11 @@ test.beforeAll(async () => {
   );
 
   const session = await apiLogin(SUPER_ADMIN);
-  const programs = await apiRequest<{
-    data: Array<{ id: string; name: string; unitId: string }>;
-  }>(session, "GET", "/finance-enhancement/scholarships?limit=100");
+  const programs = await apiRequest<{ data: Scholarship[] }>(
+    session,
+    "GET",
+    "/finance-enhancement/scholarships?limit=100",
+  );
   const program = programs.data.find(
     (p) =>
       p.unitId &&
@@ -41,18 +44,22 @@ test.beforeAll(async () => {
   );
   if (!program) throw new Error("Tidak ada program beasiswa pada data seed");
 
-  const students = await apiRequest<{
-    data: Array<{ nis: string; unitId: string }>;
-  }>(session, "GET", "/students?limit=100");
+  const students = await apiRequest<{ data: Student[] }>(
+    session,
+    "GET",
+    "/students?limit=100",
+  );
   const otherUnitStudent = students.data.find(
     (s) => s.unitId !== program.unitId,
   );
   if (!otherUnitStudent)
     throw new Error("Data seed tidak punya santri dari unit lain");
   const unitStudent = (
-    await apiRequest<{
-      data: Array<{ nis: string; unitId: string }>;
-    }>(session, "GET", `/students?unitId=${program.unitId}&limit=20`)
+    await apiRequest<{ data: Student[] }>(
+      session,
+      "GET",
+      `/students?unitId=${program.unitId}&limit=20`,
+    )
   ).data[0];
   if (!unitStudent)
     throw new Error("Data seed tidak punya santri di unit program");
