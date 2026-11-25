@@ -3,7 +3,8 @@ import { describe, it, expect, vi, beforeEach, afterAll } from 'vitest';
 // The service imports `Prisma` from `@prisma/client`; only `Prisma.Decimal` is
 // reached on this path, so the real client (which needs a generated engine) is
 // not loaded.
-const { MockDecimal } = vi.hoisted(() => {
+const { MockDecimal, txQueryRaw } = vi.hoisted(() => {
+  const txQueryRaw = vi.fn();
   const Decimal = function (this: any, v: any) {
     this.v = Number(v);
   } as any;
@@ -28,7 +29,7 @@ const { MockDecimal } = vi.hoisted(() => {
   Decimal.prototype.toFixed = function (digits: number) {
     return this.v.toFixed(digits);
   };
-  return { MockDecimal: Decimal };
+  return { MockDecimal: Decimal, txQueryRaw };
 });
 
 vi.mock('@prisma/client', async (importOriginal) => ({
@@ -50,7 +51,9 @@ vi.mock('@/lib/prisma', () => ({
     laundryStatusLog: { create: vi.fn() },
     financialPeriod: { findFirst: vi.fn() },
     $queryRaw: vi.fn(),
-    $transaction: vi.fn((cb) => cb(prisma)),
+    // The transaction client is not the global client: the lock must be taken
+    // through `tx`, so it is held until the insert commits.
+    $transaction: vi.fn((cb) => cb({ ...prisma, $queryRaw: txQueryRaw })),
   },
 }));
 
@@ -137,12 +140,18 @@ describe('laundry transaction number follows the WIB calendar', () => {
     expect(created.transactionNo).toBe('LDR-20260615-0001');
   });
 
-  it('serialises number allocation with a transaction-scoped advisory lock', async () => {
+  it('locks the shared daily sequence inside the transaction before inserting', async () => {
     await withUtcNow('2026-10-31T17:30:00Z', async () => {
       await transactionService.create('unit-1', 'user-1', input as any);
     });
-    const [strings] = (prisma.$queryRaw as any).mock.calls[0];
+    const [strings, lockKey] = txQueryRaw.mock.calls[0];
     expect(strings.join('?')).toContain('pg_advisory_xact_lock');
+    // The number is LDR-YYYYMMDD-XXXX for every unit, so the lock key is the
+    // date alone — a unit in the key would let two units race the same number.
+    expect(lockKey).toBe('20261101');
+    expect(txQueryRaw.mock.invocationCallOrder[0]).toBeLessThan(
+      (prisma.laundryTransaction.create as any).mock.invocationCallOrder[0]
+    );
   });
 
   it('continues the sequence within the WIB day', async () => {

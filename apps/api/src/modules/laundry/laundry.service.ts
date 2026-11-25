@@ -99,20 +99,18 @@ export const pricingService = {
 // TRANSACTION SERVICE
 // =============================================================================
 
-const generateTransactionNo = async (
-  tx: Prisma.TransactionClient,
-  unitId: string
-): Promise<string> => {
+const generateTransactionNo = async (tx: Prisma.TransactionClient): Promise<string> => {
   // The date on the transaction number is a WIB calendar day, not the UTC one:
   // the container runs UTC, so a 00:00–07:00 WIB transaction would otherwise be
   // numbered with yesterday — and merged into yesterday's sequence.
   const dateStr = todayWib().replace(/-/g, '');
   const prefix = `LDR-${dateStr}`;
 
-  // Two officers saving at once would otherwise read the same last number and
-  // both try to insert it. The lock is released when this transaction commits.
-  const lockKey = `${unitId}:${dateStr}`;
-  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${lockKey})::bigint) IS NULL AS locked`;
+  // The number sequence is shared by every unit (the prefix carries the date,
+  // not the unit), so two officers saving at once — in the same unit or not —
+  // would read the same last number and both try to insert it. The lock is
+  // released when this transaction commits.
+  await tx.$queryRaw`SELECT pg_advisory_xact_lock(hashtext(${dateStr})::bigint) IS NULL AS locked`;
 
   const lastTransaction = await tx.laundryTransaction.findFirst({
     where: { transactionNo: { startsWith: prefix } },
@@ -343,7 +341,7 @@ export const transactionService = {
       const paidAt = paymentStatus === 'PAID' ? new Date() : null;
 
       // Generate transaction number
-      const transactionNo = await generateTransactionNo(tx, unitId);
+      const transactionNo = await generateTransactionNo(tx);
       const estimatedAt = calculateEstimatedDate(pricing.processDays);
 
       // Create transaction
