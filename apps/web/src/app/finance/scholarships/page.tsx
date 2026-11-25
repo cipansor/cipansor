@@ -126,15 +126,6 @@ export function assignableStudents<T extends { unitId: string }>(
     : students;
 }
 
-/** The `/students` read normalizes the display name onto the row. */
-type StudentOption = {
-  id: string;
-  nis: string;
-  unitId: string;
-  name?: string;
-  user?: { name?: string };
-};
-
 /** The score total to one decimal, "-" when every criterion was excluded. */
 function formatTotal(total: number | null): string {
   return total === null || Number.isNaN(total) ? "-" : total.toFixed(1);
@@ -507,7 +498,7 @@ export default function ScholarshipsPage() {
     selectedAssignStudent,
   );
   const assignableStudentOptions = assignableStudents(
-    (studentsData?.data ?? []) as StudentOption[],
+    studentsData?.data ?? [],
     selectedAssignScholarship,
   );
 
@@ -567,6 +558,11 @@ export default function ScholarshipsPage() {
     setStudentSearch("");
   };
 
+  const handleAssignDialogOpenChange = (open: boolean) => {
+    setIsAssignDialogOpen(open);
+    if (!open) resetAssignForm();
+  };
+
   const handleAssign = async (formData: FormData) => {
     try {
       await assignScholarship.mutateAsync({
@@ -577,8 +573,7 @@ export default function ScholarshipsPage() {
         notes: formData.get("notes") as string,
       });
       toast.success("Beasiswa berhasil diberikan ke santri");
-      resetAssignForm();
-      setIsAssignDialogOpen(false);
+      handleAssignDialogOpenChange(false);
     } catch (error: any) {
       toast.error(error.response?.data?.message || "Gagal memberikan beasiswa");
     }
@@ -606,10 +601,7 @@ export default function ScholarshipsPage() {
           <div className="flex gap-2">
             <Dialog
               open={isAssignDialogOpen}
-              onOpenChange={(open) => {
-                setIsAssignDialogOpen(open);
-                if (!open) resetAssignForm();
-              }}
+              onOpenChange={handleAssignDialogOpenChange}
             >
               <DialogTrigger asChild>
                 <Button variant="secondary">
@@ -647,7 +639,7 @@ export default function ScholarshipsPage() {
                         <SelectContent>
                           {assignableStudentOptions.map((s) => (
                             <SelectItem key={s.id} value={s.id}>
-                              {s.name || s.user?.name || s.nis} ({s.nis})
+                              {s.name} ({s.nis})
                             </SelectItem>
                           ))}
                         </SelectContent>
@@ -711,7 +703,7 @@ export default function ScholarshipsPage() {
                     <Button
                       type="button"
                       variant="outline"
-                      onClick={() => setIsAssignDialogOpen(false)}
+                      onClick={() => handleAssignDialogOpenChange(false)}
                     >
                       Batal
                     </Button>

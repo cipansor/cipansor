@@ -16,6 +16,7 @@ const SUPER_ADMIN = {
 
 let programName = "";
 let programUnitId = "";
+let programUnitStudentNis = "";
 let otherUnitStudentNis = "";
 
 async function signIn(page: Page) {
@@ -48,9 +49,13 @@ test.beforeAll(async () => {
   );
   if (!otherUnitStudent)
     throw new Error("Data seed tidak punya santri dari unit lain");
+  const unitStudent = students.data.find((s) => s.unitId === program.unitId);
+  if (!unitStudent)
+    throw new Error("Data seed tidak punya santri di unit program");
 
   programName = program.name;
   programUnitId = program.unitId;
+  programUnitStudentNis = unitStudent.nis;
   otherUnitStudentNis = otherUnitStudent.nis;
 });
 
@@ -78,10 +83,41 @@ test("memilih program menyempitkan daftar santri ke unit program", async ({
     .getByRole("option", { name: programName, exact: true })
     .first()
     .click();
-  await studentsResponse;
+  const students = await studentsResponse;
+  expect(students.status()).toBe(200);
 
   await comboboxes.nth(0).click();
   await expect(
+    page.getByRole("option", { name: new RegExp(programUnitStudentNis) }),
+  ).toBeVisible();
+  await expect(
     page.getByRole("option", { name: new RegExp(otherUnitStudentNis) }),
   ).toHaveCount(0);
+});
+
+test("Batal mengosongkan pilihan program, santri, dan pencarian", async ({
+  page,
+}) => {
+  await signIn(page);
+  await page.goto("/finance/scholarships");
+  await page.getByRole("button", { name: /assign santri/i }).click();
+
+  let dialog = page.getByRole("dialog");
+  await dialog.getByPlaceholder(/ketik nama santri/i).fill("Ahmad");
+  await dialog.getByRole("combobox").nth(1).click();
+  await page
+    .getByRole("option", { name: programName, exact: true })
+    .first()
+    .click();
+
+  await dialog.getByRole("button", { name: /^batal$/i }).click();
+  await expect(dialog).toBeHidden();
+
+  await page.getByRole("button", { name: /assign santri/i }).click();
+  dialog = page.getByRole("dialog");
+  await expect(dialog.getByPlaceholder(/ketik nama santri/i)).toHaveValue("");
+  await expect(dialog.getByText("Pilih santri", { exact: true })).toBeVisible();
+  await expect(
+    dialog.getByText("Pilih program", { exact: true }),
+  ).toBeVisible();
 });
