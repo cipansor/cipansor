@@ -53,6 +53,14 @@ describe('readNikIdentity', () => {
     expect(readNikIdentity('3201232902230001')).toBeNull();
   });
 
+  it('rejects day 00', () => {
+    expect(readNikIdentity('3201230002230001')).toBeNull();
+  });
+
+  it('rejects day 40, which would be a female day 0', () => {
+    expect(readNikIdentity('3201234002230001')).toBeNull();
+  });
+
   it('accepts 29 February in a leap year, including the year 00', () => {
     // 1900 was not a leap year, but 2000 was — and no one was born on
     // 29 February 1900, so the century-less `00` must read as 2000.
@@ -122,6 +130,24 @@ describe('checkNik', () => {
         gender: 'MALE',
       })
     ).toEqual({ status: 'invalid-date' });
+  });
+
+  it('skips an unreadable birth date instead of reporting a mismatch', () => {
+    // Documented behaviour: both callers validate the date's shape first.
+    expect(
+      checkNik({
+        nationalId: NIK_MALE,
+        birthDate: 'not-a-date',
+        gender: 'MALE',
+      })
+    ).toEqual({ status: 'match' });
+    expect(
+      checkNik({
+        nationalId: NIK_MALE,
+        birthDate: new Date('not-a-date'),
+        gender: 'MALE',
+      })
+    ).toEqual({ status: 'match' });
   });
 
   it('reports a birth date that disagrees with the NIK', () => {

@@ -121,6 +121,11 @@ export type NikCheck =
  * `birthDate` dibaca pada UTC, karena begitulah formulir dan API membawanya
  * (tengah malam UTC dari hari kalender yang dipilih) — memakai zona waktu
  * server akan menggeser tanggalnya sehari bagi sebagian jam.
+ *
+ * `birthDate` yang tidak terbaca dilewati, bukan dilaporkan sebagai
+ * ketidakcocokan — fungsi ini tidak menebak isi yang rusak. Hasilnya bisa
+ * `match` tanpa tanggal benar-benar dibandingkan, jadi pemanggil yang menerima
+ * tanggal mentah wajib memvalidasi bentuknya lebih dulu.
  */
 export function checkNik(input: {
   nationalId?: string | null;
