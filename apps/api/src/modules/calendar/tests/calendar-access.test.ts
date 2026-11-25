@@ -426,6 +426,18 @@ describe('calendarService.update — no scope escalation', () => {
     expect(data.isAllDay).toBeUndefined();
   });
 
+  it('clears clock times sent to an event that is all day', async () => {
+    await calendarService.update('event-1', { startTime: '09:00', endTime: '10:00' }, UNIT_ADMIN);
+
+    const data = (
+      prismaMock.calendarEvent.update.mock.calls.at(-1)![0] as {
+        data: Record<string, unknown>;
+      }
+    ).data;
+    expect(data.startTime).toBeNull();
+    expect(data.endTime).toBeNull();
+  });
+
   it('forwards explicit nulls for cleared text fields', async () => {
     await calendarService.update('event-1', { description: null, location: null }, UNIT_ADMIN);
 

@@ -186,24 +186,40 @@ function CalendarEventFormFields({ event }: { event?: CalendarEvent }) {
       // optional field absent.
       const cleared = (value: string) =>
         value.trim() ? value : event ? null : undefined;
+      // A title-only edit must leave the schedule untouched, so another
+      // writer's concurrent move is not overwritten by this form's read.
+      const scheduleChanged =
+        !event ||
+        formData.startDate !== event.startDate.slice(0, 10) ||
+        formData.endDate !== (event.endDate?.slice(0, 10) ?? "") ||
+        formData.isAllDay !== event.isAllDay ||
+        (!formData.isAllDay &&
+          (formData.startTime !== (event.startTime ?? "") ||
+            formData.endTime !== (event.endTime ?? "")));
       const payload = {
         title: formData.title,
         description: cleared(formData.description),
         eventType: formData.eventType,
-        startDate: formData.startDate,
+        startDate: scheduleChanged ? formData.startDate : undefined,
         // An empty end date means one day, not "same as start".
-        endDate: formData.endDate || (event ? null : undefined),
-        startTime: formData.isAllDay
-          ? event
-            ? null
-            : undefined
-          : cleared(formData.startTime),
-        endTime: formData.isAllDay
-          ? event
-            ? null
-            : undefined
-          : cleared(formData.endTime),
-        isAllDay: formData.isAllDay,
+        endDate: scheduleChanged
+          ? formData.endDate || (event ? null : undefined)
+          : undefined,
+        startTime: scheduleChanged
+          ? formData.isAllDay
+            ? event
+              ? null
+              : undefined
+            : cleared(formData.startTime)
+          : undefined,
+        endTime: scheduleChanged
+          ? formData.isAllDay
+            ? event
+              ? null
+              : undefined
+            : cleared(formData.endTime)
+          : undefined,
+        isAllDay: scheduleChanged ? formData.isAllDay : undefined,
         location: cleared(formData.location),
         // A unit-bound writer sends no unit at all: the API sets it from the
         // active assignment, and sending the profile unit made it refuse the
@@ -229,7 +245,10 @@ function CalendarEventFormFields({ event }: { event?: CalendarEvent }) {
         await updateEvent.mutateAsync({ id: event.id, data });
         toast.success("Agenda berhasil diperbarui");
       } else {
-        await createEvent.mutateAsync(payload);
+        await createEvent.mutateAsync({
+          ...payload,
+          startDate: formData.startDate,
+        });
         toast.success(
           formData.recurrence === "NONE"
             ? "Agenda berhasil dibuat"

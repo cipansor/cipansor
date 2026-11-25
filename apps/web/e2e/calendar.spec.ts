@@ -412,7 +412,7 @@ test.describe("Edit Event — Pengurus yayasan", () => {
     const todayWib = new Date(Date.now() + 7 * 3_600_000)
       .toISOString()
       .slice(0, 10);
-    const tomorrowWib = new Date(Date.now() + 8 * 3_600_000)
+    const tomorrowWib = new Date(Date.now() + 31 * 3_600_000)
       .toISOString()
       .slice(0, 10);
     const created = await apiRequest<{ data: { id: string } }>(
@@ -450,19 +450,47 @@ test.describe("Edit Event — Pengurus yayasan", () => {
       await expect(page.locator("#title")).toHaveValue(title);
 
       await page.locator("#title").fill(updatedTitle);
-      await page.locator("#endDate").fill("");
-      await page.locator("#description").fill("");
-      await page.locator("#location").fill("");
-      const saved = page.waitForResponse(
+      const titleOnlySaved = page.waitForResponse(
         (response) =>
           response.url().includes(`/calendar/${created.data.id}`) &&
           response.request().method() === "PUT",
       );
       await page.getByRole("button", { name: "Simpan" }).click();
 
-      const response = await saved;
-      expect(response.status()).toBe(200);
-      const body = (await response.json()) as {
+      const titleOnlyResponse = await titleOnlySaved;
+      expect(titleOnlyResponse.status()).toBe(200);
+      const titleOnlyBody = titleOnlyResponse.request().postDataJSON() as {
+        title: string;
+        startDate?: string;
+        endDate?: string | null;
+        startTime?: string | null;
+        endTime?: string | null;
+        isAllDay?: boolean;
+      };
+      expect(titleOnlyBody.title).toBe(updatedTitle);
+      expect(titleOnlyBody.startDate).toBeUndefined();
+      expect(titleOnlyBody.endDate).toBeUndefined();
+      expect(titleOnlyBody.startTime).toBeUndefined();
+      expect(titleOnlyBody.endTime).toBeUndefined();
+      expect(titleOnlyBody.isAllDay).toBeUndefined();
+      await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
+
+      // Clear every optional field, then reopen to prove nothing survived.
+      await page.goto(`/calendar/events/${created.data.id}/edit`);
+      await expect(page.locator("#title")).toHaveValue(updatedTitle);
+      await page.locator("#endDate").fill("");
+      await page.locator("#description").fill("");
+      await page.locator("#location").fill("");
+      const clearedSaved = page.waitForResponse(
+        (response) =>
+          response.url().includes(`/calendar/${created.data.id}`) &&
+          response.request().method() === "PUT",
+      );
+      await page.getByRole("button", { name: "Simpan" }).click();
+
+      const clearedResponse = await clearedSaved;
+      expect(clearedResponse.status()).toBe(200);
+      const clearedBody = (await clearedResponse.json()) as {
         data: {
           title: string;
           endDate: string | null;
@@ -470,13 +498,12 @@ test.describe("Edit Event — Pengurus yayasan", () => {
           location: string | null;
         };
       };
-      expect(body.data.title).toBe(updatedTitle);
-      expect(body.data.endDate).toBeNull();
-      expect(body.data.description).toBeNull();
-      expect(body.data.location).toBeNull();
+      expect(clearedBody.data.title).toBe(updatedTitle);
+      expect(clearedBody.data.endDate).toBeNull();
+      expect(clearedBody.data.description).toBeNull();
+      expect(clearedBody.data.location).toBeNull();
       await expect(page).toHaveURL(/\/calendar\/events$/, { timeout: 15000 });
 
-      // Reopen: a cleared date must stay cleared, not fall back to the start.
       await page.goto(`/calendar/events/${created.data.id}/edit`);
       await expect(page.locator("#title")).toHaveValue(updatedTitle);
       await expect(page.locator("#endDate")).toHaveValue("");
@@ -535,7 +562,7 @@ test.describe("Kalender Akademik — pengawasan hanya membaca", () => {
     const todayWib = new Date(Date.now() + 7 * 3_600_000)
       .toISOString()
       .slice(0, 10);
-    const tomorrowWib = new Date(Date.now() + 8 * 3_600_000)
+    const tomorrowWib = new Date(Date.now() + 31 * 3_600_000)
       .toISOString()
       .slice(0, 10);
     const created = await apiRequest<{ data: { id: string } }>(

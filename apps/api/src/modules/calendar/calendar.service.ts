@@ -524,6 +524,7 @@ export class CalendarService {
     }
     const scope = expectedScope;
 
+    const nextIsAllDay = input.isAllDay ?? event.isAllDay;
     const scheduleChanged =
       input.startDate !== undefined ||
       input.endDate !== undefined ||
@@ -538,7 +539,6 @@ export class CalendarService {
         throw Errors.badRequest('Tanggal selesai tidak boleh sebelum tanggal mulai');
       }
 
-      const nextIsAllDay = input.isAllDay ?? event.isAllDay;
       const nextStartTime = nextIsAllDay
         ? null
         : input.startTime === null
@@ -577,9 +577,8 @@ export class CalendarService {
         endDate:
           input.endDate === null ? null : input.endDate ? new Date(input.endDate) : undefined,
         isAllDay: input.isAllDay,
-        startTime:
-          input.isAllDay === true ? null : input.startTime === null ? null : input.startTime,
-        endTime: input.isAllDay === true ? null : input.endTime === null ? null : input.endTime,
+        startTime: !scheduleChanged ? undefined : nextIsAllDay ? null : input.startTime,
+        endTime: !scheduleChanged ? undefined : nextIsAllDay ? null : input.endTime,
         location: input.location,
         isOnline: input.isOnline,
         onlineUrl: input.onlineUrl,
