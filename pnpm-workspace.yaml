@@ -20,6 +20,7 @@ allowBuilds:
   # visible rather than silently dropped from the list.
   '@scarf/scarf': false
   'core-js': false
+  tesseract.js: false
 
 # pnpm 12's SECOND permission surface: a dependency that ships `skills/<name>/`
 # has it linked into the agent-skill directory after approval — install scripts

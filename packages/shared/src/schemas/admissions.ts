@@ -19,6 +19,8 @@ export const parseDocumentSchema = z.object({
       fullName: z.string().optional(),
       nationalId: z.string().optional(),
       familyCardNumber: z.string().optional(),
+      birthPlace: z.string().optional(),
+      birthDate: z.string().optional(),
     })
     .optional(),
 });

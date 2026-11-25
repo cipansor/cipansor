@@ -129,6 +129,19 @@ export interface SpmbFormContent {
     toastMismatch: string;
     toastUnchecked: string;
     uncheckedNote: string;
+    /** Shown when the local OCR engine read the document. */
+    ocrEngineNote: string;
+    /** Shown when every compared field matched. */
+    ocrMatchedNote: string;
+    /** Shown when at least one field differs; `fields` is a comma-joined list. */
+    ocrMismatchNote: (fields: string) => string;
+    ocrField: {
+      nationalId: string;
+      familyCardNumber: string;
+      fullName: string;
+      birthPlace: string;
+      birthDate: string;
+    };
   };
   confirm: {
     studentHeading: string;
@@ -359,6 +372,19 @@ const ID: SpmbFormContent = {
       "Pemeriksaan otomatis gagal; petugas akan memeriksa dokumen ini.",
     uncheckedNote:
       "Pemeriksaan otomatis gagal. Petugas akan memeriksa dokumen ini secara langsung.",
+    ocrEngineNote:
+      "Isi dokumen dibaca mesin di sistem yayasan sendiri, tanpa pihak ketiga. Hasil ini menandai kecocokan isian, bukan bukti keaslian.",
+    ocrMatchedNote:
+      "Semua isian yang dibandingkan cocok. Petugas tetap memeriksa dokumennya.",
+    ocrMismatchNote: (fields) =>
+      `Tidak sama dengan isian: ${fields}. Periksa kembali sebelum verifikasi.`,
+    ocrField: {
+      nationalId: "NIK",
+      familyCardNumber: "Nomor KK",
+      fullName: "Nama",
+      birthPlace: "Tempat lahir",
+      birthDate: "Tanggal lahir",
+    },
   },
   confirm: {
     studentHeading: "Data Calon Santri",
@@ -603,6 +629,19 @@ const EN: SpmbFormContent = {
       "The automatic check failed; staff will check this document.",
     uncheckedNote:
       "The automatic check failed. Staff will look at this document themselves.",
+    ocrEngineNote:
+      "The document was read by a machine inside the yayasan's own system, with no third party. This only flags whether the fields match; it is not proof of authenticity.",
+    ocrMatchedNote:
+      "Every compared field matches. Staff will still review the document.",
+    ocrMismatchNote: (fields) =>
+      `Does not match the form: ${fields}. Please check before verification.`,
+    ocrField: {
+      nationalId: "NIK",
+      familyCardNumber: "Family card number",
+      fullName: "Name",
+      birthPlace: "Place of birth",
+      birthDate: "Date of birth",
+    },
   },
   confirm: {
     studentHeading: "Applicant",
@@ -836,6 +875,18 @@ const AR: SpmbFormContent = {
     toastMismatch: "قُرئت الوثيقة، لكن بياناتها لا تطابق الاستمارة.",
     toastUnchecked: "تعذّر الفحص الآلي، وسيفحص الموظف هذه الوثيقة.",
     uncheckedNote: "تعذّر الفحص الآلي. سيطّلع الموظف على هذه الوثيقة بنفسه.",
+    ocrEngineNote:
+      "قُرئت الوثيقة آليًا داخل نظام المعهد نفسه، دون أي طرف ثالث. هذا يبيّن مطابقة الحقول فقط، وليس دليلًا على صحتها.",
+    ocrMatchedNote: "جميع الحقول المقارنة مطابقة. سيظّل الموظف يراجع الوثيقة.",
+    ocrMismatchNote: (fields) =>
+      `لا تطابق الاستمارة: ${fields}. يرجى المراجعة قبل التحقق.`,
+    ocrField: {
+      nationalId: "رقم الهوية",
+      familyCardNumber: "رقم بطاقة العائلة",
+      fullName: "الاسم",
+      birthPlace: "مكان الميلاد",
+      birthDate: "تاريخ الميلاد",
+    },
   },
   confirm: {
     studentHeading: "بيانات المتقدّم",

@@ -1380,9 +1380,11 @@ export function SpmbForm({
                             documentType="kk"
                             file={files.familyCard}
                             userInputData={{
-                              fullName:
-                                formData.fatherName || formData.motherName,
+                              fullName: formData.fullName,
+                              nationalId: formData.nationalId,
                               familyCardNumber: formData.familyCardNumber,
+                              birthPlace: formData.birthPlace,
+                              birthDate: formData.birthDate,
                             }}
                             onFileSelect={(f) =>
                               setFiles((prev) => ({ ...prev, familyCard: f }))
@@ -1411,6 +1413,11 @@ export function SpmbForm({
                             content={t.documents}
                             documentType="akta"
                             file={files.birthCertificate}
+                            userInputData={{
+                              fullName: formData.fullName,
+                              birthPlace: formData.birthPlace,
+                              birthDate: formData.birthDate,
+                            }}
                             onFileSelect={(f) =>
                               setFiles((prev) => ({
                                 ...prev,

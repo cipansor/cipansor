@@ -26,6 +26,8 @@ interface DocumentCaptureFieldProps {
     fullName?: string;
     nationalId?: string;
     familyCardNumber?: string;
+    birthPlace?: string;
+    birthDate?: string;
   };
   onOcrExtracted?: (extracted: {
     nationalId?: string;
@@ -54,7 +56,32 @@ export function DocumentCaptureField({
     matchScore?: number;
     status?: "VALID" | "WARNING" | "MISMATCH";
     notes?: string[];
+    nationalIdMatch?: boolean;
+    familyCardMatch?: boolean;
+    fullNameMatch?: boolean;
+    birthPlaceMatch?: boolean;
+    birthDateMatch?: boolean;
+    hasExtracted?: boolean;
   } | null>(null);
+
+  // The API's own `notes` are Indonesian prose; the public form speaks three
+  // languages. Render the structured verdict in the reader's language instead.
+  const localizedNotes = (status: NonNullable<typeof ocrStatus>): string[] => {
+    if (!status.hasExtracted) return [content.uncheckedNote];
+    const fields: string[] = [];
+    if (status.nationalIdMatch === false)
+      fields.push(content.ocrField.nationalId);
+    if (status.familyCardMatch === false)
+      fields.push(content.ocrField.familyCardNumber);
+    if (status.fullNameMatch === false) fields.push(content.ocrField.fullName);
+    if (status.birthPlaceMatch === false)
+      fields.push(content.ocrField.birthPlace);
+    if (status.birthDateMatch === false)
+      fields.push(content.ocrField.birthDate);
+    return fields.length
+      ? [content.ocrEngineNote, content.ocrMismatchNote(fields.join(", "))]
+      : [content.ocrEngineNote, content.ocrMatchedNote];
+  };
 
   const processOcr = async (selectedFile: File) => {
     setOcrStatus(null);
@@ -79,7 +106,13 @@ export function DocumentCaptureField({
 
       if (res.data?.data) {
         const data = res.data.data;
-        setOcrStatus(data.validation);
+        const validation = {
+          ...data.validation,
+          hasExtracted: Boolean(
+            data.extractedData && Object.keys(data.extractedData).length > 0,
+          ),
+        };
+        setOcrStatus(validation);
         if (data.extractedData && onOcrExtracted) {
           onOcrExtracted(data.extractedData);
         }
@@ -90,7 +123,7 @@ export function DocumentCaptureField({
         ) {
           onOcrResult({
             status: data.validation.status,
-            notes: data.validation.notes || [],
+            notes: localizedNotes(validation),
           });
         }
         if (data.validation?.status === "VALID") {
@@ -200,9 +233,9 @@ export function DocumentCaptureField({
         </p>
       )}
 
-      {ocrStatus && ocrStatus.notes && ocrStatus.notes.length > 0 && (
+      {ocrStatus && localizedNotes(ocrStatus).length > 0 && (
         <div className="mt-2 text-xs text-slate-600 bg-white p-2 rounded border space-y-1">
-          {ocrStatus.notes.map((note, idx) => (
+          {localizedNotes(ocrStatus).map((note, idx) => (
             <p key={idx} className="flex items-center gap-1.5">
               {ocrStatus.status === "VALID" ? (
                 <CheckCircle2 className="h-3.5 w-3.5 text-green-600 shrink-0" />

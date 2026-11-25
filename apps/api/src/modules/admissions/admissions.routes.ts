@@ -57,6 +57,28 @@ const documentUploadLimiter = rateLimit({
   skip: () => config.env === 'test' || config.env === 'development',
 });
 
+// Dedicated, tighter limiter for `POST /public/parse-document`. While the OCR
+// engine is off this endpoint is cheap (metadata only); once `SPMB_OCR_ENABLED`
+// turns the Tesseract.js engine on, each request costs ~0.4–0.6 s of CPU and
+// ~205 MB RSS (spike, 2026-11-25). 6/min per IP keeps a single client from
+// stacking workers while still letting an applicant scan their KTP, KK and
+// akta in one session. Turnstile is deliberately NOT added here — see the
+// gating comment on the route and `public-routes-gated.test.ts`.
+const documentOcrLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 6, // 6 document scans per minute per IP
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: {
+    success: false,
+    error: {
+      code: 'RATE_LIMIT_EXCEEDED',
+      message: 'Batas pemindaian dokumen terlampaui. Silakan tunggu 1 menit.',
+    },
+  },
+  skip: () => config.env === 'test' || config.env === 'development',
+});
+
 // Mount wave sub-router. `ppdb-wave.routes.ts` applies its own `authenticate`
 // middleware (and exposes a public `/active/:periodId` route), so we mount it
 // BEFORE the admissions-wide `authenticate` below.
@@ -85,22 +107,21 @@ router.post(
   controller.createPublicRegistrantDocument
 );
 router.get('/public/track', publicRegistrantLimiter, controller.trackPublicRegistrantStatus);
-// DOCUMENT-OCR GATING (assumption review 2026-09-09):
-// `parse-document` is OPEN (no Turnstile) because OCR is currently LOCAL ONLY:
-// `parseAndVerifyDocument` (document-ocr.service.ts) never calls a paid/third-party
-// vision service — it reads plain-text bytes pasted as base64 and flags every real
-// photo/PDF for manual verification. There is no per-request cost and no data leaves
-// this deployment, so a Turnstile (which would otherwise gate a page that itself
-// requires Turnstile) is unnecessary and would only hurt legitimate applicants.
-// The payload is also capped at 2MB by `parseDocumentSchema`, and the endpoint
-// shares the same strict `publicRegistrantLimiter` (10 req/min/IP) used for
-// registrant creation.
-// **Revisit this gating (rate limit + Turnstile) BEFORE introducing paid/learned
-// OCR or increasing acceptable upload size** — a heavy/paid processor needs a
-// real abuse boundary, not just the current limiter.
+// DOCUMENT-OCR GATING (assumption review 2026-09-09, re-reviewed 2026-11-25 when
+// the Tesseract.js engine landed behind `SPMB_OCR_ENABLED`):
+// `parse-document` stays OPEN (no Turnstile). The engine is LOCAL ONLY — Tesseract.js
+// compiled to WebAssembly with traineddata bundled in `@tesseract.js-data/eng`, so no
+// image and no request leaves this deployment and there is no per-request fee. A
+// Turnstile would gate a page whose registration step already requires one, and would
+// fail-closed for applicants whose network filters challenges.cloudflare.com (the
+// reasoning pinned in `public-routes-gated.test.ts`). What DID change is the abuse
+// boundary: the heavy path is bounded by `documentOcrLimiter` (6 req/min/IP), the
+// payload by `parseDocumentSchema` (2.8MB), and the engine is off until
+// `SPMB_OCR_ENABLED=true`. Re-review this again before adding a paid/third-party
+// vision service or raising the upload cap.
 router.post(
   '/public/parse-document',
-  publicRegistrantLimiter,
+  documentOcrLimiter,
   validate(parseDocumentSchema),
   controller.parsePublicDocument
 );

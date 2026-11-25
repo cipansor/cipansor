@@ -68,6 +68,10 @@ const KEPT_VERBATIM: Record<string, string> = {
   "ar:escalation.email": "'Email' is transliterated identically in Arabic",
   "en:escalation.whatsapp": "A product name",
   "ar:escalation.whatsapp": "A product name",
+  // NIK is the Indonesian national identity number; the form keeps the
+  // regulatory term in every language rather than inventing a translation.
+  "en:documents.ocrField.nationalId":
+    "NIK is a regulatory identifier, kept verbatim",
 };
 
 /**
