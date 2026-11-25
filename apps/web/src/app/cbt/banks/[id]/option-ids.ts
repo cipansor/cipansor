@@ -1,3 +1,5 @@
+import type { QuestionOptionObject } from "@cipansor/shared";
+
 const LETTERS = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
 
 function trimmedId(id: unknown): string {
@@ -22,15 +24,10 @@ export function answerKeyIdOf(answerKey: unknown): string | null {
   return trimmed || null;
 }
 
-export interface EditableOption {
-  id: string;
-  text: string;
-}
-
 /** Turn stored options — objects or legacy bare strings — into form options. */
 export function normalizeOptions(
   options: readonly unknown[],
-): EditableOption[] {
+): QuestionOptionObject[] {
   return options.map((option) => {
     if (typeof option === "string") {
       return { id: trimmedId(option), text: option };

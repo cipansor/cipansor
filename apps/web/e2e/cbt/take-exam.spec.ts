@@ -39,12 +39,17 @@ interface QuestionOption {
   id: string;
   text: string;
 }
+type StoredOption = QuestionOption | string;
 interface QuestionDto {
   id: string;
   type: string;
   content: string;
-  options: QuestionOption[];
+  options: StoredOption[];
   points: number;
+}
+
+function optionText(option: StoredOption): string {
+  return typeof option === "string" ? option : option.text;
 }
 interface Exam {
   id: string;
@@ -69,6 +74,7 @@ interface FullAttempt {
 /** Create a question bank + 2 MCQ questions + a scheduled exam via the API. */
 async function createCbtExam(
   session: AuthSession,
+  legacyStringOptions = false,
 ): Promise<{ exam: Exam; questions: QuestionDto[]; bankId: string }> {
   // Pick the seeded SMP IT unit and its 7A class. The exam's class decides who
   // may read it: since #987 a santri reads only the exams of a class they are
@@ -125,33 +131,48 @@ async function createCbtExam(
 
   const seeds: Array<{
     content: string;
-    options: QuestionOption[];
+    options: StoredOption[];
     answerKey: string;
     points: number;
-  }> = [
-    {
-      content: `E2E Q1 ${Date.now()}`,
-      options: [
-        { id: "q1a", text: "alpha" },
-        { id: "q1b", text: "beta" },
-        { id: "q1c", text: "gamma" },
-        { id: "q1d", text: "delta" },
-      ],
-      answerKey: "q1a",
-      points: 50,
-    },
-    {
-      content: `E2E Q2 ${Date.now()}`,
-      options: [
-        { id: "q2a", text: "delta" },
-        { id: "q2b", text: "charlie" },
-        { id: "q2c", text: "bravo" },
-        { id: "q2d", text: "alpha" },
-      ],
-      answerKey: "q2a",
-      points: 50,
-    },
-  ];
+  }> = legacyStringOptions
+    ? [
+        {
+          content: `E2E Legacy Q1 ${Date.now()}`,
+          options: ["Bandung", "Surabaya", "Jakarta"],
+          answerKey: "Jakarta",
+          points: 50,
+        },
+        {
+          content: `E2E Legacy Q2 ${Date.now()}`,
+          options: ["Merah", "Hijau", "Biru"],
+          answerKey: "Hijau",
+          points: 50,
+        },
+      ]
+    : [
+        {
+          content: `E2E Q1 ${Date.now()}`,
+          options: [
+            { id: "q1a", text: "alpha" },
+            { id: "q1b", text: "beta" },
+            { id: "q1c", text: "gamma" },
+            { id: "q1d", text: "delta" },
+          ],
+          answerKey: "q1a",
+          points: 50,
+        },
+        {
+          content: `E2E Q2 ${Date.now()}`,
+          options: [
+            { id: "q2a", text: "delta" },
+            { id: "q2b", text: "charlie" },
+            { id: "q2c", text: "bravo" },
+            { id: "q2d", text: "alpha" },
+          ],
+          answerKey: "q2a",
+          points: 50,
+        },
+      ];
 
   const added: QuestionDto[] = [];
   for (const s of seeds) {
@@ -265,10 +286,56 @@ test.describe("CBT Take Exam (Student)", () => {
       await expect(page.getByText(q.content)).toBeVisible();
       for (const opt of q.options) {
         await expect(
-          page.getByText(opt.text, { exact: true }).first(),
+          page.getByText(optionText(opt), { exact: true }).first(),
         ).toBeVisible();
       }
     }
+
+    await cleanupCbtExam(admin, bankId);
+  });
+
+  test("renders legacy string options, selects one and submits the exam", async ({
+    page,
+  }) => {
+    const admin = await apiLogin(SEED_USERS.superAdmin);
+    const { exam, bankId } = await createCbtExam(admin, true);
+    const student = await apiLogin(SMPIT_STUDENT);
+    const attempt = await startAttempt(student, exam.id);
+    await injectSession(page, student);
+
+    await page.goto(`/student/exams/${exam.id}/take`);
+    await enterExam(page);
+
+    const ordered = (await getAttempt(student, attempt.id)).exam.questionBank
+      .questions;
+    const targetIndex = ordered.findIndex((q) =>
+      q.options.some((opt) => optionText(opt) === "Jakarta"),
+    );
+    expect(
+      targetIndex,
+      "legacy question with Jakarta required",
+    ).toBeGreaterThanOrEqual(0);
+    for (let i = 0; i < targetIndex; i++) {
+      await page.getByRole("button", { name: "Selanjutnya" }).click();
+    }
+
+    for (const opt of ordered[targetIndex].options) {
+      await expect(
+        page.getByText(optionText(opt), { exact: true }).first(),
+      ).toBeVisible();
+    }
+
+    await page.getByText("Jakarta", { exact: true }).first().click();
+    await expect(page.getByRole("radio", { name: "Jakarta" })).toBeChecked();
+
+    await page.getByRole("button", { name: "Selesai" }).click();
+    await page.getByRole("button", { name: "Ya, Selesai" }).click();
+    await expect(
+      page.getByRole("heading", { name: "Ujian Selesai" }),
+    ).toBeVisible({ timeout: 15000 });
+
+    const done = await getAttempt(student, attempt.id);
+    expect(done.status).toBe("COMPLETED");
 
     await cleanupCbtExam(admin, bankId);
   });
@@ -308,7 +375,7 @@ test.describe("CBT Take Exam (Student)", () => {
     // first is exactly the same one now — assert by its accessible name.
     await expect(
       page.getByRole("radio", { checked: true }).first(),
-    ).toHaveAccessibleName(opt0.text);
+    ).toHaveAccessibleName(optionText(opt0));
 
     await cleanupCbtExam(admin, bankId);
   });
