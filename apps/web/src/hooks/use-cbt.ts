@@ -1,6 +1,10 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { api } from "@/lib/api";
-import { SecurityEventType } from "@cipansor/shared";
+import { api, type ApiResponse } from "@/lib/api";
+import {
+  examDifficultyInsightsSchema,
+  SecurityEventType,
+  type ExamDifficultyInsights,
+} from "@cipansor/shared";
 
 // Types
 export { QuestionType } from "@cipansor/shared";
@@ -10,6 +14,7 @@ export type {
   ExamAttempt,
   ExamAnswer,
   ExamSecurityLog,
+  ExamDifficultyInsights,
 } from "@cipansor/shared";
 
 // Hooks
@@ -89,12 +94,25 @@ export const useTopicMastery = (examId: string) => {
   return useQuery({
     queryKey: ["exam-topic-mastery", examId],
     queryFn: async () => {
-      const { data } = await api.get(`/cbt/exams/${examId}/topic-mastery`);
-      return {
-        items: data.data,
-        topicMastery: data.topicMastery,
-        _meta: data._meta,
-      };
+      try {
+        const { data } = await api.get(`/cbt/exams/${examId}/topic-mastery`, {
+          skipErrorToastForStatus: [404],
+        });
+        return {
+          items: data.data,
+          topicMastery: data.topicMastery,
+          _meta: data._meta,
+        };
+      } catch (error) {
+        // An exam without a question bank has no topic mastery; that is an
+        // empty section, not a user-facing error.
+        if (
+          (error as { response?: { status?: number } }).response?.status === 404
+        ) {
+          return null;
+        }
+        throw error;
+      }
     },
     enabled: !!examId,
   });
@@ -103,11 +121,24 @@ export const useTopicMastery = (examId: string) => {
 export const useExamDifficultyInsights = (examId: string) => {
   return useQuery({
     queryKey: ["exam-difficulty-insights", examId],
-    queryFn: async () => {
-      const { data } = await api.get(
-        `/cbt/exams/${examId}/difficulty-insights`,
-      );
-      return data.data;
+    queryFn: async (): Promise<ExamDifficultyInsights | null> => {
+      try {
+        const { data } = await api.get<ApiResponse<unknown>>(
+          `/cbt/exams/${examId}/difficulty-insights`,
+          { skipErrorToastForStatus: [404] },
+        );
+        if (data.data == null) return null;
+        return examDifficultyInsightsSchema.parse(data.data);
+      } catch (error) {
+        // The controller answers 404 when the exam has no question bank or no
+        // analysis yet; that is an empty state, not a parse failure.
+        if (
+          (error as { response?: { status?: number } }).response?.status === 404
+        ) {
+          return null;
+        }
+        throw error;
+      }
     },
     enabled: !!examId,
   });

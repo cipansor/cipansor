@@ -9,6 +9,7 @@ vi.mock('@prisma/client', () => ({
     },
     Decimal: vi.fn((val) => val),
     JsonNull: 'JsonNull',
+    DbNull: 'DbNull',
   },
   QuestionType: {
     MULTIPLE_CHOICE: 'MULTIPLE_CHOICE',
@@ -443,6 +444,8 @@ describe('CBT Service', () => {
       vi.mocked(prisma.question.findUnique).mockResolvedValue({
         id: 'q-1',
         bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [{ id: 'opt-B', text: 'B' }],
       } as any);
       vi.mocked(prisma.examAnswer.upsert).mockResolvedValue({ id: 'ans-1' } as any);
 
@@ -452,9 +455,141 @@ describe('CBT Service', () => {
         where: {
           attemptId_questionId: { attemptId: 'attempt-1', questionId: 'q-1' },
         },
-        create: expect.any(Object),
+        create: expect.objectContaining({ answer: 'opt-B' }),
         update: { answer: 'opt-B' },
       });
+    });
+
+    it('menyimpan pilihan ganda sebagai id opsi, bukan muatan mentah', async () => {
+      // Klien lama dapat mengirim objek opsi sekaligus catatan bebas. Yang
+      // disimpan hanya id opsi; sisa muatan tidak boleh sampai ke pemeriksa.
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [{ id: 'opt-B', text: 'B' }],
+      } as any);
+      vi.mocked(prisma.examAnswer.upsert).mockResolvedValue({ id: 'ans-1' } as any);
+
+      await CBTService.submitAnswer(
+        'attempt-1',
+        'q-1',
+        { id: 'opt-B', catatan: 'nama saya Budi' },
+        'std-1'
+      );
+
+      expect(prisma.examAnswer.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ answer: 'opt-B' }),
+          update: { answer: 'opt-B' },
+        })
+      );
+    });
+
+    it('menyimpan jawaban kosong non-esai sebagai NULL, bukan string kosong', async () => {
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [{ id: 'opt-B', text: 'B' }],
+      } as any);
+      vi.mocked(prisma.examAnswer.upsert).mockResolvedValue({ id: 'ans-1' } as any);
+
+      await CBTService.submitAnswer('attempt-1', 'q-1', '', 'std-1');
+
+      expect(prisma.examAnswer.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ answer: 'DbNull' }),
+          update: { answer: 'DbNull' },
+        })
+      );
+    });
+
+    it('menolak jawaban pilihan ganda yang bukan opsi soal', async () => {
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [{ id: 'opt-B', text: 'B' }],
+      } as any);
+
+      const error = await CBTService.submitAnswer(
+        'attempt-1',
+        'q-1',
+        'nama saya Budi',
+        'std-1'
+      ).then(
+        () => null,
+        (err: Error) => err
+      );
+
+      expect(error?.message).toContain('harus berupa id salah satu opsi');
+      // `errorHandler` mencatat pesan galat; teks kiriman tidak boleh ikut.
+      expect(error?.message).not.toContain('nama saya Budi');
+      expect(prisma.examAnswer.upsert).not.toHaveBeenCalled();
+    });
+
+    it('menjelaskan soal pilihan ganda yang belum memiliki opsi', async () => {
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'MULTIPLE_CHOICE',
+        options: [],
+      } as any);
+
+      const error = await CBTService.submitAnswer('attempt-1', 'q-1', 'opt-B', 'std-1').then(
+        () => null,
+        (err: Error) => err
+      );
+
+      expect(error?.message).toBe('Soal ini belum memiliki opsi jawaban.');
+      expect(prisma.examAnswer.upsert).not.toHaveBeenCalled();
+    });
+
+    it('menyimpan jawaban benar-salah sebagai true/false kanonis', async () => {
+      vi.mocked(prisma.examAttempt.findUnique).mockResolvedValue({
+        id: 'attempt-1',
+        studentId: 'std-1',
+        status: 'IN_PROGRESS',
+        exam: { questionBankId: 'bank-1' },
+      } as any);
+      vi.mocked(prisma.question.findUnique).mockResolvedValue({
+        id: 'q-1',
+        bankId: 'bank-1',
+        type: 'TRUE_FALSE',
+        options: null,
+      } as any);
+      vi.mocked(prisma.examAnswer.upsert).mockResolvedValue({ id: 'ans-1' } as any);
+
+      await CBTService.submitAnswer('attempt-1', 'q-1', true, 'std-1');
+
+      expect(prisma.examAnswer.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({ update: { answer: 'true' } })
+      );
     });
 
     it('menilai soal benar-salah yang kuncinya boolean JSON', async () => {
@@ -1055,6 +1190,116 @@ describe('CBT Service', () => {
       expect(qInsight.distractorAnalysis![0]).toEqual(
         expect.objectContaining({ count: 1, percentage: 50 })
       );
+    });
+
+    it('mengeluarkan jawaban yang opsinya sudah dihapus dari penyebut distribusi', async () => {
+      // Guru dapat menghapus opsi setelah jawaban dinilai. ERASURE hanya
+      // mengosongkan isi jawaban itu dan mempertahankan skornya, jadi
+      // distribusi harus memakai penyebut pilihan yang masih dapat dipetakan —
+      // bukan `totalGraded`, yang masih memuat jawaban berskor tersebut.
+      const mockExam = {
+        id: 'exam-1',
+        title: 'Exam Title',
+        questionBank: {
+          questions: [
+            {
+              id: 'q1',
+              type: 'MULTIPLE_CHOICE',
+              content: 'What is 2+2?',
+              options: [
+                { id: 'opt1', text: '4' },
+                { id: 'opt2', text: '5' },
+              ],
+            },
+          ],
+        },
+        attempts: [
+          {
+            id: 'a1',
+            status: 'COMPLETED',
+            score: 10,
+            answers: [{ questionId: 'q1', answer: 'opt-old', score: 10, isCorrect: true }],
+          },
+          {
+            id: 'a2',
+            status: 'COMPLETED',
+            score: 0,
+            answers: [{ questionId: 'q1', answer: 'opt1', score: 0, isCorrect: false }],
+          },
+        ],
+      };
+
+      vi.mocked(prisma.exam.findUnique).mockResolvedValue(mockExam as any);
+
+      const insights = await CBTService.getExamDifficultyInsights('exam-1');
+      const qInsight = insights!.questionInsights[0];
+
+      expect(qInsight.totalGraded).toBe(2);
+      expect(qInsight.distractorAnalysis).toEqual([
+        expect.objectContaining({ count: 1, percentage: 100 }),
+        expect.objectContaining({ count: 0, percentage: 0 }),
+      ]);
+    });
+
+    it('tidak menggandakan persentase ketika id opsi duplikat', async () => {
+      // Formulir dapat menghasilkan dua opsi ber-id sama setelah guru menghapus
+      // satu opsi lalu menambah opsi baru. Keduanya tidak boleh menampilkan
+      // jawaban yang sama sebagai 100%.
+      const mockExam = {
+        id: 'exam-1',
+        title: 'Exam Title',
+        questionBank: {
+          questions: [
+            {
+              id: 'q1',
+              type: 'MULTIPLE_CHOICE',
+              content: 'What is 2+2?',
+              options: [
+                { id: 'opt-A', text: '1' },
+                { id: 'opt-C', text: '3' },
+                { id: 'opt-D', text: '4' },
+                { id: 'opt-D', text: '4 (lama)' },
+              ],
+            },
+          ],
+        },
+        attempts: [
+          {
+            id: 'a1',
+            status: 'COMPLETED',
+            score: 10,
+            answers: [{ questionId: 'q1', answer: 'opt-D', score: 10, isCorrect: true }],
+          },
+        ],
+      };
+
+      vi.mocked(prisma.exam.findUnique).mockResolvedValue(mockExam as any);
+
+      const insights = await CBTService.getExamDifficultyInsights('exam-1');
+      const analysis = insights!.questionInsights[0].distractorAnalysis!;
+
+      expect(analysis).toHaveLength(3);
+      const dRows = analysis.filter((row) =>
+        (row.options as Array<{ id?: string }>).some((opt) => opt.id === 'opt-D')
+      );
+      expect(dRows).toHaveLength(1);
+      expect(dRows[0]).toEqual(
+        expect.objectContaining({
+          // Form santri hanya mengirim id. Karena dua teks berbagi id, tidak
+          // ada satu teks yang boleh diklaim memiliki jumlah itu.
+          optionId: 'opt-D',
+          option: null,
+          ambiguous: true,
+          options: [
+            expect.objectContaining({ text: '4' }),
+            expect.objectContaining({ text: '4 (lama)' }),
+          ],
+          count: 1,
+          percentage: 100,
+        })
+      );
+      expect(analysis.reduce((sum, row) => sum + row.percentage, 0)).toBe(100);
+      expect(analysis.filter((row) => !row.ambiguous)).toHaveLength(2);
     });
   });
 });

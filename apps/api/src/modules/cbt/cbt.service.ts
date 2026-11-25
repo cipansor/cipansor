@@ -3,8 +3,17 @@ import { Prisma, QuestionType } from '@prisma/client';
 import type { Question as QuestionModel } from '@prisma/client';
 import { Decimal } from '@prisma/client/runtime/client';
 import { Errors } from '@/middleware/error';
-import { canonicalAnswer, isAnswerCorrect, normalizeAnswerKeyForStorage } from './answer-key';
-import type { SecurityEventType } from '@cipansor/shared';
+import {
+  canonicalAnswer,
+  isAnswerCorrect,
+  normalizeAnswerKeyForStorage,
+  optionIdentifiers,
+} from './answer-key';
+import type {
+  ExamDifficultyInsights,
+  ExamDistractorAnalysisRow,
+  SecurityEventType,
+} from '@cipansor/shared';
 import { calculateLetterGrade } from '@cipansor/shared';
 import type { JwtPayload } from '@/lib/jwt';
 
@@ -32,6 +41,53 @@ function answerKeyForPrisma(
 ): string | typeof Prisma.DbNull {
   const normalized = normalizeAnswerKeyForStorage(type, answerKey, options);
   return normalized === null ? Prisma.DbNull : normalized;
+}
+
+/**
+ * Validate and canonicalise a student's answer on the way in.
+ *
+ * A non-essay answer is an option identifier, not a free-form payload: storing
+ * the raw request body let an examiner read prose (including personal data)
+ * hidden beside the chosen option. Essays stay text; every other type is
+ * reduced to its canonical choice, and a value that names no option is
+ * refused. The ERASURE sweep relies on this shape — valid choices survive as
+ * option ids, while anything that cannot be proved to be one is cleared.
+ */
+function studentAnswerForStorage(
+  type: QuestionType,
+  options: Prisma.JsonValue | null,
+  raw: unknown
+): Prisma.InputJsonValue | typeof Prisma.DbNull {
+  if (raw === null || raw === undefined) return Prisma.DbNull;
+  if (type === QuestionType.ESSAY) {
+    if (typeof raw !== 'string') {
+      throw Errors.badRequest('Jawaban esai harus berupa teks.');
+    }
+    return raw;
+  }
+  if (raw === '') return Prisma.DbNull;
+  const canonical = canonicalAnswer(type, raw);
+  if (canonical === null) {
+    throw Errors.badRequest(
+      type === QuestionType.TRUE_FALSE
+        ? 'Jawaban benar-salah harus bernilai benar atau salah.'
+        : 'Jawaban pilihan ganda harus berupa id salah satu opsi.'
+    );
+  }
+  if (type === QuestionType.MULTIPLE_CHOICE) {
+    const ids = optionIdentifiers(options);
+    if (ids.length === 0) {
+      throw Errors.badRequest('Soal ini belum memiliki opsi jawaban.');
+    }
+    if (!ids.includes(canonical)) {
+      // Jangan mengutip nilai kiriman: teks itu bisa berisi data pribadi, dan
+      // `errorHandler` mencatat pesan galat ke log yang tidak disapu ERASURE.
+      throw Errors.badRequest(
+        `Jawaban harus berupa id salah satu opsi soal ini (${ids.join(', ')}).`
+      );
+    }
+  }
+  return canonical;
 }
 
 /** Deterministic pseudo-random number generator for attempt-level shuffling */
@@ -897,6 +953,8 @@ export class CBTService {
       throw Errors.badRequest('Question does not belong to this exam');
     }
 
+    const storedAnswer = studentAnswerForStorage(question.type, question.options, answer);
+
     // Upsert answer
     return prisma.examAnswer.upsert({
       where: {
@@ -905,10 +963,10 @@ export class CBTService {
       create: {
         attemptId,
         questionId,
-        answer,
+        answer: storedAnswer,
       },
       update: {
-        answer,
+        answer: storedAnswer,
       },
     });
   }
@@ -1376,7 +1434,7 @@ export class CBTService {
    *   Only computed with ≥ 10 finished attempts; null otherwise.
    * Also flags "killer questions" (high failure rate with enough data).
    */
-  static async getExamDifficultyInsights(examId: string) {
+  static async getExamDifficultyInsights(examId: string): Promise<ExamDifficultyInsights | null> {
     const exam = await prisma.exam.findUnique({
       where: { id: examId },
       include: {
@@ -1426,30 +1484,77 @@ export class CBTService {
         : null;
 
       // Best Practice: Distractor analysis for multiple choice questions
-      let distractorAnalysis:
-        Array<{ option: Prisma.JsonValue; count: number; percentage: number }> | undefined;
+      let distractorAnalysis: ExamDistractorAnalysisRow[] | undefined;
       if (q.type === 'MULTIPLE_CHOICE' && Array.isArray(q.options)) {
         // Counted through the same canonical form the grader uses. These two
         // used to normalise differently — the analysis unwrapped `{ id: … }`
         // wrappers and the grader did not — so they could disagree about which
         // option a student had picked.
+        //
+        // The denominator is the answers whose choice still maps to a current
+        // option, not every graded answer. ERASURE clears the content of an
+        // answer whose option a teacher later removed but keeps its historical
+        // score; counting that answer in the denominator would make the
+        // displayed shares stop summing to 100%.
+        const optionKeys = (q.options as Prisma.JsonValue[])
+          .map((opt) => canonicalAnswer(q.type, opt))
+          .filter((key): key is string => key !== null);
+        const currentOptions = new Set(optionKeys);
         const optionCounts: Record<string, number> = {};
+        let mappableAnswers = 0;
         answers.forEach((ans) => {
           if (ans && ans.answer != null) {
             const keyStr = canonicalAnswer(q.type, ans.answer);
-            if (keyStr !== null) optionCounts[keyStr] = (optionCounts[keyStr] || 0) + 1;
+            if (keyStr !== null && currentOptions.has(keyStr)) {
+              optionCounts[keyStr] = (optionCounts[keyStr] || 0) + 1;
+              mappableAnswers += 1;
+            }
           }
         });
 
-        distractorAnalysis = (q.options as Prisma.JsonValue[]).map((opt) => {
+        // A question can end up with two options sharing an id after a teacher
+        // removes one and adds another. The student form submits only the id,
+        // so the count belongs to the id, not to either text. Report one row
+        // per id and mark it ambiguous with every text that shares it; silently
+        // attaching the combined count to the first text would hide that.
+        const optionsById = new Map<string, Prisma.JsonValue[]>();
+        for (const opt of q.options as Prisma.JsonValue[]) {
           const keyStr = canonicalAnswer(q.type, opt);
-          const count = keyStr === null ? 0 : optionCounts[keyStr] || 0;
-          return {
-            option: opt,
+          if (keyStr === null) continue;
+          const group = optionsById.get(keyStr) ?? [];
+          group.push(opt);
+          optionsById.set(keyStr, group);
+        }
+
+        const seenOptions = new Set<string>();
+        distractorAnalysis = [];
+        for (const opt of q.options as Prisma.JsonValue[]) {
+          const keyStr = canonicalAnswer(q.type, opt);
+          if (keyStr === null) {
+            distractorAnalysis.push({
+              optionId: null,
+              option: opt,
+              options: [opt],
+              ambiguous: false,
+              count: 0,
+              percentage: 0,
+            });
+            continue;
+          }
+          if (seenOptions.has(keyStr)) continue;
+          seenOptions.add(keyStr);
+          const count = optionCounts[keyStr] || 0;
+          const group = optionsById.get(keyStr) ?? [opt];
+          const ambiguous = group.length > 1;
+          distractorAnalysis.push({
+            optionId: keyStr,
+            option: ambiguous ? null : opt,
+            options: group,
+            ambiguous,
             count,
-            percentage: totalGraded > 0 ? (count / totalGraded) * 100 : 0,
-          };
-        });
+            percentage: mappableAnswers > 0 ? (count / mappableAnswers) * 100 : 0,
+          });
+        }
       }
 
       return {

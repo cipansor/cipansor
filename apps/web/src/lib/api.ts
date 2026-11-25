@@ -12,6 +12,8 @@ import { toast } from "sonner";
 declare module "axios" {
   export interface AxiosRequestConfig {
     skipErrorToast?: boolean;
+    /** Suppress the global toast only for these HTTP statuses. */
+    skipErrorToastForStatus?: number[];
     _hadSession?: boolean;
   }
 }
@@ -220,6 +222,7 @@ api.interceptors.response.use(
     const originalRequest = error.config as InternalAxiosRequestConfig & {
       _retry?: boolean;
       skipErrorToast?: boolean;
+      skipErrorToastForStatus?: number[];
     };
 
     // Auth endpoints that should NEVER trigger token refresh —
@@ -300,9 +303,13 @@ api.interceptors.response.use(
     // aggregation calls (e.g. the role dashboards fire several parallel
     // requests the user may not be authorised for) handle their own failures
     // and must not spam "missing permission" / "route not found" toasts.
+    const status = error.response?.status;
+    const skipStatusToast =
+      originalRequest?.skipErrorToastForStatus?.includes(status ?? 0) ?? false;
     if (
       !originalRequest?.skipErrorToast &&
-      (error.response?.status !== 401 || isAuthEndpoint)
+      !skipStatusToast &&
+      (status !== 401 || isAuthEndpoint)
     ) {
       toast.error(friendlyMessage, {
         description: code ? `Error Code: ${code}` : undefined,
