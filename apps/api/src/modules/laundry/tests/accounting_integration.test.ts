@@ -309,7 +309,13 @@ describe('Laundry Accounting Integration', () => {
         releaseLock = undefined;
       }
     });
-    (prisma.$queryRaw as any).mockImplementation(async () => {
+    const lockQueries: string[] = [];
+    (prisma.$queryRaw as any).mockImplementation(async (strings: TemplateStringsArray) => {
+      const sql = Array.isArray(strings) ? strings.join('?') : String(strings);
+      lockQueries.push(sql);
+      // Only a real `FOR UPDATE` locks. A query without it must not make
+      // this test pass, or the test would not notice the clause going away.
+      if (!/\bFOR\s+UPDATE\b/i.test(sql)) return [];
       lockAttempts += 1;
       if (lockAttempts === 2) cancellationWaiting();
       const release = await acquireLock();
@@ -351,6 +357,11 @@ describe('Laundry Accounting Integration', () => {
     releasePaymentWrite();
 
     await expect(Promise.all([payment, cancellation])).resolves.toHaveLength(2);
+    expect(lockQueries).toHaveLength(2);
+    for (const sql of lockQueries) {
+      expect(sql).toMatch(/laundry_transactions/i);
+      expect(sql).toMatch(/\bFOR\s+UPDATE\b/i);
+    }
     expect(state.tx.status).toBe('CANCELLED');
     expect(state.tx.paymentStatus).toBe('REFUNDED');
     expect(state.wallet.balance.toString()).toBe('50000');
