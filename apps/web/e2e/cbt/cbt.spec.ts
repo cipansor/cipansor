@@ -257,11 +257,13 @@ test.describe("CBT Exams & Grading", () => {
     expect((await insightsResponse).status()).toBe(404);
     await expect(difficultyTab).toHaveAttribute("aria-selected", "true");
     // The tab has no navigation of its own, so networkidle can resolve before
-    // the query does. The spinner only disappears once React Query has settled
-    // the 404, which is after the Axios interceptor has run.
+    // the query does. Require the panel to exist, then wait for its spinner to
+    // disappear: that only happens once React Query has settled the 404, which
+    // is after the Axios interceptor has run.
     const difficultyPanel = page.locator(
       '[role="tabpanel"][data-state="active"]',
     );
+    await expect(difficultyPanel).toHaveCount(1);
     await expect(difficultyPanel.locator(".animate-spin")).toHaveCount(0);
     await expect
       .poll(async () => page.locator("[data-sonner-toast]").count(), {
