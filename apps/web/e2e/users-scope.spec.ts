@@ -65,7 +65,6 @@ test("Users & Roles shows the real total and pages past the first ten", async ({
   // The footer first renders with the loading placeholder's zero; wait for the
   // API's count, or this reads "dari 0 hasil" on a slow start.
   await expect.poll(totalOf).toBeGreaterThan(10);
-  const total = await totalOf();
   await expect(page.getByText(/Halaman\s*1\s*dari\s*\d+/)).toBeVisible();
 
   const firstRow = await page.getByRole("row").nth(1).textContent();

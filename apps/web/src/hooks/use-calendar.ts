@@ -152,16 +152,13 @@ export function useMonthEvents(year: number, month: number, unitId?: string) {
       // Read every page: a daily agenda fills the first 100 rows on its own,
       // and stopping there hid the rest of the month from the grid.
       const events: CalendarEvent[] = [];
-      let page = 1;
-      let totalPages = 1;
-      do {
+      for (let page = 1; ; page += 1) {
         const response = await api.get<CalendarEventList>("/calendar", {
           params: { startDate, endDate, unitId, page, limit: 100 },
         });
         events.push(...response.data.data);
-        totalPages = response.data.meta?.totalPages ?? 1;
-        page += 1;
-      } while (page <= totalPages);
+        if (page >= (response.data.meta?.totalPages ?? 1)) break;
+      }
 
       return events;
     },
