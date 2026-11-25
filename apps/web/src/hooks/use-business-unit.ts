@@ -45,10 +45,13 @@ export interface BusinessUnitEfficiency {
 }
 
 /** List business units with current-month revenue (GET /business-units). */
-export function useBusinessUnits(params?: {
-  type?: BusinessUnitType;
-  isActive?: boolean;
-}) {
+export function useBusinessUnits(
+  params?: {
+    type?: BusinessUnitType;
+    isActive?: boolean;
+  },
+  options?: { enabled?: boolean },
+) {
   return useQuery({
     queryKey: ["business-units", params],
     queryFn: async () => {
@@ -58,6 +61,7 @@ export function useBusinessUnits(params?: {
       );
       return response.data.data;
     },
+    enabled: options?.enabled ?? true,
   });
 }
 

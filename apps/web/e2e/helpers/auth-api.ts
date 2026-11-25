@@ -76,6 +76,10 @@ export const SEED_USERS = {
     password: "SuperAdmin123!",
   },
   adminSdit: { email: "admin.sdit@cipansor.or.id", password: "Admin123!" },
+  yayasanBendahara: {
+    email: "yayasan.bendahara@cipansor.or.id",
+    password: "Cipansor123!",
+  },
   kepalaSdit: {
     email: "sdit.kepala@cipansor.or.id",
     password: "Cipansor123!",
@@ -463,6 +467,7 @@ export async function apiRequest<T = unknown>(
       `${method} ${apiPath} → ${res.status}: ${text.slice(0, 200)}`,
     );
   }
+  if (text === "") return undefined as T;
   try {
     return JSON.parse(text) as T;
   } catch {

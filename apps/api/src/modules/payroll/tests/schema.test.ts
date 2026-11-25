@@ -1,5 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { updateSalaryComponentSchema, updateEmployeeSalarySchema } from '../payroll.schema';
+import {
+  listPayrollPeriodsQuerySchema,
+  updateSalaryComponentSchema,
+  updateEmployeeSalarySchema,
+} from '../payroll.schema';
 
 describe('payroll update schemas (Zod 4 partial-overwrite regression)', () => {
   describe('updateSalaryComponentSchema', () => {
@@ -32,5 +36,20 @@ describe('payroll update schemas (Zod 4 partial-overwrite regression)', () => {
       const parsed = updateEmployeeSalarySchema.parse({ taxStatus: 'K/1' });
       expect(parsed).toEqual({ taxStatus: 'K/1' });
     });
+  });
+});
+
+describe('listPayrollPeriodsQuerySchema', () => {
+  it('accepts a string or a bare number from Express', () => {
+    expect(listPayrollPeriodsQuerySchema.parse({ year: '2026' }).year).toBe('2026');
+    expect(listPayrollPeriodsQuerySchema.parse({ year: 2026 }).year).toBe('2026');
+    expect(listPayrollPeriodsQuerySchema.parse({ page: 2, limit: 50 })).toMatchObject({
+      page: '2',
+      limit: '50',
+    });
+  });
+
+  it('refuses a repeated year instead of silently using the first value', () => {
+    expect(() => listPayrollPeriodsQuerySchema.parse({ year: ['2025', '2026'] })).toThrow();
   });
 });

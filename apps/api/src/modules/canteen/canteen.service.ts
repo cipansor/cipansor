@@ -733,11 +733,18 @@ export const transactionService = {
       // hits the Settings table, and potentially AccountCode when unscoped
       // fallback is enabled).
       const accountPrefix = data.businessUnitId ? `BU_${data.businessUnitId}_` : '';
+      const mappingKeys = (key: string) =>
+        data.businessUnitId ? [`${accountPrefix}${key}`, key] : key;
+      // The unit-level inventory slot is for office purchases; a business-unit
+      // sale must not post its trading stock there. Without a BU mapping the
+      // code/name fallback below finds the unit's own inventory account.
+      const businessUnitInventoryKey = (key: string) =>
+        data.businessUnitId ? `${accountPrefix}${key}` : key;
 
       const salesAccount = periodOpen
         ? await getAccountOrFallback(
             unitId,
-            `${accountPrefix}${ACCOUNT_MAPPING_KEYS.SALES_REVENUE}`,
+            mappingKeys(ACCOUNT_MAPPING_KEYS.SALES_REVENUE),
             '4101',
             'Pendapatan Kantin',
             tx
@@ -747,7 +754,7 @@ export const transactionService = {
       const inventoryAccount = periodOpen
         ? await getAccountOrFallback(
             unitId,
-            `${accountPrefix}${ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET}`,
+            businessUnitInventoryKey(ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET),
             '1104',
             'Persediaan',
             tx
@@ -757,7 +764,7 @@ export const transactionService = {
       const cogsAccount = periodOpen
         ? await getAccountOrFallback(
             unitId,
-            `${accountPrefix}${ACCOUNT_MAPPING_KEYS.COGS}`,
+            mappingKeys(ACCOUNT_MAPPING_KEYS.COGS),
             '5101',
             'Beban Pokok Penjualan Kantin',
             tx

@@ -1,6 +1,16 @@
 import { z } from 'zod';
 import { partialUpdateSchema } from '@/lib/partial';
 
+/**
+ * A query value Express hands over as a string or a bare number. A repeated
+ * parameter arrives as an array; leave it for Zod to reject rather than
+ * collapsing two years into `"2025,2026"` and silently using the first.
+ */
+const scalarQueryString = z.preprocess(
+  (value) => (Array.isArray(value) ? value : typeof value === 'number' ? String(value) : value),
+  z.string()
+);
+
 // Salary Component Schemas
 export const salaryComponentSchema = z.object({
   code: z.string().min(1).max(50),
@@ -109,10 +119,10 @@ export const listEmployeeSalariesQuerySchema = z.object({
 
 export const listPayrollPeriodsQuerySchema = z.object({
   unitId: z.string().uuid().optional(),
-  year: z.string().optional(),
+  year: scalarQueryString.optional(),
   status: z.enum(['DRAFT', 'APPROVED', 'PAID', 'CANCELLED']).optional(),
-  page: z.string().default('1'),
-  limit: z.string().default('20'),
+  page: scalarQueryString.default('1'),
+  limit: scalarQueryString.default('20'),
 });
 
 export const listPayrollsQuerySchema = z.object({

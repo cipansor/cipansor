@@ -76,6 +76,7 @@ import {
 import { toast } from "sonner";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
+import { periodActionsFor } from "@/lib/payroll-actions";
 import {
   usePayrollPeriods,
   usePayrollSlips,
@@ -160,12 +161,15 @@ function PayrollPageContent() {
   const salaries = salariesData?.data || [];
   const slips = slipsData?.data || [];
 
+  // Buttons come from the same policy the API enforces, so a button never
+  // appears for an action the server would refuse.
+  const payrollActions = (period: PayrollPeriod) =>
+    user ? periodActionsFor(user, period) : [];
+
   // Calculate stats
   const stats = {
     totalPeriods: periods.length,
-    pendingPeriods: periods.filter(
-      (p) => p.status === "DRAFT" || p.status === "CALCULATED",
-    ).length,
+    pendingPeriods: periods.filter((p) => p.status === "DRAFT").length,
     totalSalaries: salaries.length,
     totalComponents: components?.length || 0,
   };
@@ -433,7 +437,7 @@ function PayrollPageContent() {
                       setPeriodFilters({ ...periodFilters, year: v })
                     }
                   >
-                    <SelectTrigger className="w-[120px]">
+                    <SelectTrigger className="w-[120px]" aria-label="Tahun">
                       <SelectValue placeholder="Tahun" />
                     </SelectTrigger>
                     <SelectContent>
@@ -450,13 +454,12 @@ function PayrollPageContent() {
                       setPeriodFilters({ ...periodFilters, status: v })
                     }
                   >
-                    <SelectTrigger className="w-[140px]">
+                    <SelectTrigger className="w-[140px]" aria-label="Status">
                       <SelectValue placeholder="Status" />
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="all">Semua Status</SelectItem>
                       <SelectItem value="DRAFT">Draft</SelectItem>
-                      <SelectItem value="CALCULATED">Dihitung</SelectItem>
                       <SelectItem value="APPROVED">Disetujui</SelectItem>
                       <SelectItem value="PAID">Dibayar</SelectItem>
                       <SelectItem value="CANCELLED">Dibatalkan</SelectItem>
@@ -517,7 +520,7 @@ function PayrollPageContent() {
                                 <Eye className="mr-2 h-4 w-4" />
                                 Lihat Slip
                               </DropdownMenuItem>
-                              {period.status === "DRAFT" && (
+                              {payrollActions(period).includes("GENERATE") && (
                                 <DropdownMenuItem
                                   onClick={() =>
                                     handleGeneratePayroll(period.id)
@@ -527,7 +530,7 @@ function PayrollPageContent() {
                                   Generate Slip
                                 </DropdownMenuItem>
                               )}
-                              {period.status === "CALCULATED" && (
+                              {payrollActions(period).includes("APPROVE") && (
                                 <DropdownMenuItem
                                   onClick={() => handleApprovePeriod(period.id)}
                                 >
@@ -535,7 +538,7 @@ function PayrollPageContent() {
                                   Setujui
                                 </DropdownMenuItem>
                               )}
-                              {period.status === "APPROVED" && (
+                              {payrollActions(period).includes("PAY") && (
                                 <DropdownMenuItem
                                   onClick={() => handlePayPeriod(period.id)}
                                 >
@@ -544,8 +547,7 @@ function PayrollPageContent() {
                                 </DropdownMenuItem>
                               )}
                               <DropdownMenuSeparator />
-                              {(period.status === "DRAFT" ||
-                                period.status === "CALCULATED") && (
+                              {payrollActions(period).includes("CANCEL") && (
                                 <DropdownMenuItem
                                   onClick={() => handleCancelPeriod(period.id)}
                                   className="text-red-600"

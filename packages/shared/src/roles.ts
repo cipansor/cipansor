@@ -151,6 +151,42 @@ export const FINANCE_UNIT_ROLE_CODES: readonly string[] = [
   ...BENDAHARA_ROLE_CODES,
 ];
 
+/**
+ * Who may read payroll at all (#990, R1.14, R1.18): Super_Admin, every
+ * yayasan organ, and the unit treasurers who run their own unit's payroll.
+ *
+ * Admin_Unit, Kepala_Unit, TU_Unit and Guru are deliberately absent: salary is
+ * an employee's personal data, and a unit administrator has no part in paying
+ * it.
+ */
+export const PAYROLL_READER_ROLE_CODES: readonly string[] = [
+  "SUPER_ADMIN",
+  ...GOVERNANCE_ROLE_CODES,
+  ...BENDAHARA_ROLE_CODES,
+];
+
+/**
+ * Penyetuju_Gaji — who approves a unit's payroll period (#990, R1.24, R1.26):
+ * the yayasan treasurer, because the yayasan is the employer (PP 36/2021), and
+ * the Ketua Pengurus as the stand-in approver.
+ *
+ * The account that CREATED a period never approves it, whatever role it holds
+ * — see `decidePayroll`.
+ */
+export const PAYROLL_APPROVER_ROLE_CODES: readonly string[] = [
+  "YAYASAN_BENDAHARA",
+  "YAYASAN_KETUA",
+];
+
+/**
+ * Bendahara_Yayasan — the only role that manages the yayasan-level salary
+ * components, which carry no unit and are used by every unit's payroll
+ * (#990, R1.21, R1.23).
+ */
+export const PAYROLL_COMPONENT_MANAGER_ROLE_CODES: readonly string[] = [
+  "YAYASAN_BENDAHARA",
+];
+
 /** Cross-unit support staff mapped to concrete service modules. */
 export const SUPPORT_ROLE_CODES: readonly string[] = [
   "PUSTAKAWAN",

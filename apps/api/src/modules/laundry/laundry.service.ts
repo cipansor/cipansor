@@ -29,6 +29,27 @@ import type {
 // PRICING SERVICE
 // =============================================================================
 
+/**
+ * Locks the business-unit row so a type change and a tariff activation cannot
+ * both read the old type and commit an unusable active tariff.
+ */
+async function lockBusinessUnit(tx: Prisma.TransactionClient, businessUnitId: string) {
+  await tx.$queryRaw`SELECT id FROM business_units WHERE id = ${businessUnitId} FOR UPDATE`;
+}
+
+/** A tariff may only point at a laundry business unit of its own unit. */
+async function isLaundryBusinessUnitOfUnit(
+  tx: Prisma.TransactionClient,
+  unitId: string,
+  businessUnitId: string
+): Promise<boolean> {
+  const businessUnit = await tx.businessUnit.findFirst({
+    where: { id: businessUnitId, unitId, type: 'LAUNDRY' },
+    select: { id: true },
+  });
+  return Boolean(businessUnit);
+}
+
 export const pricingService = {
   async getAll(unitId: string) {
     return prisma.laundryPricing.findMany({
@@ -44,38 +65,80 @@ export const pricingService = {
   },
 
   async create(unitId: string, data: CreatePricingInput) {
-    return prisma.laundryPricing.create({
-      data: {
-        unit: { connect: { id: unitId } },
-        name: data.name,
-        description: data.description,
-        pricePerKg: new Prisma.Decimal(data.pricePerKg),
-        minWeight: new Prisma.Decimal(data.minWeight),
-        processDays: data.processDays,
-        isExpress: data.isExpress,
-        isActive: data.isActive,
-      },
+    return prisma.$transaction(async (tx) => {
+      if (data.businessUnitId) {
+        await lockBusinessUnit(tx, data.businessUnitId);
+        if (!(await isLaundryBusinessUnitOfUnit(tx, unitId, data.businessUnitId))) {
+          throw Errors.badRequest('Unit usaha laundry tidak ditemukan untuk unit ini');
+        }
+      }
+
+      return tx.laundryPricing.create({
+        data: {
+          unit: { connect: { id: unitId } },
+          name: data.name,
+          description: data.description,
+          pricePerKg: new Prisma.Decimal(data.pricePerKg),
+          minWeight: new Prisma.Decimal(data.minWeight),
+          processDays: data.processDays,
+          isExpress: data.isExpress,
+          isActive: data.isActive,
+          businessUnit: data.businessUnitId ? { connect: { id: data.businessUnitId } } : undefined,
+        },
+      });
     });
   },
 
   async update(id: string, unitId: string, data: UpdatePricingInput) {
-    const updateData: Prisma.LaundryPricingUpdateInput = {};
+    return prisma.$transaction(async (tx) => {
+      const existing = await tx.laundryPricing.findFirst({
+        where: { id, unitId },
+        select: { id: true, businessUnitId: true, isActive: true },
+      });
+      if (!existing) throw Errors.notFound('Tarif laundry');
 
-    if (data.name !== undefined) updateData.name = data.name;
-    if (data.description !== undefined) updateData.description = data.description;
-    if (data.pricePerKg !== undefined) updateData.pricePerKg = new Prisma.Decimal(data.pricePerKg);
-    if (data.minWeight !== undefined) updateData.minWeight = new Prisma.Decimal(data.minWeight);
-    if (data.processDays !== undefined) updateData.processDays = data.processDays;
-    if (data.isExpress !== undefined) updateData.isExpress = data.isExpress;
-    if (data.isActive !== undefined) updateData.isActive = data.isActive;
+      const businessUnitId =
+        data.businessUnitId !== undefined ? data.businessUnitId : existing.businessUnitId;
+      const finalIsActive = data.isActive ?? existing.isActive;
+      const linkChanged =
+        data.businessUnitId !== undefined && data.businessUnitId !== existing.businessUnitId;
+      if (businessUnitId && (linkChanged || finalIsActive)) {
+        await lockBusinessUnit(tx, businessUnitId);
+        if (!(await isLaundryBusinessUnitOfUnit(tx, unitId, businessUnitId))) {
+          throw Errors.badRequest('Unit usaha laundry tidak ditemukan untuk unit ini');
+        }
+      }
 
-    return prisma.laundryPricing.update({
-      where: { id },
-      data: updateData,
+      const updateData: Prisma.LaundryPricingUpdateInput = {};
+
+      if (data.name !== undefined) updateData.name = data.name;
+      if (data.description !== undefined) updateData.description = data.description;
+      if (data.pricePerKg !== undefined)
+        updateData.pricePerKg = new Prisma.Decimal(data.pricePerKg);
+      if (data.minWeight !== undefined) updateData.minWeight = new Prisma.Decimal(data.minWeight);
+      if (data.processDays !== undefined) updateData.processDays = data.processDays;
+      if (data.isExpress !== undefined) updateData.isExpress = data.isExpress;
+      if (data.isActive !== undefined) updateData.isActive = data.isActive;
+      if (data.businessUnitId !== undefined) {
+        updateData.businessUnit = data.businessUnitId
+          ? { connect: { id: data.businessUnitId } }
+          : { disconnect: true };
+      }
+
+      return tx.laundryPricing.update({
+        where: { id },
+        data: updateData,
+      });
     });
   },
 
   async delete(id: string, unitId: string) {
+    const pricing = await prisma.laundryPricing.findFirst({
+      where: { id, unitId },
+      select: { id: true },
+    });
+    if (!pricing) throw Errors.notFound('Tarif laundry');
+
     // Check if pricing has transactions
     const transactionCount = await prisma.laundryTransaction.count({
       where: { pricingId: id },
@@ -298,6 +361,19 @@ export const transactionService = {
         throw new Error('Jenis layanan tidak ditemukan');
       }
 
+      // The tier owns the business unit; a client cannot choose one, or a
+      // transaction could post to an account the tier never selected.
+      const businessUnitId = pricing.businessUnitId ?? null;
+      if (businessUnitId) {
+        const businessUnit = await tx.businessUnit.findFirst({
+          where: { id: businessUnitId, unitId, type: 'LAUNDRY' },
+          select: { id: true },
+        });
+        if (!businessUnit) {
+          throw Errors.badRequest('Unit usaha tarif tidak ditemukan untuk unit ini');
+        }
+      }
+
       // Calculate totals
       const weight = new Prisma.Decimal(data.weight);
       const minWeight = pricing.minWeight;
@@ -363,6 +439,7 @@ export const transactionService = {
           status: 'RECEIVED',
           estimatedAt,
           notes: data.notes,
+          businessUnit: businessUnitId ? { connect: { id: businessUnitId } } : undefined,
           receivedBy: { connect: { id: userId } },
           items: data.items
             ? {
@@ -418,11 +495,17 @@ export const transactionService = {
         const periodOpen = await isPeriodOpen(unitId, journalDate, tx);
 
         if (periodOpen) {
-          const accountPrefix = data.businessUnitId ? `BU_${data.businessUnitId}_` : '';
+          const accountPrefix = businessUnitId ? `BU_${businessUnitId}_` : '';
+          const salesMappingKeys = businessUnitId
+            ? [
+                `${accountPrefix}${ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE}`,
+                ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE,
+              ]
+            : ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE;
 
           const salesAccount = await getAccountOrFallback(
             unitId,
-            `${accountPrefix}${ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE}`,
+            salesMappingKeys,
             '4102',
             'Pendapatan Laundry',
             tx
@@ -736,10 +819,16 @@ export const transactionService = {
 
       if (periodOpen) {
         const accountPrefix = updated.businessUnitId ? `BU_${updated.businessUnitId}_` : '';
+        const salesMappingKeys = updated.businessUnitId
+          ? [
+              `${accountPrefix}${ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE}`,
+              ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE,
+            ]
+          : ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE;
 
         const salesAccount = await getAccountOrFallback(
           unitId,
-          `${accountPrefix}${ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE}`,
+          salesMappingKeys,
           '4102',
           'Pendapatan Laundry',
           tx

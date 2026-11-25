@@ -6582,6 +6582,9 @@ model PayrollPeriod {
   endDate       DateTime      @map("end_date")
   payDate       DateTime?     @map("pay_date") // Tanggal pembayaran
   status        PayrollStatus @default(DRAFT)
+  // One non-cancelled period per unit, month and year. Null once CANCELLED, so
+  // the cancelled period keeps its history while a replacement takes the slot.
+  activeKey     String?       @unique @map("active_key")
   totalAmount   Decimal       @default(0) @map("total_amount") @db.Decimal(15, 2)
   employeeCount Int           @default(0) @map("employee_count")
   notes         String?
@@ -6598,8 +6601,7 @@ model PayrollPeriod {
   approvedBy User?     @relation("PayrollPeriodApprover", fields: [approvedById], references: [id])
   payrolls   Payroll[]
 
-  @@unique([unitId, month, year])
-  @@index([unitId])
+  @@index([unitId, month, year])
   @@index([status])
   @@map("payroll_periods")
 }

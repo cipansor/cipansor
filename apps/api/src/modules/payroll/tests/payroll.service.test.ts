@@ -33,12 +33,17 @@ import { prisma } from '../../../lib/prisma';
 import { attendanceDeductionService } from '../attendance-deduction.service';
 import { payrollService } from '../payroll.service';
 
+/** A unit treasurer whose token carries the period's unit. */
+const ACTOR = { sub: 'user-bendahara', roleCode: 'SDIT_BENDAHARA', unitId: 'unit-sd' };
+
 const PERIOD = {
   id: '11111111-1111-4111-8111-111111111111',
   unitId: 'unit-sd',
   status: 'DRAFT',
+  createdById: 'user-bendahara',
   startDate: new Date('2026-09-01'),
   endDate: new Date('2026-09-30'),
+  _count: { payrolls: 1 },
 };
 
 function deductionRow(overrides: Record<string, unknown> = {}) {
@@ -118,9 +123,34 @@ describe('payrollService.generate', () => {
     ] as never);
 
     await expect(
-      payrollService.generate({ periodId: PERIOD.id, overwrite: false } as never)
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
     ).rejects.toThrow(/Absensi belum lengkap/i);
     expect(prisma.$transaction).not.toHaveBeenCalled();
+  });
+
+  it('refuses a rule naming a missing component and never creates it (R1.21, R1.23)', async () => {
+    vi.mocked(attendanceDeductionService.computeForPeriod).mockResolvedValue([
+      deductionRow({
+        lines: [
+          {
+            code: 'LATE_DEDUCTION',
+            name: 'Potongan Terlambat',
+            kind: 'DEDUCTION',
+            basisLabel: 'Peraturan kepegawaian',
+            amount: 50_000,
+            detail: '2 hari terlambat',
+          },
+        ],
+      }),
+    ] as never);
+
+    await expect(
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
+    ).rejects.toThrow(/komponen gaji yang belum ada/i);
+    // Components belong to the yayasan; generation must not create one for a
+    // unit treasurer who may not write them.
+    expect(prisma.salaryComponent.upsert).not.toHaveBeenCalled();
+    expect(txMock.salaryComponent.upsert).not.toHaveBeenCalled();
   });
 
   it('refuses a deduction past the guard without an override reason', async () => {
@@ -129,7 +159,7 @@ describe('payrollService.generate', () => {
     ] as never);
 
     await expect(
-      payrollService.generate({ periodId: PERIOD.id, overwrite: false } as never)
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
     ).rejects.toThrow(/melampaui batas/i);
     expect(prisma.$transaction).not.toHaveBeenCalled();
   });
@@ -140,13 +170,74 @@ describe('payrollService.generate', () => {
     ] as never);
 
     await expect(
-      payrollService.generate({
+      payrollService.generate(ACTOR, {
         periodId: PERIOD.id,
         overwrite: false,
         overrideGuardReason: 'Kesepakatan tertulis dengan pegawai',
       } as never)
     ).resolves.toBeDefined();
     expect(prisma.$transaction).toHaveBeenCalled();
+  });
+
+  it('refuses a rule component that does not exist instead of creating it', async () => {
+    vi.mocked(attendanceDeductionService.computeForPeriod).mockResolvedValue([
+      deductionRow({
+        lines: [
+          {
+            code: 'POT_ABSEN',
+            name: 'Potongan Absen',
+            kind: 'DEDUCTION',
+            basisLabel: 'absen',
+            amount: 50_000,
+            detail: '2 hari absen',
+          },
+        ],
+      }),
+    ] as never);
+
+    await expect(
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
+    ).rejects.toThrow(/komponen gaji yang belum ada/i);
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(txMock.salaryComponent.upsert).not.toHaveBeenCalled();
+  });
+
+  it('uses an existing component for a rule line and never creates one', async () => {
+    vi.mocked(prisma.salaryComponent.findMany).mockResolvedValue([
+      {
+        id: 'comp-absen',
+        code: 'POT_ABSEN',
+        name: 'Potongan Absen',
+        type: 'DEDUCTION',
+        classification: 'TIDAK_TETAP',
+        isTaxable: false,
+        isActive: true,
+        sortOrder: 10,
+      },
+    ] as never);
+    vi.mocked(attendanceDeductionService.computeForPeriod).mockResolvedValue([
+      deductionRow({
+        lines: [
+          {
+            code: 'POT_ABSEN',
+            name: 'Potongan Absen',
+            kind: 'DEDUCTION',
+            basisLabel: 'absen',
+            amount: 50_000,
+            detail: '2 hari absen',
+          },
+        ],
+      }),
+    ] as never);
+
+    await payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never);
+
+    expect(txMock.salaryComponent.upsert).not.toHaveBeenCalled();
+    const items = txMock.payrollItem.createMany.mock.calls[0][0].data as {
+      componentCode: string;
+      amount: unknown;
+    }[];
+    expect(items.find((item) => item.componentCode === 'POT_ABSEN')?.amount).toBeDefined();
   });
 
   it('does not block on an informational cap note', async () => {
@@ -157,7 +248,7 @@ describe('payrollService.generate', () => {
     ] as never);
 
     await expect(
-      payrollService.generate({ periodId: PERIOD.id, overwrite: false } as never)
+      payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never)
     ).resolves.toBeDefined();
     expect(prisma.$transaction).toHaveBeenCalled();
   });
@@ -210,7 +301,7 @@ describe('payrollService.generate — the slip’s base salary line', () => {
       },
     ] as never);
 
-    await payrollService.generate({ periodId: PERIOD.id, overwrite: false } as never);
+    await payrollService.generate(ACTOR, { periodId: PERIOD.id, overwrite: false } as never);
 
     const items = txMock.payrollItem.createMany.mock.calls[0][0].data as {
       componentCode: string;

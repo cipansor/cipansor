@@ -113,8 +113,8 @@ describe('staff keep what their work needs', () => {
     ['tu', '/suppliers'],
     ['tu', '/reception/guests'],
     ['bendahara', '/payroll/slips'],
-    ['admin', '/payroll/salaries'],
     ['ketua', '/payroll/salaries'],
+    ['ketua', '/payroll/periods'],
     ['kepala', '/analytics/export/students'],
   ])('%s GET %s passes the guard', async (who, path) => {
     expect([401, 403]).not.toContain((await get(path, who)).status);
@@ -122,9 +122,13 @@ describe('staff keep what their work needs', () => {
 });
 
 describe('payroll is for payroll', () => {
-  it.each(['guru', 'tu', 'kepala'])('%s cannot read salaries or slips', async (who) => {
+  // Admin_Unit joins the teachers and the office here: salary is an employee's
+  // personal data and a unit administrator has no part in paying it (#990,
+  // R1.14 — this line read `admin` → 200 before).
+  it.each(['guru', 'tu', 'kepala', 'admin'])('%s cannot read salaries or slips', async (who) => {
     expect((await get('/payroll/salaries', who)).status).toBe(403);
     expect((await get('/payroll/slips', who)).status).toBe(403);
+    expect((await get('/payroll/periods', who)).status).toBe(403);
   });
 });
 

@@ -1,8 +1,11 @@
 import { Request, Response, NextFunction } from 'express';
+import type { UpdateAccountingSettingsInput } from '@cipansor/shared';
+import { ApiResponse } from '@/utils/response';
 import * as service from './accounting.service';
 import * as reportsService from './reports.service';
 import * as configService from './accounting-config.service';
 import { wibDayBound, wibDayOf, wibMonthRange, wibMonthYear, wibYearBounds } from '../../utils/wib';
+import { writeUnitScope } from '../../utils/resolve-unit-id';
 import {
   CreateAccountDto,
   CreateJournalDto,
@@ -87,20 +90,12 @@ export async function deleteAccount(req: Request, res: Response, next: NextFunct
 
 export async function getSettings(req: Request, res: Response, next: NextFunction) {
   try {
-    const { unitId } = req.query;
-    if (!unitId) {
-      res.status(400).json({ message: 'Unit ID is required' });
-      return;
-    }
+    const requested = typeof req.query.unitId === 'string' ? req.query.unitId : undefined;
+    const unitId = writeUnitScope(req, requested);
+    const { settings, invalidKeys, businessUnits } =
+      await configService.getAccountMappingState(unitId);
 
-    const keys = Object.values(configService.ACCOUNT_MAPPING_KEYS);
-    const settings: Record<string, string | null> = {};
-
-    for (const key of keys) {
-      settings[key] = await configService.getAccountMapping(unitId as string, key);
-    }
-
-    res.json({ data: settings });
+    res.json(ApiResponse.success({ mappings: settings, invalidKeys, businessUnits }));
   } catch (error) {
     next(error);
   }
@@ -108,19 +103,15 @@ export async function getSettings(req: Request, res: Response, next: NextFunctio
 
 export async function updateSettings(req: Request, res: Response, next: NextFunction) {
   try {
-    const { unitId, settings } = req.body;
-    if (!unitId || !settings) {
-      res.status(400).json({ message: 'Unit ID and settings are required' });
-      return;
-    }
+    const { unitId: requestedUnitId, settings } = req.body as UpdateAccountingSettingsInput;
 
-    for (const [key, accountId] of Object.entries(settings)) {
-      if (accountId) {
-        await configService.setAccountMapping(unitId, key, accountId as string);
-      }
-    }
+    // A unit admin may only write its own unit, whatever the body names; a
+    // foundation role may name a unit it oversees.
+    const unitId = writeUnitScope(req, requestedUnitId);
 
-    res.json({ message: 'Settings updated' });
+    await configService.setAccountMappings(unitId, settings);
+
+    res.json(ApiResponse.success(null, 'Pengaturan akuntansi diperbarui'));
   } catch (error) {
     next(error);
   }

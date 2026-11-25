@@ -51,13 +51,21 @@ import {
   PieChart,
   Settings,
   Save,
+  AlertTriangle,
 } from "lucide-react";
 import Link from "next/link";
 import { toast } from "sonner";
+import {
+  ACCOUNT_MAPPING_KEYS,
+  expectedAccountTypeForMapping,
+} from "@cipansor/shared";
 import { format } from "date-fns";
 import { id as localeID } from "date-fns/locale";
-import { api } from "@/lib/api";
-import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { getErrorMessage } from "@/lib/api-error";
+import {
+  changedAccountMappings,
+  type AccountMappings,
+} from "@/lib/accounting-settings";
 
 import {
   useAccountCodes,
@@ -72,6 +80,10 @@ import {
   FinanceReportPeriod,
 } from "@/hooks/use-finance-enhancement";
 import { useUnits } from "@/hooks/use-units";
+import {
+  useAccountingSettings,
+  useUpdateAccountingSettings,
+} from "@/hooks/use-accounting-settings";
 import {
   buildAccountTree,
   flattenAccountTree,
@@ -880,29 +892,43 @@ function ReportsTab() {
 }
 
 // Accounting Settings Tab
+const CLEAR_ACCOUNT = "__clear_account__";
+
+const BUSINESS_UNIT_MAPPING_LABELS: Record<string, string> = {
+  [ACCOUNT_MAPPING_KEYS.SALES_REVENUE]: "Pendapatan",
+  [ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET]: "Aset Persediaan",
+  [ACCOUNT_MAPPING_KEYS.COGS]: "Beban Pokok Penjualan",
+  [ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE]: "Pendapatan Laundry",
+};
+
+const BUSINESS_UNIT_MAPPING_KEYS_BY_TYPE: Record<string, string[]> = {
+  CANTEEN: [
+    ACCOUNT_MAPPING_KEYS.SALES_REVENUE,
+    ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET,
+    ACCOUNT_MAPPING_KEYS.COGS,
+  ],
+  LAUNDRY: [ACCOUNT_MAPPING_KEYS.LAUNDRY_REVENUE],
+};
+
 function AccountingSettingsTab() {
   const { data: units } = useUnits();
   const [selectedUnitId, setSelectedUnitId] = useState<string>("");
-  const [settings, setSettings] = useState<Record<string, string>>({});
+  const [settings, setSettings] = useState<AccountMappings>({});
+  const [initialSettings, setInitialSettings] = useState<AccountMappings>({});
+  const [invalidKeys, setInvalidKeys] = useState<string[]>([]);
+  const [touchedKeys, setTouchedKeys] = useState<Set<string>>(new Set());
 
-  // Fetch settings when unit selected
-  const { data: fetchedSettings } = useQuery({
-    queryKey: ["accounting-settings", selectedUnitId],
-    queryFn: async () => {
-      if (!selectedUnitId) return {};
-      const res = await api.get("/finance/accounting/settings", {
-        params: { unitId: selectedUnitId },
-      });
-      return res.data.data;
-    },
-    enabled: !!selectedUnitId,
-  });
+  const { data: fetchedSettings } = useAccountingSettings(
+    selectedUnitId || undefined,
+  );
 
   // Sync settings when fetched data changes
   useEffect(() => {
-    if (fetchedSettings) {
-      setSettings(fetchedSettings);
-    }
+    if (!fetchedSettings) return;
+    setSettings(fetchedSettings.mappings);
+    setInitialSettings(fetchedSettings.mappings);
+    setInvalidKeys(fetchedSettings.invalidKeys);
+    setTouchedKeys(new Set());
   }, [fetchedSettings]);
 
   const { data: accounts } = useAccountCodes({
@@ -910,48 +936,98 @@ function AccountingSettingsTab() {
     limit: 500, // Fetch all for selection
   });
 
-  const updateMutation = useMutation({
-    mutationFn: async (newSettings: Record<string, string>) => {
-      await api.post("/finance/accounting/settings", {
-        unitId: selectedUnitId,
-        settings: newSettings,
-      });
-    },
-    onSuccess: () => {
-      toast.success("Pengaturan berhasil disimpan");
-    },
-    onError: () => {
-      toast.error("Gagal menyimpan pengaturan");
-    },
-  });
+  const updateMutation = useUpdateAccountingSettings();
+
+  const setMappingValue = (key: string, value: string) => {
+    setSettings((prev) => ({
+      ...prev,
+      [key]: value === CLEAR_ACCOUNT ? null : value,
+    }));
+    setTouchedKeys((prev) => {
+      const next = new Set(prev);
+      next.add(key);
+      return next;
+    });
+  };
 
   const handleSave = () => {
     if (!selectedUnitId) return;
-    updateMutation.mutate(settings);
+    const changes = changedAccountMappings(
+      initialSettings,
+      settings,
+      touchedKeys,
+    );
+    if (Object.keys(changes).length === 0) {
+      toast.info("Tidak ada perubahan untuk disimpan");
+      return;
+    }
+    updateMutation.mutate(
+      { unitId: selectedUnitId, settings: changes },
+      {
+        onSuccess: () => {
+          toast.success("Pengaturan berhasil disimpan");
+          setInitialSettings(settings);
+          setTouchedKeys(new Set());
+        },
+        onError: (error) => {
+          toast.error(getErrorMessage(error));
+        },
+      },
+    );
   };
 
   const MAPPINGS = [
     {
-      key: "ACCOUNT_MAPPING_CASH",
+      key: ACCOUNT_MAPPING_KEYS.CASH,
       label: "Akun Kas Tunai",
       description: "Akun default untuk penerimaan tunai (Kas)",
     },
     {
-      key: "ACCOUNT_MAPPING_BANK",
+      key: ACCOUNT_MAPPING_KEYS.BANK,
       label: "Akun Bank/Transfer",
       description: "Akun default untuk penerimaan transfer (Bank)",
     },
     {
-      key: "ACCOUNT_MAPPING_PAYROLL_EXPENSE",
+      key: ACCOUNT_MAPPING_KEYS.PAYROLL_EXPENSE,
       label: "Beban Gaji",
       description: "Akun beban untuk pencatatan gaji karyawan",
     },
     {
-      key: "ACCOUNT_MAPPING_INVENTORY_ASSET",
+      key: ACCOUNT_MAPPING_KEYS.TAX_PAYABLE,
+      label: "Utang PPh 21",
+      description: "Akun kewajiban untuk mencatat PPh 21 gaji karyawan",
+    },
+    {
+      key: ACCOUNT_MAPPING_KEYS.INVENTORY_ASSET,
       label: "Aset Inventaris",
       description: "Akun aset untuk pembelian inventaris baru",
     },
   ];
+
+  const businessUnits = (fetchedSettings?.businessUnits ?? []).filter(
+    (businessUnit) =>
+      (BUSINESS_UNIT_MAPPING_KEYS_BY_TYPE[businessUnit.type]?.length ?? 0) > 0,
+  );
+  const invalidBusinessUnitKeys = invalidKeys.filter((key) =>
+    key.startsWith("BU_"),
+  );
+
+  const taxMapping = settings[ACCOUNT_MAPPING_KEYS.TAX_PAYABLE];
+  const invalidUnitMappingLabels = MAPPINGS.filter((mapping) =>
+    invalidKeys.includes(mapping.key),
+  ).map((mapping) => mapping.label);
+  const unitMappingWarning =
+    invalidUnitMappingLabels.length > 0
+      ? `Pemetaan ${invalidUnitMappingLabels.join(
+          ", ",
+        )} tidak lagi aktif, bertipe salah, atau bukan milik unit ini. Pilih akun pengganti; pemetaan lama tetap tersimpan sampai Anda mengubahnya.`
+      : "";
+  const taxMappingWarning = taxMapping
+    ? ""
+    : "Pemetaan Utang PPh 21 belum diisi. Pembayaran gaji dengan potongan PPh 21 akan ditolak sampai akun ini dipilih.";
+  const unitMappingAlert = [unitMappingWarning, taxMappingWarning]
+    .filter(Boolean)
+    .join(" ");
 
   return (
     <div className="space-y-6">
@@ -963,7 +1039,7 @@ function AccountingSettingsTab() {
           <div className="space-y-2">
             <Label>Pilih Unit</Label>
             <Select value={selectedUnitId} onValueChange={setSelectedUnitId}>
-              <SelectTrigger>
+              <SelectTrigger aria-label="Pilih Unit">
                 <SelectValue placeholder="Pilih Unit Sekolah/Pesantren" />
               </SelectTrigger>
               <SelectContent>
@@ -978,6 +1054,15 @@ function AccountingSettingsTab() {
 
           {selectedUnitId ? (
             <div className="space-y-4">
+              {fetchedSettings !== undefined && unitMappingAlert && (
+                <div
+                  role="alert"
+                  className="flex items-start gap-2 rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                >
+                  <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+                  <p>{unitMappingAlert}</p>
+                </div>
+              )}
               {MAPPINGS.map((mapping) => (
                 <div key={mapping.key} className="space-y-2">
                   <Label>{mapping.label}</Label>
@@ -985,24 +1070,107 @@ function AccountingSettingsTab() {
                     {mapping.description}
                   </p>
                   <Select
-                    value={settings[mapping.key] || ""}
-                    onValueChange={(val) =>
-                      setSettings((prev) => ({ ...prev, [mapping.key]: val }))
-                    }
+                    value={settings[mapping.key] ?? ""}
+                    onValueChange={(val) => setMappingValue(mapping.key, val)}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger aria-label={mapping.label}>
                       <SelectValue placeholder="Pilih Akun" />
                     </SelectTrigger>
                     <SelectContent>
-                      {accounts?.data.map((acc) => (
-                        <SelectItem key={acc.id} value={acc.id}>
-                          {acc.code} - {acc.name}
-                        </SelectItem>
-                      ))}
+                      <SelectItem value={CLEAR_ACCOUNT}>
+                        — Kosongkan pemetaan —
+                      </SelectItem>
+                      {(accounts?.data ?? [])
+                        .filter((acc) => {
+                          const expectedType = expectedAccountTypeForMapping(
+                            mapping.key,
+                          );
+                          return (
+                            (!expectedType || acc.type === expectedType) &&
+                            (acc.unitId === selectedUnitId ||
+                              acc.unitId == null)
+                          );
+                        })
+                        .map((acc) => (
+                          <SelectItem key={acc.id} value={acc.id}>
+                            {acc.code} - {acc.name}
+                          </SelectItem>
+                        ))}
                     </SelectContent>
                   </Select>
                 </div>
               ))}
+
+              {businessUnits.length > 0 && (
+                <div className="space-y-4 rounded-md border p-4">
+                  <div>
+                    <h3 className="font-medium">Pemetaan per Unit Usaha</h3>
+                    <p className="text-sm text-muted-foreground">
+                      Opsional. Pemetaan ini dipakai jurnal otomatis unit usaha
+                      sebelum pemetaan tingkat unit.
+                    </p>
+                  </div>
+                  {invalidBusinessUnitKeys.length > 0 && (
+                    <p
+                      role="alert"
+                      className="rounded-md border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+                    >
+                      Sebagian pemetaan unit usaha tidak lagi aktif atau bukan
+                      milik unit ini. Pilih akun pengganti; pemetaan lama tetap
+                      tersimpan sampai Anda mengubahnya.
+                    </p>
+                  )}
+                  {businessUnits.map((businessUnit) => (
+                    <div key={businessUnit.id} className="space-y-3">
+                      <p className="font-medium">{businessUnit.name}</p>
+                      {BUSINESS_UNIT_MAPPING_KEYS_BY_TYPE[
+                        businessUnit.type
+                      ].map((mappingKey) => {
+                        const key = `BU_${businessUnit.id}_${mappingKey}`;
+                        const label =
+                          BUSINESS_UNIT_MAPPING_LABELS[mappingKey] ??
+                          mappingKey;
+                        return (
+                          <div key={key} className="space-y-2">
+                            <Label>{label}</Label>
+                            <Select
+                              value={settings[key] ?? ""}
+                              onValueChange={(val) => setMappingValue(key, val)}
+                            >
+                              <SelectTrigger
+                                aria-label={`${businessUnit.name} — ${label}`}
+                              >
+                                <SelectValue placeholder="Pilih Akun" />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value={CLEAR_ACCOUNT}>
+                                  — Kosongkan pemetaan —
+                                </SelectItem>
+                                {(accounts?.data ?? [])
+                                  .filter((acc) => {
+                                    const expectedType =
+                                      expectedAccountTypeForMapping(key);
+                                    return (
+                                      (!expectedType ||
+                                        acc.type === expectedType) &&
+                                      (acc.unitId === selectedUnitId ||
+                                        acc.unitId == null)
+                                    );
+                                  })
+                                  .map((acc) => (
+                                    <SelectItem key={acc.id} value={acc.id}>
+                                      {acc.code} - {acc.name}
+                                    </SelectItem>
+                                  ))}
+                              </SelectContent>
+                            </Select>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  ))}
+                </div>
+              )}
 
               <div className="pt-4">
                 <Button
