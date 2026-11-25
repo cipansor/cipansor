@@ -255,14 +255,20 @@ test.describe("CBT Exams & Grading", () => {
     // The controller answers 404 for an exam with no bank; the tab must treat
     // that as an empty state, not as a user-facing error.
     expect((await insightsResponse).status()).toBe(404);
-    await page.waitForLoadState("networkidle");
+    await expect(difficultyTab).toHaveAttribute("aria-selected", "true");
+    // The tab has no navigation of its own, so networkidle can resolve before
+    // the query does. The spinner only disappears once React Query has settled
+    // the 404, which is after the Axios interceptor has run.
+    const difficultyPanel = page.locator(
+      '[role="tabpanel"][data-state="active"]',
+    );
+    await expect(difficultyPanel.locator(".animate-spin")).toHaveCount(0);
     await expect
       .poll(async () => page.locator("[data-sonner-toast]").count(), {
         timeout: 2000,
         intervals: [250],
       })
       .toBe(0);
-    await expect(difficultyTab).toHaveAttribute("aria-selected", "true");
   });
 
   test("Should monitor exam and grade an attempt", async ({ page }) => {
