@@ -110,6 +110,8 @@ export interface CalendarEventParams {
   isPublic?: boolean;
   month?: number;
   year?: number;
+  /** Management screen: let a unit admin see its unit's class events. */
+  manage?: boolean;
 }
 
 /**

@@ -44,6 +44,7 @@ export class CalendarController {
         search: req.query.search as string | undefined,
         isPublic:
           req.query.isPublic === 'true' ? true : req.query.isPublic === 'false' ? false : undefined,
+        manage: req.query.manage === 'true',
         page: parseInt(req.query.page as string) || 1,
         limit: parseInt(req.query.limit as string) || 50,
       };

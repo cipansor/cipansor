@@ -76,6 +76,7 @@ export default function EventsListPage() {
   const { data: eventsData, isLoading } = useCalendarEvents({
     limit: 50,
     eventType: categoryFilter || undefined,
+    manage: true,
   });
   const events = eventsData?.data || [];
 

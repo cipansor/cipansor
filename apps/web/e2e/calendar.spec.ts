@@ -310,16 +310,46 @@ test.describe("Manajemen Event — filter kategori", () => {
 });
 
 test.describe("Tambah Event — unit admin", () => {
-  test("mengunci event ke unit aktif dan tidak menawarkan Semua Unit", async ({
+  test("menyimpan event ke unit aktif dan tidak menawarkan Semua Unit", async ({
     page,
   }) => {
-    await loginAs(page, "adminSdit");
-    await page.goto("/calendar/events/new");
+    const session = await apiLogin(SEED_USERS.adminSdit);
+    const title = `Rapat unit e2e ${Date.now()}`;
+    let createdId: string | undefined;
 
-    await expect(page.getByTestId("event-unit")).toHaveText(/SD IT/, {
-      timeout: 15000,
-    });
-    await expect(page.getByText("Semua Unit", { exact: true })).toHaveCount(0);
+    try {
+      await loginAs(page, "adminSdit");
+      await page.goto("/calendar/events/new");
+
+      await expect(page.getByTestId("event-unit")).toHaveText(/SD IT/, {
+        timeout: 15000,
+      });
+      await expect(page.getByText("Semua Unit", { exact: true })).toHaveCount(
+        0,
+      );
+
+      await page.locator("#title").fill(title);
+      const saved = page.waitForResponse(
+        (response) =>
+          response.url().includes("/calendar") &&
+          response.request().method() === "POST",
+      );
+      await page.getByRole("button", { name: "Simpan" }).click();
+
+      const response = await saved;
+      expect(response.status()).toBe(201);
+      const body = (await response.json()) as {
+        data: { id: string; scope: string; unit?: { name: string } | null };
+      };
+      createdId = body.data.id;
+      expect(body.data.scope).toBe("SPECIFIC_UNIT");
+      expect(body.data.unit?.name).toMatch(/SD IT/);
+      await expect(page).toHaveURL(/\/calendar\/events/, { timeout: 15000 });
+    } finally {
+      if (createdId) {
+        await apiRequest(session, "DELETE", `/calendar/${createdId}`);
+      }
+    }
   });
 });
 

@@ -33,7 +33,7 @@ import { useUnits } from "@/hooks/use-units";
 import { useClasses } from "@/hooks/use-classes";
 import { useAuthStore } from "@/stores/auth";
 import { getActiveRoleCode } from "@/lib/rbac";
-import { FOUNDATION_SCOPE_ROLE_CODES } from "@cipansor/shared";
+import { CALENDAR_FOUNDATION_WRITE_ROLE_CODES } from "@cipansor/shared";
 import {
   Calendar as CalendarIcon,
   ArrowLeft,
@@ -75,7 +75,7 @@ export default function NewEventPage() {
   const { user } = useAuthStore();
   const roleCode = getActiveRoleCode(user);
   const canPublishFoundationWide =
-    !!roleCode && FOUNDATION_SCOPE_ROLE_CODES.includes(roleCode);
+    !!roleCode && CALENDAR_FOUNDATION_WRITE_ROLE_CODES.includes(roleCode);
   const activeAssignment =
     user?.userRoles?.find((assignment) => assignment.isPrimary) ??
     user?.userRoles?.[0];

@@ -36,6 +36,24 @@ const FOUNDATION = {
   roleCode: 'YAYASAN_KETUA',
   unitId: null,
 };
+const PENGAWAS = {
+  sub: 'pengawas',
+  role: 'UNIT_ADMIN',
+  roleCode: 'YAYASAN_PENGAWAS',
+  unitId: null,
+};
+const TEACHER = {
+  sub: 'guru',
+  role: 'TEACHER',
+  roleCode: 'SDIT_GURU',
+  unitId: UNIT,
+};
+const OTHER_ADMIN = {
+  sub: 'admin-smp',
+  role: 'UNIT_ADMIN',
+  roleCode: 'SMPIT_ADMIN',
+  unitId: OTHER,
+};
 
 const baseInput = {
   title: 'Rapat',
@@ -86,13 +104,20 @@ describe('calendarService.create — who may publish where', () => {
     expect(prismaMock.calendarEvent.create).not.toHaveBeenCalled();
   });
 
-  it('lets a foundation role publish a foundation-wide event', async () => {
+  it('lets a Pengurus publish a foundation-wide event', async () => {
     await calendarService.create(baseInput, FOUNDATION);
 
     expect(lastCreateData()).toMatchObject({
       unitId: null,
       scope: EventScope.ALL_UNITS,
     });
+  });
+
+  it('refuses a Pengawas publishing the foundation agenda it only supervises', async () => {
+    await expect(calendarService.create(baseInput, PENGAWAS)).rejects.toThrow(
+      /tidak dapat menulis/
+    );
+    expect(prismaMock.calendarEvent.create).not.toHaveBeenCalled();
   });
 
   it('derives the unit from a class and marks the event SPECIFIC_CLASS', async () => {
@@ -172,6 +197,25 @@ describe('calendarService reads — class-private events stay in the class', () 
     );
   });
 
+  it("adds the unit's class events to the management list only", async () => {
+    const classScopeOf = () =>
+      (lastWhere(prismaMock.calendarEvent.findMany).AND as Array<{ OR?: unknown[] }>).find(
+        (clause) => clause.OR?.[0] && JSON.stringify(clause.OR[0]).includes('SPECIFIC_CLASS')
+      );
+
+    await calendarService.findAll({ ...baseQuery, manage: true }, UNIT_ADMIN);
+    expect(classScopeOf()?.OR).toContainEqual({
+      scope: EventScope.SPECIFIC_CLASS,
+      unitId: UNIT,
+    });
+
+    await calendarService.findAll(baseQuery, UNIT_ADMIN);
+    expect(classScopeOf()?.OR).not.toContainEqual({
+      scope: EventScope.SPECIFIC_CLASS,
+      unitId: UNIT,
+    });
+  });
+
   const event = (overrides: Record<string, unknown> = {}) => ({
     id: 'event-1',
     unitId: UNIT,
@@ -182,10 +226,24 @@ describe('calendarService reads — class-private events stay in the class', () 
     ...overrides,
   });
 
-  it('refuses a class event to a same-unit user outside the class', async () => {
+  it('refuses a class event to a same-unit teacher outside the class', async () => {
     prismaMock.calendarEvent.findUnique.mockResolvedValue(event());
 
-    await expect(calendarService.findById('event-1', UNIT_ADMIN)).rejects.toThrow(/Access denied/);
+    await expect(calendarService.findById('event-1', TEACHER)).rejects.toThrow(/Access denied/);
+  });
+
+  it('lets the unit admin open a class event it does not teach, for management', async () => {
+    prismaMock.calendarEvent.findUnique.mockResolvedValue(event());
+
+    await expect(calendarService.findById('event-1', UNIT_ADMIN)).resolves.toMatchObject({
+      id: 'event-1',
+    });
+  });
+
+  it("refuses another unit's admin the class event", async () => {
+    prismaMock.calendarEvent.findUnique.mockResolvedValue(event());
+
+    await expect(calendarService.findById('event-1', OTHER_ADMIN)).rejects.toThrow(/Access denied/);
   });
 
   it('lets a member of the class open it', async () => {
@@ -257,5 +315,80 @@ describe('calendarService.update — no scope escalation', () => {
       (prismaMock.calendarEvent.update.mock.calls.at(-1)![0] as { data: { scope: string } }).data
         .scope
     ).toBe(EventScope.SPECIFIC_CLASS);
+  });
+});
+
+describe("calendarService — a unit admin manages its unit, not another's", () => {
+  const classEvent = {
+    id: 'event-1',
+    unitId: UNIT,
+    classId: 'class-1',
+    scope: EventScope.SPECIFIC_CLASS,
+    isPublic: false,
+    createdById: 'super-admin',
+  };
+
+  beforeEach(() => {
+    prismaMock.calendarEvent.findUnique.mockResolvedValue(classEvent);
+    prismaMock.calendarEvent.update.mockResolvedValue({ id: 'event-1' });
+  });
+
+  it('lets the unit admin update a class event it did not create', async () => {
+    await expect(
+      calendarService.update('event-1', { title: 'Baru' }, UNIT_ADMIN)
+    ).resolves.toMatchObject({
+      id: 'event-1',
+    });
+    expect(prismaMock.calendarEvent.update).toHaveBeenCalled();
+  });
+
+  it('lets the unit admin delete a class event it did not create', async () => {
+    await expect(calendarService.delete('event-1', UNIT_ADMIN)).resolves.toEqual({ success: true });
+    expect(prismaMock.calendarEvent.update).toHaveBeenCalledWith({
+      where: { id: 'event-1' },
+      data: { deletedAt: expect.any(Date) },
+    });
+  });
+
+  it("refuses another unit's admin the same update", async () => {
+    await expect(calendarService.update('event-1', { title: 'Baru' }, OTHER_ADMIN)).rejects.toThrow(
+      /Access denied/
+    );
+    expect(prismaMock.calendarEvent.update).not.toHaveBeenCalled();
+  });
+
+  it('refuses a Pengawas the delete it may read', async () => {
+    await expect(calendarService.delete('event-1', PENGAWAS)).rejects.toThrow(/Cannot delete/);
+    expect(prismaMock.calendarEvent.update).not.toHaveBeenCalled();
+  });
+});
+
+describe('calendarService.getUpcoming — the real WIB start, not the stored date', () => {
+  it('keeps an afternoon meeting after 07:00 WIB', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-25T06:00:00.000Z')); // 13:00 WIB
+
+    const morning = {
+      id: 'morning',
+      startDate: new Date('2026-11-25T00:00:00.000Z'),
+      startTime: '08:00',
+      isAllDay: false,
+    };
+    const afternoon = {
+      id: 'afternoon',
+      startDate: new Date('2026-11-25T00:00:00.000Z'),
+      startTime: '15:00',
+      isAllDay: false,
+    };
+    prismaMock.calendarEvent.findMany
+      .mockResolvedValueOnce([morning, afternoon])
+      .mockResolvedValueOnce([]);
+
+    try {
+      const events = await calendarService.getUpcoming(UNIT, 10, UNIT_ADMIN);
+      expect(events.map((event) => event.id)).toEqual(['afternoon']);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

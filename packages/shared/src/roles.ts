@@ -290,6 +290,45 @@ export const FOUNDATION_SCOPE_ROLE_CODES: readonly string[] = [
 ];
 
 /**
+ * Who may publish a foundation-wide calendar agenda (one that reaches every
+ * unit). Reading across units is not writing across them: the Pembina and the
+ * Pengawas supervise the yayasan but do not author its agenda, while the
+ * Pengurus run it (UU 16/2001 Pasal 31 ayat 1). A unit admin is deliberately
+ * absent — their agenda belongs to their unit.
+ */
+export const CALENDAR_FOUNDATION_WRITE_ROLE_CODES: readonly string[] = [
+  "SUPER_ADMIN",
+  ...PENGURUS_ROLE_CODES,
+];
+
+/** Who may create or manage calendar events at all: system admins, the unit
+ * admins, and the Pengurus who publish the foundation-wide agenda. */
+export const CALENDAR_WRITE_ROLE_CODES: readonly string[] = [
+  ...ADMIN_ROLE_CODES,
+  ...PENGURUS_ROLE_CODES,
+];
+
+/** Who may read the calendar: the legacy read groups, made explicit so a new
+ * role cannot inherit a write by being bucketed into `UNIT_ADMIN`. */
+export const CALENDAR_READ_ROLE_CODES: readonly string[] = [
+  ...ADMIN_ROLE_CODES,
+  ...GOVERNANCE_ROLE_CODES,
+  ...SCHOOL_TEACHER_ROLE_CODES,
+  ...PRINCIPAL_ROLE_CODES,
+  ...PESANTREN_LEADER_ROLE_CODES,
+  ...PESANTREN_EDUCATOR_ROLE_CODES,
+  ...STUDENT_ROLE_CODES,
+  ...PARENT_ROLE_CODES,
+];
+
+/** Who may read calendar statistics and the holiday-sync configuration:
+ * admins plus the foundation's oversight organs. */
+export const CALENDAR_STATS_ROLE_CODES: readonly string[] = [
+  ...ADMIN_ROLE_CODES,
+  ...GOVERNANCE_ROLE_CODES,
+];
+
+/**
  * Who may open the archive retention review (the E-Office card and its page).
  *
  * Exactly the API's guard (`choosesUnit(actor) || handlesUnitCorrespondence(actor)`

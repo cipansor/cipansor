@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useMemo } from "react";
-import { formatTodayWib, safeFormat } from "@/lib/date";
+import { formatTodayWib, formatWibDate, safeFormat } from "@/lib/date";
 import { MainLayout } from "@/components/layout/main-layout";
 import {
   Card,
@@ -657,9 +657,7 @@ export default function AcademicCalendarPage() {
                         {event.title}
                       </p>
                       <p className="text-xs text-muted-foreground">
-                        {safeFormat(eventStartInstant(event), "d MMM yyyy", {
-                          locale: idLocale,
-                        })}
+                        {formatWibDate(eventStartInstant(event))}
                       </p>
                     </div>
                   </div>

@@ -1,8 +1,13 @@
 import { prisma } from '@/lib/prisma';
 import { Errors } from '@/middleware/error';
-import { UserRole, Prisma, EventType, EventScope } from '@prisma/client';
+import { Prisma, EventType, EventScope } from '@prisma/client';
+import {
+  CALENDAR_FOUNDATION_WRITE_ROLE_CODES,
+  CALENDAR_WRITE_ROLE_CODES,
+  UNIT_ADMIN_ROLE_CODES,
+} from '@cipansor/shared';
 import { isFoundationScopedRole, seesAllUnits } from '@/utils/resolve-unit-id';
-import { shiftWibDay, todayWib, wibDayStart } from '@/utils/wib';
+import { shiftWibDay, todayWib, wibDayOf, wibDayStart, wibTimeOnDay } from '@/utils/wib';
 
 interface ListEventsQuery {
   unitId?: string;
@@ -14,6 +19,9 @@ interface ListEventsQuery {
   year?: number;
   search?: string;
   isPublic?: boolean;
+  /** The management screen may show class events to the unit admin; the
+   * calendar itself must not. */
+  manage?: boolean;
   page: number;
   limit: number;
 }
@@ -155,7 +163,9 @@ export class CalendarService {
       });
     }
 
-    const classScope = await this.classScopeWhere(currentUser);
+    const classScope = query.manage
+      ? await this.managementClassScopeWhere(currentUser)
+      : await this.classScopeWhere(currentUser);
     if (classScope) and.push(classScope);
 
     if (and.length) where.AND = and;
@@ -213,7 +223,11 @@ export class CalendarService {
         throw Errors.forbidden('Access denied');
       }
       if (event.scope === EventScope.SPECIFIC_CLASS && !this.bypassesClassScope(currentUser)) {
-        if (event.createdById !== currentUser.sub) {
+        const managesUnit =
+          this.isUnitAdmin(currentUser) &&
+          !!currentUser.unitId &&
+          event.unitId === currentUser.unitId;
+        if (event.createdById !== currentUser.sub && !managesUnit) {
           const classIds = await this.classIdsVisibleTo(currentUser.sub);
           if (!event.classId || !classIds.includes(event.classId)) {
             throw Errors.forbidden('Access denied');
@@ -229,6 +243,9 @@ export class CalendarService {
    * Create calendar event
    */
   async create(input: CreateEventInput, currentUser: AuthenticatedUser) {
+    if (!this.canWriteCalendar(currentUser)) {
+      throw Errors.forbidden('Peran ini tidak dapat menulis agenda kalender');
+    }
     const foundationWide = this.canPublishFoundationWide(currentUser);
     let unitId = input.unitId || null;
 
@@ -319,11 +336,8 @@ export class CalendarService {
   async update(id: string, input: UpdateEventInput, currentUser: AuthenticatedUser) {
     const event = await this.findById(id, currentUser);
 
-    // Check edit permission
-    if (currentUser.role !== UserRole.SUPER_ADMIN && event.createdById !== currentUser.sub) {
-      if (currentUser.role !== UserRole.UNIT_ADMIN || event.unitId !== currentUser.unitId) {
-        throw Errors.forbidden('Cannot edit this event');
-      }
+    if (!this.canManageEvent(event, currentUser)) {
+      throw Errors.forbidden('Cannot edit this event');
     }
 
     const foundationWide = this.canPublishFoundationWide(currentUser);
@@ -388,11 +402,8 @@ export class CalendarService {
   async delete(id: string, currentUser: AuthenticatedUser) {
     const event = await this.findById(id, currentUser);
 
-    // Check delete permission
-    if (currentUser.role !== UserRole.SUPER_ADMIN && event.createdById !== currentUser.sub) {
-      if (currentUser.role !== UserRole.UNIT_ADMIN || event.unitId !== currentUser.unitId) {
-        throw Errors.forbidden('Cannot delete this event');
-      }
+    if (!this.canManageEvent(event, currentUser)) {
+      throw Errors.forbidden('Cannot delete this event');
     }
 
     await prisma.calendarEvent.update({
@@ -405,16 +416,53 @@ export class CalendarService {
 
   /**
    * Publishing a foundation-wide agenda is a foundation act, not a read
-   * breadth: a musyrif may read across units but still writes for their own.
+   * breadth: the Pengawas and Pembina read across units but do not write the
+   * agenda they supervise. Only the Super Admin and the Pengurus publish it.
    */
   private canPublishFoundationWide(currentUser: AuthenticatedUser): boolean {
     return (
-      currentUser.role === UserRole.SUPER_ADMIN || isFoundationScopedRole(currentUser.roleCode)
+      !!currentUser.roleCode && CALENDAR_FOUNDATION_WRITE_ROLE_CODES.includes(currentUser.roleCode)
     );
   }
 
+  private canWriteCalendar(currentUser: AuthenticatedUser): boolean {
+    return !!currentUser.roleCode && CALENDAR_WRITE_ROLE_CODES.includes(currentUser.roleCode);
+  }
+
+  private isSuperAdmin(currentUser: AuthenticatedUser): boolean {
+    return currentUser.roleCode === 'SUPER_ADMIN';
+  }
+
+  private isUnitAdmin(currentUser: AuthenticatedUser): boolean {
+    return !!currentUser.roleCode && UNIT_ADMIN_ROLE_CODES.includes(currentUser.roleCode);
+  }
+
+  /**
+   * Who may change an event: its creator, the Super Admin, the admin of the
+   * event's unit (including a class event the admin does not teach), and a
+   * Pengurus for a foundation-wide event.
+   */
+  private canManageEvent(
+    event: { createdById: string; unitId: string | null },
+    currentUser: AuthenticatedUser
+  ): boolean {
+    if (!this.canWriteCalendar(currentUser)) return false;
+    if (this.isSuperAdmin(currentUser) || event.createdById === currentUser.sub) return true;
+    if (
+      this.isUnitAdmin(currentUser) &&
+      !!currentUser.unitId &&
+      event.unitId === currentUser.unitId
+    ) {
+      return true;
+    }
+    return this.canPublishFoundationWide(currentUser) && event.unitId === null;
+  }
+
+  /** Reading a class event is wider than writing it: the foundation's
+   * oversight organs read every unit, but `canManageEvent` still governs the
+   * writes. */
   private bypassesClassScope(currentUser: AuthenticatedUser): boolean {
-    return this.canPublishFoundationWide(currentUser);
+    return isFoundationScopedRole(currentUser.roleCode);
   }
 
   /**
@@ -466,6 +514,31 @@ export class CalendarService {
   }
 
   /**
+   * The management list adds every class event of the admin's own unit, so the
+   * unit admin can find and delete one created by the Super Admin or another
+   * teacher. The calendar list keeps `classScopeWhere`, so this does not open a
+   * class agenda to ordinary users outside the class.
+   */
+  private async managementClassScopeWhere(
+    currentUser: AuthenticatedUser
+  ): Promise<Prisma.CalendarEventWhereInput | null> {
+    if (this.bypassesClassScope(currentUser)) return null;
+
+    const classIds = await this.classIdsVisibleTo(currentUser.sub);
+    const or: Prisma.CalendarEventWhereInput[] = [
+      { scope: { not: EventScope.SPECIFIC_CLASS } },
+      { scope: EventScope.SPECIFIC_CLASS, createdById: currentUser.sub },
+    ];
+    if (this.isUnitAdmin(currentUser) && currentUser.unitId) {
+      or.push({ scope: EventScope.SPECIFIC_CLASS, unitId: currentUser.unitId });
+    }
+    if (classIds.length) {
+      or.push({ scope: EventScope.SPECIFIC_CLASS, classId: { in: classIds } });
+    }
+    return { OR: or };
+  }
+
+  /**
    * A unit's private events are readable only by a session whose active role
    * covers that unit. A unit user naming another unit is refused, not silently
    * served their own agenda under the other unit's name.
@@ -482,26 +555,46 @@ export class CalendarService {
   async getUpcoming(unitId: string, limit: number = 10, currentUser: AuthenticatedUser) {
     this.assertUnitScope(unitId, currentUser);
     const now = new Date();
+    const today = todayWib(now);
+    const tomorrow = shiftWibDay(today, 1);
 
-    const where: Prisma.CalendarEventWhereInput = {
+    const scope: Prisma.CalendarEventWhereInput = {
       deletedAt: null,
-      startDate: { gte: now },
       OR: [{ unitId: unitId }, { unitId: null, isPublic: true }],
     };
     const classScope = await this.classScopeWhere(currentUser);
-    if (classScope) where.AND = [classScope];
+    if (classScope) scope.AND = [classScope];
 
-    const events = await prisma.calendarEvent.findMany({
-      where,
-      take: limit,
-      orderBy: { startDate: 'asc' },
-      include: {
-        unit: { select: { id: true, name: true } },
-        class: { select: { id: true, name: true } },
-      },
-    });
+    const include = {
+      unit: { select: { id: true, name: true } },
+      class: { select: { id: true, name: true } },
+    };
 
-    return events;
+    // `startDate` holds a date-only value at 07:00 WIB for a timed event, so
+    // filtering it with `gte: now` dropped an afternoon meeting after 07:00.
+    // Read today's rows whole and filter on the real WIB start instant; read
+    // the following days already ordered, so `limit` future rows are enough.
+    const [todayRows, futureRows] = await Promise.all([
+      prisma.calendarEvent.findMany({
+        where: {
+          ...scope,
+          startDate: { gte: wibDayStart(today), lt: wibDayStart(tomorrow) },
+        },
+        orderBy: [{ startDate: 'asc' }, { startTime: 'asc' }],
+        include,
+      }),
+      prisma.calendarEvent.findMany({
+        where: { ...scope, startDate: { gte: wibDayStart(tomorrow) } },
+        take: limit,
+        orderBy: [{ startDate: 'asc' }, { startTime: 'asc' }],
+        include,
+      }),
+    ]);
+
+    return [...todayRows, ...futureRows]
+      .filter((event) => eventStartInstant(event) >= now)
+      .sort((a, b) => eventStartInstant(a).getTime() - eventStartInstant(b).getTime())
+      .slice(0, limit);
   }
 
   /**
@@ -619,6 +712,28 @@ export class CalendarService {
       })),
     };
   }
+}
+
+/**
+ * The instant a timed event really starts. The create form sends a date-only
+ * `startDate` plus a WIB `startTime`; the API stores that date at midnight UTC
+ * (07:00 WIB) and keeps the time separately. Comparing `startDate` alone hid
+ * an afternoon meeting from "Event Mendatang" all morning.
+ */
+function eventStartInstant(event: {
+  startDate: Date;
+  startTime: string | null;
+  isAllDay: boolean;
+}): Date {
+  if (event.isAllDay || !event.startTime) return event.startDate;
+  if (
+    event.startDate.getUTCHours() ||
+    event.startDate.getUTCMinutes() ||
+    event.startDate.getUTCSeconds()
+  ) {
+    return event.startDate;
+  }
+  return wibTimeOnDay(wibDayOf(event.startDate), event.startTime);
 }
 
 export const calendarService = new CalendarService();
