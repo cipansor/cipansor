@@ -164,6 +164,16 @@ test.describe("Muhadatsah - View & Evaluate", () => {
     const dialog = page.getByRole("alertdialog");
     await expect(dialog).toBeVisible();
 
+    // The delete must refresh more than the table: the "Terjadwal" card and
+    // "Jadwal Mendatang" read other endpoints, so count the requests.
+    const seen = { statistics: 0, upcoming: 0 };
+    page.on("request", (request) => {
+      const url = request.url();
+      if (url.includes("/muhadatsah/statistics")) seen.statistics++;
+      if (url.includes("/muhadatsah/upcoming")) seen.upcoming++;
+    });
+    const before = { ...seen };
+
     const deletion = page.waitForResponse(
       (response) =>
         response.request().method() === "DELETE" &&
@@ -175,6 +185,12 @@ test.describe("Muhadatsah - View & Evaluate", () => {
     await expect(page.getByRole("row").filter({ hasText: topic })).toHaveCount(
       0,
     );
+    await expect
+      .poll(() => seen.statistics, { timeout: 10_000 })
+      .toBeGreaterThan(before.statistics);
+    await expect
+      .poll(() => seen.upcoming, { timeout: 10_000 })
+      .toBeGreaterThan(before.upcoming);
   });
 });
 
@@ -197,6 +213,29 @@ test.describe("Muhadatsah - Partner Matching", () => {
     await page.getByRole("option", { name: /Bahasa Inggris/ }).click();
 
     await englishRequest;
+  });
+
+  test("kegagalan memuat partner disebutkan, bukan dikira kosong", async ({
+    page,
+  }) => {
+    await page.route("**/muhadatsah/match-partners**", (route) =>
+      route.fulfill({
+        status: 500,
+        contentType: "application/json",
+        body: JSON.stringify({ success: false, message: "boom" }),
+      }),
+    );
+    await loginAs(page, "superAdmin");
+    await gotoAuthedPage(page, "/muhadatsah", HEADING);
+
+    await page.getByRole("tab", { name: "Cari Partner" }).click();
+
+    await expect(page.getByText(/Gagal memuat daftar partner/)).toBeVisible({
+      timeout: 15_000,
+    });
+    await expect(page.getByText(/Belum ada santri yang tersedia/)).toHaveCount(
+      0,
+    );
   });
 
   test("Pilih carries the santri into the form as the partner", async ({
