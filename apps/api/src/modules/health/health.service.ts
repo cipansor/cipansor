@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { onlyScopedStudents, STUDENT_SAFE_SELECT } from '@/utils/student-scope';
-import { dayOf, todayWib, wibMonthRange, wibMonthYear } from '@/utils/wib';
+import { todayWib, wibDayStart, wibMonthRange, wibMonthYear } from '@/utils/wib';
 import { prisma } from '../../lib/prisma';
 import { attendanceService } from '../attendance/attendance.service';
 import { eventBus } from '../../lib/event-bus';
@@ -343,7 +343,7 @@ export async function getMedications(query: QueryMedicationInput) {
       ],
     }),
     ...(expired && {
-      expiryDate: { lt: dayOf(todayWib()) },
+      expiryDate: { lt: wibDayStart(todayWib()) },
     }),
   };
 
@@ -759,7 +759,11 @@ export async function getHealthStats(unitId?: string): Promise<HealthStats> {
   const now = new Date();
   const { year, month } = wibMonthYear(now);
   const startOfMonth = wibMonthRange(year, month).start;
-  const expiredBefore = dayOf(todayWib(now));
+  // `Medication.expiryDate` accepts a timestamp, so a row can hold a WIB time
+  // before 07:00 (its UTC date is still yesterday). Bounding at the start of
+  // the WIB day keeps it unexpired through its own expiry day, whether the
+  // stored value is midnight UTC (date-only) or a time on that day.
+  const expiredBefore = wibDayStart(todayWib(now));
 
   const [medications, expiredMedications, thisMonthRecords, recordsByType] = await Promise.all([
     prisma.medication.findMany({ where: { unitId } }),

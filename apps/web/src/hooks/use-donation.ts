@@ -1,6 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   OFFERED_DONATION_TYPES,
+  type DonationMonthlyReport,
   type OfferedDonationType,
 } from "@cipansor/shared";
 import api, { ApiResponse, PaginatedResponse } from "@/lib/api";
@@ -317,6 +318,19 @@ export function useDonationStats() {
     queryFn: async () => {
       const response =
         await api.get<ApiResponse<DonationStats>>("/donation/stats");
+      return response.data.data;
+    },
+  });
+}
+
+export function useDonationMonthlyReport(year: number) {
+  return useQuery({
+    queryKey: ["donation", "monthly-report", year],
+    queryFn: async () => {
+      const response = await api.get<ApiResponse<DonationMonthlyReport>>(
+        "/donation/monthly-report",
+        { params: { year } },
+      );
       return response.data.data;
     },
   });

@@ -17,6 +17,7 @@ export * from "./types/research";
 export * from "./types/daily-report";
 export * from "./types/dashboard";
 export * from "./types/finance";
+export * from "./types/donation";
 export * from "./types/assessment";
 export * from "./types/inventory";
 export * from "./types/paud";

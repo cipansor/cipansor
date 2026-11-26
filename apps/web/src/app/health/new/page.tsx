@@ -45,6 +45,7 @@ import {
 } from "@/hooks/use-health";
 import { useStudents } from "@/hooks/use-students";
 import { MainLayout } from "@/components/layout";
+import { todayWibDay } from "@/lib/date";
 
 const formSchema = z.object({
   studentId: z.string().min(1, "Santri wajib dipilih"),
@@ -84,7 +85,7 @@ function NewHealthRecordPageContent() {
     defaultValues: {
       studentId: "",
       recordType: "",
-      date: new Date().toISOString().split("T")[0],
+      date: todayWibDay(),
       symptoms: "",
       diagnosis: "",
       treatment: "",

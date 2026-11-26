@@ -6,7 +6,7 @@ import {
   CampaignStatus,
   Prisma,
 } from '@prisma/client';
-import { AccountType } from '@cipansor/shared';
+import { AccountType, type DonationMonthlyReport } from '@cipansor/shared';
 import { wibDate, wibMonthYear, wibYearBounds } from '@/utils/wib';
 import {
   CreateCampaignInput,
@@ -664,7 +664,7 @@ export const donationService = {
   /**
    * Get monthly donation report
    */
-  async getMonthlyReport(year: number) {
+  async getMonthlyReport(year: number): Promise<DonationMonthlyReport> {
     const { start, end } = wibYearBounds(wibDate(year, 0, 1));
     const donations = await prisma.donation.findMany({
       where: {
