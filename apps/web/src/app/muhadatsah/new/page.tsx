@@ -1,7 +1,7 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { useState, useEffect } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import Link from "next/link";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -60,7 +60,9 @@ import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 
-import { useStudents } from "@/hooks/use-students";
+import { useStudents, useStudent } from "@/hooks/use-students";
+import { muhadatsahAccessOf } from "@/lib/muhadatsah-access";
+import { useAuthStore } from "@/stores/auth";
 import { useUnits } from "@/hooks/use-units";
 import { useCreateMuhadatsah, useMatchPartners } from "@/hooks/use-muhadatsah";
 import { STUDENT_STATUS } from "@cipansor/shared";
@@ -123,6 +125,12 @@ const TOPIC_SUGGESTIONS = {
 
 export default function NewMuhadatsahPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  // "Cari Partner" hands the chosen santri over as the partner for this session,
+  // together with the language whose availability list the santri came from.
+  const presetPartnerId = searchParams.get("partnerId") ?? undefined;
+  const presetLanguage =
+    searchParams.get("language") === "English" ? "English" : "Arabic";
   const [studentSearch, setStudentSearch] = useState("");
   const [studentOpen, setStudentOpen] = useState(false);
   const [partnerSearch, setPartnerSearch] = useState("");
@@ -140,7 +148,7 @@ export default function NewMuhadatsahPage() {
   } = useForm<MuhadatsahFormData>({
     resolver: zodResolver(muhadatsahSchema),
     defaultValues: {
-      language: "Arabic",
+      language: presetLanguage,
     },
   });
 
@@ -174,12 +182,23 @@ export default function NewMuhadatsahPage() {
   );
 
   const createMuhadatsah = useCreateMuhadatsah();
+  const { canWrite } = muhadatsahAccessOf(useAuthStore((s) => s.user));
+
+  // The preset partner's unit is not part of the match-partners payload, so the
+  // santri is read once to fill both the unit (which loads the roster) and the
+  // partner field; otherwise picking a unit would clear the preselection.
+  const { data: presetPartner } = useStudent(presetPartnerId);
+  useEffect(() => {
+    if (!presetPartner) return;
+    setValue("unitId", presetPartner.unitId);
+    setValue("partnerId", presetPartner.id);
+  }, [presetPartner, setValue]);
 
   // Get selected student and partner info
   const selectedStudent = students.find((s) => s.id === selectedStudentId);
-  const selectedPartner = availablePartners.find(
-    (s) => s.id === selectedPartnerId,
-  );
+  const selectedPartner =
+    availablePartners.find((s) => s.id === selectedPartnerId) ??
+    (presetPartner?.id === selectedPartnerId ? presetPartner : undefined);
 
   // Random partner assignment
   const handleRandomPartner = () => {
@@ -215,6 +234,22 @@ export default function NewMuhadatsahPage() {
       toast.error("Gagal membuat jadwal muhadatsah");
     }
   };
+
+  if (!canWrite) {
+    return (
+      <MainLayout>
+        <div className="flex flex-col items-center justify-center py-12">
+          <h2 className="text-lg font-semibold mb-2">Tidak Ada Akses</h2>
+          <p className="text-muted-foreground mb-4">
+            Anda tidak memiliki izin untuk menjadwalkan muhadatsah.
+          </p>
+          <Button asChild>
+            <Link href="/muhadatsah">Kembali ke Daftar</Link>
+          </Button>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -253,6 +288,7 @@ export default function NewMuhadatsahPage() {
                     <Button
                       key={lang.value}
                       type="button"
+                      aria-pressed={selectedLanguage === lang.value}
                       variant={
                         selectedLanguage === lang.value ? "default" : "outline"
                       }

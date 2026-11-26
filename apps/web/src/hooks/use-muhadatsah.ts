@@ -361,7 +361,9 @@ export function useDeleteMuhadatsah() {
   return useMutation({
     mutationFn: deleteMuhadatsah,
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: muhadatsahKeys.lists() });
+      // A deleted session also leaves "Jadwal Mendatang", the statistics and
+      // the partner list, so the whole module's cache goes.
+      queryClient.invalidateQueries({ queryKey: muhadatsahKeys.all });
     },
   });
 }

@@ -17,7 +17,6 @@ import {
   BookOpen,
   FileText,
   Volume2,
-  User,
   CheckCircle,
 } from "lucide-react";
 import { toast } from "sonner";
@@ -47,7 +46,6 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 
 import {
   useMuhadatsahDetail,
@@ -55,6 +53,8 @@ import {
   getLanguageLabel,
   getGradeColor,
 } from "@/hooks/use-muhadatsah";
+import { muhadatsahAccessOf } from "@/lib/muhadatsah-access";
+import { useAuthStore } from "@/stores/auth";
 
 // Scoring components for Muhadatsah
 const SCORING_COMPONENTS = [
@@ -97,8 +97,8 @@ const calculateGrade = (score: number): { grade: string; label: string } => {
   return { grade: "E", label: "Rasib (Perlu Peningkatan)" };
 };
 
-// Student evaluation interface
-interface StudentEvaluation {
+// The four components the API stores on the session (one rubric per session).
+interface RubricScores {
   fluency: number;
   grammar: number;
   vocabulary: number;
@@ -110,57 +110,57 @@ export default function EvaluateMuhadatsahPage() {
   const router = useRouter();
   const id = params.id as string;
 
-  // Student 1 scores
-  const [student1Scores, setStudent1Scores] = useState<StudentEvaluation>({
-    fluency: 75,
-    grammar: 75,
-    vocabulary: 75,
-    pronunciation: 75,
-  });
-
-  // Student 2 / Partner scores
-  const [student2Scores, setStudent2Scores] = useState<StudentEvaluation>({
-    fluency: 75,
-    grammar: 75,
-    vocabulary: 75,
-    pronunciation: 75,
-  });
-
-  const [duration, setDuration] = useState("10");
-  const [feedback, setFeedback] = useState("");
-  const [activeTab, setActiveTab] = useState("student1");
+  const [scoreEdits, setScoreEdits] = useState<Partial<RubricScores>>({});
+  const [durationEdit, setDurationEdit] = useState<string | null>(null);
+  const [feedbackEdit, setFeedbackEdit] = useState<string | null>(null);
 
   const { data: muhadatsah, isLoading, error } = useMuhadatsahDetail(id);
+  const { canWrite } = muhadatsahAccessOf(useAuthStore((s) => s.user));
   const evaluateMuhadatsah = useEvaluateMuhadatsah();
 
-  // Calculate averages
-  const student1Average = useMemo(() => {
-    const total = Object.values(student1Scores).reduce((a, b) => a + b, 0);
+  // Re-opening an evaluated session starts from what was stored, not from 75 —
+  // otherwise saving a correction would silently rewrite the whole rubric.
+  // Only the user's own edits live in state; everything else is derived.
+  const storedScores = useMemo<RubricScores>(
+    () => ({
+      fluency: muhadatsah?.fluencyScore ?? 75,
+      grammar: muhadatsah?.grammarScore ?? 75,
+      vocabulary: muhadatsah?.vocabularyScore ?? 75,
+      pronunciation: muhadatsah?.pronunciationScore ?? 75,
+    }),
+    [muhadatsah],
+  );
+  const scores = useMemo<RubricScores>(
+    () => ({ ...storedScores, ...scoreEdits }),
+    [storedScores, scoreEdits],
+  );
+  const setScores = (update: React.SetStateAction<RubricScores>) =>
+    setScoreEdits((previous) => {
+      const current = { ...storedScores, ...previous };
+      return typeof update === "function" ? update(current) : update;
+    });
+
+  // The API averages the same four components into the session's totalScore,
+  // so this is the number the session will carry.
+  const sessionScore = useMemo(() => {
+    const total = Object.values(scores).reduce((a, b) => a + b, 0);
     return Math.round(total / 4);
-  }, [student1Scores]);
+  }, [scores]);
 
-  const student2Average = useMemo(() => {
-    const total = Object.values(student2Scores).reduce((a, b) => a + b, 0);
-    return Math.round(total / 4);
-  }, [student2Scores]);
+  const sessionGrade = calculateGrade(sessionScore);
 
-  const overallAverage = useMemo(() => {
-    if (!muhadatsah?.partner) return student1Average;
-    return Math.round((student1Average + student2Average) / 2);
-  }, [student1Average, student2Average, muhadatsah?.partner]);
-
-  const student1Grade = calculateGrade(student1Average);
-  const student2Grade = calculateGrade(student2Average);
-  const overallGrade = calculateGrade(overallAverage);
+  const duration =
+    durationEdit ?? (muhadatsah?.duration ? String(muhadatsah.duration) : "10");
+  const feedback = feedbackEdit ?? muhadatsah?.feedback ?? "";
 
   // Handle submit
   const handleSubmit = async () => {
     try {
       const input = {
-        fluencyScore: student1Scores.fluency,
-        grammarScore: student1Scores.grammar,
-        vocabularyScore: student1Scores.vocabulary,
-        pronunciationScore: student1Scores.pronunciation,
+        fluencyScore: scores.fluency,
+        grammarScore: scores.grammar,
+        vocabularyScore: scores.vocabulary,
+        pronunciationScore: scores.pronunciation,
         feedback,
         duration: parseInt(duration),
       };
@@ -176,6 +176,22 @@ export default function EvaluateMuhadatsahPage() {
       toast.error("Gagal menyimpan penilaian");
     }
   };
+
+  if (!canWrite) {
+    return (
+      <MainLayout>
+        <div className="flex flex-col items-center justify-center py-12">
+          <h2 className="text-lg font-semibold mb-2">Tidak Ada Akses</h2>
+          <p className="text-muted-foreground mb-4">
+            Anda tidak memiliki izin untuk menilai muhadatsah.
+          </p>
+          <Button asChild>
+            <Link href={`/muhadatsah/${id}`}>Kembali ke Detail</Link>
+          </Button>
+        </div>
+      </MainLayout>
+    );
+  }
 
   // Loading state
   if (isLoading) {
@@ -219,13 +235,12 @@ export default function EvaluateMuhadatsahPage() {
 
   // Render scoring sliders for a student
   const renderScoringSliders = (
-    scores: StudentEvaluation,
-    setScores: React.Dispatch<React.SetStateAction<StudentEvaluation>>,
-    studentName: string,
+    scores: RubricScores,
+    setScores: React.Dispatch<React.SetStateAction<RubricScores>>,
   ) => (
     <div className="space-y-6">
       {SCORING_COMPONENTS.map((component) => {
-        const score = scores[component.key as keyof StudentEvaluation];
+        const score = scores[component.key as keyof RubricScores];
         const gradeInfo = calculateGrade(score);
         return (
           <div key={component.key} className="space-y-3">
@@ -351,59 +366,12 @@ export default function EvaluateMuhadatsahPage() {
                 Komponen Penilaian
               </CardTitle>
               <CardDescription>
-                Geser slider untuk memberikan nilai pada setiap komponen (0-100)
+                Geser slider untuk menilai sesi ini (0-100). Nilai berlaku untuk{" "}
+                {hasPartner ? "kedua peserta" : "peserta"} dan tersimpan sebagai
+                nilai sesi.
               </CardDescription>
             </CardHeader>
-            <CardContent>
-              {hasPartner ? (
-                <Tabs value={activeTab} onValueChange={setActiveTab}>
-                  <TabsList className="grid w-full grid-cols-2">
-                    <TabsTrigger
-                      value="student1"
-                      className="flex items-center gap-2"
-                    >
-                      <User className="h-4 w-4" />
-                      {muhadatsah.student?.name?.split(" ")[0]}
-                      <Badge variant="secondary" className="ml-1">
-                        {student1Average}
-                      </Badge>
-                    </TabsTrigger>
-                    <TabsTrigger
-                      value="student2"
-                      className="flex items-center gap-2"
-                    >
-                      <User className="h-4 w-4" />
-                      {muhadatsah.partner?.name?.split(" ")[0]}
-                      <Badge variant="secondary" className="ml-1">
-                        {student2Average}
-                      </Badge>
-                    </TabsTrigger>
-                  </TabsList>
-                  <div className="mt-6">
-                    <TabsContent value="student1">
-                      {renderScoringSliders(
-                        student1Scores,
-                        setStudent1Scores,
-                        muhadatsah.student?.name || "Santri 1",
-                      )}
-                    </TabsContent>
-                    <TabsContent value="student2">
-                      {renderScoringSliders(
-                        student2Scores,
-                        setStudent2Scores,
-                        muhadatsah.partner?.name || "Partner",
-                      )}
-                    </TabsContent>
-                  </div>
-                </Tabs>
-              ) : (
-                renderScoringSliders(
-                  student1Scores,
-                  setStudent1Scores,
-                  muhadatsah.student?.name || "Santri",
-                )
-              )}
-            </CardContent>
+            <CardContent>{renderScoringSliders(scores, setScores)}</CardContent>
           </Card>
 
           {/* Duration & Feedback */}
@@ -421,7 +389,7 @@ export default function EvaluateMuhadatsahPage() {
                   <Clock className="h-4 w-4" />
                   Durasi Percakapan
                 </Label>
-                <Select value={duration} onValueChange={setDuration}>
+                <Select value={duration} onValueChange={setDurationEdit}>
                   <SelectTrigger className="w-[200px]">
                     <SelectValue />
                   </SelectTrigger>
@@ -443,7 +411,7 @@ export default function EvaluateMuhadatsahPage() {
                   id="feedback"
                   placeholder="Berikan catatan atau masukan untuk santri..."
                   value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
+                  onChange={(e) => setFeedbackEdit(e.target.value)}
                   className="min-h-[120px]"
                 />
               </div>
@@ -495,52 +463,18 @@ export default function EvaluateMuhadatsahPage() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-              {/* Individual Scores */}
-              <div className="space-y-3">
-                <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                  <div>
-                    <p className="text-sm text-muted-foreground">
-                      {muhadatsah.student?.name?.split(" ")[0]}
-                    </p>
-                    <p className="text-2xl font-bold">{student1Average}</p>
-                  </div>
-                  <Badge className={getGradeColor(student1Grade.grade)}>
-                    {student1Grade.grade}
-                  </Badge>
-                </div>
-
-                {hasPartner && (
-                  <div className="flex items-center justify-between p-3 bg-muted rounded-lg">
-                    <div>
-                      <p className="text-sm text-muted-foreground">
-                        {muhadatsah.partner?.name?.split(" ")[0]}
-                      </p>
-                      <p className="text-2xl font-bold">{student2Average}</p>
-                    </div>
-                    <Badge className={getGradeColor(student2Grade.grade)}>
-                      {student2Grade.grade}
-                    </Badge>
-                  </div>
-                )}
-              </div>
-
-              <Separator />
-
-              {/* Overall Score */}
               <div className="text-center p-4 bg-primary/10 rounded-lg">
-                <p className="text-sm text-muted-foreground mb-1">
-                  Nilai Rata-rata
-                </p>
+                <p className="text-sm text-muted-foreground mb-1">Nilai Sesi</p>
                 <div className="flex items-center justify-center gap-3">
-                  <span className="text-4xl font-bold">{overallAverage}</span>
+                  <span className="text-4xl font-bold">{sessionScore}</span>
                   <Badge
-                    className={`text-lg ${getGradeColor(overallGrade.grade)}`}
+                    className={`text-lg ${getGradeColor(sessionGrade.grade)}`}
                   >
-                    {overallGrade.grade}
+                    {sessionGrade.grade}
                   </Badge>
                 </div>
                 <p className="text-sm text-muted-foreground mt-2">
-                  {overallGrade.label}
+                  {sessionGrade.label}
                 </p>
               </div>
 

@@ -2,6 +2,8 @@
 import { MainLayout } from "@/components/layout";
 
 import { useState } from "react";
+import Link from "next/link";
+import { toast } from "sonner";
 import { safeFormat } from "@/lib/date";
 import { format } from "date-fns";
 import { id as localeId } from "date-fns/locale";
@@ -13,7 +15,6 @@ import {
   Plus,
   Search,
   Eye,
-  Edit,
   Trash2,
   CheckCircle,
   Clock,
@@ -23,6 +24,9 @@ import {
   UserPlus,
   BarChart3,
 } from "lucide-react";
+import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { muhadatsahAccessOf } from "@/lib/muhadatsah-access";
+import { useAuthStore } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -57,6 +61,7 @@ import {
   useMuhadatsahStatistics,
   useTopPerformers,
   useMatchPartners,
+  useDeleteMuhadatsah,
   getStatusColor,
   getStatusLabel,
   getGradeColor,
@@ -73,6 +78,10 @@ function MuhadatsahPageContent() {
   );
   const [languageFilter, setLanguageFilter] = useState<string>("ALL");
   const [currentPage, setCurrentPage] = useState(1);
+  const [partnerLanguage, setPartnerLanguage] = useState<"Arabic" | "English">(
+    "Arabic",
+  );
+  const [deleteId, setDeleteId] = useState<string | null>(null);
 
   // No unitId: the API decides which santri the reader reaches — their own
   // unit's, or every unit's for the pesantren's ustadz, musyrif and muhafidz,
@@ -87,7 +96,23 @@ function MuhadatsahPageContent() {
   const { data: upcomingData } = useUpcomingMuhadatsah(undefined, 5);
   const { data: statsData } = useMuhadatsahStatistics();
   const { data: topPerformersData } = useTopPerformers(undefined, undefined, 5);
-  const { data: availablePartnersData } = useMatchPartners(undefined, "Arabic");
+  const { data: availablePartnersData, isError: partnersFailed } =
+    useMatchPartners(undefined, partnerLanguage);
+  const deleteMuhadatsah = useDeleteMuhadatsah();
+  const { canWrite, canDelete } = muhadatsahAccessOf(
+    useAuthStore((s) => s.user),
+  );
+
+  const handleDelete = async () => {
+    if (!deleteId) return;
+    try {
+      await deleteMuhadatsah.mutateAsync(deleteId);
+      toast.success("Sesi muhadatsah berhasil dihapus");
+      setDeleteId(null);
+    } catch {
+      // The API interceptor already toasts the refusal; keep the dialog open.
+    }
+  };
 
   const records = listData?.data ?? [];
   const meta = listData?.meta || {
@@ -147,10 +172,14 @@ function MuhadatsahPageContent() {
             Latihan percakapan bahasa Arab dan Inggris santri
           </p>
         </div>
-        <Button className="gap-2">
-          <Plus className="h-4 w-4" />
-          Jadwalkan Muhadatsah
-        </Button>
+        {canWrite && (
+          <Button asChild className="gap-2">
+            <Link href="/muhadatsah/new">
+              <Plus className="h-4 w-4" />
+              Jadwalkan Muhadatsah
+            </Link>
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -373,22 +402,24 @@ function MuhadatsahPageContent() {
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex justify-end gap-2">
-                          <Button variant="ghost" size="icon">
-                            <Eye className="h-4 w-4" />
+                          <Button variant="ghost" size="icon" asChild>
+                            <Link
+                              href={`/muhadatsah/${record.id}`}
+                              aria-label="Lihat detail sesi muhadatsah"
+                            >
+                              <Eye className="h-4 w-4" />
+                            </Link>
                           </Button>
-                          {record.status === "SCHEDULED" && (
-                            <>
-                              <Button variant="ghost" size="icon">
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                              <Button
-                                variant="ghost"
-                                size="icon"
-                                className="text-red-500"
-                              >
-                                <Trash2 className="h-4 w-4" />
-                              </Button>
-                            </>
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="text-red-500"
+                              aria-label="Hapus sesi muhadatsah"
+                              onClick={() => setDeleteId(record.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
                           )}
                         </div>
                       </TableCell>
@@ -503,7 +534,12 @@ function MuhadatsahPageContent() {
             </CardHeader>
             <CardContent>
               <div className="mb-4">
-                <Select defaultValue="Arabic">
+                <Select
+                  value={partnerLanguage}
+                  onValueChange={(value) =>
+                    setPartnerLanguage(value as "Arabic" | "English")
+                  }
+                >
                   <SelectTrigger className="w-[200px]">
                     <SelectValue placeholder="Pilih Bahasa" />
                   </SelectTrigger>
@@ -514,36 +550,51 @@ function MuhadatsahPageContent() {
                 </Select>
               </div>
 
-              <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                {availablePartners.map((partner) => (
-                  <Card
-                    key={partner.id}
-                    className="cursor-pointer hover:border-primary transition-colors"
-                  >
-                    <CardContent className="p-4">
-                      <div className="flex items-center gap-3">
-                        <Avatar>
-                          <AvatarFallback>
-                            {partner.name
-                              .split(" ")
-                              .map((n) => n[0])
-                              .join("")}
-                          </AvatarFallback>
-                        </Avatar>
-                        <div className="flex-1">
-                          <div className="font-medium">{partner.name}</div>
-                          <div className="text-sm text-muted-foreground">
-                            {partner.nis} • {partner.class?.name}
+              {partnersFailed ? (
+                <p className="py-6 text-center text-sm text-destructive">
+                  Gagal memuat daftar partner. Coba pilih bahasa lain atau muat
+                  ulang halaman ini.
+                </p>
+              ) : availablePartners.length === 0 ? (
+                <p className="py-6 text-center text-sm text-muted-foreground">
+                  Belum ada santri yang tersedia untuk dipasangkan pada bahasa
+                  ini minggu ini.
+                </p>
+              ) : (
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                  {availablePartners.map((partner) => (
+                    <Card key={partner.id}>
+                      <CardContent className="p-4">
+                        <div className="flex items-center gap-3">
+                          <Avatar>
+                            <AvatarFallback>
+                              {partner.name
+                                .split(" ")
+                                .map((n) => n[0])
+                                .join("")}
+                            </AvatarFallback>
+                          </Avatar>
+                          <div className="flex-1">
+                            <div className="font-medium">{partner.name}</div>
+                            <div className="text-sm text-muted-foreground">
+                              {partner.nis} • {partner.class?.name}
+                            </div>
                           </div>
+                          {canWrite && (
+                            <Button size="sm" variant="outline" asChild>
+                              <Link
+                                href={`/muhadatsah/new?partnerId=${partner.id}&language=${partnerLanguage}`}
+                              >
+                                Pilih
+                              </Link>
+                            </Button>
+                          )}
                         </div>
-                        <Button size="sm" variant="outline">
-                          Pilih
-                        </Button>
-                      </div>
-                    </CardContent>
-                  </Card>
-                ))}
-              </div>
+                      </CardContent>
+                    </Card>
+                  ))}
+                </div>
+              )}
             </CardContent>
           </Card>
         </TabsContent>
@@ -714,6 +765,18 @@ function MuhadatsahPageContent() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <ConfirmDialog
+        open={!!deleteId}
+        onOpenChange={(open) => !open && setDeleteId(null)}
+        title="Hapus sesi muhadatsah"
+        description="Sesi muhadatsah ini akan dihapus permanen. Lanjutkan?"
+        confirmLabel="Hapus"
+        cancelLabel="Batal"
+        onConfirm={handleDelete}
+        isLoading={deleteMuhadatsah.isPending}
+        variant="destructive"
+      />
     </div>
   );
 }

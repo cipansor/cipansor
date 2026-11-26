@@ -221,7 +221,7 @@ export function studentListMeta(
   };
 }
 
-export function useStudent(id: string) {
+export function useStudent(id: string | undefined) {
   return useQuery({
     queryKey: ["students", id],
     queryFn: async () => {

@@ -45,7 +45,6 @@ const KNOWN_MISSING = new Set([
   "/ibadah/verify",
   "/kitab-progress/X/assign",
   "/kitab-progress/X/edit",
-  "/muhadatsah/X/edit",
   "/muhadhoroh/X/edit",
   "/muhasabah/X/edit",
   "/students/X/kitab",
