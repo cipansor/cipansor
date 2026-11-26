@@ -59,6 +59,8 @@ import {
   getGradeColor,
   getLanguageLabel,
 } from "@/hooks/use-muhadatsah";
+import { muhadatsahAccessOf } from "@/lib/muhadatsah-access";
+import { useAuthStore } from "@/stores/auth";
 
 // Scoring components for Muhadatsah
 const SCORING_COMPONENTS = [
@@ -108,6 +110,9 @@ export default function MuhadatsahDetailPage() {
   const id = params.id as string;
 
   const { data: muhadatsah, isLoading, error } = useMuhadatsahDetail(id);
+  const { canWrite, canDelete } = muhadatsahAccessOf(
+    useAuthStore((s) => s.user),
+  );
   const deleteMuhadatsah = useDeleteMuhadatsah();
   const cancelMuhadatsah = useCancelMuhadatsah();
 
@@ -201,7 +206,7 @@ export default function MuhadatsahDetailPage() {
             </p>
           </div>
           <div className="flex gap-2">
-            {isScheduled && (
+            {isScheduled && canWrite && (
               <Button asChild>
                 <Link href={`/muhadatsah/${id}/evaluate`}>
                   <Play className="h-4 w-4 mr-2" />
@@ -526,7 +531,7 @@ export default function MuhadatsahDetailPage() {
               <CardTitle className="text-lg">Aksi</CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {isScheduled && (
+              {isScheduled && canWrite && (
                 <>
                   <Button className="w-full" asChild>
                     <Link href={`/muhadatsah/${id}/evaluate`}>
@@ -562,7 +567,7 @@ export default function MuhadatsahDetailPage() {
                 </>
               )}
 
-              {isCompleted && (
+              {isCompleted && canWrite && (
                 <Button variant="outline" className="w-full" asChild>
                   <Link href={`/muhadatsah/${id}/evaluate`}>
                     <Edit className="h-4 w-4 mr-2" />
@@ -571,32 +576,34 @@ export default function MuhadatsahDetailPage() {
                 </Button>
               )}
 
-              <AlertDialog>
-                <AlertDialogTrigger asChild>
-                  <Button variant="destructive" className="w-full">
-                    <Trash2 className="h-4 w-4 mr-2" />
-                    Hapus
-                  </Button>
-                </AlertDialogTrigger>
-                <AlertDialogContent>
-                  <AlertDialogHeader>
-                    <AlertDialogTitle>Hapus Muhadatsah?</AlertDialogTitle>
-                    <AlertDialogDescription>
-                      Data muhadatsah ini akan dihapus permanen dan tidak dapat
-                      dikembalikan.
-                    </AlertDialogDescription>
-                  </AlertDialogHeader>
-                  <AlertDialogFooter>
-                    <AlertDialogCancel>Batal</AlertDialogCancel>
-                    <AlertDialogAction
-                      onClick={handleDelete}
-                      className="bg-destructive"
-                    >
+              {canDelete && (
+                <AlertDialog>
+                  <AlertDialogTrigger asChild>
+                    <Button variant="destructive" className="w-full">
+                      <Trash2 className="h-4 w-4 mr-2" />
                       Hapus
-                    </AlertDialogAction>
-                  </AlertDialogFooter>
-                </AlertDialogContent>
-              </AlertDialog>
+                    </Button>
+                  </AlertDialogTrigger>
+                  <AlertDialogContent>
+                    <AlertDialogHeader>
+                      <AlertDialogTitle>Hapus Muhadatsah?</AlertDialogTitle>
+                      <AlertDialogDescription>
+                        Data muhadatsah ini akan dihapus permanen dan tidak
+                        dapat dikembalikan.
+                      </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                      <AlertDialogCancel>Batal</AlertDialogCancel>
+                      <AlertDialogAction
+                        onClick={handleDelete}
+                        className="bg-destructive"
+                      >
+                        Hapus
+                      </AlertDialogAction>
+                    </AlertDialogFooter>
+                  </AlertDialogContent>
+                </AlertDialog>
+              )}
             </CardContent>
           </Card>
 

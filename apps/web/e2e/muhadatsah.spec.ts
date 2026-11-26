@@ -231,6 +231,218 @@ test.describe("Muhadatsah - Partner Matching", () => {
   });
 });
 
+test.describe("Muhadatsah - Bahasa partner", () => {
+  test("Pilih dari hasil Bahasa Inggris menyimpan sesi Bahasa Inggris", async ({
+    page,
+  }) => {
+    // The partner list is filtered by language, so a santri offered under
+    // English was matched for English. The form used to open in Arabic and
+    // save Arabic, silently contradicting the choice made one click earlier.
+    await loginAs(page, "superAdmin");
+    await gotoAuthedPage(page, "/muhadatsah", HEADING);
+
+    await page.getByRole("tab", { name: "Cari Partner" }).click();
+    await page.getByRole("combobox").click();
+    await page.getByRole("option", { name: /Bahasa Inggris/ }).click();
+
+    const pick = page.getByRole("link", { name: "Pilih" }).first();
+    await expect(pick).toBeVisible();
+    expect(await pick.getAttribute("href")).toContain("language=English");
+
+    await pick.click();
+    await expect(
+      page.getByRole("heading", { name: NEW_HEADING, level: 1 }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: /Bahasa Inggris/ }),
+    ).toHaveAttribute("aria-pressed", "true");
+
+    // Santri 1: the unit came in with the chosen partner. The trigger is a
+    // button with role="combobox" whose text is the only stable handle.
+    await page
+      .getByRole("combobox")
+      .filter({ hasText: "Pilih santri" })
+      .click();
+    await page.getByRole("option").first().click();
+
+    // A day the calendar shows without paging: the picker opens on the
+    // current month, so the target stays inside it.
+    const today = new Date();
+    const lastDay = new Date(
+      today.getFullYear(),
+      today.getMonth() + 1,
+      0,
+    ).getDate();
+    const day = new Date(
+      today.getFullYear(),
+      today.getMonth(),
+      Math.min(today.getDate() + 2, lastDay),
+      12,
+    );
+    const iso = day.toLocaleDateString("en-CA", { timeZone: "Asia/Jakarta" });
+    await page.getByRole("button", { name: "Pilih tanggal" }).click();
+    await page.locator(`td[data-day="${iso}"] button`).click();
+
+    const created = page.waitForResponse(
+      (response) =>
+        response.request().method() === "POST" &&
+        new URL(response.url()).pathname.endsWith("/muhadatsah"),
+    );
+    await page.getByRole("button", { name: "Simpan Jadwal" }).click();
+
+    const body = await (await created).json();
+    expect(body.data.language).toBe("English");
+  });
+});
+
+test.describe("Muhadatsah - Peran", () => {
+  test("guru menjadwalkan dan menilai, tetapi tidak ditawari Hapus", async ({
+    page,
+  }) => {
+    // The API answers DELETE only to Super Admin and unit admins. The buttons
+    // must agree, or a teacher confirms a deletion and gets a 403.
+    const session = await loginAs(page, "teacher");
+    const students = await apiRequest<{
+      data: Array<{ id: string; unitId: string }>;
+    }>(session, "GET", "/students?limit=1");
+    const student = students.data[0];
+    expect(student?.id).toBeTruthy();
+
+    const topic = `E2E guru ${Date.now()}`;
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/muhadatsah",
+      {
+        unitId: student.unitId,
+        studentId: student.id,
+        scheduledAt: new Date(
+          Date.now() + 11 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        language: "Arabic",
+        topic,
+      },
+    );
+
+    await gotoAuthedPage(page, "/muhadatsah", HEADING);
+    await expect(
+      page.getByRole("link", { name: "Jadwalkan Muhadatsah" }),
+    ).toBeVisible();
+
+    const row = page.getByRole("row").filter({ hasText: topic });
+    await expect(row).toBeVisible();
+    await expect(
+      row.getByRole("button", { name: "Hapus sesi muhadatsah" }),
+    ).toHaveCount(0);
+
+    await row
+      .getByRole("link", { name: "Lihat detail sesi muhadatsah" })
+      .click();
+    await expect(
+      page.getByRole("heading", { name: DETAIL_HEADING, level: 1 }),
+    ).toBeVisible();
+    expect(page.url()).toContain(created.data.id);
+    await expect(
+      page.getByRole("link", { name: "Mulai & Nilai" }).first(),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Hapus", exact: true }),
+    ).toHaveCount(0);
+
+    // A teacher may not delete, so the throwaway session is removed with the
+    // admin account the cleanup needs.
+    const admin = await apiLoginNew(SEED_USERS.superAdmin);
+    await apiRequest(admin, "DELETE", `/muhadatsah/${created.data.id}`);
+  });
+
+  test("santri hanya membaca: tanpa Jadwalkan, Pilih, dan tanpa formulir", async ({
+    page,
+  }) => {
+    await loginAs(page, "student");
+    await gotoAuthedPage(page, "/muhadatsah", HEADING);
+
+    await expect(
+      page.getByRole("link", { name: "Jadwalkan Muhadatsah" }),
+    ).toHaveCount(0);
+
+    await page.getByRole("tab", { name: "Cari Partner" }).click();
+    await expect(page.getByRole("link", { name: "Pilih" })).toHaveCount(0);
+
+    // Typing the form's URL must not offer a form the API will refuse.
+    await page.goto("/muhadatsah/new");
+    await expect(page.getByText("Tidak Ada Akses")).toBeVisible();
+  });
+});
+
+test.describe("Muhadatsah - Penilaian", () => {
+  test("nilai yang disimpan sama dengan nilai yang ditampilkan formulir", async ({
+    page,
+  }) => {
+    const session = await apiLoginNew(SEED_USERS.superAdmin);
+    const students = await apiRequest<{
+      data: Array<{ id: string; unitId: string }>;
+    }>(session, "GET", "/students?limit=1");
+    const student = students.data[0];
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/muhadatsah",
+      {
+        unitId: student.unitId,
+        studentId: student.id,
+        scheduledAt: new Date(
+          Date.now() + 12 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        language: "Arabic",
+        topic: `E2E nilai ${Date.now()}`,
+      },
+    );
+
+    await loginAs(page, "superAdmin");
+    await gotoAuthedPage(
+      page,
+      `/muhadatsah/${created.data.id}`,
+      DETAIL_HEADING,
+    );
+    await page.getByRole("link", { name: "Mulai & Nilai" }).first().click();
+    await expect(
+      page.getByRole("heading", { name: "Penilaian Muhadatsah", level: 1 }),
+    ).toBeVisible();
+
+    // One rubric per session: the four sliders ARE the session score. Push the
+    // first to 100, leaving the rest at 75 → (100 + 75 + 75 + 75) / 4 = 81.
+    const slider = page.getByRole("slider").first();
+    await slider.focus();
+    await slider.press("End");
+    const summary = page
+      .locator('[data-slot="card"]')
+      .filter({ hasText: "Ringkasan Nilai" });
+    await expect(
+      summary.getByText("Nilai Sesi", { exact: true }),
+    ).toBeVisible();
+    await expect(summary.getByText("81", { exact: true })).toBeVisible();
+
+    const response = page.waitForResponse(
+      (r) =>
+        r.request().method() === "POST" &&
+        r.url().includes(`/muhadatsah/${created.data.id}/evaluate`),
+    );
+    await page.getByRole("button", { name: "Simpan Penilaian" }).click();
+
+    const body = await (await response).json();
+    expect(body.data.totalScore).toBe(81);
+    expect(body.data.fluencyScore).toBe(100);
+
+    // Reopening the session shows the stored score, not a recomputed one.
+    await expect(
+      page.getByRole("heading", { name: DETAIL_HEADING, level: 1 }),
+    ).toBeVisible();
+    await expect(page.getByText("81", { exact: true }).first()).toBeVisible();
+
+    await apiRequest(session, "DELETE", `/muhadatsah/${created.data.id}`);
+  });
+});
+
 test.describe("Muhadatsah - Performance", () => {
   test("should load muhadatsah page within timeout", async ({ page }) => {
     await loginAs(page, "superAdmin");

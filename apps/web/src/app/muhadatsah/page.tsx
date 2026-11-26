@@ -25,6 +25,8 @@ import {
   BarChart3,
 } from "lucide-react";
 import { ConfirmDialog } from "@/components/shared/confirm-dialog";
+import { muhadatsahAccessOf } from "@/lib/muhadatsah-access";
+import { useAuthStore } from "@/stores/auth";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -94,11 +96,12 @@ function MuhadatsahPageContent() {
   const { data: upcomingData } = useUpcomingMuhadatsah(undefined, 5);
   const { data: statsData } = useMuhadatsahStatistics();
   const { data: topPerformersData } = useTopPerformers(undefined, undefined, 5);
-  const { data: availablePartnersData } = useMatchPartners(
-    undefined,
-    partnerLanguage,
-  );
+  const { data: availablePartnersData, isError: partnersFailed } =
+    useMatchPartners(undefined, partnerLanguage);
   const deleteMuhadatsah = useDeleteMuhadatsah();
+  const { canWrite, canDelete } = muhadatsahAccessOf(
+    useAuthStore((s) => s.user),
+  );
 
   const handleDelete = async () => {
     if (!deleteId) return;
@@ -169,12 +172,14 @@ function MuhadatsahPageContent() {
             Latihan percakapan bahasa Arab dan Inggris santri
           </p>
         </div>
-        <Button asChild className="gap-2">
-          <Link href="/muhadatsah/new">
-            <Plus className="h-4 w-4" />
-            Jadwalkan Muhadatsah
-          </Link>
-        </Button>
+        {canWrite && (
+          <Button asChild className="gap-2">
+            <Link href="/muhadatsah/new">
+              <Plus className="h-4 w-4" />
+              Jadwalkan Muhadatsah
+            </Link>
+          </Button>
+        )}
       </div>
 
       {/* Stats Cards */}
@@ -405,7 +410,7 @@ function MuhadatsahPageContent() {
                               <Eye className="h-4 w-4" />
                             </Link>
                           </Button>
-                          {record.status === "SCHEDULED" && (
+                          {record.status === "SCHEDULED" && canDelete && (
                             <Button
                               variant="ghost"
                               size="icon"
@@ -545,7 +550,12 @@ function MuhadatsahPageContent() {
                 </Select>
               </div>
 
-              {availablePartners.length === 0 ? (
+              {partnersFailed ? (
+                <p className="py-6 text-center text-sm text-destructive">
+                  Gagal memuat daftar partner. Coba pilih bahasa lain atau muat
+                  ulang halaman ini.
+                </p>
+              ) : availablePartners.length === 0 ? (
                 <p className="py-6 text-center text-sm text-muted-foreground">
                   Belum ada santri yang tersedia untuk dipasangkan pada bahasa
                   ini minggu ini.
@@ -570,13 +580,15 @@ function MuhadatsahPageContent() {
                               {partner.nis} • {partner.class?.name}
                             </div>
                           </div>
-                          <Button size="sm" variant="outline" asChild>
-                            <Link
-                              href={`/muhadatsah/new?partnerId=${partner.id}`}
-                            >
-                              Pilih
-                            </Link>
-                          </Button>
+                          {canWrite && (
+                            <Button size="sm" variant="outline" asChild>
+                              <Link
+                                href={`/muhadatsah/new?partnerId=${partner.id}&language=${partnerLanguage}`}
+                              >
+                                Pilih
+                              </Link>
+                            </Button>
+                          )}
                         </div>
                       </CardContent>
                     </Card>
