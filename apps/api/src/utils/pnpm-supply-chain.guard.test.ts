@@ -429,7 +429,7 @@ describe('pnpm supply-chain control', () => {
     // The lockfile scan must actually find the packages it checks; a change in
     // the lockfile key shape would otherwise make that assertion vacuous.
     const maps = lockfileMaps();
-    expect(lockedVersions(maps.packages ?? {}, 'dompurify').length).toBeGreaterThan(0);
+    expect(lockedVersions(maps.packages ?? {}, 'multer').length).toBeGreaterThan(0);
   });
 });
 
