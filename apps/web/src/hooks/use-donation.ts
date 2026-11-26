@@ -330,7 +330,7 @@ export function useDonationMonthlyReport(year: number) {
     queryFn: async () => {
       const response = await api.get<ApiResponse<DonationMonthlyReport>>(
         "/donation/monthly-report",
-        { params: { year } },
+        { params: { year }, skipErrorToast: true },
       );
       return donationMonthlyReportSchema.parse(response.data.data);
     },
