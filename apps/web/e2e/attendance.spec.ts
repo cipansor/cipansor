@@ -41,8 +41,11 @@ test.describe("Attendance - Features", () => {
     const hasTable = await page
       .locator('table, [class*="attendance"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasTable || page.url().includes("attendance")).toBeTruthy();
   });
@@ -57,8 +60,11 @@ test.describe("Attendance - Features", () => {
     const hasDateControl = await page
       .locator('input[type="date"], button[class*="calendar"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasDateControl || page.url().includes("attendance")).toBeTruthy();
   });

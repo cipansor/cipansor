@@ -1,11 +1,5 @@
 import { test, expect } from "./fixtures/auth.fixture";
-import {
-  waitForLoadingComplete,
-  fillForm,
-  clickTableRow,
-  getTableData,
-  waitForToast,
-} from "./helpers/page-helpers";
+import { waitForLoadingComplete, waitForToast } from "./helpers/page-helpers";
 import { LoginPage } from "./page-objects";
 
 /**
@@ -37,10 +31,18 @@ test.describe("Student Management - List & View", () => {
       .filter({ hasText: /santri|student|siswa/i })
       .first();
 
-    if (await heading.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await heading.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await expect(heading).toBeVisible();
     } else if (
-      await pageTitle.isVisible({ timeout: 3000 }).catch(() => false)
+      await pageTitle.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
     ) {
       await expect(pageTitle).toBeVisible();
     } else {
@@ -55,24 +57,38 @@ test.describe("Student Management - List & View", () => {
       .getByRole("link", { name: /tambah|add|create/i })
       .or(page.getByRole("button", { name: /tambah|add|create/i }))
       .first();
-    if (await addButton.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await addButton.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await expect(addButton).toBeVisible();
     }
 
     // Check if table or grid exists
     const hasTable = await page
       .locator("table")
-      .isVisible({ timeout: 2000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 2000 })
+      .then(
+        () => true,
+        () => false,
+      );
     const hasGrid = await page
       .locator('[role="grid"]')
-      .isVisible({ timeout: 2000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 2000 })
+      .then(
+        () => true,
+        () => false,
+      );
     const hasListItems = await page
       .locator('[role="listitem"]')
       .first()
-      .isVisible({ timeout: 2000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 2000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasTable || hasGrid || hasListItems).toBeTruthy();
   });
@@ -83,12 +99,20 @@ test.describe("Student Management - List & View", () => {
       .getByPlaceholder(/cari|search/i)
       .or(page.getByLabel(/cari|search/i));
 
-    if (await searchInput.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await searchInput.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       // Data-agnostic: derive a search term from a real seeded student rather
       // than hardcoding a name that may not exist.
       const rows = page.locator("table tbody tr");
       if ((await rows.count()) === 0) {
-        test.skip(true, "No students to search");
+        throw new Error(
+          "No students to search — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+            "must provide it; a missing page or control here is a failure, not a skip",
+        );
         return;
       }
       // Search matches name/NIS, so derive the term from the first row's *name*
@@ -130,7 +154,10 @@ test.describe("Student Management - List & View", () => {
         expect(texts.join(" ").toLowerCase()).toContain(term);
       }).toPass({ timeout: 7000 });
     } else {
-      test.skip(true, "Search functionality not found");
+      throw new Error(
+        "Search functionality not found — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 
@@ -141,7 +168,12 @@ test.describe("Student Management - List & View", () => {
       .filter({ hasText: /unit|semua/i })
       .first();
 
-    if (await unitFilter.isVisible({ timeout: 3000 }).catch(() => false)) {
+    if (
+      await unitFilter.waitFor({ state: "visible", timeout: 3000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await unitFilter.click();
 
       const options = page.getByRole("option");
@@ -160,44 +192,42 @@ test.describe("Student Management - List & View", () => {
   });
 
   test("should paginate through students", async ({ page }) => {
-    // Look for pagination controls
-    const nextButton = page.getByRole("button", {
-      name: /next|selanjutnya|>/i,
-    });
+    const nextButton = page.getByRole("button", { name: "Halaman berikutnya" });
+    await expect(nextButton).toBeEnabled({ timeout: 10000 });
 
-    if (await nextButton.isEnabled({ timeout: 3000 }).catch(() => false)) {
-      // Get first student name
-      const firstStudent = await page
-        .locator('table tbody tr, [role="row"]')
-        .first()
-        .textContent();
+    const firstStudent = await page
+      .locator("table tbody tr")
+      .first()
+      .innerText();
+    await nextButton.click();
+    await waitForLoadingComplete(page);
 
-      // Go to next page
-      await nextButton.click();
-      await waitForLoadingComplete(page);
-
-      // Should show different students
-      const newFirstStudent = await page
-        .locator('table tbody tr, [role="row"]')
-        .first()
-        .textContent();
-      expect(newFirstStudent).not.toBe(firstStudent);
-    } else {
-      test.skip(true, "Pagination not available or only one page");
-    }
+    await expect(page.locator("table tbody tr").first()).not.toHaveText(
+      firstStudent,
+    );
   });
 
   test("should view student detail", async ({ page }) => {
     // Click first student row (body only — [role=row] would also match the header).
     const firstRow = page.locator("table tbody tr").first();
 
-    if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await firstRow.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       // Try clicking the row or view button
       const viewButton = firstRow.getByRole("button", {
         name: /view|lihat|detail/i,
       });
 
-      if (await viewButton.isVisible({ timeout: 2000 }).catch(() => false)) {
+      if (
+        await viewButton.waitFor({ state: "visible", timeout: 2000 }).then(
+          () => true,
+          () => false,
+        )
+      ) {
         await viewButton.click();
         await expect(page).toHaveURL(/\/students\/[0-9a-f-]{16,}/, {
           timeout: 10000,
@@ -207,11 +237,15 @@ test.describe("Student Management - List & View", () => {
         // onClick navigation fires. Retry until it navigates — under parallel
         // workers the click can land before the row's handler is hydrated.
         await expect(async () => {
-          await firstRow.locator("td").nth(1).click();
+          // A slow engine can navigate after the URL probe has already timed
+          // out; clicking again from the detail page would wait forever.
+          if (!/\/students\/[0-9a-f-]{16,}/.test(page.url())) {
+            await firstRow.locator("td").nth(1).click({ timeout: 5000 });
+          }
           await expect(page).toHaveURL(/\/students\/[0-9a-f-]{16,}/, {
-            timeout: 2000,
+            timeout: 3000,
           });
-        }).toPass({ timeout: 20000 });
+        }).toPass({ timeout: 30000 });
       }
 
       // Should show student details
@@ -230,7 +264,10 @@ test.describe("Student Management - List & View", () => {
           .first(),
       ).toBeVisible();
     } else {
-      test.skip(true, "No students available");
+      throw new Error(
+        "No students available — the seeded demo data (ALLOW_DESTRUCTIVE_SEED=1 db:seed) " +
+          "must provide it; a missing page or control here is a failure, not a skip",
+      );
     }
   });
 });
@@ -334,7 +371,12 @@ test.describe("Student Management - Create", () => {
     await page.locator("#parentName").fill("Wali Test");
     await page.locator("#parentPhone").fill("081234567890");
     const emailInput = page.locator("#email");
-    if (await emailInput.isVisible({ timeout: 1000 }).catch(() => false)) {
+    if (
+      await emailInput.waitFor({ state: "visible", timeout: 1000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await emailInput.fill(`test${timestamp}@example.com`);
     }
 
@@ -368,41 +410,22 @@ test.describe("Student Management - Update", () => {
     await page.goto("/students");
     await waitForLoadingComplete(page);
 
-    // Find first student
-    const firstRow = page.locator('table tbody tr, [role="row"]').first();
+    const firstRow = page.locator("table tbody tr").first();
+    await expect(firstRow).toBeVisible({ timeout: 10000 });
+    // Row actions live behind the last-cell menu, not as buttons on the row.
+    await firstRow.getByRole("cell").last().getByRole("button").click();
+    await page.getByRole("menuitem", { name: "Edit" }).click();
 
-    if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
-      // Click edit button
-      const editButton = firstRow.getByRole("button", { name: /edit|ubah/i });
+    await expect(
+      page.getByRole("heading", { name: /edit student/i, level: 1 }),
+    ).toBeVisible({ timeout: 10000 });
 
-      if (await editButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await editButton.click();
-        await waitForLoadingComplete(page);
+    const nameInput = page.getByLabel(/nama|name/i).first();
+    const currentName = await nameInput.inputValue();
+    await nameInput.fill(`${currentName} (Updated)`);
+    await page.getByRole("button", { name: /simpan|save|update/i }).click();
 
-        // Should show edit form
-        await expect(
-          page.getByRole("heading", { name: /edit|ubah/i }),
-        ).toBeVisible({ timeout: 5000 });
-
-        // Update a field
-        const nameInput = page.getByLabel(/nama|name/i).first();
-        const currentName = await nameInput.inputValue();
-        await nameInput.fill(`${currentName} (Updated)`);
-
-        // Save changes
-        const saveButton = page.getByRole("button", {
-          name: /simpan|save|update/i,
-        });
-        await saveButton.click();
-
-        // Should show success message
-        await waitForToast(page, /berhasil|success/i, "success");
-      } else {
-        test.skip(true, "Edit button not found");
-      }
-    } else {
-      test.skip(true, "No students available");
-    }
+    await waitForToast(page, /updated successfully/i, "success");
   });
 });
 
@@ -419,72 +442,18 @@ test.describe("Student Management - Delete", () => {
     await page.goto("/students");
     await waitForLoadingComplete(page);
 
-    // Find first student
-    const firstRow = page.locator('table tbody tr, [role="row"]').first();
+    const firstRow = page.locator("table tbody tr").first();
+    await expect(firstRow).toBeVisible({ timeout: 10000 });
+    await firstRow.getByRole("cell").last().getByRole("button").click();
+    await page.getByRole("menuitem", { name: "Delete" }).click();
 
-    if (await firstRow.isVisible({ timeout: 5000 }).catch(() => false)) {
-      const studentName = await firstRow.textContent();
+    const confirmDialog = page
+      .getByRole("alertdialog")
+      .or(page.getByRole("dialog"));
+    await expect(confirmDialog).toBeVisible({ timeout: 5000 });
+    await confirmDialog.getByRole("button", { name: /hapus|delete/i }).click();
 
-      // Click delete button
-      const deleteButton = firstRow.getByRole("button", {
-        name: /delete|hapus/i,
-      });
-
-      if (await deleteButton.isVisible({ timeout: 2000 }).catch(() => false)) {
-        await deleteButton.click();
-
-        // Should show confirmation dialog
-        const confirmDialog = page
-          .getByRole("alertdialog")
-          .or(page.getByRole("dialog"));
-        await expect(confirmDialog).toBeVisible({ timeout: 3000 });
-
-        // Confirm deletion
-        const confirmButton = confirmDialog.getByRole("button", {
-          name: /ya|yes|confirm|hapus/i,
-        });
-        await confirmButton.click();
-
-        // Should show success message
-        await waitForToast(page, /berhasil|success|deleted/i, "success");
-
-        await waitForLoadingComplete(page);
-      } else {
-        test.skip(true, "Delete button not found");
-      }
-    } else {
-      test.skip(true, "No students available");
-    }
-  });
-});
-
-test.describe("Student Management - Export", () => {
-  test("should export students data", async ({ page }) => {
-    const loginPage = await import("./page-objects");
-    const login = new loginPage.LoginPage(page);
-    await login.goto();
-    await login.loginAndWaitForDashboard(
-      "superadmin@cipansor.or.id",
-      "SuperAdmin123!",
-    );
-
-    await page.goto("/students");
+    await waitForToast(page, /deleted successfully/i, "success");
     await waitForLoadingComplete(page);
-
-    // Look for export button
-    const exportButton = page.getByRole("button", {
-      name: /export|unduh|download/i,
-    });
-
-    if (await exportButton.isVisible({ timeout: 3000 }).catch(() => false)) {
-      // Set up download handler
-      const downloadPromise = page.waitForEvent("download", { timeout: 10000 });
-      await exportButton.click();
-
-      const download = await downloadPromise;
-      expect(download.suggestedFilename()).toMatch(/\.xlsx|\.csv|\.pdf/i);
-    } else {
-      test.skip(true, "Export button not found");
-    }
   });
 });

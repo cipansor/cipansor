@@ -191,6 +191,23 @@ jobs:
           cache: 'pnpm'
       - run: pnpm install --frozen-lockfile
       - run: pnpm --filter api db:generate
+      # Two suites vanish silently instead of failing: describeDb (5 files under
+      # tests/integration) skips unless RUN_DB_TESTS === '1', and
+      # automation-fleet.guard.test.ts skips 42 trigger cases when python3 is
+      # absent. CI sets RUN_DB_TESTS below; this step fails when either guard
+      # would be false, naming what would be skipped.
+      - name: Fail when a suite would silently skip
+        run: |
+          fail=0
+          if [ "$RUN_DB_TESTS" != "1" ]; then
+            echo "::error::RUN_DB_TESTS is '$RUN_DB_TESTS', not '1' — describeDb would skip tests/integration/{laundry-business-unit-lock,calendar-search,decommission-pt-session,payroll-active-key,payroll-active-key-migration,laundry-numbering}.integration.test.ts and tests/unit/database-migrations.test.ts."
+            fail=1
+          fi
+          if ! command -v python3 >/dev/null 2>&1; then
+            echo "::error::python3 is missing — automation-fleet.guard.test.ts would skip its 42 trigger-fragment cases (hasPy false)."
+            fail=1
+          fi
+          exit $fail
       - name: Push database schema
         run: pnpm --filter api db:push
       - name: Run API tests with coverage
@@ -213,12 +230,24 @@ jobs:
       - name: Run load-test runner unit tests
         run: node --test tests/load/run-load-tests.test.mjs
       # The documentation tooling is the gate that decides whether a guide may
-      # be handed over (check_docs.py, build_docs.py). Its suite is stdlib-only
-      # — the docx/pdf cases skip when python-docx/pymupdf are absent — so it
-      # runs on the runner's Python with no install, like check-sensitive.py.
+      # be handed over (check_docs.py, build_docs.py). Six of its 37 tests need
+      # python-docx and pymupdf; without them they reported "skipped" and the
+      # gate looked green. They install into a venv — the runner's Python is
+      # externally managed — and the run fails if anything is skipped.
       # change-scope.sh calls these scripts code, so a change to them lands here.
+      - name: Install documentation tooling dependencies
+        run: |
+          python3 -m venv .venv-docs
+          .venv-docs/bin/pip install --disable-pip-version-check python-docx pymupdf
+          echo "$PWD/.venv-docs/bin" >> "$GITHUB_PATH"
       - name: Run documentation tooling unit tests
-        run: python3 -m unittest discover -s .claude/skills/dokumen-aplikasi-cipansor/scripts -p 'test_*.py'
+        run: |
+          set -o pipefail
+          python3 -m unittest discover -s .claude/skills/dokumen-aplikasi-cipansor/scripts -p 'test_*.py' 2>&1 | tee "$RUNNER_TEMP/docs-tests.log"
+          if grep -qE 'skipped=[1-9]' "$RUNNER_TEMP/docs-tests.log"; then
+            echo "::error::documentation tooling tests were skipped — python-docx and pymupdf must be installed in the venv."
+            exit 1
+          fi
 
   # Supply-chain / dependency security, plus the records check.
   #

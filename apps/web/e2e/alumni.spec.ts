@@ -41,8 +41,11 @@ test.describe("Alumni - Features", () => {
     const hasAlumni = await page
       .locator('table, [class*="alumni"], [class*="grid"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasAlumni || page.url().includes("alumni")).toBeTruthy();
   });
@@ -59,8 +62,11 @@ test.describe("Alumni - Features", () => {
         'input[type="search"], input[placeholder*="Cari"], input[placeholder*="Search"]',
       )
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasSearch || page.url().includes("alumni")).toBeTruthy();
   });
@@ -79,8 +85,11 @@ test.describe("Alumni - Features", () => {
       (await page
         .locator('[class*="stat"]')
         .first()
-        .isVisible({ timeout: 5000 })
-        .catch(() => false));
+        .waitFor({ state: "visible", timeout: 5000 })
+        .then(
+          () => true,
+          () => false,
+        ));
 
     expect(hasStats || page.url().includes("alumni")).toBeTruthy();
   });

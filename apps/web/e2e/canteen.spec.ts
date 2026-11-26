@@ -41,8 +41,11 @@ test.describe("Canteen - Features", () => {
     const hasMenu = await page
       .locator('[class*="menu"], [class*="item"], table')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasMenu || page.url().includes("canteen")).toBeTruthy();
   });
@@ -57,8 +60,11 @@ test.describe("Canteen - Features", () => {
     const hasAddButton = await page
       .locator('button:has-text("Tambah"), button:has-text("Add")')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasAddButton || page.url().includes("canteen")).toBeTruthy();
   });

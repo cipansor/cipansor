@@ -49,8 +49,11 @@ test.describe("Extracurricular - Features", () => {
     const hasActivities = await page
       .locator('table, [class*="activity"], [class*="ekskul"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(
       hasActivities || page.url().includes("extracurricular"),
@@ -67,8 +70,11 @@ test.describe("Extracurricular - Features", () => {
     const hasAddButton = await page
       .locator('button:has-text("Tambah"), button:has-text("Add")')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasAddButton || page.url().includes("extracurricular")).toBeTruthy();
   });

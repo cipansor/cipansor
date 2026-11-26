@@ -31,7 +31,7 @@ export async function waitForLoadingComplete(page: Page, timeout = 15000) {
  * 1. Pages that wrap themselves in MainLayout render *nothing* until
  *    ProtectedRoute has rehydrated the persisted session, so domcontentloaded
  *    fires against an empty shell.
- * 2. `locator.isVisible({ timeout })` does not wait. Playwright marks that
+ * 2. `locator.isVisible` with a timeout does not wait. Playwright marks that
  *    option `@deprecated — This option is ignored` and returns immediately, so
  *    a probe that looks like it allows 5s actually samples the page once.
  *

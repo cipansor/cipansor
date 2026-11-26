@@ -27,8 +27,11 @@ test.describe("PAUD - Main Page", () => {
     // Check for heading
     const heading = await page
       .getByRole("heading", { name: /PAUD|TK/i })
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(heading || page.url().includes("paud")).toBeTruthy();
   });
@@ -44,8 +47,11 @@ test.describe("PAUD - Main Page", () => {
     const hasLinks = await page
       .locator('a[href*="/paud/"]')
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasLinks || page.url().includes("paud")).toBeTruthy();
   });
@@ -63,7 +69,12 @@ test.describe("PAUD - Tabs Navigation", () => {
     const assessmentTab = page.getByRole("tab", {
       name: /penilaian|assessment/i,
     });
-    if (await assessmentTab.isVisible({ timeout: 5000 }).catch(() => false)) {
+    if (
+      await assessmentTab.waitFor({ state: "visible", timeout: 5000 }).then(
+        () => true,
+        () => false,
+      )
+    ) {
       await assessmentTab.click();
       await page.waitForTimeout(500);
     }
@@ -82,8 +93,11 @@ test.describe("PAUD - Tabs Navigation", () => {
     const hasQuickActions = await page
       .getByRole("button", { name: /buat|laporan|lihat/i })
       .first()
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasQuickActions || page.url().includes("paud")).toBeTruthy();
   });

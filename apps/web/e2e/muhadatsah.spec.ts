@@ -8,7 +8,7 @@ import { gotoAuthedPage } from "./helpers/page-helpers";
  *
  * /muhadatsah wraps itself in MainLayout, so it renders nothing until
  * ProtectedRoute has rehydrated the session. These tests used to probe for
- * content at domcontentloaded with isVisible({ timeout }), which Playwright
+ * content at domcontentloaded with isVisible and a timeout, which Playwright
  * ignores the timeout on — the probe samples the page once and returns. That
  * raced rehydration and lost on WebKit. Wait for the page's own <h1> first.
  */

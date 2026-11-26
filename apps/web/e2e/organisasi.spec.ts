@@ -30,8 +30,11 @@ test.describe("Organisasi - Features", () => {
 
     const hasList = await page
       .locator('text="Manajemen Unit"') // from the page header
-      .isVisible({ timeout: 5000 })
-      .catch(() => false);
+      .waitFor({ state: "visible", timeout: 5000 })
+      .then(
+        () => true,
+        () => false,
+      );
 
     expect(hasList || page.url().includes("organisasi")).toBeTruthy();
   });
