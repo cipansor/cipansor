@@ -3083,13 +3083,18 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toMatch(/MENGGANTIKAN daftar formulir issue/);
     // A triage correction is marked on the criterion it changes.
     expect(out).toMatch(/ditandai pada butir kriteria yang bersangkutan/);
-    // Order: type/priority/readiness → premise → corrections → final criteria
-    // → duplicates. A removed section leaves `indexOf` at -1 and fails here.
+    // Order: type/priority/readiness → premise → corrections → evidence →
+    // area/module → final criteria → open questions → duplicates. Every section
+    // the summary promises has a marker here, so dropping any one of them
+    // leaves `indexOf` at -1 and fails.
     const order = [
       '- Tipe / Prioritas / Kesiapan',
       '- Premis',
       '- Koreksi triase',
+      '- Bukti prioritas',
+      '- Area/modul',
       'Kriteria penerimaan — final',
+      '- Pertanyaan terbuka',
       '- Duplikat',
     ].map((marker) => out.indexOf(marker));
     expect(order, `bagian ringkasan final tidak berurutan: ${JSON.stringify(order)}`).toEqual(
@@ -3099,6 +3104,31 @@ describe('deploy-sdlc-agents.py', () => {
       order.every((index) => index >= 0),
       'setiap bagian ringkasan final harus ada'
     ).toBe(true);
+  });
+
+  it('tells the writer and the gate to read only the final criteria list when one exists', () => {
+    // The triage summary lands BELOW the description, so the issue body keeps
+    // both lists: the form's (superseded) and the final one. Without a source
+    // rule, `Tiket jadi PR` (SDLC 06) implements and the review gate (SDLC 18)
+    // judges the form's stale items too, so a PR that meets the final list is
+    // reported as incomplete (issue #1162, review finding).
+    expect(
+      hasPy,
+      'python3 tidak ditemukan — uji kontrak prompt ini butuh python3; pasang python3 di runner, jangan melewatinya'
+    ).toBe(true);
+    const base = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`;
+    for (const name of ['SDLC 06', 'SDLC 18']) {
+      const out = newPrompt(name, base);
+      expect(out, name).toContain('SUMBER KRITERIA — SATU DAFTAR YANG BERLAKU');
+      expect(out, name).toContain('<!-- sdlc:triase -->');
+      expect(out, name).toContain('Kriteria penerimaan — final (hasil triase)');
+      expect(out, name).toMatch(/HANYA daftar final itu/);
+      expect(out, name).toMatch(/sudah digantikan/);
+      // The old behaviour stays for an issue that has no final list yet.
+      expect(out, name).toMatch(
+        /Bila tidak ada daftar final, pakai kriteria dari issue seperti biasa/
+      );
+    }
   });
 
   it('names the acceptance-criteria list the same way in triage and review', () => {

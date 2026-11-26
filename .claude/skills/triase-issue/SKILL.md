@@ -85,7 +85,10 @@ Struktur yang disarankan:
    ditandai **pada butir itu sendiri**, dan ringkasan menyebut koreksinya.
    Ini daftar yang diperiksa `Gerbang tinjau PR` (SDLC 18) terhadap diff PR:
    tanpa daftar final, tinjauan berpijak pada formulir yang tidak pernah
-   difinalkan;
+   difinalkan. Karena daftar formulir tetap terlihat di atas ringkasan,
+   sebutkan bahwa hanya daftar final ini yang berlaku: `Tiket jadi PR`
+   (SDLC 06) dan `Gerbang tinjau PR` (SDLC 18) membaca daftar final itu,
+   bukan formulirnya;
 5. penghalang yang tersisa beserta apa yang dibutuhkan dari masing-masing;
 6. arah implementasi: langkah pertama, risiko (migrasi atas data produksi,
    pasangan PR menurut aturan emas 9), dan pemecahan menjadi issue anak bila

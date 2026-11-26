@@ -510,6 +510,8 @@ QA — JALANKAN ALUR YANG BERUBAH (WAJIB). `Peninjau kode` (SDLC 08) dan `Otomas
 
 KRITERIA PENERIMAAN (WAJIB). Baca issue yang ditautkan PR (`Fixes #n` / `Refs #n` / body) dan periksa SETIAP kriteria penerimaannya terhadap diff, bukan terhadap deskripsi PR. Sajikan sebagai checklist markdown sederhana, satu baris per kriteria: `- [x] <kriteria>` bila terpenuhi, `- [ ] <kriteria>` bila belum — masing-masing disertai bukti singkat (path/baris atau tes yang membuktikannya), di review dan di bagian `<!-- sdlc:gerbang -->`. Pakai kriteria persis dari issue; bila issue tidak memuatnya secara eksplisit, turunkan dari maksud issue dan tandai barisnya `(turunan)` agar jelas asalnya. Kriteria yang `- [ ]` tanpa alasan yang meyakinkan adalah temuan yang menghalangi `APPROVE`.
 
+SUMBER KRITERIA — SATU DAFTAR YANG BERLAKU. Bila body issue memuat blok `<!-- sdlc:triase -->` dengan bagian `Kriteria penerimaan — final (hasil triase)`, pakai HANYA daftar final itu: daftar formulir di atasnya sudah digantikan triase, jadi JANGAN menilai butir yang tidak ada di daftar final dan JANGAN mencatatnya sebagai pekerjaan yang belum selesai. Bila tidak ada daftar final, pakai kriteria dari issue seperti biasa.
+
 PUTARAN (invarian 7): hitung review gerbang yang sudah ada (penanda `<!-- sdlc:gerbang:`). Bila sudah 3 putaran perubahan, JANGAN `REQUEST_CHANGES` lagi: sampaikan sengketa sebagai pertanyaan pilihan ganda kepada maintainer (rekomendasi di urutan pertama), lalu berhenti.
 
 KEPUTUSAN: `APPROVE` bila tidak ada masalah yang menghalangi merge; `REQUEST_CHANGES` bila ada; `COMMENT` bila ragu. Jangan pernah menyetujui hanya karena CI hijau, jangan pernah merge, jangan push ke `main`. Tulis putusan tinjauan (temuan, apa yang menghalangi) ke DESKRIPSI UTAMA PR (bagian `<!-- sdlc:gerbang -->`), bukan hanya komentar.
@@ -530,6 +532,7 @@ SATU PR PER ISSUE, DAN HANYA SATU PUTARAN: kerjakan satu issue sampai PR-nya ter
 CARA MENGERJAKAN SATU ISSUE:
 - Cabang dari `main` paling baru (mis. `fix/<nomor>-<slug>`); jangan dari cabang lain.
 - Baca issue dan komentarnya, lalu ikuti kriteria penerimaannya persis. Kerjakan perubahan sekecil yang menyelesaikan kriteria — jangan menambah pekerjaan yang tidak diminta.
+- **SUMBER KRITERIA — SATU DAFTAR YANG BERLAKU.** Bila body issue memuat blok `<!-- sdlc:triase -->` dengan bagian `Kriteria penerimaan — final (hasil triase)`, kerjakan HANYA daftar final itu dan salin daftar itu ke `## Kriteria penerimaan` PR; daftar formulir di atasnya sudah digantikan triase, jadi jangan mengerjakan butir yang tidak ada di daftar final. Bila tidak ada daftar final, pakai kriteria dari issue seperti biasa.
 - Jalankan uji yang relevan dan `pnpm --filter api build:strict` / `pnpm --filter web build` sebelum membuka PR; bila uji gagal, perbaiki dulu, jangan buka PR merah.
 - Buka PR sebagai DRAF ke `main` dengan templat PR yang lengkap: `## Mengapa`, `## Yang diubah`, `Fixes #<n>`, `## Kriteria penerimaan` (kotak centang dari issue, dengan bukti), `## Cara menguji`, dan `## Risiko` bila PR menyentuh jalur berisiko (skema, auth/RBAC, data produksi). Bila PR menyentuh `apps/web`, sertakan tangkapan visual **Sebelum** dan **Sesudah**.
 - PR dibuat lewat `GITHUB_TOKEN` (akun `adminypc`) agar teratribusi ke penulis, TANPA field `labels`; label PR dipasang `issue-label-sync` dan `cipansor-bot`.
