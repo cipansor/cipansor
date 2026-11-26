@@ -110,19 +110,35 @@ export default function EvaluateMuhadatsahPage() {
   const router = useRouter();
   const id = params.id as string;
 
-  const [scores, setScores] = useState<RubricScores>({
-    fluency: 75,
-    grammar: 75,
-    vocabulary: 75,
-    pronunciation: 75,
-  });
-
-  const [duration, setDuration] = useState("10");
-  const [feedback, setFeedback] = useState("");
+  const [scoreEdits, setScoreEdits] = useState<Partial<RubricScores>>({});
+  const [durationEdit, setDurationEdit] = useState<string | null>(null);
+  const [feedbackEdit, setFeedbackEdit] = useState<string | null>(null);
 
   const { data: muhadatsah, isLoading, error } = useMuhadatsahDetail(id);
   const { canWrite } = muhadatsahAccessOf(useAuthStore((s) => s.user));
   const evaluateMuhadatsah = useEvaluateMuhadatsah();
+
+  // Re-opening an evaluated session starts from what was stored, not from 75 —
+  // otherwise saving a correction would silently rewrite the whole rubric.
+  // Only the user's own edits live in state; everything else is derived.
+  const storedScores = useMemo<RubricScores>(
+    () => ({
+      fluency: muhadatsah?.fluencyScore ?? 75,
+      grammar: muhadatsah?.grammarScore ?? 75,
+      vocabulary: muhadatsah?.vocabularyScore ?? 75,
+      pronunciation: muhadatsah?.pronunciationScore ?? 75,
+    }),
+    [muhadatsah],
+  );
+  const scores = useMemo<RubricScores>(
+    () => ({ ...storedScores, ...scoreEdits }),
+    [storedScores, scoreEdits],
+  );
+  const setScores = (update: React.SetStateAction<RubricScores>) =>
+    setScoreEdits((previous) => {
+      const current = { ...storedScores, ...previous };
+      return typeof update === "function" ? update(current) : update;
+    });
 
   // The API averages the same four components into the session's totalScore,
   // so this is the number the session will carry.
@@ -132,6 +148,10 @@ export default function EvaluateMuhadatsahPage() {
   }, [scores]);
 
   const sessionGrade = calculateGrade(sessionScore);
+
+  const duration =
+    durationEdit ?? (muhadatsah?.duration ? String(muhadatsah.duration) : "10");
+  const feedback = feedbackEdit ?? muhadatsah?.feedback ?? "";
 
   // Handle submit
   const handleSubmit = async () => {
@@ -369,7 +389,7 @@ export default function EvaluateMuhadatsahPage() {
                   <Clock className="h-4 w-4" />
                   Durasi Percakapan
                 </Label>
-                <Select value={duration} onValueChange={setDuration}>
+                <Select value={duration} onValueChange={setDurationEdit}>
                   <SelectTrigger className="w-[200px]">
                     <SelectValue />
                   </SelectTrigger>
@@ -391,7 +411,7 @@ export default function EvaluateMuhadatsahPage() {
                   id="feedback"
                   placeholder="Berikan catatan atau masukan untuk santri..."
                   value={feedback}
-                  onChange={(e) => setFeedback(e.target.value)}
+                  onChange={(e) => setFeedbackEdit(e.target.value)}
                   className="min-h-[120px]"
                 />
               </div>

@@ -478,6 +478,14 @@ test.describe("Muhadatsah - Penilaian", () => {
     ).toBeVisible();
     await expect(page.getByText("81", { exact: true }).first()).toBeVisible();
 
+    // "Edit Penilaian" must reopen the stored rubric: starting again from 75
+    // would rewrite the whole score on the next save.
+    await page.goto(`/muhadatsah/${created.data.id}/evaluate`);
+    await expect(
+      page.getByRole("heading", { name: "Penilaian Muhadatsah", level: 1 }),
+    ).toBeVisible();
+    await expect(summary.getByText("81", { exact: true })).toBeVisible();
+
     await apiRequest(session, "DELETE", `/muhadatsah/${created.data.id}`);
   });
 });
