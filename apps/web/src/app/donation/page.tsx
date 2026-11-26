@@ -104,8 +104,12 @@ export default function DonationPage() {
   const [reportYearBase] = useState(() => Number(todayWibDay().slice(0, 4)));
   const [reportYear, setReportYear] = useState(reportYearBase);
   const reportYears = [reportYearBase, reportYearBase - 1, reportYearBase - 2];
-  const { data: monthlyReport, isLoading: monthlyReportLoading } =
-    useDonationMonthlyReport(reportYear);
+  const {
+    data: monthlyReport,
+    isLoading: monthlyReportLoading,
+    isError: monthlyReportError,
+    refetch: refetchMonthlyReport,
+  } = useDonationMonthlyReport(reportYear);
 
   const deleteCampaign = useDeleteCampaign();
   const deleteDonation = useDeleteDonation();
@@ -629,6 +633,20 @@ export default function DonationPage() {
               {monthlyReportLoading ? (
                 <div className="flex items-center justify-center py-8">
                   <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+                </div>
+              ) : monthlyReportError ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Laporan donasi {reportYear} gagal dimuat.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => refetchMonthlyReport()}
+                  >
+                    Coba lagi
+                  </Button>
                 </div>
               ) : (
                 <>

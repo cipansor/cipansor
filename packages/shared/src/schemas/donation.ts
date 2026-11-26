@@ -26,3 +26,23 @@ export type OfferedDonationType = (typeof OFFERED_DONATION_TYPES)[number];
 export const offeredDonationTypeSchema = z.enum(OFFERED_DONATION_TYPES, {
   message: "Jenis donasi ini tidak diterima",
 });
+
+/** One month of `GET /api/donation/monthly-report`, bucketed on the WIB calendar. */
+export const donationMonthlyReportMonthSchema = z.object({
+  month: z.number().int().min(1).max(12),
+  monthName: z.string(),
+  total: z.number().nonnegative(),
+  byType: z.record(z.string(), z.number().nonnegative()),
+});
+
+/** `GET /api/donation/monthly-report` — verified donations per WIB month. */
+export const donationMonthlyReportSchema = z.object({
+  year: z.number().int(),
+  months: z.array(donationMonthlyReportMonthSchema),
+  yearTotal: z.number().nonnegative(),
+});
+
+export type DonationMonthlyReportMonth = z.infer<
+  typeof donationMonthlyReportMonthSchema
+>;
+export type DonationMonthlyReport = z.infer<typeof donationMonthlyReportSchema>;

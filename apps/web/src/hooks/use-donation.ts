@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
+  donationMonthlyReportSchema,
   OFFERED_DONATION_TYPES,
   type DonationMonthlyReport,
   type OfferedDonationType,
@@ -331,7 +332,7 @@ export function useDonationMonthlyReport(year: number) {
         "/donation/monthly-report",
         { params: { year } },
       );
-      return response.data.data;
+      return donationMonthlyReportSchema.parse(response.data.data);
     },
   });
 }
