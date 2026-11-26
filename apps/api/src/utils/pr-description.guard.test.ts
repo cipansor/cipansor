@@ -1038,6 +1038,14 @@ describe('issue and PR skills — one flow, four skills that agree', () => {
     expect(s).toContain('Hanya daftar di body yang berlaku');
     expect(s).toMatch(/masih \*\*usulan\*\*/);
     expect(s).toContain('<!-- sdlc:triase -->');
-    expect(s).toMatch(/bukan daftar di komentar/);
+    expect(s).toMatch(/bukan\s+daftar di komentar/);
+    // The proposal framing comes first: a section that opens by saying the
+    // list "replaces" the form's list reads as binding while it is still a
+    // comment. Only the body version may claim that (review finding, #1162).
+    const section7 = s.slice(s.indexOf('## 7.'), s.indexOf('## 8.'));
+    expect(section7.indexOf('masih **usulan**')).toBeGreaterThan(-1);
+    expect(section7.indexOf('masih **usulan**')).toBeLessThan(
+      section7.indexOf('baru **menggantikan**')
+    );
   });
 });
