@@ -3084,14 +3084,15 @@ describe('deploy-sdlc-agents.py', () => {
     // A triage correction is marked on the criterion it changes.
     expect(out).toMatch(/ditandai pada butir kriteria yang bersangkutan/);
     // Order: type/priority/readiness → premise → corrections → evidence →
-    // area/module → final criteria → open questions → duplicates. Every section
-    // the summary promises has a marker here, so dropping any one of them
-    // leaves `indexOf` at -1 and fails.
+    // reproduction → area/module → final criteria → open questions →
+    // duplicates. Every section the summary promises has a marker here, so
+    // dropping any one of them leaves `indexOf` at -1 and fails.
     const order = [
       '- Tipe / Prioritas / Kesiapan',
       '- Premis',
       '- Koreksi triase',
       '- Bukti prioritas',
+      '- Bukti reproduksi',
       '- Area/modul',
       'Kriteria penerimaan — final',
       '- Pertanyaan terbuka',

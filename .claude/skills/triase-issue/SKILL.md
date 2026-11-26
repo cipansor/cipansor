@@ -83,12 +83,14 @@ Struktur yang disarankan:
    satu baris per kriteria, yang **menggantikan** daftar formulir issue (bukan
    salinannya). Tiap butir yang dipertajam, ditambah, atau diralat triase
    ditandai **pada butir itu sendiri**, dan ringkasan menyebut koreksinya.
-   Ini daftar yang diperiksa `Gerbang tinjau PR` (SDLC 18) terhadap diff PR:
-   tanpa daftar final, tinjauan berpijak pada formulir yang tidak pernah
-   difinalkan. Karena daftar formulir tetap terlihat di atas ringkasan,
-   sebutkan bahwa hanya daftar final ini yang berlaku: `Tiket jadi PR`
-   (SDLC 06) dan `Gerbang tinjau PR` (SDLC 18) membaca daftar final itu,
-   bukan formulirnya;
+   **Hanya daftar di body yang berlaku.** Daftar yang ditulis di komentar
+   (triase belum final) masih **usulan**: `Tiket jadi PR` (SDLC 06) dan
+   `Gerbang tinjau PR` (SDLC 18) membaca daftar final di blok
+   `<!-- sdlc:triase -->` pada body issue, yang baru ditulis `Triase issue`
+   saat memasang `ready` — bukan daftar di komentar. Karena daftar formulir
+   tetap terlihat di atas ringkasan, sebutkan di ringkasan bahwa hanya daftar
+   final itu yang berlaku, dan bahwa usulan di komentar baru mengikat setelah
+   masuk ke body;
 5. penghalang yang tersisa beserta apa yang dibutuhkan dari masing-masing;
 6. arah implementasi: langkah pertama, risiko (migrasi atas data produksi,
    pasangan PR menurut aturan emas 9), dan pemecahan menjadi issue anak bila
