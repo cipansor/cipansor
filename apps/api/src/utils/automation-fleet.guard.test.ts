@@ -3057,6 +3057,101 @@ describe('deploy-sdlc-agents.py', () => {
     expect(out).toContain('QA — JALANKAN ALUR YANG BERUBAH');
   });
 
+  it('requires the final acceptance-criteria checklist in the triage summary, in order', () => {
+    // The triage that ends `ready` writes the final summary into the issue
+    // body, and the review gate (SDLC 18) checks every criterion against the
+    // diff. Nothing required the upstream half to produce that list, so three
+    // `ready` triages on 2026-11-20 shipped no checkbox at all (#1162). The
+    // summary must carry the final list — replacing the form's — in a fixed
+    // order, so dropping a section cannot pass.
+    //
+    // Deliberately NOT `it.skipIf(!hasPy)`: a missing `python3` must fail
+    // loudly and name the cause instead of turning this contract into a
+    // silent pass — the same defect #1160 fixed for the Python suites.
+    expect(
+      hasPy,
+      'python3 tidak ditemukan — uji kontrak prompt ini butuh python3; pasang python3 di runner, jangan melewatinya'
+    ).toBe(true);
+    const out = newPrompt(
+      'SDLC 15',
+      `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`
+    );
+    // The final list, its shape, and the fact that it REPLACES the form's.
+    expect(out).toContain('Kriteria penerimaan — final (hasil triase)');
+    expect(out).toContain('`- [ ]`');
+    expect(out).toContain('`- [x]`');
+    expect(out).toMatch(/MENGGANTIKAN daftar formulir issue/);
+    // A triage correction is marked on the criterion it changes.
+    expect(out).toMatch(/ditandai pada butir kriteria yang bersangkutan/);
+    // Order: type/priority/readiness → premise → corrections → evidence →
+    // reproduction → area/module → final criteria → open questions →
+    // duplicates. Every section the summary promises has a marker here, so
+    // dropping any one of them leaves `indexOf` at -1 and fails.
+    const order = [
+      '- Tipe / Prioritas / Kesiapan',
+      '- Premis',
+      '- Koreksi triase',
+      '- Bukti prioritas',
+      '- Bukti reproduksi',
+      '- Area/modul',
+      'Kriteria penerimaan — final',
+      '- Pertanyaan terbuka',
+      '- Duplikat',
+    ].map((marker) => out.indexOf(marker));
+    expect(order, `bagian ringkasan final tidak berurutan: ${JSON.stringify(order)}`).toEqual(
+      [...order].sort((a, b) => a - b)
+    );
+    expect(
+      order.every((index) => index >= 0),
+      'setiap bagian ringkasan final harus ada'
+    ).toBe(true);
+  });
+
+  it('tells the writer and the gate to read only the final criteria list when one exists', () => {
+    // The triage summary lands BELOW the description, so the issue body keeps
+    // both lists: the form's (superseded) and the final one. Without a source
+    // rule, `Tiket jadi PR` (SDLC 06) implements and the review gate (SDLC 18)
+    // judges the form's stale items too, so a PR that meets the final list is
+    // reported as incomplete (issue #1162, review finding).
+    expect(
+      hasPy,
+      'python3 tidak ditemukan — uji kontrak prompt ini butuh python3; pasang python3 di runner, jangan melewatinya'
+    ).toBe(true);
+    const base = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`;
+    for (const name of ['SDLC 06', 'SDLC 18']) {
+      const out = newPrompt(name, base);
+      expect(out, name).toContain('SUMBER KRITERIA — SATU DAFTAR YANG BERLAKU');
+      expect(out, name).toContain('<!-- sdlc:triase -->');
+      expect(out, name).toContain('Kriteria penerimaan — final (hasil triase)');
+      expect(out, name).toMatch(/HANYA daftar final itu/);
+      expect(out, name).toMatch(/sudah digantikan/);
+      // The old behaviour stays for an issue that has no final list yet.
+      expect(out, name).toMatch(
+        /Bila tidak ada daftar final, pakai kriteria dari issue seperti biasa/
+      );
+    }
+  });
+
+  it('names the acceptance-criteria list the same way in triage and review', () => {
+    // Upstream (triage) writes the list, downstream (the review gate) reads it
+    // and checks each item against the diff. Two different names for the same
+    // list is how the gate came to check a list the triage never had to write.
+    expect(
+      hasPy,
+      'python3 tidak ditemukan — uji kontrak prompt ini butuh python3; pasang python3 di runner, jangan melewatinya'
+    ).toBe(true);
+    const base = `Header\n\n${FOOTER}\n\nPERILAKU SASARAN (level agentic)\nOLD`;
+    const triage = newPrompt('SDLC 15', base);
+    const gate = newPrompt('SDLC 18', base);
+    expect(triage).toContain('Kriteria penerimaan — final');
+    expect(gate).toContain('KRITERIA PENERIMAAN (WAJIB)');
+    for (const out of [triage, gate]) {
+      expect(out).toMatch(/[Kk]riteria penerimaan/);
+      expect(out).toContain('- [ ]');
+      expect(out).toContain('- [x]');
+    }
+  });
+
   it.skipIf(!hasPy)('gives the review gate a target rule and a no-build budget', () => {
     // The gate's own runs died on the 1800s platform ceiling (PATCH timeout
     // above it is rejected 422): a 3224-line diff plus `pnpm install` and

@@ -1028,4 +1028,24 @@ describe('issue and PR skills — one flow, four skills that agree', () => {
     expect(skill('triase-issue')).toMatch(/Jangan memasang atau mencabut label apa pun/);
     expect(skill('tinjau-pr')).toMatch(/Jangan pernah `APPROVE`/);
   });
+
+  it('triase-issue names the body block as the only authoritative criteria list', () => {
+    // The triage helper writes ONE comment, so its criteria list lives in a
+    // comment until `Triase issue` puts it in the body at `ready`. `Tiket jadi
+    // PR` (SDLC 06) and the gate (SDLC 18) read the body block only, so the
+    // skill must not read as if a comment list were already binding.
+    const s = skill('triase-issue');
+    expect(s).toContain('Hanya daftar di body yang berlaku');
+    expect(s).toMatch(/masih \*\*usulan\*\*/);
+    expect(s).toContain('<!-- sdlc:triase -->');
+    expect(s).toMatch(/bukan\s+daftar di komentar/);
+    // The proposal framing comes first: a section that opens by saying the
+    // list "replaces" the form's list reads as binding while it is still a
+    // comment. Only the body version may claim that (review finding, #1162).
+    const section7 = s.slice(s.indexOf('## 7.'), s.indexOf('## 8.'));
+    expect(section7.indexOf('masih **usulan**')).toBeGreaterThan(-1);
+    expect(section7.indexOf('masih **usulan**')).toBeLessThan(
+      section7.indexOf('baru **menggantikan**')
+    );
+  });
 });

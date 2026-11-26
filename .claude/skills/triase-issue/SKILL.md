@@ -79,11 +79,22 @@ Struktur yang disarankan:
 1. basmalah;
 2. `## Pemeriksaan ulang — <tanggal>` (atau `## Keputusan pemilik — <tanggal>`);
 3. putusan: tipe, prioritas, kesiapan, masing-masing dengan bukti;
-4. penghalang yang tersisa beserta apa yang dibutuhkan dari masing-masing;
-5. arah implementasi: langkah pertama, risiko (migrasi atas data produksi,
+4. **kriteria penerimaan final** — daftar ber-kotak-centang (`- [ ]` / `- [x]`),
+   satu baris per kriteria, dengan tiap butir yang dipertajam, ditambah, atau
+   diralat triase ditandai **pada butir itu sendiri**, dan ringkasan menyebut
+   koreksinya. Di komentar ini daftar itu masih **usulan** — belum menggantikan
+   apa pun dan belum dibaca hilir. **Hanya daftar di body yang berlaku**:
+   daftar yang sama baru **menggantikan** daftar formulir issue (bukan
+   salinannya) setelah `Triase issue` menuliskannya ke blok
+   `<!-- sdlc:triase -->` pada body saat memasang `ready` — daftar itulah yang
+   dibaca `Tiket jadi PR` (SDLC 06) dan `Gerbang tinjau PR` (SDLC 18), bukan
+   daftar di komentar. Karena daftar formulir tetap terlihat di atas ringkasan
+   di body, sebutkan bahwa hanya daftar final itu yang berlaku;
+5. penghalang yang tersisa beserta apa yang dibutuhkan dari masing-masing;
+6. arah implementasi: langkah pertama, risiko (migrasi atas data produksi,
    pasangan PR menurut aturan emas 9), dan pemecahan menjadi issue anak bila
    perlu (PR yang hanya `Refs` selalu merah);
-6. permintaan yang persis kepada triase, mis. "**Mohon triase ulang:** …".
+7. permintaan yang persis kepada triase, mis. "**Mohon triase ulang:** …".
 
 Prosa Bahasa Indonesia. Bila agen menulis atas nama akun manusia, nyatakan itu
 dalam satu baris penutup. Bila perlu meralat, sunting komentar Anda sendiri,
@@ -111,6 +122,8 @@ jangan menumpuk komentar baru.
 
 Baca semuanya → periksa premis di `main` (dengan `berkas:baris`) → duplikat →
 keadaan nyata setiap penghalang → tipe, prioritas, dan kesiapan menurut
-`docs/LABELS.md` → keputusan pemilik sebagai pilihan berisi riset → **satu
-komentar** dengan putusan, bukti, arah, dan permintaan triase ulang → tanpa
-label.
+`docs/LABELS.md` → **kriteria penerimaan final ber-kotak-centang** (usulan di
+komentar; mengikat hanya setelah `Triase issue` menuliskannya ke body) dengan
+koreksi ditandai pada butirnya → keputusan pemilik sebagai pilihan berisi
+riset → **satu komentar** dengan putusan, bukti, kriteria final, arah, dan
+permintaan triase ulang → tanpa label.
