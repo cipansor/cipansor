@@ -110,7 +110,7 @@ function MuhadatsahPageContent() {
       toast.success("Sesi muhadatsah berhasil dihapus");
       setDeleteId(null);
     } catch {
-      toast.error("Gagal menghapus sesi muhadatsah");
+      // The API interceptor already toasts the refusal; keep the dialog open.
     }
   };
 
@@ -410,7 +410,7 @@ function MuhadatsahPageContent() {
                               <Eye className="h-4 w-4" />
                             </Link>
                           </Button>
-                          {record.status === "SCHEDULED" && canDelete && (
+                          {canDelete && (
                             <Button
                               variant="ghost"
                               size="icon"
