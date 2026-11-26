@@ -6,7 +6,8 @@ import {
   CampaignStatus,
   Prisma,
 } from '@prisma/client';
-import { AccountType } from '@cipansor/shared';
+import { AccountType, type DonationMonthlyReport } from '@cipansor/shared';
+import { wibDate, wibMonthYear, wibYearBounds } from '@/utils/wib';
 import {
   CreateCampaignInput,
   UpdateCampaignInput,
@@ -663,14 +664,12 @@ export const donationService = {
   /**
    * Get monthly donation report
    */
-  async getMonthlyReport(year: number) {
+  async getMonthlyReport(year: number): Promise<DonationMonthlyReport> {
+    const { start, end } = wibYearBounds(wibDate(year, 0, 1));
     const donations = await prisma.donation.findMany({
       where: {
         status: 'VERIFIED',
-        donatedAt: {
-          gte: new Date(year, 0, 1),
-          lt: new Date(year + 1, 0, 1),
-        },
+        donatedAt: { gte: start, lte: end },
       },
       select: {
         amount: true,
@@ -687,7 +686,7 @@ export const donationService = {
     }
 
     donations.forEach((d) => {
-      const month = d.donatedAt.getMonth();
+      const { month } = wibMonthYear(d.donatedAt);
       monthlyData[month].total += Number(d.amount);
       monthlyData[month].byType[d.type] =
         (monthlyData[month].byType[d.type] || 0) + Number(d.amount);
@@ -697,7 +696,10 @@ export const donationService = {
       year,
       months: Array.from({ length: 12 }, (_, i) => ({
         month: i + 1,
-        monthName: new Date(year, i).toLocaleString('id-ID', { month: 'long' }),
+        monthName: wibDate(year, i, 1).toLocaleString('id-ID', {
+          month: 'long',
+          timeZone: 'UTC',
+        }),
         total: monthlyData[i].total,
         byType: monthlyData[i].byType,
       })),

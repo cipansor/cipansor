@@ -1,6 +1,6 @@
 "use client";
 import { useState } from "react";
-import { safeFormat } from "@/lib/date";
+import { safeFormat, todayWibDay } from "@/lib/date";
 import Link from "next/link";
 
 import { id as localeId } from "date-fns/locale";
@@ -16,6 +16,7 @@ import {
   Banknote,
   Clock,
   CheckCircle2,
+  FileText,
 } from "lucide-react";
 import { toast } from "sonner";
 
@@ -50,6 +51,7 @@ import {
   useDeleteDonation,
   useVerifyDonation,
   useDonationStats,
+  useDonationMonthlyReport,
   CAMPAIGN_STATUSES,
   DONATION_STATUSES,
   DONATION_TYPES,
@@ -96,6 +98,18 @@ export default function DonationPage() {
   });
 
   const { data: stats } = useDonationStats();
+
+  // The report year is the running WIB year: on 1 January before 07:00 WIB the
+  // UTC year is still the previous one.
+  const [reportYearBase] = useState(() => Number(todayWibDay().slice(0, 4)));
+  const [reportYear, setReportYear] = useState(reportYearBase);
+  const reportYears = [reportYearBase, reportYearBase - 1, reportYearBase - 2];
+  const {
+    data: monthlyReport,
+    isLoading: monthlyReportLoading,
+    isError: monthlyReportError,
+    refetch: refetchMonthlyReport,
+  } = useDonationMonthlyReport(reportYear);
 
   const deleteCampaign = useDeleteCampaign();
   const deleteDonation = useDeleteDonation();
@@ -239,6 +253,10 @@ export default function DonationPage() {
             <TabsTrigger value="donations" className="flex items-center gap-2">
               <Heart className="h-4 w-4" />
               Donasi
+            </TabsTrigger>
+            <TabsTrigger value="report" className="flex items-center gap-2">
+              <FileText className="h-4 w-4" />
+              Laporan Bulanan
             </TabsTrigger>
           </TabsList>
 
@@ -586,6 +604,98 @@ export default function DonationPage() {
               />
             </div>
           )}
+        </TabsContent>
+
+        {/* Monthly Report Tab */}
+        <TabsContent value="report">
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between space-y-0">
+              <CardTitle className="text-base">
+                Laporan Donasi Bulanan {reportYear}
+              </CardTitle>
+              <Select
+                value={String(reportYear)}
+                onValueChange={(value) => setReportYear(Number(value))}
+              >
+                <SelectTrigger className="w-[140px]" aria-label="Tahun laporan">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {reportYears.map((year) => (
+                    <SelectItem key={year} value={String(year)}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </CardHeader>
+            <CardContent>
+              {monthlyReportLoading ? (
+                <div className="flex items-center justify-center py-8">
+                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-primary" />
+                </div>
+              ) : monthlyReportError ? (
+                <div className="py-8 text-center">
+                  <p className="text-sm text-muted-foreground">
+                    Laporan donasi {reportYear} gagal dimuat.
+                  </p>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="mt-3"
+                    onClick={() => refetchMonthlyReport()}
+                  >
+                    Coba lagi
+                  </Button>
+                </div>
+              ) : (
+                <>
+                  <div className="mb-4 rounded-lg border p-4">
+                    <p className="text-sm text-muted-foreground">
+                      Total donasi terverifikasi {reportYear}
+                    </p>
+                    <p className="text-2xl font-bold text-green-600">
+                      {formatCurrency(monthlyReport?.yearTotal || 0)}
+                    </p>
+                  </div>
+                  <Table>
+                    <TableHeader>
+                      <TableRow>
+                        <TableHead>Bulan</TableHead>
+                        <TableHead>Rincian Jenis</TableHead>
+                        <TableHead className="text-right">Total</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {(monthlyReport?.months || []).map((month) => {
+                        const byType = Object.entries(month.byType);
+                        return (
+                          <TableRow key={month.month}>
+                            <TableCell className="font-medium">
+                              {month.monthName}
+                            </TableCell>
+                            <TableCell className="text-sm text-muted-foreground">
+                              {byType.length === 0
+                                ? "-"
+                                : byType
+                                    .map(
+                                      ([type, amount]) =>
+                                        `${getDonationTypeLabel(type)}: ${formatCurrency(amount)}`,
+                                    )
+                                    .join(", ")}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              {formatCurrency(month.total)}
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </>
+              )}
+            </CardContent>
+          </Card>
         </TabsContent>
       </Tabs>
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { MedicalRecordType } from '@cipansor/shared';
 
 const prismaMock = vi.hoisted(() => ({
@@ -336,6 +336,102 @@ describe('Health Service', () => {
       expect(stats.medications.expired).toBe(2);
       expect(stats.thisMonthRecords).toBe(15);
       expect(stats.recordsByType).toHaveLength(2);
+    });
+  });
+
+  // The clinic cards must read the WIB calendar, not the UTC container clock
+  // (#1167). The container runs UTC, so on the 1st between 00:00 and 06:59 WIB
+  // the old `new Date(y, m, 1)` still pointed at the previous month.
+  describe('clinic statistics on the WIB calendar', () => {
+    beforeEach(() => {
+      vi.useFakeTimers({ toFake: ['Date'] });
+      vi.mocked(prismaMock.medication.findMany).mockResolvedValue([]);
+      vi.mocked(prismaMock.medication.count).mockResolvedValue(0);
+      vi.mocked(prismaMock.medicalRecord.count).mockResolvedValue(0);
+      vi.mocked(prismaMock.medicalRecord.groupBy).mockResolvedValue([]);
+    });
+
+    afterEach(() => {
+      vi.useRealTimers();
+    });
+
+    it('opens "this month" at 00:00 WIB on the 1st, for the count and the groupBy', async () => {
+      vi.setSystemTime(new Date('2026-11-01T01:00:00+07:00')); // = 2026-10-31T18:00Z
+
+      await healthService.getHealthStats('unit-1');
+
+      const countWhere = prismaMock.medicalRecord.count.mock.calls[0][0]!.where as {
+        visitDate: { gte: Date };
+      };
+      const groupWhere = prismaMock.medicalRecord.groupBy.mock.calls[0][0]!.where as {
+        visitDate: { gte: Date };
+      };
+      expect(countWhere.visitDate.gte.toISOString()).toBe('2026-10-31T17:00:00.000Z');
+      expect(groupWhere.visitDate.gte.toISOString()).toBe('2026-10-31T17:00:00.000Z');
+    });
+
+    it('does not count a medication as expired until its WIB expiry day has ended', async () => {
+      vi.setSystemTime(new Date('2026-11-01T08:00:00+07:00')); // = 2026-11-01T01:00Z
+
+      await healthService.getHealthStats('unit-1');
+
+      const where = prismaMock.medication.count.mock.calls[0][0]!.where as {
+        expiryDate: { lt: Date };
+      };
+      // 00:00 WIB on 1 November — the start of the WIB day, not midnight UTC.
+      expect(where.expiryDate.lt.toISOString()).toBe('2026-10-31T17:00:00.000Z');
+    });
+
+    it('crosses the WIB day while the UTC date is still yesterday', async () => {
+      // 1 Nov 2026 06:00 WIB = 31 Oct 23:00Z: the WIB day has changed but the
+      // UTC date has not. A cutoff built from the UTC date would delay expiry
+      // until 07:00 WIB.
+      vi.setSystemTime(new Date('2026-11-01T06:00:00+07:00'));
+
+      await healthService.getHealthStats('unit-1');
+      const statsWhere = prismaMock.medication.count.mock.calls[0][0]!.where as {
+        expiryDate: { lt: Date };
+      };
+      expect(statsWhere.expiryDate.lt.toISOString()).toBe('2026-10-31T17:00:00.000Z');
+
+      vi.clearAllMocks();
+      await healthService.getMedications({ expired: true });
+      const listWhere = prismaMock.medication.findMany.mock.calls[0][0]!.where as {
+        expiryDate: { lt: Date };
+      };
+      expect(listWhere.expiryDate.lt.toISOString()).toBe('2026-10-31T17:00:00.000Z');
+    });
+
+    it('keeps a medication expiring at 00:30 WIB today out of the expired filter', async () => {
+      vi.setSystemTime(new Date('2026-11-01T08:00:00+07:00'));
+
+      await healthService.getHealthStats('unit-1');
+
+      const cutoff = (
+        prismaMock.medication.count.mock.calls[0][0]!.where as {
+          expiryDate: { lt: Date };
+        }
+      ).expiryDate.lt.getTime();
+      // 1 Nov 2026 00:30 WIB is stored as 2026-10-31T17:30Z. A cutoff at UTC
+      // midnight of the WIB date (2026-11-01T00:00Z) would already be past it
+      // and mark the medication expired on its own expiry day.
+      const expiresTodayAt0030Wib = new Date('2026-10-31T17:30:00.000Z').getTime();
+      expect(expiresTodayAt0030Wib < cutoff).toBe(false);
+    });
+
+    it('uses the same expiry cutoff in getMedications({ expired: true })', async () => {
+      vi.setSystemTime(new Date('2026-11-01T08:00:00+07:00'));
+
+      await healthService.getMedications({ expired: true });
+
+      const findWhere = prismaMock.medication.findMany.mock.calls[0][0]!.where as {
+        expiryDate: { lt: Date };
+      };
+      const countWhere = prismaMock.medication.count.mock.calls[0][0]!.where as {
+        expiryDate: { lt: Date };
+      };
+      expect(findWhere.expiryDate.lt.toISOString()).toBe('2026-10-31T17:00:00.000Z');
+      expect(countWhere.expiryDate.lt.toISOString()).toBe('2026-10-31T17:00:00.000Z');
     });
   });
 });
