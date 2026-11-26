@@ -192,6 +192,66 @@ test.describe("Muhadatsah - View & Evaluate", () => {
       .poll(() => seen.upcoming, { timeout: 10_000 })
       .toBeGreaterThan(before.upcoming);
   });
+
+  test("a session that was already scored can be deleted from the list", async ({
+    page,
+  }) => {
+    // The row used to hide the trash behind status SCHEDULED while the detail
+    // page and the API allowed any status; the rule now is one: whoever may
+    // delete, may delete any row.
+    const session = await apiLoginNew(SEED_USERS.superAdmin);
+    const existing = await apiRequest<{
+      data: Array<{ unitId: string; studentId: string }>;
+    }>(session, "GET", "/muhadatsah?limit=1");
+    const seedRecord = existing.data[0];
+    const topic = `E2E hapus selesai ${Date.now()}`;
+    const created = await apiRequest<{ data: { id: string } }>(
+      session,
+      "POST",
+      "/muhadatsah",
+      {
+        unitId: seedRecord.unitId,
+        studentId: seedRecord.studentId,
+        scheduledAt: new Date(
+          Date.now() + 10 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        language: "Arabic",
+        topic,
+      },
+    );
+    await apiRequest(
+      session,
+      "POST",
+      `/muhadatsah/${created.data.id}/evaluate`,
+      {
+        fluencyScore: 80,
+        grammarScore: 80,
+        vocabularyScore: 80,
+        pronunciationScore: 80,
+      },
+    );
+
+    await loginAs(page, "superAdmin");
+    await gotoAuthedPage(page, "/muhadatsah", HEADING);
+
+    const row = page.getByRole("row").filter({ hasText: topic });
+    await expect(row).toBeVisible();
+    await expect(row.getByText("Selesai", { exact: true })).toBeVisible();
+
+    await row.getByRole("button", { name: "Hapus sesi muhadatsah" }).click();
+    const dialog = page.getByRole("alertdialog");
+    const deletion = page.waitForResponse(
+      (response) =>
+        response.request().method() === "DELETE" &&
+        response.url().includes(`/muhadatsah/${created.data.id}`),
+    );
+    await dialog.getByRole("button", { name: "Hapus" }).click();
+
+    expect((await deletion).status()).toBe(200);
+    await expect(page.getByRole("row").filter({ hasText: topic })).toHaveCount(
+      0,
+    );
+  });
 });
 
 test.describe("Muhadatsah - Partner Matching", () => {
